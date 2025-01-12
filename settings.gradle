@@ -1,0 +1,6 @@
+rootProject.name = 'LifeControl'
+include 'api-gateway'
+include 'order-service'
+include 'product-service'
+include 'inventory-service'
+include 'notification-service'
