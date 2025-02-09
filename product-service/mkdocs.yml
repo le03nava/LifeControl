@@ -10,4 +10,3 @@ plugins:
 
 nav:
   - Home: index.md
-  - Management: managing-heroes.md
