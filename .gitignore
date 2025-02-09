@@ -68,7 +68,9 @@ out/
 .vscode/
 
 ### DATA ###
-/**/data/
-/**/volume-data/
-/**/mysql/
+/data/
+/volume-data/
+/mysql/
+/docker/tempo/tempo-data/
+/docker/tempo/tempo-data/
 
