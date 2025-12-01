@@ -14,17 +14,23 @@ import java.util.List;
 @RequiredArgsConstructor
 public class ProductController {
 
-    private final ProductService productService;
+  private final ProductService productService;
 
-    @PostMapping
-    @ResponseStatus(HttpStatus.CREATED)
-    public ProductResponse  createProduct(@RequestBody ProductRequest productRequest){
-        return productService.createProduct(productRequest);
-    }
+  @PostMapping
+  @ResponseStatus(HttpStatus.CREATED)
+  public ProductResponse createProduct(@RequestBody ProductRequest productRequest) {
+    return productService.createProduct(productRequest);
+  }
 
-    @GetMapping
-    @ResponseStatus(HttpStatus.OK)
-    public List<ProductResponse> getAllProducts(){
-        return productService.getAllProducts();
-    }
+  @GetMapping
+  @ResponseStatus(HttpStatus.OK)
+  public List<ProductResponse> getAllProducts() {
+    return productService.getAllProducts();
+  }
+
+  @GetMapping("/{id}")
+  @ResponseStatus(HttpStatus.OK)
+  public ProductResponse findProductById(@PathVariable String id) {
+    return productService.findProductById(id);
+  }
 }
