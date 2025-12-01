@@ -1,0 +1,68 @@
+:host {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-sm) var(--space-md);
+  border: none;
+  border-radius: var(--radius-md);
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-height: 2.5rem;
+  background-color: var(--color-gray-100);
+  color: var(--color-gray-800);
+}
+
+:host:hover {
+  background-color: var(--color-gray-200);
+}
+
+:host(.primary) {
+  background-color: var(--color-primary);
+  color: white;
+}
+
+:host(.primary:hover) {
+  background-color: var(--color-primary-hover);
+}
+
+:host(.secondary) {
+  background-color: var(--color-gray-200);
+  color: var(--color-gray-700);
+}
+
+:host(.secondary:hover) {
+  background-color: var(--color-gray-300);
+}
+
+:host(.danger) {
+  background-color: var(--color-error);
+  color: white;
+}
+
+:host(.danger:hover) {
+  background-color: #dc2626;
+}
+
+:host(.small) {
+  padding: var(--space-xs) var(--space-sm);
+  min-height: 2rem;
+  font-size: 0.875rem;
+}
+
+:host(.large) {
+  padding: var(--space-md) var(--space-lg);
+  min-height: 3rem;
+  font-size: 1.125rem;
+}
+
+:host(:disabled) {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+:host(:focus-visible) {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}

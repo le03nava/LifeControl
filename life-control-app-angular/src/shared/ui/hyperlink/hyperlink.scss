@@ -1,0 +1,53 @@
+:host,
+:host:link,
+:host:visited,
+:host:hover,
+:host:active,
+:host:focus {
+  text-decoration: none;
+  color: inherit;
+  outline: none;
+}
+
+:host {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  text-decoration: none;
+  cursor: pointer;
+  height: 100%;
+}
+
+:host:hover {
+  background-color: var(--color-gray-200);
+}
+
+:host(.primary) {
+  background-color: var(--color-primary);
+  color: white;
+}
+
+:host(.primary:hover) {
+  background-color: var(--color-primary-hover);
+}
+
+:host(.secondary) {
+  background-color: var(--color-gray-200);
+  color: var(--color-gray-700);
+}
+
+:host(.secondary:hover) {
+  background-color: var(--color-gray-300);
+}
+
+:host(.small) {
+  padding: var(--space-xs) var(--space-sm);
+  min-height: 2rem;
+  font-size: 0.875rem;
+}
+
+:host(.large) {
+  padding: var(--space-md) var(--space-lg);
+  min-height: 3rem;
+  font-size: 1.125rem;
+}

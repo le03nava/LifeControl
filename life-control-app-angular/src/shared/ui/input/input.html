@@ -1,0 +1,15 @@
+<input
+  #inputElement
+  [attr.id]="id()"
+  [attr.name]="name()"
+  [type]="type()"
+  [placeholder]="placeholder()"
+  [value]="value() || internalValue"
+  [attr.aria-describedby]="ariaDescribedBy()"
+  [attr.aria-invalid]="hasError()"
+  [attr.autocomplete]="autocomplete()"
+  [formControlName]="formControlName()"
+  (input)="handleInput($event)"
+  (blur)="handleBlur()"
+  (focus)="handleFocus()"
+/>

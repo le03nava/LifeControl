@@ -1,0 +1,11 @@
+<div class="field">
+  @if (label()) {
+    <label [for]="fieldId()" class="label">
+      {{ label() }}
+      @if (required()) {
+        <span class="required" aria-label="required">*</span>
+      }
+    </label>
+  }
+  <app-form-input [control]="control()" [type]="type()" [placeholder]="placeholder()" />
+</div>

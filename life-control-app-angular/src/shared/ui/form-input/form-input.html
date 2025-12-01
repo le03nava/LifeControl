@@ -1,0 +1,9 @@
+<input
+  [type]="type()"
+  [placeholder]="placeholder()"
+  [formControl]="control()"
+  [class.is-invalid]="hasError()"
+/>
+@if (hasError()) {
+  {{ errorMessage() }}
+}

@@ -1,0 +1,44 @@
+<header class="header">
+  <button
+    app-button
+    variant="secondary"
+    size="large"
+    (buttonClick)="toggleMenu()"
+    class="menu-toggle"
+  >
+    &#9776;
+  </button>
+  <a app-hyperlink routerLink="/" size="large">
+    <mat-icon class="menu-icon">home</mat-icon>
+    <span class="nav-item-text">Life Control</span>
+  </a>
+
+  @if (isMenuOpen()) {
+    <nav class="nav-menu" animate.enter="nav-menu-enter" animate.leave="nav-menu-leave">
+      <button app-button size="large" (buttonClick)="toggleMenu()" class="menu-toggle">X</button>
+      <ul>
+        @for (item of items(); track item.id) {
+          <li class="nav-item">
+            <a app-hyperlink [routerLink]="item.routeLink" size="large">
+              <mat-icon class="menu-icon">{{ item.icon }}</mat-icon>
+              <span class="nav-item-text">{{ item.textLink }}</span>
+            </a>
+          </li>
+        }
+      </ul>
+
+      <div class="nav-actions">
+        @if (authenticated) {
+          <div class="user-menu">
+            <!--<span class="user-name">{{ authService.user()?.name }}</span>-->
+            <button app-button variant="secondary" size="small" (buttonClick)="logout()">
+              Logout
+            </button>
+          </div>
+        } @else {
+          <button app-button variant="primary" (buttonClick)="login()">Login</button>
+        }
+      </div>
+    </nav>
+  }
+</header>

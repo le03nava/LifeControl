@@ -1,0 +1,77 @@
+<div class="user-list-page">
+  <header class="page-header">
+    <div class="header-content">
+      <h1 class="page-title">User Management</h1>
+      <p class="page-subtitle">Manage system users and their permissions</p>
+    </div>
+    <div class="header-actions">
+      <button app-button variant="primary" routerLink="/users/create">➕ Add User</button>
+    </div>
+  </header>
+
+  <div class="filters-section">
+    <div class="role-filter"></div>
+  </div>
+
+  <div class="users-grid">
+    @for (product of products(); track product.id) {
+      <div class="user-card">
+        <div class="user-info">
+          <h3 class="user-name">{{ product.name }}</h3>
+          <p class="user-email">{{ product.description }}</p>
+        </div>
+        <div class="user-actions">
+          <button app-button variant="secondary" size="small" [routerLink]="['/users', product.id]">
+            View
+          </button>
+          <button
+            app-button
+            variant="secondary"
+            size="small"
+            [routerLink]="['/products/edit', product.id]"
+          >
+            Edit
+          </button>
+          <button
+            app-button
+            variant="danger"
+            size="small"
+            (buttonClick)="confirmDelete(product.id, product.name)"
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+    } @empty {
+      <div class="empty-state">
+        <div class="empty-icon">👥</div>
+        <h3 class="empty-title">No users found</h3>
+      </div>
+    }
+  </div>
+
+  <!-- Delete Confirmation Modal -->
+  <app-modal
+    [isOpen]="showDeleteModal()"
+    title="Confirm Deletion"
+    size="small"
+    (modalClose)="cancelDelete()"
+  >
+    <p>
+      Are you sure you want to delete <strong>{{ userToDelete()?.name }}</strong
+      >?
+    </p>
+    <p class="warning-text">This action cannot be undone.</p>
+
+    <div slot="footer">
+      <button app-button variant="secondary" (buttonClick)="cancelDelete()">Cancel</button>
+      <button app-button variant="danger" (buttonClick)="executeDelete()" [disabled]="isDeleting()">
+        @if (isDeleting()) {
+          Deleting...
+        } @else {
+          Delete User
+        }
+      </button>
+    </div>
+  </app-modal>
+</div>
