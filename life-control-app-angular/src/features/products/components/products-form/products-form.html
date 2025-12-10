@@ -1,0 +1,46 @@
+<div class="form-container">
+  <h2>
+    <!--  @if (!product) {
+      Nuevo Producto
+    } @else {
+      Editar Producto
+    }-->
+  </h2>
+  <form [formGroup]="formGroup()" (ngSubmit)="onSave()">
+    <app-field
+      [control]="getControl('name')"
+      fieldId="name"
+      label="Nombre"
+      type="text"
+      placeholder="Ingrese el nombre del producto"
+    />
+
+    <app-field
+      [control]="getControl('description')"
+      fieldId="description"
+      label="Descripción"
+      type="text"
+      placeholder="Ingrese la descripción del producto"
+      helpText="Descripción opcional del producto"
+    />
+
+    <app-field
+      [control]="getControl('price')"
+      fieldId="price"
+      label="Precio"
+      type="number"
+      placeholder="0.00"
+    />
+
+    <div class="form-actions">
+      <button type="button" class="btn-cancel" (click)="onCancel()">Cancelar</button>
+      <button type="submit" class="btn-save" [disabled]="!formGroup().valid">
+        <!--  @if (!product) {
+          Guardar
+        } @else {
+          Actualizar
+        }-->
+      </button>
+    </div>
+  </form>
+</div>
