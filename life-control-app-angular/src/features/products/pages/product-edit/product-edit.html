@@ -1,1 +1,1 @@
-<app-product-form></app-product-form>
+<app-products-form [formGroup]="productForm()" (saveProduct)="createProduct($event)" />

@@ -1,17 +1,19 @@
 import { Component, computed, inject, OnInit, Signal, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { Button, Modal } from '@shared/ui';
 import { ProductService } from '@features/products/data/product.service';
 import { Product } from '@features/products/models/product.models';
+import { ProductsCard } from '@features/products/components';
 
 @Component({
   selector: 'app-product-list',
-  imports: [RouterLink, Button, Modal],
+  imports: [RouterLink, Button, Modal, ProductsCard],
   templateUrl: './product-list.html',
   styleUrls: ['./product-list.scss'],
 })
 export class ProductList implements OnInit {
   productService = inject(ProductService);
+  private router = inject(Router);
 
   showDeleteModal = signal(false);
   userToDelete = signal<{ id: string; name: string } | null>(null);
@@ -23,6 +25,9 @@ export class ProductList implements OnInit {
 
   ngOnInit(): void {
     this.productService.getProducts();
+  }
+  editProduct(id: string): void {
+    this.router.navigate([`/products/edit/${id}`]);
   }
 
   confirmDelete(userId: string, userName: string): void {

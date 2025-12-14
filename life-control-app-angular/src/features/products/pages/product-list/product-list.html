@@ -1,11 +1,11 @@
 <div class="user-list-page">
   <header class="page-header">
     <div class="header-content">
-      <h1 class="page-title">User Management</h1>
+      <h1 class="page-title">Products Management</h1>
       <p class="page-subtitle">Manage system users and their permissions</p>
     </div>
     <div class="header-actions">
-      <button app-button variant="primary" routerLink="/users/create">➕ Add User</button>
+      <button app-button variant="primary" routerLink="/products/create">➕ Add Product</button>
     </div>
   </header>
 
@@ -15,33 +15,7 @@
 
   <div class="users-grid">
     @for (product of products(); track product.id) {
-      <div class="user-card">
-        <div class="user-info">
-          <h3 class="user-name">{{ product.name }}</h3>
-          <p class="user-email">{{ product.description }}</p>
-        </div>
-        <div class="user-actions">
-          <button app-button variant="secondary" size="small" [routerLink]="['/users', product.id]">
-            View
-          </button>
-          <button
-            app-button
-            variant="secondary"
-            size="small"
-            [routerLink]="['/products/edit', product.id]"
-          >
-            Edit
-          </button>
-          <button
-            app-button
-            variant="danger"
-            size="small"
-            (buttonClick)="confirmDelete(product.id, product.name)"
-          >
-            Delete
-          </button>
-        </div>
-      </div>
+      <app-products-card [product]="product" (editProduct)="editProduct($event)" />
     } @empty {
       <div class="empty-state">
         <div class="empty-icon">👥</div>

@@ -21,7 +21,7 @@ export class ProductService {
   getProducts(): void {
     this.http.get<Product[]>(this.apiUrl).subscribe((products) => {
       products.forEach((product) => {
-        this.state().products.set(product.id, product);
+        this.state().products.set(product.id!, product);
       });
       this.state.set({ products: this.state().products });
     });
