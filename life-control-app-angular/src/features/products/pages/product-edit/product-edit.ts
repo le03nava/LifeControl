@@ -70,6 +70,7 @@ export class ProductEdit {
           console.log('Producto actualizado:', createdProduct);
 
           this.router.navigate(['/products']);
+          //
         },
       });
     }
