@@ -1,4 +1,4 @@
-import { inject, Injectable, signal } from '@angular/core';
+import { inject, Injectable, signal, WritableSignal } from '@angular/core';
 import { Product } from '../models/product.models';
 import { Observable } from 'rxjs';
 import { HttpClient } from '@angular/common/http';
@@ -9,6 +9,9 @@ import { HttpClient } from '@angular/common/http';
 export class ProductService {
   private apiUrl = 'http://localhost:9000/api/product';
   private http = inject(HttpClient);
+  private productList: WritableSignal<Product[]> = signal([]);
+
+  public products = this.productList.asReadonly();
 
   state = signal({
     products: new Map<string, Product>(),
@@ -24,6 +27,15 @@ export class ProductService {
         this.state().products.set(product.id!, product);
       });
       this.state.set({ products: this.state().products });
+    });
+  }
+
+  getProductList(): void {
+    this.http.get<Product[]>(`${this.apiUrl}`).subscribe({
+      next: (productList) => {
+        console.log('Producto lists', productList);
+        this.productList.set(productList);
+      },
     });
   }
 

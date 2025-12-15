@@ -61,12 +61,15 @@ export class ProductEdit {
       this.productService.createProduct(productData).subscribe({
         next: (createdProduct) => {
           console.log('Producto creado:', createdProduct);
+          this.router.navigate(['/products']);
         },
       });
     } else {
       this.productService.updateProduct(productData).subscribe({
         next: (createdProduct) => {
           console.log('Producto actualizado:', createdProduct);
+
+          this.router.navigate(['/products']);
         },
       });
     }

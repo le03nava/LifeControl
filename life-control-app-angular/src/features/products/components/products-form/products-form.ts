@@ -33,11 +33,14 @@ export class ProductsForm implements OnInit {
   @Output() cancelForm = new EventEmitter<void>();
 
   //productForm = signal<FormGroup>(this.createForm());
-
+  public edit = signal(false);
   private fb = inject(FormBuilder);
   ngOnInit(): void {
-    // console.log('ass', this.product);
     //this.productForm = this.createForm();
+    console.log('formGroup', this.formGroup().get('id')!.value);
+    if (this.formGroup().get('id')!.value !== '') {
+      this.edit.set(true);
+    }
   }
   /*
   private createForm(): FormGroup<ProductControl> {

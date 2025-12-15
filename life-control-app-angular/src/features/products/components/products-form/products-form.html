@@ -35,11 +35,11 @@
     <div class="form-actions">
       <button type="button" class="btn-cancel" (click)="onCancel()">Cancelar</button>
       <button type="submit" class="btn-save" [disabled]="!formGroup().valid">
-        <!--  @if (!product) {
+        @if (!edit()) {
           Guardar
         } @else {
           Actualizar
-        }-->
+        }
       </button>
     </div>
   </form>

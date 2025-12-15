@@ -24,7 +24,7 @@ export class ProductList implements OnInit {
   });
 
   ngOnInit(): void {
-    this.productService.getProducts();
+    this.productService.getProductList();
   }
   editProduct(id: string): void {
     this.router.navigate([`/products/edit/${id}`]);
@@ -50,6 +50,9 @@ export class ProductList implements OnInit {
       next: (createdProduct) => {
         console.log('Producto eliminado:', createdProduct);
         this.isDeleting.set(false);
+        this.showDeleteModal.set(false);
+
+        this.productService.getProductList();
       },
     });
   }

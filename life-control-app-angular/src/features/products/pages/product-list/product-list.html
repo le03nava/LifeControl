@@ -14,7 +14,7 @@
   </div>
 
   <div class="users-grid">
-    @for (product of products(); track product.id) {
+    @for (product of productService.products(); track product.id) {
       <app-products-card
         [product]="product"
         (editProduct)="editProduct($event)"
