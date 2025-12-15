@@ -33,4 +33,10 @@ public class ProductController {
   public ProductResponse findProductById(@PathVariable String id) {
     return productService.findProductById(id);
   }
+
+  @PutMapping
+  @ResponseStatus(HttpStatus.OK)
+  public ProductResponse updateProduct(@RequestBody ProductRequest productRequest) {
+    return productService.updateProduct(productRequest);
+  }
 }

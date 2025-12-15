@@ -43,6 +43,17 @@ public class ProductService {
     return this.getProductResponse(product);
   }
 
+  public ProductResponse updateProduct(ProductRequest productRequest) {
+    Product product = productRepository.findById(productRequest.id())
+        .orElseThrow(() -> new NoSuchElementException("Producto no encontrado con ID: " + productRequest.id()));
+    product.setName(productRequest.name());
+    product.setDescription(productRequest.description());
+    product.setPrice(productRequest.price());
+    productRepository.save(product);
+    log.info("Product updated successfully");
+    return new ProductResponse(product.getId(), product.getName(), product.getDescription(), product.getPrice());
+  }
+
   private ProductResponse getProductResponse(Product product) {
     return new ProductResponse(product.getId(), product.getName(), product.getDescription(), product.getPrice());
   }
