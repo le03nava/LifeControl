@@ -15,7 +15,11 @@
 
   <div class="users-grid">
     @for (product of products(); track product.id) {
-      <app-products-card [product]="product" (editProduct)="editProduct($event)" />
+      <app-products-card
+        [product]="product"
+        (editProduct)="editProduct($event)"
+        (deleteProduct)="confirmDelete($event)"
+      />
     } @empty {
       <div class="empty-state">
         <div class="empty-icon">👥</div>

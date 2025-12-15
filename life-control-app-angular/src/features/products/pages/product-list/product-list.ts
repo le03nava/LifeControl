@@ -30,8 +30,9 @@ export class ProductList implements OnInit {
     this.router.navigate([`/products/edit/${id}`]);
   }
 
-  confirmDelete(userId: string, userName: string): void {
-    this.userToDelete.set({ id: userId, name: userName });
+  confirmDelete(productInfo: { id: string; name: string }): void {
+    console.log(productInfo.id);
+    this.userToDelete.set({ id: productInfo.id, name: productInfo.name });
     this.showDeleteModal.set(true);
   }
 
@@ -45,5 +46,11 @@ export class ProductList implements OnInit {
     if (!user || this.isDeleting()) return;
 
     this.isDeleting.set(true);
+    this.productService.deleteProduct(user.id).subscribe({
+      next: (createdProduct) => {
+        console.log('Producto eliminado:', createdProduct);
+        this.isDeleting.set(false);
+      },
+    });
   }
 }
