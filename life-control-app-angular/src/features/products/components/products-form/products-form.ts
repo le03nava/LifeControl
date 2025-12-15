@@ -58,7 +58,7 @@ export class ProductsForm implements OnInit {
       console.log('formData', formData);
 
       const productData: Product = {
-        id: formData.get('id') ? formData.get('id')!.value : null,
+        id: formData.get('id')!.value,
         name: formData.get('name')!.value,
         description: formData.get('description')!.value,
         price: formData.get('price')!.value,

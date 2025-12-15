@@ -2,7 +2,6 @@ import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/cor
 import { ActivatedRoute, Router } from '@angular/router';
 import { ProductService } from '@features/products/data/product.service';
 import { Product } from '@features/products/models/product.models';
-import { toSignal } from '@angular/core/rxjs-interop';
 import {
   FormBuilder,
   FormGroup,
@@ -28,9 +27,23 @@ export class ProductEdit {
 
   productForm = signal<FormGroup<ProductControl>>(this.createForm());
   productId = signal(this.route.snapshot.paramMap.get('id'));
-  product = toSignal(this.productService.getProductById(this.productId() ?? ''), {
-    initialValue: { id: '', name: '', description: '', price: 0 } as Product,
-  });
+
+  constructor() {
+    const id = this.productId();
+    if (id) {
+      this.productService.getProductById(id).subscribe((product) => {
+        console.log(product.id);
+        this.productForm.set(
+          this.fb.group({
+            id: this.fb.control(product.id),
+            name: this.fb.control(product.name),
+            description: this.fb.control(product.description, Validators.required),
+            price: this.fb.control(product.price),
+          }),
+        );
+      });
+    }
+  }
 
   private createForm(): FormGroup<ProductControl> {
     console.log(this.productId);
@@ -43,24 +56,19 @@ export class ProductEdit {
   }
 
   createProduct(productData: Product) {
-    this.productService.createProduct(productData).subscribe({
-      next: (createdProduct) => {
-        console.log('Producto creado:', createdProduct);
-      },
-    });
-  }
-  onSubmit(): void {
-    const form = this.productForm(); // Obtenemos el valor del Signal
-
-    if (form.valid) {
-      console.log('✅ Formulario de Producto Válido (Signal/OnPush). Datos:', form.value);
-
-      // La llamada a `reset()` en el FormGroup nativo notifica a Angular
-      // y funciona correctamente con OnPush.
-      form.reset();
+    console.log('product ', productData);
+    if (productData.id === '') {
+      this.productService.createProduct(productData).subscribe({
+        next: (createdProduct) => {
+          console.log('Producto creado:', createdProduct);
+        },
+      });
     } else {
-      console.log('❌ Formulario Inválido.');
-      form.markAllAsTouched();
+      this.productService.updateProduct(productData).subscribe({
+        next: (createdProduct) => {
+          console.log('Producto actualizado:', createdProduct);
+        },
+      });
     }
   }
 }
