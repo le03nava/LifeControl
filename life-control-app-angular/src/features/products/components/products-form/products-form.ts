@@ -72,7 +72,7 @@ export class ProductsForm implements OnInit {
 
   onCancel(): void {
     console.log(',', this.formGroup().valid);
-    //this.cancelForm.emit();
+    this.cancelForm.emit();
   }
 
   getControl(controlName: keyof ProductControl): FormControl<string | number | null> {

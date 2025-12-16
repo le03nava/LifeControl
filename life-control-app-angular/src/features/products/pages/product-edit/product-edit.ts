@@ -75,4 +75,8 @@ export class ProductEdit {
       });
     }
   }
+
+  cancelForm() {
+    this.router.navigate(['/products']);
+  }
 }
