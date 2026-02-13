@@ -60,3 +60,35 @@ out/
 
 ### VS Code ###
 .vscode/
+
+# ============================================
+# Environment & Secrets
+# ============================================
+.env
+.env.secrets
+.env.local
+.env.*.local
+secrets/
+*.pem
+*.key
+*.crt
+keystore/
+volume-data/
+
+# ============================================
+# Docker Runtime
+# ============================================
+docker-data/
+logs/
+temp/
+
+# ============================================
+# OS Generated
+# ============================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db

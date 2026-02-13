@@ -1,0 +1,470 @@
+# ============================================
+# Docker Compose - Production Configuration
+# ============================================
+# Use: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up
+# Or use the provided scripts
+
+version: "3.8"
+
+networks:
+  ${NETWORK_NAME:-lifecontrol-network-prod}:
+    external: true
+
+volumes:
+  mongodb_data:
+    external: true
+  mysql_data:
+    external: true
+  postgres_data:
+    external: true
+  kafka_data:
+    external: true
+  prometheus_data:
+    external: true
+  grafana_data:
+    external: true
+  tempo_data:
+    external: true
+  loki_data:
+    external: true
+
+services:
+  # ============================================
+  # Production MongoDB
+  # ============================================
+  mongodb:
+    image: ${MONGO_IMAGE:-mongo:7.0.5}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-mongodb
+    ports:
+      - "${MONGO_PORT:-27217}:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:-root}
+      MONGO_INITDB_ROOT_PASSWORD_FILE: ${MONGO_ROOT_PASSWORD_FILE}
+      MONGO_INITDB_DATABASE: ${MONGO_DATABASE:-product-service}
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - ${NETWORK_NAME:-lifecontrol-network-prod}
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          memory: ${MONGO_MEMORY_LIMIT:-2g}
+          cpus: '1.0'
+        reservations:
+          memory: 1g
+          cpus: '0.5'
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+        window: 180s
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: always
+
+  # ============================================
+  # Production MySQL
+  # ============================================
+  mysql:
+    image: ${MYSQL_IMAGE:-mysql:8.3.0}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-mysql
+    ports:
+      - "${MYSQL_PORT:-3507}:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD_FILE: ${MYSQL_ROOT_PASSWORD_FILE}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-order-service}
+      MYSQL_USER: ${MYSQL_USER:-orderuser}
+      MYSQL_PASSWORD_FILE: ${MYSQL_PASSWORD_FILE}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - ${NETWORK_NAME:-lifecontrol-network-prod}
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          memory: ${MYSQL_MEMORY_LIMIT:-2g}
+          cpus: '1.0'
+        reservations:
+          memory: 1g
+          cpus: '0.5'
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+        window: 180s
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    restart: always
+
+  # ============================================
+  # Production Zookeeper
+  # ============================================
+  zookeeper:
+    image: ${ZOOKEEPER_IMAGE:-confluentinc/cp-zookeeper:7.5.0}
+    hostname: zookeeper
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-zookeeper
+    ports:
+      - "${ZOOKEEPER_PORT:-2381}:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - ${NETWORK_NAME:-lifecontrol-network-prod}
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          memory: ${ZOOKEEPER_MEMORY_LIMIT:-512m}
+          cpus: '0.5'
+    restart: always
+
+  # ============================================
+  # Production Kafka
+  # ============================================
+  broker:
+    image: ${KAFKA_IMAGE:-confluentinc/cp-kafka:7.5.0}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-broker
+    ports:
+      - "${KAFKA_PORT:-9292}:9092"
+      - "${KAFKA_INTERNAL_PORT:-29292}:29092"
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: ${KAFKA_BROKER_ID:-1}
+      KAFKA_ZOOKEEPER_CONNECT: ${KAFKA_ZOOKEEPER_CONNECT:-zookeeper:2181}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: ${KAFKA_LISTENER_SECURITY_PROTOCOL_MAP:-PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT}
+      KAFKA_ADVERTISED_LISTENERS: ${KAFKA_ADVERTISED_LISTENERS:-PLAINTEXT://broker:29292,PLAINTEXT_HOST://localhost:9292}
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: ${KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR:-3}
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: ${KAFKA_TRANSACTION_STATE_LOG_MIN_ISR:-2}
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: ${KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR:-3}
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      - ${NETWORK_NAME:-lifecontrol-network-prod}
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          memory: ${KAFKA_MEMORY_LIMIT:-4g}
+          cpus: '2.0'
+        reservations:
+          memory: 2g
+          cpus: '1.0'
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 5
+        window: 300s
+    restart: always
+
+  # ============================================
+  # Production Schema Registry
+  # ============================================
+  schema-registry:
+    image: ${SCHEMA_REGISTRY_IMAGE:-confluentinc/cp-schema-registry:7.5.0}
+    hostname: schema-registry
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-schema-registry
+    depends_on:
+      broker:
+        condition: service_healthy
+    ports:
+      - "${SCHEMA_REGISTRY_PORT:-8285}:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: ${SCHEMA_REGISTRY_HOST_NAME:-schema-registry}
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: ${SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS:-broker:29292}
+      SCHEMA_REGISTRY_LISTENERS: ${SCHEMA_REGISTRY_LISTENERS:-http://schema-registry:8081}
+    networks:
+      - ${NETWORK_NAME:-lifecontrol-network-prod}
+    deploy:
+      resources:
+        limits:
+          memory: ${SCHEMA_REGISTRY_MEMORY_LIMIT:-1g}
+          cpus: '0.5'
+    restart: always
+
+  # ============================================
+  # Production Kafka UI
+  # ============================================
+  kafka-ui:
+    image: ${KAFKA_UI_IMAGE:-kafbat/kafka-ui:v1.6.0}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-kafka-ui
+    ports:
+      - "${KAFKA_UI_PORT:-8386}:8080"
+    depends_on:
+      broker:
+        condition: service_healthy
+    environment:
+      KAFKA_CLUSTERS_NAME: ${KAFKA_CLUSTERS_NAME:-production}
+      KAFKA_CLUSTERS_BOOTSTRAPSERVERS: ${KAFKA_CLUSTERS_BOOTSTRAPSERVERS:-broker:29292}
+      DYNAMIC_CONFIG_ENABLED: "true"
+    networks:
+      - ${NETWORK_NAME:-lifecontrol-network-prod}
+    deploy:
+      resources:
+        limits:
+          memory: ${KAFKA_UI_MEMORY_LIMIT:-512m}
+    restart: always
+
+  # ============================================
+  # Production PostgreSQL - Keycloak
+  # ============================================
+  keycloak-postgres:
+    image: ${POSTGRES_IMAGE:-postgres:18.1}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-keycloak-postgres
+    ports:
+      - "${POSTGRES_PORT:-5453}:5432"
+    environment:
+      POSTGRES_DB: ${KEYCLOAK_POSTGRES_DB:-keycloak_production}
+      POSTGRES_USER: ${KEYCLOAK_POSTGRES_USER:-keycloak}
+      POSTGRES_PASSWORD_FILE: ${KEYCLOAK_POSTGRES_PASSWORD_FILE}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - ${NETWORK_NAME:-lifecontrol-network-prod}
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          memory: ${POSTGRES_MEMORY_LIMIT:-2g}
+          cpus: '1.0'
+        reservations:
+          memory: 1g
+          cpus: '0.5'
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+        window: 180s
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${KEYCLOAK_POSTGRES_USER:-keycloak}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    restart: always
+
+  # ============================================
+  # Production Keycloak
+  # ============================================
+  keycloak:
+    image: ${KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak:26.2.1}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-keycloak
+    command: ["start", "--optimized"]
+    ports:
+      - "${KEYCLOAK_PORT:-8381}:8080"
+      - "${KC_HTTPS_PORT:-8443}:8443"
+    environment:
+      KC_DB: ${KC_DB:-postgres}
+      KC_DB_URL: ${KC_DB_URL:-jdbc:postgresql://keycloak-postgres/keycloak_production}
+      KC_DB_USERNAME: ${KC_DB_USERNAME:-keycloak}
+      KC_DB_PASSWORD_FILE: ${KC_DB_PASSWORD_FILE}
+      KC_HOSTNAME: ${KC_HOSTNAME:-auth.lifecontrol.com}
+      KC_HTTP_PORT: ${KC_HTTP_PORT:-8080}
+      KC_HTTPS_PORT: ${KC_HTTPS_PORT:-8443}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_ADMIN_USERNAME:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD_FILE: ${KC_ADMIN_PASSWORD_FILE}
+    volumes:
+      - ${KEYCLOAK_REALMS_PATH:-/var/lib/lifecontrol/volumes/keycloak/realms}:/opt/keycloak/data/import:ro
+    networks:
+      - ${NETWORK_NAME:-lifecontrol-network-prod}
+    depends_on:
+      keycloak-postgres:
+        condition: service_healthy
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: ${KEYCLOAK_MEMORY_LIMIT:-2g}
+          cpus: '1.0'
+        reservations:
+          memory: 1g
+          cpus: '0.5'
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+    restart: always
+
+  # ============================================
+  # Production Monitoring Stack
+  # ============================================
+  loki:
+    image: ${LOKI_IMAGE:-grafana/loki:2.9.0}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-loki
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    ports:
+      - "${LOKI_PORT:-3300}:3100"
+    volumes:
+      - loki_data:/loki/data
+    networks:
+      - ${NETWORK_NAME:-lifecontrol-network-prod}
+    deploy:
+      resources:
+        limits:
+          memory: ${LOKI_MEMORY_LIMIT:-1g}
+          cpus: '0.5'
+    restart: always
+
+  prometheus:
+    image: ${PROMETHEUS_IMAGE:-prom/prometheus:v2.48.0}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-prometheus
+    command:
+      - --enable-feature=exemplar-storage
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=30d
+      - --storage.tsdb.wal-compression
+      - --web.enable-lifecycle
+    ports:
+      - "${PROMETHEUS_PORT:-9290}:9090"
+    volumes:
+      - ${PROMETHEUS_CONFIG_PATH:-/var/lib/lifecontrol/volumes/prometheus/config}:/etc/prometheus:ro
+      - prometheus_data:/prometheus
+    networks:
+      - ${NETWORK_NAME:-lifecontrol-network-prod}
+    deploy:
+      resources:
+        limits:
+          memory: ${PROMETHEUS_MEMORY_LIMIT:-2g}
+          cpus: '1.0'
+    restart: always
+
+  tempo:
+    image: ${TEMPO_IMAGE:-grafana/tempo:2.3.0}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-tempo
+    command: ["-config.file=/etc/tempo.yaml"]
+    ports:
+      - "${TEMPO_PORT:-3310}:3100"
+      - "${TEMPO_ZIPKIN_PORT:-9611}:9411"
+    volumes:
+      - ${TEMPO_CONFIG_PATH:-/var/lib/lifecontrol/volumes/tempo/config}:/etc/tempo:ro
+      - tempo_data:/var/tempo
+    networks:
+      - ${NETWORK_NAME:-lifecontrol-network-prod}
+    deploy:
+      resources:
+        limits:
+          memory: ${TEMPO_MEMORY_LIMIT:-2g}
+          cpus: '1.0'
+    restart: always
+
+  grafana:
+    image: ${GRAFANA_IMAGE:-grafana/grafana:10.2.0}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-grafana
+    ports:
+      - "${GRAFANA_PORT:-3200}:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: ${GF_AUTH_ANONYMOUS_ENABLED:-false}
+      GF_AUTH_BASIC_ENABLED: ${GF_AUTH_BASIC_ENABLED:-true}
+      GF_AUTH_DISABLE_LOGIN_FORM: ${GF_AUTH_DISABLE_LOGIN_FORM:-false}
+      GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+    volumes:
+      - ${GRAFANA_CONFIG_PATH:-/var/lib/lifecontrol/volumes/grafana/config}:/etc/grafana/provisioning/datasources:ro
+      - grafana_data:/var/lib/grafana
+    networks:
+      - ${NETWORK_NAME:-lifecontrol-network-prod}
+    secrets:
+      - grafana_admin_password
+    deploy:
+      resources:
+        limits:
+          memory: ${GRAFANA_MEMORY_LIMIT:-1g}
+          cpus: '0.5'
+    restart: always
+
+  # ============================================
+  # Production API Gateway
+  # ============================================
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+      args:
+        BUILD_PROFILE: prod
+        APP_VERSION: ${APP_VERSION:-1.0.0}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-api-gateway
+    ports:
+      - "${API_GATEWAY_PORT:-9200}:${API_GATEWAY_SERVER_PORT:-9200}"
+      - "${API_GATEWAY_MANAGEMENT_PORT:-9201}:${API_GATEWAY_MANAGEMENT_PORT:-9201}"
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
+      - SERVER_PORT=${API_GATEWAY_SERVER_PORT:-9200}
+      - MANAGEMENT_PORT=${API_GATEWAY_MANAGEMENT_PORT:-9201}
+      - KEYCLOAK_ISSUER_URI=${KEYCLOAK_ISSUER_URI:-https://auth.lifecontrol.com/realms/life-control-realm}
+      - LOKI_URL=${LOKI_URL:-http://loki:3300/loki/api/v1/push}
+      - LOG_LEVEL=WARN
+      - PROMETHEUS_ENABLED=true
+      - TRACING_ENABLED=true
+      - TRACING_SAMPLING_PROBABILITY=0.01
+      - HEALTH_CHECK_ENABLED=true
+      - HEALTH_CHECK_PATH=/actuator/health
+      - CIRCUIT_BREAKER_ENABLED=true
+      - CIRCUIT_BREAKER_FAILURE_THRESHOLD=50
+      - TIMEOUT_DURATION=5s
+      - RETRY_MAX_ATTEMPTS=3
+    env_file:
+      - .env.prod
+      - .env.secrets
+    networks:
+      - ${NETWORK_NAME:-lifecontrol-network-prod}
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          memory: ${API_GATEWAY_MEMORY_LIMIT:-2g}
+          cpus: '1.0'
+        reservations:
+          memory: 1g
+          cpus: '0.5'
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${API_GATEWAY_SERVER_PORT:-9200}/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
+    restart: always
+
+# ============================================
+# Docker Secrets - Production
+# ============================================
+secrets:
+  grafana_admin_password:
+    file: ./secrets/grafana_admin_password.txt

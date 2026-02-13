@@ -1,0 +1,93 @@
+# ============================================
+# Docker Compose Override - Development
+# ============================================
+# Automatically loaded when running: docker-compose up
+# Use: docker-compose up (override applied automatically)
+
+version: "3.8"
+
+services:
+  # ============================================
+  # Development API Gateway Overrides
+  # ============================================
+  api-gateway:
+    environment:
+      - LOG_LEVEL=DEBUG
+      - TRACING_SAMPLING_PROBABILITY=0.5
+      - ACTUATOR_ENDPOINTS=*
+      - HEALTH_CHECK_INTERVAL=15s
+    volumes:
+      - ./api-gateway/src/main/resources:/app/resources:ro
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+
+  # ============================================
+  # Development Keycloak Overrides
+  # ============================================
+  keycloak:
+    command: ["start-dev", "--import-realm"]
+    environment:
+      - KC_BOOTSTRAP_ADMIN_USERNAME=admin
+      - KC_BOOTSTRAP_ADMIN_PASSWORD=dev_admin_pass
+    ports:
+      - "8181:8080"
+
+  # ============================================
+  # Development Monitoring Overrides
+  # ============================================
+  grafana:
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+      - GF_SECURITY_ALLOW_EMBEDDING=true
+    ports:
+      - "3000:3000"
+
+  prometheus:
+    ports:
+      - "9090:9090"
+
+  loki:
+    ports:
+      - "3100:3100"
+
+  tempo:
+    ports:
+      - "3110:3100"
+      - "9411:9411"
+
+  # ============================================
+  # Development Database Overrides
+  # ============================================
+  mongodb:
+    ports:
+      - "27017:27017"
+
+  mysql:
+    ports:
+      - "3307:3306"
+
+  keycloak-postgres:
+    ports:
+      - "5433:5432"
+
+  # ============================================
+  # Development Kafka Overrides
+  # ============================================
+  zookeeper:
+    ports:
+      - "2181:2181"
+
+  broker:
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+
+  schema-registry:
+    ports:
+      - "8085:8081"
+
+  kafka-ui:
+    ports:
+      - "8086:8080"

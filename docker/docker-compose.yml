@@ -1,0 +1,455 @@
+# ============================================
+# LifeControl - Docker Compose Parametrizado
+# ============================================
+
+version: "3.8"
+
+# Network must be created by setup-env.sh before running
+networks:
+  lifecontrol-network-dev:
+    external: true
+  lifecontrol-network-staging:
+    external: true
+  lifecontrol-network-prod:
+    external: true
+
+volumes:
+  mongodb_data:
+    driver: local
+  mysql_data:
+    driver: local
+  postgres_data:
+    driver: local
+  kafka_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  tempo_data:
+    driver: local
+  loki_data:
+    driver: local
+
+services:
+  # ============================================
+  # MongoDB - Product Service Database
+  # ============================================
+  mongodb:
+    image: ${MONGO_IMAGE:-mongo:7.0.5}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-mongodb
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:-root}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: ${MONGO_DATABASE:-product-service}
+    volumes:
+      - ${MONGO_DATA_PATH:-./volumes/mongodb/data}:/data/db
+    networks:
+      - ${NETWORK_NAME:-lifecontrol-network}
+    deploy:
+      resources:
+        limits:
+          memory: ${MONGO_MEMORY_LIMIT:-512m}
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  # ============================================
+  # MySQL - Order Service Database
+  # ============================================
+  mysql:
+    image: ${MYSQL_IMAGE:-mysql:8.3.0}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-mysql
+    ports:
+      - "${MYSQL_PORT:-3307}:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-order-service}
+      MYSQL_USER: ${MYSQL_USER:-orderuser}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - ${MYSQL_DATA_PATH:-./volumes/mysql/data}:/var/lib/mysql
+      - ${MYSQL_INIT_PATH:-./volumes/mysql/init}:/docker-entrypoint-initdb.d:ro
+    networks:
+      - ${NETWORK_NAME:-lifecontrol-network}
+    deploy:
+      resources:
+        limits:
+          memory: ${MYSQL_MEMORY_LIMIT:-512m}
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+  # ============================================
+  # Zookeeper - Kafka Dependency
+  # ============================================
+  zookeeper:
+    image: ${ZOOKEEPER_IMAGE:-confluentinc/cp-zookeeper:7.5.0}
+    hostname: zookeeper
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-zookeeper
+    ports:
+      - "${ZOOKEEPER_PORT:-2181}:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - ${NETWORK_NAME:-lifecontrol-network}
+    deploy:
+      resources:
+        limits:
+          memory: ${ZOOKEEPER_MEMORY_LIMIT:-256m}
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ============================================
+  # Kafka - Message Broker
+  # ============================================
+  broker:
+    image: ${KAFKA_IMAGE:-confluentinc/cp-kafka:7.5.0}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-broker
+    ports:
+      - "${KAFKA_PORT:-9092}:9092"
+      - "${KAFKA_INTERNAL_PORT:-29092}:29092"
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: ${KAFKA_BROKER_ID:-1}
+      KAFKA_ZOOKEEPER_CONNECT: ${KAFKA_ZOOKEEPER_CONNECT:-zookeeper:2181}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: ${KAFKA_LISTENER_SECURITY_PROTOCOL_MAP:-PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT}
+      KAFKA_ADVERTISED_LISTENERS: ${KAFKA_ADVERTISED_LISTENERS:-PLAINTEXT://broker:29092,PLAINTEXT_HOST://localhost:9092}
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: ${KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR:-1}
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: ${KAFKA_TRANSACTION_STATE_LOG_MIN_ISR:-1}
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: ${KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR:-1}
+    volumes:
+      - ${KAFKA_DATA_PATH:-./volumes/kafka/data}:/var/lib/kafka/data
+    networks:
+      - ${NETWORK_NAME:-lifecontrol-network}
+    deploy:
+      resources:
+        limits:
+          memory: ${KAFKA_MEMORY_LIMIT:-1g}
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/9092 && echo ok"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ============================================
+  # Schema Registry - Kafka Schema Management
+  # ============================================
+  schema-registry:
+    image: ${SCHEMA_REGISTRY_IMAGE:-confluentinc/cp-schema-registry:7.5.0}
+    hostname: schema-registry
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-schema-registry
+    depends_on:
+      broker:
+        condition: service_healthy
+    ports:
+      - "${SCHEMA_REGISTRY_PORT:-8085}:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: ${SCHEMA_REGISTRY_HOST_NAME:-schema-registry}
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: ${SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS:-broker:29092}
+      SCHEMA_REGISTRY_LISTENERS: ${SCHEMA_REGISTRY_LISTENERS:-http://schema-registry:8081}
+    networks:
+      - ${NETWORK_NAME:-lifecontrol-network}
+    deploy:
+      resources:
+        limits:
+          memory: ${SCHEMA_REGISTRY_MEMORY_LIMIT:-512m}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/subjects"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ============================================
+  # Kafka UI - Kafka Management Interface
+  # ============================================
+  kafka-ui:
+    image: ${KAFKA_UI_IMAGE:-kafbat/kafka-ui:v1.6.0}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-kafka-ui
+    ports:
+      - "${KAFKA_UI_PORT:-8086}:8080"
+    depends_on:
+      broker:
+        condition: service_healthy
+    environment:
+      KAFKA_CLUSTERS_NAME: ${KAFKA_CLUSTERS_NAME:-local}
+      KAFKA_CLUSTERS_BOOTSTRAPSERVERS: ${KAFKA_CLUSTERS_BOOTSTRAPSERVERS:-broker:29092}
+      DYNAMIC_CONFIG_ENABLED: "true"
+    networks:
+      - ${NETWORK_NAME:-lifecontrol-network}
+    deploy:
+      resources:
+        limits:
+          memory: ${KAFKA_UI_MEMORY_LIMIT:-512m}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ============================================
+  # PostgreSQL - Keycloak Database
+  # ============================================
+  keycloak-postgres:
+    image: ${POSTGRES_IMAGE:-postgres:18.1}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-keycloak-postgres
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    environment:
+      POSTGRES_DB: ${KEYCLOAK_POSTGRES_DB:-keycloak}
+      POSTGRES_USER: ${KEYCLOAK_POSTGRES_USER:-keycloak}
+      POSTGRES_PASSWORD: ${KEYCLOAK_POSTGRES_PASSWORD}
+    volumes:
+      - ${POSTGRES_DATA_PATH:-./volumes/postgres/data}:/var/lib/postgresql/data
+    networks:
+      - ${NETWORK_NAME:-lifecontrol-network}
+    deploy:
+      resources:
+        limits:
+          memory: ${POSTGRES_MEMORY_LIMIT:-512m}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${KEYCLOAK_POSTGRES_USER:-keycloak}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+  # ============================================
+  # Keycloak - Identity Provider
+  # ============================================
+  keycloak:
+    image: ${KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak:26.2.1}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-keycloak
+    command: ["start-dev", "--import-realm"]
+    ports:
+      - "${KEYCLOAK_PORT:-8181}:8080"
+    environment:
+      KC_DB: ${KC_DB:-postgres}
+      KC_DB_URL: ${KC_DB_URL:-jdbc:postgresql://keycloak-postgres/keycloak}
+      KC_DB_USERNAME: ${KC_DB_USERNAME:-keycloak}
+      KC_DB_PASSWORD: ${KC_DB_PASSWORD}
+      KC_HOSTNAME: ${KC_HOSTNAME:-localhost}
+      KC_HTTP_PORT: ${KC_HTTP_PORT:-8080}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_ADMIN_USERNAME:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD}
+    volumes:
+      - ${KEYCLOAK_REALMS_PATH:-./volumes/keycloak/realms}:/opt/keycloak/data/import:ro
+    networks:
+      - ${NETWORK_NAME:-lifecontrol-network}
+    depends_on:
+      keycloak-postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: ${KEYCLOAK_MEMORY_LIMIT:-1g}
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/8080 && echo ok"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    restart: unless-stopped
+
+  # ============================================
+  # Loki - Log Aggregation
+  # ============================================
+  loki:
+    image: ${LOKI_IMAGE:-grafana/loki:2.9.0}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-loki
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    ports:
+      - "${LOKI_PORT:-3100}:3100"
+    volumes:
+      - ${LOKI_DATA_PATH:-./volumes/loki/data}:/loki/data
+    networks:
+      - ${NETWORK_NAME:-lifecontrol-network}
+    deploy:
+      resources:
+        limits:
+          memory: ${LOKI_MEMORY_LIMIT:-256m}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3100/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ============================================
+  # Prometheus - Metrics Collection
+  # ============================================
+  prometheus:
+    image: ${PROMETHEUS_IMAGE:-prom/prometheus:v2.48.0}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-prometheus
+    user: "0:0"
+    command:
+      - --enable-feature=exemplar-storage
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ${PROMETHEUS_CONFIG_PATH:-./volumes/prometheus/config}:/etc/prometheus:ro
+      - ${PROMETHEUS_DATA_PATH:-./volumes/prometheus/data}:/prometheus
+    networks:
+      - ${NETWORK_NAME:-lifecontrol-network}
+    deploy:
+      resources:
+        limits:
+          memory: ${PROMETHEUS_MEMORY_LIMIT:-512m}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ============================================
+  # Tempo - Distributed Tracing
+  # ============================================
+  tempo:
+    image: ${TEMPO_IMAGE:-grafana/tempo:2.3.0}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-tempo
+    user: "0:0"
+    command: ["-config.file=/etc/tempo/tempo.yml"]
+    ports:
+      - "${TEMPO_PORT:-3110}:3100"  # Tempo
+      - "${TEMPO_ZIPKIN_PORT:-9411}:9411"  # Zipkin
+    volumes:
+      - ${TEMPO_CONFIG_PATH:-./volumes/tempo/config}:/etc/tempo:ro
+      - ${TEMPO_DATA_PATH:-./volumes/tempo/data}:/var/tempo
+    networks:
+      - ${NETWORK_NAME:-lifecontrol-network}
+    deploy:
+      resources:
+        limits:
+          memory: ${TEMPO_MEMORY_LIMIT:-512m}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3100/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ============================================
+  # Grafana - Metrics Visualization
+  # ============================================
+  grafana:
+    image: ${GRAFANA_IMAGE:-grafana/grafana:10.2.0}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-grafana
+    user: "1000:1000"
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=${GF_AUTH_ANONYMOUS_ENABLED:-true}
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=${GF_AUTH_ANONYMOUS_ORG_ROLE:-Admin}
+      - GF_AUTH_DISABLE_LOGIN_FORM=${GF_AUTH_DISABLE_LOGIN_FORM:-true}
+    volumes:
+      - ${GRAFANA_CONFIG_PATH:-./volumes/grafana/config}:/etc/grafana/provisioning/datasources:ro
+      - ${GRAFANA_DATA_PATH:-./volumes/grafana/data}:/var/lib/grafana
+    networks:
+      - ${NETWORK_NAME:-lifecontrol-network}
+    deploy:
+      resources:
+        limits:
+          memory: ${GRAFANA_MEMORY_LIMIT:-256m}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ============================================
+  # API Gateway - Spring Cloud Gateway
+  # ============================================
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+      args:
+        BUILD_PROFILE: ${SPRING_PROFILES_ACTIVE:-dev}
+        APP_VERSION: ${APP_VERSION:-0.0.1-SNAPSHOT}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-api-gateway
+    ports:
+      - "${API_GATEWAY_PORT:-9000}:${API_GATEWAY_SERVER_PORT:-9000}"
+      - "${API_GATEWAY_MANAGEMENT_PORT:-9001}:${API_GATEWAY_MANAGEMENT_PORT:-9001}"
+    environment:
+      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-dev}
+      - SERVER_PORT=${API_GATEWAY_SERVER_PORT:-9000}
+      - MANAGEMENT_PORT=${API_GATEWAY_MANAGEMENT_PORT:-9001}
+      - KEYCLOAK_ISSUER_URI=${KEYCLOAK_ISSUER_URI:-http://localhost:8181/realms/life-control-realm}
+      - LOKI_URL=${LOKI_URL:-http://loki:3100/loki/api/v1/push}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - PROMETHEUS_ENABLED=${PROMETHEUS_ENABLED:-true}
+      - TRACING_ENABLED=${TRACING_ENABLED:-true}
+      - TRACING_SAMPLING_PROBABILITY=${TRACING_SAMPLING_PROBABILITY:-0.1}
+      - HEALTH_CHECK_ENABLED=${HEALTH_CHECK_ENABLED:-true}
+      - HEALTH_CHECK_PATH=/actuator/health
+      - CIRCUIT_BREAKER_ENABLED=${CIRCUIT_BREAKER_ENABLED:-true}
+      - CIRCUIT_BREAKER_FAILURE_THRESHOLD=${CIRCUIT_BREAKER_FAILURE_THRESHOLD:-50}
+      - TIMEOUT_DURATION=${TIMEOUT_DURATION:-3s}
+      - RETRY_MAX_ATTEMPTS=${RETRY_MAX_ATTEMPTS:-3}
+    networks:
+      - ${NETWORK_NAME:-lifecontrol-network}
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: ${API_GATEWAY_MEMORY_LIMIT:-512m}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${API_GATEWAY_SERVER_PORT:-9000}/actuator/health"]
+      interval: ${HEALTH_CHECK_INTERVAL:-30s}
+      timeout: ${HEALTH_CHECK_TIMEOUT:-3s}
+      retries: ${HEALTH_CHECK_RETRIES:-3}
+      start_period: ${HEALTH_CHECK_START_PERIOD:-60s}
+    restart: unless-stopped
+
+  # ============================================
+  # Web App - Angular Frontend
+  # ============================================
+  web-app:
+    image: ${WEB_APP_IMAGE:-life-control-app-angular:latest}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-web-app
+    ports:
+      - "${WEB_APP_PORT:-4200}:3000"
+    environment:
+      - NODE_ENV=production
+      - KEYCLOAK_URL=${KEYCLOAK_URL:-http://localhost:8181}
+      - KEYCLOAK_REALM=${KEYCLOAK_REALM:-life-control-realm}
+      - KEYCLOAK_CLIENT_ID=${KEYCLOAK_CLIENT_ID:-life-control-app}
+      - API_GATEWAY_URL=${API_GATEWAY_URL:-http://localhost:9000}
+    networks:
+      - ${NETWORK_NAME:-lifecontrol-network}
+    depends_on:
+      - api-gateway
+      - keycloak
+    restart: unless-stopped

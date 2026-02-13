@@ -73,3 +73,41 @@ out/
 /mysql/
 /docker/tempo/tempo-data/
 
+# ============================================
+# Environment & Secrets (NEVER COMMIT)
+# ============================================
+.env
+.env.local
+.env.*.local
+.env.secrets
+.env.secrets.*
+secrets/
+*.pem
+*.key
+*.crt
+
+# ============================================
+# Docker Volumes (Data)
+# ============================================
+volumes/
+volumes-*/
+docker/keycloak_postgres_data/
+docker/keycloak_data/
+
+# ============================================
+# OS Generated
+# ============================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ============================================
+# IDE & Editor
+# ============================================
+*.swp
+*.swo
+*~
