@@ -387,7 +387,7 @@ services:
   # ============================================
   api-gateway:
     build:
-      context: ./api-gateway
+      context: ../api-gateway
       dockerfile: Dockerfile
       args:
         BUILD_PROFILE: ${SPRING_PROFILES_ACTIVE:-dev}
@@ -437,6 +437,9 @@ services:
   # Web App - Angular Frontend
   # ============================================
   web-app:
+    build:
+      context: ../life-control-app-angular
+      dockerfile: Dockerfile
     image: ${WEB_APP_IMAGE:-life-control-app-angular:latest}
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-web-app
     ports:
@@ -445,8 +448,9 @@ services:
       - NODE_ENV=production
       - KEYCLOAK_URL=${KEYCLOAK_URL:-http://localhost:8181}
       - KEYCLOAK_REALM=${KEYCLOAK_REALM:-life-control-realm}
-      - KEYCLOAK_CLIENT_ID=${KEYCLOAK_CLIENT_ID:-life-control-app}
+      - KEYCLOAK_CLIENT_ID=${KEYCLOAK_CLIENT_ID:-life-control-client}
       - API_GATEWAY_URL=${API_GATEWAY_URL:-http://localhost:9000}
+      - API_BASE_PATH=${API_BASE_PATH:-/api/product}
     networks:
       - ${NETWORK_NAME:-lifecontrol-network}
     depends_on:

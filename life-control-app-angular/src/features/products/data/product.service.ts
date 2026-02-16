@@ -2,12 +2,13 @@ import { inject, Injectable, signal, WritableSignal } from '@angular/core';
 import { Product } from '../models/product.models';
 import { Observable } from 'rxjs';
 import { HttpClient } from '@angular/common/http';
+import { ConfigService } from '@app/services/config.service';
 
 @Injectable({
   providedIn: 'root',
 })
 export class ProductService {
-  private apiUrl = 'http://localhost:9000/api/product';
+  private configService = inject(ConfigService);
   private http = inject(HttpClient);
   private productList: WritableSignal<Product[]> = signal([]);
 
@@ -16,6 +17,10 @@ export class ProductService {
   state = signal({
     products: new Map<string, Product>(),
   });
+
+  get apiUrl(): string {
+    return this.configService.apiUrl;
+  }
 
   getFormattedProducts() {
     return Array.from(this.state().products.values());

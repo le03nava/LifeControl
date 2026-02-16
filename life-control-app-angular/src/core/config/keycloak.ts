@@ -12,11 +12,11 @@ const localhostCondition = createInterceptorCondition<IncludeBearerTokenConditio
   urlPattern: /^(http:\/\/localhost:9000)(\/.*)?$/i,
 });
 
-export const provideKeycloakAngular = () =>
-  provideKeycloak({
+export const provideKeycloakAngular = () => {
+  return provideKeycloak({
     config: {
       realm: 'life-control-realm',
-      url: 'http://localhost:8181',
+      url: 'KEYCLOAK_URL_PLACEHOLDER',
       clientId: 'life-control-client',
     },
     initOptions: {
@@ -24,12 +24,6 @@ export const provideKeycloakAngular = () =>
       silentCheckSsoRedirectUri: window.location.origin + '/silent-check-sso.html',
       redirectUri: window.location.origin + '/',
     },
-    /*  features: [
-      withAutoRefreshToken({
-        onInactivityTimeout: 'logout',
-        sessionTimeout: 60000,
-      }),
-    ],*/
     providers: [
       AutoRefreshTokenService,
       UserActivityService,
@@ -39,3 +33,4 @@ export const provideKeycloakAngular = () =>
       },
     ],
   });
+};

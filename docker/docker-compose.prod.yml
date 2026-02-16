@@ -399,7 +399,7 @@ services:
   # ============================================
   api-gateway:
     build:
-      context: ./api-gateway
+      context: ../api-gateway
       dockerfile: Dockerfile
       args:
         BUILD_PROFILE: prod
@@ -468,3 +468,43 @@ services:
 secrets:
   grafana_admin_password:
     file: ./secrets/grafana_admin_password.txt
+
+  # ============================================
+  # Production Web App - Angular Frontend
+  # ============================================
+  web-app:
+    build:
+      context: ../life-control-app-angular
+      dockerfile: Dockerfile
+    image: ${WEB_APP_IMAGE:-life-control-app-angular:latest}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-web-app
+    ports:
+      - "${WEB_APP_PORT:-4420}:3000"
+    environment:
+      - NODE_ENV=production
+      - KEYCLOAK_URL=${KEYCLOAK_URL:-https://auth.lifecontrol.com}
+      - KEYCLOAK_REALM=${KEYCLOAK_REALM:-life-control-realm}
+      - KEYCLOAK_CLIENT_ID=${KEYCLOAK_CLIENT_ID:-life-control-client}
+      - API_GATEWAY_URL=${API_GATEWAY_URL:-http://api-gateway:9200}
+      - API_BASE_PATH=${API_BASE_PATH:-/api/product}
+    networks:
+      - ${NETWORK_NAME:-lifecontrol-network-prod}
+    depends_on:
+      - api-gateway
+      - keycloak
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: ${WEB_APP_MEMORY_LIMIT:-512m}
+          cpus: '0.5'
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+    restart: always
