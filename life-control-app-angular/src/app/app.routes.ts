@@ -1,6 +1,5 @@
 import { Routes } from '@angular/router';
-import { authGuard } from '@core/guards/auth-guard';
-import { canActivateAuthRole } from '@core/guards/auth-keycloak-guard';
+import { keycloakRoleGuard } from '@core/guards/auth-keycloak-guard';
 import { Home } from '@features/home/home';
 
 export const routes: Routes = [
@@ -15,10 +14,9 @@ export const routes: Routes = [
   },
   {
     path: 'expressions',
-    loadComponent: () =>
-      import('@features/expression-demo/expression-demo').then((m) => m.ExpressionDemo),
+    loadComponent: () => import('@features/auth/login').then((m) => m.Login),
 
-    canActivate: [canActivateAuthRole],
+    canActivate: [keycloakRoleGuard],
     data: { role: 'view-books' },
   },
   {
@@ -29,7 +27,6 @@ export const routes: Routes = [
   {
     path: 'profile',
     loadComponent: () => import('@features/profile/profile').then((m) => m.Profile),
-    canActivate: [authGuard],
   },
   {
     path: 'login',
