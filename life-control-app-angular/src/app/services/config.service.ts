@@ -1,7 +1,5 @@
 import { Injectable, signal } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
 import { AppConfig } from '../models/app-config.model';
-import { firstValueFrom } from 'rxjs';
 
 const DEFAULT_CONFIG: AppConfig = {
   keycloak: {
@@ -23,18 +21,16 @@ export class ConfigService {
 
   readonly config$ = this.config.asReadonly();
 
-  constructor(private http: HttpClient) {}
+  constructor() {}
 
   async loadConfig(): Promise<void> {
-    try {
-      const config = await firstValueFrom(
-        this.http.get<AppConfig>('/assets/config.json')
-      );
-      this.config.set(config);
-    } catch (error) {
+    const envConfig = (window as any).ENV;
+    
+    if (envConfig) {
+      this.config.set(envConfig as AppConfig);
+    } else {
       console.warn(
-        'Failed to load config.json, using default values:',
-        error
+        'window.ENV not found, using default values'
       );
       this.config.set(DEFAULT_CONFIG);
     }

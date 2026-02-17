@@ -46,13 +46,14 @@ export class Header {
       this.isSmallScreen.set(result.matches);
     });
 
+    this.authenticated = this.keyCloakService.isAuthenticated();
     // Cerrar menú automáticamente cuando se sale de small screen
-    effect(() => {
-      if (!this.isSmallScreen()) {
-        this.showMenu.set(false);
-      }
-      this.authenticated = this.keyCloakService.isAuthenticated();
-    });
+    // effect(() => {
+    //   if (!this.isSmallScreen()) {
+    //     this.showMenu.set(false);
+    //   }
+    //   this.authenticated = this.keyCloakService.isAuthenticated();
+    // });
   }
 
   toggleMenu(): void {

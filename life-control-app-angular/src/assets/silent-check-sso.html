@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Silent SSO Check</title>
+</head>
+<body>
+  <script>
+    // This page is used for silent SSO check with Keycloak
+    // It receives the SSO token via URL hash and passes it back to the parent window
+    (function() {
+      var parentUrl = new URLSearchParams(window.location.hash.substring(1)).get('parentUrl');
+      if (parentUrl) {
+        window.parent.postMessage(window.location.hash, parentUrl);
+      }
+    })();
+  </script>
+</body>
+</html>
