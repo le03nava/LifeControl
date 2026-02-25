@@ -3,7 +3,6 @@ package com.lifecontrol.product;
 import io.restassured.RestAssured;
 import io.restassured.specification.RequestSpecification;
 import org.apache.http.HttpStatus;
-import org.hamcrest.Matchers;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,15 +12,15 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Import;
 import org.springframework.restdocs.restassured.RestAssuredRestDocumentation;
-import org.testcontainers.containers.MongoDBContainer;
+import org.testcontainers.containers.PostgreSQLContainer;
 
-//@Import(TestcontainersConfiguration.class)
+//@TestcontainersConfiguration.class)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureRestDocs
 class ProductServiceApplicationTests {
 
     @ServiceConnection
-    static MongoDBContainer mongoDBContainer = new MongoDBContainer("mongo:7.0.5");
+    static PostgreSQLContainer<?> postgreSQLContainer = new PostgreSQLContainer<>("postgres:18.2");
 
     @LocalServerPort
     private Integer port;
@@ -36,7 +35,7 @@ class ProductServiceApplicationTests {
     }
 
     static {
-        mongoDBContainer.start();
+        postgreSQLContainer.start();
     }
 
     @Test
@@ -56,7 +55,7 @@ class ProductServiceApplicationTests {
                 .body(requestBody)
                 .contentType("application/json")
                 .when()
-                .post("/api/product")
+                .post("/api/products")
                 .then()
                 .statusCode(HttpStatus.SC_CREATED);
         /*

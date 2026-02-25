@@ -1,7 +1,11 @@
 package com.lifecontrol.product.repository;
 
 import com.lifecontrol.product.model.Product;
-import org.springframework.data.mongodb.repository.MongoRepository;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
 
-public interface ProductRepository extends MongoRepository<Product, String> {
+import java.util.UUID;
+
+@Repository
+public interface ProductRepository extends JpaRepository<Product, UUID> {
 }

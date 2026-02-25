@@ -1,14 +1,14 @@
 version: '4'
 services:
-    mongodb:
-        image: mongo:7.0.5
-        container_name: mongodb
+    postgresql:
+        image: postgres:18.2
+        container_name: product-postgres
         ports:
-          - "27017:27017"
+          - "5433:5432"
         environment:
-          MONGO_INITDB_ROOT_USERNAME: root
-          MONGO_INITDB_ROOT_PASSWORD: password
-          MONGO_INITDB_DATABASE: product-service
+          POSTGRES_USER: product_user
+          POSTGRES_PASSWORD: product_pass
+          POSTGRES_DB: product_service
         volumes:
-          - ./data:/data/db
+          - ./data/postgres:/var/lib/postgresql/data
 

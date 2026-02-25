@@ -1,65 +1,81 @@
 package com.lifecontrol.product.service;
 
-import com.lifecontrol.product.dto.ProductRequest;
+import com.lifecontrol.product.dto.ProductCreateRequest;
 import com.lifecontrol.product.dto.ProductResponse;
+import com.lifecontrol.product.dto.ProductUpdateRequest;
+import com.lifecontrol.product.exception.ProductNotFoundException;
 import com.lifecontrol.product.model.Product;
 import com.lifecontrol.product.repository.ProductRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.NoSuchElementException;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class ProductService {
-  private final ProductRepository productRepository;
+    private final ProductRepository productRepository;
 
-  public ProductResponse createProduct(ProductRequest productRequest) {
-    Product product = Product.builder()
-        .name(productRequest.name())
-        .description(productRequest.description())
-        .price(productRequest.price())
-        .build();
-    productRepository.save(product);
-    log.info("Product created succesfully");
-    return new ProductResponse(product.getId(), product.getName(), product.getDescription(), product.getPrice());
-  }
+    @Transactional
+    public ProductResponse createProduct(ProductCreateRequest request) {
+        Product product = Product.builder()
+                .name(request.name())
+                .description(request.description())
+                .price(request.price())
+                .build();
+        
+        product = productRepository.save(product);
+        log.info("Product created successfully with id: {}", product.getId());
+        
+        return getProductResponse(product);
+    }
 
-  public List<ProductResponse> getAllProducts() {
-    log.info("Product created succesfully");
-    return productRepository.findAll()
-        .stream()
-        .map(this::getProductResponse)
-        .toList();
-  }
+    @Transactional(readOnly = true)
+    public List<ProductResponse> getAllProducts() {
+        log.info("Fetching all products");
+        return productRepository.findAll()
+                .stream()
+                .map(this::getProductResponse)
+                .toList();
+    }
 
-  public ProductResponse findProductById(String id) {
-    log.info("Product by id" + id);
-    Product product = productRepository.findById(id)
-        .orElseThrow(() -> new NoSuchElementException("Producto no encontrado con ID: " + id));
-    return this.getProductResponse(product);
-  }
+    @Transactional(readOnly = true)
+    public ProductResponse findProductById(UUID id) {
+        log.info("Fetching product with id: {}", id);
+        Product product = productRepository.findById(id)
+                .orElseThrow(() -> new ProductNotFoundException("Producto no encontrado con ID: " + id));
+        return getProductResponse(product);
+    }
 
-  public ProductResponse updateProduct(ProductRequest productRequest) {
-    Product product = productRepository.findById(productRequest.id())
-        .orElseThrow(() -> new NoSuchElementException("Producto no encontrado con ID: " + productRequest.id()));
-    product.setName(productRequest.name());
-    product.setDescription(productRequest.description());
-    product.setPrice(productRequest.price());
-    productRepository.save(product);
-    log.info("Product updated successfully");
-    return new ProductResponse(product.getId(), product.getName(), product.getDescription(), product.getPrice());
-  }
+    @Transactional
+    public ProductResponse updateProduct(UUID id, ProductUpdateRequest request) {
+        log.info("Updating product with id: {}", id);
+        
+        Product product = productRepository.findById(id)
+                .orElseThrow(() -> new ProductNotFoundException("Producto no encontrado con ID: " + id));
+        
+        product.setName(request.name());
+        product.setDescription(request.description());
+        product.setPrice(request.price());
+        
+        product = productRepository.save(product);
+        log.info("Product updated successfully: {}", id);
+        
+        return getProductResponse(product);
+    }
 
-  public void deleteProduct(String id) {
-    productRepository.deleteById(id);
-    log.info("Product deleted successfully");
-  }
+    @Transactional
+    public void deleteProduct(UUID id) {
+        log.info("Deleting product with id: {}", id);
+        productRepository.deleteById(id);
+        log.info("Product deleted successfully: {}", id);
+    }
 
-  private ProductResponse getProductResponse(Product product) {
-    return new ProductResponse(product.getId(), product.getName(), product.getDescription(), product.getPrice());
-  }
+    private ProductResponse getProductResponse(Product product) {
+        return new ProductResponse(product.getId(), product.getName(), product.getDescription(), product.getPrice());
+    }
 }

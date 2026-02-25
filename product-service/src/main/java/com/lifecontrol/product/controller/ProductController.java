@@ -1,48 +1,55 @@
 package com.lifecontrol.product.controller;
 
-import com.lifecontrol.product.dto.ProductRequest;
+import com.lifecontrol.product.dto.ProductCreateRequest;
 import com.lifecontrol.product.dto.ProductResponse;
+import com.lifecontrol.product.dto.ProductUpdateRequest;
 import com.lifecontrol.product.service.ProductService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.UUID;
 
 @RestController
-@RequestMapping("/api/product")
+@RequestMapping("/api/products")
 @RequiredArgsConstructor
 public class ProductController {
 
-  private final ProductService productService;
+    private final ProductService productService;
 
-  @PostMapping
-  @ResponseStatus(HttpStatus.CREATED)
-  public ProductResponse createProduct(@RequestBody ProductRequest productRequest) {
-    return productService.createProduct(productRequest);
-  }
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public ProductResponse createProduct(@Valid @RequestBody ProductCreateRequest request) {
+        return productService.createProduct(request);
+    }
 
-  @GetMapping
-  @ResponseStatus(HttpStatus.OK)
-  public List<ProductResponse> getAllProducts() {
-    return productService.getAllProducts();
-  }
+    @GetMapping
+    @ResponseStatus(HttpStatus.OK)
+    public List<ProductResponse> getAllProducts() {
+        return productService.getAllProducts();
+    }
 
-  @GetMapping("/{id}")
-  @ResponseStatus(HttpStatus.OK)
-  public ProductResponse findProductById(@PathVariable String id) {
-    return productService.findProductById(id);
-  }
+    @GetMapping("/{id}")
+    @ResponseStatus(HttpStatus.OK)
+    public ProductResponse findProductById(@PathVariable UUID id) {
+        return productService.findProductById(id);
+    }
 
-  @PutMapping
-  @ResponseStatus(HttpStatus.OK)
-  public ProductResponse updateProduct(@RequestBody ProductRequest productRequest) {
-    return productService.updateProduct(productRequest);
-  }
+    @PutMapping("/{id}")
+    @ResponseStatus(HttpStatus.OK)
+    public ProductResponse updateProduct(
+            @PathVariable UUID id,
+            @Valid @RequestBody ProductUpdateRequest request
+    ) {
+        return productService.updateProduct(id, request);
+    }
 
-  @DeleteMapping("/{id}")
-  @ResponseStatus(HttpStatus.NO_CONTENT)
-  public void deleteProduct(@PathVariable String id) {
-    productService.deleteProduct(id);
-  }
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteProduct(@PathVariable UUID id) {
+        productService.deleteProduct(id);
+        return ResponseEntity.noContent().build();
+    }
 }
