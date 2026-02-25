@@ -17,6 +17,8 @@ volumes:
     external: true
   postgres_data:
     external: true
+  product_postgres_data:
+    external: true
   kafka_data:
     external: true
   prometheus_data:
@@ -100,6 +102,44 @@ services:
         window: 180s
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    restart: always
+
+  # ============================================
+  # Production PostgreSQL - Product Service
+  # ============================================
+  product-postgres:
+    image: ${POSTGRES_IMAGE:-postgres:18.1}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-product-postgres
+    ports:
+      - "${PRODUCT_POSTGRES_PORT:-5454}:5432"
+    environment:
+      POSTGRES_DB: ${PRODUCT_POSTGRES_DB:-product_service}
+      POSTGRES_USER: ${PRODUCT_POSTGRES_USER:-product_user}
+      POSTGRES_PASSWORD_FILE: ${PRODUCT_POSTGRES_PASSWORD_FILE}
+    volumes:
+      - product_postgres_data:/var/lib/postgresql/data
+    networks:
+      - ${NETWORK_NAME:-lifecontrol-network-prod}
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          memory: ${PRODUCT_POSTGRES_MEMORY_LIMIT:-1g}
+          cpus: '0.5'
+        reservations:
+          memory: 512m
+          cpus: '0.25'
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+        window: 180s
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PRODUCT_POSTGRES_USER:-product_user}"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -462,12 +502,76 @@ services:
       start_period: 120s
     restart: always
 
+  # ============================================
+  # Production Product Service
+  # ============================================
+  product-service:
+    build:
+      context: ../product-service
+      dockerfile: Dockerfile
+      args:
+        BUILD_PROFILE: prod
+        APP_VERSION: ${APP_VERSION:-1.0.0}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-product-service
+    ports:
+      - "${PRODUCT_SERVICE_PORT:-8080}:${PRODUCT_SERVICE_PORT:-8080}"
+      - "${PRODUCT_SERVICE_MANAGEMENT_PORT:-8081}:${PRODUCT_SERVICE_MANAGEMENT_PORT:-8081}"
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
+      - SERVER_PORT=${PRODUCT_SERVICE_PORT:-8080}
+      - DATABASE_URL=${DATABASE_URL:-jdbc:postgresql://product-postgres:5432/product_service}
+      - DATABASE_USERNAME=${DATABASE_USERNAME:-product_user}
+      - DATABASE_PASSWORD_FILE=${DATABASE_PASSWORD_FILE}
+      - LOKI_URL=${LOKI_URL:-http://loki:3300/loki/api/v1/push}
+      - LOG_LEVEL=WARN
+      - PROMETHEUS_ENABLED=true
+      - TRACING_ENABLED=true
+      - TRACING_SAMPLING_PROBABILITY=0.01
+      - HEALTH_CHECK_ENABLED=true
+      - HEALTH_CHECK_PATH=/actuator/health
+    env_file:
+      - .env.prod
+      - .env.secrets
+    networks:
+      - ${NETWORK_NAME:-lifecontrol-network-prod}
+    depends_on:
+      product-postgres:
+        condition: service_healthy
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          memory: ${PRODUCT_SERVICE_MEMORY_LIMIT:-1g}
+          cpus: '1.0'
+        reservations:
+          memory: 512m
+          cpus: '0.5'
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${PRODUCT_SERVICE_PORT:-8080}/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
+    restart: always
+
 # ============================================
 # Docker Secrets - Production
 # ============================================
 secrets:
   grafana_admin_password:
     file: ./secrets/grafana_admin_password.txt
+
+  product_postgres_password:
+    file: ./secrets/product_postgres_password.txt
 
   # ============================================
   # Production Web App - Angular Frontend

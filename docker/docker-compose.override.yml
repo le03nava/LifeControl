@@ -73,6 +73,23 @@ services:
       - "5433:5432"
 
   # ============================================
+  # Development Product Service Overrides
+  # ============================================
+  product-postgres:
+    ports:
+      - "5434:5432"
+
+  product-service:
+    environment:
+      - LOG_LEVEL=DEBUG
+      - TRACING_SAMPLING_PROBABILITY=0.5
+      - ACTUATOR_ENDPOINTS=*
+      - HEALTH_CHECK_INTERVAL=15s
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+
+  # ============================================
   # Development Kafka Overrides
   # ============================================
   zookeeper:

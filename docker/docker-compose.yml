@@ -208,6 +208,34 @@ services:
     restart: unless-stopped
 
   # ============================================
+  # PostgreSQL - Product Service Database
+  # ============================================
+  product-postgres:
+    image: ${POSTGRES_IMAGE:-postgres:16.4}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-product-postgres
+    ports:
+      - "${PRODUCT_POSTGRES_PORT:-5434}:5432"
+    environment:
+      POSTGRES_DB: ${PRODUCT_POSTGRES_DB:-product_service}
+      POSTGRES_USER: ${PRODUCT_POSTGRES_USER:-product_user}
+      POSTGRES_PASSWORD: ${PRODUCT_POSTGRES_PASSWORD}
+    volumes:
+      - ${PRODUCT_POSTGRES_DATA_PATH:-./volumes/postgres/product/data}:/var/lib/postgresql/data
+    networks:
+      - ${NETWORK_NAME:-lifecontrol-network}
+    deploy:
+      resources:
+        limits:
+          memory: ${PRODUCT_POSTGRES_MEMORY_LIMIT:-256m}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PRODUCT_POSTGRES_USER:-product_user}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+  # ============================================
   # PostgreSQL - Keycloak Database
   # ============================================
   keycloak-postgres:
@@ -427,6 +455,50 @@ services:
           memory: ${API_GATEWAY_MEMORY_LIMIT:-512m}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:${API_GATEWAY_SERVER_PORT:-9000}/actuator/health"]
+      interval: ${HEALTH_CHECK_INTERVAL:-30s}
+      timeout: ${HEALTH_CHECK_TIMEOUT:-3s}
+      retries: ${HEALTH_CHECK_RETRIES:-3}
+      start_period: ${HEALTH_CHECK_START_PERIOD:-60s}
+    restart: unless-stopped
+
+  # ============================================
+  # Product Service - Product Management API
+  # ============================================
+  product-service:
+    build:
+      context: ../product-service
+      dockerfile: Dockerfile
+      args:
+        BUILD_PROFILE: ${SPRING_PROFILES_ACTIVE:-dev}
+        APP_VERSION: ${APP_VERSION:-0.0.1-SNAPSHOT}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-product-service
+    ports:
+      - "${PRODUCT_SERVICE_PORT:-8080}:${PRODUCT_SERVICE_PORT:-8080}"
+      - "${PRODUCT_SERVICE_MANAGEMENT_PORT:-8081}:${PRODUCT_SERVICE_MANAGEMENT_PORT:-8081}"
+    environment:
+      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-dev}
+      - SERVER_PORT=${PRODUCT_SERVICE_PORT:-8080}
+      - DATABASE_URL=${DATABASE_URL:-jdbc:postgresql://product-postgres:5432/product_service}
+      - DATABASE_USERNAME=${DATABASE_USERNAME:-product_user}
+      - DATABASE_PASSWORD=${DATABASE_PASSWORD}
+      - LOKI_URL=${LOKI_URL:-http://loki:3100/loki/api/v1/push}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - PROMETHEUS_ENABLED=${PROMETHEUS_ENABLED:-true}
+      - TRACING_ENABLED=${TRACING_ENABLED:-true}
+      - TRACING_SAMPLING_PROBABILITY=${TRACING_SAMPLING_PROBABILITY:-0.1}
+      - HEALTH_CHECK_ENABLED=${HEALTH_CHECK_ENABLED:-true}
+      - HEALTH_CHECK_PATH=/actuator/health
+    networks:
+      - ${NETWORK_NAME:-lifecontrol-network}
+    depends_on:
+      product-postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: ${PRODUCT_SERVICE_MEMORY_LIMIT:-512m}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${PRODUCT_SERVICE_PORT:-8080}/actuator/health"]
       interval: ${HEALTH_CHECK_INTERVAL:-30s}
       timeout: ${HEALTH_CHECK_TIMEOUT:-3s}
       retries: ${HEALTH_CHECK_RETRIES:-3}
