@@ -169,7 +169,7 @@ export class Login {
 
       if (success) {
         this.notificationService.showSuccess('Welcome back!');
-        this.router.navigate(['/dashboard']);
+        this.router.navigate(['/']);
       } else {
         this.notificationService.showError('Invalid email or password');
       }

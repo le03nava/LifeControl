@@ -1,13 +1,13 @@
-@if (product) {
+@if (product(); as p) {
   <div class="card" (click)="onViewProduct($event)">
     <div class="card-header">
-      <h3 class="card-title">{{ product.name }}</h3>
-      <span class="card-price">${{ product.price }}</span>
+      <h3 class="card-title">{{ p.name }}</h3>
+      <span class="card-price">${{ p.price }}</span>
     </div>
     <div class="card-body">
-      <p class="card-description">{{ product.description }}</p>
+      <p class="card-description">{{ p.description }}</p>
       <div class="card-id">
-        <small>ID: {{ product.id }}</small>
+        <small>ID: {{ p.id }}</small>
       </div>
     </div>
     <div class="card-actions">

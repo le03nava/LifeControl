@@ -18,7 +18,7 @@ import { Button } from '@shared/ui/button/button';
           The page you're looking for doesn't exist or has been moved.
         </p>
         <div class="error-actions">
-          <button variant="primary" routerLink="/dashboard">app-button Go to Dashboard</button>
+          <button variant="primary" routerLink="/">app-button Go to Home</button>
           <button app-button variant="secondary" (buttonClick)="goBack()">Go Back</button>
         </div>
       </div>

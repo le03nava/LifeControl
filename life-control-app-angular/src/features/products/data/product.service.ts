@@ -1,7 +1,8 @@
-import { inject, Injectable, signal, WritableSignal } from '@angular/core';
+import { inject, Injectable } from '@angular/core';
 import { Product } from '../models/product.models';
 import { Observable } from 'rxjs';
 import { HttpClient } from '@angular/common/http';
+import { httpResource } from '@angular/common/http';
 import { ConfigService } from '@app/services/config.service';
 
 @Injectable({
@@ -10,38 +11,30 @@ import { ConfigService } from '@app/services/config.service';
 export class ProductService {
   private configService = inject(ConfigService);
   private http = inject(HttpClient);
-  private productList: WritableSignal<Product[]> = signal([]);
 
-  public products = this.productList.asReadonly();
+  // Usar httpResource para obtener la lista de productos
+  private _productsResource = httpResource<Product[]>(
+    () => this.apiUrl,
+    { defaultValue: [] }
+  );
 
-  state = signal({
-    products: new Map<string, Product>(),
-  });
+  // Signal derivado de la resource
+  readonly products = this._productsResource.value;
 
   get apiUrl(): string {
     return this.configService.apiUrl;
   }
 
-  getFormattedProducts() {
-    return Array.from(this.state().products.values());
+  getFormattedProducts(): Product[] {
+    return this._productsResource.value() ?? [];
   }
 
   getProducts(): void {
-    this.http.get<Product[]>(this.apiUrl).subscribe((products) => {
-      products.forEach((product) => {
-        this.state().products.set(product.id!, product);
-      });
-      this.state.set({ products: this.state().products });
-    });
+    this._productsResource.reload();
   }
 
   getProductList(): void {
-    this.http.get<Product[]>(`${this.apiUrl}`).subscribe({
-      next: (productList) => {
-        console.log('Producto lists', productList);
-        this.productList.set(productList);
-      },
-    });
+    this._productsResource.reload();
   }
 
   getProductById(id: string): Observable<Product> {

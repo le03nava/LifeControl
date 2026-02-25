@@ -1,16 +1,15 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal, effect } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ProductService } from '@features/products/data/product.service';
-import { Product } from '@features/products/models/product.models';
+import { Product, ProductControl } from '@features/products/models/product.models';
 import {
-  FormBuilder,
+  NonNullableFormBuilder,
   FormGroup,
   Validators,
   ReactiveFormsModule,
-  NonNullableFormBuilder,
 } from '@angular/forms';
 import { ProductsForm } from '@features/products/components/products-form/products-form';
-import { ProductControl } from '@features/products/models/product-control';
+import { httpResource } from '@angular/common/http';
 
 @Component({
   selector: 'app-product-edit',
@@ -25,14 +24,21 @@ export class ProductEdit {
   private fb = inject(NonNullableFormBuilder);
   private router = inject(Router);
 
+  productId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
+
+  // Usar httpResource para obtener el producto por ID
+  private productResource = httpResource<Product>(
+    () => (this.productId() ? `${this.productService.apiUrl}/${this.productId()}` : undefined),
+    { defaultValue: { id: '', name: '', description: '', price: 0 } as Product }
+  );
+
   productForm = signal<FormGroup<ProductControl>>(this.createForm());
-  productId = signal(this.route.snapshot.paramMap.get('id'));
 
   constructor() {
-    const id = this.productId();
-    if (id) {
-      this.productService.getProductById(id).subscribe((product) => {
-        console.log(product.id);
+    // Usar effect para actualizar el formulario cuando cambia el producto
+    effect(() => {
+      const product = this.productResource.value();
+      if (product && product.id) {
         this.productForm.set(
           this.fb.group({
             id: this.fb.control(product.id),
@@ -41,12 +47,11 @@ export class ProductEdit {
             price: this.fb.control(product.price),
           }),
         );
-      });
-    }
+      }
+    });
   }
 
   private createForm(): FormGroup<ProductControl> {
-    console.log(this.productId);
     return this.fb.group({
       id: this.fb.control(''),
       name: this.fb.control(''),
@@ -55,28 +60,23 @@ export class ProductEdit {
     });
   }
 
-  createProduct(productData: Product) {
-    console.log('product ', productData);
+  onSaveProduct(productData: Product): void {
     if (productData.id === '') {
       this.productService.createProduct(productData).subscribe({
-        next: (createdProduct) => {
-          console.log('Producto creado:', createdProduct);
+        next: () => {
           this.router.navigate(['/products']);
         },
       });
     } else {
       this.productService.updateProduct(productData).subscribe({
-        next: (createdProduct) => {
-          console.log('Producto actualizado:', createdProduct);
-
+        next: () => {
           this.router.navigate(['/products']);
-          //
         },
       });
     }
   }
 
-  cancelForm() {
+  cancelForm(): void {
     this.router.navigate(['/products']);
   }
 }

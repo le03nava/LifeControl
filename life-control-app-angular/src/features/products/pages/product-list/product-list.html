@@ -14,16 +14,24 @@
   </div>
 
   <div class="users-grid">
-    @for (product of productService.products(); track product.id) {
-      <app-products-card
-        [product]="product"
-        (editProduct)="editProduct($event)"
-        (deleteProduct)="confirmDelete($event)"
-      />
-    } @empty {
-      <div class="empty-state">
-        <div class="empty-icon">👥</div>
-        <h3 class="empty-title">No users found</h3>
+    @defer (on viewport) {
+      @for (product of products(); track product.id) {
+        <app-products-card
+          [product]="product"
+          (editProduct)="editProduct($event)"
+          (deleteProduct)="confirmDelete($event)"
+        />
+      } @empty {
+        <div class="empty-state">
+          <div class="empty-icon">👥</div>
+          <h3 class="empty-title">No users found</h3>
+        </div>
+      }
+    } @placeholder {
+      <div class="loading-skeleton">
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
       </div>
     }
   </div>
@@ -36,7 +44,7 @@
     (modalClose)="cancelDelete()"
   >
     <p>
-      Are you sure you want to delete <strong>{{ userToDelete()?.name }}</strong
+      Are you sure you want to delete <strong>{{ productToDelete()?.name }}</strong
       >?
     </p>
     <p class="warning-text">This action cannot be undone.</p>

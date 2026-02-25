@@ -9,24 +9,11 @@ export const routes: Routes = [
     title: 'Home',
   },
   {
-    path: 'dashboard',
-    loadComponent: () => import('@features/dashboard/dashboard').then((m) => m.Dashboard),
-  },
-  {
     path: 'expressions',
     loadComponent: () => import('@features/auth/login').then((m) => m.Login),
 
     canActivate: [keycloakRoleGuard],
     data: { role: 'view-books' },
-  },
-  {
-    path: 'users',
-    loadChildren: () =>
-      import('@features/user-management/user-management.routes').then((m) => m.userRoutes),
-  },
-  {
-    path: 'profile',
-    loadComponent: () => import('@features/profile/profile').then((m) => m.Profile),
   },
   {
     path: 'login',

@@ -1,12 +1,10 @@
 import {
   Component,
-  Input,
-  Output,
-  EventEmitter,
-  OnInit,
   inject,
   signal,
   input,
+  output,
+  effect,
 } from '@angular/core';
 import {
   FormBuilder,
@@ -16,7 +14,7 @@ import {
   FormControl,
 } from '@angular/forms';
 import { Product } from '../../models/product.models';
-import { ProductControl } from '../../models/product-control';
+import { ProductControl } from '../../models/product.models';
 import { Field } from '@shared/ui';
 
 @Component({
@@ -26,39 +24,27 @@ import { Field } from '@shared/ui';
   templateUrl: './products-form.html',
   styleUrl: './products-form.scss',
 })
-export class ProductsForm implements OnInit {
+export class ProductsForm {
   formGroup = input.required<FormGroup<ProductControl>>();
-  // @Input() product: Product | undefined;
-  @Output() saveProduct = new EventEmitter<Product>();
-  @Output() cancelForm = new EventEmitter<void>();
+  saveProduct = output<Product>();
+  cancelForm = output<void>();
 
-  //productForm = signal<FormGroup>(this.createForm());
-  public edit = signal(false);
-  private fb = inject(FormBuilder);
-  ngOnInit(): void {
-    //this.productForm = this.createForm();
-    console.log('formGroup', this.formGroup().get('id')!.value);
-    if (this.formGroup().get('id')!.value !== '') {
-      this.edit.set(true);
-    }
-  }
-  /*
-  private createForm(): FormGroup<ProductControl> {
-    return this.fb.group({
-      id: new FormControl(this.product?.id || ''),
-      name: new FormControl(this.product?.name || '', [
-        Validators.required,
-        Validators.minLength(3),
-      ]),
-      description: new FormControl(this.product?.description || ''),
-      price: new FormControl(this.product?.price || 0, [Validators.required, Validators.min(0.01)]),
+  // Signal para detectar modo edición
+  isEditMode = signal(false);
+
+  constructor() {
+    // Detectar modo edición cuando cambia el formGroup
+    effect(() => {
+      const form = this.formGroup();
+      if (form.get('id')?.value) {
+        this.isEditMode.set(true);
+      }
     });
-  }*/
+  }
 
   onSave(): void {
     if (this.formGroup().valid) {
       const formData = this.formGroup();
-      console.log('formData', formData);
 
       const productData: Product = {
         id: formData.get('id')!.value,
@@ -71,7 +57,6 @@ export class ProductsForm implements OnInit {
   }
 
   onCancel(): void {
-    console.log(',', this.formGroup().valid);
     this.cancelForm.emit();
   }
 

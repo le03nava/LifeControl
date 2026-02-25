@@ -1,4 +1,4 @@
-import { Component, Input } from '@angular/core';
+import { Component, input } from '@angular/core';
 import { Product } from '../../models/product.models';
 
 @Component({
@@ -9,5 +9,5 @@ import { Product } from '../../models/product.models';
   styleUrl: './products-table.scss',
 })
 export class ProductsTable {
-  @Input() products: Product[] | undefined = [];
+  products = input<Product[]>([]);
 }

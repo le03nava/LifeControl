@@ -35,7 +35,7 @@
     <div class="form-actions">
       <button type="button" class="btn-cancel" (click)="onCancel()">Cancelar</button>
       <button type="submit" class="btn-save" [disabled]="!formGroup().valid">
-        @if (!edit()) {
+        @if (!isEditMode()) {
           Guardar
         } @else {
           Actualizar
