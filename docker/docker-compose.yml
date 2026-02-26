@@ -45,9 +45,9 @@ services:
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
       MONGO_INITDB_DATABASE: ${MONGO_DATABASE:-product-service}
     volumes:
-      - ${MONGO_DATA_PATH:-./volumes/mongodb/data}:/data/db
+      - ${MONGO_DATA_PATH:-./docker/volumes-dev/mongodb/data}:/data/db
     networks:
-      - ${NETWORK_NAME:-lifecontrol-network}
+      - ${NETWORK_NAME:-lifecontrol-network-dev}
     deploy:
       resources:
         limits:
@@ -74,10 +74,10 @@ services:
       MYSQL_USER: ${MYSQL_USER:-orderuser}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
     volumes:
-      - ${MYSQL_DATA_PATH:-./volumes/mysql/data}:/var/lib/mysql
-      - ${MYSQL_INIT_PATH:-./volumes/mysql/init}:/docker-entrypoint-initdb.d:ro
+      - ${MYSQL_DATA_PATH:-./docker/volumes-dev/mysql/data}:/var/lib/mysql
+      - ${MYSQL_INIT_PATH:-./docker/volumes-dev/mysql/init}:/docker-entrypoint-initdb.d:ro
     networks:
-      - ${NETWORK_NAME:-lifecontrol-network}
+      - ${NETWORK_NAME:-lifecontrol-network-dev}
     deploy:
       resources:
         limits:
@@ -103,7 +103,7 @@ services:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
     networks:
-      - ${NETWORK_NAME:-lifecontrol-network}
+      - ${NETWORK_NAME:-lifecontrol-network-dev}
     deploy:
       resources:
         limits:
@@ -136,9 +136,9 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: ${KAFKA_TRANSACTION_STATE_LOG_MIN_ISR:-1}
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: ${KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR:-1}
     volumes:
-      - ${KAFKA_DATA_PATH:-./volumes/kafka/data}:/var/lib/kafka/data
+      - ${KAFKA_DATA_PATH:-./docker/volumes-dev/kafka/data}:/var/lib/kafka/data
     networks:
-      - ${NETWORK_NAME:-lifecontrol-network}
+      - ${NETWORK_NAME:-lifecontrol-network-dev}
     deploy:
       resources:
         limits:
@@ -167,7 +167,7 @@ services:
       SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: ${SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS:-broker:29092}
       SCHEMA_REGISTRY_LISTENERS: ${SCHEMA_REGISTRY_LISTENERS:-http://schema-registry:8081}
     networks:
-      - ${NETWORK_NAME:-lifecontrol-network}
+      - ${NETWORK_NAME:-lifecontrol-network-dev}
     deploy:
       resources:
         limits:
@@ -195,7 +195,7 @@ services:
       KAFKA_CLUSTERS_BOOTSTRAPSERVERS: ${KAFKA_CLUSTERS_BOOTSTRAPSERVERS:-broker:29092}
       DYNAMIC_CONFIG_ENABLED: "true"
     networks:
-      - ${NETWORK_NAME:-lifecontrol-network}
+      - ${NETWORK_NAME:-lifecontrol-network-dev}
     deploy:
       resources:
         limits:
@@ -220,9 +220,9 @@ services:
       POSTGRES_USER: ${PRODUCT_POSTGRES_USER:-product_user}
       POSTGRES_PASSWORD: ${PRODUCT_POSTGRES_PASSWORD}
     volumes:
-      - ${PRODUCT_POSTGRES_DATA_PATH:-./volumes/postgres/product/data}:/var/lib/postgresql/data
+      - ${PRODUCT_POSTGRES_DATA_PATH:-./docker/volumes-dev/postgres/product/data}:/var/lib/postgresql/data
     networks:
-      - ${NETWORK_NAME:-lifecontrol-network}
+      - ${NETWORK_NAME:-lifecontrol-network-dev}
     deploy:
       resources:
         limits:
@@ -248,9 +248,9 @@ services:
       POSTGRES_USER: ${KEYCLOAK_POSTGRES_USER:-keycloak}
       POSTGRES_PASSWORD: ${KEYCLOAK_POSTGRES_PASSWORD}
     volumes:
-      - ${POSTGRES_DATA_PATH:-./volumes/postgres/data}:/var/lib/postgresql/data
+      - ${POSTGRES_DATA_PATH:-./docker/volumes-dev/postgres/data}:/var/lib/postgresql/data
     networks:
-      - ${NETWORK_NAME:-lifecontrol-network}
+      - ${NETWORK_NAME:-lifecontrol-network-dev}
     deploy:
       resources:
         limits:
@@ -282,9 +282,9 @@ services:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_ADMIN_USERNAME:-admin}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD}
     volumes:
-      - ${KEYCLOAK_REALMS_PATH:-./volumes/keycloak/realms}:/opt/keycloak/data/import:ro
+      - ${KEYCLOAK_REALMS_PATH:-./docker/volumes-dev/keycloak/realms}:/opt/keycloak/data/import:ro
     networks:
-      - ${NETWORK_NAME:-lifecontrol-network}
+      - ${NETWORK_NAME:-lifecontrol-network-dev}
     depends_on:
       keycloak-postgres:
         condition: service_healthy
@@ -310,9 +310,9 @@ services:
     ports:
       - "${LOKI_PORT:-3100}:3100"
     volumes:
-      - ${LOKI_DATA_PATH:-./volumes/loki/data}:/loki/data
+      - ${LOKI_DATA_PATH:-./docker/volumes-dev/loki/data}:/loki/data
     networks:
-      - ${NETWORK_NAME:-lifecontrol-network}
+      - ${NETWORK_NAME:-lifecontrol-network-dev}
     deploy:
       resources:
         limits:
@@ -339,10 +339,10 @@ services:
     ports:
       - "${PROMETHEUS_PORT:-9090}:9090"
     volumes:
-      - ${PROMETHEUS_CONFIG_PATH:-./volumes/prometheus/config}:/etc/prometheus:ro
-      - ${PROMETHEUS_DATA_PATH:-./volumes/prometheus/data}:/prometheus
+      - ${PROMETHEUS_CONFIG_PATH:-./docker/volumes-dev/prometheus/config}:/etc/prometheus:ro
+      - ${PROMETHEUS_DATA_PATH:-./docker/volumes-dev/prometheus/data}:/prometheus
     networks:
-      - ${NETWORK_NAME:-lifecontrol-network}
+      - ${NETWORK_NAME:-lifecontrol-network-dev}
     deploy:
       resources:
         limits:
@@ -366,10 +366,10 @@ services:
       - "${TEMPO_PORT:-3110}:3100"  # Tempo
       - "${TEMPO_ZIPKIN_PORT:-9411}:9411"  # Zipkin
     volumes:
-      - ${TEMPO_CONFIG_PATH:-./volumes/tempo/config}:/etc/tempo:ro
-      - ${TEMPO_DATA_PATH:-./volumes/tempo/data}:/var/tempo
+      - ${TEMPO_CONFIG_PATH:-./docker/volumes-dev/tempo/config}:/etc/tempo:ro
+      - ${TEMPO_DATA_PATH:-./docker/volumes-dev/tempo/data}:/var/tempo
     networks:
-      - ${NETWORK_NAME:-lifecontrol-network}
+      - ${NETWORK_NAME:-lifecontrol-network-dev}
     deploy:
       resources:
         limits:
@@ -395,10 +395,10 @@ services:
       - GF_AUTH_ANONYMOUS_ORG_ROLE=${GF_AUTH_ANONYMOUS_ORG_ROLE:-Admin}
       - GF_AUTH_DISABLE_LOGIN_FORM=${GF_AUTH_DISABLE_LOGIN_FORM:-true}
     volumes:
-      - ${GRAFANA_CONFIG_PATH:-./volumes/grafana/config}:/etc/grafana/provisioning/datasources:ro
-      - ${GRAFANA_DATA_PATH:-./volumes/grafana/data}:/var/lib/grafana
+      - ${GRAFANA_CONFIG_PATH:-./docker/volumes-dev/grafana/config}:/etc/grafana/provisioning/datasources:ro
+      - ${GRAFANA_DATA_PATH:-./docker/volumes-dev/grafana/data}:/var/lib/grafana
     networks:
-      - ${NETWORK_NAME:-lifecontrol-network}
+      - ${NETWORK_NAME:-lifecontrol-network-dev}
     deploy:
       resources:
         limits:
@@ -441,7 +441,7 @@ services:
       - TIMEOUT_DURATION=${TIMEOUT_DURATION:-3s}
       - RETRY_MAX_ATTEMPTS=${RETRY_MAX_ATTEMPTS:-3}
     networks:
-      - ${NETWORK_NAME:-lifecontrol-network}
+      - ${NETWORK_NAME:-lifecontrol-network-dev}
     depends_on:
       keycloak:
         condition: service_healthy
@@ -489,7 +489,7 @@ services:
       - HEALTH_CHECK_ENABLED=${HEALTH_CHECK_ENABLED:-true}
       - HEALTH_CHECK_PATH=/actuator/health
     networks:
-      - ${NETWORK_NAME:-lifecontrol-network}
+      - ${NETWORK_NAME:-lifecontrol-network-dev}
     depends_on:
       product-postgres:
         condition: service_healthy
@@ -524,7 +524,7 @@ services:
       - API_GATEWAY_URL=${API_GATEWAY_URL:-http://localhost:9000}
       - API_BASE_PATH=${API_BASE_PATH:-/api/product}
     networks:
-      - ${NETWORK_NAME:-lifecontrol-network}
+      - ${NETWORK_NAME:-lifecontrol-network-dev}
     depends_on:
       - api-gateway
       - keycloak
