@@ -67,6 +67,16 @@ out/
 ### VS Code ###
 .vscode/
 
+### Package Lock Files ###
+*.lock
+package-lock.json
+yarn.lock
+bun.lock
+
+### Yarn binary ###
+backstage/.yarn/releases/
+backstage/.yarn/cache/
+
 ### DATA ###
 /data/
 /volume-data/
@@ -74,17 +84,19 @@ out/
 /docker/tempo/tempo-data/
 
 # ============================================
-# Environment & Secrets (NEVER COMMIT)
+# Docker Environment Files (NEVER COMMIT)
 # ============================================
+docker/.env
+docker/.env.local
+docker/.env.*.local
+docker/.env.secrets
+docker/.env.secrets.*
+docker/.env.dev
+docker/.env.prod
+docker/.env.staging
 .env
 .env.local
 .env.*.local
-.env.secrets
-.env.secrets.*
-secrets/
-*.pem
-*.key
-*.crt
 
 # ============================================
 # Docker Volumes (Data)
