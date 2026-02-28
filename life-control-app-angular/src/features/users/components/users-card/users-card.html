@@ -1,0 +1,28 @@
+@if (user(); as u) {
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title">{{ u.username }}</h3>
+      <span [class.active]="u.enabled" [class.inactive]="!u.enabled">
+        {{ u.enabled ? 'Activo' : 'Inactivo' }}
+      </span>
+    </div>
+    <div class="card-body">
+      <p class="card-email">{{ u.email }}</p>
+      <p class="card-name">{{ u.name }} {{ u.lastname }}</p>
+      @if (u.phone) {
+        <p class="card-phone">{{ u.phone }}</p>
+      }
+      <div class="card-id">
+        <small>ID: {{ u.id }}</small>
+      </div>
+    </div>
+    <div class="card-actions">
+      <button class="edit-btn" (click)="onEditUser($event)">Editar</button>
+      <button class="delete-btn" (click)="onDeleteUser($event)">Eliminar</button>
+    </div>
+  </div>
+} @else {
+  <div class="card card-empty">
+    <p>No hay información del usuario disponible</p>
+  </div>
+}

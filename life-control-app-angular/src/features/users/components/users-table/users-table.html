@@ -1,0 +1,39 @@
+<table>
+  <thead>
+    <tr>
+      <th>Usuario</th>
+      <th>Correo</th>
+      <th>Nombre</th>
+      <th>Apellido</th>
+      <th>Teléfono</th>
+      <th>Activo</th>
+      <th>Acciones</th>
+    </tr>
+  </thead>
+  <tbody>
+    @for (user of users(); track user.id) {
+      <tr>
+        <td>{{ user.username }}</td>
+        <td>{{ user.email }}</td>
+        <td>{{ user.name }}</td>
+        <td>{{ user.lastname }}</td>
+        <td>{{ user.phone }}</td>
+        <td>
+          <span [class.active]="user.enabled" [class.inactive]="!user.enabled">
+            {{ user.enabled ? 'Sí' : 'No' }}
+          </span>
+        </td>
+        <td class="actions">
+          <button class="btn-edit" (click)="editUser.emit(user.id)">Editar</button>
+          <button class="btn-delete" (click)="deleteUser.emit({ id: user.id, name: user.username })">Eliminar</button>
+        </td>
+      </tr>
+    } @empty {
+      <tr>
+        <td colspan="7" class="empty-message">
+          No hay usuarios disponibles
+        </td>
+      </tr>
+    }
+  </tbody>
+</table>

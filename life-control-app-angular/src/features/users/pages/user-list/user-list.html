@@ -1,0 +1,62 @@
+<div class="user-list-page">
+  <header class="page-header">
+    <div class="header-content">
+      <h1 class="page-title">Gestión de Usuarios</h1>
+      <p class="page-subtitle">Administra los usuarios del sistema</p>
+    </div>
+    <div class="header-actions">
+      <button app-button variant="primary" routerLink="/users/create">➕ Agregar Usuario</button>
+    </div>
+  </header>
+
+  <div class="filters-section">
+    <div class="role-filter"></div>
+  </div>
+
+  <div class="users-grid">
+    @defer (on viewport) {
+      @for (user of users(); track user.id) {
+        <app-users-card
+          [user]="user"
+          (editUser)="editUser($event)"
+          (deleteUser)="confirmDelete($event)"
+        />
+      } @empty {
+        <div class="empty-state">
+          <div class="empty-icon">👥</div>
+          <h3 class="empty-title">No se encontraron usuarios</h3>
+        </div>
+      }
+    } @placeholder {
+      <div class="loading-skeleton">
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+      </div>
+    }
+  </div>
+
+  <!-- Delete Confirmation Modal -->
+  <app-modal
+    [isOpen]="showDeleteModal()"
+    title="Confirmar Eliminación"
+    size="small"
+    (modalClose)="cancelDelete()"
+  >
+    <p>
+      ¿Estás seguro de que deseas eliminar el usuario <strong>{{ userToDelete()?.name }}</strong>?
+    </p>
+    <p class="warning-text">Esta acción no se puede deshacer.</p>
+
+    <div slot="footer">
+      <button app-button variant="secondary" (buttonClick)="cancelDelete()">Cancelar</button>
+      <button app-button variant="danger" (buttonClick)="executeDelete()" [disabled]="isDeleting()">
+        @if (isDeleting()) {
+          Eliminando...
+        } @else {
+          Eliminar Usuario
+        }
+      </button>
+    </div>
+  </app-modal>
+</div>

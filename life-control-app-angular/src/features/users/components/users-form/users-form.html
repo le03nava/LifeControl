@@ -1,0 +1,78 @@
+<div class="form-container">
+  <h2>
+    @if (!isEditMode()) {
+      Nuevo Usuario
+    } @else {
+      Editar Usuario
+    }
+  </h2>
+  <form [formGroup]="formGroup()" (ngSubmit)="onSave()">
+    <app-field
+      [control]="getControl('username')"
+      fieldId="username"
+      label="Usuario"
+      type="text"
+      placeholder="Ingrese el nombre de usuario"
+    />
+
+    <app-field
+      [control]="getControl('email')"
+      fieldId="email"
+      label="Correo electrónico"
+      type="email"
+      placeholder="Ingrese el correo electrónico"
+    />
+
+    @if (!isEditMode()) {
+      <app-field
+        [control]="getControl('password')"
+        fieldId="password"
+        label="Contraseña"
+        type="password"
+        placeholder="Ingrese la contraseña"
+      />
+    }
+
+    <app-field
+      [control]="getControl('name')"
+      fieldId="name"
+      label="Nombre"
+      type="text"
+      placeholder="Ingrese el nombre"
+    />
+
+    <app-field
+      [control]="getControl('lastname')"
+      fieldId="lastname"
+      label="Apellido"
+      type="text"
+      placeholder="Ingrese el apellido"
+    />
+
+    <app-field
+      [control]="getControl('phone')"
+      fieldId="phone"
+      label="Teléfono"
+      type="text"
+      placeholder="Ingrese el teléfono"
+    />
+
+    <div class="form-field">
+      <label class="checkbox-label">
+        <input type="checkbox" [formControl]="getControl('enabled')" />
+        <span>Usuario activo</span>
+      </label>
+    </div>
+
+    <div class="form-actions">
+      <button type="button" class="btn-cancel" (click)="onCancel()">Cancelar</button>
+      <button type="submit" class="btn-save" [disabled]="!formGroup().valid">
+        @if (!isEditMode()) {
+          Guardar
+        } @else {
+          Actualizar
+        }
+      </button>
+    </div>
+  </form>
+</div>
