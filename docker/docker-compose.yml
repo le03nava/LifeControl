@@ -20,6 +20,8 @@ volumes:
     driver: local
   postgres_data:
     driver: local
+  lifecontrol_data:
+    driver: local
   kafka_data:
     driver: local
   prometheus_data:
@@ -264,6 +266,34 @@ services:
     restart: unless-stopped
 
   # ============================================
+  # PostgreSQL - LifeControl API Database
+  # ============================================
+  lifecontrol-postgres:
+    image: ${LIFECONTROL_POSTGRES_IMAGE:-postgres:16.4}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-lifecontrol-postgres
+    ports:
+      - "${LIFECONTROL_POSTGRES_PORT:-5435}:5432"
+    environment:
+      POSTGRES_DB: ${LIFECONTROL_POSTGRES_DB:-lifecontrol}
+      POSTGRES_USER: ${LIFECONTROL_POSTGRES_USER:-lifecontrol_user}
+      POSTGRES_PASSWORD: ${LIFECONTROL_POSTGRES_PASSWORD}
+    volumes:
+      - ${LIFECONTROL_POSTGRES_DATA_PATH:-./docker/volumes-dev/postgres/lifecontrol/data}:/var/lib/postgresql/data
+    networks:
+      - ${NETWORK_NAME:-lifecontrol-network-dev}
+    deploy:
+      resources:
+        limits:
+          memory: ${LIFECONTROL_POSTGRES_MEMORY_LIMIT:-256m}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${LIFECONTROL_POSTGRES_USER:-lifecontrol_user}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+  # ============================================
   # Keycloak - Identity Provider
   # ============================================
   keycloak:
@@ -449,6 +479,8 @@ services:
         condition: service_healthy
       mysql:
         condition: service_healthy
+      lifecontrol-api:
+        condition: service_started
     deploy:
       resources:
         limits:
@@ -499,6 +531,50 @@ services:
           memory: ${PRODUCT_SERVICE_MEMORY_LIMIT:-512m}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:${PRODUCT_SERVICE_PORT:-8080}/actuator/health"]
+      interval: ${HEALTH_CHECK_INTERVAL:-30s}
+      timeout: ${HEALTH_CHECK_TIMEOUT:-3s}
+      retries: ${HEALTH_CHECK_RETRIES:-3}
+      start_period: ${HEALTH_CHECK_START_PERIOD:-60s}
+    restart: unless-stopped
+
+  # ============================================
+  # LifeControl API - User Management API
+  # ============================================
+  lifecontrol-api:
+    build:
+      context: ../life-control-api
+      dockerfile: Dockerfile
+      args:
+        BUILD_PROFILE: ${SPRING_PROFILES_ACTIVE:-dev}
+        APP_VERSION: ${APP_VERSION:-0.0.1-SNAPSHOT}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-lifecontrol-api
+    ports:
+      - "${LIFECONTROL_API_PORT:-8082}:${LIFECONTROL_API_PORT:-8082}"
+      - "${LIFECONTROL_API_MANAGEMENT_PORT:-8083}:${LIFECONTROL_API_MANAGEMENT_PORT:-8083}"
+    environment:
+      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-dev}
+      - SERVER_PORT=${LIFECONTROL_API_PORT:-8082}
+      - DATABASE_URL=${LIFECONTROL_DATABASE_URL:-jdbc:postgresql://lifecontrol-postgres:5432/lifecontrol}
+      - DATABASE_USERNAME=${LIFECONTROL_DATABASE_USERNAME:-lifecontrol_user}
+      - DATABASE_PASSWORD=${LIFECONTROL_DATABASE_PASSWORD}
+      - LOKI_URL=${LOKI_URL:-http://loki:3100/loki/api/v1/push}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - PROMETHEUS_ENABLED=${PROMETHEUS_ENABLED:-true}
+      - TRACING_ENABLED=${TRACING_ENABLED:-true}
+      - TRACING_SAMPLING_PROBABILITY=${TRACING_SAMPLING_PROBABILITY:-0.1}
+      - HEALTH_CHECK_ENABLED=${HEALTH_CHECK_ENABLED:-true}
+      - HEALTH_CHECK_PATH=/actuator/health
+    networks:
+      - ${NETWORK_NAME:-lifecontrol-network-dev}
+    depends_on:
+      lifecontrol-postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: ${LIFECONTROL_API_MEMORY_LIMIT:-512m}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${LIFECONTROL_API_PORT:-8082}/actuator/health"]
       interval: ${HEALTH_CHECK_INTERVAL:-30s}
       timeout: ${HEALTH_CHECK_TIMEOUT:-3s}
       retries: ${HEALTH_CHECK_RETRIES:-3}

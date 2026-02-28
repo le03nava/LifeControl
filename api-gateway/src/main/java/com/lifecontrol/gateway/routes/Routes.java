@@ -77,6 +77,26 @@ public class Routes {
   }
 
   @Bean
+  public RouterFunction<ServerResponse> lifeControlApiRoute() {
+    return GatewayRouterFunctions.route("lifecontrol_api")
+        .route(RequestPredicates.path("/api/user/**"), HandlerFunctions.http("http://lifecontrol-api:8082"))
+        .filter(CircuitBreakerFilterFunctions.circuitBreaker("lifeControlApiCircuitBreaker",
+            URI.create("forward:/fallbackRoute")))
+        .build();
+  }
+
+  @Bean
+  public RouterFunction<ServerResponse> lifeControlApiSwaggerRoute() {
+    return GatewayRouterFunctions.route("lifecontrol_api_swagger")
+        .route(RequestPredicates.GET("/aggregate/lifecontrol-api/v3/api-docs"),
+            HandlerFunctions.http("http://lifecontrol-api:8082"))
+        .filter(CircuitBreakerFilterFunctions.circuitBreaker("lifeControlApiSwaggerCircuitBreaker",
+            URI.create("forward:/fallbackRoute")))
+        .filter(FilterFunctions.setPath("/api-docs"))
+        .build();
+  }
+
+  @Bean
   public RouterFunction<ServerResponse> fallbackRoute() {
     return route("fallbackRoute")
         .GET("/fallbackRoute", request -> ServerResponse.status(HttpStatus.SERVICE_UNAVAILABLE)
