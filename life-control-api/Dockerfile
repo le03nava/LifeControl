@@ -10,12 +10,27 @@ ARG APP_VERSION=0.0.1-SNAPSHOT
 
 WORKDIR /app
 
+# Debug: Show what we're building
+RUN echo "Building life-control-api with profile: ${BUILD_PROFILE}"
+
 COPY build.gradle settings.gradle ./
 
 COPY src/main/java ./src/main/java
 COPY src/main/resources ./src/main/resources
 
-RUN gradle bootJar -Pprofile=${BUILD_PROFILE} --no-daemon
+# Debug: Verify files were copied
+RUN ls -la
+
+# Build the JAR
+RUN gradle bootJar -Pprofile=${BUILD_PROFILE} --no-daemon --stacktrace || (echo "GRADLE BUILD FAILED" && exit 1)
+
+# Debug: Verify JAR was created
+RUN ls -la build/libs/ && \
+    if [ ! -f "build/libs/life-control-api-${APP_VERSION}.jar" ]; then \
+        echo "JAR FILE NOT FOUND!"; \
+        ls -la build/libs/; \
+        exit 1; \
+    fi
 
 # ------------------------------------------------------------------------------------------
 
@@ -24,7 +39,8 @@ FROM eclipse-temurin:21-jre-alpine
 
 ARG APP_USER=appuser
 ARG APP_GROUP=appgroup
-ARG JAR_FILE=build/libs/lifecontrol-api-0.0.1-SNAPSHOT.jar
+ARG APP_VERSION=0.0.1-SNAPSHOT
+ARG JAR_FILE=build/libs/life-control-api-${APP_VERSION}.jar
 
 ENV SERVER_PORT=${SERVER_PORT:-8082}
 ENV SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-dev}
@@ -32,7 +48,17 @@ ENV JAVA_OPTS="-Xms256m -Xmx512m -XX:+UseG1GC -XX:+UseContainerSupport"
 
 EXPOSE ${SERVER_PORT}
 
+# Debug: Verify source JAR exists before copying
+RUN echo "Looking for JAR: /app/${JAR_FILE}"
+
 COPY --from=builder /app/${JAR_FILE} /app/app.jar
+
+# Verify JAR was copied
+RUN ls -la /app/app.jar && \
+    if [ ! -s /app/app.jar ]; then \
+        echo "JAR FILE IS EMPTY!"; \
+        exit 1; \
+    fi
 
 RUN apk add --no-cache curl && \
     addgroup -g 1001 ${APP_GROUP} && \

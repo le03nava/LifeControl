@@ -6,9 +6,11 @@
 
 version: "3.8"
 
+# Network configuration - default bridge network
+# Override with NETWORK_NAME in each service if needed
 networks:
-  ${NETWORK_NAME:-lifecontrol-network-prod}:
-    external: true
+  default:
+    driver: bridge
 
 volumes:
   mongodb_data:
@@ -16,8 +18,6 @@ volumes:
   mysql_data:
     external: true
   postgres_data:
-    external: true
-  product_postgres_data:
     external: true
   kafka_data:
     external: true
@@ -46,7 +46,7 @@ services:
     volumes:
       - mongodb_data:/data/db
     networks:
-      - ${NETWORK_NAME:-lifecontrol-network-prod}
+      - default
     deploy:
       replicas: 1
       resources:
@@ -85,7 +85,7 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
     networks:
-      - ${NETWORK_NAME:-lifecontrol-network-prod}
+      - default
     deploy:
       replicas: 1
       resources:
@@ -121,9 +121,9 @@ services:
       POSTGRES_USER: ${PRODUCT_POSTGRES_USER:-product_user}
       POSTGRES_PASSWORD_FILE: ${PRODUCT_POSTGRES_PASSWORD_FILE}
     volumes:
-      - product_postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
     networks:
-      - ${NETWORK_NAME:-lifecontrol-network-prod}
+      - default
     deploy:
       replicas: 1
       resources:
@@ -159,7 +159,7 @@ services:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
     networks:
-      - ${NETWORK_NAME:-lifecontrol-network-prod}
+      - default
     deploy:
       replicas: 1
       resources:
@@ -191,7 +191,7 @@ services:
     volumes:
       - kafka_data:/var/lib/kafka/data
     networks:
-      - ${NETWORK_NAME:-lifecontrol-network-prod}
+      - default
     deploy:
       replicas: 1
       resources:
@@ -225,7 +225,7 @@ services:
       SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: ${SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS:-broker:29292}
       SCHEMA_REGISTRY_LISTENERS: ${SCHEMA_REGISTRY_LISTENERS:-http://schema-registry:8081}
     networks:
-      - ${NETWORK_NAME:-lifecontrol-network-prod}
+      - default
     deploy:
       resources:
         limits:
@@ -249,7 +249,7 @@ services:
       KAFKA_CLUSTERS_BOOTSTRAPSERVERS: ${KAFKA_CLUSTERS_BOOTSTRAPSERVERS:-broker:29292}
       DYNAMIC_CONFIG_ENABLED: "true"
     networks:
-      - ${NETWORK_NAME:-lifecontrol-network-prod}
+      - default
     deploy:
       resources:
         limits:
@@ -271,7 +271,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
-      - ${NETWORK_NAME:-lifecontrol-network-prod}
+      - default
     deploy:
       replicas: 1
       resources:
@@ -317,7 +317,7 @@ services:
     volumes:
       - ${KEYCLOAK_REALMS_PATH:-/var/lib/lifecontrol/volumes/keycloak/realms}:/opt/keycloak/data/import:ro
     networks:
-      - ${NETWORK_NAME:-lifecontrol-network-prod}
+      - default
     depends_on:
       keycloak-postgres:
         condition: service_healthy
@@ -359,7 +359,7 @@ services:
     volumes:
       - loki_data:/loki/data
     networks:
-      - ${NETWORK_NAME:-lifecontrol-network-prod}
+      - default
     deploy:
       resources:
         limits:
@@ -382,7 +382,7 @@ services:
       - ${PROMETHEUS_CONFIG_PATH:-/var/lib/lifecontrol/volumes/prometheus/config}:/etc/prometheus:ro
       - prometheus_data:/prometheus
     networks:
-      - ${NETWORK_NAME:-lifecontrol-network-prod}
+      - default
     deploy:
       resources:
         limits:
@@ -401,7 +401,7 @@ services:
       - ${TEMPO_CONFIG_PATH:-/var/lib/lifecontrol/volumes/tempo/config}:/etc/tempo:ro
       - tempo_data:/var/tempo
     networks:
-      - ${NETWORK_NAME:-lifecontrol-network-prod}
+      - default
     deploy:
       resources:
         limits:
@@ -424,7 +424,7 @@ services:
       - ${GRAFANA_CONFIG_PATH:-/var/lib/lifecontrol/volumes/grafana/config}:/etc/grafana/provisioning/datasources:ro
       - grafana_data:/var/lib/grafana
     networks:
-      - ${NETWORK_NAME:-lifecontrol-network-prod}
+      - default
     secrets:
       - grafana_admin_password
     deploy:
@@ -468,7 +468,7 @@ services:
       - .env.prod
       - .env.secrets
     networks:
-      - ${NETWORK_NAME:-lifecontrol-network-prod}
+      - default
     depends_on:
       keycloak:
         condition: service_healthy
@@ -533,7 +533,7 @@ services:
       - .env.prod
       - .env.secrets
     networks:
-      - ${NETWORK_NAME:-lifecontrol-network-prod}
+      - default
     depends_on:
       product-postgres:
         condition: service_healthy
@@ -592,7 +592,7 @@ secrets:
       - API_GATEWAY_URL=${API_GATEWAY_URL:-http://api-gateway:9200}
       - API_BASE_PATH=${API_BASE_PATH:-/api/product}
     networks:
-      - ${NETWORK_NAME:-lifecontrol-network-prod}
+      - default
     depends_on:
       - api-gateway
       - keycloak

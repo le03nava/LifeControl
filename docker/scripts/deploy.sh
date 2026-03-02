@@ -25,6 +25,7 @@ DOCKER_COMPOSE="docker compose"
 
 # Default environment
 ENV=${1:-dev}
+BUILD_PROFILE=${BUILD_PROFILE:-dev}
 COMPOSE_FILES="-f $DOCKER_DIR/docker-compose.yml"
 
 # Add override for development
@@ -41,7 +42,7 @@ fi
 ENV_FILE="$DOCKER_DIR/.env.$ENV"
 
 usage() {
-	echo "Usage: $0 [dev|staging|prod] [start|stop|restart|logs|status]"
+	echo "Usage: $0 [dev|staging|prod] [start|stop|restart|build|up|logs|status|clean|health]"
 	echo ""
 	echo "Environments:"
 	echo "  dev, development    - Development environment"
@@ -49,12 +50,19 @@ usage() {
 	echo "  prod, production   - Production environment"
 	echo ""
 	echo "Commands:"
-	echo "  start              - Start services"
-	echo "  stop               - Stop services"
-	echo "  restart            - Restart services"
-	echo "  logs               - Show logs"
-	echo "  status             - Show status"
-	echo "  clean              - Stop and remove volumes"
+	echo "  start              - Build and start services (default)"
+	echo "  up                - Start services without building"
+	echo "  build             - Build services only (no start)"
+	echo "  stop              - Stop services"
+	echo "  restart           - Restart services"
+	echo "  logs              - Show logs"
+	echo "  status            - Show status"
+	echo "  clean             - Stop and remove volumes"
+	echo "  health            - Check service health"
+	echo ""
+	echo "Environment Variables:"
+	echo "  BUILD_PROFILE     - Build profile (dev|staging|prod), default: dev"
+	echo "  SKIP_BUILD       - Set to 'true' to skip build in start"
 	exit 1
 }
 
@@ -75,7 +83,45 @@ check_requirements() {
 	print_success "Requirements OK"
 }
 
+build_services() {
+	print_status "Building services for $ENV environment (profile: $BUILD_PROFILE)..."
+
+	# Build Java services
+	local java_services=("api-gateway" "product-service" "life-control-api")
+
+	for service in "${java_services[@]}"; do
+		if [ -f "../$service/gradlew" ]; then
+			print_status "Building $service..."
+			cd "../$service"
+			chmod +x gradlew
+			./gradlew bootJar --no-daemon -Pprofile=$BUILD_PROFILE -x test || print_warning "$service build failed, will try docker build"
+			cd - >/dev/null
+		else
+			print_warning "Skipping $service (gradlew not found)"
+		fi
+	done
+
+	# Build Angular app
+	if [ -f "../life-control-app-angular/package.json" ]; then
+		print_status "Building Angular app..."
+		cd "../life-control-app-angular"
+		if [ -d "node_modules" ]; then
+			npm run build || print_warning "Angular build failed"
+		else
+			npm install && npm run build || print_warning "Angular build failed"
+		fi
+		cd - >/dev/null
+	fi
+
+	print_success "Build completed!"
+}
+
 start_services() {
+	# Build first if not skipped
+	if [ "$SKIP_BUILD" != "true" ]; then
+		build_services
+	fi
+
 	print_status "Starting services for $ENV environment..."
 
 	$DOCKER_COMPOSE $COMPOSE_FILES --env-file "$ENV_FILE" up -d
@@ -185,6 +231,14 @@ start)
 	check_requirements
 	start_services
 	health_check
+	;;
+up)
+	check_requirements
+	SKIP_BUILD=true start_services
+	;;
+build)
+	check_requirements
+	build_services
 	;;
 stop)
 	stop_services
