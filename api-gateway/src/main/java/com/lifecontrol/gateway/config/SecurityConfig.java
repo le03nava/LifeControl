@@ -4,9 +4,8 @@ import java.util.List;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.HttpMethod;
-import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -19,14 +18,15 @@ public class SecurityConfig {
       "/swagger-resources/**", "/api-docs/**", "/aggregate/**", "/actuator/prometheus" };
 
   @Bean
-  public SecurityFilterChain securityFilterChain(HttpSecurity httpSecurity) throws Exception {
+  public SecurityFilterChain securityFilterChain(HttpSecurity httpSecurity, 
+      JwtDecoder keycloakJwtDecoder) throws Exception {
     return httpSecurity.authorizeHttpRequests(authorize -> authorize
         .requestMatchers(freeResourceUrls)
         .permitAll()
         .anyRequest().authenticated())
         .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-        // .cors(Customizer.withDefaults())
-        .oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()))
+        .oauth2ResourceServer(oauth2 -> oauth2
+            .jwt(jwt -> jwt.decoder(keycloakJwtDecoder)))
         .csrf(csrf -> csrf.disable())
         .build();
   }
