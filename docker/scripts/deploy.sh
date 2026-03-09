@@ -101,14 +101,22 @@ build_services() {
 		fi
 	done
 
+	# Map BUILD_PROFILE to Angular configuration
+	case "$BUILD_PROFILE" in
+	dev | development) ANGULAR_CONFIG="development" ;;
+	staging | stg) ANGULAR_CONFIG="production" ;;
+	prod | production) ANGULAR_CONFIG="production" ;;
+	*) ANGULAR_CONFIG="$BUILD_PROFILE" ;;
+	esac
+
 	# Build Angular app
 	if [ -f "../life-control-app-angular/package.json" ]; then
-		print_status "Building Angular app..."
+		print_status "Building Angular app (config: $ANGULAR_CONFIG)..."
 		cd "../life-control-app-angular"
 		if [ -d "node_modules" ]; then
-			npm run build || print_warning "Angular build failed"
+			npm run build -- --configuration=$ANGULAR_CONFIG || print_warning "Angular build failed"
 		else
-			npm install && npm run build || print_warning "Angular build failed"
+			npm install && npm run build -- --configuration=$ANGULAR_CONFIG || print_warning "Angular build failed"
 		fi
 		cd - >/dev/null
 	fi

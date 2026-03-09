@@ -247,7 +247,7 @@ services:
       POSTGRES_USER: ${KEYCLOAK_POSTGRES_USER:-keycloak}
       POSTGRES_PASSWORD: ${KEYCLOAK_POSTGRES_PASSWORD}
     volumes:
-      - ${POSTGRES_DATA_PATH:-./volumes-dev/postgres/data}:/var/lib/postgresql/data
+      - ./volumes-dev/keycloak-postgres/data:/var/lib/postgresql/data
     networks:
       - default
     deploy:
@@ -455,7 +455,7 @@ services:
       - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-dev}
       - SERVER_PORT=${API_GATEWAY_SERVER_PORT:-9000}
       - MANAGEMENT_PORT=${API_GATEWAY_MANAGEMENT_PORT:-9001}
-      - KEYCLOAK_ISSUER_URI=${KEYCLOAK_ISSUER_URI:-http://localhost:8181/realms/life-control-realm}
+      - KEYCLOAK_ISSUER_URI=${KEYCLOAK_ISSUER_URI:-http://lifecontrol-dev-keycloak:8080/realms/life-control-realm}
       - LOKI_URL=${LOKI_URL:-http://loki:3100/loki/api/v1/push}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - PROMETHEUS_ENABLED=${PROMETHEUS_ENABLED:-true}
