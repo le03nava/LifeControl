@@ -6,6 +6,6 @@
     KEYCLOAK_REALM: 'life-control-realm',
     KEYCLOAK_CLIENT_ID: 'life-control-client',
     API_GATEWAY_URL: 'http://localhost:9000',
-    API_BASE_PATH: '/api/product'
+    API_BASE_PATH: '/api/products'
   };
 })(window);

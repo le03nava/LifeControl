@@ -4,7 +4,8 @@ import { Component, computed, effect, inject, signal } from '@angular/core';
 import { MatIconModule } from '@angular/material/icon';
 import { RouterModule } from '@angular/router';
 import { Button, Hyperlink } from '@shared/ui';
-import { KeyCloakService } from '@shared/data/keycloak.service';
+import Keycloak from 'keycloak-js';
+import { KEYCLOAK_EVENT_SIGNAL, KeycloakEventType } from 'keycloak-angular';
 
 /**
  * Application header component
@@ -22,11 +23,13 @@ import { KeyCloakService } from '@shared/data/keycloak.service';
 })
 export class Header {
   private breakpointObserver = inject(BreakpointObserver);
+  private keycloak = inject(Keycloak);
+  private keycloakSignal = inject(KEYCLOAK_EVENT_SIGNAL);
+
   // Signals
   private showMenu = signal(false);
   private isSmallScreen = signal(false);
 
-  keyCloakService = inject(KeyCloakService);
   // Computed properties
   isMenuOpen = computed(() => {
     const isSmall = this.isSmallScreen();
@@ -48,14 +51,21 @@ export class Header {
       this.isSmallScreen.set(result.matches);
     });
 
-    this.authenticated = this.keyCloakService.isAuthenticated();
-    // Cerrar menú automáticamente cuando se sale de small screen
-    // effect(() => {
-    //   if (!this.isSmallScreen()) {
-    //     this.showMenu.set(false);
-    //   }
-    //   this.authenticated = this.keyCloakService.isAuthenticated();
-    // });
+    // Subscribe to keycloak events
+    const keycloakEvent = this.keycloakSignal();
+    if (keycloakEvent?.type === KeycloakEventType.Ready) {
+      this.authenticated = this.keycloak.authenticated ?? false;
+    }
+
+    effect(() => {
+      const event = this.keycloakSignal();
+      if (event?.type === KeycloakEventType.Ready) {
+        this.authenticated = this.keycloak.authenticated ?? false;
+      }
+      if (event?.type === KeycloakEventType.AuthLogout) {
+        this.authenticated = false;
+      }
+    });
   }
 
   toggleMenu(): void {
@@ -63,10 +73,10 @@ export class Header {
   }
 
   login() {
-    this.keyCloakService.login();
+    this.keycloak.login();
   }
 
   logout() {
-    this.keyCloakService.logout();
+    this.keycloak.logout();
   }
 }

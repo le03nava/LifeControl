@@ -9,7 +9,7 @@ const DEFAULT_CONFIG: AppConfig = {
   },
   apiGateway: {
     url: 'http://localhost:9000',
-    basePath: '/api/product',
+    basePath: '/api/products',
   },
 };
 
@@ -17,46 +17,58 @@ const DEFAULT_CONFIG: AppConfig = {
   providedIn: 'root',
 })
 export class ConfigService {
-  private config = signal<AppConfig | null>(null);
+  // Inicializar con valores por defecto de forma síncrona
+  private config = signal<AppConfig>(DEFAULT_CONFIG);
 
   readonly config$ = this.config.asReadonly();
 
   constructor() {}
 
   async loadConfig(): Promise<void> {
-    const envConfig = (window as any).ENV;
+    const envConfig = (window as any).env;
     
     if (envConfig) {
-      this.config.set(envConfig as AppConfig);
+      const runtimeConfig: AppConfig = {
+        keycloak: {
+          url: envConfig.KEYCLOAK_URL || DEFAULT_CONFIG.keycloak.url,
+          realm: envConfig.KEYCLOAK_REALM || DEFAULT_CONFIG.keycloak.realm,
+          clientId: envConfig.KEYCLOAK_CLIENT_ID || DEFAULT_CONFIG.keycloak.clientId,
+        },
+        apiGateway: {
+          url: envConfig.API_GATEWAY_URL || DEFAULT_CONFIG.apiGateway.url,
+          basePath: envConfig.API_BASE_PATH || DEFAULT_CONFIG.apiGateway.basePath,
+        },
+      };
+      this.config.set(runtimeConfig);
+      console.log('[ConfigService] Runtime config loaded:', runtimeConfig);
     } else {
-      console.warn(
-        'window.ENV not found, using default values'
-      );
-      this.config.set(DEFAULT_CONFIG);
+      console.warn('[ConfigService] window.env not found, using default values');
     }
   }
 
   get keycloakUrl(): string {
-    return this.config()?.keycloak.url ?? DEFAULT_CONFIG.keycloak.url;
+    return this.config().keycloak.url;
   }
 
   get keycloakRealm(): string {
-    return this.config()?.keycloak.realm ?? DEFAULT_CONFIG.keycloak.realm;
+    return this.config().keycloak.realm;
   }
 
   get keycloakClientId(): string {
-    return this.config()?.keycloak.clientId ?? DEFAULT_CONFIG.keycloak.clientId;
+    return this.config().keycloak.clientId;
   }
 
   get apiGatewayUrl(): string {
-    return this.config()?.apiGateway.url ?? DEFAULT_CONFIG.apiGateway.url;
+    return this.config().apiGateway.url;
   }
 
   get apiBasePath(): string {
-    return this.config()?.apiGateway.basePath ?? DEFAULT_CONFIG.apiGateway.basePath;
+    return this.config().apiGateway.basePath;
   }
 
   get apiUrl(): string {
-    return `${this.apiGatewayUrl}${this.apiBasePath}`;
+    const url = `${this.apiGatewayUrl}${this.apiBasePath}`;
+    console.log('[ConfigService] apiUrl accessed:', url);
+    return url;
   }
 }

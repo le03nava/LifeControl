@@ -14,7 +14,7 @@ KEYCLOAK_CLIENT_ID_VAL="${KEYCLOAK_CLIENT_ID:-life-control-client}"
 
 # API Gateway config
 API_GATEWAY_URL_VAL="${API_GATEWAY_URL:-http://localhost:9000}"
-API_BASE_PATH_VAL="${API_BASE_PATH:-/api/product}"
+API_BASE_PATH_VAL="${API_BASE_PATH:-/api/products}"
 
 echo "[INFO] Keycloak URL: $KEYCLOAK_URL_VAL"
 echo "[INFO] Keycloak Realm: $KEYCLOAK_REALM_VAL"

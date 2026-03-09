@@ -1,8 +1,7 @@
-import { inject, Injectable } from '@angular/core';
+import { inject, Injectable, signal } from '@angular/core';
 import { User } from '../models/user.models';
 import { Observable } from 'rxjs';
 import { HttpClient } from '@angular/common/http';
-import { httpResource } from '@angular/common/http';
 import { ConfigService } from '@app/services/config.service';
 
 @Injectable({
@@ -12,27 +11,32 @@ export class UserService {
   private configService = inject(ConfigService);
   private http = inject(HttpClient);
 
-  private _usersResource = httpResource<User[]>(
-    () => this.apiUrl,
-    { defaultValue: [] }
-  );
-
-  readonly users = this._usersResource.value;
+  // Signal para almacenar los usuarios
+  private _users = signal<User[]>([]);
+  
+  // Signal de solo lectura para usar en componentes
+  readonly users = this._users.asReadonly();
 
   get apiUrl(): string {
     return `${this.configService.apiUrl}/users`;
   }
 
   getFormattedUsers(): User[] {
-    return this._usersResource.value() ?? [];
+    return this._users();
   }
 
   getUsers(): void {
-    this._usersResource.reload();
+    this.http.get<User[]>(this.apiUrl).subscribe({
+      next: (data) => this._users.set(data),
+      error: (err) => {
+        console.error('[UserService] Error loading users:', err);
+        this._users.set([]);
+      }
+    });
   }
 
   getUserList(): void {
-    this._usersResource.reload();
+    this.getUsers();
   }
 
   getUserById(id: string): Observable<User> {

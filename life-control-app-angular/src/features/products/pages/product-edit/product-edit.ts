@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, inject, signal, effect } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal, effect, OnInit } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ProductService } from '@features/products/data/product.service';
 import { Product, ProductControl } from '@features/products/models/product.models';
@@ -9,7 +9,7 @@ import {
   ReactiveFormsModule,
 } from '@angular/forms';
 import { ProductsForm } from '@features/products/components/products-form/products-form';
-import { httpResource } from '@angular/common/http';
+import { HttpClient } from '@angular/common/http';
 
 @Component({
   selector: 'app-product-edit',
@@ -18,36 +18,39 @@ import { httpResource } from '@angular/common/http';
   styleUrl: './product-edit.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class ProductEdit {
+export class ProductEdit implements OnInit {
   private route = inject(ActivatedRoute);
   private productService = inject(ProductService);
   private fb = inject(NonNullableFormBuilder);
   private router = inject(Router);
+  private http = inject(HttpClient);
 
   productId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
 
-  // Usar httpResource para obtener el producto por ID
-  private productResource = httpResource<Product>(
-    () => (this.productId() ? `${this.productService.apiUrl}/${this.productId()}` : undefined),
-    { defaultValue: { id: '', name: '', description: '', price: 0 } as Product }
-  );
-
   productForm = signal<FormGroup<ProductControl>>(this.createForm());
 
-  constructor() {
-    // Usar effect para actualizar el formulario cuando cambia el producto
-    effect(() => {
-      const product = this.productResource.value();
-      if (product && product.id) {
+  ngOnInit(): void {
+    const id = this.productId();
+    if (id) {
+      this.loadProduct(id);
+    }
+  }
+
+  private loadProduct(id: string): void {
+    this.http.get<Product>(`${this.productService.apiUrl}/${id}`).subscribe({
+      next: (product) => {
         this.productForm.set(
           this.fb.group({
             id: this.fb.control(product.id),
             name: this.fb.control(product.name),
             description: this.fb.control(product.description, Validators.required),
             price: this.fb.control(product.price),
-          }),
+          })
         );
-      }
+      },
+      error: (err) => {
+        console.error('[ProductEdit] Error loading product:', err);
+      },
     });
   }
 

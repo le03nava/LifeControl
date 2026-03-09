@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, inject, signal, OnInit } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { Button, Modal } from '@shared/ui';
 import { ProductService } from '@features/products/data/product.service';
@@ -10,7 +10,7 @@ import { ProductsCard } from '@features/products/components';
   templateUrl: './product-list.html',
   styleUrls: ['./product-list.scss'],
 })
-export class ProductList {
+export class ProductList implements OnInit {
   productService = inject(ProductService);
   private router = inject(Router);
 
@@ -20,6 +20,10 @@ export class ProductList {
 
   // Usar el signal directo del servicio
   products = this.productService.products;
+
+  ngOnInit(): void {
+    this.productService.getProducts();
+  }
 
   editProduct(id: string): void {
     this.router.navigate([`/products/edit/${id}`]);

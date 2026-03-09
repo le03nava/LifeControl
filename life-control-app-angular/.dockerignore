@@ -1,7 +1,6 @@
 .git
 .gitignore
 node_modules
-dist
 *.md
 !package.json
 !bun.lock

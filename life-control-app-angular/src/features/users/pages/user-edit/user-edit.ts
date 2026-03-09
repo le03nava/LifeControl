@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, inject, signal, effect } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal, OnInit } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { UserService } from '@features/users/data/user.service';
 import { User, UserControl } from '@features/users/models/user.models';
@@ -9,7 +9,7 @@ import {
   ReactiveFormsModule,
 } from '@angular/forms';
 import { UsersForm } from '@features/users/components/users-form/users-form';
-import { httpResource } from '@angular/common/http';
+import { HttpClient } from '@angular/common/http';
 
 @Component({
   selector: 'app-user-edit',
@@ -18,25 +18,27 @@ import { httpResource } from '@angular/common/http';
   styleUrl: './user-edit.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class UserEdit {
+export class UserEdit implements OnInit {
   private route = inject(ActivatedRoute);
   private userService = inject(UserService);
   private fb = inject(NonNullableFormBuilder);
   private router = inject(Router);
+  private http = inject(HttpClient);
 
   userId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
 
-  private userResource = httpResource<User>(
-    () => (this.userId() ? `${this.userService.apiUrl}/${this.userId()}` : undefined),
-    { defaultValue: { id: '', username: '', email: '', name: '', lastname: '', phone: '', enabled: true } as User }
-  );
-
   userForm = signal<FormGroup<UserControl>>(this.createForm());
 
-  constructor() {
-    effect(() => {
-      const user = this.userResource.value();
-      if (user && user.id) {
+  ngOnInit(): void {
+    const id = this.userId();
+    if (id) {
+      this.loadUser(id);
+    }
+  }
+
+  private loadUser(id: string): void {
+    this.http.get<User>(`${this.userService.apiUrl}/${id}`).subscribe({
+      next: (user) => {
         this.userForm.set(
           this.fb.group({
             id: this.fb.control(user.id),
@@ -47,9 +49,12 @@ export class UserEdit {
             lastname: this.fb.control(user.lastname),
             phone: this.fb.control(user.phone),
             enabled: this.fb.control(user.enabled),
-          }),
+          })
         );
-      }
+      },
+      error: (err) => {
+        console.error('[UserEdit] Error loading user:', err);
+      },
     });
   }
 

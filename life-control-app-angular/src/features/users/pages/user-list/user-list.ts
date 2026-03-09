@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, inject, signal, OnInit } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { Button, Modal } from '@shared/ui';
 import { UserService } from '@features/users/data/user.service';
@@ -10,7 +10,7 @@ import { UsersCard } from '@features/users/components';
   templateUrl: './user-list.html',
   styleUrls: ['./user-list.scss'],
 })
-export class UserList {
+export class UserList implements OnInit {
   userService = inject(UserService);
   private router = inject(Router);
 
@@ -19,6 +19,10 @@ export class UserList {
   isDeleting = signal(false);
 
   users = this.userService.users;
+
+  ngOnInit(): void {
+    this.userService.getUsers();
+  }
 
   editUser(id: string): void {
     this.router.navigate([`/users/edit/${id}`]);

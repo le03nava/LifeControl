@@ -2,15 +2,25 @@ import { HttpInterceptorFn, HttpErrorResponse } from '@angular/common/http';
 import { inject } from '@angular/core';
 import { catchError, throwError } from 'rxjs';
 import { NotificationService } from './notification';
-import { KeyCloakService } from './keycloak.service';
+import Keycloak from 'keycloak-js';
+
 /**
  * Functional HTTP interceptor for error handling
  * Centralized error handling with user notifications
+ * Maneja caso donde Keycloak no está disponible
  */
 export const errorInterceptor: HttpInterceptorFn = (req, next) => {
   const notificationService = inject(NotificationService);
+  
+  // Manejar caso donde Keycloak no está disponible
+  let keycloak: Keycloak | undefined;
+  try {
+    keycloak = inject(Keycloak);
+  } catch (e) {
+    // Keycloak no disponible aún, continuar sin él
+    console.warn('[errorInterceptor] Keycloak not available yet');
+  }
 
-  const keyCloakService = inject(KeyCloakService);
   return next(req).pipe(
     catchError((error: HttpErrorResponse) => {
       let errorMessage = 'An unexpected error occurred';
@@ -21,7 +31,8 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
           break;
         case 401:
           errorMessage = 'You are not authorized. Please log in.';
-          keyCloakService.login();
+          // NO llamar keycloak.login() aquí - causa loop infinito
+          // El usuario debe iniciar sesión manualmente
           break;
         case 403:
           errorMessage = 'You do not have permission to perform this action.';
