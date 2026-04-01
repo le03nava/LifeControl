@@ -1,5 +1,6 @@
 package com.lifecontrol.api.exception;
 
+import com.lifecontrol.api.company.exception.DuplicateCompanyException;
 import com.lifecontrol.api.security.exception.ApiUserNotFoundException;
 import com.lifecontrol.api.security.exception.DuplicateResourceException;
 import org.springframework.http.HttpStatus;
@@ -27,6 +28,16 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(DuplicateResourceException.class)
     public ResponseEntity<ErrorResponse> handleDuplicateResource(DuplicateResourceException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.CONFLICT.value(),
+                ex.getMessage(),
+                LocalDateTime.now()
+        );
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
+    }
+
+    @ExceptionHandler(DuplicateCompanyException.class)
+    public ResponseEntity<ErrorResponse> handleDuplicateCompany(DuplicateCompanyException ex) {
         ErrorResponse error = new ErrorResponse(
                 HttpStatus.CONFLICT.value(),
                 ex.getMessage(),
