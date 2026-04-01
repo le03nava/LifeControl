@@ -276,6 +276,7 @@ services:
       POSTGRES_PASSWORD: ${LIFECONTROL_POSTGRES_PASSWORD}
     volumes:
       - ${LIFECONTROL_POSTGRES_DATA_PATH:-./volumes-dev/postgres/lifecontrol/data}:/var/lib/postgresql/data
+      - ${LIFECONTROL_POSTGRES_INIT_PATH:-./init-scripts}:/docker-entrypoint-initdb.d:ro
     networks:
       - default
     deploy:

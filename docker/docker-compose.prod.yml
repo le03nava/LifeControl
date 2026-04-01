@@ -563,6 +563,45 @@ services:
       start_period: 120s
     restart: always
 
+  # ============================================
+  # Production PostgreSQL - LifeControl API
+  # ============================================
+  lifecontrol-postgres:
+    image: ${LIFECONTROL_POSTGRES_IMAGE:-postgres:16.4}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-lifecontrol-postgres
+    ports:
+      - "${LIFECONTROL_POSTGRES_PORT:-5435}:5432"
+    environment:
+      POSTGRES_DB: ${LIFECONTROL_POSTGRES_DB:-lifecontrol}
+      POSTGRES_USER: ${LIFECONTROL_POSTGRES_USER:-lifecontrol_user}
+      POSTGRES_PASSWORD_FILE: ${LIFECONTROL_POSTGRES_PASSWORD_FILE}
+    volumes:
+      - ${LIFECONTROL_POSTGRES_DATA_PATH:-/var/lib/lifecontrol/volumes/postgres/lifecontrol/data}:/var/lib/postgresql/data
+      - ${LIFECONTROL_POSTGRES_INIT_PATH:-/var/lib/lifecontrol/init-scripts}:/docker-entrypoint-initdb.d:ro
+    networks:
+      - default
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          memory: ${LIFECONTROL_POSTGRES_MEMORY_LIMIT:-512m}
+          cpus: '0.5'
+        reservations:
+          memory: 256m
+          cpus: '0.25'
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+        window: 180s
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${LIFECONTROL_POSTGRES_USER:-lifecontrol_user}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    restart: always
+
 # ============================================
 # Docker Secrets - Production
 # ============================================

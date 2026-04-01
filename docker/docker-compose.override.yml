@@ -108,3 +108,10 @@ services:
   kafka-ui:
     ports:
       - "8086:8080"
+
+  # ============================================
+  # Development LifeControl API Database Overrides
+  # ============================================
+  lifecontrol-postgres:
+    ports:
+      - "5435:5432"
