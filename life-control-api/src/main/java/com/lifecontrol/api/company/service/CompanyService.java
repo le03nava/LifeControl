@@ -2,6 +2,7 @@ package com.lifecontrol.api.company.service;
 
 import com.lifecontrol.api.company.dto.CompanyRequest;
 import com.lifecontrol.api.company.dto.CompanyResponse;
+import com.lifecontrol.api.company.exception.CompanyNotFoundException;
 import com.lifecontrol.api.company.exception.DuplicateCompanyException;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.repository.CompanyRepository;
@@ -9,11 +10,28 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+import java.util.UUID;
+
 @Service
 @RequiredArgsConstructor
 public class CompanyService {
 
     private final CompanyRepository companyRepository;
+
+    @Transactional(readOnly = true)
+    public List<CompanyResponse> getAllCompanies() {
+        return companyRepository.findAll().stream()
+                .map(this::toResponse)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public CompanyResponse getCompanyById(UUID id) {
+        return companyRepository.findById(id)
+                .map(this::toResponse)
+                .orElseThrow(() -> new CompanyNotFoundException(id));
+    }
 
     @Transactional
     public CompanyResponse createCompany(CompanyRequest request) {

@@ -1,8 +1,11 @@
 package com.lifecontrol.api.exception;
 
+import com.lifecontrol.api.company.exception.CompanyNotFoundException;
 import com.lifecontrol.api.company.exception.DuplicateCompanyException;
 import com.lifecontrol.api.security.exception.ApiUserNotFoundException;
 import com.lifecontrol.api.security.exception.DuplicateResourceException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -15,6 +18,8 @@ import java.util.Map;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    private static final Logger logger = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     @ExceptionHandler(ApiUserNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleApiUserNotFound(ApiUserNotFoundException ex) {
@@ -46,6 +51,16 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
     }
 
+    @ExceptionHandler(CompanyNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleCompanyNotFound(CompanyNotFoundException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.NOT_FOUND.value(),
+                ex.getMessage(),
+                LocalDateTime.now()
+        );
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ValidationErrorResponse> handleValidationErrors(MethodArgumentNotValidException ex) {
         Map<String, String> errors = new HashMap<>();
@@ -66,6 +81,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGenericException(Exception ex) {
+        logger.error("Unhandled exception", ex);
         ErrorResponse error = new ErrorResponse(
                 HttpStatus.INTERNAL_SERVER_ERROR.value(),
                 "An unexpected error occurred",

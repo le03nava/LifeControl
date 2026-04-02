@@ -9,10 +9,15 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/companies")
@@ -21,6 +26,18 @@ import org.springframework.web.bind.annotation.RestController;
 public class CompanyController {
 
     private final CompanyService companyService;
+
+    @GetMapping
+    @Operation(summary = "Get all companies", description = "Returns a list of all companies")
+    public ResponseEntity<List<CompanyResponse>> getAllCompanies() {
+        return ResponseEntity.ok(companyService.getAllCompanies());
+    }
+
+    @GetMapping("/{id}")
+    @Operation(summary = "Get company by ID", description = "Returns a single company by its UUID")
+    public ResponseEntity<CompanyResponse> getCompanyById(@PathVariable UUID id) {
+        return ResponseEntity.ok(companyService.getCompanyById(id));
+    }
 
     @PostMapping
     @Operation(summary = "Create a new company", description = "Creates a new company with the provided details")
