@@ -29,6 +29,10 @@ export const routes: Routes = [
     loadChildren: () => import('@features/users/users.routes').then((m) => m.userRoutes),
   },
   {
+    path: 'companies',
+    loadChildren: () => import('@features/companies/companies.routes').then((m) => m.companyRoutes),
+  },
+  {
     path: '**',
     loadComponent: () => import('@shared/ui/not-found').then((m) => m.NotFound),
   },

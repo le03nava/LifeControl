@@ -1,0 +1,64 @@
+<div class="form-container">
+  <h2></h2>
+  <form [formGroup]="formGroup()" (ngSubmit)="onSave()">
+    <app-field
+      [control]="getControl('companyName')"
+      fieldId="companyName"
+      label="Nombre de la Empresa"
+      type="text"
+      placeholder="Ingrese el nombre de la empresa"
+    />
+
+    <app-field
+      [control]="getControl('razonSocial')"
+      fieldId="razonSocial"
+      label="Razón Social"
+      type="text"
+      placeholder="Ingrese la razón social"
+    />
+
+    <app-field
+      [control]="getControl('rfc')"
+      fieldId="rfc"
+      label="RFC"
+      type="text"
+      placeholder="Ingrese el RFC (12-13 caracteres)"
+      helpText="RFC con 12 o 13 caracteres"
+    />
+
+    <app-field
+      [control]="getControl('email')"
+      fieldId="email"
+      label="Correo Electrónico"
+      type="email"
+      placeholder="correo@ejemplo.com"
+    />
+
+    <app-field
+      [control]="getControl('phone')"
+      fieldId="phone"
+      label="Teléfono"
+      type="text"
+      placeholder="+52XXXXXXXXXX o 10 dígitos"
+    />
+
+    <app-field
+      [control]="getControl('address')"
+      fieldId="address"
+      label="Dirección"
+      type="text"
+      placeholder="Ingrese la dirección"
+    />
+
+    <div class="form-actions">
+      <button type="button" class="btn-cancel" (click)="onCancel()">Cancelar</button>
+      <button type="submit" class="btn-save" [disabled]="!formGroup().valid">
+        @if (!isEditMode()) {
+          Guardar
+        } @else {
+          Actualizar
+        }
+      </button>
+    </div>
+  </form>
+</div>

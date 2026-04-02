@@ -1,0 +1,25 @@
+@if (company(); as c) {
+  <div class="card" (click)="onViewCompany($event)">
+    <div class="card-header">
+      <h3 class="card-title">{{ c.companyName }}</h3>
+      <span class="card-rfc">RFC: {{ c.rfc }}</span>
+    </div>
+    <div class="card-body">
+      <p class="card-razon">{{ c.razonSocial }}</p>
+      <p class="card-email">{{ c.email }}</p>
+      <p class="card-phone">{{ c.phone }}</p>
+      <div class="card-id">
+        <small>ID: {{ c.id }}</small>
+      </div>
+    </div>
+    <div class="card-actions">
+      <button class="view-btn" (click)="onViewCompany($event)">👁️ Ver</button>
+      <button class="edit-btn" (click)="onEditCompany($event)">✏️ Editar</button>
+      <button class="delete-btn" (click)="onDeleteCompany($event)">🗑️ Eliminar</button>
+    </div>
+  </div>
+} @else {
+  <div class="card card-empty">
+    <p>No hay información de la empresa disponible</p>
+  </div>
+}

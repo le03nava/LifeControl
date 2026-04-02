@@ -1,0 +1,21 @@
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th, td {
+  border: 1px solid #ddd;
+  padding: 8px;
+  text-align: left;
+}
+
+th {
+  background-color: #f2f2f2;
+}
+
+.empty-message {
+  text-align: center;
+  font-style: italic;
+  color: #666;
+  padding: 20px;
+}

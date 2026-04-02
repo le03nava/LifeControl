@@ -1,0 +1,63 @@
+<div class="user-list-page">
+  <header class="page-header">
+    <div class="header-content">
+      <h1 class="page-title">Empresas</h1>
+      <p class="page-subtitle">Gestión de empresas del sistema</p>
+    </div>
+    <div class="header-actions">
+      <button app-button variant="primary" routerLink="/companies/create">➕ Agregar Empresa</button>
+    </div>
+  </header>
+
+  <div class="filters-section">
+    <div class="role-filter"></div>
+  </div>
+
+  <div class="users-grid">
+    @defer (on viewport) {
+      @for (company of companies(); track company.id) {
+        <app-companies-card
+          [company]="company"
+          (editCompany)="editCompany($event)"
+          (deleteCompany)="confirmDelete($event)"
+        />
+      } @empty {
+        <div class="empty-state">
+          <div class="empty-icon">🏢</div>
+          <h3 class="empty-title">No se encontraron empresas</h3>
+        </div>
+      }
+    } @placeholder {
+      <div class="loading-skeleton">
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+      </div>
+    }
+  </div>
+
+  <!-- Delete Confirmation Modal -->
+  <app-modal
+    [isOpen]="showDeleteModal()"
+    title="Confirmar Eliminación"
+    size="small"
+    (modalClose)="cancelDelete()"
+  >
+    <p>
+      ¿Está seguro que desea eliminar <strong>{{ companyToDelete()?.name }}</strong
+      >?
+    </p>
+    <p class="warning-text">Esta acción no se puede deshacer.</p>
+
+    <div slot="footer">
+      <button app-button variant="secondary" (buttonClick)="cancelDelete()">Cancelar</button>
+      <button app-button variant="danger" (buttonClick)="executeDelete()" [disabled]="isDeleting()">
+        @if (isDeleting()) {
+          Eliminando...
+        } @else {
+          Eliminar
+        }
+      </button>
+    </div>
+  </app-modal>
+</div>

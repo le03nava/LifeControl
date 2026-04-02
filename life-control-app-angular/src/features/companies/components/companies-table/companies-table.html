@@ -1,0 +1,30 @@
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Nombre</th>
+      <th>Razón Social</th>
+      <th>RFC</th>
+      <th>Email</th>
+      <th>Teléfono</th>
+    </tr>
+  </thead>
+  <tbody>
+    @for (company of companies(); track company.id) {
+      <tr>
+        <td>{{ company.id }}</td>
+        <td>{{ company.companyName }}</td>
+        <td>{{ company.razonSocial }}</td>
+        <td>{{ company.rfc }}</td>
+        <td>{{ company.email }}</td>
+        <td>{{ company.phone }}</td>
+      </tr>
+    } @empty {
+      <tr>
+        <td colspan="6" class="empty-message">
+          No hay empresas disponibles
+        </td>
+      </tr>
+    }
+  </tbody>
+</table>
