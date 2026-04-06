@@ -7,6 +7,8 @@ import com.lifecontrol.api.company.exception.DuplicateCompanyException;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -16,6 +18,8 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class CompanyService {
+
+    private static final Logger logger = LoggerFactory.getLogger(CompanyService.class);
 
     private final CompanyRepository companyRepository;
 
@@ -92,6 +96,18 @@ public class CompanyService {
         Company updated = companyRepository.save(company);
 
         return toResponse(updated);
+    }
+
+    @Transactional
+    public void deleteCompany(UUID id) {
+        Company company = companyRepository.findById(id)
+                .orElseThrow(() -> new CompanyNotFoundException(id));
+        
+        company.setEnabled(false);
+        companyRepository.save(company);
+        
+        logger.info("Company soft-deleted: id={}, companyId={}, timestamp={}", 
+                id, company.getCompanyId(), java.time.LocalDateTime.now());
     }
 
     private CompanyResponse toResponse(Company company) {

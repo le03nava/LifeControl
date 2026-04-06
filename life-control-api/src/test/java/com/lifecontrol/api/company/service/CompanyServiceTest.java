@@ -216,4 +216,38 @@ class CompanyServiceTest {
             assertThat(result.getCompanyName()).isEqualTo("Updated Name");
         }
     }
+
+    @Nested
+    @DisplayName("deleteCompany")
+    class DeleteCompanyTests {
+
+        @Test
+        @DisplayName("deleteCompany - should soft-delete company by setting enabled to false")
+        void deleteCompany_Success() {
+            // Arrange
+            when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
+            when(companyRepository.save(any(Company.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            // Act
+            companyService.deleteCompany(testCompanyId);
+
+            // Assert
+            verify(companyRepository).findById(testCompanyId);
+            verify(companyRepository).save(any(Company.class));
+        }
+
+        @Test
+        @DisplayName("deleteCompany - should throw CompanyNotFoundException when company not exists")
+        void deleteCompany_NotFound_ThrowsException() {
+            // Arrange
+            UUID nonExistentId = UUID.randomUUID();
+            when(companyRepository.findById(nonExistentId)).thenReturn(Optional.empty());
+
+            // Act & Assert
+            assertThatThrownBy(() -> companyService.deleteCompany(nonExistentId))
+                    .isInstanceOf(CompanyNotFoundException.class)
+                    .hasMessageContaining("Company not found with id");
+            verify(companyRepository, never()).save(any(Company.class));
+        }
+    }
 }

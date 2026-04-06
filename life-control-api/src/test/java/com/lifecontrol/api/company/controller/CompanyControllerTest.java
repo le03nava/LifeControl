@@ -24,7 +24,11 @@ import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -147,6 +151,36 @@ class CompanyControllerTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(invalidRequest)))
                     .andExpect(status().isBadRequest());
+        }
+    }
+
+    @Nested
+    @DisplayName("DELETE /api/companies/{id}")
+    class DeleteCompanyTests {
+
+        @Test
+        @DisplayName("deleteCompany - should return 204 No Content on successful delete")
+        void deleteCompany_Success() throws Exception {
+            // Arrange
+            doNothing().when(companyService).deleteCompany(testCompanyId);
+
+            // Act & Assert
+            mockMvc.perform(delete("/api/companies/{id}", testCompanyId))
+                    .andExpect(status().isNoContent());
+            verify(companyService).deleteCompany(testCompanyId);
+        }
+
+        @Test
+        @DisplayName("deleteCompany - should return 404 Not Found when company not exists")
+        void deleteCompany_NotFound() throws Exception {
+            // Arrange
+            doThrow(new CompanyNotFoundException(testCompanyId))
+                    .when(companyService).deleteCompany(testCompanyId);
+
+            // Act & Assert
+            mockMvc.perform(delete("/api/companies/{id}", testCompanyId))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.message").value("Company not found with id: " + testCompanyId));
         }
     }
 }
