@@ -19,4 +19,6 @@ public interface CompanyRepository extends JpaRepository<Company, UUID> {
     boolean existsByCompanyId(Integer companyId);
 
     boolean existsByRfc(String rfc);
+
+    boolean existsByRfcAndIdNot(String rfc, UUID id);
 }

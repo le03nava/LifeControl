@@ -66,6 +66,34 @@ public class CompanyService {
         return toResponse(saved);
     }
 
+    @Transactional
+    public CompanyResponse updateCompany(UUID id, CompanyRequest request) {
+        // Fetch existing company
+        Company company = companyRepository.findById(id)
+                .orElseThrow(() -> new CompanyNotFoundException(id));
+
+        // Validate uniqueness (excluding current company)
+        if (companyRepository.existsByRfcAndIdNot(request.getRfc(), id)) {
+            throw new DuplicateCompanyException("Ya existe una compañía con RFC: " + request.getRfc());
+        }
+
+        // Note: companyKey is derived from companyId which is immutable, so no validation needed
+        // companyKey = "COMPANY_" + companyId (cannot change during update)
+
+        // Update fields (companyId and companyKey are immutable)
+        company.setCompanyName(request.getCompanyName());
+        company.setTipoPersonaId(request.getTipoPersonaId());
+        company.setRazonSocial(request.getRazonSocial());
+        company.setRfc(request.getRfc());
+        company.setPhone(request.getPhone());
+        company.setEmail(request.getEmail());
+        company.setEnabled(request.getEnabled() != null ? request.getEnabled() : true);
+
+        Company updated = companyRepository.save(company);
+
+        return toResponse(updated);
+    }
+
     private CompanyResponse toResponse(Company company) {
         return CompanyResponse.builder()
                 .companyId(company.getCompanyId())
