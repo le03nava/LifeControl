@@ -1,112 +1,360 @@
-# Spring Boot Microservices
-This repository contains the latest source code of the spring-boot-microservices tutorial
+# LifeControl
 
-You can watch the tutorial on Youtube [here](https://youtu.be/yn_stY3HCr8?si=EjrBEUl0P-bzSWRG)
+Plataforma de gestión integral basada en microservicios Spring Boot con frontend Angular. Sistema completo para gestión de productos, pedidos, inventario y notificaciones.
 
-## Services Overview
+## Arquitectura
 
-- Product Service
-- Order Service
-- Inventory Service
-- Notification Service
-- API Gateway using Spring Cloud Gateway MVC
-- Shop Frontend using Angular 18
+```
+                                    ┌─────────────────┐
+                                    │   Keycloak      │
+                                    │  (Auth/OIDC)    │
+                                    └────────┬────────┘
+                                             │
+                                    ┌────────▼────────┐
+                                    │  API Gateway    │
+                                    │ (Spring Cloud)  │
+                                    └────────┬────────┘
+                                             │
+        ┌────────────────────────────────────┼────────────────────────────────────┐
+        │                                    │                                    │
+        ▼                                    ▼                                    ▼
+┌───────────────┐                    ┌───────────────┐                    ┌───────────────┐
+│ Product       │                    │ Inventory     │                    │ LifeControl   │
+│ Service       │                    │ Service       │                    │ API           │
+│ (Spring Boot) │                    │ (Spring Boot) │                    │ (Spring Boot) │
+│   MongoDB     │                    │   PostgreSQL  │                    │   PostgreSQL  │
+└───────────────┘                    └───────────────┘                    └───────────────┘
+        │                                                                              
+        │                                                                              
+        ▼                                                                              
+┌───────────────┐                                                                      
+│ Order Service │                                                                      
+│ (Spring Boot) │                                                                      
+│     MySQL     │                                                                      
+└───────────────┘                                                                      
+                                                                                       
+                                    ┌─────────────────────────────────────────────────┐
+                                    │                    Kafka                         │
+                                    │  (Mensajería asíncrona / Event-driven)          │
+                                    └─────────────────────────────────────────────────┘
+                                             │
+                                    ┌────────▼────────┐
+                                    │   Notification │
+                                    │    Service     │
+                                    └─────────────────┘
+```
 
 ## Tech Stack
 
-The technologies used in this project are:
+| Capa | Tecnología |
+|------|------------|
+| **Frontend** | Angular 20.3.0 (SSR), Angular Material, Keycloak Angular |
+| **Backend** | Spring Boot 3.x (Java 21), Spring Cloud Gateway |
+| **Bases de Datos** | MongoDB, MySQL, PostgreSQL |
+| **Mensajería** | Apache Kafka |
+| **Auth** | Keycloak 26 (OIDC/OAuth2) |
+| **Container** | Docker, Docker Compose |
+| **Orquestación** | Kubernetes (Kind) |
+| **Observabilidad** | Prometheus, Grafana, Loki, Tempo |
 
-- Spring Boot
-- Angular
-- Mongo DB
-- MySQL
-- Kafka
-- Keycloak
-- Test Containers with Wiremock
-- Grafana Stack (Prometheus, Grafana, Loki and Tempo)
-- API Gateway using Spring Cloud Gateway MVC
-- Kubernetes
+## Estructura del Proyecto
 
+```
+LifeControl/
+├── frontend/                          # Angular 18 (legacy)
+├── life-control-app-angular/           # Angular 20 (nuevo - SSR + Material)
+│   ├── src/
+│   │   ├── app/
+│   │   │   ├── features/              # Feature modules
+│   │   │   │   └── products/           # Products feature
+│   │   │   ├── services/              # Core services
+│   │   │   └── models/                # TypeScript models
+│   │   └── styles.scss                # Global styles
+│   └── package.json
+│
+├── api-gateway/                       # Spring Cloud Gateway
+│   ├── src/main/java/
+│   ├── scripts/                       # Deployment scripts
+│   └── docker/                        # Docker configs
+│
+├── product-service/                   # Product Management
+├── inventory-service/                # Inventory Management
+├── life-control-api/                  # Core API
+├── order-service/                     # Order Management
+├── notification-service/            # Notifications
+│
+├── docker/                            # Docker Compose configs
+│   ├── docker-compose.yml             # Base compose
+│   ├── docker-compose.prod.yml        # Production overrides
+│   ├── .env                           # Base env vars
+│   ├── .env.dev                       # Development
+│   ├── .env.staging                   # Staging
+│   ├── .env.secrets.template          # Secrets template
+│   └── scripts/                       # Utility scripts
+│
+├── k8s/                               # Kubernetes manifests
+│   ├── kind/                          # Kind cluster setup
+│   └── manifests/                    # K8s deployments
+│
+└── backstage/                        # Spotify Backstage (Developer Portal)
+```
 
-## Application Architecture
-![image](https://github.com/user-attachments/assets/d4ef38bd-8ae5-4cc7-9ac5-7a8e5ec3c969)
+## Quick Start
 
-## How to run the frontend application
+### Prerrequisitos
 
-Make sure you have the following installed on your machine:
+- Java 21+
+- Node.js 20+
+- Docker + Docker Compose
+- Angular CLI (`npm i -g @angular/cli`)
 
-- Node.js
-- NPM
-- Angular CLI
+### Levantar Infraestructura (Docker)
 
-Run the following commands to start the frontend application
+```bash
+# Copiar y configurar variables de entorno
+cp docker/.env.dev docker/.env.local
 
-```shell
+# Levantar servicios de infraestructura
+cd docker
+docker-compose up -d mongodb mysql keycloak
+
+# Levantar servicios de aplicación
+docker-compose up -d api-gateway product-service web-app
+```
+
+### Servicios Disponibles
+
+| Servicio | URL | Puerto |
+|----------|-----|--------|
+| Web App (Angular) | http://localhost:4200 | 4200 |
+| API Gateway | http://localhost:9000 | 9000 |
+| Keycloak Admin | http://localhost:8181 | 8181 |
+| Product Service | http://localhost:8080 | 8080 |
+| Grafana | http://localhost:3000 | 3000 |
+| Prometheus | http://localhost:9090 | 9090 |
+| Kafka UI | http://localhost:8086 | 8086 |
+
+### Desarrollo Local (Frontend)
+
+```bash
+# Angular 20 (nuevo)
+cd life-control-app-angular
+npm install
+npm start
+
+# Angular 18 (legacy)
 cd frontend
 npm install
-npm run start
-```
-## How to build the backend services
-
-Run the following command to build and package the backend services into a docker container
-
-```shell
-mvn spring-boot:build-image -DdockerPassword=<your-docker-account-password>
+npm start
 ```
 
-The above command will build and package the services into a docker container and push it to your docker hub account.
+### Desarrollo Local (Backend)
 
-## How to run the backend services
+```bash
+# Usando Gradle
+cd product-service
+./gradlew bootRun
 
-Make sure you have the following installed on your machine:
+# O con Maven (si está configurado)
+cd api-gateway
+./mvnw spring-boot:run
+```
 
-- Java 21
-- Docker
-- Kind Cluster - https://kind.sigs.k8s.io/docs/user/quick-start/#installation
+## Scripts de Docker
 
-### Start Kind Cluster
+Scripts utilitarios en `docker/scripts/`:
 
-Run the k8s/kind/create-kind-cluster.sh script to create the kind Kubernetes cluster
+### setup-env.sh
+Configura el entorno de Docker. Crea volúmenes, copia archivos de entorno y valida Docker.
+```bash
+./docker/scripts/setup-env.sh [dev|staging|prod]
+```
+- **dev**: Environment de desarrollo (puerto 9000)
+- **staging**: Environment de staging (puerto 9100)
+- **prod**: Environment de producción (puerto 9200)
 
-```shell
+### validate-env.sh
+Valida la configuración del entorno (archivo .env, variables requeridas, puertos, Docker).
+```bash
+cd docker && ./scripts/validate-env.sh
+```
+
+### deploy.sh
+Script principal de despliegue. Build y start de servicios.
+```bash
+./docker/scripts/deploy.sh [dev|staging|prod] [start|stop|restart|build|up|logs|status|clean|health]
+
+# Ejemplos:
+./docker/scripts/deploy.sh dev start      # Build y start desarrollo
+./docker/scripts/deploy.sh dev up         # Start sin build
+./docker/scripts/deploy.sh dev build      # Solo build
+./docker/scripts/deploy.sh dev logs      # Ver logs
+./docker/scripts/deploy.sh dev status    # Estado de servicios
+./docker/scripts/deploy.sh dev health     # Health check
+./docker/scripts/deploy.sh dev clean      # Remove volumes
+```
+
+### cleanup.sh
+Limpia recursos de Docker y archivos locales.
+```bash
+./docker/scripts/cleanup.sh [docker|local|builds|all]
+
+# Opciones:
+# docker  - Limpia solo contenedores, imágenes, volúmenes de Docker
+# local   - Limpia directorios locales (./data, ./volume-data)
+# builds  - Limpia artifacts de build (./api-gateway/build)
+# all     - Limpieza completa (requiere confirmación)
+```
+
+## Configuración
+
+### Variables de Entorno
+
+#### Desarrollo (`docker/.env.dev`)
+
+```bash
+# Perfil
+SPRING_PROFILES_ACTIVE=dev
+
+# Puertos
+API_GATEWAY_PORT=9000
+KEYCLOAK_PORT=8181
+WEB_APP_PORT=4200
+
+# Bases de datos
+MONGO_ROOT_PASSWORD=devpass
+MYSQL_ROOT_PASSWORD=devpass
+PRODUCT_POSTGRES_PASSWORD=devpass
+KEYCLOAK_POSTGRES_PASSWORD=devpass
+
+# Keycloak
+KC_ADMIN_USERNAME=admin
+KC_ADMIN_PASSWORD=admin
+KEYCLOAK_ISSUER_URI=http://localhost:8181/realms/life-control-realm
+
+# Monitoring
+LOG_LEVEL=DEBUG
+TRACING_SAMPLING_PROBABILITY=1.0
+```
+
+#### Producción (`docker/.env.prod`)
+
+```bash
+# Perfil
+SPRING_PROFILES_ACTIVE=prod
+
+# Secrets (usar .env.secrets)
+# MYSQL_ROOT_PASSWORD=<secure>
+# KEYCLOAK_POSTGRES_PASSWORD=<secure>
+# DATABASE_PASSWORD=<secure>
+# JWT_SECRET_KEY=<256-bit-key>
+
+# Monitoring
+LOG_LEVEL=WARN
+TRACING_SAMPLING_PROBABILITY=0.1
+```
+
+### Autenticación (Keycloak)
+
+Credenciales por defecto:
+- **Admin Console**: http://localhost:8181
+- **Usuario**: `admin`
+- **Contraseña**: `admin`
+
+Realm: `life-control-realm`
+Client: `life-control-client`
+
+## API Endpoints
+
+### API Gateway (Puerto 9000)
+
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| GET | `/api/product/**` | Product Service |
+| GET | `/api/inventory/**` | Inventory Service |
+| GET | `/api/order/**` | Order Service |
+| GET | `/api/lifecontrol/**` | LifeControl API |
+
+### Health Checks
+
+```
+GET /actuator/health          # Health general
+GET /actuator/prometheus     # Métricas Prometheus
+GET /actuator/circuitbreakers # Estado Circuit Breaker
+```
+
+## Testing
+
+```bash
+# Tests unitarios (Angular)
+cd life-control-app-angular
+npm test
+
+# Tests con Coverage
+npm test -- --coverage
+
+# Tests de integración (Backend)
+cd product-service
+./gradlew integrationTest
+```
+
+## Kubernetes (Opcional)
+
+```bash
+# Crear Kind cluster
 ./k8s/kind/create-kind-cluster.sh
-```
-This will create a kind cluster and pre-load all the required docker images into the cluster, this will save you time downloading the images when you deploy the application.
 
-### Deploy the infrastructure
-
-Run the k8s/manisfests/infrastructure.yaml file to deploy the infrastructure
-
-```shell
+# Deploy infraestructura
 kubectl apply -f k8s/manifests/infrastructure.yaml
-```
 
-### Deploy the services
-
-Run the k8s/manifests/applications.yaml file to deploy the services
-
-```shell
+# Deploy aplicaciones
 kubectl apply -f k8s/manifests/applications.yaml
-```
 
-### Access the API Gateway
-
-To access the API Gateway, you need to port-forward the gateway service to your local machine
-
-```shell
+# Port-forward para acceso
 kubectl port-forward svc/gateway-service 9000:9000
-```
-
-### Access the Keycloak Admin Console
-To access the Keycloak admin console, you need to port-forward the keycloak service to your local machine
-
-```shell
-kubectl port-forward svc/keycloak 8080:8080
-```
-
-### Access the Grafana Dashboards
-To access the Grafana dashboards, you need to port-forward the grafana service to your local machine
-
-```shell
+kubectl port-forward svc/keycloak 8181:8080
 kubectl port-forward svc/grafana 3000:3000
 ```
+
+## Observabilidad
+
+### Grafana Dashboards
+
+- **API Gateway**: Métricas de tráfico, latencia, errores
+- **JVM Metrics**: Memoria, GC, threads
+- **Business Metrics**: Orders, Products, Inventory
+
+### Tracing Distribuido
+
+- **Tempo**: http://localhost:3110
+- **Loki** (Logs): http://localhost:3100
+
+### Logs Estructurados
+
+Formato: `{timestamp} [{traceId},{spanId}] {level} {logger} - {message}`
+
+## Contribuir
+
+1. Crear feature branch: `git checkout -b feature/nueva-feature`
+2. Commitear cambios: `git commit -m 'feat: descripción'`
+3. Push: `git push origin feature/nueva-feature`
+4. Crear Pull Request
+
+### Convenciones de Commits
+
+```
+feat:     Nueva feature
+fix:      Bug fix
+docs:     Documentación
+refactor: Refactoring
+test:     Tests
+chore:    Mantenimiento
+```
+
+## Licencia
+
+MIT License - Ver [LICENSE](LICENSE) para detalles.
+
+---
+
+**Nota**: Este proyecto está en constante evolución. La versión más reciente puede diferir de la documentación.
