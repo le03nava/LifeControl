@@ -15,7 +15,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 public class SecurityConfig {
 
   private final String[] freeResourceUrls = { "/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**",
-      "/swagger-resources/**", "/api-docs/**", "/aggregate/**", "/actuator/prometheus" };
+      "/swagger-resources/**", "/api-docs/**", "/aggregate/**", "/actuator/health", "/actuator/prometheus" };
 
   @Bean
   public SecurityFilterChain securityFilterChain(HttpSecurity httpSecurity, 

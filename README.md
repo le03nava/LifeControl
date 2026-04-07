@@ -197,13 +197,23 @@ Script principal de despliegue. Build y start de servicios.
 ### cleanup.sh
 Limpia recursos de Docker y archivos locales.
 ```bash
-./docker/scripts/cleanup.sh [docker|local|builds|all]
+./docker/scripts/cleanup.sh [option] [env]
 
 # Opciones:
-# docker  - Limpia solo contenedores, imágenes, volúmenes de Docker
-# local   - Limpia directorios locales (./data, ./volume-data)
-# builds  - Limpia artifacts de build (./api-gateway/build)
-# all     - Limpieza completa (requiere confirmación)
+# stop       - Detener solo contenedores (conserva volúmenes e imágenes)
+# docker     - Limpiar Docker (contenedores, imágenes, redes) - conserva volúmenes
+# volumes    - Eliminar TODOS los volúmenes (DESTRUCTIVO - pierde datos)
+# local      - Limpiar directorios locales (./data, ./volume-data)
+# builds     - Limpiar artifacts de build (./api-gateway/build)
+# all        - Limpieza completa (stop + docker + volumes + local + builds)
+
+# Entornos: dev (default), staging, prod
+
+# Ejemplos:
+./docker/scripts/cleanup.sh stop dev            # Detener contenedores
+./docker/scripts/cleanup.sh docker dev          # Limpiar Docker (mantiene datos)
+./docker/scripts/cleanup.sh volumes dev         # Eliminar volúmenes
+./docker/scripts/cleanup.sh all staging         # Limpieza total
 ```
 
 ## Configuración

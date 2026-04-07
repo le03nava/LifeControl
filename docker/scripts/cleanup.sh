@@ -5,6 +5,9 @@
 
 set -e
 
+# Docker directory
+DOCKER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -17,12 +20,43 @@ print_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 print_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 print_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
+# Use docker compose v2
+DOCKER_COMPOSE="docker compose"
+
+# Default environment
+ENV=${1:-dev}
+COMPOSE_FILES="-f $DOCKER_DIR/docker-compose.yml"
+
+# Add override for development
+if [ "$ENV" = "dev" ] || [ "$ENV" = "development" ]; then
+	COMPOSE_FILES="$COMPOSE_FILES -f $DOCKER_DIR/docker-compose.override.yml"
+fi
+
+# Add production compose file
+if [ "$ENV" = "prod" ] || [ "$ENV" = "production" ]; then
+	COMPOSE_FILES="$COMPOSE_FILES -f $DOCKER_DIR/docker-compose.prod.yml"
+fi
+
+# Environment file
+ENV_FILE="$DOCKER_DIR/.env.$ENV"
+
+# ============================================
+# Stop containers (without removing)
+# ============================================
+stop_containers() {
+	print_status "Stopping all containers..."
+
+	$DOCKER_COMPOSE $COMPOSE_FILES --env-file "$ENV_FILE" down 2>/dev/null || true
+
+	print_success "All containers stopped"
+}
+
 cleanup_docker() {
 	print_status "Cleaning up Docker resources..."
 
-	# Stop all containers
+	# Stop all containers using same compose files and env as deploy.sh
 	print_status "Stopping containers..."
-	docker-compose down --remove-orphans 2>/dev/null || true
+	$DOCKER_COMPOSE $COMPOSE_FILES --env-file "$ENV_FILE" down --remove-orphans 2>/dev/null || true
 
 	# Remove unused containers
 	print_status "Removing unused containers..."
@@ -32,15 +66,30 @@ cleanup_docker() {
 	print_status "Removing unused images..."
 	docker image prune -f -a
 
-	# Remove unused volumes (optional)
-	print_status "Removing unused volumes..."
-	docker volume prune -f
-
 	# Remove unused networks
 	print_status "Removing unused networks..."
 	docker network prune -f
 
-	print_success "Docker cleanup completed"
+	print_success "Docker cleanup completed (volumes preserved)"
+}
+
+cleanup_volumes() {
+	print_status "Cleaning up Docker volumes..."
+
+	# ⚠️ WARNING: This will delete ALL data in volumes!
+	print_warning "This will delete ALL data in Docker volumes!"
+	print_warning "Databases will be reset to empty state!"
+
+	read -p "Are you sure? Type 'yes' to confirm: " -r
+	echo
+
+	if [ "$REPLY" = "yes" ]; then
+		print_status "Removing all Docker volumes..."
+		docker volume prune -f
+		print_success "Volumes cleanup completed"
+	else
+		print_status "Volumes cleanup cancelled"
+	fi
 }
 
 cleanup_local() {
@@ -93,7 +142,8 @@ full_cleanup() {
 	echo
 
 	if [ "$REPLY" = "yes" ]; then
-		cleanup_docker
+		stop_containers
+		cleanup_volumes
 		cleanup_local
 		cleanup_builds
 		print_success "Full cleanup completed!"
@@ -106,21 +156,44 @@ show_help() {
 	echo "LifeControl Cleanup Script"
 	echo "=========================="
 	echo ""
-	echo "Usage: $0 [option]"
+	echo "Usage: $0 [option] [env]"
 	echo ""
 	echo "Options:"
-	echo "  docker     - Clean Docker resources only"
+	echo "  stop       - Stop all containers (preserves volumes, images, networks)"
+	echo "  docker     - Clean Docker resources (containers, images, networks)"
+	echo "              Preserves volumes!"
+	echo "  volumes    - Clean Docker volumes only (DESTRUCTIVE - deletes all data)"
 	echo "  local      - Clean local data directories only"
 	echo "  builds     - Clean build artifacts only"
-	echo "  all        - Full cleanup (Docker + local + builds)"
+	echo "  all        - Full cleanup (stop + docker + volumes + local + builds)"
 	echo "  help       - Show this help"
+	echo ""
+	echo "Environment:"
+	echo "  dev        - Development (default)"
+	echo "  staging    - Staging"
+	echo "  prod       - Production"
+	echo ""
+	echo "Examples:"
+	echo "  $0 stop dev            # Stop all containers"
+	echo "  $0 docker dev          # Clean Docker, keep volumes"
+	echo "  $0 volumes dev         # Delete all volumes (data loss!)"
+	echo "  $0 all staging         # Full cleanup, including volumes"
+	echo "  $0 stop prod"
 	echo ""
 }
 
 # Main
+ENV=${2:-dev}  # Default to dev
+
 case "${1:-help}" in
+stop)
+	stop_containers
+	;;
 docker)
 	cleanup_docker
+	;;
+volumes)
+	cleanup_volumes
 	;;
 local)
 	cleanup_local
