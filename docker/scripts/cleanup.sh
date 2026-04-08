@@ -24,7 +24,10 @@ print_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 DOCKER_COMPOSE="docker compose"
 
 # Default environment
-ENV=${1:-dev}
+ENV=${2:-dev}
+
+# Parse option first
+OPTION=${1:-help}
 COMPOSE_FILES="-f $DOCKER_DIR/docker-compose.yml"
 
 # Add override for development
@@ -183,9 +186,8 @@ show_help() {
 }
 
 # Main
-ENV=${2:-dev}  # Default to dev
 
-case "${1:-help}" in
+case "${OPTION:-help}" in
 stop)
 	stop_containers
 	;;
@@ -208,7 +210,7 @@ help | --help | -h)
 	show_help
 	;;
 *)
-	print_error "Unknown option: $1"
+	print_error "Unknown option: $OPTION"
 	show_help
 	exit 1
 	;;
