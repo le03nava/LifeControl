@@ -26,6 +26,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
@@ -66,34 +67,34 @@ class ApiUserControllerTest {
         testUserId = UUID.randomUUID();
         LocalDateTime now = LocalDateTime.now();
 
-        testUserResponse = ApiUserResponse.builder()
-                .id(testUserId)
-                .username("testuser")
-                .email("test@example.com")
-                .name("Test")
-                .lastname("User")
-                .phone("+1234567890")
-                .enabled(true)
-                .createdAt(now)
-                .updatedAt(now)
-                .build();
+        testUserResponse = new ApiUserResponse(
+                testUserId,
+                "testuser",
+                "test@example.com",
+                "Test",
+                "User",
+                "+1234567890",
+                true,
+                now,
+                now
+        );
 
-        testUserRequest = ApiUserRequest.builder()
-                .username("testuser")
-                .email("test@example.com")
-                .password("password123")
-                .name("Test")
-                .lastname("User")
-                .phone("+1234567890")
-                .enabled(true)
-                .build();
+        testUserRequest = new ApiUserRequest(
+                "testuser",
+                "test@example.com",
+                "password123",
+                "Test",
+                "User",
+                "+1234567890",
+                true
+        );
 
-        testUpdateRequest = ApiUserUpdateRequest.builder()
-                .name("UpdatedName")
-                .lastname("UpdatedLastname")
-                .phone("+9876543210")
-                .enabled(false)
-                .build();
+        testUpdateRequest = new ApiUserUpdateRequest(
+                "UpdatedName",
+                "UpdatedLastname",
+                "+9876543210",
+                false
+        );
     }
 
     @Nested
@@ -120,11 +121,15 @@ class ApiUserControllerTest {
         @DisplayName("createUser - should return 400 Bad Request for invalid input")
         void createUser_InvalidInput_BadRequest() throws Exception {
             // Arrange
-            ApiUserRequest invalidRequest = ApiUserRequest.builder()
-                    .username("ab") // Too short
-                    .email("invalid-email") // Invalid email
-                    .password("123") // Too short
-                    .build();
+            ApiUserRequest invalidRequest = new ApiUserRequest(
+                    "ab", // Too short
+                    "invalid-email", // Invalid email
+                    "123", // Too short
+                    null,
+                    null,
+                    null,
+                    null
+            );
 
             // Act & Assert
             mockMvc.perform(post("/api/users")
@@ -386,10 +391,5 @@ class ApiUserControllerTest {
             mockMvc.perform(delete("/api/users/{id}", testUserId))
                     .andExpect(status().isNotFound());
         }
-    }
-
-    // Helper method for eq() matcher
-    private static <T> T eq(T value) {
-        return org.mockito.ArgumentMatchers.eq(value);
     }
 }

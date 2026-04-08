@@ -6,7 +6,6 @@ import com.lifecontrol.api.company.exception.CompanyNotFoundException;
 import com.lifecontrol.api.company.exception.DuplicateCompanyException;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.repository.CompanyRepository;
-import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -16,12 +15,15 @@ import java.util.List;
 import java.util.UUID;
 
 @Service
-@RequiredArgsConstructor
 public class CompanyService {
 
     private static final Logger logger = LoggerFactory.getLogger(CompanyService.class);
 
     private final CompanyRepository companyRepository;
+
+    public CompanyService(CompanyRepository companyRepository) {
+        this.companyRepository = companyRepository;
+    }
 
     @Transactional(readOnly = true)
     public List<CompanyResponse> getAllCompanies() {
@@ -40,29 +42,29 @@ public class CompanyService {
     @Transactional
     public CompanyResponse createCompany(CompanyRequest request) {
         // Validate uniqueness
-        if (companyRepository.existsByCompanyId(request.getCompanyId())) {
-            throw new DuplicateCompanyException("Ya existe una compañía con companyId: " + request.getCompanyId());
+        if (companyRepository.existsByCompanyId(request.companyId())) {
+            throw new DuplicateCompanyException("Ya existe una compañía con companyId: " + request.companyId());
         }
 
-        if (companyRepository.existsByCompanyKey("COMPANY_" + request.getCompanyId())) {
+        if (companyRepository.existsByCompanyKey("COMPANY_" + request.companyId())) {
             throw new DuplicateCompanyException("Ya existe una compañía con ese companyKey");
         }
 
-        if (companyRepository.existsByRfc(request.getRfc())) {
-            throw new DuplicateCompanyException("Ya existe una compañía con RFC: " + request.getRfc());
+        if (companyRepository.existsByRfc(request.rfc())) {
+            throw new DuplicateCompanyException("Ya existe una compañía con RFC: " + request.rfc());
         }
 
         // Build entity
         Company company = Company.builder()
-                .companyId(request.getCompanyId())
-                .companyKey("COMPANY_" + request.getCompanyId())
-                .companyName(request.getCompanyName())
-                .tipoPersonaId(request.getTipoPersonaId())
-                .razonSocial(request.getRazonSocial())
-                .rfc(request.getRfc())
-                .phone(request.getPhone())
-                .email(request.getEmail())
-                .enabled(request.getEnabled() != null ? request.getEnabled() : true)
+                .companyId(request.companyId())
+                .companyKey("COMPANY_" + request.companyId())
+                .companyName(request.companyName())
+                .tipoPersonaId(request.tipoPersonaId())
+                .razonSocial(request.razonSocial())
+                .rfc(request.rfc())
+                .phone(request.phone())
+                .email(request.email())
+                .enabled(request.enabled() != null ? request.enabled() : true)
                 .build();
 
         Company saved = companyRepository.save(company);
@@ -77,21 +79,21 @@ public class CompanyService {
                 .orElseThrow(() -> new CompanyNotFoundException(id));
 
         // Validate uniqueness (excluding current company)
-        if (companyRepository.existsByRfcAndIdNot(request.getRfc(), id)) {
-            throw new DuplicateCompanyException("Ya existe una compañía con RFC: " + request.getRfc());
+        if (companyRepository.existsByRfcAndIdNot(request.rfc(), id)) {
+            throw new DuplicateCompanyException("Ya existe una compañía con RFC: " + request.rfc());
         }
 
         // Note: companyKey is derived from companyId which is immutable, so no validation needed
         // companyKey = "COMPANY_" + companyId (cannot change during update)
 
         // Update fields (companyId and companyKey are immutable)
-        company.setCompanyName(request.getCompanyName());
-        company.setTipoPersonaId(request.getTipoPersonaId());
-        company.setRazonSocial(request.getRazonSocial());
-        company.setRfc(request.getRfc());
-        company.setPhone(request.getPhone());
-        company.setEmail(request.getEmail());
-        company.setEnabled(request.getEnabled() != null ? request.getEnabled() : true);
+        company.setCompanyName(request.companyName());
+        company.setTipoPersonaId(request.tipoPersonaId());
+        company.setRazonSocial(request.razonSocial());
+        company.setRfc(request.rfc());
+        company.setPhone(request.phone());
+        company.setEmail(request.email());
+        company.setEnabled(request.enabled() != null ? request.enabled() : true);
 
         Company updated = companyRepository.save(company);
 
@@ -111,18 +113,18 @@ public class CompanyService {
     }
 
     private CompanyResponse toResponse(Company company) {
-        return CompanyResponse.builder()
-                .companyId(company.getCompanyId())
-                .companyKey(company.getCompanyKey())
-                .companyName(company.getCompanyName())
-                .tipoPersonaId(company.getTipoPersonaId())
-                .razonSocial(company.getRazonSocial())
-                .rfc(company.getRfc())
-                .phone(company.getPhone())
-                .email(company.getEmail())
-                .enabled(company.getEnabled())
-                .createdAt(company.getCreatedAt())
-                .updatedAt(company.getUpdatedAt())
-                .build();
+        return new CompanyResponse(
+                company.getCompanyId(),
+                company.getCompanyKey(),
+                company.getCompanyName(),
+                company.getTipoPersonaId(),
+                company.getRazonSocial(),
+                company.getRfc(),
+                company.getPhone(),
+                company.getEmail(),
+                company.getEnabled(),
+                company.getCreatedAt(),
+                company.getUpdatedAt()
+        );
     }
 }

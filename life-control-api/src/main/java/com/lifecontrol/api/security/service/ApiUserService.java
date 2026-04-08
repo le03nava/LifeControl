@@ -7,43 +7,46 @@ import com.lifecontrol.api.security.exception.ApiUserNotFoundException;
 import com.lifecontrol.api.security.exception.DuplicateResourceException;
 import com.lifecontrol.api.security.model.ApiUser;
 import com.lifecontrol.api.security.repository.ApiUserRepository;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 @Service
-@RequiredArgsConstructor
-@Slf4j
 @Transactional
 public class ApiUserService {
 
+    private static final Logger log = LoggerFactory.getLogger(ApiUserService.class);
+
     private final ApiUserRepository apiUserRepository;
 
-    public ApiUserResponse createUser(ApiUserRequest request) {
-        log.info("Creating new user with username: {}", request.getUsername());
+    public ApiUserService(ApiUserRepository apiUserRepository) {
+        this.apiUserRepository = apiUserRepository;
+    }
 
-        if (apiUserRepository.existsByUsername(request.getUsername())) {
-            throw new DuplicateResourceException("Username already exists: " + request.getUsername());
+    public ApiUserResponse createUser(ApiUserRequest request) {
+        log.info("Creating new user with username: {}", request.username());
+
+        if (apiUserRepository.existsByUsername(request.username())) {
+            throw new DuplicateResourceException("Username already exists: " + request.username());
         }
 
-        if (apiUserRepository.existsByEmail(request.getEmail())) {
-            throw new DuplicateResourceException("Email already exists: " + request.getEmail());
+        if (apiUserRepository.existsByEmail(request.email())) {
+            throw new DuplicateResourceException("Email already exists: " + request.email());
         }
 
         ApiUser user = ApiUser.builder()
-                .username(request.getUsername())
-                .email(request.getEmail())
-                .password(request.getPassword())
-                .name(request.getName())
-                .lastname(request.getLastname())
-                .phone(request.getPhone())
-                .enabled(request.getEnabled() != null ? request.getEnabled() : true)
+                .username(request.username())
+                .email(request.email())
+                .password(request.password())
+                .name(request.name())
+                .lastname(request.lastname())
+                .phone(request.phone())
+                .enabled(request.enabled() != null ? request.enabled() : true)
                 .build();
 
         user.setCreatedAt(LocalDateTime.now());
@@ -84,7 +87,7 @@ public class ApiUserService {
         log.debug("Fetching all users");
         return apiUserRepository.findAll().stream()
                 .map(this::mapToResponse)
-                .collect(Collectors.toList());
+                .toList();
     }
 
     public ApiUserResponse updateUser(UUID id, ApiUserUpdateRequest request) {
@@ -92,17 +95,17 @@ public class ApiUserService {
         ApiUser user = apiUserRepository.findById(id)
                 .orElseThrow(() -> new ApiUserNotFoundException("User not found with id: " + id));
 
-        if (request.getName() != null) {
-            user.setName(request.getName());
+        if (request.name() != null) {
+            user.setName(request.name());
         }
-        if (request.getLastname() != null) {
-            user.setLastname(request.getLastname());
+        if (request.lastname() != null) {
+            user.setLastname(request.lastname());
         }
-        if (request.getPhone() != null) {
-            user.setPhone(request.getPhone());
+        if (request.phone() != null) {
+            user.setPhone(request.phone());
         }
-        if (request.getEnabled() != null) {
-            user.setEnabled(request.getEnabled());
+        if (request.enabled() != null) {
+            user.setEnabled(request.enabled());
         }
 
         user.setUpdatedAt(LocalDateTime.now());
@@ -134,16 +137,16 @@ public class ApiUserService {
     }
 
     private ApiUserResponse mapToResponse(ApiUser user) {
-        return ApiUserResponse.builder()
-                .id(user.getId())
-                .username(user.getUsername())
-                .email(user.getEmail())
-                .name(user.getName())
-                .lastname(user.getLastname())
-                .phone(user.getPhone())
-                .enabled(user.getEnabled())
-                .createdAt(user.getCreatedAt())
-                .updatedAt(user.getUpdatedAt())
-                .build();
+        return new ApiUserResponse(
+                user.getId(),
+                user.getUsername(),
+                user.getEmail(),
+                user.getName(),
+                user.getLastname(),
+                user.getPhone(),
+                user.getEnabled(),
+                user.getCreatedAt(),
+                user.getUpdatedAt()
+        );
     }
 }

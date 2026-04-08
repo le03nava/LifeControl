@@ -59,16 +59,16 @@ class CompanyServiceTest {
                 .updatedAt(LocalDateTime.now())
                 .build();
 
-        testCompanyRequest = CompanyRequest.builder()
-                .companyId(1)
-                .companyName("Test Company")
-                .tipoPersonaId(1)
-                .razonSocial("Razon Social Test SA de CV")
-                .rfc("XAXX010101000")
-                .phone("+1234567890")
-                .email("test@company.com")
-                .enabled(true)
-                .build();
+        testCompanyRequest = new CompanyRequest(
+                1,
+                "Test Company",
+                1,
+                "Razon Social Test SA de CV",
+                "XAXX010101000",
+                "+1234567890",
+                "test@company.com",
+                true
+        );
     }
 
     @Nested
@@ -86,9 +86,9 @@ class CompanyServiceTest {
 
             // Assert
             assertThat(result).isNotNull();
-            assertThat(result.getCompanyId()).isEqualTo(testCompany.getCompanyId());
-            assertThat(result.getCompanyKey()).isEqualTo(testCompany.getCompanyKey());
-            assertThat(result.getCompanyName()).isEqualTo(testCompany.getCompanyName());
+            assertThat(result.companyId()).isEqualTo(testCompany.getCompanyId());
+            assertThat(result.companyKey()).isEqualTo(testCompany.getCompanyKey());
+            assertThat(result.companyName()).isEqualTo(testCompany.getCompanyName());
         }
 
         @Test
@@ -112,19 +112,19 @@ class CompanyServiceTest {
         @DisplayName("updateCompany - should update company successfully")
         void updateCompany_Success() {
             // Arrange
-            CompanyRequest updateRequest = CompanyRequest.builder()
-                    .companyId(1)
-                    .companyName("Updated Company Name")
-                    .tipoPersonaId(2)
-                    .razonSocial("Nueva Razon Social SA de CV")
-                    .rfc("XAXX010101000")  // Same RFC - should pass
-                    .phone("+9876543210")
-                    .email("updated@company.com")
-                    .enabled(false)
-                    .build();
+            CompanyRequest updateRequest = new CompanyRequest(
+                    1,
+                    "Updated Company Name",
+                    2,
+                    "Nueva Razon Social SA de CV",
+                    "XAXX010101000",
+                    "+9876543210",
+                    "updated@company.com",
+                    false
+            );
 
             when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
-            when(companyRepository.existsByRfcAndIdNot(updateRequest.getRfc(), testCompanyId)).thenReturn(false);
+            when(companyRepository.existsByRfcAndIdNot(updateRequest.rfc(), testCompanyId)).thenReturn(false);
             when(companyRepository.save(any(Company.class))).thenAnswer(inv -> inv.getArgument(0));
 
             // Act
@@ -132,11 +132,11 @@ class CompanyServiceTest {
 
             // Assert
             assertThat(result).isNotNull();
-            assertThat(result.getCompanyName()).isEqualTo("Updated Company Name");
-            assertThat(result.getTipoPersonaId()).isEqualTo(2);
-            assertThat(result.getRazonSocial()).isEqualTo("Nueva Razon Social SA de CV");
-            assertThat(result.getEmail()).isEqualTo("updated@company.com");
-            assertThat(result.getEnabled()).isFalse();
+            assertThat(result.companyName()).isEqualTo("Updated Company Name");
+            assertThat(result.tipoPersonaId()).isEqualTo(2);
+            assertThat(result.razonSocial()).isEqualTo("Nueva Razon Social SA de CV");
+            assertThat(result.email()).isEqualTo("updated@company.com");
+            assertThat(result.enabled()).isFalse();
             verify(companyRepository).save(any(Company.class));
         }
 
@@ -157,11 +157,16 @@ class CompanyServiceTest {
         @DisplayName("updateCompany - should throw DuplicateCompanyException when RFC is duplicate")
         void updateCompany_DuplicateRfc_ThrowsException() {
             // Arrange
-            CompanyRequest duplicateRfcRequest = CompanyRequest.builder()
-                    .companyId(1)
-                    .companyName("Test Company")
-                    .rfc("DUPLICATE_RFC")
-                    .build();
+            CompanyRequest duplicateRfcRequest = new CompanyRequest(
+                    1,
+                    "Test Company",
+                    null,
+                    null,
+                    "DUPLICATE_RFC",
+                    null,
+                    null,
+                    null
+            );
 
             when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
             when(companyRepository.existsByRfcAndIdNot("DUPLICATE_RFC", testCompanyId)).thenReturn(true);
@@ -176,14 +181,19 @@ class CompanyServiceTest {
         @DisplayName("updateCompany - should ignore companyId from request and use path ID")
         void updateCompany_IgnoreCompanyIdFromRequest() {
             // Arrange - request has different companyId but should be ignored
-            CompanyRequest updateRequest = CompanyRequest.builder()
-                    .companyId(999)  // Different from existing company
-                    .companyName("Updated Company")
-                    .rfc("XAXX010101000")
-                    .build();
+            CompanyRequest updateRequest = new CompanyRequest(
+                    999,  // Different from existing company
+                    "Updated Company",
+                    null,
+                    null,
+                    "XAXX010101000",
+                    null,
+                    null,
+                    null
+            );
 
             when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
-            when(companyRepository.existsByRfcAndIdNot(updateRequest.getRfc(), testCompanyId)).thenReturn(false);
+            when(companyRepository.existsByRfcAndIdNot(updateRequest.rfc(), testCompanyId)).thenReturn(false);
             when(companyRepository.save(any(Company.class))).thenAnswer(inv -> inv.getArgument(0));
 
             // Act
@@ -192,7 +202,7 @@ class CompanyServiceTest {
             // Assert
             assertThat(result).isNotNull();
             // companyId should remain 1, not 999 from request
-            assertThat(result.getCompanyId()).isEqualTo(1);
+            assertThat(result.companyId()).isEqualTo(1);
             verify(companyRepository).save(any(Company.class));
         }
 
@@ -200,11 +210,16 @@ class CompanyServiceTest {
         @DisplayName("updateCompany - should allow same RFC when updating same company")
         void updateCompany_SameRfcAllowed() {
             // Arrange - same RFC as current company should pass
-            CompanyRequest sameRfcRequest = CompanyRequest.builder()
-                    .companyId(1)
-                    .companyName("Updated Name")
-                    .rfc("XAXX010101000")  // Same as existing
-                    .build();
+            CompanyRequest sameRfcRequest = new CompanyRequest(
+                    1,
+                    "Updated Name",
+                    null,
+                    null,
+                    "XAXX010101000",  // Same as existing
+                    null,
+                    null,
+                    null
+            );
 
             when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
             when(companyRepository.existsByRfcAndIdNot("XAXX010101000", testCompanyId)).thenReturn(false);
@@ -213,7 +228,7 @@ class CompanyServiceTest {
             // Act & Assert - should not throw
             CompanyResponse result = companyService.updateCompany(testCompanyId, sameRfcRequest);
             assertThat(result).isNotNull();
-            assertThat(result.getCompanyName()).isEqualTo("Updated Name");
+            assertThat(result.companyName()).isEqualTo("Updated Name");
         }
     }
 

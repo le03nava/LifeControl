@@ -61,22 +61,22 @@ class ApiUserServiceTest {
                 .updatedAt(LocalDateTime.now())
                 .build();
 
-        testUserRequest = ApiUserRequest.builder()
-                .username("testuser")
-                .email("test@example.com")
-                .password("password123")
-                .name("Test")
-                .lastname("User")
-                .phone("+1234567890")
-                .enabled(true)
-                .build();
+        testUserRequest = new ApiUserRequest(
+                "testuser",
+                "test@example.com",
+                "password123",
+                "Test",
+                "User",
+                "+1234567890",
+                true
+        );
 
-        testUpdateRequest = ApiUserUpdateRequest.builder()
-                .name("UpdatedName")
-                .lastname("UpdatedLastname")
-                .phone("+9876543210")
-                .enabled(false)
-                .build();
+        testUpdateRequest = new ApiUserUpdateRequest(
+                "UpdatedName",
+                "UpdatedLastname",
+                "+9876543210",
+                false
+        );
     }
 
     @Nested
@@ -87,8 +87,8 @@ class ApiUserServiceTest {
         @DisplayName("createUser - should create user successfully")
         void createUser_Success() {
             // Arrange
-            when(apiUserRepository.existsByUsername(testUserRequest.getUsername())).thenReturn(false);
-            when(apiUserRepository.existsByEmail(testUserRequest.getEmail())).thenReturn(false);
+            when(apiUserRepository.existsByUsername(testUserRequest.username())).thenReturn(false);
+            when(apiUserRepository.existsByEmail(testUserRequest.email())).thenReturn(false);
             when(apiUserRepository.save(any(ApiUser.class))).thenReturn(testUser);
 
             // Act
@@ -96,8 +96,8 @@ class ApiUserServiceTest {
 
             // Assert
             assertThat(result).isNotNull();
-            assertThat(result.getUsername()).isEqualTo(testUserRequest.getUsername());
-            assertThat(result.getEmail()).isEqualTo(testUserRequest.getEmail());
+            assertThat(result.username()).isEqualTo(testUserRequest.username());
+            assertThat(result.email()).isEqualTo(testUserRequest.email());
             
             verify(apiUserRepository).save(any(ApiUser.class));
         }
@@ -106,7 +106,7 @@ class ApiUserServiceTest {
         @DisplayName("createUser - should throw DuplicateResourceException when username exists")
         void createUser_UsernameExists_ThrowsException() {
             // Arrange
-            when(apiUserRepository.existsByUsername(testUserRequest.getUsername())).thenReturn(true);
+            when(apiUserRepository.existsByUsername(testUserRequest.username())).thenReturn(true);
 
             // Act & Assert
             assertThatThrownBy(() -> apiUserService.createUser(testUserRequest))
@@ -120,8 +120,8 @@ class ApiUserServiceTest {
         @DisplayName("createUser - should throw DuplicateResourceException when email exists")
         void createUser_EmailExists_ThrowsException() {
             // Arrange
-            when(apiUserRepository.existsByUsername(testUserRequest.getUsername())).thenReturn(false);
-            when(apiUserRepository.existsByEmail(testUserRequest.getEmail())).thenReturn(true);
+            when(apiUserRepository.existsByUsername(testUserRequest.username())).thenReturn(false);
+            when(apiUserRepository.existsByEmail(testUserRequest.email())).thenReturn(true);
 
             // Act & Assert
             assertThatThrownBy(() -> apiUserService.createUser(testUserRequest))
@@ -135,13 +135,15 @@ class ApiUserServiceTest {
         @DisplayName("createUser - should use default enabled value when null")
         void createUser_NullEnabled_UsesDefault() {
             // Arrange
-            ApiUserRequest requestWithoutEnabled = ApiUserRequest.builder()
-                    .username("newuser")
-                    .email("new@example.com")
-                    .password("password")
-                    .name("New")
-                    .enabled(null)
-                    .build();
+            ApiUserRequest requestWithoutEnabled = new ApiUserRequest(
+                    "newuser",
+                    "new@example.com",
+                    "password",
+                    "New",
+                    null,
+                    null,
+                    null
+            );
 
             when(apiUserRepository.existsByUsername("newuser")).thenReturn(false);
             when(apiUserRepository.existsByEmail("new@example.com")).thenReturn(false);
@@ -163,7 +165,7 @@ class ApiUserServiceTest {
             ApiUserResponse result = apiUserService.createUser(requestWithoutEnabled);
 
             // Assert
-            assertThat(result.getEnabled()).isTrue();
+            assertThat(result.enabled()).isTrue();
         }
     }
 
@@ -182,8 +184,8 @@ class ApiUserServiceTest {
 
             // Assert
             assertThat(result).isNotNull();
-            assertThat(result.getId()).isEqualTo(testUserId);
-            assertThat(result.getUsername()).isEqualTo(testUser.getUsername());
+            assertThat(result.id()).isEqualTo(testUserId);
+            assertThat(result.username()).isEqualTo(testUser.getUsername());
         }
 
         @Test
@@ -214,7 +216,7 @@ class ApiUserServiceTest {
 
             // Assert
             assertThat(result).isNotNull();
-            assertThat(result.getUsername()).isEqualTo(testUser.getUsername());
+            assertThat(result.username()).isEqualTo(testUser.getUsername());
         }
 
         @Test
@@ -245,7 +247,7 @@ class ApiUserServiceTest {
 
             // Assert
             assertThat(result).isNotNull();
-            assertThat(result.getEmail()).isEqualTo(testUser.getEmail());
+            assertThat(result.email()).isEqualTo(testUser.getEmail());
         }
 
         @Test
@@ -277,7 +279,7 @@ class ApiUserServiceTest {
 
             // Assert
             assertThat(result).hasSize(1);
-            assertThat(result.get(0).getUsername()).isEqualTo(testUser.getUsername());
+            assertThat(result.get(0).username()).isEqualTo(testUser.getUsername());
         }
 
         @Test
@@ -315,8 +317,8 @@ class ApiUserServiceTest {
             verify(apiUserRepository).save(userCaptor.capture());
             
             ApiUser capturedUser = userCaptor.getValue();
-            assertThat(capturedUser.getName()).isEqualTo(testUpdateRequest.getName());
-            assertThat(capturedUser.getLastname()).isEqualTo(testUpdateRequest.getLastname());
+            assertThat(capturedUser.getName()).isEqualTo(testUpdateRequest.name());
+            assertThat(capturedUser.getLastname()).isEqualTo(testUpdateRequest.lastname());
         }
 
         @Test
@@ -335,9 +337,12 @@ class ApiUserServiceTest {
         @DisplayName("updateUser - should only update provided fields")
         void updateUser_PartialUpdate() {
             // Arrange
-            ApiUserUpdateRequest partialUpdate = ApiUserUpdateRequest.builder()
-                    .name("NewName")
-                    .build();
+            ApiUserUpdateRequest partialUpdate = new ApiUserUpdateRequest(
+                    "NewName",
+                    null,
+                    null,
+                    null
+            );
 
             when(apiUserRepository.findById(testUserId)).thenReturn(Optional.of(testUser));
             when(apiUserRepository.save(any(ApiUser.class))).thenReturn(testUser);

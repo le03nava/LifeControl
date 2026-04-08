@@ -8,7 +8,6 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -19,11 +18,14 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/users")
-@RequiredArgsConstructor
 @Tag(name = "User Management", description = "API for managing users")
 public class ApiUserController {
 
     private final ApiUserService apiUserService;
+
+    public ApiUserController(ApiUserService apiUserService) {
+        this.apiUserService = apiUserService;
+    }
 
     @PostMapping
     @Operation(summary = "Create a new user", description = "Creates a new user with the provided details")

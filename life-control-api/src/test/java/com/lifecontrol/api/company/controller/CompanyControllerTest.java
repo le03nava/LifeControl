@@ -61,30 +61,30 @@ class CompanyControllerTest {
         testCompanyId = UUID.randomUUID();
         LocalDateTime now = LocalDateTime.now();
 
-        testCompanyResponse = CompanyResponse.builder()
-                .companyId(1)
-                .companyKey("COMPANY_1")
-                .companyName("Test Company")
-                .tipoPersonaId(1)
-                .razonSocial("Razon Social Test SA de CV")
-                .rfc("XAXX010101000")
-                .phone("+1234567890")
-                .email("test@company.com")
-                .enabled(true)
-                .createdAt(now)
-                .updatedAt(now)
-                .build();
+        testCompanyResponse = new CompanyResponse(
+                1,
+                "COMPANY_1",
+                "Test Company",
+                1,
+                "Razon Social Test SA de CV",
+                "XAXX010101000",
+                "+1234567890",
+                "test@company.com",
+                true,
+                now,
+                now
+        );
 
-        testCompanyRequest = CompanyRequest.builder()
-                .companyId(1)
-                .companyName("Updated Company")
-                .tipoPersonaId(2)
-                .razonSocial("Nueva Razon Social")
-                .rfc("XAXX010101000")
-                .phone("+9876543210")
-                .email("updated@company.com")
-                .enabled(false)
-                .build();
+        testCompanyRequest = new CompanyRequest(
+                1,
+                "Updated Company",
+                2,
+                "Nueva Razon Social",
+                "XAXX010101000",
+                "+9876543210",
+                "updated@company.com",
+                false
+        );
     }
 
     @Nested
@@ -140,11 +140,16 @@ class CompanyControllerTest {
         @DisplayName("updateCompany - should return 400 Bad Request for invalid input")
         void updateCompany_InvalidInput_BadRequest() throws Exception {
             // Arrange - missing required field companyName
-            CompanyRequest invalidRequest = CompanyRequest.builder()
-                    .companyId(1)
-                    // companyName is required but missing
-                    .rfc("XAXX010101000")
-                    .build();
+            CompanyRequest invalidRequest = new CompanyRequest(
+                    1,
+                    null,  // companyName is required but missing
+                    null,
+                    null,
+                    "XAXX010101000",
+                    null,
+                    null,
+                    null
+            );
 
             // Act & Assert
             mockMvc.perform(put("/api/companies/{id}", testCompanyId)
