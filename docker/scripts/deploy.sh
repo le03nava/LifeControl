@@ -132,7 +132,9 @@ start_services() {
 
 	print_status "Starting services for $ENV environment..."
 
-	$DOCKER_COMPOSE $COMPOSE_FILES --env-file "$ENV_FILE" up -d
+	# Use --build to ensure Docker rebuilds images with latest local code
+	# This is especially important for the Angular app which copies from dist/
+	$DOCKER_COMPOSE $COMPOSE_FILES --env-file "$ENV_FILE" up -d --build
 
 	print_success "Services started!"
 	show_status
