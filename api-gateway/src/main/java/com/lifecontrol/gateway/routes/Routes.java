@@ -77,6 +77,26 @@ public class Routes {
   }
 
   @Bean
+  public RouterFunction<ServerResponse> companyServiceRoute() {
+    return GatewayRouterFunctions.route("company_service")
+        .route(RequestPredicates.path("/api/companies/**"), HandlerFunctions.http("http://lifecontrol-dev-lifecontrol-api:8082"))
+        .filter(CircuitBreakerFilterFunctions.circuitBreaker("companyServiceCircuitBreaker",
+            URI.create("forward:/fallbackRoute")))
+        .build();
+  }
+
+  @Bean
+  public RouterFunction<ServerResponse> companyServiceSwaggerRoute() {
+    return GatewayRouterFunctions.route("company_service_swagger")
+        .route(RequestPredicates.GET("/aggregate/company-service/v3/api-docs"),
+            HandlerFunctions.http("http://lifecontrol-dev-lifecontrol-api:8082"))
+        .filter(CircuitBreakerFilterFunctions.circuitBreaker("companyServiceSwaggerCircuitBreaker",
+            URI.create("forward:/fallbackRoute")))
+        .filter(FilterFunctions.setPath("/api-docs"))
+        .build();
+  }
+
+  @Bean
   public RouterFunction<ServerResponse> lifeControlApiRoute() {
     return GatewayRouterFunctions.route("lifecontrol_api")
         .route(RequestPredicates.path("/api/user/**"), HandlerFunctions.http("http://lifecontrol-dev-lifecontrol-api:8082"))
