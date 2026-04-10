@@ -39,9 +39,9 @@ export class Header {
 
   items = computed(() => [
     { id: '1', routeLink: '/home', textLink: 'Home', icon: 'home' },
-    { id: '2', routeLink: '/products', textLink: 'products', icon: 'delete' },
-
-    { id: '3', routeLink: '/expressions', textLink: 'expressions', icon: 'delete' },
+    { id: '2', routeLink: '/products', textLink: 'products', icon: 'inventory_2' },
+    { id: '3', routeLink: '/expressions', textLink: 'expressions', icon: 'fact_check' },
+    { id: '4', routeLink: '/companies', textLink: 'Companies', icon: 'business' },
   ]);
 
   authenticated = false;
