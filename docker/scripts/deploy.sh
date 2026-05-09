@@ -42,7 +42,7 @@ fi
 ENV_FILE="$DOCKER_DIR/.env.$ENV"
 
 usage() {
-	echo "Usage: $0 [dev|staging|prod] [start|stop|restart|build|up|logs|status|clean|health]"
+	echo "Usage: $0 [dev|staging|prod] [start|stop|restart|build|build-images|up|logs|status|clean|health]"
 	echo ""
 	echo "Environments:"
 	echo "  dev, development    - Development environment"
@@ -50,9 +50,10 @@ usage() {
 	echo "  prod, production   - Production environment"
 	echo ""
 	echo "Commands:"
-	echo "  start              - Build and start services (default)"
+	echo "  start              - Build services, build images, and start containers"
+	echo "  build              - Build services (Java + Angular) only (no containers)"
+	echo "  build-images       - Build Docker images only (uses pre-built services)"
 	echo "  up                - Start services without building"
-	echo "  build             - Build services only (no start)"
 	echo "  stop              - Stop services"
 	echo "  restart           - Restart services"
 	echo "  logs              - Show logs"
@@ -124,17 +125,20 @@ build_services() {
 	print_success "Build completed!"
 }
 
-start_services() {
-	# Build first if not skipped
-	if [ "$SKIP_BUILD" != "true" ]; then
-		build_services
-	fi
+build_images() {
+	print_status "Building Docker images for $ENV environment..."
 
+	# Build Docker images with --no-cache to ensure fresh builds
+	$DOCKER_COMPOSE $COMPOSE_FILES --env-file "$ENV_FILE" build --no-cache
+
+	print_success "Docker images built!"
+}
+
+start_services() {
 	print_status "Starting services for $ENV environment..."
 
-	# Use --build to ensure Docker rebuilds images with latest local code
-	# This is especially important for the Angular app which copies from dist/
-	$DOCKER_COMPOSE $COMPOSE_FILES --env-file "$ENV_FILE" up -d --build
+	# Start containers (services should already be built and images should be built)
+	$DOCKER_COMPOSE $COMPOSE_FILES --env-file "$ENV_FILE" up -d
 
 	print_success "Services started!"
 	show_status
@@ -239,16 +243,25 @@ COMMAND=${2:-start}
 case "$COMMAND" in
 start)
 	check_requirements
+	build_services
+	build_images
 	start_services
 	health_check
-	;;
-up)
-	check_requirements
-	SKIP_BUILD=true start_services
 	;;
 build)
 	check_requirements
 	build_services
+	print_status "Services built successfully! Use 'start' to run containers or 'build-images' to create Docker images."
+	;;
+build-images)
+	check_requirements
+	build_images
+	print_status "Docker images built successfully! Use 'start' or 'up' to run containers."
+	;;
+up)
+	check_requirements
+	start_services
+	health_check
 	;;
 stop)
 	stop_services

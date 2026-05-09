@@ -629,7 +629,7 @@ secrets:
       - KEYCLOAK_REALM=${KEYCLOAK_REALM:-life-control-realm}
       - KEYCLOAK_CLIENT_ID=${KEYCLOAK_CLIENT_ID:-life-control-client}
       - API_GATEWAY_URL=${API_GATEWAY_URL:-http://api-gateway:9200}
-      - API_BASE_PATH=${API_BASE_PATH:-/api/product}
+      - API_BASE_PATH=${API_BASE_PATH:-/api}
     networks:
       - default
     depends_on:

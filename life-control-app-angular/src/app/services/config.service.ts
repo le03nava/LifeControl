@@ -9,7 +9,7 @@ const DEFAULT_CONFIG: AppConfig = {
   },
   apiGateway: {
     url: 'http://localhost:9000',
-    basePath: '/api/products',
+    basePath: '/api',
   },
 };
 

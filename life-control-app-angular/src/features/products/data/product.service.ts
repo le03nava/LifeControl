@@ -18,7 +18,7 @@ export class ProductService {
   readonly products = this._products.asReadonly();
 
   get apiUrl(): string {
-    return this.configService.apiUrl;
+    return `${this.configService.apiUrl}/products`;
   }
 
   getFormattedProducts(): Product[] {
