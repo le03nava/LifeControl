@@ -1,0 +1,105 @@
+package com.lifecontrol.api.company.service;
+
+import com.lifecontrol.api.company.dto.CompanyCountryRequest;
+import com.lifecontrol.api.company.dto.CompanyCountryResponse;
+import com.lifecontrol.api.company.exception.CompanyCountryNotFoundException;
+import com.lifecontrol.api.company.exception.CompanyNotFoundException;
+import com.lifecontrol.api.company.exception.DuplicateCompanyCountryException;
+import com.lifecontrol.api.company.model.Company;
+import com.lifecontrol.api.company.model.CompanyCountry;
+import com.lifecontrol.api.company.repository.CompanyCountryRepository;
+import com.lifecontrol.api.company.repository.CompanyRepository;
+import com.lifecontrol.api.country.exception.CountryNotFoundException;
+import com.lifecontrol.api.country.model.Country;
+import com.lifecontrol.api.country.repository.CountryRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+import java.util.UUID;
+
+@Service
+public class CompanyCountryService {
+
+    private static final Logger logger = LoggerFactory.getLogger(CompanyCountryService.class);
+
+    private final CompanyCountryRepository companyCountryRepository;
+    private final CompanyRepository companyRepository;
+    private final CountryRepository countryRepository;
+
+    public CompanyCountryService(CompanyCountryRepository companyCountryRepository,
+                                  CompanyRepository companyRepository,
+                                  CountryRepository countryRepository) {
+        this.companyCountryRepository = companyCountryRepository;
+        this.companyRepository = companyRepository;
+        this.countryRepository = countryRepository;
+    }
+
+    @Transactional(readOnly = true)
+    public List<CompanyCountryResponse> getCountriesByCompanyId(UUID companyId) {
+        // Verify company exists
+        if (!companyRepository.existsById(companyId)) {
+            throw new CompanyNotFoundException(companyId);
+        }
+
+        return companyCountryRepository.findByCompanyId(companyId).stream()
+                .map(this::toResponse)
+                .toList();
+    }
+
+    @Transactional
+    public CompanyCountryResponse addCountryToCompany(UUID companyId, CompanyCountryRequest request) {
+        logger.info("Adding country {} to company {}", request.countryCode(), companyId);
+
+        Company company = companyRepository.findById(companyId)
+                .orElseThrow(() -> new CompanyNotFoundException(companyId));
+
+        Country country = countryRepository.findByCountryCode(request.countryCode())
+                .orElseThrow(() -> new CountryNotFoundException(request.countryCode()));
+
+        if (companyCountryRepository.existsByCompanyIdAndCountryId(companyId, country.getId())) {
+            throw new DuplicateCompanyCountryException(request.countryCode());
+        }
+
+        CompanyCountry companyCountry = CompanyCountry.builder()
+                .company(company)
+                .country(country)
+                .localAlias(request.localAlias())
+                .build();
+
+        CompanyCountry saved = companyCountryRepository.save(companyCountry);
+        logger.info("Country {} added to company {} successfully", request.countryCode(), companyId);
+
+        return toResponse(saved);
+    }
+
+    @Transactional
+    public void removeCountryFromCompany(UUID companyId, UUID companyCountryId) {
+        logger.info("Removing country relation {} from company {}", companyCountryId, companyId);
+
+        CompanyCountry companyCountry = companyCountryRepository.findById(companyCountryId)
+                .orElseThrow(() -> new CompanyCountryNotFoundException(companyCountryId));
+
+        if (!companyCountry.getCompany().getId().equals(companyId)) {
+            throw new CompanyCountryNotFoundException(companyCountryId);
+        }
+
+        companyCountryRepository.delete(companyCountry);
+        logger.info("Country relation {} removed from company {}", companyCountryId, companyId);
+    }
+
+    private CompanyCountryResponse toResponse(CompanyCountry cc) {
+        return new CompanyCountryResponse(
+                cc.getId(),
+                cc.getCompany().getId(),
+                cc.getCountry().getId(),
+                cc.getCountry().getCountryCode(),
+                cc.getCountry().getCountryName(),
+                cc.getLocalAlias(),
+                cc.getCreatedAt(),
+                cc.getUpdatedAt()
+        );
+    }
+}

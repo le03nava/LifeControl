@@ -1,5 +1,9 @@
 package com.lifecontrol.api.exception;
 
+import com.lifecontrol.api.company.exception.CompanyCountryNotFoundException;
+import com.lifecontrol.api.company.exception.DuplicateCompanyCountryException;
+import com.lifecontrol.api.country.exception.CountryNotFoundException;
+import com.lifecontrol.api.country.exception.DuplicateCountryException;
 import com.lifecontrol.api.security.exception.ApiUserNotFoundException;
 import com.lifecontrol.api.security.exception.DuplicateResourceException;
 import org.junit.jupiter.api.BeforeEach;
@@ -135,7 +139,120 @@ class GlobalExceptionHandlerTest {
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
             assertThat(response.getBody()).isNotNull();
             assertThat(response.getBody().status()).isEqualTo(500);
-            assertThat(response.getBody().message()).isEqualTo("An unexpected error occurred");
+            assertThat(response.getBody().message()).isEqualTo("An unexpected error occurred: Something went wrong");
+            assertThat(response.getBody().timestamp()).isNotNull();
+        }
+    }
+
+    @Nested
+    @DisplayName("handleCountryNotFound")
+    class HandleCountryNotFoundTests {
+
+        @Test
+        @DisplayName("should return 404 with error message")
+        void handleCountryNotFound_Returns404() {
+            // Arrange
+            CountryNotFoundException exception = new CountryNotFoundException(java.util.UUID.randomUUID());
+
+            // Act
+            ResponseEntity<GlobalExceptionHandler.ErrorResponse> response =
+                    globalExceptionHandler.handleCountryNotFound(exception);
+
+            // Assert
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+            assertThat(response.getBody()).isNotNull();
+            assertThat(response.getBody().status()).isEqualTo(404);
+            assertThat(response.getBody().timestamp()).isNotNull();
+        }
+    }
+
+    @Nested
+    @DisplayName("handleDuplicateCountry")
+    class HandleDuplicateCountryTests {
+
+        @Test
+        @DisplayName("should return 409 Conflict with error message")
+        void handleDuplicateCountry_Returns409() {
+            // Arrange
+            DuplicateCountryException exception = new DuplicateCountryException("Ya existe un país con código: MX");
+
+            // Act
+            ResponseEntity<GlobalExceptionHandler.ErrorResponse> response =
+                    globalExceptionHandler.handleDuplicateCountry(exception);
+
+            // Assert
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+            assertThat(response.getBody()).isNotNull();
+            assertThat(response.getBody().status()).isEqualTo(409);
+            assertThat(response.getBody().message()).isEqualTo("Ya existe un país con código: MX");
+            assertThat(response.getBody().timestamp()).isNotNull();
+        }
+    }
+
+    @Nested
+    @DisplayName("handleCompanyCountryNotFound")
+    class HandleCompanyCountryNotFoundTests {
+
+        @Test
+        @DisplayName("should return 404 with error message")
+        void handleCompanyCountryNotFound_Returns404() {
+            // Arrange
+            CompanyCountryNotFoundException exception = new CompanyCountryNotFoundException(java.util.UUID.randomUUID());
+
+            // Act
+            ResponseEntity<GlobalExceptionHandler.ErrorResponse> response =
+                    globalExceptionHandler.handleCompanyCountryNotFound(exception);
+
+            // Assert
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+            assertThat(response.getBody()).isNotNull();
+            assertThat(response.getBody().status()).isEqualTo(404);
+            assertThat(response.getBody().timestamp()).isNotNull();
+        }
+    }
+
+    @Nested
+    @DisplayName("handleDuplicateCompanyCountry")
+    class HandleDuplicateCompanyCountryTests {
+
+        @Test
+        @DisplayName("should return 409 Conflict with error message")
+        void handleDuplicateCompanyCountry_Returns409() {
+            // Arrange
+            DuplicateCompanyCountryException exception = new DuplicateCompanyCountryException("MX");
+
+            // Act
+            ResponseEntity<GlobalExceptionHandler.ErrorResponse> response =
+                    globalExceptionHandler.handleDuplicateCompanyCountry(exception);
+
+            // Assert
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+            assertThat(response.getBody()).isNotNull();
+            assertThat(response.getBody().status()).isEqualTo(409);
+            assertThat(response.getBody().message()).contains("MX");
+            assertThat(response.getBody().timestamp()).isNotNull();
+        }
+    }
+
+    @Nested
+    @DisplayName("handleIllegalArgument")
+    class HandleIllegalArgumentTests {
+
+        @Test
+        @DisplayName("should return 400 with error message")
+        void handleIllegalArgument_Returns400() {
+            // Arrange
+            IllegalArgumentException exception = new IllegalArgumentException("Invalid argument");
+
+            // Act
+            ResponseEntity<GlobalExceptionHandler.ErrorResponse> response =
+                    globalExceptionHandler.handleIllegalArgument(exception);
+
+            // Assert
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(response.getBody()).isNotNull();
+            assertThat(response.getBody().status()).isEqualTo(400);
+            assertThat(response.getBody().message()).isEqualTo("Invalid argument");
             assertThat(response.getBody().timestamp()).isNotNull();
         }
     }

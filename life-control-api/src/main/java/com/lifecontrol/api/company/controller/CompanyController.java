@@ -1,7 +1,10 @@
 package com.lifecontrol.api.company.controller;
 
+import com.lifecontrol.api.company.dto.CompanyCountryRequest;
+import com.lifecontrol.api.company.dto.CompanyCountryResponse;
 import com.lifecontrol.api.company.dto.CompanyRequest;
 import com.lifecontrol.api.company.dto.CompanyResponse;
+import com.lifecontrol.api.company.service.CompanyCountryService;
 import com.lifecontrol.api.company.service.CompanyService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -26,9 +29,11 @@ import java.util.UUID;
 public class CompanyController {
 
     private final CompanyService companyService;
+    private final CompanyCountryService companyCountryService;
 
-    public CompanyController(CompanyService companyService) {
+    public CompanyController(CompanyService companyService, CompanyCountryService companyCountryService) {
         this.companyService = companyService;
+        this.companyCountryService = companyCountryService;
     }
 
     @GetMapping
@@ -61,6 +66,32 @@ public class CompanyController {
     @Operation(summary = "Delete a company", description = "Soft-deletes a company by setting enabled to false")
     public ResponseEntity<Void> deleteCompany(@PathVariable UUID id) {
         companyService.deleteCompany(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    // --- CompanyCountry nested endpoints ---
+
+    @GetMapping("/{companyId}/countries")
+    @Operation(summary = "Get countries by company", description = "Returns all countries associated with a company")
+    public ResponseEntity<List<CompanyCountryResponse>> getCompanyCountries(@PathVariable UUID companyId) {
+        return ResponseEntity.ok(companyCountryService.getCountriesByCompanyId(companyId));
+    }
+
+    @PostMapping("/{companyId}/countries")
+    @Operation(summary = "Add country to company", description = "Associates a country with a company")
+    public ResponseEntity<CompanyCountryResponse> addCompanyCountry(
+            @PathVariable UUID companyId,
+            @Valid @RequestBody CompanyCountryRequest request) {
+        CompanyCountryResponse response = companyCountryService.addCountryToCompany(companyId, request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @DeleteMapping("/{companyId}/countries/{id}")
+    @Operation(summary = "Remove country from company", description = "Removes a country association from a company")
+    public ResponseEntity<Void> removeCompanyCountry(
+            @PathVariable UUID companyId,
+            @PathVariable UUID id) {
+        companyCountryService.removeCountryFromCompany(companyId, id);
         return ResponseEntity.noContent().build();
     }
 }

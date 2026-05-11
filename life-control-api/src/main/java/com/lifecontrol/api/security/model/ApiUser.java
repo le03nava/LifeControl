@@ -1,5 +1,6 @@
 package com.lifecontrol.api.security.model;
 
+import com.lifecontrol.api.common.model.Auditable;
 import jakarta.persistence.*;
 
 import java.time.LocalDateTime;
@@ -7,7 +8,7 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "api_users")
-public class ApiUser {
+public class ApiUser extends Auditable {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -33,12 +34,6 @@ public class ApiUser {
 
     @Column(nullable = false)
     private Boolean enabled = true;
-
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt;
-
-    @Column(name = "updated_at", nullable = false)
-    private LocalDateTime updatedAt;
 
     // Default constructor for JPA
     public ApiUser() {}
@@ -76,14 +71,6 @@ public class ApiUser {
         return enabled;
     }
 
-    public LocalDateTime getCreatedAt() {
-        return createdAt;
-    }
-
-    public LocalDateTime getUpdatedAt() {
-        return updatedAt;
-    }
-
     // Setters
     public void setId(UUID id) {
         this.id = id;
@@ -115,14 +102,6 @@ public class ApiUser {
 
     public void setEnabled(Boolean enabled) {
         this.enabled = enabled;
-    }
-
-    public void setCreatedAt(LocalDateTime createdAt) {
-        this.createdAt = createdAt;
-    }
-
-    public void setUpdatedAt(LocalDateTime updatedAt) {
-        this.updatedAt = updatedAt;
     }
 
     // Builder pattern
@@ -174,12 +153,12 @@ public class ApiUser {
         }
 
         public Builder createdAt(LocalDateTime createdAt) {
-            user.createdAt = createdAt;
+            user.setCreatedAt(createdAt);
             return this;
         }
 
         public Builder updatedAt(LocalDateTime updatedAt) {
-            user.updatedAt = updatedAt;
+            user.setUpdatedAt(updatedAt);
             return this;
         }
 

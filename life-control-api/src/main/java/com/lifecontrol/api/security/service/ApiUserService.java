@@ -12,7 +12,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -48,9 +47,6 @@ public class ApiUserService {
                 .phone(request.phone())
                 .enabled(request.enabled() != null ? request.enabled() : true)
                 .build();
-
-        user.setCreatedAt(LocalDateTime.now());
-        user.setUpdatedAt(LocalDateTime.now());
 
         ApiUser savedUser = apiUserRepository.save(user);
         log.info("User created successfully with id: {}", savedUser.getId());
@@ -108,7 +104,6 @@ public class ApiUserService {
             user.setEnabled(request.enabled());
         }
 
-        user.setUpdatedAt(LocalDateTime.now());
         ApiUser updatedUser = apiUserRepository.save(user);
         log.info("User updated successfully with id: {}", updatedUser.getId());
 
@@ -121,7 +116,6 @@ public class ApiUserService {
                 .orElseThrow(() -> new ApiUserNotFoundException("User not found with id: " + id));
 
         user.setPassword(newPassword);
-        user.setUpdatedAt(LocalDateTime.now());
         apiUserRepository.save(user);
 
         log.info("Password changed successfully for user with id: {}", id);

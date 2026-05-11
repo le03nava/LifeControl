@@ -1,5 +1,6 @@
 package com.lifecontrol.api.company.model;
 
+import com.lifecontrol.api.common.model.Auditable;
 import jakarta.persistence.*;
 
 import java.time.LocalDateTime;
@@ -7,7 +8,7 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "companies")
-public class Company {
+public class Company extends Auditable {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -38,25 +39,8 @@ public class Company {
     @Column(nullable = false)
     private Boolean enabled = true;
 
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt;
-
-    @Column(name = "updated_at", nullable = false)
-    private LocalDateTime updatedAt;
-
     // Default constructor for JPA
     public Company() {}
-
-    @PrePersist
-    protected void onCreate() {
-        createdAt = LocalDateTime.now();
-        updatedAt = LocalDateTime.now();
-    }
-
-    @PreUpdate
-    protected void onUpdate() {
-        updatedAt = LocalDateTime.now();
-    }
 
     // Getters
     public UUID getId() {
@@ -99,14 +83,6 @@ public class Company {
         return enabled;
     }
 
-    public LocalDateTime getCreatedAt() {
-        return createdAt;
-    }
-
-    public LocalDateTime getUpdatedAt() {
-        return updatedAt;
-    }
-
     // Setters
     public void setId(UUID id) {
         this.id = id;
@@ -146,14 +122,6 @@ public class Company {
 
     public void setEnabled(Boolean enabled) {
         this.enabled = enabled;
-    }
-
-    public void setCreatedAt(LocalDateTime createdAt) {
-        this.createdAt = createdAt;
-    }
-
-    public void setUpdatedAt(LocalDateTime updatedAt) {
-        this.updatedAt = updatedAt;
     }
 
     // Builder pattern
@@ -215,12 +183,12 @@ public class Company {
         }
 
         public Builder createdAt(LocalDateTime createdAt) {
-            company.createdAt = createdAt;
+            company.setCreatedAt(createdAt);
             return this;
         }
 
         public Builder updatedAt(LocalDateTime updatedAt) {
-            company.updatedAt = updatedAt;
+            company.setUpdatedAt(updatedAt);
             return this;
         }
 
