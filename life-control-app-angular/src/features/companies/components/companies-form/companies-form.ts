@@ -47,7 +47,6 @@ export class CompaniesForm {
 
       const companyData: Company = {
         id: formData.get('id')?.value || '',
-        companyKey: formData.get('companyKey')?.value || '',
         companyName: formData.get('companyName')?.value || '',
         tipoPersonaId: formData.get('tipoPersonaId')?.value || 1,
         razonSocial: formData.get('razonSocial')?.value || '',

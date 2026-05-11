@@ -23,7 +23,6 @@ describe('CompaniesForm', () => {
   it('should detect create mode (no id)', () => {
     const form = new FormGroup<CompanyControl>({
       id: new FormControl(''),
-      companyKey: new FormControl(''),
       companyName: new FormControl('', Validators.required),
       tipoPersonaId: new FormControl(1),
       razonSocial: new FormControl('', Validators.required),
@@ -43,7 +42,6 @@ describe('CompaniesForm', () => {
   it('should detect edit mode (with id)', () => {
     const form = new FormGroup<CompanyControl>({
       id: new FormControl('123'),
-      companyKey: new FormControl('C001'),
       companyName: new FormControl('Company A', Validators.required),
       tipoPersonaId: new FormControl(1),
       razonSocial: new FormControl('Razon A', Validators.required),
@@ -63,7 +61,6 @@ describe('CompaniesForm', () => {
   it('should emit saveCompany on valid submit', (done) => {
     const form = new FormGroup<CompanyControl>({
       id: new FormControl(''),
-      companyKey: new FormControl(''),
       companyName: new FormControl('Test Company', Validators.required),
       tipoPersonaId: new FormControl(1),
       razonSocial: new FormControl('Test Razon', Validators.required),
@@ -86,7 +83,6 @@ describe('CompaniesForm', () => {
   it('should NOT emit saveCompany on invalid submit', () => {
     const form = new FormGroup<CompanyControl>({
       id: new FormControl(''),
-      companyKey: new FormControl(''),
       companyName: new FormControl('', Validators.required), // Invalid
       tipoPersonaId: new FormControl(1),
       razonSocial: new FormControl('', Validators.required), // Invalid
@@ -118,7 +114,6 @@ describe('CompaniesForm', () => {
   it('should getControl return correct control', () => {
     const form = new FormGroup<CompanyControl>({
       id: new FormControl(''),
-      companyKey: new FormControl(''),
       companyName: new FormControl('', Validators.required),
       tipoPersonaId: new FormControl(1),
       razonSocial: new FormControl('', Validators.required),

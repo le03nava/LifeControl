@@ -46,10 +46,6 @@ public class CompanyService {
             throw new DuplicateCompanyException("Ya existe una compañía con companyId: " + request.companyId());
         }
 
-        if (companyRepository.existsByCompanyKey("COMPANY_" + request.companyId())) {
-            throw new DuplicateCompanyException("Ya existe una compañía con ese companyKey");
-        }
-
         if (companyRepository.existsByRfc(request.rfc())) {
             throw new DuplicateCompanyException("Ya existe una compañía con RFC: " + request.rfc());
         }
@@ -57,7 +53,6 @@ public class CompanyService {
         // Build entity
         Company company = Company.builder()
                 .companyId(request.companyId())
-                .companyKey("COMPANY_" + request.companyId())
                 .companyName(request.companyName())
                 .tipoPersonaId(request.tipoPersonaId())
                 .razonSocial(request.razonSocial())
@@ -83,10 +78,7 @@ public class CompanyService {
             throw new DuplicateCompanyException("Ya existe una compañía con RFC: " + request.rfc());
         }
 
-        // Note: companyKey is derived from companyId which is immutable, so no validation needed
-        // companyKey = "COMPANY_" + companyId (cannot change during update)
-
-        // Update fields (companyId and companyKey are immutable)
+        // Update fields (companyId is immutable)
         company.setCompanyName(request.companyName());
         company.setTipoPersonaId(request.tipoPersonaId());
         company.setRazonSocial(request.razonSocial());
@@ -115,7 +107,6 @@ public class CompanyService {
     private CompanyResponse toResponse(Company company) {
         return new CompanyResponse(
                 company.getCompanyId(),
-                company.getCompanyKey(),
                 company.getCompanyName(),
                 company.getTipoPersonaId(),
                 company.getRazonSocial(),

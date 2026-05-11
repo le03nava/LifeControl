@@ -61,7 +61,6 @@ export class CompanyEdit implements OnInit {
         this.companyForm.set(
           this.fb.group({
             id: this.fb.control(company.id),
-            companyKey: this.fb.control(company.companyKey),
             companyName: this.fb.control(company.companyName, Validators.required),
             tipoPersonaId: this.fb.control(company.tipoPersonaId),
             razonSocial: this.fb.control(company.razonSocial, Validators.required),
@@ -82,7 +81,6 @@ export class CompanyEdit implements OnInit {
   private createForm(): FormGroup<CompanyControl> {
     return this.fb.group({
       id: this.fb.control(''),
-      companyKey: this.fb.control(''),
       companyName: this.fb.control('', Validators.required),
       tipoPersonaId: this.fb.control(1),
       razonSocial: this.fb.control('', Validators.required),

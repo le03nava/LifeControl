@@ -15,7 +15,6 @@ describe('CompanyEdit', () => {
 
   const mockCompany: Company = {
     id: '123',
-    companyKey: 'C001',
     companyName: 'Test Company',
     tipoPersonaId: 1,
     razonSocial: 'Test Razon',
@@ -134,7 +133,6 @@ describe('CompanyEdit', () => {
     // Set an empty form with no id
     component.companyForm = component['fb'].group({
       id: component['fb'].control(''),
-      companyKey: component['fb'].control(''),
       companyName: component['fb'].control('New'),
       tipoPersonaId: component['fb'].control(1),
       razonSocial: component['fb'].control('New Razon'),
@@ -148,7 +146,6 @@ describe('CompanyEdit', () => {
     component.onSaveCompany({
       id: '',
       companyName: 'New',
-      companyKey: '',
       tipoPersonaId: 1,
       razonSocial: 'New Razon',
       rfc: 'RFC1234567890',

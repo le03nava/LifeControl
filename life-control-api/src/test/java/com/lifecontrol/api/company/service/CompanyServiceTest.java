@@ -47,7 +47,6 @@ class CompanyServiceTest {
         testCompany = Company.builder()
                 .id(testCompanyId)
                 .companyId(1)
-                .companyKey("COMPANY_1")
                 .companyName("Test Company")
                 .tipoPersonaId(1)
                 .razonSocial("Razon Social Test SA de CV")
@@ -87,7 +86,6 @@ class CompanyServiceTest {
             // Assert
             assertThat(result).isNotNull();
             assertThat(result.companyId()).isEqualTo(testCompany.getCompanyId());
-            assertThat(result.companyKey()).isEqualTo(testCompany.getCompanyKey());
             assertThat(result.companyName()).isEqualTo(testCompany.getCompanyName());
         }
 

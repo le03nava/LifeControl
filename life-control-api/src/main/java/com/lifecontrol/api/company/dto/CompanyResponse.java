@@ -4,7 +4,6 @@ import java.time.LocalDateTime;
 
 public record CompanyResponse(
     Integer companyId,
-    String companyKey,
     String companyName,
     Integer tipoPersonaId,
     String razonSocial,

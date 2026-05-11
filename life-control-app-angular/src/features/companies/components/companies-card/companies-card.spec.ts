@@ -8,7 +8,6 @@ describe('CompaniesCard', () => {
 
   const mockCompany: Company = {
     id: '123',
-    companyKey: 'C001',
     companyName: 'Test Company',
     tipoPersonaId: 1,
     razonSocial: 'Test Razon Social',

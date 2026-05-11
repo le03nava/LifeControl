@@ -12,8 +12,8 @@ describe('CompanyList', () => {
   let router: jasmine.SpyObj<Router>;
 
   const mockCompanies: Company[] = [
-    { id: '1', companyKey: 'C001', companyName: 'Company A', tipoPersonaId: 1, razonSocial: 'Razon A', rfc: 'RFC1234567890', email: 'a@test.com', phone: '5551112222', enabled: true, createdAt: '', updatedAt: '' },
-    { id: '2', companyKey: 'C002', companyName: 'Company B', tipoPersonaId: 1, razonSocial: 'Razon B', rfc: 'RFC0987654321', email: 'b@test.com', phone: '5553334444', enabled: true, createdAt: '', updatedAt: '' }
+    { id: '1', companyName: 'Company A', tipoPersonaId: 1, razonSocial: 'Razon A', rfc: 'RFC1234567890', email: 'a@test.com', phone: '5551112222', enabled: true, createdAt: '', updatedAt: '' },
+    { id: '2', companyName: 'Company B', tipoPersonaId: 1, razonSocial: 'Razon B', rfc: 'RFC0987654321', email: 'b@test.com', phone: '5553334444', enabled: true, createdAt: '', updatedAt: '' }
   ];
 
   beforeEach(async () => {

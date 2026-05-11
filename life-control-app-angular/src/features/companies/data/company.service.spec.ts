@@ -27,7 +27,7 @@ describe('CompanyService', () => {
   describe('getCompanies', () => {
     it('should fetch companies and update signal', (done) => {
       const mockCompanies: Company[] = [
-        { id: '1', companyKey: 'C001', companyName: 'Company A', tipoPersonaId: 1, razonSocial: 'Razon A', rfc: 'RFC123456789', email: 'test@a.com', phone: '5551234567', enabled: true, createdAt: '', updatedAt: '' }
+        { id: '1', companyName: 'Company A', tipoPersonaId: 1, razonSocial: 'Razon A', rfc: 'RFC123456789', email: 'test@a.com', phone: '5551234567', enabled: true, createdAt: '', updatedAt: '' }
       ];
 
       service.getCompanies();
@@ -60,7 +60,6 @@ describe('CompanyService', () => {
     it('should create a new company', (done) => {
       const newCompany: Company = {
         companyName: 'New Company',
-        companyKey: 'NC001',
         tipoPersonaId: 1,
         razonSocial: 'New Razon',
         rfc: 'RFC1234567890',
@@ -89,7 +88,6 @@ describe('CompanyService', () => {
       const company: Company = {
         id: '1',
         companyName: 'Updated Company',
-        companyKey: 'C001',
         tipoPersonaId: 1,
         razonSocial: 'Updated Razon',
         rfc: 'RFC123456789',

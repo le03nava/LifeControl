@@ -27,7 +27,6 @@ CREATE INDEX IF NOT EXISTS idx_api_users_email ON api_users(email);
 CREATE TABLE IF NOT EXISTS companies (
     id UUID PRIMARY KEY,
     company_id INTEGER NOT NULL UNIQUE,
-    company_key VARCHAR(255) NOT NULL UNIQUE,
     company_name VARCHAR(255) NOT NULL,
     tipo_persona_id INTEGER,
     razon_social VARCHAR(255),
@@ -40,7 +39,6 @@ CREATE TABLE IF NOT EXISTS companies (
 );
 
 CREATE INDEX IF NOT EXISTS idx_companies_company_id ON companies(company_id);
-CREATE INDEX IF NOT EXISTS idx_companies_company_key ON companies(company_key);
 CREATE INDEX IF NOT EXISTS idx_companies_rfc ON companies(rfc);
 
 -- ============================================

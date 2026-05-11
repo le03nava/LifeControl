@@ -139,7 +139,6 @@ public class CompanyService {
 // ✅ CORRECTO - Usar record para DTOs de respuesta
 public record CompanyResponse(
     Integer companyId,
-    String companyKey,
     String companyName,
     Integer tipoPersonaId,
     String razonSocial,
@@ -169,9 +168,6 @@ public class Company {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @Column(name = "company_key", unique = true)
-    private String companyKey;
-
     @Column(name = "company_name", nullable = false)
     private String companyName;
 
@@ -182,14 +178,6 @@ public class Company {
 
     public void setId(UUID id) {
         this.id = id;
-    }
-
-    public String getCompanyKey() {
-        return companyKey;
-    }
-
-    public void setCompanyKey(String companyKey) {
-        this.companyKey = companyKey;
     }
 
     public String getCompanyName() {

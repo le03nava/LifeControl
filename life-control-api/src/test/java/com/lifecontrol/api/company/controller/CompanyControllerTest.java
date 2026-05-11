@@ -63,7 +63,6 @@ class CompanyControllerTest {
 
         testCompanyResponse = new CompanyResponse(
                 1,
-                "COMPANY_1",
                 "Test Company",
                 1,
                 "Razon Social Test SA de CV",
