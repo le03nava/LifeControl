@@ -1,40 +1,15 @@
 # ============================================
 # LifeControl API - Dockerfile Multi-Entorno
 # ============================================
+# Build the JAR locally FIRST:
+#   cd life-control-api && ./gradlew bootJar -Pprofile=dev
+# Then build the Docker image:
+#   docker build -t life-control-api:latest .
+# ============================================
 
-# ETAPA 1: Construcción (BUILDER)
-FROM gradle:8.5-jdk21-alpine AS builder
-
-ARG BUILD_PROFILE=dev
-ARG APP_VERSION=0.0.1-SNAPSHOT
-
-WORKDIR /app
-
-# Debug: Show what we're building
-RUN echo "Building life-control-api with profile: ${BUILD_PROFILE}"
-
-COPY build.gradle settings.gradle ./
-
-COPY src/main/java ./src/main/java
-COPY src/main/resources ./src/main/resources
-
-# Debug: Verify files were copied
-RUN ls -la
-
-# Build the JAR
-RUN gradle bootJar -Pprofile=${BUILD_PROFILE} --no-daemon --stacktrace || (echo "GRADLE BUILD FAILED" && exit 1)
-
-# Debug: Verify JAR was created
-RUN ls -la build/libs/ && \
-    if [ ! -f "build/libs/life-control-api-${APP_VERSION}.jar" ]; then \
-        echo "JAR FILE NOT FOUND!"; \
-        ls -la build/libs/; \
-        exit 1; \
-    fi
-
-# ------------------------------------------------------------------------------------------
-
-# ETAPA 2: Ejecución (RUN)
+# ETAPA ÚNICA: Ejecución (RUN)
+# El JAR se buildea LOCALMENTE para evitar depender de internet
+# dentro del contenedor Docker (problemas comunes de DNS/proxy)
 FROM eclipse-temurin:21-jre-alpine
 
 ARG APP_USER=appuser
@@ -48,12 +23,10 @@ ENV JAVA_OPTS="-Xms256m -Xmx512m -XX:+UseG1GC -XX:+UseContainerSupport"
 
 EXPOSE ${SERVER_PORT}
 
-# Debug: Verify source JAR exists before copying
-RUN echo "Looking for JAR: /app/${JAR_FILE}"
+# Copiar JAR pre-buildeado localmente
+COPY ${JAR_FILE} /app/app.jar
 
-COPY --from=builder /app/${JAR_FILE} /app/app.jar
-
-# Verify JAR was copied
+# Verificar que el JAR existe y no está vacío
 RUN ls -la /app/app.jar && \
     if [ ! -s /app/app.jar ]; then \
         echo "JAR FILE IS EMPTY!"; \
