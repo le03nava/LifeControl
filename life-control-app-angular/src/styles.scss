@@ -22,6 +22,39 @@
   --color-gray-800: #1e293b;
   --color-gray-900: #0f172a;
 
+  /* Material 3 Design Tokens (Light Mode) */
+  --mat-sys-surface: #f8fafc;
+  --mat-sys-surface-container: #ffffff;
+  --mat-sys-surface-variant: #f1f5f9;
+  --mat-sys-on-surface: #0f172a;
+  --mat-sys-on-surface-variant: #475569;
+  --mat-sys-primary: #2563eb;
+  --mat-sys-on-primary: #ffffff;
+  --mat-sys-primary-container: #dbeafe;
+  --mat-sys-on-primary-container: #1e40af;
+  --mat-sys-secondary: #64748b;
+  --mat-sys-on-secondary: #ffffff;
+  --mat-sys-secondary-container: #e2e8f0;
+  --mat-sys-on-secondary-container: #334155;
+  --mat-sys-tertiary: #06b6d4;
+  --mat-sys-on-tertiary: #ffffff;
+  --mat-sys-tertiary-container: #cffafe;
+  --mat-sys-on-tertiary-container: #0e7490;
+  --mat-sys-error: #ef4444;
+  --mat-sys-on-error: #ffffff;
+  --mat-sys-error-container: #fee2e2;
+  --mat-sys-on-error-container: #991b1b;
+  --mat-sys-success: #10b981;
+  --mat-sys-on-success: #ffffff;
+  --mat-sys-success-container: #d1fae5;
+  --mat-sys-on-success-container: #065f46;
+  --mat-sys-warning: #f59e0b;
+  --mat-sys-on-warning: #ffffff;
+  --mat-sys-warning-container: #fef3c7;
+  --mat-sys-on-warning-container: #92400e;
+  --mat-sys-outline: #cbd5e1;
+  --mat-sys-outline-variant: #e2e8f0;
+
   /* Typography */
   --font-family-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-family-mono: 'Fira Code', 'Courier New', monospace;
@@ -60,6 +93,39 @@
     --color-gray-700: #e2e8f0;
     --color-gray-800: #f1f5f9;
     --color-gray-900: #f8fafc;
+
+    /* Material 3 Design Tokens (Dark Mode) */
+    --mat-sys-surface: #0f172a;
+    --mat-sys-surface-container: #1e293b;
+    --mat-sys-surface-variant: #334155;
+    --mat-sys-on-surface: #f8fafc;
+    --mat-sys-on-surface-variant: #cbd5e1;
+    --mat-sys-primary: #60a5fa;
+    --mat-sys-on-primary: #1e3a8a;
+    --mat-sys-primary-container: #1d4ed8;
+    --mat-sys-on-primary-container: #dbeafe;
+    --mat-sys-secondary: #94a3b8;
+    --mat-sys-on-secondary: #1e293b;
+    --mat-sys-secondary-container: #475569;
+    --mat-sys-on-secondary-container: #e2e8f0;
+    --mat-sys-tertiary: #22d3ee;
+    --mat-sys-on-tertiary: #164e63;
+    --mat-sys-tertiary-container: #0891b2;
+    --mat-sys-on-tertiary-container: #cffafe;
+    --mat-sys-error: #f87171;
+    --mat-sys-on-error: #7f1d1d;
+    --mat-sys-error-container: #dc2626;
+    --mat-sys-on-error-container: #fee2e2;
+    --mat-sys-success: #34d399;
+    --mat-sys-on-success: #064e3b;
+    --mat-sys-success-container: #059669;
+    --mat-sys-on-success-container: #d1fae5;
+    --mat-sys-warning: #fbbf24;
+    --mat-sys-on-warning: #78350f;
+    --mat-sys-warning-container: #d97706;
+    --mat-sys-on-warning-container: #fef3c7;
+    --mat-sys-outline: #64748b;
+    --mat-sys-outline-variant: #475569;
   }
 }
 

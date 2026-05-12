@@ -1,70 +1,115 @@
 .card {
-  border: 1px solid var(--color-gray-200);
+  border: 1px solid var(--mat-sys-outline-variant);
   border-radius: var(--radius-lg);
-  padding: var(--space-md);
-  background-color: var(--color-gray-50);
+  padding: var(--space-lg);
+  background-color: var(--mat-sys-surface-container);
   box-shadow: var(--shadow-sm);
   height: 100%;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
 
   &:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-md);
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-lg);
+    border-color: var(--mat-sys-primary);
   }
 }
 
 .card-header {
+  margin-bottom: var(--space-md);
+  padding-bottom: var(--space-md);
+  border-bottom: 1px solid var(--mat-sys-outline-variant);
+}
+
+.card-title-row {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: var(--space-md);
-  padding-bottom: var(--space-sm);
-  border-bottom: 1px solid var(--color-gray-200);
+  align-items: flex-start;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
 }
 
 .card-title {
   margin: 0;
-  font-size: 1.25rem;
+  font-size: 1.125rem;
   font-weight: 600;
-  color: var(--color-gray-700);
+  color: var(--mat-sys-on-surface);
+  line-height: 1.4;
 }
 
-.card-rfc {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--color-gray-500);
-  background-color: var(--color-gray-100);
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
   padding: var(--space-xs) var(--space-sm);
-  border-radius: var(--radius-md);
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+
+  &.status {
+    &.active {
+      background-color: var(--mat-sys-success-container);
+      color: var(--mat-sys-on-success-container);
+    }
+
+    &.inactive {
+      background-color: var(--mat-sys-error-container);
+      color: var(--mat-sys-on-error-container);
+    }
+  }
+
+  &.rfc-badge {
+    background-color: var(--mat-sys-secondary-container);
+    color: var(--mat-sys-on-secondary-container);
+  }
+}
+
+.badge-icon {
+  font-size: 14px;
+  width: 14px;
+  height: 14px;
 }
 
 .card-body {
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
+  flex: 1;
 }
 
-.card-razon {
-  margin: 0;
-  color: var(--color-gray-700);
-  font-weight: 500;
-}
-
-.card-email, .card-phone {
-  margin: 0;
-  color: var(--color-gray-500);
+.card-field {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
   font-size: 0.875rem;
 }
 
-.card-id {
-  margin-top: var(--space-sm);
-  padding-top: var(--space-sm);
-  border-top: 1px solid var(--color-gray-200);
+.field-icon {
+  font-size: 16px;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  color: var(--mat-sys-on-surface-variant);
+  flex-shrink: 0;
 }
 
-.card-id small {
-  color: var(--color-gray-400);
-  font-size: 0.75rem;
+.field-label {
+  color: var(--mat-sys-on-surface-variant);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.field-value {
+  color: var(--mat-sys-on-surface);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .card-actions {
@@ -73,19 +118,41 @@
   justify-content: flex-end;
   margin-top: var(--space-md);
   padding-top: var(--space-md);
-  border-top: 1px solid var(--color-gray-200);
+  border-top: 1px solid var(--mat-sys-outline-variant);
+}
+
+.action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+
+  mat-icon {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+  }
 }
 
 .card-empty {
-  background-color: var(--color-gray-100);
-  border-color: var(--color-gray-200);
+  background-color: var(--mat-sys-surface-variant);
+  border-color: var(--mat-sys-outline-variant);
   text-align: center;
-  padding: var(--space-lg);
+  padding: var(--space-xl);
   cursor: default;
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-sm);
+
+  .empty-icon {
+    font-size: 2rem;
+    width: 2rem;
+    height: 2rem;
+    color: var(--mat-sys-on-surface-variant);
+  }
 
   p {
     margin: 0;
-    color: var(--color-gray-500);
+    color: var(--mat-sys-on-surface-variant);
     font-style: italic;
   }
 }

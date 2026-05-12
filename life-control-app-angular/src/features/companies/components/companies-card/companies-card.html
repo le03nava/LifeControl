@@ -1,25 +1,67 @@
 @if (company(); as c) {
-  <div class="card" (click)="onViewCompany($event)">
+  <div class="card">
     <div class="card-header">
-      <h3 class="card-title">{{ c.companyName }}</h3>
-      <span class="card-rfc">RFC: {{ c.rfc }}</span>
-    </div>
-    <div class="card-body">
-      <p class="card-razon">{{ c.razonSocial }}</p>
-      <p class="card-email">{{ c.email }}</p>
-      <p class="card-phone">{{ c.phone }}</p>
-      <div class="card-id">
-        <small>ID: {{ c.id }}</small>
+      <div class="card-title-row">
+        <h3 class="card-title">{{ c.companyName }}</h3>
+        <span class="badge status" [class.active]="isActive()" [class.inactive]="!isActive()">
+          {{ statusLabel() }}
+        </span>
       </div>
+      <span class="badge rfc-badge">
+        <mat-icon fontIcon="badge" class="badge-icon" /> RFC: {{ c.rfc }}
+      </span>
     </div>
+
+    <div class="card-body">
+      @if (c.razonSocial) {
+        <div class="card-field">
+          <mat-icon fontIcon="business" class="field-icon" />
+          <span class="field-label">Razón Social:</span>
+          <span class="field-value">{{ c.razonSocial }}</span>
+        </div>
+      }
+
+      @if (c.email) {
+        <div class="card-field">
+          <mat-icon fontIcon="mail" class="field-icon" />
+          <span class="field-label">Email:</span>
+          <span class="field-value">{{ c.email }}</span>
+        </div>
+      }
+
+      @if (c.phone) {
+        <div class="card-field">
+          <mat-icon fontIcon="phone" class="field-icon" />
+          <span class="field-label">Teléfono:</span>
+          <span class="field-value">{{ c.phone }}</span>
+        </div>
+      }
+    </div>
+
     <div class="card-actions">
-      <button app-button variant="info" size="small" (buttonClick)="onViewCompany($event)">👁️ Ver</button>
-      <button app-button variant="primary" size="small" (buttonClick)="onEditCompany($event)">✏️ Editar</button>
-      <button app-button variant="danger" size="small" (buttonClick)="onDeleteCompany($event)">🗑️ Eliminar</button>
+      <button
+        app-button
+        variant="secondary"
+        size="small"
+        (buttonClick)="onEditCompany($event)"
+        class="action-btn"
+      >
+        <mat-icon fontIcon="edit" /> Editar
+      </button>
+      <button
+        app-button
+        variant="danger"
+        size="small"
+        (buttonClick)="onDeleteCompany($event)"
+        class="action-btn"
+      >
+        <mat-icon fontIcon="delete" /> Eliminar
+      </button>
     </div>
   </div>
 } @else {
   <div class="card card-empty">
+    <mat-icon fontIcon="info" class="empty-icon" />
     <p>No hay información de la empresa disponible</p>
   </div>
 }

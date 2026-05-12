@@ -1,4 +1,4 @@
-import { TestBed } from '@angular/core/testing';
+import { TestBed, fakeAsync, tick } from '@angular/core/testing';
 import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 import { CompanyService } from './company.service';
 import { Company } from '../models/company.models';
@@ -25,41 +25,47 @@ describe('CompanyService', () => {
   });
 
   describe('getCompanies', () => {
-    it('should fetch companies and update signal', (done) => {
+    it('should fetch companies and update signal', fakeAsync(() => {
       const mockCompanies: Company[] = [
-        { id: '1', companyName: 'Company A', tipoPersonaId: 1, razonSocial: 'Razon A', rfc: 'RFC123456789', email: 'test@a.com', phone: '5551234567', enabled: true, createdAt: '', updatedAt: '' }
+        { id: '1', companyId: 1, companyName: 'Company A', tipoPersonaId: 1, razonSocial: 'Razon A', rfc: 'RFC123456789', email: 'test@a.com', phone: '5551234567', enabled: true, createdAt: '', updatedAt: '' }
       ];
 
+      expect(service.loading()).toBe(false);
+      expect(service.companies().length).toBe(0);
+
       service.getCompanies();
+
+      expect(service.loading()).toBe(true);
 
       const req = httpMock.expectOne(`${service.apiUrl}`);
       expect(req.request.method).toBe('GET');
       req.flush(mockCompanies);
+      tick();
 
-      service.companies().subscribe(companies => {
-        expect(companies.length).toBe(1);
-        expect(companies[0].companyName).toBe('Company A');
-        done();
-      });
-    });
+      expect(service.loading()).toBe(false);
+      expect(service.companies().length).toBe(1);
+      expect(service.companies()[0].companyName).toBe('Company A');
+    }));
 
-    it('should set error on HTTP error', (done) => {
+    it('should set error on HTTP error', fakeAsync(() => {
+      expect(service.error()).toBeNull();
+
       service.getCompanies();
 
       const req = httpMock.expectOne(`${service.apiUrl}`);
       req.flush('Error', { status: 500, statusText: 'Server Error' });
+      tick();
 
-      service.error().subscribe(error => {
-        expect(error).toBe('Error al cargar las empresas');
-        done();
-      });
-    });
+      expect(service.error()).toBe('Error al cargar las empresas');
+      expect(service.companies().length).toBe(0);
+    }));
   });
 
   describe('createCompany', () => {
     it('should create a new company', (done) => {
       const newCompany: Company = {
         companyName: 'New Company',
+        companyId: 99,
         tipoPersonaId: 1,
         razonSocial: 'New Razon',
         rfc: 'RFC1234567890',
@@ -68,7 +74,7 @@ describe('CompanyService', () => {
         enabled: true,
         createdAt: '',
         updatedAt: ''
-      };
+      } as Company;
 
       const mockResponse: Company = { ...newCompany, id: 'new-id' };
 
@@ -87,6 +93,7 @@ describe('CompanyService', () => {
     it('should update an existing company', (done) => {
       const company: Company = {
         id: '1',
+        companyId: 1,
         companyName: 'Updated Company',
         tipoPersonaId: 1,
         razonSocial: 'Updated Razon',
@@ -122,31 +129,35 @@ describe('CompanyService', () => {
   });
 
   describe('loading state', () => {
-    it('should set loading to true during getCompanies', (done) => {
-      service.loading().subscribe(loading => {
-        if (loading) {
-          done();
-        }
-      });
+    it('should set loading to true during getCompanies', fakeAsync(() => {
+      expect(service.loading()).toBe(false);
+
       service.getCompanies();
+
+      expect(service.loading()).toBe(true);
+
       const req = httpMock.expectOne(`${service.apiUrl}`);
       req.flush([]);
-    });
+      tick();
+
+      expect(service.loading()).toBe(false);
+    }));
   });
 
   describe('clearError', () => {
-    it('should clear error signal', (done) => {
+    it('should clear error signal', fakeAsync(() => {
+      // Primero generamos un error
       service.getCompanies();
-      
       const req = httpMock.expectOne(`${service.apiUrl}`);
       req.flush('Error', { status: 500, statusText: 'Server Error' });
+      tick();
 
+      expect(service.error()).toBe('Error al cargar las empresas');
+
+      // Ahora lo limpiamos
       service.clearError();
-      
-      service.error().subscribe(error => {
-        expect(error).toBeNull();
-        done();
-      });
-    });
+
+      expect(service.error()).toBeNull();
+    }));
   });
 });

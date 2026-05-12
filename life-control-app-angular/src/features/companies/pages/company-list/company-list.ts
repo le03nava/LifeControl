@@ -1,12 +1,14 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, inject, signal, computed, effect, OnInit } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { Button, Modal } from '@shared/ui';
 import { CompanyService } from '@features/companies/data/company.service';
 import { CompaniesCard } from '@features/companies/components';
+import { MatIconModule } from '@angular/material/icon';
+import { Company } from '@features/companies/models/company.models';
 
 @Component({
   selector: 'app-company-list',
-  imports: [RouterLink, Button, Modal, CompaniesCard],
+  imports: [RouterLink, Button, Modal, CompaniesCard, MatIconModule],
   templateUrl: './company-list.html',
   styleUrls: ['./company-list.scss'],
 })
@@ -18,15 +20,42 @@ export class CompanyList implements OnInit {
   companyToDelete = signal<{ id: string; name: string } | null>(null);
   isDeleting = signal(false);
 
-  // Usar el signal directo del servicio
-  companies = this.companyService.companies;
+  // Search con debounce
+  readonly searchQuery = signal('');
+  private readonly debounceDelay = 300; // ms
+
+  // Empresas filtradas (computed reactivo)
+  readonly filteredCompanies = computed(() => {
+    const query = this.searchQuery().toLowerCase().trim();
+    const companies = this.companyService.companies();
+
+    if (!query) {
+      return companies;
+    }
+
+    return companies.filter((c: Company) =>
+      c.companyName?.toLowerCase().includes(query) ||
+      c.rfc?.toLowerCase().includes(query) ||
+      c.razonSocial?.toLowerCase().includes(query) ||
+      c.email?.toLowerCase().includes(query)
+    );
+  });
+
+  constructor() {
+    // Debounce effect - limpia el timeout anterior en cada cambio
+    effect((onCleanup) => {
+      const query = this.searchQuery();
+      const timer = setTimeout(() => {
+        // El computed ya se actualiza automáticamente
+        // Si necesitaramos server-side search, lo haríamos acá
+      }, this.debounceDelay);
+
+      onCleanup(() => clearTimeout(timer));
+    });
+  }
 
   ngOnInit(): void {
     this.companyService.getCompanies();
-  }
-
-  viewCompany(id: string): void {
-    this.router.navigate([`/companies/edit/${id}`]);
   }
 
   editCompany(id: string): void {
@@ -41,6 +70,10 @@ export class CompanyList implements OnInit {
   cancelDelete(): void {
     this.showDeleteModal.set(false);
     this.companyToDelete.set(null);
+  }
+
+  clearSearch(): void {
+    this.searchQuery.set('');
   }
 
   async executeDelete(): Promise<void> {

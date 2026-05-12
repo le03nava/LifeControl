@@ -1,4 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { MatIconModule } from '@angular/material/icon';
 import { CompaniesCard } from './companies-card';
 import { Company } from '../models/company.models';
 
@@ -8,6 +9,7 @@ describe('CompaniesCard', () => {
 
   const mockCompany: Company = {
     id: '123',
+    companyId: 1,
     companyName: 'Test Company',
     tipoPersonaId: 1,
     razonSocial: 'Test Razon Social',
@@ -22,7 +24,7 @@ describe('CompaniesCard', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [CompaniesCard]
+      imports: [CompaniesCard, MatIconModule]
     }).compileComponents();
 
     fixture = TestBed.createComponent(CompaniesCard);
@@ -34,7 +36,7 @@ describe('CompaniesCard', () => {
   });
 
   it('should display company information', () => {
-    component.company = mockCompany;
+    component.company.set(mockCompany);
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
@@ -43,8 +45,20 @@ describe('CompaniesCard', () => {
     expect(compiled.textContent).toContain('test@company.com');
   });
 
+  it('should compute isActive correctly', () => {
+    component.company.set(mockCompany);
+    expect(component.isActive()).toBe(true);
+    expect(component.statusLabel()).toBe('Activo');
+  });
+
+  it('should compute isActive false for disabled company', () => {
+    component.company.set({ ...mockCompany, enabled: false });
+    expect(component.isActive()).toBe(false);
+    expect(component.statusLabel()).toBe('Inactivo');
+  });
+
   it('should emit editCompany with id', (done) => {
-    component.company = mockCompany;
+    component.company.set(mockCompany);
     component.editCompany.subscribe(id => {
       expect(id).toBe('123');
       done();
@@ -53,7 +67,7 @@ describe('CompaniesCard', () => {
   });
 
   it('should emit deleteCompany with id and name', (done) => {
-    component.company = mockCompany;
+    component.company.set(mockCompany);
     component.deleteCompany.subscribe(data => {
       expect(data.id).toBe('123');
       expect(data.name).toBe('Test Company');
@@ -62,19 +76,10 @@ describe('CompaniesCard', () => {
     component.onDeleteCompany(new MouseEvent('click'));
   });
 
-  it('should emit viewCompany with id', (done) => {
-    component.company = mockCompany;
-    component.viewCompany.subscribe(id => {
-      expect(id).toBe('123');
-      done();
-    });
-    component.onViewCompany(new MouseEvent('click'));
-  });
-
   it('should stop event propagation on edit', () => {
-    component.company = mockCompany;
+    component.company.set(mockCompany);
     const event = new MouseEvent('click');
-    const stopPropagationSpy = jest.spyOn(event, 'stopPropagation');
+    const stopPropagationSpy = spyOn(event, 'stopPropagation');
     
     component.onEditCompany(event);
     
@@ -82,9 +87,9 @@ describe('CompaniesCard', () => {
   });
 
   it('should stop event propagation on delete', () => {
-    component.company = mockCompany;
+    component.company.set(mockCompany);
     const event = new MouseEvent('click');
-    const stopPropagationSpy = jest.spyOn(event, 'stopPropagation');
+    const stopPropagationSpy = spyOn(event, 'stopPropagation');
     
     component.onDeleteCompany(event);
     
@@ -92,7 +97,7 @@ describe('CompaniesCard', () => {
   });
 
   it('should handle undefined company gracefully', () => {
-    component.company = undefined;
+    component.company.set(undefined);
     fixture.detectChanges();
 
     let emitted = false;
