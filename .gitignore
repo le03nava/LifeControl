@@ -124,3 +124,5 @@ Thumbs.db
 *.swo
 *~
 .opencode/
+.atl/
+openspec/
