@@ -1,6 +1,7 @@
 .user-list-page {
-  max-width: 1200px;
+  padding: 0 var(--space-md);
   margin: 0 auto;
+  width: 100%;
 }
 
 .page-header {
@@ -31,89 +32,10 @@
   flex-wrap: wrap;
 }
 
-.search-filter {
-  flex: 1;
-  min-width: 250px;
-}
-
-.role-select {
-  padding: var(--space-sm) var(--space-md);
-  border: 1px solid var(--color-gray-300);
-  border-radius: var(--radius-md);
-  font-size: 1rem;
-  background: white;
-  min-width: 150px;
-}
-
 .users-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-  gap: var(--space-lg);
-}
-
-.user-card {
-  background: white;
-  border: 1px solid var(--color-gray-200);
-  border-radius: var(--radius-lg);
-  padding: var(--space-lg);
-  display: flex;
-  flex-direction: column;
+  grid-template-columns: 1fr;
   gap: var(--space-md);
-  transition: box-shadow 0.2s ease;
-}
-
-.user-card:hover {
-  box-shadow: var(--shadow-md);
-}
-
-.user-avatar {
-  font-size: 3rem;
-  text-align: center;
-  margin-bottom: var(--space-sm);
-}
-
-.user-info {
-  text-align: center;
-  flex: 1;
-}
-
-.user-name {
-  margin: 0 0 var(--space-xs);
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: var(--color-gray-900);
-}
-
-.user-email {
-  margin: 0 0 var(--space-sm);
-  color: var(--color-gray-600);
-  font-size: 0.875rem;
-}
-
-.user-role {
-  display: inline-block;
-  padding: var(--space-xs) var(--space-sm);
-  border-radius: var(--radius-sm);
-  font-size: 0.75rem;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.user-role.admin {
-  background-color: var(--color-primary);
-  color: white;
-}
-
-.user-role.user {
-  background-color: var(--color-gray-200);
-  color: var(--color-gray-700);
-}
-
-.user-actions {
-  display: flex;
-  gap: var(--space-sm);
-  justify-content: center;
 }
 
 .empty-state {
@@ -135,14 +57,6 @@
   color: var(--color-gray-700);
 }
 
-.empty-description {
-  margin: 0 0 var(--space-lg);
-  font-size: 1rem;
-  max-width: 400px;
-  margin-left: auto;
-  margin-right: auto;
-}
-
 .warning-text {
   color: var(--color-error);
   font-size: 0.875rem;
@@ -151,13 +65,13 @@
 
 .loading-skeleton {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-  gap: var(--space-lg);
+  grid-template-columns: 1fr;
+  gap: var(--space-md);
 }
 
 .skeleton-card {
   height: 150px;
-  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background: linear-gradient(90deg, var(--color-gray-100) 25%, var(--color-gray-200) 50%, var(--color-gray-100) 75%);
   background-size: 200% 100%;
   animation: loading 1.5s infinite;
   border-radius: var(--radius-lg);
@@ -172,21 +86,38 @@
   }
 }
 
-@media (max-width: 768px) {
-  .page-header {
-    flex-direction: column;
-    align-items: stretch;
+@media (min-width: 576px) {
+  .user-list-page {
+    max-width: 720px;
   }
 
-  .filters-section {
-    flex-direction: column;
+  .users-grid,
+  .loading-skeleton {
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-lg);
+  }
+}
+
+@media (min-width: 1024px) {
+  .user-list-page {
+    max-width: 960px;
   }
 
-  .users-grid {
-    grid-template-columns: 1fr;
+  .users-grid,
+  .loading-skeleton {
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--space-xl);
+  }
+}
+
+@media (min-width: 1440px) {
+  .user-list-page {
+    max-width: 1320px;
   }
 
-  .user-actions {
-    flex-direction: column;
+  .users-grid,
+  .loading-skeleton {
+    grid-template-columns: repeat(4, 1fr);
+    gap: var(--space-xl);
   }
 }

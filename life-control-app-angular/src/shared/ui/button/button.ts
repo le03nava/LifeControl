@@ -25,7 +25,7 @@ import { Component, input, output } from '@angular/core';
   },
 })
 export class Button {
-  variant = input<'primary' | 'secondary' | 'danger' | 'none'>('none');
+  variant = input<'primary' | 'secondary' | 'danger' | 'info' | 'none'>('none');
   size = input<'small' | 'medium' | 'large' | 'none'>('none');
   disabled = input(false);
   ariaLabel = input<string>();

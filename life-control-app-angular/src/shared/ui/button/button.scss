@@ -45,6 +45,15 @@
   background-color: #dc2626;
 }
 
+:host(.info) {
+  background-color: var(--color-info);
+  color: white;
+}
+
+:host(.info:hover) {
+  filter: brightness(0.9);
+}
+
 :host(.small) {
   padding: var(--space-xs) var(--space-sm);
   min-height: 2rem;

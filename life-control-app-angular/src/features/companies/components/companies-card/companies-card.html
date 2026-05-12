@@ -13,9 +13,9 @@
       </div>
     </div>
     <div class="card-actions">
-      <button class="view-btn" (click)="onViewCompany($event)">👁️ Ver</button>
-      <button class="edit-btn" (click)="onEditCompany($event)">✏️ Editar</button>
-      <button class="delete-btn" (click)="onDeleteCompany($event)">🗑️ Eliminar</button>
+      <button app-button variant="info" size="small" (buttonClick)="onViewCompany($event)">👁️ Ver</button>
+      <button app-button variant="primary" size="small" (buttonClick)="onEditCompany($event)">✏️ Editar</button>
+      <button app-button variant="danger" size="small" (buttonClick)="onDeleteCompany($event)">🗑️ Eliminar</button>
     </div>
   </div>
 } @else {

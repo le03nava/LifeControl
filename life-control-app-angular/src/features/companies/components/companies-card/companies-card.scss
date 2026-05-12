@@ -1,16 +1,15 @@
 .card {
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  padding: 16px;
-  margin-bottom: 16px;
-  background-color: #fff;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+  margin-bottom: var(--space-md);
+  background-color: var(--color-gray-50);
+  box-shadow: var(--shadow-sm);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
-  cursor: pointer;
 
   &:hover {
     transform: translateY(-2px);
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+    box-shadow: var(--shadow-md);
   }
 }
 
@@ -18,111 +17,75 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid #eee;
+  margin-bottom: var(--space-md);
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px solid var(--color-gray-200);
 }
 
 .card-title {
   margin: 0;
   font-size: 1.25rem;
   font-weight: 600;
-  color: #333;
+  color: var(--color-gray-700);
 }
 
 .card-rfc {
-  font-size: 0.9rem;
+  font-size: 0.875rem;
   font-weight: 600;
-  color: #6c757d;
-  background-color: #f8f9fa;
-  padding: 4px 8px;
-  border-radius: 4px;
+  color: var(--color-gray-500);
+  background-color: var(--color-gray-100);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-md);
 }
 
 .card-body {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .card-razon {
   margin: 0;
-  color: #333;
+  color: var(--color-gray-700);
   font-weight: 500;
 }
 
 .card-email, .card-phone {
   margin: 0;
-  color: #666;
-  font-size: 0.9rem;
+  color: var(--color-gray-500);
+  font-size: 0.875rem;
 }
 
 .card-id {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid #eee;
+  margin-top: var(--space-sm);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--color-gray-200);
 }
 
 .card-id small {
-  color: #999;
-  font-size: 0.8rem;
+  color: var(--color-gray-400);
+  font-size: 0.75rem;
 }
 
 .card-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-sm);
   justify-content: flex-end;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid #eee;
-}
-
-.view-btn, .edit-btn, .delete-btn {
-  border: none;
-  padding: 6px 12px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.85rem;
-  transition: all 0.2s ease;
-}
-
-.view-btn {
-  background-color: #17a2b8;
-  color: white;
-
-  &:hover {
-    background-color: #138496;
-  }
-}
-
-.edit-btn {
-  background-color: #007bff;
-  color: white;
-
-  &:hover {
-    background-color: #0056b3;
-  }
-}
-
-.delete-btn {
-  background-color: #dc3545;
-  color: white;
-
-  &:hover {
-    background-color: #c82333;
-  }
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--color-gray-200);
 }
 
 .card-empty {
-  background-color: #f8f9fa;
-  border-color: #e9ecef;
+  background-color: var(--color-gray-100);
+  border-color: var(--color-gray-200);
   text-align: center;
-  padding: 24px;
+  padding: var(--space-lg);
   cursor: default;
 
   p {
     margin: 0;
-    color: #6c757d;
+    color: var(--color-gray-500);
     font-style: italic;
   }
 }
