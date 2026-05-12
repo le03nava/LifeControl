@@ -1,8 +1,30 @@
-.is-invalid {
-  border-color: #dc3545; /* Color de Bootstrap para error */
+input {
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-gray-300);
+  border-radius: var(--radius-md);
+  font-size: 1rem;
+  background-color: white;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
+
+input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgb(37 99 235 / 0.1);
+}
+
+.is-invalid {
+  border-color: var(--color-error);
+}
+
+.is-invalid:focus {
+  border-color: var(--color-error);
+  box-shadow: 0 0 0 3px rgb(239 68 68 / 0.1);
+}
+
 .feedback-error {
-  color: #dc3545;
+  color: var(--color-error);
   font-size: 0.8rem;
   margin-top: 0.25rem;
 }
