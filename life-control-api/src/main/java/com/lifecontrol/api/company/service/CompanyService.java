@@ -106,6 +106,7 @@ public class CompanyService {
 
     private CompanyResponse toResponse(Company company) {
         return new CompanyResponse(
+                company.getId(),
                 company.getCompanyId(),
                 company.getCompanyName(),
                 company.getTipoPersonaId(),

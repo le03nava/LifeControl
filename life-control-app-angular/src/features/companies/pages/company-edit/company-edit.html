@@ -1,5 +1,6 @@
 <app-companies-form
   [formGroup]="companyForm()"
+  [companyId]="defaultCompanyId()"
   (saveCompany)="onSaveCompany($event)"
   (cancelForm)="cancelForm()"
 />

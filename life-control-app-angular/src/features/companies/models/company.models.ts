@@ -2,6 +2,7 @@ import { FormControl } from '@angular/forms';
 
 export interface Company {
   id: string;
+  companyId: number;
   companyName: string;
   tipoPersonaId: number;
   razonSocial: string;
@@ -16,6 +17,7 @@ export interface Company {
 
 export interface CompanyControl {
   id: FormControl<string>;
+  companyId: FormControl<number | null>;
   companyName: FormControl<string>;
   tipoPersonaId: FormControl<number>;
   razonSocial: FormControl<string>;

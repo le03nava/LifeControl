@@ -62,6 +62,7 @@ class CompanyControllerTest {
         LocalDateTime now = LocalDateTime.now();
 
         testCompanyResponse = new CompanyResponse(
+                testCompanyId,
                 1,
                 "Test Company",
                 1,

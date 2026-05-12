@@ -1,8 +1,10 @@
 package com.lifecontrol.api.company.dto;
 
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 public record CompanyResponse(
+    UUID id,
     Integer companyId,
     String companyName,
     Integer tipoPersonaId,

@@ -1,9 +1,10 @@
 import { BreakpointObserver, Breakpoints } from '@angular/cdk/layout';
 import { CommonModule } from '@angular/common';
-import { Component, computed, effect, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, OnInit, signal } from '@angular/core';
 import { MatIconModule } from '@angular/material/icon';
 import { RouterModule } from '@angular/router';
-import { Button, Hyperlink } from '@shared/ui';
+import { Button, Hyperlink, CompanySelector } from '@shared/ui';
+import { CompanyContextService } from '@shared/data/company-context.service';
 import Keycloak from 'keycloak-js';
 import { KEYCLOAK_EVENT_SIGNAL, KeycloakEventType } from 'keycloak-angular';
 
@@ -17,14 +18,15 @@ import { KEYCLOAK_EVENT_SIGNAL, KeycloakEventType } from 'keycloak-angular';
  */
 @Component({
   selector: 'header[app-header]',
-  imports: [CommonModule, Button, Hyperlink, MatIconModule, RouterModule],
+  imports: [CommonModule, Button, Hyperlink, MatIconModule, RouterModule, CompanySelector],
   templateUrl: `header.html`,
   styleUrl: `header.scss`,
 })
-export class Header {
+export class Header implements OnInit {
   private breakpointObserver = inject(BreakpointObserver);
   private keycloak = inject(Keycloak);
   private keycloakSignal = inject(KEYCLOAK_EVENT_SIGNAL);
+  private companyContext = inject(CompanyContextService);
 
   // Signals
   private showMenu = signal(false);
@@ -45,6 +47,11 @@ export class Header {
   ]);
 
   authenticated = false;
+
+  ngOnInit(): void {
+    this.companyContext.loadCompanies();
+  }
+
   constructor() {
     // Observar cambios de breakpoint
     this.breakpointObserver.observe([Breakpoints.Small, Breakpoints.XSmall]).subscribe((result) => {

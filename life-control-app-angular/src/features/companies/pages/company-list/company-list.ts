@@ -25,6 +25,10 @@ export class CompanyList implements OnInit {
     this.companyService.getCompanies();
   }
 
+  viewCompany(id: string): void {
+    this.router.navigate([`/companies/edit/${id}`]);
+  }
+
   editCompany(id: string): void {
     this.router.navigate([`/companies/edit/${id}`]);
   }

@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, inject, signal, OnInit } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { CompanyService } from '@features/companies/data/company.service';
+import { CompanyContextService } from '@shared/data/company-context.service';
 import { Company, CompanyControl } from '@features/companies/models/company.models';
 import {
   NonNullableFormBuilder,
@@ -38,10 +39,12 @@ function phoneValidator(control: AbstractControl): ValidationErrors | null {
 export class CompanyEdit implements OnInit {
   private route = inject(ActivatedRoute);
   private companyService = inject(CompanyService);
+  private companyContextService = inject(CompanyContextService);
   private fb = inject(NonNullableFormBuilder);
   private router = inject(Router);
 
   companyId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
+  defaultCompanyId = signal<number | null>(null);
 
   companyForm = signal<FormGroup<CompanyControl>>(this.createForm());
 
@@ -52,6 +55,12 @@ export class CompanyEdit implements OnInit {
     if (id) {
       this.isEditMode.set(true);
       this.loadCompany(id);
+    } else {
+      const current = this.companyContextService.currentCompany();
+      if (current) {
+        this.defaultCompanyId.set(current.companyId);
+        this.companyForm().controls.companyId.setValue(current.companyId);
+      }
     }
   }
 
@@ -61,6 +70,7 @@ export class CompanyEdit implements OnInit {
         this.companyForm.set(
           this.fb.group({
             id: this.fb.control(company.id),
+            companyId: this.fb.control<number | null>(company.companyId, Validators.required),
             companyName: this.fb.control(company.companyName, Validators.required),
             tipoPersonaId: this.fb.control(company.tipoPersonaId),
             razonSocial: this.fb.control(company.razonSocial, Validators.required),
@@ -81,6 +91,7 @@ export class CompanyEdit implements OnInit {
   private createForm(): FormGroup<CompanyControl> {
     return this.fb.group({
       id: this.fb.control(''),
+      companyId: this.fb.control<number | null>(null, Validators.required),
       companyName: this.fb.control('', Validators.required),
       tipoPersonaId: this.fb.control(1),
       razonSocial: this.fb.control('', Validators.required),
@@ -94,7 +105,6 @@ export class CompanyEdit implements OnInit {
 
   onSaveCompany(companyData: Company): void {
     if (companyData.id === '') {
-      // Create new company
       const { id, ...createData } = companyData;
       this.companyService.createCompany(createData as Company).subscribe({
         next: () => {
@@ -102,7 +112,6 @@ export class CompanyEdit implements OnInit {
         },
       });
     } else {
-      // Update existing company
       this.companyService.updateCompany(companyData).subscribe({
         next: () => {
           this.router.navigate(['/companies']);

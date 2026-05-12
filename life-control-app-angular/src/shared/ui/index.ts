@@ -8,3 +8,4 @@ export * from './not-found';
 export * from './hyperlink/hyperlink';
 export * from './input/input';
 export * from './form-input/form-input';
+export * from './company-selector/company-selector';

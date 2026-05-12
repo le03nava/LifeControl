@@ -25,18 +25,25 @@ import { Field } from '@shared/ui';
 })
 export class CompaniesForm {
   formGroup = input.required<FormGroup<CompanyControl>>();
+  companyId = input<number | null>(null);
   saveCompany = output<Company>();
   cancelForm = output<void>();
 
-  // Signal para detectar modo edición
   isEditMode = signal(false);
 
   constructor() {
-    // Detectar modo edición cuando cambia el formGroup
     effect(() => {
       const form = this.formGroup();
       if (form.get('id')?.value) {
         this.isEditMode.set(true);
+      }
+    });
+
+    effect(() => {
+      const id = this.companyId();
+      const form = this.formGroup();
+      if (id !== null && form) {
+        form.controls.companyId.setValue(id);
       }
     });
   }
@@ -47,6 +54,7 @@ export class CompaniesForm {
 
       const companyData: Company = {
         id: formData.get('id')?.value || '',
+        companyId: formData.get('companyId')?.value ?? 0,
         companyName: formData.get('companyName')?.value || '',
         tipoPersonaId: formData.get('tipoPersonaId')?.value || 1,
         razonSocial: formData.get('razonSocial')?.value || '',

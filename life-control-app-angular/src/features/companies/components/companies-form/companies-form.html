@@ -2,6 +2,14 @@
   <h2></h2>
   <form [formGroup]="formGroup()" (ngSubmit)="onSave()">
     <app-field
+      [control]="getControl('companyId')"
+      fieldId="companyId"
+      label="ID de Compañía"
+      type="number"
+      placeholder="Ingrese el ID numérico de la compañía"
+    />
+
+    <app-field
       [control]="getControl('companyName')"
       fieldId="companyName"
       label="Nombre de la Empresa"

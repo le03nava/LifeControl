@@ -1,0 +1,19 @@
+<div class="company-selector">
+  @if (loading()) {
+    <span class="loading-text">Cargando...</span>
+  } @else if (companies().length === 0) {
+    <span class="empty-label">Sin empresas</span>
+  } @else {
+    <mat-select
+      [value]="currentCompany()?.companyId ?? null"
+      (selectionChange)="onCompanyChange($event.value)"
+      placeholder="Seleccionar empresa"
+    >
+      @for (company of companies(); track company.companyId) {
+        <mat-option [value]="company.companyId">
+          {{ company.companyName }}
+        </mat-option>
+      }
+    </mat-select>
+  }
+</div>

@@ -14,10 +14,17 @@
   </div>
 
   <div class="users-grid">
-    @defer (on viewport) {
+    @if (companyService.loading()) {
+      <div class="loading-skeleton">
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+      </div>
+    } @else {
       @for (company of companies(); track company.id) {
         <app-companies-card
           [company]="company"
+          (viewCompany)="viewCompany($event)"
           (editCompany)="editCompany($event)"
           (deleteCompany)="confirmDelete($event)"
         />
@@ -27,12 +34,6 @@
           <h3 class="empty-title">No se encontraron empresas</h3>
         </div>
       }
-    } @placeholder {
-      <div class="loading-skeleton">
-        <div class="skeleton-card"></div>
-        <div class="skeleton-card"></div>
-        <div class="skeleton-card"></div>
-      </div>
     }
   </div>
 
