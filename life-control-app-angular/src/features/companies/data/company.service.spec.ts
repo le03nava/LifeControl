@@ -1,11 +1,17 @@
-import { TestBed, fakeAsync, tick } from '@angular/core/testing';
+import { TestBed } from '@angular/core/testing';
 import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 import { CompanyService } from './company.service';
-import { Company } from '../models/company.models';
+import { Company, Page } from '../models/company.models';
 
 describe('CompanyService', () => {
   let service: CompanyService;
   let httpMock: HttpTestingController;
+
+  const mockCompany: Company = {
+    id: '1', companyId: 1, companyName: 'Company A', tipoPersonaId: 1,
+    razonSocial: 'Razon A', rfc: 'RFC123456789', email: 'test@a.com',
+    phone: '5551234567', enabled: true, createdAt: '', updatedAt: '',
+  };
 
   beforeEach(() => {
     TestBed.configureTestingModule({
@@ -25,60 +31,97 @@ describe('CompanyService', () => {
   });
 
   describe('getCompanies', () => {
-    it('should fetch companies and update signal', fakeAsync(() => {
-      const mockCompanies: Company[] = [
-        { id: '1', companyId: 1, companyName: 'Company A', tipoPersonaId: 1, razonSocial: 'Razon A', rfc: 'RFC123456789', email: 'test@a.com', phone: '5551234567', enabled: true, createdAt: '', updatedAt: '' }
-      ];
+    it('should fetch paginated companies with default params', (done) => {
+      const mockPage: Page<Company> = {
+        content: [mockCompany],
+        totalElements: 1,
+        totalPages: 1,
+        size: 12,
+        number: 0,
+        first: true,
+        last: true,
+        empty: false,
+      };
 
-      expect(service.loading()).toBe(false);
-      expect(service.companies().length).toBe(0);
+      service.getCompanies(0, 12).subscribe(page => {
+        expect(page).toEqual(mockPage);
+        expect(page.content.length).toBe(1);
+        expect(page.content[0].companyName).toBe('Company A');
+        done();
+      });
 
-      service.getCompanies();
+      const req = httpMock.expectOne(r => r.url === service.apiUrl && r.method === 'GET');
+      expect(req.request.params.get('page')).toBe('0');
+      expect(req.request.params.get('size')).toBe('12');
+      expect(req.request.params.has('search')).toBeFalse();
+      req.flush(mockPage);
+    });
 
-      expect(service.loading()).toBe(true);
+    it('should include search param when provided', (done) => {
+      const mockPage: Page<Company> = {
+        content: [],
+        totalElements: 0,
+        totalPages: 0,
+        size: 12,
+        number: 0,
+        first: true,
+        last: true,
+        empty: true,
+      };
 
-      const req = httpMock.expectOne(`${service.apiUrl}`);
+      service.getCompanies(0, 12, 'Test').subscribe(page => {
+        expect(page.empty).toBeTrue();
+        done();
+      });
+
+      const req = httpMock.expectOne(r => r.url === service.apiUrl && r.method === 'GET');
+      expect(req.request.params.get('search')).toBe('Test');
+      req.flush(mockPage);
+    });
+
+    it('should handle pagination params correctly', (done) => {
+      const mockPage: Page<Company> = {
+        content: [],
+        totalElements: 0,
+        totalPages: 0,
+        size: 24,
+        number: 2,
+        first: false,
+        last: true,
+        empty: true,
+      };
+
+      service.getCompanies(2, 24).subscribe(page => {
+        expect(page.number).toBe(2);
+        expect(page.size).toBe(24);
+        done();
+      });
+
+      const req = httpMock.expectOne(r => r.url === service.apiUrl && r.method === 'GET');
+      expect(req.request.params.get('page')).toBe('2');
+      expect(req.request.params.get('size')).toBe('24');
+      req.flush(mockPage);
+    });
+  });
+
+  describe('getCompanyById', () => {
+    it('should fetch a single company by ID', (done) => {
+      service.getCompanyById('1').subscribe(company => {
+        expect(company).toEqual(mockCompany);
+        done();
+      });
+
+      const req = httpMock.expectOne(`${service.apiUrl}/1`);
       expect(req.request.method).toBe('GET');
-      req.flush(mockCompanies);
-      tick();
-
-      expect(service.loading()).toBe(false);
-      expect(service.companies().length).toBe(1);
-      expect(service.companies()[0].companyName).toBe('Company A');
-    }));
-
-    it('should set error on HTTP error', fakeAsync(() => {
-      expect(service.error()).toBeNull();
-
-      service.getCompanies();
-
-      const req = httpMock.expectOne(`${service.apiUrl}`);
-      req.flush('Error', { status: 500, statusText: 'Server Error' });
-      tick();
-
-      expect(service.error()).toBe('Error al cargar las empresas');
-      expect(service.companies().length).toBe(0);
-    }));
+      req.flush(mockCompany);
+    });
   });
 
   describe('createCompany', () => {
     it('should create a new company', (done) => {
-      const newCompany: Company = {
-        companyName: 'New Company',
-        companyId: 99,
-        tipoPersonaId: 1,
-        razonSocial: 'New Razon',
-        rfc: 'RFC1234567890',
-        email: 'new@test.com',
-        phone: '5559876543',
-        enabled: true,
-        createdAt: '',
-        updatedAt: ''
-      } as Company;
+      const mockResponse: Company = { ...mockCompany, id: 'new-id' };
 
-      const mockResponse: Company = { ...newCompany, id: 'new-id' };
-
-      service.createCompany(newCompany).subscribe(response => {
+      service.createCompany(mockCompany).subscribe(response => {
         expect(response.id).toBe('new-id');
         done();
       });
@@ -91,28 +134,14 @@ describe('CompanyService', () => {
 
   describe('updateCompany', () => {
     it('should update an existing company', (done) => {
-      const company: Company = {
-        id: '1',
-        companyId: 1,
-        companyName: 'Updated Company',
-        tipoPersonaId: 1,
-        razonSocial: 'Updated Razon',
-        rfc: 'RFC123456789',
-        email: 'updated@test.com',
-        phone: '5551234567',
-        enabled: true,
-        createdAt: '',
-        updatedAt: ''
-      };
-
-      service.updateCompany(company).subscribe(response => {
-        expect(response.companyName).toBe('Updated Company');
+      service.updateCompany(mockCompany).subscribe(response => {
+        expect(response.companyName).toBe('Company A');
         done();
       });
 
       const req = httpMock.expectOne(`${service.apiUrl}`);
       expect(req.request.method).toBe('PUT');
-      req.flush(company);
+      req.flush(mockCompany);
     });
   });
 
@@ -128,36 +157,10 @@ describe('CompanyService', () => {
     });
   });
 
-  describe('loading state', () => {
-    it('should set loading to true during getCompanies', fakeAsync(() => {
-      expect(service.loading()).toBe(false);
-
-      service.getCompanies();
-
-      expect(service.loading()).toBe(true);
-
-      const req = httpMock.expectOne(`${service.apiUrl}`);
-      req.flush([]);
-      tick();
-
-      expect(service.loading()).toBe(false);
-    }));
-  });
-
   describe('clearError', () => {
-    it('should clear error signal', fakeAsync(() => {
-      // Primero generamos un error
-      service.getCompanies();
-      const req = httpMock.expectOne(`${service.apiUrl}`);
-      req.flush('Error', { status: 500, statusText: 'Server Error' });
-      tick();
-
-      expect(service.error()).toBe('Error al cargar las empresas');
-
-      // Ahora lo limpiamos
+    it('should clear error signal', () => {
       service.clearError();
-
       expect(service.error()).toBeNull();
-    }));
+    });
   });
 });

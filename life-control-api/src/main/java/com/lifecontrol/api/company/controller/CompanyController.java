@@ -9,6 +9,9 @@ import com.lifecontrol.api.company.service.CompanyService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -18,6 +21,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -37,9 +41,11 @@ public class CompanyController {
     }
 
     @GetMapping
-    @Operation(summary = "Get all companies", description = "Returns a list of all companies")
-    public ResponseEntity<List<CompanyResponse>> getAllCompanies() {
-        return ResponseEntity.ok(companyService.getAllCompanies());
+    @Operation(summary = "Get all companies", description = "Returns a paginated list of companies, optionally filtered by search term")
+    public ResponseEntity<Page<CompanyResponse>> getAllCompanies(
+            @PageableDefault(size = 12) Pageable pageable,
+            @RequestParam(required = false) String search) {
+        return ResponseEntity.ok(companyService.getAllCompanies(pageable, search));
     }
 
     @GetMapping("/{id}")

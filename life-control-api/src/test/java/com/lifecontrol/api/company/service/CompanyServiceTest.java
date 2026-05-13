@@ -14,14 +14,20 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -68,6 +74,91 @@ class CompanyServiceTest {
                 "test@company.com",
                 true
         );
+    }
+
+    @Nested
+    @DisplayName("getAllCompanies")
+    class GetAllCompaniesTests {
+
+        @Test
+        @DisplayName("getAllCompanies - should return paginated companies without search")
+        void getAllCompanies_Paginated() {
+            // Arrange
+            var pageable = PageRequest.of(0, 12);
+            var companies = List.of(testCompany);
+            var expectedPage = new PageImpl<>(companies, pageable, 1);
+
+            when(companyRepository.findAll(pageable)).thenReturn(expectedPage);
+
+            // Act
+            Page<CompanyResponse> result = companyService.getAllCompanies(pageable, null);
+
+            // Assert
+            assertThat(result).isNotNull();
+            assertThat(result.getContent()).hasSize(1);
+            assertThat(result.getContent().get(0).companyName()).isEqualTo("Test Company");
+            assertThat(result.getTotalElements()).isEqualTo(1);
+            assertThat(result.getTotalPages()).isEqualTo(1);
+            verify(companyRepository).findAll(pageable);
+        }
+
+        @Test
+        @DisplayName("getAllCompanies - should return filtered companies with search")
+        void getAllCompanies_WithSearch() {
+            // Arrange
+            var pageable = PageRequest.of(0, 12);
+            var companies = List.of(testCompany);
+            var expectedPage = new PageImpl<>(companies, pageable, 1);
+
+            when(companyRepository.findBySearchTerm(eq("Test"), eq(pageable))).thenReturn(expectedPage);
+
+            // Act
+            Page<CompanyResponse> result = companyService.getAllCompanies(pageable, "Test");
+
+            // Assert
+            assertThat(result).isNotNull();
+            assertThat(result.getContent()).hasSize(1);
+            assertThat(result.getContent().get(0).companyName()).isEqualTo("Test Company");
+            verify(companyRepository).findBySearchTerm("Test", pageable);
+        }
+
+        @Test
+        @DisplayName("getAllCompanies - should return empty page when search has no matches")
+        void getAllCompanies_NoMatches() {
+            // Arrange
+            var pageable = PageRequest.of(0, 12);
+            var expectedPage = new PageImpl<Company>(List.of(), pageable, 0);
+
+            when(companyRepository.findBySearchTerm(eq("NonExistent"), eq(pageable))).thenReturn(expectedPage);
+
+            // Act
+            Page<CompanyResponse> result = companyService.getAllCompanies(pageable, "NonExistent");
+
+            // Assert
+            assertThat(result).isNotNull();
+            assertThat(result.getContent()).isEmpty();
+            assertThat(result.getTotalElements()).isZero();
+            verify(companyRepository).findBySearchTerm("NonExistent", pageable);
+        }
+
+        @Test
+        @DisplayName("getAllCompanies - should ignore whitespace-only search and return all")
+        void getAllCompanies_BlankSearch() {
+            // Arrange
+            var pageable = PageRequest.of(0, 12);
+            var companies = List.of(testCompany);
+            var expectedPage = new PageImpl<>(companies, pageable, 1);
+
+            when(companyRepository.findAll(pageable)).thenReturn(expectedPage);
+
+            // Act
+            Page<CompanyResponse> result = companyService.getAllCompanies(pageable, "   ");
+
+            // Assert
+            assertThat(result).isNotNull();
+            assertThat(result.getContent()).hasSize(1);
+            verify(companyRepository).findAll(pageable);
+        }
     }
 
     @Nested

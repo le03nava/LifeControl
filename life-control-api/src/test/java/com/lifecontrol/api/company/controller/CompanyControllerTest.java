@@ -15,11 +15,17 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableHandlerMethodArgumentResolver;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -29,6 +35,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -54,6 +61,7 @@ class CompanyControllerTest {
     void setUp() {
         mockMvc = MockMvcBuilders.standaloneSetup(companyController)
                 .setControllerAdvice(new GlobalExceptionHandler())
+                .setCustomArgumentResolvers(new PageableHandlerMethodArgumentResolver())
                 .build();
         objectMapper = new ObjectMapper();
         objectMapper.findAndRegisterModules();
@@ -85,6 +93,88 @@ class CompanyControllerTest {
                 "updated@company.com",
                 false
         );
+    }
+
+    @Nested
+    @DisplayName("GET /api/companies")
+    class GetAllCompaniesTests {
+
+        @Test
+        @DisplayName("getAllCompanies - should return paginated companies")
+        void getAllCompanies_Paginated() throws Exception {
+            // Arrange
+            var pageable = PageRequest.of(0, 12);
+            var companies = List.of(testCompanyResponse);
+            var page = new PageImpl<>(companies, pageable, 1);
+
+            when(companyService.getAllCompanies(any(Pageable.class), eq(null))).thenReturn(page);
+
+            // Act & Assert
+            mockMvc.perform(get("/api/companies")
+                            .param("page", "0")
+                            .param("size", "12"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content").isArray())
+                    .andExpect(jsonPath("$.content[0].companyName").value("Test Company"))
+                    .andExpect(jsonPath("$.totalElements").value(1))
+                    .andExpect(jsonPath("$.totalPages").value(1))
+                    .andExpect(jsonPath("$.number").value(0))
+                    .andExpect(jsonPath("$.size").value(12));
+        }
+
+        @Test
+        @DisplayName("getAllCompanies - should filter by search term")
+        void getAllCompanies_WithSearch() throws Exception {
+            // Arrange
+            var pageable = PageRequest.of(0, 12);
+            var companies = List.of(testCompanyResponse);
+            var page = new PageImpl<>(companies, pageable, 1);
+
+            when(companyService.getAllCompanies(any(Pageable.class), eq("Test"))).thenReturn(page);
+
+            // Act & Assert
+            mockMvc.perform(get("/api/companies")
+                            .param("page", "0")
+                            .param("size", "12")
+                            .param("search", "Test"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content[0].companyName").value("Test Company"))
+                    .andExpect(jsonPath("$.totalElements").value(1));
+        }
+
+        @Test
+        @DisplayName("getAllCompanies - should return empty page when no results")
+        void getAllCompanies_EmptyPage() throws Exception {
+            // Arrange
+            var pageable = PageRequest.of(0, 12);
+            var page = new PageImpl<CompanyResponse>(List.of(), pageable, 0);
+
+            when(companyService.getAllCompanies(any(Pageable.class), eq(null))).thenReturn(page);
+
+            // Act & Assert
+            mockMvc.perform(get("/api/companies")
+                            .param("page", "0")
+                            .param("size", "12"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content").isEmpty())
+                    .andExpect(jsonPath("$.totalElements").value(0))
+                    .andExpect(jsonPath("$.totalPages").value(0));
+        }
+
+        @Test
+        @DisplayName("getAllCompanies - should use default page size when not specified")
+        void getAllCompanies_DefaultPageSize() throws Exception {
+            // Arrange
+            var pageable = PageRequest.of(0, 12);
+            var page = new PageImpl<>(List.of(testCompanyResponse), pageable, 1);
+
+            when(companyService.getAllCompanies(any(Pageable.class), eq(null))).thenReturn(page);
+
+            // Act & Assert
+            mockMvc.perform(get("/api/companies"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.size").value(12));
+        }
     }
 
     @Nested

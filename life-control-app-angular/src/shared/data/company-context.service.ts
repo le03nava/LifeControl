@@ -1,6 +1,6 @@
-import { inject, Injectable, signal, effect } from '@angular/core';
+import { inject, Injectable, signal } from '@angular/core';
 import { CompanyService } from '@features/companies/data/company.service';
-import { Company } from '@features/companies/models/company.models';
+import { Company, Page } from '@features/companies/models/company.models';
 
 @Injectable({ providedIn: 'root' })
 export class CompanyContextService {
@@ -14,26 +14,22 @@ export class CompanyContextService {
   readonly currentCompany = this._currentCompany.asReadonly();
   readonly loading = this._loading.asReadonly();
 
-  constructor() {
-    effect(() => {
-      this._companies.set(this.companyService.companies());
-    }, { allowSignalWrites: true });
-
-    effect(() => {
-      this._loading.set(this.companyService.loading());
-    }, { allowSignalWrites: true });
-
-    effect(() => {
-      const companies = this._companies();
-      const current = this._currentCompany();
-      if (companies.length > 0 && !current) {
-        this._currentCompany.set(companies[0]);
-      }
-    }, { allowSignalWrites: true });
-  }
-
   loadCompanies(): void {
-    this.companyService.getCompanies();
+    this._loading.set(true);
+    this.companyService.getCompanies(0, 1000).subscribe({
+      next: (page: Page<Company>) => {
+        this._companies.set(page.content);
+        this._loading.set(false);
+
+        // Auto-select first company if none selected
+        if (page.content.length > 0 && !this._currentCompany()) {
+          this._currentCompany.set(page.content[0]);
+        }
+      },
+      error: () => {
+        this._loading.set(false);
+      },
+    });
   }
 
   setCurrentCompany(company: Company): void {

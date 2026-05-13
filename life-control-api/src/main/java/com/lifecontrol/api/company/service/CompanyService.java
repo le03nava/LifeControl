@@ -8,10 +8,12 @@ import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
-import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -26,10 +28,16 @@ public class CompanyService {
     }
 
     @Transactional(readOnly = true)
-    public List<CompanyResponse> getAllCompanies() {
-        return companyRepository.findAll().stream()
-                .map(this::toResponse)
-                .toList();
+    public Page<CompanyResponse> getAllCompanies(Pageable pageable, String search) {
+        Page<Company> companies;
+
+        if (StringUtils.hasText(search)) {
+            companies = companyRepository.findBySearchTerm(search.trim(), pageable);
+        } else {
+            companies = companyRepository.findAll(pageable);
+        }
+
+        return companies.map(this::toResponse);
     }
 
     @Transactional(readOnly = true)

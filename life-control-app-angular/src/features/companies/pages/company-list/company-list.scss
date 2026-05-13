@@ -356,6 +356,19 @@
   margin-top: var(--space-sm);
 }
 
+/* Pagination Section */
+.pagination-section {
+  display: flex;
+  justify-content: center;
+  margin-top: var(--space-lg);
+  padding: var(--space-md) 0;
+
+  .mat-mdc-paginator {
+    background: transparent;
+    width: 100%;
+  }
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .page-header {

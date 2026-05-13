@@ -1,18 +1,20 @@
-import { Component, inject, signal, computed, effect, OnInit } from '@angular/core';
+import { Component, effect, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { Button, Modal } from '@shared/ui';
 import { CompanyService } from '@features/companies/data/company.service';
 import { CompaniesCard } from '@features/companies/components';
 import { MatIconModule } from '@angular/material/icon';
-import { Company } from '@features/companies/models/company.models';
+import { MatPaginatorModule } from '@angular/material/paginator';
+import { rxResource } from '@angular/core/rxjs-interop';
+import { Company, Page } from '@features/companies/models/company.models';
 
 @Component({
   selector: 'app-company-list',
-  imports: [RouterLink, Button, Modal, CompaniesCard, MatIconModule],
+  imports: [RouterLink, Button, Modal, CompaniesCard, MatIconModule, MatPaginatorModule],
   templateUrl: './company-list.html',
   styleUrls: ['./company-list.scss'],
 })
-export class CompanyList implements OnInit {
+export class CompanyList {
   companyService = inject(CompanyService);
   private router = inject(Router);
 
@@ -20,42 +22,49 @@ export class CompanyList implements OnInit {
   companyToDelete = signal<{ id: string; name: string } | null>(null);
   isDeleting = signal(false);
 
-  // Search con debounce
+  // Paginación
+  readonly pageSize = signal(12);
+  readonly pageIndex = signal(0);
+
+  // Search: el input actualiza searchQuery en cada keystroke (para el template)
   readonly searchQuery = signal('');
-  private readonly debounceDelay = 300; // ms
 
-  // Empresas filtradas (computed reactivo)
-  readonly filteredCompanies = computed(() => {
-    const query = this.searchQuery().toLowerCase().trim();
-    const companies = this.companyService.companies();
+  // Search debounced: se usa para la llamada API (300ms después de que el user deja de tipear)
+  private readonly _debouncedSearch = signal('');
 
-    if (!query) {
-      return companies;
-    }
-
-    return companies.filter((c: Company) =>
-      c.companyName?.toLowerCase().includes(query) ||
-      c.rfc?.toLowerCase().includes(query) ||
-      c.razonSocial?.toLowerCase().includes(query) ||
-      c.email?.toLowerCase().includes(query)
-    );
+  // rxResource: llama al backend automáticamente cuando cambian pageIndex, pageSize o _debouncedSearch
+  readonly companiesResource = rxResource({
+    params: () => ({
+      page: this.pageIndex(),
+      size: this.pageSize(),
+      search: this._debouncedSearch(),
+    }),
+    stream: ({ params }) =>
+      this.companyService.getCompanies(params.page, params.size, params.search || undefined),
   });
 
+  // Computed helpers
+  readonly companies = this.companiesResource.value;
+  readonly loading = this.companiesResource.isLoading;
+  readonly error = this.companiesResource.error;
+
   constructor() {
-    // Debounce effect - limpia el timeout anterior en cada cambio
+    // Debounce effect: cuando searchQuery cambia, espera 300ms y actualiza _debouncedSearch
     effect((onCleanup) => {
       const query = this.searchQuery();
       const timer = setTimeout(() => {
-        // El computed ya se actualiza automáticamente
-        // Si necesitaramos server-side search, lo haríamos acá
-      }, this.debounceDelay);
-
+        this._debouncedSearch.set(query);
+      }, 300);
       onCleanup(() => clearTimeout(timer));
     });
-  }
 
-  ngOnInit(): void {
-    this.companyService.getCompanies();
+    // Reset a página 0 cuando cambia la búsqueda debounced
+    effect(() => {
+      this._debouncedSearch();
+      if (this.pageIndex() !== 0) {
+        this.pageIndex.set(0);
+      }
+    });
   }
 
   editCompany(id: string): void {
@@ -76,6 +85,11 @@ export class CompanyList implements OnInit {
     this.searchQuery.set('');
   }
 
+  onPageChange(event: { pageIndex: number; pageSize: number }): void {
+    this.pageIndex.set(event.pageIndex);
+    this.pageSize.set(event.pageSize);
+  }
+
   async executeDelete(): Promise<void> {
     const company = this.companyToDelete();
     if (!company || this.isDeleting()) return;
@@ -85,7 +99,7 @@ export class CompanyList implements OnInit {
       next: () => {
         this.isDeleting.set(false);
         this.showDeleteModal.set(false);
-        this.companyService.getCompanies();
+        this.companiesResource.reload();
       },
       error: () => {
         this.isDeleting.set(false);

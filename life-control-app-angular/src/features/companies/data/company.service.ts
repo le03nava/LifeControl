@@ -1,7 +1,7 @@
-import { inject, Injectable, signal, computed } from '@angular/core';
-import { Company } from '../models/company.models';
+import { inject, Injectable, signal } from '@angular/core';
+import { Company, Page } from '../models/company.models';
 import { Observable } from 'rxjs';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { ConfigService } from '@app/services/config.service';
 
 @Injectable({
@@ -11,9 +11,6 @@ export class CompanyService {
   private configService = inject(ConfigService);
   private http = inject(HttpClient);
 
-  // Signal para almacenar las compañías
-  private _companies = signal<Company[]>([]);
-  
   // Signal para estado de carga
   private _loading = signal(false);
   
@@ -21,33 +18,23 @@ export class CompanyService {
   private _error = signal<string | null>(null);
   
   // Signals de solo lectura para usar en componentes
-  readonly companies = this._companies.asReadonly();
   readonly loading = this._loading.asReadonly();
   readonly error = this._error.asReadonly();
-  
-  // Computed para saber si hay datos
-  readonly hasCompanies = computed(() => this._companies().length > 0);
 
   get apiUrl(): string {
     return `${this.configService.apiUrl}/companies`;
   }
 
-  getCompanies(): void {
-    this._loading.set(true);
-    this._error.set(null);
-    
-    this.http.get<Company[]>(this.apiUrl).subscribe({
-      next: (data) => {
-        this._companies.set(data);
-        this._loading.set(false);
-      },
-      error: (err) => {
-        console.error('[CompanyService] Error loading companies:', err);
-        this._error.set('Error al cargar las empresas');
-        this._companies.set([]);
-        this._loading.set(false);
-      }
-    });
+  getCompanies(page: number = 0, size: number = 12, search?: string): Observable<Page<Company>> {
+    let params = new HttpParams()
+      .set('page', page.toString())
+      .set('size', size.toString());
+
+    if (search) {
+      params = params.set('search', search);
+    }
+
+    return this.http.get<Page<Company>>(this.apiUrl, { params });
   }
 
   getCompanyById(id: string): Observable<Company> {
