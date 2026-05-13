@@ -3,27 +3,6 @@
   margin: 0 auto;
 }
 
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: var(--space-2xl);
-  gap: var(--space-lg);
-}
-
-.page-title {
-  margin: 0 0 var(--space-sm);
-  font-size: 2.5rem;
-  font-weight: 700;
-  color: var(--color-gray-900);
-}
-
-.page-subtitle {
-  margin: 0;
-  font-size: 1.125rem;
-  color: var(--color-gray-600);
-}
-
 .filters-section {
   display: flex;
   gap: var(--space-lg);
@@ -100,11 +79,6 @@
 }
 
 @media (max-width: 768px) {
-  .page-header {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
   .filters-section {
     flex-direction: column;
   }

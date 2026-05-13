@@ -1,15 +1,9 @@
 <div class="company-list-page">
-  <header class="page-header">
-    <div class="header-content">
-      <h1 class="page-title">Empresas</h1>
-      <p class="page-subtitle">Gestión de empresas del sistema</p>
-    </div>
-    <div class="header-actions">
-      <button app-button variant="primary" routerLink="/companies/create">
-        <mat-icon fontIcon="add" /> Agregar Empresa
-      </button>
-    </div>
-  </header>
+  <app-page-header title="Empresas" subtitle="Gestión de empresas del sistema">
+    <button app-button variant="primary" routerLink="/companies/create">
+      <mat-icon fontIcon="add" /> Agregar Empresa
+    </button>
+  </app-page-header>
 
   <!-- Search Filter -->
   <div class="filters-section">
@@ -36,6 +30,14 @@
       </div>
     </div>
   </div>
+
+  <!-- Error State -->
+  @if (error(); as err) {
+    <div class="error-state">
+      <mat-icon fontIcon="error" />
+      <p>{{ err }}</p>
+    </div>
+  }
 
   <!-- Companies Grid -->
   <div class="companies-grid">

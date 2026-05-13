@@ -1,22 +1,22 @@
-import { Component, effect, inject, signal } from '@angular/core';
+import { Component, DestroyRef, effect, inject, signal } from '@angular/core';
+import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
-import { Button, Modal } from '@shared/ui';
+import { Button, Modal, PageHeader } from '@shared/ui';
 import { CompanyService } from '@features/companies/data/company.service';
 import { CompaniesCard } from '@features/companies/components';
 import { MatIconModule } from '@angular/material/icon';
 import { MatPaginatorModule } from '@angular/material/paginator';
-import { rxResource } from '@angular/core/rxjs-interop';
-import { Company, Page } from '@features/companies/models/company.models';
 
 @Component({
   selector: 'app-company-list',
-  imports: [RouterLink, Button, Modal, CompaniesCard, MatIconModule, MatPaginatorModule],
+  imports: [RouterLink, Button, Modal, PageHeader, CompaniesCard, MatIconModule, MatPaginatorModule],
   templateUrl: './company-list.html',
-  styleUrls: ['./company-list.scss'],
+  styleUrl: './company-list.scss',
 })
 export class CompanyList {
   companyService = inject(CompanyService);
   private router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
 
   showDeleteModal = signal(false);
   companyToDelete = signal<{ id: string; name: string } | null>(null);
@@ -95,7 +95,9 @@ export class CompanyList {
     if (!company || this.isDeleting()) return;
 
     this.isDeleting.set(true);
-    this.companyService.deleteCompany(company.id).subscribe({
+    this.companyService.deleteCompany(company.id).pipe(
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe({
       next: () => {
         this.isDeleting.set(false);
         this.showDeleteModal.set(false);

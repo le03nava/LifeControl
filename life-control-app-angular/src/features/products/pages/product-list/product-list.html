@@ -1,13 +1,9 @@
 <div class="user-list-page">
-  <header class="page-header">
-    <div class="header-content">
-      <h1 class="page-title">Products Management</h1>
-      <p class="page-subtitle">Manage system users and their permissions</p>
-    </div>
-    <div class="header-actions">
-      <button app-button variant="primary" routerLink="/products/create">➕ Add Product</button>
-    </div>
-  </header>
+  <app-page-header title="Products Management" subtitle="Manage system users and their permissions">
+    <button app-button variant="primary" routerLink="/products/create">
+      <mat-icon fontIcon="add" /> Add Product
+    </button>
+  </app-page-header>
 
   <div class="filters-section">
     <div class="role-filter"></div>

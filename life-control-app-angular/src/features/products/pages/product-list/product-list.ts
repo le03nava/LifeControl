@@ -1,16 +1,17 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
-import { Button, Modal } from '@shared/ui';
+import { Button, Modal, PageHeader } from '@shared/ui';
 import { ProductService } from '@features/products/data/product.service';
 import { ProductsCard } from '@features/products/components';
+import { MatIconModule } from '@angular/material/icon';
 
 @Component({
   selector: 'app-product-list',
-  imports: [RouterLink, Button, Modal, ProductsCard],
+  imports: [RouterLink, Button, Modal, PageHeader, ProductsCard, MatIconModule],
   templateUrl: './product-list.html',
-  styleUrls: ['./product-list.scss'],
+  styleUrl: './product-list.scss',
 })
-export class ProductList implements OnInit {
+export class ProductList {
   productService = inject(ProductService);
   private router = inject(Router);
 
@@ -18,10 +19,9 @@ export class ProductList implements OnInit {
   productToDelete = signal<{ id: string; name: string } | null>(null);
   isDeleting = signal(false);
 
-  // Usar el signal directo del servicio
   products = this.productService.products;
 
-  ngOnInit(): void {
+  constructor() {
     this.productService.getProducts();
   }
 

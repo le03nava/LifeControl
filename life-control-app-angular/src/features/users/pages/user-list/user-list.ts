@@ -1,16 +1,17 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
-import { Button, Modal } from '@shared/ui';
+import { Button, Modal, PageHeader } from '@shared/ui';
 import { UserService } from '@features/users/data/user.service';
 import { UsersCard } from '@features/users/components';
+import { MatIconModule } from '@angular/material/icon';
 
 @Component({
   selector: 'app-user-list',
-  imports: [RouterLink, Button, Modal, UsersCard],
+  imports: [RouterLink, Button, Modal, PageHeader, UsersCard, MatIconModule],
   templateUrl: './user-list.html',
-  styleUrls: ['./user-list.scss'],
+  styleUrl: './user-list.scss',
 })
-export class UserList implements OnInit {
+export class UserList {
   userService = inject(UserService);
   private router = inject(Router);
 
@@ -20,7 +21,7 @@ export class UserList implements OnInit {
 
   users = this.userService.users;
 
-  ngOnInit(): void {
+  constructor() {
     this.userService.getUsers();
   }
 

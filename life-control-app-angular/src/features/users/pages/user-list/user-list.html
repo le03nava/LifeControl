@@ -1,13 +1,9 @@
 <div class="user-list-page">
-  <header class="page-header">
-    <div class="header-content">
-      <h1 class="page-title">Gestión de Usuarios</h1>
-      <p class="page-subtitle">Administra los usuarios del sistema</p>
-    </div>
-    <div class="header-actions">
-      <button app-button variant="primary" routerLink="/users/create">➕ Agregar Usuario</button>
-    </div>
-  </header>
+  <app-page-header title="Gestión de Usuarios" subtitle="Administra los usuarios del sistema">
+    <button app-button variant="primary" routerLink="/users/create">
+      <mat-icon fontIcon="add" /> Agregar Usuario
+    </button>
+  </app-page-header>
 
   <div class="filters-section">
     <div class="role-filter"></div>
