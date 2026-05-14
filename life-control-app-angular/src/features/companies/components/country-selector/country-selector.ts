@@ -5,14 +5,12 @@ import {
   output,
   signal,
 } from '@angular/core';
-import { ReactiveFormsModule } from '@angular/forms';
 import { Country, CompanyCountry, CompanyCountryRequest } from '../../models/company.models';
-import { Field } from '@shared/ui';
 
 @Component({
   selector: 'app-country-selector',
   standalone: true,
-  imports: [ReactiveFormsModule, Field],
+  imports: [],
   templateUrl: './country-selector.html',
   styleUrl: './country-selector.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
