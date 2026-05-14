@@ -2,7 +2,9 @@ import { ChangeDetectionStrategy, Component, inject, signal, OnInit } from '@ang
 import { ActivatedRoute, Router } from '@angular/router';
 import { CompanyService } from '@features/companies/data/company.service';
 import { CompanyContextService } from '@shared/data/company-context.service';
-import { Company, CompanyControl } from '@features/companies/models/company.models';
+import { Company, CompanyControl, CompanyCountryRequest } from '@features/companies/models/company.models';
+import { CountryService } from '@features/countries/data';
+import { CompanyCountryService } from '@features/companies/data/company-country.service';
 import {
   NonNullableFormBuilder,
   FormGroup,
@@ -12,6 +14,7 @@ import {
   ValidationErrors,
 } from '@angular/forms';
 import { CompaniesForm } from '@features/companies/components/companies-form/companies-form';
+import { CountrySelector } from '@features/companies/components';
 
 // Custom validator for Mexican phone format (+52XXXXXXXXXX or 10 digits)
 function phoneValidator(control: AbstractControl): ValidationErrors | null {
@@ -31,7 +34,7 @@ function phoneValidator(control: AbstractControl): ValidationErrors | null {
 
 @Component({
   selector: 'app-company-edit',
-  imports: [ReactiveFormsModule, CompaniesForm],
+  imports: [ReactiveFormsModule, CompaniesForm, CountrySelector],
   templateUrl: './company-edit.html',
   styleUrl: './company-edit.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -42,6 +45,8 @@ export class CompanyEdit implements OnInit {
   private companyContextService = inject(CompanyContextService);
   private fb = inject(NonNullableFormBuilder);
   private router = inject(Router);
+  countryService = inject(CountryService);
+  companyCountryService = inject(CompanyCountryService);
 
   companyId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
   defaultCompanyId = signal<number | null>(null);
@@ -62,6 +67,7 @@ export class CompanyEdit implements OnInit {
         this.companyForm().controls.companyId.setValue(current.companyId);
       }
     }
+    this.loadCountries();
   }
 
   private loadCompany(id: string): void {
@@ -88,6 +94,14 @@ export class CompanyEdit implements OnInit {
     });
   }
 
+  private loadCountries(): void {
+    this.countryService.getCountries().subscribe();
+    const id = this.companyId();
+    if (id) {
+      this.companyCountryService.getCountries(id).subscribe();
+    }
+  }
+
   private createForm(): FormGroup<CompanyControl> {
     return this.fb.group({
       id: this.fb.control(''),
@@ -107,8 +121,8 @@ export class CompanyEdit implements OnInit {
     if (companyData.id === '') {
       const { id, ...createData } = companyData;
       this.companyService.createCompany(createData as Company).subscribe({
-        next: () => {
-          this.router.navigate(['/companies']);
+        next: (createdCompany) => {
+          this.router.navigate(['/companies/edit', createdCompany.id]);
         },
       });
     } else {
@@ -122,5 +136,17 @@ export class CompanyEdit implements OnInit {
 
   cancelForm(): void {
     this.router.navigate(['/companies']);
+  }
+
+  onAddCountry(request: CompanyCountryRequest): void {
+    const companyId = this.companyId();
+    if (!companyId) return;
+    this.companyCountryService.addCountry(companyId, request).subscribe();
+  }
+
+  onRemoveCountry(companyCountryId: string): void {
+    const companyId = this.companyId();
+    if (!companyId) return;
+    this.companyCountryService.removeCountry(companyId, companyCountryId).subscribe();
   }
 }

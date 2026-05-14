@@ -4,3 +4,16 @@
   (saveCompany)="onSaveCompany($event)"
   (cancelForm)="cancelForm()"
 />
+
+@if (isEditMode()) {
+  <section class="countries-section">
+    <app-country-selector
+      [countries]="countryService.countries()"
+      [assignedCountries]="companyCountryService.assignedCountries()"
+      [loading]="companyCountryService.loading()"
+      [errorMessage]="companyCountryService.error()"
+      (addCountry)="onAddCountry($event)"
+      (removeCountry)="onRemoveCountry($event)"
+    />
+  </section>
+}

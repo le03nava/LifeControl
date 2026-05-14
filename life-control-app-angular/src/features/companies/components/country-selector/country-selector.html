@@ -1,0 +1,79 @@
+<div class="country-selector">
+  <h3>Países asignados</h3>
+
+  @if (errorMessage()) {
+    <div class="error-message">{{ errorMessage() }}</div>
+  }
+
+  @if (loading()) {
+    <p class="loading-text">Cargando países...</p>
+  }
+
+  @if (assignedCountries().length > 0) {
+    <div class="country-chips">
+      @for (cc of assignedCountries(); track cc.id) {
+        <div class="country-chip">
+          <span class="chip-text">
+            {{ cc.countryName }} ({{ cc.countryCode }})
+            @if (cc.localAlias) {
+              <span class="chip-alias">— {{ cc.localAlias }}</span>
+            }
+          </span>
+          <button
+            type="button"
+            class="chip-remove"
+            (click)="onRemove(cc.id)"
+            [disabled]="loading()"
+            attr.aria-label="Eliminar {{ cc.countryName }}"
+          >×</button>
+        </div>
+      }
+    </div>
+  } @else {
+    @if (!loading()) {
+      <p class="no-countries">No hay países asignados a esta empresa.</p>
+    }
+  }
+
+  <div class="country-add">
+    <div class="country-add-fields">
+      <div class="field-group">
+        <label for="country-select">País</label>
+        <select
+          id="country-select"
+          [value]="selectedCountryCode()"
+          (change)="selectedCountryCode.set($any($event.target).value)"
+          [disabled]="loading()"
+          class="country-select"
+        >
+          <option value="">— Seleccionar país —</option>
+          @for (country of countries(); track country.id) {
+            <option [value]="country.countryCode">{{ country.countryName }} ({{ country.countryCode }})</option>
+          }
+        </select>
+      </div>
+
+      <div class="field-group">
+        <label for="local-alias">Alias local (opcional)</label>
+        <input
+          id="local-alias"
+          type="text"
+          [value]="localAlias()"
+          (input)="localAlias.set($any($event.target).value)"
+          placeholder="Ej: Sucursal Bogotá"
+          class="local-alias-input"
+          maxlength="200"
+        />
+      </div>
+
+      <button
+        type="button"
+        class="btn-add-country"
+        (click)="onAdd()"
+        [disabled]="!selectedCountryCode() || loading()"
+      >
+        Agregar país
+      </button>
+    </div>
+  </div>
+</div>
