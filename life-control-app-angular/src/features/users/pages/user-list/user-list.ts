@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, DestroyRef, effect, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { Button, Modal, PageHeader } from '@shared/ui';
 import { UserService } from '@features/users/data/user.service';
@@ -14,15 +14,44 @@ import { MatIconModule } from '@angular/material/icon';
 export class UserList {
   userService = inject(UserService);
   private router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
 
   showDeleteModal = signal(false);
   userToDelete = signal<{ id: string; name: string } | null>(null);
   isDeleting = signal(false);
 
+  // Search
+  readonly searchQuery = signal('');
+  private readonly _debouncedSearch = signal('');
+
+  // Responsive: mobile detection via matchMedia
+  readonly isMobile = signal(false);
+
+  // Users desde el servicio
   users = this.userService.users;
 
   constructor() {
-    this.userService.getUsers();
+    // Debounce search con 300ms
+    effect((onCleanup) => {
+      const query = this.searchQuery();
+      const timer = setTimeout(() => {
+        this._debouncedSearch.set(query);
+      }, 300);
+      onCleanup(() => clearTimeout(timer));
+    });
+
+    // Efecto para recargar cuando cambia la búsqueda debounced
+    effect(() => {
+      this._debouncedSearch();
+      this.userService.getUsers();
+    });
+
+    // MatchMedia for responsive detection
+    if (typeof window !== 'undefined') {
+      const mql = window.matchMedia('(max-width: 575.98px)');
+      this.isMobile.set(mql.matches);
+      mql.addEventListener('change', (e) => this.isMobile.set(e.matches));
+    }
   }
 
   editUser(id: string): void {
@@ -37,6 +66,10 @@ export class UserList {
   cancelDelete(): void {
     this.showDeleteModal.set(false);
     this.userToDelete.set(null);
+  }
+
+  clearSearch(): void {
+    this.searchQuery.set('');
   }
 
   async executeDelete(): Promise<void> {

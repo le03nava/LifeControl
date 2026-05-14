@@ -55,22 +55,26 @@ describe('ProductList', () => {
   });
 
   it('should have default page values', () => {
-    expect(component.currentPage()).toBe(0);
+    expect(component.pageIndex()).toBe(0);
     expect(component.pageSize()).toBe(12);
     expect(component.searchQuery()).toBe('');
-    expect(component.debouncedSearch()).toBe('');
   });
 
-  it('should update currentPage and pageSize on page change', () => {
+  it('should update pageIndex and pageSize on page change', () => {
     component.onPageChange({ pageIndex: 2, pageSize: 24, length: 50 } as any);
-    expect(component.currentPage()).toBe(2);
+    expect(component.pageIndex()).toBe(2);
     expect(component.pageSize()).toBe(24);
   });
 
-  it('should update search query and reset page on search change', () => {
-    component.onSearchChange('test');
+  it('should update search query on input', () => {
+    component.searchQuery.set('test');
     expect(component.searchQuery()).toBe('test');
-    expect(component.currentPage()).toBe(0);
+  });
+
+  it('should clear search query on clearSearch', () => {
+    component.searchQuery.set('test');
+    component.clearSearch();
+    expect(component.searchQuery()).toBe('');
   });
 
   it('should set delete modal state on confirmDelete', () => {

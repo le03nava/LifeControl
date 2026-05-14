@@ -5,10 +5,33 @@
     </button>
   </app-page-header>
 
+  <!-- Search Filter -->
   <div class="filters-section">
-    <div class="role-filter"></div>
+    <div class="search-filter">
+      <div class="search-input-wrapper">
+        <mat-icon fontIcon="search" class="search-icon" />
+        <input
+          type="text"
+          [value]="searchQuery()"
+          (input)="searchQuery.set($any($event.target).value)"
+          placeholder="Buscar usuarios..."
+          class="search-input"
+        />
+        @if (searchQuery()) {
+          <button
+            type="button"
+            class="search-clear"
+            (click)="clearSearch()"
+            aria-label="Limpiar búsqueda"
+          >
+            <mat-icon fontIcon="close" />
+          </button>
+        }
+      </div>
+    </div>
   </div>
 
+  <!-- Users Grid -->
   <div class="users-grid">
     @defer (on viewport) {
       @for (user of users(); track user.id) {
@@ -19,15 +42,27 @@
         />
       } @empty {
         <div class="empty-state">
-          <div class="empty-icon">👥</div>
+          <div class="empty-icon">
+            <mat-icon fontIcon="people_outline" />
+          </div>
           <h3 class="empty-title">No se encontraron usuarios</h3>
         </div>
       }
     } @placeholder {
       <div class="loading-skeleton">
-        <div class="skeleton-card"></div>
-        <div class="skeleton-card"></div>
-        <div class="skeleton-card"></div>
+        @for (_ of [1, 2, 3, 4]; track $index) {
+          <div class="skeleton-card">
+            <div class="skeleton-header">
+              <div class="skeleton-title"></div>
+              <div class="skeleton-badge"></div>
+            </div>
+            <div class="skeleton-placeholder"></div>
+            <div class="skeleton-actions">
+              <div class="skeleton-btn"></div>
+              <div class="skeleton-btn"></div>
+            </div>
+          </div>
+        }
       </div>
     }
   </div>
