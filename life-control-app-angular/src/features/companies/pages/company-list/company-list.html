@@ -129,9 +129,9 @@
         [length]="page.totalElements"
         [pageSize]="pageSize()"
         [pageIndex]="pageIndex()"
-        [pageSizeOptions]="[6, 12, 24, 48]"
+        [pageSizeOptions]="pageSizeOptions()"
         (page)="onPageChange($event)"
-        [showFirstLastButtons]="true"
+        [showFirstLastButtons]="!isMobile()"
         aria-label="Paginación de empresas"
       >
       </mat-paginator>

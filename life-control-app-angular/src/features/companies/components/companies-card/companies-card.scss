@@ -156,3 +156,66 @@
     font-style: italic;
   }
 }
+
+/* Button label — hidden on mobile for icon-only compact mode */
+.btn-label {
+  display: inline;
+}
+
+/* Responsive: mobile (max-width: 575.98px) */
+@media (max-width: 575.98px) {
+  .card {
+    padding: var(--space-md);
+  }
+
+  .card-title {
+    font-size: 1rem;
+  }
+
+  .card-header {
+    margin-bottom: var(--space-sm);
+    padding-bottom: var(--space-sm);
+  }
+
+  .card-body {
+    gap: var(--space-xs);
+  }
+
+  .card-field {
+    font-size: 0.8125rem;
+  }
+
+  .field-label {
+    display: none;
+  }
+
+  .badge {
+    font-size: 0.6875rem;
+    padding: 0.125rem var(--space-sm);
+  }
+
+  .btn-label {
+    /* visually-hidden pattern */
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .action-btn {
+    min-width: unset;
+    padding: var(--space-xs);
+    justify-content: center;
+  }
+
+  .card-actions {
+    gap: var(--space-xs);
+    margin-top: var(--space-sm);
+    padding-top: var(--space-sm);
+  }
+}

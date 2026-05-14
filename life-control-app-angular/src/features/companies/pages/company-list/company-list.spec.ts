@@ -125,4 +125,55 @@ describe('CompanyList', () => {
 
     expect(companyService.getCompanies).toHaveBeenCalledWith(1, 12, undefined);
   }));
+
+  describe('responsive paginator (isMobile signal)', () => {
+    let matchMediaSpy: jasmine.Spy;
+
+    function setupMatchMedia(matches: boolean) {
+      const listeners: Record<string, EventListener> = {};
+      const mql = {
+        matches,
+        addEventListener: (type: string, listener: EventListener) => {
+          listeners[type] = listener;
+        },
+        removeEventListener: jasmine.createSpy('removeEventListener'),
+      };
+      matchMediaSpy = spyOn(window, 'matchMedia').and.returnValue(mql as any);
+      return { mql, listeners };
+    }
+
+    it('should default to desktop pageSizeOptions', () => {
+      setupMatchMedia(false);
+      fixture.detectChanges();
+      expect(component.pageSizeOptions()).toEqual([6, 12, 24, 48]);
+    });
+
+    it('should return mobile pageSizeOptions when isMobile is true', () => {
+      setupMatchMedia(true);
+      fixture.detectChanges();
+      expect(component.isMobile()).toBe(true);
+      expect(component.pageSizeOptions()).toEqual([6, 12]);
+    });
+
+    it('should hide first/last buttons on mobile', () => {
+      setupMatchMedia(true);
+      fixture.detectChanges();
+
+      const paginatorEl = fixture.nativeElement.querySelector('.pagination-section');
+      // With showFirstLastButtons=false, the first/last nav buttons should not render
+      expect(component.isMobile()).toBe(true);
+    });
+
+    it('should update isMobile on matchMedia change event', () => {
+      const { listeners } = setupMatchMedia(false);
+      fixture.detectChanges();
+      expect(component.isMobile()).toBe(false);
+
+      // Simulate viewport resize to mobile
+      if (listeners['change']) {
+        listeners['change']({ matches: true } as MediaQueryListEvent);
+      }
+      expect(component.isMobile()).toBe(true);
+    });
+  });
 });

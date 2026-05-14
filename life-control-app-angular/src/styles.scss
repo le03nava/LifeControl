@@ -67,6 +67,11 @@
   --space-xl: 2rem;
   --space-2xl: 3rem;
 
+  /* Breakpoints (aligned with _form-layout.scss) */
+  --bp-mobile: 575.98px;
+  --bp-tablet: 767.98px;
+  --bp-desktop: 1023.98px;
+
   /* Border radius */
   --radius-sm: 0.25rem;
   --radius-md: 0.375rem;

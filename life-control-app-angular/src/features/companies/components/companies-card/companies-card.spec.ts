@@ -106,4 +106,30 @@ describe('CompaniesCard', () => {
     
     expect(emitted).toBe(false);
   });
+
+  describe('responsive icon-only buttons', () => {
+    it('should render btn-label with button text', () => {
+      component.company.set(mockCompany);
+      fixture.detectChanges();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      const editBtn = compiled.querySelector('.action-btn')!;
+      const label = editBtn.querySelector('.btn-label');
+      
+      expect(label).toBeTruthy();
+      expect(label?.textContent).toContain('Editar');
+    });
+
+    it('should have aria-label on action buttons for accessibility', () => {
+      component.company.set(mockCompany);
+      fixture.detectChanges();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      const buttons = compiled.querySelectorAll('.action-btn');
+      
+      expect(buttons.length).toBe(2);
+      expect(buttons[0].getAttribute('aria-label')).toBe('Editar empresa');
+      expect(buttons[1].getAttribute('aria-label')).toBe('Eliminar empresa');
+    });
+  });
 });

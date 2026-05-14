@@ -136,12 +136,20 @@
   }
 }
 
-/* Grid patterns - same as user-list for consistency */
+/* Grid patterns - multi-breakpoint responsive grid */
 .companies-grid,
 .loading-skeleton {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: 1fr;
   gap: var(--space-lg);
+
+  @media (min-width: 576px) {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  @media (min-width: 1024px) {
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  }
 }
 
 /* Skeleton Loading - matching actual card layout */
@@ -348,21 +356,7 @@
 }
 
 /* Responsive */
-@media (max-width: 768px) {
-  .page-header {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .header-actions {
-    width: 100%;
-
-    button[app-button] {
-      width: 100%;
-      justify-content: center;
-    }
-  }
-
+@media (max-width: 575.98px) {
   .filters-section {
     flex-direction: column;
   }
@@ -371,13 +365,10 @@
     min-width: auto;
   }
 
-  .companies-grid,
-  .loading-skeleton {
-    grid-template-columns: 1fr;
-  }
-
   .empty-svg {
     width: 160px;
     height: 160px;
   }
 }
+
+/* Skeleton inherits grid from .companies-grid — no separate breakpoint needed */

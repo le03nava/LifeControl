@@ -45,8 +45,9 @@
         size="small"
         (buttonClick)="onEditCompany($event)"
         class="action-btn"
+        aria-label="Editar empresa"
       >
-        <mat-icon fontIcon="edit" /> Editar
+        <mat-icon fontIcon="edit" /> <span class="btn-label">Editar</span>
       </button>
       <button
         app-button
@@ -54,8 +55,9 @@
         size="small"
         (buttonClick)="onDeleteCompany($event)"
         class="action-btn"
+        aria-label="Eliminar empresa"
       >
-        <mat-icon fontIcon="delete" /> Eliminar
+        <mat-icon fontIcon="delete" /> <span class="btn-label">Eliminar</span>
       </button>
     </div>
   </div>

@@ -1,4 +1,4 @@
-import { Component, DestroyRef, effect, inject, signal } from '@angular/core';
+import { Component, DestroyRef, effect, inject, signal, computed } from '@angular/core';
 import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
 import { Button, Modal, PageHeader } from '@shared/ui';
@@ -25,6 +25,10 @@ export class CompanyList {
   // Paginación
   readonly pageSize = signal(12);
   readonly pageIndex = signal(0);
+
+  // Responsive: mobile detection via matchMedia
+  readonly isMobile = signal(false);
+  readonly pageSizeOptions = computed(() => this.isMobile() ? [6, 12] : [6, 12, 24, 48]);
 
   // Search: el input actualiza searchQuery en cada keystroke (para el template)
   readonly searchQuery = signal('');
@@ -65,6 +69,13 @@ export class CompanyList {
         this.pageIndex.set(0);
       }
     });
+
+    // MatchMedia for mobile paginator adaptation
+    if (typeof window !== 'undefined') {
+      const mql = window.matchMedia('(max-width: 575.98px)');
+      this.isMobile.set(mql.matches);
+      mql.addEventListener('change', (e) => this.isMobile.set(e.matches));
+    }
   }
 
   editCompany(id: string): void {
