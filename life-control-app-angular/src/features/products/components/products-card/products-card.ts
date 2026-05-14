@@ -1,10 +1,13 @@
 import { Component, input, output } from '@angular/core';
 import { Product } from '../../models/product.models';
+import { Button } from '@shared/ui';
+import { MatIconModule } from '@angular/material/icon';
+
 
 @Component({
   selector: 'app-products-card',
   standalone: true,
-  imports: [],
+  imports: [Button, MatIconModule],
   templateUrl: './products-card.html',
   styleUrl: './products-card.scss',
 })
@@ -12,7 +15,6 @@ export class ProductsCard {
   product = input<Product | undefined>();
   editProduct = output<string>();
   deleteProduct = output<{ id: string; name: string }>();
-  viewProduct = output<string>();
 
   onEditProduct(event?: MouseEvent): void {
     if (event) {
@@ -27,13 +29,6 @@ export class ProductsCard {
     event.stopPropagation();
     if (this.product()?.id && this.product()?.name) {
       this.deleteProduct.emit({ id: this.product()!.id, name: this.product()!.name });
-    }
-  }
-
-  onViewProduct(event: MouseEvent): void {
-    event.stopPropagation();
-    if (this.product()?.id) {
-      this.viewProduct.emit(this.product()!.id);
     }
   }
 }

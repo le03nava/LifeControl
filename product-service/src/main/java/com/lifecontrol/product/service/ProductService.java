@@ -8,10 +8,11 @@ import com.lifecontrol.product.model.Product;
 import com.lifecontrol.product.repository.ProductRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -35,12 +36,16 @@ public class ProductService {
     }
 
     @Transactional(readOnly = true)
-    public List<ProductResponse> getAllProducts() {
-        log.info("Fetching all products");
-        return productRepository.findAll()
-                .stream()
-                .map(this::getProductResponse)
-                .toList();
+    public Page<ProductResponse> getAllProducts(Pageable pageable, String search) {
+        log.info("Fetching products - page: {}, size: {}, search: '{}'",
+                pageable.getPageNumber(), pageable.getPageSize(), search);
+
+        if (search == null || search.isBlank()) {
+            return productRepository.findAll(pageable).map(this::getProductResponse);
+        }
+
+        return productRepository.findBySearchTerm(search.trim(), pageable)
+                .map(this::getProductResponse);
     }
 
     @Transactional(readOnly = true)

@@ -1,7 +1,7 @@
 import { inject, Injectable, signal } from '@angular/core';
-import { Product } from '../models/product.models';
+import { Product, Page } from '../models/product.models';
 import { Observable } from 'rxjs';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { ConfigService } from '@app/services/config.service';
 
 @Injectable({
@@ -23,6 +23,18 @@ export class ProductService {
 
   getFormattedProducts(): Product[] {
     return this._products();
+  }
+
+  getProductsPaged(page: number, size: number, search?: string): Observable<Page<Product>> {
+    let params = new HttpParams()
+      .set('page', page.toString())
+      .set('size', size.toString());
+
+    if (search) {
+      params = params.set('search', search);
+    }
+
+    return this.http.get<Page<Product>>(this.apiUrl, { params });
   }
 
   getProducts(): void {

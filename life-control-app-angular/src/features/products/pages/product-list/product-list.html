@@ -1,17 +1,38 @@
-<div class="user-list-page">
-  <app-page-header title="Products Management" subtitle="Manage system users and their permissions">
+<div class="product-list-page">
+  <app-page-header title="Products Management" subtitle="Manage system products and inventory">
     <button app-button variant="primary" routerLink="/products/create">
       <mat-icon fontIcon="add" /> Add Product
     </button>
   </app-page-header>
 
   <div class="filters-section">
-    <div class="role-filter"></div>
+    <div class="search-field">
+      <mat-icon class="search-icon" fontIcon="search" />
+      <input
+        type="text"
+        class="search-input"
+        placeholder="Search products..."
+        [ngModel]="searchQuery()"
+        (ngModelChange)="onSearchChange($event)"
+      />
+    </div>
   </div>
 
-  <div class="users-grid">
-    @defer (on viewport) {
-      @for (product of products(); track product.id) {
+  <div class="products-grid">
+    @if (productsResource.isLoading()) {
+      <div class="loading-skeleton">
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+      </div>
+    } @else if (productsResource.error()) {
+      <div class="error-state">
+        <mat-icon fontIcon="error_outline" />
+        <h3>Error loading products</h3>
+        <p>Please try again later.</p>
+      </div>
+    } @else {
+      @for (product of productsResource.value()?.content ?? []; track product.id) {
         <app-products-card
           [product]="product"
           (editProduct)="editProduct($event)"
@@ -19,17 +40,29 @@
         />
       } @empty {
         <div class="empty-state">
-          <div class="empty-icon">👥</div>
-          <h3 class="empty-title">No users found</h3>
+          <mat-icon class="empty-icon" fontIcon="inventory_2" />
+          <h3 class="empty-title">No products found</h3>
+          <p class="empty-description">
+            @if (debouncedSearch()) {
+              No products match your search. Try different keywords.
+            } @else {
+              Start by adding your first product.
+            }
+          </p>
         </div>
       }
-    } @placeholder {
-      <div class="loading-skeleton">
-        <div class="skeleton-card"></div>
-        <div class="skeleton-card"></div>
-        <div class="skeleton-card"></div>
-      </div>
     }
+  </div>
+
+  <div class="paginator-wrapper">
+    <mat-paginator
+      [length]="productsResource.value()?.totalElements ?? 0"
+      [pageSize]="pageSize()"
+      [pageSizeOptions]="pageSizeOptions()"
+      [pageIndex]="currentPage()"
+      [showFirstLastButtons]="!isMobile()"
+      (page)="onPageChange($event)"
+    />
   </div>
 
   <!-- Delete Confirmation Modal -->
@@ -40,8 +73,7 @@
     (modalClose)="cancelDelete()"
   >
     <p>
-      Are you sure you want to delete <strong>{{ productToDelete()?.name }}</strong
-      >?
+      Are you sure you want to delete <strong>{{ productToDelete()?.name }}</strong>?
     </p>
     <p class="warning-text">This action cannot be undone.</p>
 
@@ -51,7 +83,7 @@
         @if (isDeleting()) {
           Deleting...
         } @else {
-          Delete User
+          Delete Product
         }
       </button>
     </div>

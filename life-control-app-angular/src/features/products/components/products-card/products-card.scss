@@ -1,122 +1,121 @@
 .card {
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  padding: 16px;
-  margin-bottom: 16px;
-  background-color: #fff;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  background-color: white;
+  box-shadow: var(--shadow-sm);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
-  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
 
   &:hover {
     transform: translateY(-2px);
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+    box-shadow: var(--shadow-md);
   }
 }
 
 .card-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid #eee;
+  align-items: flex-start;
+  gap: var(--space-md);
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px solid var(--color-gray-200);
 }
 
 .card-title {
   margin: 0;
-  font-size: 1.25rem;
+  font-size: 1.125rem;
   font-weight: 600;
-  color: #333;
+  color: var(--color-gray-900);
+  line-height: 1.3;
 }
 
 .card-price {
-  font-size: 1.1rem;
+  font-size: 1rem;
   font-weight: 700;
-  color: #2ecc71;
-  background-color: #f0f9f4;
-  padding: 4px 8px;
-  border-radius: 4px;
+  color: var(--color-success);
+  background-color: var(--color-success-container);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
 }
 
 .card-body {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-sm);
+  flex: 1;
 }
 
 .card-description {
   margin: 0;
-  color: #666;
+  color: var(--color-gray-600);
+  font-size: 0.9rem;
   line-height: 1.5;
-}
-
-.card-id {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid #eee;
-}
-
-.card-id small {
-  color: #999;
-  font-size: 0.8rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .card-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-sm);
   justify-content: flex-end;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid #eee;
-}
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--color-gray-200);
 
-.view-btn, .edit-btn, .delete-btn {
-  border: none;
-  padding: 6px 12px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.85rem;
-  transition: all 0.2s ease;
-}
-
-.view-btn {
-  background-color: #17a2b8;
-  color: white;
-
-  &:hover {
-    background-color: #138496;
+  button {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
   }
 }
 
-.edit-btn {
-  background-color: #007bff;
-  color: white;
-
-  &:hover {
-    background-color: #0056b3;
+/* Icon-only actions on mobile */
+@media (max-width: 575.98px) {
+  .card {
+    padding: var(--space-md);
+    gap: var(--space-sm);
   }
-}
 
-.delete-btn {
-  background-color: #dc3545;
-  color: white;
+  .card-title {
+    font-size: 1rem;
+  }
 
-  &:hover {
-    background-color: #c82333;
+  .card-header {
+    margin-bottom: 0;
+  }
+
+  .card-actions {
+    gap: var(--space-xs);
+  }
+
+  .btn-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 }
 
 .card-empty {
-  background-color: #f8f9fa;
-  border-color: #e9ecef;
+  background-color: var(--color-gray-50);
+  border-color: var(--color-gray-200);
   text-align: center;
-  padding: 24px;
+  padding: var(--space-xl);
   cursor: default;
 
   p {
     margin: 0;
-    color: #6c757d;
+    color: var(--color-gray-500);
     font-style: italic;
   }
 }
