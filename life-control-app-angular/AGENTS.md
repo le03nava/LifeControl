@@ -4,8 +4,6 @@
 
 Aplicación Angular principal del proyecto LifeControl. Esta es la aplicación Angular más moderna del proyecto (v20.3.0), utilizando patrones de última generación como Signals, Zoneless y componentes standalone.
 
-> **Nota**: El directorio `frontend/` está deprecado. Usar `life-control-app-angular/` para todo desarrollo frontend.
-
 ---
 
 ## Tech Stack

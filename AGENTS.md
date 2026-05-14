@@ -3,7 +3,7 @@
 ## How to Use This Guide
 
 - Start here for project-wide norms.
-- Each component has specific guidelines in su `AGENTS.md` (ej: `frontend/AGENTS.md`, `order-service/AGENTS.md`).
+- Each component has specific guidelines in su `AGENTS.md` (ej: `order-service/AGENTS.md`, `product-service/AGENTS.md`).
 - Component docs override this file when guidance conflicts.
 
 ---
@@ -55,14 +55,13 @@ LifeControl es un sistema de gestión con arquitectura de microservicios.
 
 | Component | Location | Tech Stack |
 |-----------|----------|------------|
-| Frontend | `frontend/` | Angular 19, Standalone, Signals |
 | API Gateway | `api-gateway/` | Spring Boot |
 | Life Control API | `life-control-api/` | Spring Boot |
 | Order Service | `order-service/` | Spring Boot, Gradle |
 | Inventory Service | `inventory-service/` | Spring Boot, Gradle |
 | Product Service | `product-service/` | Spring Boot, Gradle |
 | Notification Service | `notification-service/` | Spring Boot |
-| Angular App | `life-control-app-angular/` | Angular legacy |
+| Angular App | `life-control-app-angular/` | Angular 20.3.0, SSR + Material |
 | Backstage | `backstage/` | Backstage framework |
 
 ---
@@ -135,7 +134,7 @@ Limpia recursos de Docker y archivos locales.
 
 ### Frontend (Angular)
 ```bash
-cd frontend
+cd life-control-app-angular
 npm install
 npm start
 npm run build
@@ -161,7 +160,6 @@ Follow conventional-commit style: `<type>[scope]: <description>`
 ## Component-Specific Guidelines
 
 Para cada componente, ver su propio `AGENTS.md`:
-- `frontend/AGENTS.md` - Angular patterns
 - `order-service/AGENTS.md` - Spring Boot service patterns
 - `inventory-service/AGENTS.md` - Spring Boot service patterns
 - `product-service/AGENTS.md` - Spring Boot service patterns

@@ -61,7 +61,6 @@ Plataforma de gestión integral basada en microservicios Spring Boot con fronten
 
 ```
 LifeControl/
-├── frontend/                          # Angular 18 (legacy)
 ├── life-control-app-angular/           # Angular 20 (nuevo - SSR + Material)
 │   ├── src/
 │   │   ├── app/
@@ -141,12 +140,6 @@ docker-compose up -d api-gateway product-service web-app
 cd life-control-app-angular
 npm install
 npm start
-
-# Angular 18 (legacy)
-cd frontend
-npm install
-npm start
-```
 
 ### Desarrollo Local (Backend)
 
