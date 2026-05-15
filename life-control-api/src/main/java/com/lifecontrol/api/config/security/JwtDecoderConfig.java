@@ -3,6 +3,7 @@ package com.lifecontrol.api.config.security;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -44,7 +45,12 @@ public class JwtDecoderConfig {
     public JwtAuthenticationConverter jwtAuthenticationConverter() {
         var converter = new JwtAuthenticationConverter();
         converter.setJwtGrantedAuthoritiesConverter(jwt -> {
-            var realmAccess = jwt.getClaimAsMap("realm_access");
+            Map<String, Object> realmAccess;
+            try {
+                realmAccess = jwt.getClaimAsMap("realm_access");
+            } catch (IllegalArgumentException e) {
+                return Collections.emptyList();
+            }
             if (realmAccess == null) {
                 return Collections.emptyList();
             }
