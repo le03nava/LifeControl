@@ -183,6 +183,32 @@ class RolesControllerTest {
 
             verify(service).addChildRole("parent-role", "child-role", RoleScope.REALM, null);
         }
+
+        @Test
+        @DisplayName("DELETE /api/users-admin/roles/realm/{name}/children/{childRole} returns 204")
+        void removeChildRole_returns204() throws Exception {
+            mockMvc.perform(delete("/api/users-admin/roles/realm/parent-role/children/child-role")
+                            .param("scope", "REALM"))
+                    .andExpect(status().isNoContent());
+
+            verify(service).removeChildRole("parent-role", "child-role", RoleScope.REALM, null);
+        }
+    }
+
+    // ─── Client Role Delete ──────────────────────────────────
+
+    @Nested
+    @DisplayName("Client Role delete endpoint")
+    class ClientRoleDeleteTests {
+
+        @Test
+        @DisplayName("DELETE /api/users-admin/roles/client/{clientId}/{roleName} returns 204")
+        void deleteClientRole_returns204() throws Exception {
+            mockMvc.perform(delete("/api/users-admin/roles/client/my-client/client-role"))
+                    .andExpect(status().isNoContent());
+
+            verify(service).deleteClientRole("my-client", "client-role");
+        }
     }
 
     // ─── Error Cases ────────────────────────────────────────
@@ -224,6 +250,52 @@ class RolesControllerTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(invalidRequest)))
                     .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        @DisplayName("DELETE realm role with user assignments returns 409")
+        void deleteRealmRole_withAssignments_returns409() throws Exception {
+            doThrow(new IdentityProviderConflictException("Cannot delete realm role: test-role (has user assignments)"))
+                    .when(service).deleteRealmRole("test-role");
+
+            mockMvc.perform(delete("/api/users-admin/roles/realm/test-role"))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.status").value(409));
+        }
+
+        @Test
+        @DisplayName("DELETE client role with assignments or composite returns 409")
+        void deleteClientRole_withAssignments_returns409() throws Exception {
+            doThrow(new IdentityProviderConflictException("Cannot delete client role: client-role (has assignments or is composite)"))
+                    .when(service).deleteClientRole("my-client", "client-role");
+
+            mockMvc.perform(delete("/api/users-admin/roles/client/my-client/client-role"))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.status").value(409));
+        }
+
+        @Test
+        @DisplayName("GET /api/users-admin/roles/client/{clientId} with unknown client returns 404")
+        void listClientRoles_unknownClient_returns404() throws Exception {
+            when(service.listClientRoles("unknown-client"))
+                    .thenThrow(new IdentityProviderNotFoundException("Client not found: unknown-client"));
+
+            mockMvc.perform(get("/api/users-admin/roles/client/unknown-client"))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.status").value(404));
+        }
+
+        @Test
+        @DisplayName("POST /api/users-admin/roles/client/{clientId} with unknown client returns 404")
+        void createClientRole_unknownClient_returns404() throws Exception {
+            when(service.createClientRole(eq("unknown-client"), any(RoleRequest.class)))
+                    .thenThrow(new IdentityProviderNotFoundException("Client not found: unknown-client"));
+
+            mockMvc.perform(post("/api/users-admin/roles/client/unknown-client")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(testRoleRequest)))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.status").value(404));
         }
     }
 }

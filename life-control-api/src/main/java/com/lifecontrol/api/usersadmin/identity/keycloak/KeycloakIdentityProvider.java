@@ -112,6 +112,13 @@ public class KeycloakIdentityProvider implements IdentityProvider {
             keycloak.realm(realm()).roles().deleteRole(name);
         } catch (NotFoundException e) {
             throw new IdentityProviderNotFoundException("Realm role not found: " + name, e);
+        } catch (ClientErrorException e) {
+            if (e.getResponse().getStatus() == 409) {
+                throw new IdentityProviderConflictException(
+                        "Cannot delete realm role: " + name + " (has user assignments)", e);
+            }
+            throw new IdentityProviderConnectionException(
+                    "Failed to delete realm role: " + name, e);
         } catch (ProcessingException e) {
             throw new IdentityProviderConnectionException(
                     "Failed to delete realm role: " + name, e);
@@ -157,6 +164,29 @@ public class KeycloakIdentityProvider implements IdentityProvider {
         } catch (ProcessingException e) {
             throw new IdentityProviderConnectionException(
                     "Failed to create client role: " + request.name(), e);
+        }
+    }
+
+    @Override
+    public void deleteClientRole(String clientId, String roleName) {
+        try {
+            var clientUuid = resolveClientUuid(clientId);
+            var roleResource = keycloak.realm(realm()).clients().get(clientUuid).roles().get(roleName);
+            roleResource.toRepresentation(); // verify exists
+            roleResource.remove();
+        } catch (NotFoundException e) {
+            throw new IdentityProviderNotFoundException(
+                    "Client role not found: " + roleName + " for client " + clientId, e);
+        } catch (ClientErrorException e) {
+            if (e.getResponse().getStatus() == 409) {
+                throw new IdentityProviderConflictException(
+                        "Cannot delete client role: " + roleName + " (has assignments or is composite)", e);
+            }
+            throw new IdentityProviderConnectionException(
+                    "Failed to delete client role: " + roleName, e);
+        } catch (ProcessingException e) {
+            throw new IdentityProviderConnectionException(
+                    "Failed to delete client role: " + roleName, e);
         }
     }
 

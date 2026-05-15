@@ -69,6 +69,11 @@ public class UsersAdminService {
         return identityProvider.createClientRole(clientId, request);
     }
 
+    @Transactional
+    public void deleteClientRole(String clientId, String roleName) {
+        identityProvider.deleteClientRole(clientId, roleName);
+    }
+
     // ---------------------------------------------------------------
     // Composite Roles
     // ---------------------------------------------------------------

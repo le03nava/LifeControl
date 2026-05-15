@@ -94,6 +94,15 @@ public class RolesController {
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
+    @DeleteMapping("/client/{clientId}/{roleName}")
+    @Operation(summary = "Delete client role", description = "Deletes a client-level role by client ID and role name")
+    public ResponseEntity<Void> deleteClientRole(
+            @Parameter(description = "Client ID") @PathVariable String clientId,
+            @Parameter(description = "Role name") @PathVariable String roleName) {
+        service.deleteClientRole(clientId, roleName);
+        return ResponseEntity.noContent().build();
+    }
+
     // ---------------------------------------------------------------
     // Composite Children
     // ---------------------------------------------------------------

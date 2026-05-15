@@ -30,6 +30,8 @@ public interface IdentityProvider {
 
     RoleDto createClientRole(String clientId, RoleRequest request);
 
+    void deleteClientRole(String clientId, String roleName);
+
     // --- Composite Roles ---
 
     void addChildRole(String parentRole, String childRole, RoleScope scope, String clientId);
