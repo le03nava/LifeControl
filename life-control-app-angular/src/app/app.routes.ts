@@ -33,6 +33,12 @@ export const routes: Routes = [
     loadChildren: () => import('@features/companies/companies.routes').then((m) => m.companyRoutes),
   },
   {
+    path: 'users-admin',
+    loadChildren: () => import('@features/users-admin/users-admin.routes').then((m) => m.usersAdminRoutes),
+    canActivate: [keycloakRoleGuard],
+    data: { role: 'admin' },
+  },
+  {
     path: '**',
     loadComponent: () => import('@shared/ui/not-found').then((m) => m.NotFound),
   },

@@ -1,0 +1,97 @@
+<div class="role-list-page">
+  <div class="page-header">
+    <h1>Role Management</h1>
+    <button mat-raised-button color="primary" (click)="onCreateRole()">
+      <mat-icon fontIcon="add" /> Create Role
+    </button>
+  </div>
+
+  <!-- Filters -->
+  <div class="filters-bar">
+    <mat-form-field appearance="outline" class="search-field">
+      <mat-label>Filter roles</mat-label>
+      <input matInput [ngModel]="filter()" (ngModelChange)="filter.set($event)" placeholder="Search by name or description" />
+      <mat-icon matSuffix fontIcon="search" />
+    </mat-form-field>
+
+    <div class="toggle-group">
+      <mat-slide-toggle
+        [checked]="showClientRoles()"
+        (change)="showClientRoles.set(!showClientRoles())"
+        (toggleChange)="onToggleClientRoles()"
+      >
+        Client Roles
+      </mat-slide-toggle>
+
+      @if (showClientRoles()) {
+        <mat-form-field appearance="outline" class="client-id-field">
+          <mat-label>Client ID</mat-label>
+          <input matInput [ngModel]="clientId()" (ngModelChange)="clientId.set($event)" />
+        </mat-form-field>
+      }
+    </div>
+  </div>
+
+  <!-- Table -->
+  <div class="table-container">
+    @if (loading()) {
+      <div class="loading-state">Loading roles...</div>
+    } @else {
+      <table mat-table [dataSource]="filteredRoles">
+        <ng-container matColumnDef="name">
+          <th mat-header-cell *matHeaderCellDef>Name</th>
+          <td mat-cell *matCellDef="let role">{{ role.name }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="description">
+          <th mat-header-cell *matHeaderCellDef>Description</th>
+          <td mat-cell *matCellDef="let role">{{ role.description || '-' }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="composite">
+          <th mat-header-cell *matHeaderCellDef>Composite</th>
+          <td mat-cell *matCellDef="let role">
+            @if (role.composite) {
+              <mat-icon class="check-icon" fontIcon="check_circle" />
+            } @else {
+              <mat-icon class="dash-icon" fontIcon="remove_circle_outline" />
+            }
+          </td>
+        </ng-container>
+
+        <ng-container matColumnDef="scope">
+          <th mat-header-cell *matHeaderCellDef>Scope</th>
+          <td mat-cell *matCellDef="let role">
+            <span class="scope-badge" [class.realm]="role.scope === 'realm'" [class.client]="role.scope === 'client'">
+              {{ role.scope }}
+            </span>
+          </td>
+        </ng-container>
+
+        <ng-container matColumnDef="actions">
+          <th mat-header-cell *matHeaderCellDef>Actions</th>
+          <td mat-cell *matCellDef="let role">
+            <button mat-icon-button color="primary" (click)="onEditRole(role)" matTooltip="Edit role">
+              <mat-icon fontIcon="edit" />
+            </button>
+            <button mat-icon-button color="warn" (click)="onDeleteRole(role)" matTooltip="Delete role">
+              <mat-icon fontIcon="delete" />
+            </button>
+          </td>
+        </ng-container>
+
+        <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+        <tr mat-row *matRowDef="let row; columns: displayedColumns"></tr>
+        <tr class="mat-row" *matNoDataRow>
+          <td class="mat-cell empty-state" [attr.colspan]="displayedColumns.length">
+            @if (showClientRoles() && !clientId()) {
+              Enter a client ID and toggle again to load client roles.
+            } @else {
+              No roles found.
+            }
+          </td>
+        </tr>
+      </table>
+    }
+  </div>
+</div>

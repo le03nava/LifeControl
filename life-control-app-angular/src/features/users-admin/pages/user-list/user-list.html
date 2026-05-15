@@ -1,0 +1,79 @@
+<div class="user-list-page">
+  <div class="page-header">
+    <h1>User Management</h1>
+  </div>
+
+  <!-- Search -->
+  <div class="search-bar">
+    <mat-form-field appearance="outline" class="search-field">
+      <mat-label>Search users</mat-label>
+      <input
+        matInput
+        [ngModel]="searchQuery()"
+        (ngModelChange)="searchQuery.set($event)"
+        placeholder="Search by username or email..."
+      />
+      @if (searchQuery()) {
+        <button
+          matSuffix
+          mat-icon-button
+          aria-label="Clear search"
+          (click)="clearSearch()"
+        >
+          <mat-icon fontIcon="close" />
+        </button>
+      } @else {
+        <mat-icon matSuffix fontIcon="search" />
+      }
+    </mat-form-field>
+  </div>
+
+  <!-- Table -->
+  <div class="table-container">
+    @if (loading()) {
+      <div class="loading-state">Searching users...</div>
+    } @else {
+      <table mat-table [dataSource]="users()">
+        <ng-container matColumnDef="username">
+          <th mat-header-cell *matHeaderCellDef>Username</th>
+          <td mat-cell *matCellDef="let user">{{ user.username }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="email">
+          <th mat-header-cell *matHeaderCellDef>Email</th>
+          <td mat-cell *matCellDef="let user">{{ user.email || '-' }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="enabled">
+          <th mat-header-cell *matHeaderCellDef>Status</th>
+          <td mat-cell *matCellDef="let user">
+            <span class="status-badge" [class.enabled]="user.enabled" [class.disabled]="!user.enabled">
+              {{ user.enabled ? 'Enabled' : 'Disabled' }}
+            </span>
+          </td>
+        </ng-container>
+
+        <ng-container matColumnDef="actions">
+          <th mat-header-cell *matHeaderCellDef>Actions</th>
+          <td mat-cell *matCellDef="let user">
+            <button mat-icon-button color="primary" (click)="onSelectUser(user.id)" matTooltip="View details">
+              <mat-icon fontIcon="open_in_new" />
+            </button>
+          </td>
+        </ng-container>
+
+        <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+        <tr mat-row *matRowDef="let row; columns: displayedColumns" (click)="onSelectUser(row.id)" class="clickable-row"></tr>
+        <tr class="mat-row" *matNoDataRow>
+          <td class="mat-cell empty-state" [attr.colspan]="displayedColumns.length">
+            @if (!searchQuery()) {
+              Enter a search term to find users.
+            } @else {
+              No users found matching "{{ searchQuery() }}".
+            }
+          </td>
+        </tr>
+      </table>
+    }
+  </div>
+</div>
