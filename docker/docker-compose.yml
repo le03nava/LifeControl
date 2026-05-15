@@ -562,6 +562,9 @@ services:
       - TRACING_SAMPLING_PROBABILITY=${TRACING_SAMPLING_PROBABILITY:-0.1}
       - HEALTH_CHECK_ENABLED=${HEALTH_CHECK_ENABLED:-true}
       - HEALTH_CHECK_PATH=/actuator/health
+      - KEYCLOAK_ADMIN_SERVER_URL=${KEYCLOAK_ADMIN_SERVER_URL:-http://lifecontrol-dev-keycloak:8080}
+      - KEYCLOAK_ADMIN_CLIENT_ID=${KEYCLOAK_ADMIN_CLIENT_ID:-life-control-admin-client}
+      - KEYCLOAK_ADMIN_CLIENT_SECRET=${KEYCLOAK_ADMIN_CLIENT_SECRET}
     networks:
       - default
     depends_on:

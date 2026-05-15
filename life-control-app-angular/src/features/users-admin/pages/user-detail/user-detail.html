@@ -1,0 +1,210 @@
+<div class="user-detail-page">
+  <div class="page-header">
+    <button mat-icon-button routerLink="../" matTooltip="Go back">
+      <mat-icon fontIcon="arrow_back" />
+    </button>
+    <h1>{{ username() }}</h1>
+  </div>
+
+  <mat-tab-group>
+    <!-- Roles Tab -->
+    <mat-tab label="Roles">
+      <div class="tab-content">
+        <h2>Assigned Roles</h2>
+
+        @if (loadingRoles()) {
+          <p class="loading-text">Loading roles...</p>
+        } @else {
+          <table mat-table [dataSource]="userRoles()">
+            <ng-container matColumnDef="name">
+              <th mat-header-cell *matHeaderCellDef>Name</th>
+              <td mat-cell *matCellDef="let role">{{ role.name }}</td>
+            </ng-container>
+
+            <ng-container matColumnDef="scope">
+              <th mat-header-cell *matHeaderCellDef>Scope</th>
+              <td mat-cell *matCellDef="let role">
+                <span class="scope-badge" [class.realm]="role.scope === 'realm'" [class.client]="role.scope === 'client'">
+                  {{ role.scope }}
+                </span>
+              </td>
+            </ng-container>
+
+            <ng-container matColumnDef="clientId">
+              <th mat-header-cell *matHeaderCellDef>Client</th>
+              <td mat-cell *matCellDef="let role">{{ role.clientId || '-' }}</td>
+            </ng-container>
+
+            <ng-container matColumnDef="actions">
+              <th mat-header-cell *matHeaderCellDef>Actions</th>
+              <td mat-cell *matCellDef="let role">
+                <button mat-icon-button color="warn" (click)="onRemoveRole(role)" matTooltip="Remove role">
+                  <mat-icon fontIcon="remove_circle" />
+                </button>
+              </td>
+            </ng-container>
+
+            <tr mat-header-row *matHeaderRowDef="roleDisplayedColumns"></tr>
+            <tr mat-row *matRowDef="let row; columns: roleDisplayedColumns"></tr>
+            <tr class="mat-row" *matNoDataRow>
+              <td class="mat-cell empty-state" [attr.colspan]="roleDisplayedColumns.length">
+                No roles assigned.
+              </td>
+            </tr>
+          </table>
+        }
+
+        <!-- Assign Role Form -->
+        <mat-card class="assign-card">
+          <mat-card-header>
+            <mat-card-title>Assign Role</mat-card-title>
+          </mat-card-header>
+          <mat-card-content>
+            <div class="assign-form">
+              <mat-form-field appearance="outline">
+                <mat-label>Scope</mat-label>
+                <mat-select
+                  [ngModel]="assignScope()"
+                  (ngModelChange)="assignScope.set($event)"
+                >
+                  <mat-option value="realm">Realm</mat-option>
+                  <mat-option value="client">Client</mat-option>
+                </mat-select>
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Role Name</mat-label>
+                <input
+                  matInput
+                  [ngModel]="assignRoleName()"
+                  (ngModelChange)="assignRoleName.set($event)"
+                  placeholder="e.g., admin"
+                />
+              </mat-form-field>
+
+              @if (assignScope() === 'client') {
+                <mat-form-field appearance="outline">
+                  <mat-label>Client ID</mat-label>
+                  <input
+                    matInput
+                    [ngModel]="assignClientId()"
+                    (ngModelChange)="assignClientId.set($event)"
+                    placeholder="e.g., life-control-client"
+                  />
+                </mat-form-field>
+              }
+
+              <button
+                mat-flat-button
+                color="primary"
+                (click)="onAssignRole()"
+                [disabled]="!assignRoleName().trim() || assigning()"
+              >
+                @if (assigning()) {
+                  Assigning...
+                } @else {
+                  <ng-container>
+                    <mat-icon fontIcon="add" />
+                  </ng-container>
+                  Assign
+                }
+              </button>
+            </div>
+          </mat-card-content>
+        </mat-card>
+      </div>
+    </mat-tab>
+
+    <!-- Attributes Tab -->
+    <mat-tab label="Attributes">
+      <div class="tab-content">
+        <h2>User Attributes</h2>
+
+        @if (loadingAttributes()) {
+          <p class="loading-text">Loading attributes...</p>
+        } @else {
+          <table mat-table [dataSource]="getAttributesAsList()">
+            <ng-container matColumnDef="key">
+              <th mat-header-cell *matHeaderCellDef>Key</th>
+              <td mat-cell *matCellDef="let attr">{{ attr.key }}</td>
+            </ng-container>
+
+            <ng-container matColumnDef="value">
+              <th mat-header-cell *matHeaderCellDef>Value(s)</th>
+              <td mat-cell *matCellDef="let attr">{{ valuesAsString(attr.values) }}</td>
+            </ng-container>
+
+            <ng-container matColumnDef="actions">
+              <th mat-header-cell *matHeaderCellDef>Actions</th>
+              <td mat-cell *matCellDef="let attr">
+                <button mat-icon-button color="primary" (click)="onEditAttribute(attr.key, attr.values)" matTooltip="Edit attribute">
+                  <mat-icon fontIcon="edit" />
+                </button>
+                <button mat-icon-button color="warn" (click)="onDeleteAttribute(attr.key)" matTooltip="Delete attribute">
+                  <mat-icon fontIcon="delete" />
+                </button>
+              </td>
+            </ng-container>
+
+            <tr mat-header-row *matHeaderRowDef="attrDisplayedColumns"></tr>
+            <tr mat-row *matRowDef="let row; columns: attrDisplayedColumns"></tr>
+            <tr class="mat-row" *matNoDataRow>
+              <td class="mat-cell empty-state" [attr.colspan]="attrDisplayedColumns.length">
+                No custom attributes.
+              </td>
+            </tr>
+          </table>
+        }
+
+        <!-- Attribute Form -->
+        <mat-card class="assign-card">
+          <mat-card-header>
+            <mat-card-title>{{ editingAttr() ? 'Edit Attribute' : 'Add Attribute' }}</mat-card-title>
+          </mat-card-header>
+          <mat-card-content>
+            <div class="assign-form">
+              <mat-form-field appearance="outline">
+                <mat-label>Key</mat-label>
+                <input
+                  matInput
+                  [ngModel]="attrKey()"
+                  (ngModelChange)="attrKey.set($event)"
+                  [readonly]="editingAttr()"
+                  placeholder="e.g., phone"
+                />
+              </mat-form-field>
+
+              <mat-form-field appearance="outline" hintLabel="Use commas for multiple values">
+                <mat-label>Value(s)</mat-label>
+                <input
+                  matInput
+                  [ngModel]="attrValue()"
+                  (ngModelChange)="attrValue.set($event)"
+                  placeholder="e.g., 555-1234, 555-5678"
+                />
+              </mat-form-field>
+
+              <div class="attr-actions">
+                <button mat-stroked-button (click)="cancelAttributeEdit()" [disabled]="savingAttr()">
+                  Cancel
+                </button>
+                <button
+                  mat-flat-button
+                  color="primary"
+                  (click)="onSaveAttribute()"
+                  [disabled]="!attrKey().trim() || !attrValue().trim() || savingAttr()"
+                >
+                  @if (savingAttr()) {
+                    Saving...
+                  } @else {
+                    {{ editingAttr() ? 'Update' : 'Add' }}
+                  }
+                </button>
+              </div>
+            </div>
+          </mat-card-content>
+        </mat-card>
+      </div>
+    </mat-tab>
+  </mat-tab-group>
+</div>

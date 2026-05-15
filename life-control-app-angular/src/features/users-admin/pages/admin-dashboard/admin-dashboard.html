@@ -1,0 +1,34 @@
+<div class="admin-dashboard">
+  <h1 class="dashboard-title">Users Administration</h1>
+  <p class="dashboard-subtitle">Manage roles, permissions, and user attributes</p>
+
+  <div class="dashboard-cards">
+    <mat-card class="dashboard-card" routerLink="roles">
+      <mat-card-content>
+        <div class="card-icon">
+          <mat-icon fontIcon="admin_panel_settings" />
+        </div>
+        <h2 class="card-title">Roles</h2>
+        <p class="card-description">
+          Create, edit, and manage realm and client roles. Configure composite roles
+          and assign child roles.
+        </p>
+        <span class="card-action">Manage Roles →</span>
+      </mat-card-content>
+    </mat-card>
+
+    <mat-card class="dashboard-card" routerLink="users">
+      <mat-card-content>
+        <div class="card-icon">
+          <mat-icon fontIcon="people" />
+        </div>
+        <h2 class="card-title">Users</h2>
+        <p class="card-description">
+          Search users, view their assigned roles, and manage custom attributes.
+          Assign or remove realm and client roles.
+        </p>
+        <span class="card-action">Manage Users →</span>
+      </mat-card-content>
+    </mat-card>
+  </div>
+</div>

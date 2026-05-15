@@ -1,0 +1,49 @@
+<div class="role-form-page">
+  <div class="page-header">
+    <button mat-icon-button routerLink="../" matTooltip="Go back">
+      <mat-icon fontIcon="arrow_back" />
+    </button>
+    <h1>{{ isEdit() ? 'Edit Role' : 'Create Role' }}</h1>
+  </div>
+
+  <form [formGroup]="form" (ngSubmit)="onSubmit()" class="role-form">
+    <!-- Disable name field when editing (name is the identifier) -->
+    <mat-form-field appearance="outline">
+      <mat-label>Name</mat-label>
+      <input matInput formControlName="name" [readonly]="isEdit()" placeholder="e.g., admin" />
+      @if (form.controls.name.hasError('required')) {
+        <mat-error>Name is required</mat-error>
+      }
+      @if (form.controls.name.hasError('minlength')) {
+        <mat-error>Name must be at least 2 characters</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Description</mat-label>
+      <textarea matInput formControlName="description" rows="3" placeholder="Role description..."></textarea>
+    </mat-form-field>
+
+    <mat-checkbox formControlName="composite" class="composite-checkbox">
+      Composite role (can contain child roles)
+    </mat-checkbox>
+
+    <div class="form-actions">
+      <button mat-stroked-button type="button" routerLink="../" [disabled]="saving()">
+        Cancel
+      </button>
+      <button
+        mat-flat-button
+        color="primary"
+        type="submit"
+        [disabled]="form.invalid || saving()"
+      >
+        @if (saving()) {
+          Saving...
+        } @else {
+          {{ isEdit() ? 'Update Role' : 'Create Role' }}
+        }
+      </button>
+    </div>
+  </form>
+</div>

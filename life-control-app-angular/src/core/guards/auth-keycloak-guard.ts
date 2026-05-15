@@ -3,13 +3,16 @@ import { CanActivateFn, Router } from '@angular/router';
 import Keycloak from 'keycloak-js';
 
 /**
- * Guard para proteger rutas basándose en roles de Keycloak
+ * Guard para proteger rutas basándose en roles de realm de Keycloak.
+ *
+ * Lee los roles directamente del claim `realm_access.roles` del token
+ * decodificado (NO usa hasResourceRole, que verifica client roles).
  *
  * Uso en rutas:
  * {
  *   path: 'admin',
  *   canActivate: [keycloakRoleGuard],
- *   data: { role: 'admin' }  // rol requerido
+ *   data: { role: 'admin' }  // un solo rol requerido
  * }
  *
  * También soporta múltiples roles (cualquiera de ellos):
@@ -20,7 +23,6 @@ import Keycloak from 'keycloak-js';
  * }
  */
 export const keycloakRoleGuard: CanActivateFn = async (route, state) => {
-  // Inyectamos la instancia base de Keycloak (de keycloak-js)
   const keycloak = inject(Keycloak);
   const router = inject(Router);
 
@@ -32,14 +34,19 @@ export const keycloakRoleGuard: CanActivateFn = async (route, state) => {
     return false;
   }
 
-  // Verificación de roles
-  const requiredRoles = route.data['roles'] as string[];
-  if (!requiredRoles || requiredRoles.length === 0) {
+  // Normalizar roles requeridos: soporta data['role'] (string) y data['roles'] (array)
+  const requiredRoles = normalizeRequiredRoles(route.data);
+
+  if (requiredRoles.length === 0) {
     return true;
   }
 
+  // Leer realm roles del token decodificado
+  const token = keycloak.tokenParsed;
+  const realmRoles: string[] = token?.realm_access?.roles ?? [];
+
   // Comprobar si el usuario tiene al menos uno de los roles requeridos
-  const hasRole = requiredRoles.some((role) => keycloak.hasResourceRole(role));
+  const hasRole = requiredRoles.some((role) => realmRoles.includes(role));
 
   if (!hasRole) {
     router.navigate(['/unauthorized']);
@@ -48,3 +55,20 @@ export const keycloakRoleGuard: CanActivateFn = async (route, state) => {
 
   return true;
 };
+
+/**
+ * Normaliza los roles requeridos desde route.data.
+ * Soporta tanto data['role'] (single string) como data['roles'] (array).
+ */
+function normalizeRequiredRoles(data: any): string[] {
+  const role = data['role'] as string | undefined;
+  const roles = data['roles'] as string[] | undefined;
+
+  if (roles && roles.length > 0) {
+    return roles;
+  }
+  if (role) {
+    return [role];
+  }
+  return [];
+}
