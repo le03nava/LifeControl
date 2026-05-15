@@ -1,10 +1,14 @@
 package com.lifecontrol.api.config.security;
 
 import java.time.Duration;
+import java.util.Collections;
+import java.util.List;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -12,7 +16,6 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtTimestampValidator;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
-import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 
 /**
  * Configuration for JWT decoding.
@@ -39,15 +42,21 @@ public class JwtDecoderConfig {
 
     @Bean
     public JwtAuthenticationConverter jwtAuthenticationConverter() {
-        var grantedAuthoritiesConverter = new JwtGrantedAuthoritiesConverter();
-        
-        // Keycloak puts roles in "realm_access.roles", not in "scope"
-        grantedAuthoritiesConverter.setAuthoritiesClaimName("realm_access");
-        // Map as "ROLE_admin", "ROLE_user"
-        grantedAuthoritiesConverter.setAuthorityPrefix("ROLE_");
-
         var converter = new JwtAuthenticationConverter();
-        converter.setJwtGrantedAuthoritiesConverter(grantedAuthoritiesConverter);
+        converter.setJwtGrantedAuthoritiesConverter(jwt -> {
+            var realmAccess = jwt.getClaimAsMap("realm_access");
+            if (realmAccess == null) {
+                return Collections.emptyList();
+            }
+            @SuppressWarnings("unchecked")
+            var roles = (List<String>) realmAccess.get("roles");
+            if (roles == null) {
+                return Collections.emptyList();
+            }
+            return roles.stream()
+                .map(role -> (GrantedAuthority) new SimpleGrantedAuthority("ROLE_" + role))
+                .toList();
+        });
         return converter;
     }
 }
