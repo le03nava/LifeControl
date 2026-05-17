@@ -558,3 +558,47 @@ docker run -p 8082:8082 life-control-api:latest
 | `SPRING_DATASOURCE_URL` | Database URL | jdbc:postgresql://localhost:5432/lifecontrol |
 | `SPRING_DATASOURCE_USERNAME` | DB username | postgres |
 | `SPRING_DATASOURCE_PASSWORD` | DB password | postgres |
+
+---
+
+## Keycloak Role Setup
+
+The `companies` endpoints and UI features are protected by the `life-control-admin` realm role.
+This role must be created manually in Keycloak before deployment.
+
+### Role Details
+
+| Property | Value |
+|----------|-------|
+| Realm | `life-control-realm` |
+| Role Name | `life-control-admin` |
+| Role Type | Realm Role |
+
+### Step-by-Step: Create the Role
+
+1. Log into the **Keycloak Admin Console** (default: `http://localhost:8181/admin`)
+2. Select the **`life-control-realm`** realm from the dropdown (top-left)
+3. Navigate to **Realm roles** in the left sidebar
+4. Click **Create role**
+5. Fill in the form:
+   - **Role name**: `life-control-admin`
+   - **Description**: Grants access to Company management features
+6. Click **Save**
+
+### Assign the Role to Users
+
+1. Navigate to **Users** in the left sidebar
+2. Click on the user you want to grant access to
+3. Go to the **Role mapping** tab
+4. Click **Assign role**
+5. Filter by **Realm roles** and select `life-control-admin`
+6. Click **Assign**
+
+### How It Works
+
+- The role is included in the JWT token under `realm_access.roles`
+- `JwtDecoderConfig` converts it to the Spring Security authority `ROLE_life-control-admin`
+- `@PreAuthorize("hasRole('life-control-admin')")` on `CompanyController` checks this authority
+- The Angular `keycloakRoleGuard` reads `realm_access.roles` from the decoded token to protect frontend routes
+
+> **Note**: This is a manual pre-deploy step. The role is **not** created automatically by any migration or init script.

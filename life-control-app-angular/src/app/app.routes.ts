@@ -28,6 +28,10 @@ export const routes: Routes = [
     data: { role: 'admin' },
   },
   {
+    path: 'unauthorized',
+    loadComponent: () => import('@shared/ui/unauthorized').then((m) => m.Unauthorized),
+  },
+  {
     path: '**',
     loadComponent: () => import('@shared/ui/not-found').then((m) => m.NotFound),
   },

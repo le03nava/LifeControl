@@ -27,9 +27,11 @@
         }
       </ul>
 
-      <div class="nav-company-selector">
-        <app-company-selector />
-      </div>
+      @if (isLifeControlAdmin()) {
+        <div class="nav-company-selector">
+          <app-company-selector />
+        </div>
+      }
 
       <div class="nav-actions">
         @if (authenticated) {
