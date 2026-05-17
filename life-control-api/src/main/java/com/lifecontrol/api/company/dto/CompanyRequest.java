@@ -1,6 +1,9 @@
 package com.lifecontrol.api.company.dto;
 
+import com.lifecontrol.api.validation.ValidRFC;
 import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -13,13 +16,15 @@ public record CompanyRequest(
     @Size(max = 200, message = "companyName no puede exceder 200 caracteres")
     String companyName,
 
+    @Min(value = 1, message = "tipoPersonaId debe ser al menos 1")
+    @Max(value = 5, message = "tipoPersonaId no puede exceder 5")
     Integer tipoPersonaId,
 
     @Size(max = 300, message = "razonSocial no puede exceder 300 caracteres")
     String razonSocial,
 
     @NotBlank(message = "RFC es requerido")
-    @Size(min = 10, max = 13, message = "RFC debe tener entre 10 y 13 caracteres")
+    @ValidRFC
     String rfc,
 
     @Size(max = 20, message = "phone no puede exceder 20 caracteres")

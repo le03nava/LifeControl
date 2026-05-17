@@ -8,6 +8,8 @@ import com.lifecontrol.api.country.model.Country;
 import com.lifecontrol.api.country.repository.CountryRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,6 +27,7 @@ public class CountryService {
         this.countryRepository = countryRepository;
     }
 
+    @Cacheable(value = "countries", key = "'all-' + #includeDisabled")
     @Transactional(readOnly = true)
     public List<CountryResponse> getAllCountries(boolean includeDisabled) {
         if (includeDisabled) {
@@ -37,6 +40,7 @@ public class CountryService {
                 .toList();
     }
 
+    @Cacheable(value = "countries", key = "#id")
     @Transactional(readOnly = true)
     public CountryResponse getCountryById(UUID id) {
         return countryRepository.findById(id)
@@ -44,6 +48,7 @@ public class CountryService {
                 .orElseThrow(() -> new CountryNotFoundException(id));
     }
 
+    @CacheEvict(value = "countries", allEntries = true)
     @Transactional
     public CountryResponse createCountry(CountryRequest request) {
         logger.info("Creating country with code: {}", request.countryCode());
@@ -65,6 +70,7 @@ public class CountryService {
         return toResponse(saved);
     }
 
+    @CacheEvict(value = "countries", allEntries = true)
     @Transactional
     public CountryResponse updateCountry(UUID id, CountryRequest request) {
         logger.info("Updating country with id: {}", id);
@@ -88,6 +94,7 @@ public class CountryService {
         return toResponse(updated);
     }
 
+    @CacheEvict(value = "countries", allEntries = true)
     @Transactional
     public void deleteCountry(UUID id) {
         logger.info("Soft-deleting country with id: {}", id);

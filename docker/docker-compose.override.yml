@@ -115,3 +115,10 @@ services:
   lifecontrol-postgres:
     ports:
       - "5435:5432"
+
+  # ============================================
+  # Development Redis Overrides
+  # ============================================
+  redis:
+    ports:
+      - "6379:6379"

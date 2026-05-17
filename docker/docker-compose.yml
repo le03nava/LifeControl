@@ -29,6 +29,8 @@ volumes:
     driver: local
   loki_data:
     driver: local
+  redis_data:
+    driver: local
 
 services:
   # ============================================
@@ -536,6 +538,31 @@ services:
     restart: unless-stopped
 
   # ============================================
+  # Redis - Cache for LifeControl API
+  # ============================================
+  redis:
+    image: ${REDIS_IMAGE:-redis:7.4-alpine}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "${REDIS_MAXMEMORY:-128mb}", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - ${REDIS_DATA_PATH:-./volumes-dev/redis/data}:/data
+    networks:
+      - default
+    deploy:
+      resources:
+        limits:
+          memory: ${REDIS_MEMORY_LIMIT:-256m}
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # ============================================
   # LifeControl API - User Management API
   # ============================================
   lifecontrol-api:
@@ -565,10 +592,14 @@ services:
       - KEYCLOAK_ADMIN_SERVER_URL=${KEYCLOAK_ADMIN_SERVER_URL:-http://lifecontrol-dev-keycloak:8080}
       - KEYCLOAK_ADMIN_CLIENT_ID=${KEYCLOAK_ADMIN_CLIENT_ID:-life-control-admin-client}
       - KEYCLOAK_ADMIN_CLIENT_SECRET=${KEYCLOAK_ADMIN_CLIENT_SECRET}
+      - REDIS_HOST=${REDIS_HOST:-redis}
+      - REDIS_PORT=${REDIS_INTERNAL_PORT:-6379}
     networks:
       - default
     depends_on:
       lifecontrol-postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     deploy:
       resources:
