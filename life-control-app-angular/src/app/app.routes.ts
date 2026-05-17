@@ -9,13 +9,6 @@ export const routes: Routes = [
     title: 'Home',
   },
   {
-    path: 'expressions',
-    loadComponent: () => import('@features/auth/login').then((m) => m.Login),
-
-    canActivate: [keycloakRoleGuard],
-    data: { role: 'view-books' },
-  },
-  {
     path: 'login',
     loadComponent: () => import('@features/auth/login').then((m) => m.Login),
   },
@@ -23,10 +16,6 @@ export const routes: Routes = [
   {
     path: 'products',
     loadChildren: () => import('@features/products/products.routes').then((m) => m.productRoutes),
-  },
-  {
-    path: 'users',
-    loadChildren: () => import('@features/users/users.routes').then((m) => m.userRoutes),
   },
   {
     path: 'companies',

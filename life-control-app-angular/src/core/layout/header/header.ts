@@ -44,12 +44,11 @@ export class Header implements OnInit {
     const menuItems = [
       { id: '1', routeLink: '/home', textLink: 'Home', icon: 'home' },
       { id: '2', routeLink: '/products', textLink: 'products', icon: 'inventory_2' },
-      { id: '3', routeLink: '/expressions', textLink: 'expressions', icon: 'fact_check' },
-      { id: '4', routeLink: '/companies', textLink: 'Companies', icon: 'business' },
+      { id: '3', routeLink: '/companies', textLink: 'Companies', icon: 'business' },
     ];
 
     if (this.isAdmin()) {
-      menuItems.push({ id: '5', routeLink: '/users-admin', textLink: 'Users Admin', icon: 'admin_panel_settings' });
+      menuItems.push({ id: '4', routeLink: '/users-admin', textLink: 'Users Admin', icon: 'admin_panel_settings' });
     }
 
     return menuItems;

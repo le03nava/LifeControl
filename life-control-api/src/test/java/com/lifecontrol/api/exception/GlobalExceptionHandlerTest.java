@@ -4,8 +4,6 @@ import com.lifecontrol.api.company.exception.CompanyCountryNotFoundException;
 import com.lifecontrol.api.company.exception.DuplicateCompanyCountryException;
 import com.lifecontrol.api.country.exception.CountryNotFoundException;
 import com.lifecontrol.api.country.exception.DuplicateCountryException;
-import com.lifecontrol.api.security.exception.ApiUserNotFoundException;
-import com.lifecontrol.api.security.exception.DuplicateResourceException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -33,54 +31,6 @@ class GlobalExceptionHandlerTest {
     @BeforeEach
     void setUp() {
         globalExceptionHandler = new GlobalExceptionHandler();
-    }
-
-    @Nested
-    @DisplayName("handleApiUserNotFound")
-    class HandleApiUserNotFoundTests {
-
-        @Test
-        @DisplayName("should return 404 with error message")
-        void handleApiUserNotFound_Returns404() {
-            // Arrange
-            String errorMessage = "User not found with id: 123";
-            ApiUserNotFoundException exception = new ApiUserNotFoundException(errorMessage);
-
-            // Act
-            ResponseEntity<GlobalExceptionHandler.ErrorResponse> response = 
-                    globalExceptionHandler.handleApiUserNotFound(exception);
-
-            // Assert
-            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
-            assertThat(response.getBody()).isNotNull();
-            assertThat(response.getBody().status()).isEqualTo(404);
-            assertThat(response.getBody().message()).isEqualTo(errorMessage);
-            assertThat(response.getBody().timestamp()).isNotNull();
-        }
-    }
-
-    @Nested
-    @DisplayName("handleDuplicateResource")
-    class HandleDuplicateResourceTests {
-
-        @Test
-        @DisplayName("should return 409 Conflict with error message")
-        void handleDuplicateResource_Returns409() {
-            // Arrange
-            String errorMessage = "Username already exists: testuser";
-            DuplicateResourceException exception = new DuplicateResourceException(errorMessage);
-
-            // Act
-            ResponseEntity<GlobalExceptionHandler.ErrorResponse> response = 
-                    globalExceptionHandler.handleDuplicateResource(exception);
-
-            // Assert
-            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
-            assertThat(response.getBody()).isNotNull();
-            assertThat(response.getBody().status()).isEqualTo(409);
-            assertThat(response.getBody().message()).isEqualTo(errorMessage);
-            assertThat(response.getBody().timestamp()).isNotNull();
-        }
     }
 
     @Nested

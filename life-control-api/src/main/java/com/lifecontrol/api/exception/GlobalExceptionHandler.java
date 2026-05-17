@@ -6,8 +6,6 @@ import com.lifecontrol.api.company.exception.DuplicateCompanyCountryException;
 import com.lifecontrol.api.company.exception.DuplicateCompanyException;
 import com.lifecontrol.api.country.exception.CountryNotFoundException;
 import com.lifecontrol.api.country.exception.DuplicateCountryException;
-import com.lifecontrol.api.security.exception.ApiUserNotFoundException;
-import com.lifecontrol.api.security.exception.DuplicateResourceException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderConflictException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderConnectionException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderNotFoundException;
@@ -27,26 +25,6 @@ import java.util.Map;
 public class GlobalExceptionHandler {
 
     private static final Logger logger = LoggerFactory.getLogger(GlobalExceptionHandler.class);
-
-    @ExceptionHandler(ApiUserNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleApiUserNotFound(ApiUserNotFoundException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.NOT_FOUND.value(),
-                ex.getMessage(),
-                LocalDateTime.now()
-        );
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
-    }
-
-    @ExceptionHandler(DuplicateResourceException.class)
-    public ResponseEntity<ErrorResponse> handleDuplicateResource(DuplicateResourceException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.CONFLICT.value(),
-                ex.getMessage(),
-                LocalDateTime.now()
-        );
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
-    }
 
     @ExceptionHandler(DuplicateCompanyException.class)
     public ResponseEntity<ErrorResponse> handleDuplicateCompany(DuplicateCompanyException ex) {
