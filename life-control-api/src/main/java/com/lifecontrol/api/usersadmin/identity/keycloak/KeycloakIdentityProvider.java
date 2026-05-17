@@ -13,6 +13,7 @@ import jakarta.ws.rs.ClientErrorException;
 import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.ProcessingException;
 import org.keycloak.admin.client.Keycloak;
+import org.keycloak.representations.idm.GroupRepresentation;
 import org.keycloak.representations.idm.RoleRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
 import org.springframework.stereotype.Component;
@@ -393,6 +394,44 @@ public class KeycloakIdentityProvider implements IdentityProvider {
         } catch (ProcessingException e) {
             throw new IdentityProviderConnectionException(
                     "Failed to search users with query: " + query, e);
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // Company Groups
+    // ---------------------------------------------------------------
+
+    @Override
+    public void createCompanyGroup(String groupName, String companyIdAttribute) {
+        try {
+            var groupRep = new GroupRepresentation();
+            groupRep.setName(groupName);
+            var attrs = new HashMap<String, List<String>>();
+            attrs.put("company_id", List.of(companyIdAttribute));
+            groupRep.setAttributes(attrs);
+            keycloak.realm(realm()).groups().add(groupRep).close();
+        } catch (ClientErrorException e) {
+            if (e.getResponse().getStatus() == 409) {
+                throw new IdentityProviderConflictException(
+                        "Company group already exists: " + groupName, e);
+            }
+            throw new IdentityProviderConnectionException(
+                    "Failed to create company group: " + groupName, e);
+        } catch (ProcessingException e) {
+            throw new IdentityProviderConnectionException(
+                    "Failed to create company group: " + groupName, e);
+        }
+    }
+
+    @Override
+    public boolean companyGroupExists(String groupName) {
+        try {
+            return keycloak.realm(realm()).groups().groups()
+                    .stream()
+                    .anyMatch(g -> groupName.equals(g.getName()));
+        } catch (ProcessingException e) {
+            throw new IdentityProviderConnectionException(
+                    "Failed to check if group exists: " + groupName, e);
         }
     }
 

@@ -2,12 +2,14 @@ package com.lifecontrol.api.company.service;
 
 import com.lifecontrol.api.company.dto.CompanyRequest;
 import com.lifecontrol.api.company.dto.CompanyResponse;
+import com.lifecontrol.api.company.event.CompanyCreatedEvent;
 import com.lifecontrol.api.company.exception.CompanyNotFoundException;
 import com.lifecontrol.api.company.exception.DuplicateCompanyException;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -22,9 +24,11 @@ public class CompanyService {
     private static final Logger logger = LoggerFactory.getLogger(CompanyService.class);
 
     private final CompanyRepository companyRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
-    public CompanyService(CompanyRepository companyRepository) {
+    public CompanyService(CompanyRepository companyRepository, ApplicationEventPublisher eventPublisher) {
         this.companyRepository = companyRepository;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional(readOnly = true)
@@ -71,6 +75,10 @@ public class CompanyService {
                 .build();
 
         Company saved = companyRepository.save(company);
+
+        eventPublisher.publishEvent(new CompanyCreatedEvent(this, saved.getId(), saved.getCompanyId(), saved.getCompanyName()));
+        logger.info("Company created and event published: id={}, companyId={}, name={}",
+                saved.getId(), saved.getCompanyId(), saved.getCompanyName());
 
         return toResponse(saved);
     }

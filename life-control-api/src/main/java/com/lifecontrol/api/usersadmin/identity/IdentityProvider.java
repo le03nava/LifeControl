@@ -59,4 +59,10 @@ public interface IdentityProvider {
     // --- User Search ---
 
     PageResponse<UserSearchDto> searchUsers(String query, int page, int size);
+
+    // --- Company Groups ---
+
+    void createCompanyGroup(String groupName, String companyIdAttribute);
+
+    boolean companyGroupExists(String groupName);
 }

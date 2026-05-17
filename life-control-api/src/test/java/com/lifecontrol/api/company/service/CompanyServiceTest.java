@@ -2,6 +2,7 @@ package com.lifecontrol.api.company.service;
 
 import com.lifecontrol.api.company.dto.CompanyRequest;
 import com.lifecontrol.api.company.dto.CompanyResponse;
+import com.lifecontrol.api.company.event.CompanyCreatedEvent;
 import com.lifecontrol.api.company.exception.CompanyNotFoundException;
 import com.lifecontrol.api.company.exception.DuplicateCompanyException;
 import com.lifecontrol.api.company.model.Company;
@@ -11,9 +12,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Captor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -38,6 +42,9 @@ class CompanyServiceTest {
 
     @Mock
     private CompanyRepository companyRepository;
+
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
     private CompanyService companyService;
@@ -352,6 +359,46 @@ class CompanyServiceTest {
                     .isInstanceOf(CompanyNotFoundException.class)
                     .hasMessageContaining("Company not found with id");
             verify(companyRepository, never()).save(any(Company.class));
+        }
+    }
+
+    @Nested
+    @DisplayName("createCompany")
+    class CreateCompanyTests {
+
+        @Test
+        @DisplayName("should publish CompanyCreatedEvent after saving company")
+        void shouldPublishEvent() {
+            // Arrange
+            when(companyRepository.existsByCompanyId(any())).thenReturn(false);
+            when(companyRepository.existsByRfc(any())).thenReturn(false);
+            when(companyRepository.save(any(Company.class))).thenReturn(testCompany);
+
+            // Act
+            companyService.createCompany(testCompanyRequest);
+
+            // Assert
+            verify(eventPublisher).publishEvent(any(CompanyCreatedEvent.class));
+        }
+
+        @Test
+        @DisplayName("should publish CompanyCreatedEvent with correct company data")
+        void shouldPublishEventWithCorrectData() {
+            // Arrange
+            when(companyRepository.existsByCompanyId(any())).thenReturn(false);
+            when(companyRepository.existsByRfc(any())).thenReturn(false);
+            when(companyRepository.save(any(Company.class))).thenReturn(testCompany);
+
+            // Act
+            companyService.createCompany(testCompanyRequest);
+
+            // Assert
+            var captor = ArgumentCaptor.forClass(CompanyCreatedEvent.class);
+            verify(eventPublisher).publishEvent(captor.capture());
+            var event = captor.getValue();
+            assertThat(event.getId()).isEqualTo(testCompanyId);
+            assertThat(event.getCompanyId()).isEqualTo(testCompany.getCompanyId());
+            assertThat(event.getCompanyName()).isEqualTo(testCompany.getCompanyName());
         }
     }
 }

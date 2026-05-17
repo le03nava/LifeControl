@@ -34,7 +34,9 @@ class IdentityProviderTest {
             "getUserAttributes",
             "updateUserAttribute",
             "deleteUserAttribute",
-            "searchUsers"
+            "searchUsers",
+            "createCompanyGroup",
+            "companyGroupExists"
     );
 
     @Nested
@@ -83,6 +85,20 @@ class IdentityProviderTest {
         void getUserAttributesSignature() throws Exception {
             var method = IdentityProvider.class.getMethod("getUserAttributes", String.class);
             assertThat(method.getReturnType()).isEqualTo(Map.class);
+        }
+
+        @Test
+        @DisplayName("createCompanyGroup should accept String groupName and String companyIdAttribute")
+        void createCompanyGroupSignature() throws Exception {
+            var method = IdentityProvider.class.getMethod("createCompanyGroup", String.class, String.class);
+            assertThat(method.getReturnType()).isEqualTo(void.class);
+        }
+
+        @Test
+        @DisplayName("companyGroupExists should accept String groupName and return boolean")
+        void companyGroupExistsSignature() throws Exception {
+            var method = IdentityProvider.class.getMethod("companyGroupExists", String.class);
+            assertThat(method.getReturnType()).isEqualTo(boolean.class);
         }
     }
 }
