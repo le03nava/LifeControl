@@ -11,8 +11,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
-import org.springframework.web.bind.annotation.ExceptionHandler;
-import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
 
@@ -44,7 +42,7 @@ class GlobalExceptionHandlerTest {
             Map<String, String> errors = new HashMap<>();
             errors.put("username", "Username is required");
             errors.put("email", "Email must be valid");
-            
+
             BindingResult bindingResult = org.mockito.Mockito.mock(BindingResult.class);
             org.mockito.Mockito.when(bindingResult.getFieldErrors()).thenReturn(
                     List.of(
@@ -52,12 +50,12 @@ class GlobalExceptionHandlerTest {
                             new FieldError("apiUserRequest", "email", "Email must be valid")
                     )
             );
-            
-            MethodArgumentNotValidException exception = 
+
+            MethodArgumentNotValidException exception =
                     new MethodArgumentNotValidException(null, bindingResult);
 
             // Act
-            ResponseEntity<GlobalExceptionHandler.ValidationErrorResponse> response = 
+            ResponseEntity<GlobalExceptionHandler.ValidationErrorResponse> response =
                     globalExceptionHandler.handleValidationErrors(exception);
 
             // Assert
@@ -76,21 +74,39 @@ class GlobalExceptionHandlerTest {
     class HandleGenericExceptionTests {
 
         @Test
-        @DisplayName("should return 500 with generic error message")
-        void handleGenericException_Returns500() {
+        @DisplayName("should return 500 with generic error message (sanitized)")
+        void handleGenericException_Returns500_Sanitized() {
             // Arrange
             Exception exception = new RuntimeException("Something went wrong");
 
             // Act
-            ResponseEntity<GlobalExceptionHandler.ErrorResponse> response = 
+            ResponseEntity<GlobalExceptionHandler.ErrorResponse> response =
                     globalExceptionHandler.handleGenericException(exception);
 
             // Assert
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
             assertThat(response.getBody()).isNotNull();
             assertThat(response.getBody().status()).isEqualTo(500);
-            assertThat(response.getBody().message()).isEqualTo("An unexpected error occurred: Something went wrong");
+            // Message should be generic — no internal details exposed
+            assertThat(response.getBody().message()).isEqualTo("An unexpected error occurred");
             assertThat(response.getBody().timestamp()).isNotNull();
+        }
+
+        @Test
+        @DisplayName("should not expose exception message or class name in response")
+        void handleGenericException_DoesNotExposeInternals() {
+            // Arrange
+            Exception exception = new RuntimeException("Internal: SQL error on table users");
+
+            // Act
+            ResponseEntity<GlobalExceptionHandler.ErrorResponse> response =
+                    globalExceptionHandler.handleGenericException(exception);
+
+            // Assert
+            assertThat(response.getBody()).isNotNull();
+            assertThat(response.getBody().message())
+                    .isEqualTo("An unexpected error occurred")
+                    .as("Generic handler must not expose internal exception details");
         }
     }
 
@@ -212,19 +228,37 @@ class GlobalExceptionHandlerTest {
     class ErrorResponseRecordsTests {
 
         @Test
-        @DisplayName("ErrorResponse should have correct structure")
+        @DisplayName("ErrorResponse should have correct structure with path and correlationId")
         void errorResponse_HasCorrectStructure() {
             // Arrange
             LocalDateTime timestamp = LocalDateTime.now();
 
             // Act
-            GlobalExceptionHandler.ErrorResponse errorResponse = 
-                    new GlobalExceptionHandler.ErrorResponse(404, "Not found", timestamp);
+            GlobalExceptionHandler.ErrorResponse errorResponse =
+                    new GlobalExceptionHandler.ErrorResponse(404, "Not found", "/api/test", timestamp, "trace-123");
 
             // Assert
             assertThat(errorResponse.status()).isEqualTo(404);
             assertThat(errorResponse.message()).isEqualTo("Not found");
+            assertThat(errorResponse.path()).isEqualTo("/api/test");
             assertThat(errorResponse.timestamp()).isEqualTo(timestamp);
+            assertThat(errorResponse.correlationId()).isEqualTo("trace-123");
+        }
+
+        @Test
+        @DisplayName("ErrorResponse should accept null path and correlationId")
+        void errorResponse_AcceptsNullPathAndCorrelationId() {
+            // Arrange
+            LocalDateTime timestamp = LocalDateTime.now();
+
+            // Act
+            GlobalExceptionHandler.ErrorResponse errorResponse =
+                    new GlobalExceptionHandler.ErrorResponse(500, "Error", null, timestamp, null);
+
+            // Assert
+            assertThat(errorResponse.status()).isEqualTo(500);
+            assertThat(errorResponse.path()).isNull();
+            assertThat(errorResponse.correlationId()).isNull();
         }
 
         @Test
@@ -235,14 +269,16 @@ class GlobalExceptionHandlerTest {
             Map<String, String> errors = Map.of("field1", "error1", "field2", "error2");
 
             // Act
-            GlobalExceptionHandler.ValidationErrorResponse errorResponse = 
-                    new GlobalExceptionHandler.ValidationErrorResponse(400, "Validation failed", errors, timestamp);
+            GlobalExceptionHandler.ValidationErrorResponse errorResponse =
+                    new GlobalExceptionHandler.ValidationErrorResponse(400, "Validation failed", errors, "/api/companies", timestamp, "trace-456");
 
             // Assert
             assertThat(errorResponse.status()).isEqualTo(400);
             assertThat(errorResponse.message()).isEqualTo("Validation failed");
             assertThat(errorResponse.errors()).isEqualTo(errors);
+            assertThat(errorResponse.path()).isEqualTo("/api/companies");
             assertThat(errorResponse.timestamp()).isEqualTo(timestamp);
+            assertThat(errorResponse.correlationId()).isEqualTo("trace-456");
         }
     }
 }

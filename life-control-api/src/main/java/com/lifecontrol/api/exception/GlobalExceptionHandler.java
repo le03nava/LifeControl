@@ -11,11 +11,14 @@ import com.lifecontrol.api.usersadmin.identity.IdentityProviderConnectionExcepti
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -31,7 +34,9 @@ public class GlobalExceptionHandler {
         ErrorResponse error = new ErrorResponse(
                 HttpStatus.CONFLICT.value(),
                 ex.getMessage(),
-                LocalDateTime.now()
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
         );
         return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
     }
@@ -41,7 +46,9 @@ public class GlobalExceptionHandler {
         ErrorResponse error = new ErrorResponse(
                 HttpStatus.NOT_FOUND.value(),
                 ex.getMessage(),
-                LocalDateTime.now()
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
         );
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
     }
@@ -51,7 +58,9 @@ public class GlobalExceptionHandler {
         ErrorResponse error = new ErrorResponse(
                 HttpStatus.NOT_FOUND.value(),
                 ex.getMessage(),
-                LocalDateTime.now()
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
         );
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
     }
@@ -61,7 +70,9 @@ public class GlobalExceptionHandler {
         ErrorResponse error = new ErrorResponse(
                 HttpStatus.CONFLICT.value(),
                 ex.getMessage(),
-                LocalDateTime.now()
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
         );
         return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
     }
@@ -71,7 +82,9 @@ public class GlobalExceptionHandler {
         ErrorResponse error = new ErrorResponse(
                 HttpStatus.NOT_FOUND.value(),
                 ex.getMessage(),
-                LocalDateTime.now()
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
         );
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
     }
@@ -81,7 +94,9 @@ public class GlobalExceptionHandler {
         ErrorResponse error = new ErrorResponse(
                 HttpStatus.CONFLICT.value(),
                 ex.getMessage(),
-                LocalDateTime.now()
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
         );
         return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
     }
@@ -91,7 +106,9 @@ public class GlobalExceptionHandler {
         ErrorResponse error = new ErrorResponse(
                 HttpStatus.NOT_FOUND.value(),
                 ex.getMessage(),
-                LocalDateTime.now()
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
         );
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
     }
@@ -101,7 +118,9 @@ public class GlobalExceptionHandler {
         ErrorResponse error = new ErrorResponse(
                 HttpStatus.CONFLICT.value(),
                 ex.getMessage(),
-                LocalDateTime.now()
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
         );
         return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
     }
@@ -112,7 +131,9 @@ public class GlobalExceptionHandler {
         ErrorResponse error = new ErrorResponse(
                 HttpStatus.SERVICE_UNAVAILABLE.value(),
                 "Identity provider temporarily unavailable",
-                LocalDateTime.now()
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
         );
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(error);
     }
@@ -122,7 +143,9 @@ public class GlobalExceptionHandler {
         ErrorResponse error = new ErrorResponse(
                 HttpStatus.BAD_REQUEST.value(),
                 ex.getMessage(),
-                LocalDateTime.now()
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
         );
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
     }
@@ -139,7 +162,9 @@ public class GlobalExceptionHandler {
                 HttpStatus.BAD_REQUEST.value(),
                 "Validation failed",
                 errors,
-                LocalDateTime.now()
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
         );
         
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
@@ -148,16 +173,38 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGenericException(Exception ex) {
         logger.error("Unhandled exception", ex);
-        String detailedMessage = ex.getMessage() != null ? ex.getMessage() : ex.getClass().getName();
         ErrorResponse error = new ErrorResponse(
                 HttpStatus.INTERNAL_SERVER_ERROR.value(),
-                "An unexpected error occurred: " + detailedMessage,
-                LocalDateTime.now()
+                "An unexpected error occurred",
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
         );
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
     }
 
-    public record ErrorResponse(int status, String message, LocalDateTime timestamp) {}
+    /**
+     * Extracts the request path from the current web request context.
+     * Returns {@code null} if no request context is available (e.g., in unit tests).
+     */
+    private String getCurrentPath() {
+        var attrs = RequestContextHolder.getRequestAttributes();
+        if (attrs instanceof ServletRequestAttributes sra) {
+            return sra.getRequest().getRequestURI();
+        }
+        return null;
+    }
 
-    public record ValidationErrorResponse(int status, String message, Map<String, String> errors, LocalDateTime timestamp) {}
+    /**
+     * Extracts the correlation (trace) ID from the MDC context.
+     * Uses Brave tracing bridge which populates {@code traceId} via Micrometer Tracing.
+     * Returns {@code null} if no tracing context is available.
+     */
+    private String getCorrelationId() {
+        return MDC.get("traceId");
+    }
+
+    public record ErrorResponse(int status, String message, String path, LocalDateTime timestamp, String correlationId) {}
+
+    public record ValidationErrorResponse(int status, String message, Map<String, String> errors, String path, LocalDateTime timestamp, String correlationId) {}
 }

@@ -31,6 +31,9 @@
         <appender-ref ref="LOKI"/>
     </root>
 
+    <!-- Logbook HTTP request/response logging -->
+    <logger name="org.zalando.logbook" level="WARN"/>
+
     <!-- Debug logging for SQL -->
     <logger name="org.hibernate.SQL" level="DEBUG"/>
     <logger name="org.hibernate.type.descriptor.sql.BasicBinder" level="TRACE"/>
