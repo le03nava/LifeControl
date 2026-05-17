@@ -24,8 +24,8 @@ export class CountryService {
     return `${this.configService.apiUrl}/countries`;
   }
 
-  getCountries(): Observable<Country[]> {
-    if (this._loaded()) {
+  getCountries(force = false): Observable<Country[]> {
+    if (!force && this._loaded()) {
       return of(this._countries());
     }
     this._loading.set(true);
@@ -36,6 +36,7 @@ export class CountryService {
         this._loaded.set(true);
       }),
       catchError(err => {
+        this._loaded.set(false);
         this._error.set('Error al cargar los países');
         return throwError(() => err);
       }),

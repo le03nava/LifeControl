@@ -73,7 +73,7 @@ describe('CountryService', () => {
       const req = httpMock.expectOne(service.apiUrl);
       req.flush(mockCountries);
 
-      // Second call should return cached data immediately (no new HTTP)
+      // Second call (default force=false) should return cached data immediately
       service.getCountries().subscribe(countries => {
         expect(countries).toEqual(mockCountries);
         done();
@@ -81,6 +81,23 @@ describe('CountryService', () => {
 
       // Verify no additional HTTP call was made
       httpMock.expectNone(service.apiUrl);
+    });
+
+    it('should make a new HTTP call when force=true', (done) => {
+      // First call to populate cache
+      service.getCountries().subscribe(() => {});
+
+      const firstReq = httpMock.expectOne(service.apiUrl);
+      firstReq.flush(mockCountries);
+
+      // Second call with force=true should make a new HTTP request
+      service.getCountries(true).subscribe(countries => {
+        expect(countries).toEqual(mockCountries);
+        done();
+      });
+
+      const secondReq = httpMock.expectOne(service.apiUrl);
+      secondReq.flush(mockCountries);
     });
 
     it('should set loading true during fetch and false after', (done) => {
@@ -97,7 +114,7 @@ describe('CountryService', () => {
       req.flush(mockCountries);
     });
 
-    it('should set error signal on HTTP failure', (done) => {
+    it('should set error signal on HTTP failure and reset loaded flag', (done) => {
       service.getCountries().subscribe({
         error: (err) => {
           expect(service.error()).toBe('Error al cargar los países');
@@ -108,6 +125,24 @@ describe('CountryService', () => {
 
       const req = httpMock.expectOne(service.apiUrl);
       req.flush('Server error', { status: 500, statusText: 'Internal Server Error' });
+    });
+
+    it('should retry HTTP call after previous error (loaded was reset)', (done) => {
+      // First call fails
+      service.getCountries().subscribe({
+        error: () => {},
+      });
+      const failReq = httpMock.expectOne(service.apiUrl);
+      failReq.flush('Server error', { status: 500, statusText: 'Internal Server Error' });
+
+      // Second call should make a new HTTP request since _loaded was reset on error
+      service.getCountries().subscribe(countries => {
+        expect(countries).toEqual(mockCountries);
+        done();
+      });
+
+      const successReq = httpMock.expectOne(service.apiUrl);
+      successReq.flush(mockCountries);
     });
   });
 

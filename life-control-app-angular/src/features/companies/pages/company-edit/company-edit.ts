@@ -95,7 +95,7 @@ export class CompanyEdit implements OnInit {
   }
 
   private loadCountries(): void {
-    this.countryService.getCountries().subscribe();
+    this.countryService.getCountries(true).subscribe();
     const id = this.companyId();
     if (id) {
       this.companyCountryService.getCountries(id).subscribe();
