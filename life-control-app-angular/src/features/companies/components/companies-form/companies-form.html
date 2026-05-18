@@ -1,67 +1,51 @@
 <div class="form-container">
-  <h2></h2>
+  <h2>
+    @if (isEditMode()) {
+      Editar Compañía
+    } @else {
+      Nueva Compañía
+    }
+  </h2>
   <form [formGroup]="formGroup()" (ngSubmit)="onSave()">
-    <app-field
-      [control]="getControl('companyId')"
-      fieldId="companyId"
-      label="ID de Compañía"
-      type="number"
-      placeholder="Ingrese el ID numérico de la compañía"
-    />
+    <mat-form-field appearance="outline">
+      <mat-label>ID de Compañía</mat-label>
+      <input matInput type="number" formControlName="companyId" placeholder="Ingrese el ID numérico de la compañía" />
+    </mat-form-field>
 
-    <app-field
-      [control]="getControl('companyName')"
-      fieldId="companyName"
-      label="Nombre de la Empresa"
-      type="text"
-      placeholder="Ingrese el nombre de la empresa"
-    />
+    <mat-form-field appearance="outline">
+      <mat-label>Nombre de la Empresa</mat-label>
+      <input matInput formControlName="companyName" placeholder="Ingrese el nombre de la empresa" />
+    </mat-form-field>
 
-    <app-field
-      [control]="getControl('razonSocial')"
-      fieldId="razonSocial"
-      label="Razón Social"
-      type="text"
-      placeholder="Ingrese la razón social"
-    />
+    <mat-form-field appearance="outline">
+      <mat-label>Razón Social</mat-label>
+      <input matInput formControlName="razonSocial" placeholder="Ingrese la razón social" />
+    </mat-form-field>
 
-    <app-field
-      [control]="getControl('rfc')"
-      fieldId="rfc"
-      label="RFC"
-      type="text"
-      placeholder="Ingrese el RFC (12-13 caracteres)"
-      helpText="RFC con 12 o 13 caracteres"
-    />
+    <mat-form-field appearance="outline">
+      <mat-label>RFC</mat-label>
+      <input matInput formControlName="rfc" placeholder="Ingrese el RFC (12-13 caracteres)" />
+      <mat-hint>RFC con 12 o 13 caracteres</mat-hint>
+    </mat-form-field>
 
-    <app-field
-      [control]="getControl('email')"
-      fieldId="email"
-      label="Correo Electrónico"
-      type="email"
-      placeholder="correo@ejemplo.com"
-    />
+    <mat-form-field appearance="outline">
+      <mat-label>Correo Electrónico</mat-label>
+      <input matInput type="email" formControlName="email" placeholder="correo@ejemplo.com" />
+    </mat-form-field>
 
-    <app-field
-      [control]="getControl('phone')"
-      fieldId="phone"
-      label="Teléfono"
-      type="text"
-      placeholder="+52XXXXXXXXXX o 10 dígitos"
-    />
+    <mat-form-field appearance="outline">
+      <mat-label>Teléfono</mat-label>
+      <input matInput formControlName="phone" placeholder="+52XXXXXXXXXX o 10 dígitos" />
+    </mat-form-field>
 
-    <app-field
-      [control]="getControl('address')"
-      fieldId="address"
-      label="Dirección"
-      type="text"
-      placeholder="Ingrese la dirección"
-      class="full-width"
-    />
+    <mat-form-field class="full-width" appearance="outline">
+      <mat-label>Dirección</mat-label>
+      <input matInput formControlName="address" placeholder="Ingrese la dirección" />
+    </mat-form-field>
 
     <div class="form-actions">
-      <button type="button" class="btn-cancel" (click)="onCancel()">Cancelar</button>
-      <button type="submit" class="btn-save" [disabled]="!formGroup().valid">
+      <button mat-stroked-button type="button" (click)="onCancel()">Cancelar</button>
+      <button mat-raised-button color="primary" type="submit" [disabled]="!formGroup().valid">
         @if (!isEditMode()) {
           Guardar
         } @else {

@@ -1,12 +1,11 @@
-// companies-form.scss — Empresa form responsivo con CSS Grid
+// companies-form.scss — Empresa form responsivo con CSS Grid + Material Design
 // Breakpoints: xs (<576px) 1col | s (≥576px) 2col | m (≥1024px) 3col | l (≥1440px) 3col
 //
 // Estilos base inyectados desde _form-layout.scss (shared):
 // - .form-container (card, container sizing, grid, h2)
-// - .form-actions, .full-width, .btn-cancel, .btn-save
-// - Touch targets WCAG (app-field, inputs, buttons)
-// - Labels, inputs padding
+// - .form-actions, .full-width
+// - Touch targets WCAG
 @use '../../../../shared/styles/form-layout' as *;
 
 // Companies-specific: nada extra por ahora
-// .full-width se usa en Dirección (viene del partial compartido)
+// mat-form-field.full-width se usa en Dirección para ocupar toda la fila del grid
