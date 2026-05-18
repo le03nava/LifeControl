@@ -14,12 +14,14 @@ import {
   FormControl,
 } from '@angular/forms';
 import { Company, CompanyControl } from '../../models/company.models';
-import { Field } from '@shared/ui';
+import { MatButtonModule } from '@angular/material/button';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
 
 @Component({
   selector: 'app-companies-form',
   standalone: true,
-  imports: [ReactiveFormsModule, Field],
+  imports: [ReactiveFormsModule, MatFormFieldModule, MatInputModule, MatButtonModule],
   templateUrl: './companies-form.html',
   styleUrl: './companies-form.scss',
 })
