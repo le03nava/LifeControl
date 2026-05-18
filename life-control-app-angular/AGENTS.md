@@ -357,6 +357,29 @@ docker build -t life-control-app-angular:latest .
 docker run -p 4200:4200 life-control-app-angular:latest
 ```
 
+### Docker (Fast Rebuild)
+
+Cuando hacés cambios en el frontend y querés actualizar el contenedor sin rebuildear todo:
+
+```bash
+# 1. Build Angular (development: source maps, más rápido)
+npm run build --configuration=development
+
+# 2. Rebuildear solo la imagen del web-app
+cd ../docker && docker compose build web-app
+
+# 3. Recrear el contenedor
+docker compose up -d web-app
+```
+
+> **Perfiles de build**: `production` (default) optimiza el bundle, ofusca y sin source maps. `development` compila más rápido con source maps. Usá `development` para iterar rápido, `production` solo para validar el bundle final.
+
+Si el cambio es solo de configuración de entorno (variables KEYCLOAK_URL, API_GATEWAY_URL, etc.), solo necesitás recrear el contenedor sin rebuild:
+
+```bash
+cd ../docker && docker compose up -d web-app
+```
+
 ---
 
 ## Referencias
