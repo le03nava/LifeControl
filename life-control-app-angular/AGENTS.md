@@ -349,13 +349,45 @@ npm test -- --watch
 
 ### Docker
 
-```bash
-# Build de imagen
-docker build -t life-control-app-angular:latest .
+#### Rebuild Rápido (solo cambios en Angular)
 
-# Ejecutar contenedor
-docker run -p 4200:4200 life-control-app-angular:latest
+```bash
+# 1. Build local de Angular (desde el directorio del proyecto)
+cd life-control-app-angular
+npm run build
+
+# 2. Build de imagen Docker (sin caché para actualizar COPY dist/)
+docker build --no-cache -t life-control-app-angular:latest .
+
+# 3. Recrear el contenedor (desde el directorio docker)
+cd ../docker
+docker compose up -d --force-recreate web-app
 ```
+
+**Por qué no usar `deploy.sh dev start`:**
+-Hace un rebuild multi-stage completo de TODOS los servicios (incluyendo Gradle)
+-Los builds de Gradle dentro del contenedor fallan por falta de conectividad a internet
+-Es innecesariamente lento para cambios solo en Angular
+
+**Por qué `--force-recreate` y `--no-cache`:**
+-`restart` solo reinicia el contenedor pero no carga la nueva imagen
+-`--no-cache` evita que Docker use caché stale para el `COPY dist/`
+-`--force-recreate` destruye y crea un contenedor nuevo con la imagen actualizada
+
+**Verificar que los cambios aplican:**
+```bash
+# Verificar que los archivos en el contenedor tienen la fecha correcta
+docker exec lifecontrol-dev-web-app ls -la /app/public/*.js | head -5
+
+# Los archivos deben mostrar la fecha/hora del último build local
+```
+
+#### Troubleshooting
+
+Si después del rebuild no ves los cambios:
+1. Hard refresh en el browser: `Ctrl + Shift + R` (Chrome) o `Cmd + Shift + R` (Safari)
+2. Verificar fecha de archivos en el contenedor (debe ser reciente)
+3. Si sigue sin funcionar, limpiar cache de Docker: `docker builder prune -af`
 
 ---
 

@@ -1,34 +1,34 @@
 <div class="country-selector">
-  <h3>Países asignados</h3>
+  <div class="form-container">
+    <h3>Países asignados</h3>
 
-  @if (errorMessage()) {
-    <div class="error-message">{{ errorMessage() }}</div>
-  }
-
-  @if (loading()) {
-    <p class="loading-text">Cargando países...</p>
-  }
-
-  @if (assignedCountries().length > 0) {
-    <mat-chip-set>
-      @for (cc of assignedCountries(); track cc.id) {
-        <mat-chip (removed)="onRemove(cc.id)" [disabled]="loading()">
-          {{ cc.countryName }} ({{ cc.countryCode }})
-          @if (cc.localAlias) {
-            <span class="chip-alias">— {{ cc.localAlias }}</span>
-          }
-          <button matChipRemove [attr.aria-label]="'Eliminar ' + cc.countryName">×</button>
-        </mat-chip>
-      }
-    </mat-chip-set>
-  } @else {
-    @if (!loading()) {
-      <p class="no-countries">No hay países asignados a esta empresa.</p>
+    @if (errorMessage()) {
+      <div class="error-message">{{ errorMessage() }}</div>
     }
-  }
 
-  <div class="country-add">
-    <div class="country-add-fields">
+    @if (loading()) {
+      <p class="loading-text">Cargando países...</p>
+    }
+
+    @if (assignedCountries().length > 0) {
+      <mat-chip-set>
+        @for (cc of assignedCountries(); track cc.id) {
+          <mat-chip (removed)="onRemove(cc.id)" [disabled]="loading()">
+            {{ cc.countryName }} ({{ cc.countryCode }})
+            @if (cc.localAlias) {
+              <span class="chip-alias">— {{ cc.localAlias }}</span>
+            }
+            <button matChipRemove [attr.aria-label]="'Eliminar ' + cc.countryName">×</button>
+          </mat-chip>
+        }
+      </mat-chip-set>
+    } @else {
+      @if (!loading()) {
+        <p class="no-countries">No hay países asignados a esta empresa.</p>
+      }
+    }
+
+    <form>
       <mat-form-field appearance="outline">
         <mat-label>País</mat-label>
         <mat-select
@@ -55,15 +55,17 @@
         />
       </mat-form-field>
 
-      <button
-        mat-raised-button
-        color="primary"
-        type="button"
-        (click)="onAdd()"
-        [disabled]="!selectedCountryCode() || loading()"
-      >
-        Agregar país
-      </button>
-    </div>
+      <div class="form-actions">
+        <button
+          mat-raised-button
+          color="primary"
+          type="button"
+          (click)="onAdd()"
+          [disabled]="!selectedCountryCode() || loading()"
+        >
+          Agregar país
+        </button>
+      </div>
+    </form>
   </div>
 </div>

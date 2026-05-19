@@ -1,3 +1,5 @@
+@use '../../../../shared/styles/form-layout' as *;
+
 .country-selector {
   margin-top: 2rem;
   padding-top: 1.5rem;
@@ -32,16 +34,5 @@
     color: #999;
     font-style: italic;
     margin-bottom: 1.5rem;
-  }
-
-  .country-add {
-    margin-top: 1rem;
-  }
-
-  .country-add-fields {
-    display: flex;
-    align-items: flex-start;
-    gap: 1rem;
-    flex-wrap: wrap;
   }
 }
