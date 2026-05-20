@@ -42,32 +42,32 @@ describe('CountrySelector', () => {
 
   // ---------- onAdd ----------
   describe('onAdd', () => {
-    it('should emit addCountry with countryCode and localAlias when country is selected', (done) => {
+    it('should emit addCountry with countryCode and localAlias when country is selected', async () => {
       setInputs();
       component.selectedCountryCode.set('BR');
       component.localAlias.set('Sucursal Sao Paulo');
 
-      component.addCountry.subscribe((req: CompanyCountryRequest) => {
-        expect(req.countryCode).toBe('BR');
-        expect(req.localAlias).toBe('Sucursal Sao Paulo');
-        done();
+      const req = await new Promise<CompanyCountryRequest>((resolve) => {
+        component.addCountry.subscribe(resolve);
+        component.onAdd();
       });
 
-      component.onAdd();
+      expect(req.countryCode).toBe('BR');
+      expect(req.localAlias).toBe('Sucursal Sao Paulo');
     });
 
-    it('should emit addCountry without localAlias when alias is empty', (done) => {
+    it('should emit addCountry without localAlias when alias is empty', async () => {
       setInputs();
       component.selectedCountryCode.set('BR');
       component.localAlias.set('');
 
-      component.addCountry.subscribe((req: CompanyCountryRequest) => {
-        expect(req.countryCode).toBe('BR');
-        expect(req.localAlias).toBeUndefined();
-        done();
+      const req = await new Promise<CompanyCountryRequest>((resolve) => {
+        component.addCountry.subscribe(resolve);
+        component.onAdd();
       });
 
-      component.onAdd();
+      expect(req.countryCode).toBe('BR');
+      expect(req.localAlias).toBeUndefined();
     });
 
     it('should NOT emit addCountry when no country is selected', () => {
@@ -81,32 +81,29 @@ describe('CountrySelector', () => {
       expect(emitted).toBe(false);
     });
 
-    it('should reset selectedCountryCode and localAlias after emitting', (done) => {
+    it('should reset selectedCountryCode and localAlias after emitting', () => {
       setInputs();
       component.selectedCountryCode.set('BR');
       component.localAlias.set('test');
 
-      component.addCountry.subscribe(() => {
-        expect(component.selectedCountryCode()).toBe('');
-        expect(component.localAlias()).toBe('');
-        done();
-      });
-
       component.onAdd();
+
+      expect(component.selectedCountryCode()).toBe('');
+      expect(component.localAlias()).toBe('');
     });
   });
 
   // ---------- onRemove ----------
   describe('onRemove', () => {
-    it('should emit removeCountry with the given companyCountryId', (done) => {
+    it('should emit removeCountry with the given companyCountryId', async () => {
       setInputs();
 
-      component.removeCountry.subscribe((id: string) => {
-        expect(id).toBe('cc-1');
-        done();
+      const id = await new Promise<string>((resolve) => {
+        component.removeCountry.subscribe(resolve);
+        component.onRemove('cc-1');
       });
 
-      component.onRemove('cc-1');
+      expect(id).toBe('cc-1');
     });
   });
 

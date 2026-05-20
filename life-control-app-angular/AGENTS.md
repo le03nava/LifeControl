@@ -17,7 +17,7 @@ Aplicación Angular principal del proyecto LifeControl. Esta es la aplicación A
 | Authentication | Keycloak v26 (`keycloak-js`) |
 | UI Library | Angular Material 20 |
 | SSR | `@angular/ssr` 20.3.6 |
-| Testing | Karma + Jasmine |
+| Testing | Vitest (migrado desde Karma+Jasmine) |
 | Build System | esbuild (`@angular/build`) |
 
 ---
@@ -274,13 +274,99 @@ export const appConfig: ApplicationConfig = {
 
 ### Configuración
 
-- **Test Runner**: Karma (configurado en angular.json)
-- **Framework**: Jasmine
+- **Test Runner**: Vitest (configurado en `angular.json` con `@angular/build:unit-test`)
+- **Framework**: Vitest + Angular Testing (TestBed)
 - **Spec Files**: Co-locados con componentes (`*.spec.ts`)
+- **Coverage**: `@vitest/coverage-v8`
 
-### Ejemplo de Test
+### Commands
+
+```bash
+# Ejecutar tests
+npm test
+
+# Tests en modo watch
+npm run test:watch
+
+# Tests con coverage
+npm run test:coverage
+```
+
+### Migración desde Jasmine (2026-05)
+
+**Cambios principales:**
+
+| Jasmine | Vitest |
+|---------|--------|
+| `jasmine.createSpy()` | `vi.fn()` |
+| `jasmine.createSpyObj()` | `{ fn: vi.fn() }` |
+| `jasmine.SpyObj<T>()` | `Partial<T>` o `Record<string, vi.fn()>` |
+| `done()` callbacks | `async/await` + `firstValueFrom()` |
+| `toBeTrue()` / `toBeFalse()` | `toBe(true)` / `toBe(false)` |
+| `jasmine.any()` | `expect.any()` |
+
+**Mocks de servicios con `done()`:**
 
 ```typescript
+// ❌ ANTIGUO (Jasmine)
+it('should load companies', (done) => {
+  service.getAll();
+  httpMock.expectOne('/api/companies').flush(mockData);
+  setTimeout(() => {
+    expect(service.companies()).toEqual(mockData);
+    done();
+  }, 100);
+});
+
+// ✅ NUEVO (Vitest)
+it('should load companies', async () => {
+  service.getAll();
+  httpMock.expectOne('/api/companies').flush(mockData);
+  await firstValueFrom(toObservable(service.companies));
+  expect(service.companies()).toEqual(mockData);
+});
+```
+
+**Mocks de matchMedia (para Angular Material):**
+
+```typescript
+// Setup global en test-setup.ts o beforeEach
+Object.defineProperty(window, 'matchMedia', {
+  writable: true,
+  value: vi.fn().mockImplementation(query => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })),
+});
+```
+
+**Fake Timers:**
+
+```typescript
+// ✅ Vitest
+it('should debounce search', async () => {
+  vi.useFakeTimers();
+  
+  component.search('test');
+  vi.advanceTimersByTime(300);
+  
+  expect(mockService.search).toHaveBeenCalledWith('test');
+  
+  vi.useRealTimers();
+});
+```
+
+### Ejemplo de Test (Vitest)
+
+```typescript
+import { firstValueFrom, toObservable } from '@angular/core/rxjs-interop';
+
 describe('CompanyService', () => {
   let service: CompanyService;
   let httpMock: HttpTestingController;
@@ -299,7 +385,7 @@ describe('CompanyService', () => {
     expect(service).toBeTruthy();
   });
   
-  it('should load companies', () => {
+  it('should load companies', async () => {
     const mockCompanies: Company[] = [
       { id: '1', name: 'Test', rfc: 'XAXX010101', email: 'test@test.com' }
     ];
@@ -309,10 +395,20 @@ describe('CompanyService', () => {
     httpMock.expectOne('http://localhost:9000/api/companies')
       .flush(mockCompanies);
     
+    // Wait for signal update
+    await firstValueFrom(toObservable(service.companies));
+    
     expect(service.companies()).toEqual(mockCompanies);
   });
 });
 ```
+
+### Notas Importantes
+
+1. `@angular/build:unit-test` ignora `vitest.config.ts` - usar `setupFiles` en `angular.json`
+2. El mock de matchMedia debe incluir `addListener`/`removeListener` para Angular Material
+3. Router mocks no pueden combinarse con `provideRouter()` - usar `vi.spyOn(router, 'navigate')`
+4. Los tests asíncronos usar `firstValueFrom` + `toObservable` para esperar signal updates
 
 ---
 

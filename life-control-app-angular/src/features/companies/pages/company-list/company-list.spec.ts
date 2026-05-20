@@ -1,5 +1,5 @@
-import { ComponentFixture, TestBed, fakeAsync, tick } from '@angular/core/testing';
-import { Router } from '@angular/router';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideRouter, Router } from '@angular/router';
 import { MatIconModule } from '@angular/material/icon';
 import { MatPaginatorModule } from '@angular/material/paginator';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
@@ -8,11 +8,16 @@ import { CompanyService } from '@features/companies/data/company.service';
 import { Company, Page } from '@features/companies/models/company.models';
 import { of } from 'rxjs';
 
+type CompanyServiceMock = {
+  getCompanies: ReturnType<typeof vi.fn>;
+  deleteCompany: ReturnType<typeof vi.fn>;
+};
+
 describe('CompanyList', () => {
   let component: CompanyList;
   let fixture: ComponentFixture<CompanyList>;
-  let companyService: jasmine.SpyObj<CompanyService>;
-  let router: jasmine.SpyObj<Router>;
+  let companyService: CompanyServiceMock;
+  let router: Router;
 
   const mockCompanies: Company[] = [
     { id: '1', companyId: 1, companyName: 'Alpha Corp', tipoPersonaId: 1, razonSocial: 'Razon Alpha', rfc: 'RFC0000000001', email: 'alpha@test.com', phone: '5551112222', enabled: true, createdAt: '', updatedAt: '' },
@@ -32,22 +37,23 @@ describe('CompanyList', () => {
   });
 
   beforeEach(async () => {
-    companyService = jasmine.createSpyObj('CompanyService', ['getCompanies', 'deleteCompany']);
-    companyService.getCompanies.and.returnValue(of(createMockPage(mockCompanies)));
-    companyService.deleteCompany.and.returnValue(of(void 0));
-
-    router = jasmine.createSpyObj('Router', ['navigate']);
+    companyService = {
+      getCompanies: vi.fn().mockReturnValue(of(createMockPage(mockCompanies))),
+      deleteCompany: vi.fn().mockReturnValue(of(void 0)),
+    };
 
     await TestBed.configureTestingModule({
       imports: [CompanyList, MatIconModule, MatPaginatorModule, NoopAnimationsModule],
       providers: [
+        provideRouter([]),
         { provide: CompanyService, useValue: companyService },
-        { provide: Router, useValue: router },
       ],
     }).compileComponents();
 
     fixture = TestBed.createComponent(CompanyList);
     component = fixture.componentInstance;
+    router = TestBed.inject(Router);
+    vi.spyOn(router, 'navigate');
   });
 
   it('should create', () => {
@@ -95,7 +101,8 @@ describe('CompanyList', () => {
     expect(component.pageSize()).toBe(24);
   });
 
-  it('should reset page to 0 when search changes (debounced)', fakeAsync(() => {
+  it('should reset page to 0 when search changes (debounced)', () => {
+    vi.useFakeTimers();
     // Start on page 2
     component.pageIndex.set(2);
     expect(component.pageIndex()).toBe(2);
@@ -103,31 +110,43 @@ describe('CompanyList', () => {
     // Type a search query
     component.searchQuery.set('Alpha');
 
+    // Trigger effect that creates the setTimeout
+    fixture.detectChanges();
+
     // Fast-forward past debounce (300ms)
-    tick(300);
+    vi.advanceTimersByTime(300);
 
     // Page should reset to 0
     expect(component.pageIndex()).toBe(0);
 
+    // Trigger change detection so rxResource re-fetches with search param
+    fixture.detectChanges();
+
     // API should be called with search param
     expect(companyService.getCompanies).toHaveBeenCalledWith(0, 12, 'Alpha');
-  }));
 
-  it('should load companies with correct params', fakeAsync(() => {
+    vi.useRealTimers();
+  });
+
+  it('should load companies with correct params', () => {
+    vi.useFakeTimers();
     fixture.detectChanges();
-    tick();
+    vi.advanceTimersByTime(0);
 
     expect(companyService.getCompanies).toHaveBeenCalledWith(0, 12, undefined);
 
     // Change page
     component.onPageChange({ pageIndex: 1, pageSize: 12 });
-    tick();
+    fixture.detectChanges();
+    vi.advanceTimersByTime(0);
 
     expect(companyService.getCompanies).toHaveBeenCalledWith(1, 12, undefined);
-  }));
+
+    vi.useRealTimers();
+  });
 
   describe('responsive paginator (isMobile signal)', () => {
-    let matchMediaSpy: jasmine.Spy;
+    let originalMatchMedia: typeof window.matchMedia;
 
     function setupMatchMedia(matches: boolean) {
       const listeners: Record<string, EventListener> = {};
@@ -136,44 +155,58 @@ describe('CompanyList', () => {
         addEventListener: (type: string, listener: EventListener) => {
           listeners[type] = listener;
         },
-        removeEventListener: jasmine.createSpy('removeEventListener'),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
       };
-      matchMediaSpy = spyOn(window, 'matchMedia').and.returnValue(mql as any);
+      window.matchMedia = vi.fn().mockReturnValue(mql as any) as unknown as typeof window.matchMedia;
       return { mql, listeners };
     }
 
+    beforeAll(() => {
+      originalMatchMedia = window.matchMedia;
+    });
+
+    afterAll(() => {
+      window.matchMedia = originalMatchMedia;
+    });
+
     it('should default to desktop pageSizeOptions', () => {
       setupMatchMedia(false);
-      fixture.detectChanges();
-      expect(component.pageSizeOptions()).toEqual([6, 12, 24, 48]);
+      const f = TestBed.createComponent(CompanyList);
+      f.detectChanges();
+      expect(f.componentInstance.pageSizeOptions()).toEqual([6, 12, 24, 48]);
     });
 
     it('should return mobile pageSizeOptions when isMobile is true', () => {
       setupMatchMedia(true);
-      fixture.detectChanges();
-      expect(component.isMobile()).toBe(true);
-      expect(component.pageSizeOptions()).toEqual([6, 12]);
+      const f = TestBed.createComponent(CompanyList);
+      f.detectChanges();
+      expect(f.componentInstance.isMobile()).toBe(true);
+      expect(f.componentInstance.pageSizeOptions()).toEqual([6, 12]);
     });
 
     it('should hide first/last buttons on mobile', () => {
       setupMatchMedia(true);
-      fixture.detectChanges();
+      const f = TestBed.createComponent(CompanyList);
+      f.detectChanges();
 
-      const paginatorEl = fixture.nativeElement.querySelector('.pagination-section');
+      const paginatorEl = f.nativeElement.querySelector('.pagination-section');
       // With showFirstLastButtons=false, the first/last nav buttons should not render
-      expect(component.isMobile()).toBe(true);
+      expect(f.componentInstance.isMobile()).toBe(true);
     });
 
     it('should update isMobile on matchMedia change event', () => {
       const { listeners } = setupMatchMedia(false);
-      fixture.detectChanges();
-      expect(component.isMobile()).toBe(false);
+      const f = TestBed.createComponent(CompanyList);
+      f.detectChanges();
+      expect(f.componentInstance.isMobile()).toBe(false);
 
       // Simulate viewport resize to mobile
       if (listeners['change']) {
         listeners['change']({ matches: true } as MediaQueryListEvent);
       }
-      expect(component.isMobile()).toBe(true);
+      expect(f.componentInstance.isMobile()).toBe(true);
     });
   });
 });

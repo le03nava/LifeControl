@@ -7,10 +7,15 @@ import { ProductService } from '@features/products/data/product.service';
 import { of } from 'rxjs';
 import { Page } from '@features/products/models/product.models';
 
+type ProductServiceMock = {
+  getProductsPaged: ReturnType<typeof vi.fn>;
+  deleteProduct: ReturnType<typeof vi.fn>;
+};
+
 describe('ProductList', () => {
   let component: ProductList;
   let fixture: ComponentFixture<ProductList>;
-  let productService: jasmine.SpyObj<ProductService>;
+  let productService: ProductServiceMock;
 
   const mockPage: Page<{ id: string; name: string; description: string; price: number }> = {
     content: [
@@ -27,8 +32,10 @@ describe('ProductList', () => {
   };
 
   beforeEach(async () => {
-    const serviceSpy = jasmine.createSpyObj('ProductService', ['getProductsPaged', 'deleteProduct']);
-    serviceSpy.getProductsPaged.and.returnValue(of(mockPage));
+    const serviceSpy: ProductServiceMock = {
+      getProductsPaged: vi.fn().mockReturnValue(of(mockPage)),
+      deleteProduct: vi.fn().mockReturnValue(of(void 0)),
+    };
 
     await TestBed.configureTestingModule({
       imports: [ProductList],
@@ -40,7 +47,7 @@ describe('ProductList', () => {
       ],
     }).compileComponents();
 
-    productService = TestBed.inject(ProductService) as jasmine.SpyObj<ProductService>;
+    productService = TestBed.inject(ProductService) as unknown as ProductServiceMock;
     fixture = TestBed.createComponent(ProductList);
     component = fixture.componentRef.instance;
     fixture.detectChanges();
@@ -79,24 +86,24 @@ describe('ProductList', () => {
 
   it('should set delete modal state on confirmDelete', () => {
     component.confirmDelete({ id: '1', name: 'Product 1' });
-    expect(component.showDeleteModal()).toBeTrue();
+    expect(component.showDeleteModal()).toBe(true);
     expect(component.productToDelete()).toEqual({ id: '1', name: 'Product 1' });
   });
 
   it('should clear delete modal state on cancelDelete', () => {
     component.confirmDelete({ id: '1', name: 'Product 1' });
     component.cancelDelete();
-    expect(component.showDeleteModal()).toBeFalse();
+    expect(component.showDeleteModal()).toBe(false);
     expect(component.productToDelete()).toBeNull();
   });
 
   it('should call deleteProduct and reload on executeDelete', () => {
-    productService.deleteProduct.and.returnValue(of(void 0));
+    productService.deleteProduct.mockReturnValue(of(void 0));
     component.confirmDelete({ id: '1', name: 'Product 1' });
     component.executeDelete();
 
     expect(productService.deleteProduct).toHaveBeenCalledWith('1');
-    expect(component.showDeleteModal()).toBeFalse();
+    expect(component.showDeleteModal()).toBe(false);
     expect(component.productToDelete()).toBeNull();
   });
 });

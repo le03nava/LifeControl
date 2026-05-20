@@ -8,19 +8,19 @@ import { Page } from '../models/product.models';
 describe('ProductService', () => {
   let service: ProductService;
   let httpMock: HttpTestingController;
-  let configService: jasmine.SpyObj<ConfigService>;
+  let configService: Partial<ConfigService>;
 
   beforeEach(() => {
-    const configSpy = jasmine.createSpyObj('ConfigService', [], {
+    configService = {
       apiUrl: 'http://localhost:9000',
-    });
+    };
 
     TestBed.configureTestingModule({
       providers: [
         ProductService,
         provideHttpClient(),
         provideHttpClientTesting(),
-        { provide: ConfigService, useValue: configSpy },
+        { provide: ConfigService, useValue: configService },
       ],
     });
 

@@ -1,12 +1,37 @@
 import { provideLocationMocks } from '@angular/common/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
+import { KEYCLOAK_EVENT_SIGNAL, KeycloakEventType } from 'keycloak-angular';
 import { Header } from './header';
+import Keycloak from 'keycloak-js';
 
 describe('Header', () => {
+  let keycloakMock: Partial<Keycloak>;
+
   const setup = () => {
+    keycloakMock = {
+      login: vi.fn(),
+      logout: vi.fn(),
+      hasRealmRole: vi.fn().mockReturnValue(false),
+      authenticated: false,
+    };
+
+    // Create a keycloak event signal for the test
+    const keycloakEventSignal = signal({
+      type: KeycloakEventType.Ready,
+      token: null,
+    });
+
     TestBed.configureTestingModule({
-      providers: [provideRouter([]), provideLocationMocks()],
+      providers: [
+        provideRouter([]),
+        provideLocationMocks(),
+        provideHttpClient(),
+        { provide: Keycloak, useValue: keycloakMock },
+        { provide: KEYCLOAK_EVENT_SIGNAL, useValue: keycloakEventSignal },
+      ],
     });
 
     const fixture = TestBed.createComponent(Header);
