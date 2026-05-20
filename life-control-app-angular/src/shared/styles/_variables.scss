@@ -1,0 +1,11 @@
+// ============================================================
+// _variables.scss — SCSS variables for breakpoints
+// ============================================================
+// Estas variables son la fuente de verdad para @media queries.
+// Las CSS custom properties en styles.scss se mantienen para
+// uso en runtime (var() en propiedades CSS que no son media).
+// ============================================================
+
+$bp-sm: 576px;
+$bp-md: 1024px;
+$bp-lg: 1440px;
