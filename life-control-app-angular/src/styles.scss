@@ -1,3 +1,5 @@
+@use 'shared/styles/variables' as *;
+
 /* Global styles using modern CSS */
 
 :root {
@@ -68,9 +70,11 @@
   --space-2xl: 3rem;
 
   /* Breakpoints (aligned with _form-layout.scss) */
-  --bp-mobile: 575.98px;
   --bp-tablet: 767.98px;
   --bp-desktop: 1023.98px;
+  --bp-sm: #{$bp-sm};
+  --bp-md: #{$bp-md};
+  --bp-lg: #{$bp-lg};
 
   /* Border radius */
   --radius-sm: 0.25rem;

@@ -1,15 +1,12 @@
 import {
   Component,
-  inject,
   signal,
   input,
   output,
   effect,
 } from '@angular/core';
 import {
-  FormBuilder,
   FormGroup,
-  Validators,
   ReactiveFormsModule,
   FormControl,
 } from '@angular/forms';
@@ -17,11 +14,14 @@ import { Company, CompanyControl } from '../../models/company.models';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
+import { MatSelectModule } from '@angular/material/select';
+import { MatSlideToggleModule } from '@angular/material/slide-toggle';
+import { MatIconModule } from '@angular/material/icon';
 
 @Component({
   selector: 'app-companies-form',
   standalone: true,
-  imports: [ReactiveFormsModule, MatFormFieldModule, MatInputModule, MatButtonModule],
+  imports: [ReactiveFormsModule, MatFormFieldModule, MatInputModule, MatButtonModule, MatSelectModule, MatSlideToggleModule, MatIconModule],
   templateUrl: './companies-form.html',
   styleUrl: './companies-form.scss',
 })
@@ -30,6 +30,11 @@ export class CompaniesForm {
   companyId = input<number | null>(null);
   saveCompany = output<Company>();
   cancelForm = output<void>();
+
+  readonly personaTypes = [
+    { value: 1, label: 'Persona Física' },
+    { value: 2, label: 'Persona Moral' },
+  ];
 
   isEditMode = signal(false);
 

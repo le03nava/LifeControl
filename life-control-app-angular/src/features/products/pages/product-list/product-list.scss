@@ -1,3 +1,5 @@
+@use '../../../../shared/styles/variables' as *;
+
 :host {
   display: block;
   width: 100%;
@@ -99,15 +101,15 @@
   grid-template-columns: 1fr;
   gap: var(--space-lg);
 
-  @media (min-width: 576px) {
+  @media (min-width: $bp-sm) {
     grid-template-columns: repeat(2, 1fr);
   }
 
-  @media (min-width: 1024px) {
+  @media (min-width: $bp-md) {
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   }
 
-  @media (max-width: 575.98px) {
+  @media (max-width: $bp-sm) {
     gap: var(--space-md);
   }
 }
@@ -119,7 +121,7 @@
   justify-content: center;
 }
 
-@media (max-width: 575.98px) {
+@media (max-width: $bp-sm) {
   .mat-mdc-paginator-navigation-first,
   .mat-mdc-paginator-navigation-last {
     display: none;
@@ -341,7 +343,7 @@
   height: 200px;
 }
 
-@media (max-width: 575.98px) {
+@media (max-width: $bp-sm) {
   .filters-section {
     flex-direction: column;
   }

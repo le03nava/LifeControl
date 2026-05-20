@@ -2,6 +2,7 @@
 // _form-layout.scss — Partial compartido para formularios CRUD
 // ============================================================
 // Uso: @use '../../shared/styles/form-layout' as form;
+@use 'variables' as *;
 //
 // Proporciona estilos base para .form-container con CSS Grid
 // responsivo, botones y touch targets WCAG.
@@ -19,15 +20,15 @@
   box-shadow: var(--shadow-md);
 
   // Container sizing per breakpoint
-  @media (min-width: 576px) {
+  @media (min-width: $bp-sm) {
     max-width: 720px;
   }
 
-  @media (min-width: 1024px) {
+  @media (min-width: $bp-md) {
     max-width: 960px;
   }
 
-  @media (min-width: 1440px) {
+  @media (min-width: $bp-lg) {
     max-width: 1140px;
   }
 
@@ -44,12 +45,12 @@
     grid-template-columns: 1fr;              // xs: 1 columna
     gap: var(--space-md);                    // 16px
 
-    @media (min-width: 576px) {
+    @media (min-width: $bp-sm) {
       grid-template-columns: repeat(2, 1fr); // s: 2 columnas
       gap: 20px;
     }
 
-    @media (min-width: 1024px) {
+    @media (min-width: $bp-md) {
       grid-template-columns: repeat(3, 1fr); // m/l: 3 columnas
       gap: var(--space-lg);                  // 24px
     }
@@ -76,7 +77,7 @@
 app-field {
   min-height: 44px;
 
-  @media (max-width: 575.98px) {
+  @media (max-width: $bp-sm) {
     min-height: 48px;
   }
 }
@@ -88,7 +89,7 @@ button {
   min-height: 44px;
   font-size: 1rem; // 16px base — iOS zoom prevention
 
-  @media (max-width: 575.98px) {
+  @media (max-width: $bp-sm) {
     min-height: 48px;
   }
 }

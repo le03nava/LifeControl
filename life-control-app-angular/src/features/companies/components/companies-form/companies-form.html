@@ -10,32 +10,66 @@
     <mat-form-field appearance="outline">
       <mat-label>ID de Compañía</mat-label>
       <input matInput type="number" formControlName="companyId" placeholder="Ingrese el ID numérico de la compañía" />
+      @if (getControl('companyId').hasError('required') && getControl('companyId').touched) {
+        <mat-error>Este campo es obligatorio</mat-error>
+      }
     </mat-form-field>
 
     <mat-form-field appearance="outline">
       <mat-label>Nombre de la Empresa</mat-label>
       <input matInput formControlName="companyName" placeholder="Ingrese el nombre de la empresa" />
+      @if (getControl('companyName').hasError('required') && getControl('companyName').touched) {
+        <mat-error>Este campo es obligatorio</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Tipo de Persona</mat-label>
+      <mat-select formControlName="tipoPersonaId">
+        @for (type of personaTypes; track type.value) {
+          <mat-option [value]="type.value">{{ type.label }}</mat-option>
+        }
+      </mat-select>
+      @if (getControl('tipoPersonaId').hasError('required') && getControl('tipoPersonaId').touched) {
+        <mat-error>Este campo es obligatorio</mat-error>
+      }
     </mat-form-field>
 
     <mat-form-field appearance="outline">
       <mat-label>Razón Social</mat-label>
       <input matInput formControlName="razonSocial" placeholder="Ingrese la razón social" />
+      @if (getControl('razonSocial').hasError('required') && getControl('razonSocial').touched) {
+        <mat-error>Este campo es obligatorio</mat-error>
+      }
     </mat-form-field>
 
     <mat-form-field appearance="outline">
       <mat-label>RFC</mat-label>
       <input matInput formControlName="rfc" placeholder="Ingrese el RFC (12-13 caracteres)" />
-      <mat-hint>RFC con 12 o 13 caracteres</mat-hint>
+      @if (getControl('rfc').hasError('required') && getControl('rfc').touched) {
+        <mat-error>Este campo es obligatorio</mat-error>
+      }
+      @if (getControl('rfc').hasError('pattern') && getControl('rfc').touched) {
+        <mat-error>El RFC debe tener 12-13 caracteres alfanuméricos</mat-error>
+      }
     </mat-form-field>
 
     <mat-form-field appearance="outline">
       <mat-label>Correo Electrónico</mat-label>
+      <span matPrefix><mat-icon>mail</mat-icon></span>
       <input matInput type="email" formControlName="email" placeholder="correo@ejemplo.com" />
+      @if (getControl('email').hasError('email') && getControl('email').touched) {
+        <mat-error>Ingrese un correo electrónico válido</mat-error>
+      }
     </mat-form-field>
 
     <mat-form-field appearance="outline">
       <mat-label>Teléfono</mat-label>
+      <span matPrefix><mat-icon>phone</mat-icon></span>
       <input matInput formControlName="phone" placeholder="+52XXXXXXXXXX o 10 dígitos" />
+      @if (getControl('phone').hasError('pattern') && getControl('phone').touched) {
+        <mat-error>Ingrese un número de teléfono válido</mat-error>
+      }
     </mat-form-field>
 
     <mat-form-field class="full-width" appearance="outline">
@@ -43,8 +77,12 @@
       <input matInput formControlName="address" placeholder="Ingrese la dirección" />
     </mat-form-field>
 
+    <div class="toggle-container">
+      <mat-slide-toggle formControlName="enabled">Activo</mat-slide-toggle>
+    </div>
+
     <div class="form-actions">
-      <button mat-stroked-button type="button" (click)="onCancel()">Cancelar</button>
+      <button mat-stroked-button color="warn" type="button" (click)="onCancel()">Cancelar</button>
       <button mat-raised-button color="primary" type="submit" [disabled]="!formGroup().valid">
         @if (!isEditMode()) {
           Guardar

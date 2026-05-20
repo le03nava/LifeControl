@@ -7,5 +7,16 @@
 // - Touch targets WCAG
 @use '../../../../shared/styles/form-layout' as *;
 
-// Companies-specific: nada extra por ahora
-// mat-form-field.full-width se usa en Dirección para ocupar toda la fila del grid
+// Toggle container — places the mat-slide-toggle in the form grid
+.toggle-container {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  padding-block: var(--space-sm);
+}
+
+// Icon alignment for matPrefix icons in email and phone fields
+.mat-mdc-form-field-icon-prefix {
+  display: flex;
+  align-items: center;
+}
