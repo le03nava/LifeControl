@@ -43,8 +43,7 @@ export class Header implements OnInit {
   items = computed(() => {
     const menuItems = [
       { id: '1', routeLink: '/home', textLink: 'Home', icon: 'home' },
-      { id: '2', routeLink: '/products', textLink: 'products', icon: 'inventory_2' },
-      { id: '3', routeLink: '/companies', textLink: 'Companies', icon: 'business' },
+      { id: '2', routeLink: '/companies', textLink: 'Companies', icon: 'business' },
     ];
 
     if (this.isAdmin()) {

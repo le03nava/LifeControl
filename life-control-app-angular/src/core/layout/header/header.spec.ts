@@ -58,14 +58,6 @@ describe('Header', () => {
       expect(homeItem?.textLink).toBe('Home');
     });
 
-    it('should include products menu item', () => {
-      const { component } = setup();
-      const items = component.items();
-      const productsItem = items.find((item) => item.routeLink === '/products');
-      expect(productsItem).toBeDefined();
-      expect(productsItem?.textLink).toBe('products');
-    });
-
     it('should include companies menu item', () => {
       const { component } = setup();
       const items = component.items();
@@ -76,9 +68,9 @@ describe('Header', () => {
   });
 
   describe('menu items count without admin role', () => {
-    it('should have exactly 3 menu items when user is not admin', () => {
+    it('should have exactly 2 menu items when user is not admin', () => {
       const { component } = setup();
-      expect(component.items().length).toBe(3);
+      expect(component.items().length).toBe(2);
     });
   });
 });
