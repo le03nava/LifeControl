@@ -1,6 +1,7 @@
 import {
   Component,
   computed,
+  effect,
   input,
   output,
 } from '@angular/core';
@@ -8,6 +9,7 @@ import {
   FormGroup,
   ReactiveFormsModule,
 } from '@angular/forms';
+import { Subscription } from 'rxjs';
 import { Company, CompanyControl } from '../../models/company.models';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -26,6 +28,7 @@ import { FormErrorComponent } from '@shared/ui';
 })
 export class CompaniesForm {
   formGroup = input.required<FormGroup<CompanyControl>>();
+  serverErrors = input<Record<string, string>>({});
   saveCompany = output<Company>();
   cancelForm = output<void>();
 
@@ -48,7 +51,43 @@ export class CompaniesForm {
 
   readonly isEditMode = computed(() => !!this.formGroup()?.controls.id.value);
 
+  constructor() {
+    effect((onCleanup) => {
+      const serverErrors = this.serverErrors();
+      const fg = this.formGroup();
+
+      if (!fg || Object.keys(serverErrors).length === 0) return;
+
+      const subscriptions: Subscription[] = [];
+
+      Object.entries(serverErrors).forEach(([key, message]) => {
+        const control = fg.get(key);
+        if (control) {
+          const currentErrors = control.errors || {};
+          control.setErrors({ ...currentErrors, serverError: message }, { emitEvent: false });
+
+          const sub = control.valueChanges.subscribe(() => {
+            if (control.errors && 'serverError' in control.errors) {
+              const { serverError: _, ...otherErrors } = control.errors;
+              const remainingKeys = Object.keys(otherErrors);
+              control.setErrors(remainingKeys.length > 0 ? otherErrors : null, { emitEvent: true });
+            }
+          });
+          subscriptions.push(sub);
+        } else {
+          console.warn(`[CompaniesForm] No control found for server error key: "${key}"`);
+        }
+      });
+
+      onCleanup(() => {
+        subscriptions.forEach(sub => sub.unsubscribe());
+      });
+    });
+  }
+
   onSave(): void {
+    this.formGroup().markAllAsTouched();
+
     if (this.formGroup().valid) {
       const raw = this.formGroup().getRawValue();
       const companyData: Company = {

@@ -1,7 +1,9 @@
 import { ChangeDetectionStrategy, Component, inject, signal, OnInit } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router } from '@angular/router';
 import { CompanyService } from '@features/companies/data/company.service';
 import { CompanyContextService } from '@shared/data/company-context.service';
+import { ApiError } from '@shared/models';
 import { Company, CompanyControl, CompanyCountryRequest } from '@features/companies/models/company.models';
 import { CountryService } from '@features/countries/data';
 import { CompanyCountryService } from '@features/companies/data/company-country.service';
@@ -35,6 +37,8 @@ export class CompanyEdit implements OnInit {
   companyForm = signal<FormGroup<CompanyControl>>(this.createForm());
 
   isEditMode = signal(false);
+  serverErrors = signal<Record<string, string>>({});
+  generalError = signal<string | null>(null);
 
   ngOnInit(): void {
     const id = this.companyId();
@@ -104,13 +108,33 @@ export class CompanyEdit implements OnInit {
         next: (createdCompany) => {
           this.router.navigate(['/companies/edit', createdCompany.id]);
         },
+        error: (err: HttpErrorResponse) => {
+          this.handleServerError(err);
+        },
       });
     } else {
       this.companyService.updateCompany(companyData.id, companyData).subscribe({
         next: () => {
           this.router.navigate(['/companies']);
         },
+        error: (err: HttpErrorResponse) => {
+          this.handleServerError(err);
+        },
       });
+    }
+  }
+
+  private handleServerError(err: HttpErrorResponse): void {
+    const apiError = err.error as ApiError | undefined;
+    if (apiError?.errors && Object.keys(apiError.errors).length > 0) {
+      this.serverErrors.set(apiError.errors);
+      this.generalError.set(null);
+    } else if (apiError?.message) {
+      this.serverErrors.set({});
+      this.generalError.set(apiError.message);
+    } else {
+      this.serverErrors.set({});
+      this.generalError.set('Error inesperado. Intente de nuevo más tarde.');
     }
   }
 

@@ -75,4 +75,56 @@ describe('CompaniesForm', () => {
     const addressError = addressForm?.querySelector('app-form-error');
     expect(addressError).toBeNull();
   });
+
+  describe('serverErrors', () => {
+    it('should apply server errors to matching controls', () => {
+      fixture.componentRef.setInput('serverErrors', {
+        rfc: 'RFC inválido',
+        email: 'Correo ya registrado',
+      });
+      fixture.detectChanges();
+
+      const rfcControl = component.formGroup().controls.rfc;
+      const emailControl = component.formGroup().controls.email;
+
+      expect(rfcControl.errors?.['serverError']).toBe('RFC inválido');
+      expect(emailControl.errors?.['serverError']).toBe('Correo ya registrado');
+    });
+
+    it('should warn on unmatched server error keys', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      fixture.componentRef.setInput('serverErrors', {
+        nonexistent: 'No existe',
+      });
+      fixture.detectChanges();
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('nonexistent'),
+      );
+
+      warnSpy.mockRestore();
+    });
+
+    it('should clear serverError on valueChanges while preserving other validators', () => {
+      const rfcControl = component.formGroup().controls.rfc;
+
+      fixture.componentRef.setInput('serverErrors', {
+        rfc: 'RFC inválido',
+      });
+      fixture.detectChanges();
+
+      expect(rfcControl.errors?.['serverError']).toBe('RFC inválido');
+
+      // Set a short value that satisfies required but fails pattern
+      rfcControl.setValue('AB');
+      fixture.detectChanges();
+
+      // serverError should be cleared by valueChanges
+      expect(rfcControl.errors?.['serverError']).toBeUndefined();
+
+      // Pattern validator should still fire (AB is too short)
+      expect(rfcControl.errors?.['pattern']).toBeDefined();
+    });
+  });
 });

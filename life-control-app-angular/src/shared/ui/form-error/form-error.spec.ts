@@ -106,6 +106,49 @@ describe('FormErrorComponent', () => {
     });
   });
 
+  describe('serverError', () => {
+    it('should display serverError message verbatim', () => {
+      const control = new FormControl('valor');
+      control.setErrors({ serverError: 'RFC inválido — debe tener 12-13 caracteres' });
+      control.markAsTouched();
+      setControl(control);
+
+      const matError = fixture.nativeElement.querySelector('mat-error');
+      expect(matError).toBeTruthy();
+      expect(matError.textContent).toContain('RFC inválido — debe tener 12-13 caracteres');
+    });
+
+    it('should respect first-error-wins when serverError comes after required', () => {
+      const control = new FormControl('', Validators.required);
+      control.markAsTouched();
+      control.updateValueAndValidity();
+      // control.errors is now { required: true }
+      control.setErrors({ ...control.errors, serverError: 'Mensaje de servidor' });
+      setControl(control);
+
+      const matError = fixture.nativeElement.querySelector('mat-error');
+      expect(matError).toBeTruthy();
+      // required comes first in the errors object
+      expect(matError.textContent).toContain('Este campo es obligatorio.');
+      expect(matError.textContent).not.toContain('Mensaje de servidor');
+    });
+
+    it('should not require customMessages configuration for serverError', () => {
+      const control = new FormControl('test');
+      control.setErrors({ serverError: 'Error del servidor' });
+      control.markAsTouched();
+      // Set customMessages that does NOT include serverError
+      fixture.componentRef.setInput('customMessages', {
+        required: () => 'Personalizado.',
+      });
+      setControl(control);
+
+      const matError = fixture.nativeElement.querySelector('mat-error');
+      expect(matError).toBeTruthy();
+      expect(matError.textContent).toContain('Error del servidor');
+    });
+  });
+
   describe('customMessages', () => {
     it('should override default message for the same validator key', () => {
       const control = new FormControl('', Validators.required);

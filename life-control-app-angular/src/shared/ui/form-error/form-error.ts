@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { Component, input } from '@angular/core';
 import { AbstractControl } from '@angular/forms';
 import { MatInputModule } from '@angular/material/input';
 
@@ -6,7 +6,6 @@ import { MatInputModule } from '@angular/material/input';
   selector: 'app-form-error',
   standalone: true,
   imports: [MatInputModule],
-  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (mensaje) {
       <mat-error>{{ mensaje }}</mat-error>
@@ -25,6 +24,7 @@ export class FormErrorComponent {
     maxlength: (err) =>
       `No puede superar los ${err.requiredLength} caracteres.`,
     pattern: () => 'El formato ingresado no es válido.',
+    serverError: (err) => err,
   };
 
   get mensaje(): string | null {
