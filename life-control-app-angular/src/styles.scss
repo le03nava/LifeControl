@@ -1,8 +1,52 @@
 @use 'shared/styles/variables' as *;
+@use '@angular/material' as mat;
+
+// ─── Tema Material 3 ──────────────────────────────────────────
+$light-theme: mat.define-theme(
+  (
+    color: (
+      theme-type: light,
+      primary: mat.$azure-palette,
+      tertiary: mat.$cyan-palette,
+    ),
+  )
+);
+
+$dark-theme: mat.define-theme(
+  (
+    color: (
+      theme-type: dark,
+      primary: mat.$azure-palette,
+      tertiary: mat.$cyan-palette,
+    ),
+  )
+);
 
 /* Global styles using modern CSS */
 
 :root {
+  // ─── Core base (ripple, focus indicators, option) ─────────
+  @include mat.core-theme($light-theme);
+
+  // ─── Component themes selectivos ──────────────────────────
+  @include mat.button-theme($light-theme);
+  @include mat.fab-theme($light-theme);
+  @include mat.icon-button-theme($light-theme);
+  @include mat.card-theme($light-theme);
+  @include mat.checkbox-theme($light-theme);
+  @include mat.chips-theme($light-theme);
+  @include mat.dialog-theme($light-theme);
+  @include mat.form-field-theme($light-theme);
+  @include mat.icon-theme($light-theme);
+  @include mat.input-theme($light-theme);
+  @include mat.option-theme($light-theme);
+  @include mat.paginator-theme($light-theme);
+  @include mat.select-theme($light-theme);
+  @include mat.slide-toggle-theme($light-theme);
+  @include mat.table-theme($light-theme);
+  @include mat.tabs-theme($light-theme);
+  @include mat.tooltip-theme($light-theme);
+
   /* Color palette */
   --color-primary: #2563eb;
   --color-primary-hover: #1d4ed8;
@@ -90,6 +134,25 @@
 /* Dark theme */
 @media (prefers-color-scheme: dark) {
   :root {
+    // ─── Core ──────────────────────────────────────────────
+    @include mat.core-color($dark-theme);
+    @include mat.button-color($dark-theme);
+    @include mat.fab-color($dark-theme);
+    @include mat.icon-button-color($dark-theme);
+    @include mat.card-color($dark-theme);
+    @include mat.checkbox-color($dark-theme);
+    @include mat.chips-color($dark-theme);
+    @include mat.dialog-color($dark-theme);
+    @include mat.form-field-color($dark-theme);
+    @include mat.icon-color($dark-theme);
+    @include mat.input-color($dark-theme);
+    @include mat.option-color($dark-theme);
+    @include mat.paginator-color($dark-theme);
+    @include mat.select-color($dark-theme);
+    @include mat.slide-toggle-color($dark-theme);
+    @include mat.table-color($dark-theme);
+    @include mat.tabs-color($dark-theme);
+    @include mat.tooltip-color($dark-theme);
     --color-primary: #3b82f6;
     --color-primary-hover: #2563eb;
     --color-gray-50: #0f172a;
