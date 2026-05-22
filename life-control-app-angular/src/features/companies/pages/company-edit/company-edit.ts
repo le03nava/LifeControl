@@ -31,7 +31,6 @@ export class CompanyEdit implements OnInit {
   companyCountryService = inject(CompanyCountryService);
 
   companyId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
-  defaultCompanyId = signal<number | null>(null);
 
   companyForm = signal<FormGroup<CompanyControl>>(this.createForm());
 
@@ -45,7 +44,6 @@ export class CompanyEdit implements OnInit {
     } else {
       const current = this.companyContextService.currentCompany();
       if (current) {
-        this.defaultCompanyId.set(current.companyId);
         this.companyForm().controls.companyId.setValue(current.companyId);
       }
     }
@@ -108,7 +106,7 @@ export class CompanyEdit implements OnInit {
         },
       });
     } else {
-      this.companyService.updateCompany(companyData).subscribe({
+      this.companyService.updateCompany(companyData.id, companyData).subscribe({
         next: () => {
           this.router.navigate(['/companies']);
         },

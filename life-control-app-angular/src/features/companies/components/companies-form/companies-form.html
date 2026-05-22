@@ -15,13 +15,13 @@
         formControlName="companyId"
         placeholder="Ingrese el ID numérico de la compañía"
       />
-      <app-form-error [control]="getControl('companyId')" />
+      <app-form-error [control]="formGroup().controls.companyId" />
     </mat-form-field>
 
     <mat-form-field appearance="outline">
       <mat-label>Nombre de la Empresa</mat-label>
       <input matInput formControlName="companyName" placeholder="Ingrese el nombre de la empresa" />
-      <app-form-error [control]="getControl('companyName')" />
+      <app-form-error [control]="formGroup().controls.companyName" />
     </mat-form-field>
 
     <mat-form-field appearance="outline">
@@ -31,33 +31,33 @@
           <mat-option [value]="type.value">{{ type.label }}</mat-option>
         }
       </mat-select>
-      <app-form-error [control]="getControl('tipoPersonaId')" />
+      <app-form-error [control]="formGroup().controls.tipoPersonaId" />
     </mat-form-field>
 
     <mat-form-field appearance="outline">
       <mat-label>Razón Social</mat-label>
       <input matInput formControlName="razonSocial" placeholder="Ingrese la razón social" />
-      <app-form-error [control]="getControl('razonSocial')" />
+      <app-form-error [control]="formGroup().controls.razonSocial" />
     </mat-form-field>
 
     <mat-form-field appearance="outline">
       <mat-label>RFC</mat-label>
       <input matInput formControlName="rfc" placeholder="Ingrese el RFC (12-13 caracteres)" />
-      <app-form-error [control]="getControl('rfc')" [customMessages]="rfcErrorMessages" />
+      <app-form-error [control]="formGroup().controls.rfc" [customMessages]="rfcErrorMessages" />
     </mat-form-field>
 
     <mat-form-field appearance="outline">
       <mat-label>Correo Electrónico</mat-label>
       <mat-icon matPrefix>mail</mat-icon>
       <input matInput type="email" formControlName="email" placeholder="correo@ejemplo.com" />
-      <app-form-error [control]="getControl('email')" [customMessages]="emailErrorMessages" />
+      <app-form-error [control]="formGroup().controls.email" [customMessages]="emailErrorMessages" />
     </mat-form-field>
 
     <mat-form-field appearance="outline">
       <mat-label>Teléfono</mat-label>
       <mat-icon matPrefix>phone</mat-icon>
       <input matInput formControlName="phone" placeholder="+52XXXXXXXXXX o 10 dígitos" />
-      <app-form-error [control]="getControl('phone')" [customMessages]="phoneErrorMessages" />
+      <app-form-error [control]="formGroup().controls.phone" [customMessages]="phoneErrorMessages" />
     </mat-form-field>
 
     <mat-form-field class="full-width" appearance="outline">
@@ -71,7 +71,7 @@
 
     <div class="form-actions">
       <button mat-button type="button" (click)="onCancel()">Cancelar</button>
-      <button mat-flat-button type="submit" [disabled]="!formGroup().valid">
+      <button mat-flat-button type="submit">
         @if (!isEditMode()) {
           Guardar
         } @else {

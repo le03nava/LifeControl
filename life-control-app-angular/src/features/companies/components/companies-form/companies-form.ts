@@ -1,14 +1,12 @@
 import {
   Component,
-  signal,
+  computed,
   input,
   output,
-  effect,
 } from '@angular/core';
 import {
   FormGroup,
   ReactiveFormsModule,
-  FormControl,
 } from '@angular/forms';
 import { Company, CompanyControl } from '../../models/company.models';
 import { MatButtonModule } from '@angular/material/button';
@@ -28,7 +26,6 @@ import { FormErrorComponent } from '@shared/ui';
 })
 export class CompaniesForm {
   formGroup = input.required<FormGroup<CompanyControl>>();
-  companyId = input<number | null>(null);
   saveCompany = output<Company>();
   cancelForm = output<void>();
 
@@ -49,40 +46,14 @@ export class CompaniesForm {
     pattern: () => 'Ingrese un número de teléfono válido.',
   };
 
-  isEditMode = signal(false);
-
-  constructor() {
-    effect(() => {
-      const form = this.formGroup();
-      if (form.get('id')?.value) {
-        this.isEditMode.set(true);
-      }
-    });
-
-    effect(() => {
-      const id = this.companyId();
-      const form = this.formGroup();
-      if (id !== null && form) {
-        form.controls.companyId.setValue(id);
-      }
-    });
-  }
+  readonly isEditMode = computed(() => !!this.formGroup()?.controls.id.value);
 
   onSave(): void {
     if (this.formGroup().valid) {
-      const formData = this.formGroup();
-
+      const raw = this.formGroup().getRawValue();
       const companyData: Company = {
-        id: formData.get('id')?.value || '',
-        companyId: formData.get('companyId')?.value ?? 0,
-        companyName: formData.get('companyName')?.value || '',
-        tipoPersonaId: formData.get('tipoPersonaId')?.value || 1,
-        razonSocial: formData.get('razonSocial')?.value || '',
-        rfc: formData.get('rfc')?.value || '',
-        email: formData.get('email')?.value || '',
-        phone: formData.get('phone')?.value || '',
-        address: formData.get('address')?.value || '',
-        enabled: formData.get('enabled')?.value ?? true,
+        ...raw,
+        companyId: raw.companyId ?? 0,
         createdAt: '',
         updatedAt: '',
       };
@@ -92,9 +63,5 @@ export class CompaniesForm {
 
   onCancel(): void {
     this.cancelForm.emit();
-  }
-
-  getControl(controlName: keyof CompanyControl): FormControl<string | number | boolean | null> {
-    return this.formGroup().controls[controlName] as FormControl<any | null>;
   }
 }

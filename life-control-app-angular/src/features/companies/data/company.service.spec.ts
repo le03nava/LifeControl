@@ -135,9 +135,9 @@ describe('CompanyService', () => {
 
   describe('updateCompany', () => {
     it('should update an existing company', async () => {
-      const responsePromise = firstValueFrom(service.updateCompany(mockCompany));
+      const responsePromise = firstValueFrom(service.updateCompany('1', mockCompany));
 
-      const req = httpMock.expectOne(`${service.apiUrl}`);
+      const req = httpMock.expectOne(`${service.apiUrl}/1`);
       expect(req.request.method).toBe('PUT');
       req.flush(mockCompany);
 
