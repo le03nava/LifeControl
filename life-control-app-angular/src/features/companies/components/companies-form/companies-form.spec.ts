@@ -38,25 +38,39 @@ describe('CompaniesForm', () => {
     expect(component).toBeTruthy();
   });
 
-  it('should render app-form-error for each tracked field', () => {
-    const formErrors = fixture.nativeElement.querySelectorAll('app-form-error');
+  function triggerErrorsOnTrackedFields(): void {
+    ['companyId', 'companyName', 'tipoPersonaId', 'razonSocial', 'rfc', 'email', 'phone']
+      .forEach(key => {
+        const control = component.formGroup().get(key);
+        control?.markAsTouched();
+        control?.setErrors({ required: true });
+      });
+    fixture.detectChanges();
+  }
+
+  it('should render mat-error for each tracked field', () => {
+    triggerErrorsOnTrackedFields();
+
+    const matErrors = fixture.nativeElement.querySelectorAll('mat-error');
     // 7 tracked fields: companyId, companyName, tipoPersonaId, razonSocial, rfc, email, phone
-    expect(formErrors.length).toBe(7);
+    expect(matErrors.length).toBe(7);
   });
 
-  it('should render customMessages on rfc, email, and phone form-errors', () => {
-    const formErrors = fixture.nativeElement.querySelectorAll('app-form-error');
+  it('should render customMessages on rfc, email, and phone mat-errors', () => {
+    triggerErrorsOnTrackedFields();
+
+    const matErrors = fixture.nativeElement.querySelectorAll('mat-error');
 
     // rfc has customMessages
-    const rfcForm = formErrors[4].closest('mat-form-field');
+    const rfcForm = matErrors[4].closest('mat-form-field');
     expect(rfcForm?.querySelector('input')?.getAttribute('formControlName')).toBe('rfc');
 
     // email has customMessages
-    const emailForm = formErrors[5].closest('mat-form-field');
+    const emailForm = matErrors[5].closest('mat-form-field');
     expect(emailForm?.querySelector('input')?.getAttribute('formControlName')).toBe('email');
 
     // phone has customMessages
-    const phoneForm = formErrors[6].closest('mat-form-field');
+    const phoneForm = matErrors[6].closest('mat-form-field');
     expect(phoneForm?.querySelector('input')?.getAttribute('formControlName')).toBe('phone');
   });
 
@@ -67,12 +81,12 @@ describe('CompaniesForm', () => {
     expect(matIcons[1].textContent).toContain('phone');
   });
 
-  it('should leave address field unchanged (no form-error)', () => {
+  it('should leave address field unchanged (no mat-error)', () => {
     const addressField = fixture.nativeElement.querySelector('[formControlName="address"]');
     expect(addressField).toBeTruthy();
 
     const addressForm = addressField.closest('mat-form-field');
-    const addressError = addressForm?.querySelector('app-form-error');
+    const addressError = addressForm?.querySelector('mat-error');
     expect(addressError).toBeNull();
   });
 

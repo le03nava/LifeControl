@@ -15,13 +15,17 @@
         formControlName="companyId"
         placeholder="Ingrese el ID numérico de la compañía"
       />
-      <app-form-error [control]="formGroup().controls.companyId" />
+      @if (getErrorMessage(formGroup().controls.companyId); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
     </mat-form-field>
 
     <mat-form-field appearance="outline">
       <mat-label>Nombre de la Empresa</mat-label>
       <input matInput formControlName="companyName" placeholder="Ingrese el nombre de la empresa" />
-      <app-form-error [control]="formGroup().controls.companyName" />
+      @if (getErrorMessage(formGroup().controls.companyName); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
     </mat-form-field>
 
     <mat-form-field appearance="outline">
@@ -31,33 +35,43 @@
           <mat-option [value]="type.value">{{ type.label }}</mat-option>
         }
       </mat-select>
-      <app-form-error [control]="formGroup().controls.tipoPersonaId" />
+      @if (getErrorMessage(formGroup().controls.tipoPersonaId); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
     </mat-form-field>
 
     <mat-form-field appearance="outline">
       <mat-label>Razón Social</mat-label>
       <input matInput formControlName="razonSocial" placeholder="Ingrese la razón social" />
-      <app-form-error [control]="formGroup().controls.razonSocial" />
+      @if (getErrorMessage(formGroup().controls.razonSocial); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
     </mat-form-field>
 
     <mat-form-field appearance="outline">
       <mat-label>RFC</mat-label>
       <input matInput formControlName="rfc" placeholder="Ingrese el RFC (12-13 caracteres)" />
-      <app-form-error [control]="formGroup().controls.rfc" [customMessages]="rfcErrorMessages" />
+      @if (getErrorMessage(formGroup().controls.rfc, rfcErrorMessages); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
     </mat-form-field>
 
     <mat-form-field appearance="outline">
       <mat-label>Correo Electrónico</mat-label>
       <mat-icon matPrefix>mail</mat-icon>
       <input matInput type="email" formControlName="email" placeholder="correo@ejemplo.com" />
-      <app-form-error [control]="formGroup().controls.email" [customMessages]="emailErrorMessages" />
+      @if (getErrorMessage(formGroup().controls.email, emailErrorMessages); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
     </mat-form-field>
 
     <mat-form-field appearance="outline">
       <mat-label>Teléfono</mat-label>
       <mat-icon matPrefix>phone</mat-icon>
       <input matInput formControlName="phone" placeholder="+52XXXXXXXXXX o 10 dígitos" />
-      <app-form-error [control]="formGroup().controls.phone" [customMessages]="phoneErrorMessages" />
+      @if (getErrorMessage(formGroup().controls.phone, phoneErrorMessages); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
     </mat-form-field>
 
     <mat-form-field class="full-width" appearance="outline">

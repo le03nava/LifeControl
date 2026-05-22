@@ -6,6 +6,7 @@ import {
   output,
 } from '@angular/core';
 import {
+  AbstractControl,
   FormGroup,
   ReactiveFormsModule,
 } from '@angular/forms';
@@ -17,12 +18,11 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatIconModule } from '@angular/material/icon';
-import { FormErrorComponent } from '@shared/ui';
 
 @Component({
   selector: 'app-companies-form',
   standalone: true,
-  imports: [ReactiveFormsModule, MatFormFieldModule, MatInputModule, MatButtonModule, MatSelectModule, MatSlideToggleModule, MatIconModule, FormErrorComponent],
+  imports: [ReactiveFormsModule, MatFormFieldModule, MatInputModule, MatButtonModule, MatSelectModule, MatSlideToggleModule, MatIconModule],
   templateUrl: './companies-form.html',
   styleUrl: './companies-form.scss',
 })
@@ -48,6 +48,36 @@ export class CompaniesForm {
   protected readonly phoneErrorMessages: Record<string, (error: any) => string> = {
     pattern: () => 'Ingrese un número de teléfono válido.',
   };
+
+  private readonly defaultErrorMessages: Record<string, (error: any) => string> = {
+    required: () => 'Este campo es obligatorio.',
+    email: () => 'El formato del correo electrónico no es válido.',
+    minlength: (err) =>
+      `Debe tener al menos ${err.requiredLength} caracteres (llevas ${err.actualLength}).`,
+    maxlength: (err) =>
+      `No puede superar los ${err.requiredLength} caracteres.`,
+    pattern: () => 'El formato ingresado no es válido.',
+    serverError: (err) => err,
+  };
+
+  protected getErrorMessage(
+    control: AbstractControl | null,
+    customMessages?: Record<string, (error: any) => string>,
+  ): string | null {
+    if (!control || !control.errors || !control.touched) {
+      return null;
+    }
+
+    const primerErrorKey = Object.keys(control.errors)[0];
+    const errorDetalle = control.errors[primerErrorKey];
+
+    const allMessages = { ...this.defaultErrorMessages, ...customMessages };
+    if (allMessages[primerErrorKey]) {
+      return allMessages[primerErrorKey](errorDetalle);
+    }
+
+    return 'Campo inválido.';
+  }
 
   readonly isEditMode = computed(() => !!this.formGroup()?.controls.id.value);
 
