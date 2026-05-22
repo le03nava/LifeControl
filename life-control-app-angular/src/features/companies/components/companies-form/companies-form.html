@@ -1,4 +1,4 @@
-<div class="form-container">
+<div class="form-card">
   <h2>
     @if (isEditMode()) {
       Editar Compañía
@@ -9,18 +9,19 @@
   <form [formGroup]="formGroup()" (ngSubmit)="onSave()">
     <mat-form-field appearance="outline">
       <mat-label>ID de Compañía</mat-label>
-      <input matInput type="number" formControlName="companyId" placeholder="Ingrese el ID numérico de la compañía" />
-      @if (getControl('companyId').hasError('required') && getControl('companyId').touched) {
-        <mat-error>Este campo es obligatorio</mat-error>
-      }
+      <input
+        matInput
+        type="number"
+        formControlName="companyId"
+        placeholder="Ingrese el ID numérico de la compañía"
+      />
+      <app-form-error [control]="getControl('companyId')" />
     </mat-form-field>
 
     <mat-form-field appearance="outline">
       <mat-label>Nombre de la Empresa</mat-label>
       <input matInput formControlName="companyName" placeholder="Ingrese el nombre de la empresa" />
-      @if (getControl('companyName').hasError('required') && getControl('companyName').touched) {
-        <mat-error>Este campo es obligatorio</mat-error>
-      }
+      <app-form-error [control]="getControl('companyName')" />
     </mat-form-field>
 
     <mat-form-field appearance="outline">
@@ -30,46 +31,33 @@
           <mat-option [value]="type.value">{{ type.label }}</mat-option>
         }
       </mat-select>
-      @if (getControl('tipoPersonaId').hasError('required') && getControl('tipoPersonaId').touched) {
-        <mat-error>Este campo es obligatorio</mat-error>
-      }
+      <app-form-error [control]="getControl('tipoPersonaId')" />
     </mat-form-field>
 
     <mat-form-field appearance="outline">
       <mat-label>Razón Social</mat-label>
       <input matInput formControlName="razonSocial" placeholder="Ingrese la razón social" />
-      @if (getControl('razonSocial').hasError('required') && getControl('razonSocial').touched) {
-        <mat-error>Este campo es obligatorio</mat-error>
-      }
+      <app-form-error [control]="getControl('razonSocial')" />
     </mat-form-field>
 
     <mat-form-field appearance="outline">
       <mat-label>RFC</mat-label>
       <input matInput formControlName="rfc" placeholder="Ingrese el RFC (12-13 caracteres)" />
-      @if (getControl('rfc').hasError('required') && getControl('rfc').touched) {
-        <mat-error>Este campo es obligatorio</mat-error>
-      }
-      @if (getControl('rfc').hasError('pattern') && getControl('rfc').touched) {
-        <mat-error>El RFC debe tener 12-13 caracteres alfanuméricos</mat-error>
-      }
+      <app-form-error [control]="getControl('rfc')" [customMessages]="rfcErrorMessages" />
     </mat-form-field>
 
     <mat-form-field appearance="outline">
       <mat-label>Correo Electrónico</mat-label>
-      <span matPrefix><mat-icon>mail</mat-icon></span>
+      <mat-icon matPrefix>mail</mat-icon>
       <input matInput type="email" formControlName="email" placeholder="correo@ejemplo.com" />
-      @if (getControl('email').hasError('email') && getControl('email').touched) {
-        <mat-error>Ingrese un correo electrónico válido</mat-error>
-      }
+      <app-form-error [control]="getControl('email')" [customMessages]="emailErrorMessages" />
     </mat-form-field>
 
     <mat-form-field appearance="outline">
       <mat-label>Teléfono</mat-label>
-      <span matPrefix><mat-icon>phone</mat-icon></span>
+      <mat-icon matPrefix>phone</mat-icon>
       <input matInput formControlName="phone" placeholder="+52XXXXXXXXXX o 10 dígitos" />
-      @if (getControl('phone').hasError('pattern') && getControl('phone').touched) {
-        <mat-error>Ingrese un número de teléfono válido</mat-error>
-      }
+      <app-form-error [control]="getControl('phone')" [customMessages]="phoneErrorMessages" />
     </mat-form-field>
 
     <mat-form-field class="full-width" appearance="outline">
@@ -82,8 +70,8 @@
     </div>
 
     <div class="form-actions">
-      <button mat-stroked-button color="warn" type="button" (click)="onCancel()">Cancelar</button>
-      <button mat-raised-button color="primary" type="submit" [disabled]="!formGroup().valid">
+      <button mat-button type="button" (click)="onCancel()">Cancelar</button>
+      <button mat-flat-button type="submit" [disabled]="!formGroup().valid">
         @if (!isEditMode()) {
           Guardar
         } @else {
