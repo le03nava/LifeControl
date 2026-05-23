@@ -2,6 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { MatIconModule } from '@angular/material/icon';
 import { MatPaginatorModule } from '@angular/material/paginator';
+import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { CompanyList } from './company-list';
 import { CompanyService } from '@features/companies/data/company.service';
@@ -43,10 +44,11 @@ describe('CompanyList', () => {
     };
 
     await TestBed.configureTestingModule({
-      imports: [CompanyList, MatIconModule, MatPaginatorModule, NoopAnimationsModule],
+      imports: [CompanyList, MatIconModule, MatPaginatorModule, MatDialogModule, NoopAnimationsModule],
       providers: [
         provideRouter([]),
         { provide: CompanyService, useValue: companyService },
+        { provide: MatDialog, useValue: { open: vi.fn().mockReturnValue({ afterClosed: vi.fn().mockReturnValue(of(false)) }) } },
       ],
     }).compileComponents();
 
@@ -70,23 +72,24 @@ describe('CompanyList', () => {
     expect(router.navigate).toHaveBeenCalledWith(['/companies/edit/123']);
   });
 
-  it('should open delete modal', () => {
+  it('should open delete dialog', () => {
+    const dialogOpen = vi.spyOn(TestBed.inject(MatDialog), 'open');
     component.confirmDelete({ id: '1', name: 'Alpha Corp' });
-    expect(component.showDeleteModal()).toBe(true);
-    expect(component.companyToDelete()?.id).toBe('1');
+    expect(dialogOpen).toHaveBeenCalled();
   });
 
-  it('should close delete modal', () => {
+  it('should delete company when dialog confirms', () => {
+    const dialogRef = { afterClosed: vi.fn().mockReturnValue(of(true)) };
+    vi.spyOn(TestBed.inject(MatDialog), 'open').mockReturnValue(dialogRef as any);
     component.confirmDelete({ id: '1', name: 'Alpha Corp' });
-    component.cancelDelete();
-    expect(component.showDeleteModal()).toBe(false);
-    expect(component.companyToDelete()).toBeNull();
-  });
-
-  it('should delete company', () => {
-    component.confirmDelete({ id: '1', name: 'Alpha Corp' });
-    component.executeDelete();
     expect(companyService.deleteCompany).toHaveBeenCalledWith('1');
+  });
+
+  it('should NOT delete company when dialog cancels', () => {
+    const dialogRef = { afterClosed: vi.fn().mockReturnValue(of(false)) };
+    vi.spyOn(TestBed.inject(MatDialog), 'open').mockReturnValue(dialogRef as any);
+    component.confirmDelete({ id: '1', name: 'Alpha Corp' });
+    expect(companyService.deleteCompany).not.toHaveBeenCalled();
   });
 
   it('should clear search query', () => {

@@ -1,26 +1,28 @@
 import { Component, DestroyRef, effect, inject, signal, computed } from '@angular/core';
 import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
-import { Button, Modal, PageHeader } from '@shared/ui';
+import { PageHeader } from '@shared/ui';
 import { CompanyService } from '@features/companies/data/company.service';
 import { CompaniesCard } from '@features/companies/components';
 import { MatIconModule } from '@angular/material/icon';
 import { MatPaginatorModule } from '@angular/material/paginator';
+import { MatButtonModule } from '@angular/material/button';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
+import { MatDialog } from '@angular/material/dialog';
+import { DeleteCompanyDialogComponent } from '../../ui/delete-company-dialog/delete-company-dialog';
 
 @Component({
   selector: 'app-company-list',
-  imports: [RouterLink, Button, Modal, PageHeader, CompaniesCard, MatIconModule, MatPaginatorModule],
+  imports: [RouterLink, PageHeader, CompaniesCard, MatIconModule, MatPaginatorModule, MatButtonModule, MatFormFieldModule, MatInputModule],
   templateUrl: './company-list.html',
   styleUrl: './company-list.scss',
 })
 export class CompanyList {
   companyService = inject(CompanyService);
   private router = inject(Router);
+  private readonly dialog = inject(MatDialog);
   private readonly destroyRef = inject(DestroyRef);
-
-  showDeleteModal = signal(false);
-  companyToDelete = signal<{ id: string; name: string } | null>(null);
-  isDeleting = signal(false);
 
   // Paginación
   readonly pageSize = signal(12);
@@ -83,13 +85,18 @@ export class CompanyList {
   }
 
   confirmDelete(companyInfo: { id: string; name: string }): void {
-    this.companyToDelete.set({ id: companyInfo.id, name: companyInfo.name });
-    this.showDeleteModal.set(true);
-  }
-
-  cancelDelete(): void {
-    this.showDeleteModal.set(false);
-    this.companyToDelete.set(null);
+    const dialogRef = this.dialog.open(DeleteCompanyDialogComponent, {
+      data: { companyName: companyInfo.name },
+    });
+    dialogRef.afterClosed().subscribe((result: boolean) => {
+      if (result) {
+        this.companyService.deleteCompany(companyInfo.id).pipe(
+          takeUntilDestroyed(this.destroyRef),
+        ).subscribe({
+          next: () => this.companiesResource.reload(),
+        });
+      }
+    });
   }
 
   clearSearch(): void {
@@ -99,24 +106,5 @@ export class CompanyList {
   onPageChange(event: { pageIndex: number; pageSize: number }): void {
     this.pageIndex.set(event.pageIndex);
     this.pageSize.set(event.pageSize);
-  }
-
-  async executeDelete(): Promise<void> {
-    const company = this.companyToDelete();
-    if (!company || this.isDeleting()) return;
-
-    this.isDeleting.set(true);
-    this.companyService.deleteCompany(company.id).pipe(
-      takeUntilDestroyed(this.destroyRef),
-    ).subscribe({
-      next: () => {
-        this.isDeleting.set(false);
-        this.showDeleteModal.set(false);
-        this.companiesResource.reload();
-      },
-      error: () => {
-        this.isDeleting.set(false);
-      },
-    });
   }
 }
