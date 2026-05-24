@@ -34,9 +34,11 @@ export class CountrySelector {
 
   addCountry = output<CompanyCountryRequest>();
   removeCountry = output<string>();
+  countrySelected = output<CompanyCountry>();
 
   selectedCountryCode = signal('');
   localAlias = signal('');
+  selectedAssignedCountryId = signal<string | null>(null);
 
   onAdd(): void {
     const code = this.selectedCountryCode();
@@ -51,5 +53,14 @@ export class CountrySelector {
 
   onRemove(companyCountryId: string): void {
     this.removeCountry.emit(companyCountryId);
+  }
+
+  onSelectCountry(cc: CompanyCountry): void {
+    if (this.selectedAssignedCountryId() === cc.id) {
+      this.selectedAssignedCountryId.set(null);
+      return;
+    }
+    this.selectedAssignedCountryId.set(cc.id);
+    this.countrySelected.emit(cc);
   }
 }

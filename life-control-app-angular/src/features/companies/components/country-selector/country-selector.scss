@@ -24,3 +24,8 @@
   font-style: italic;
   margin-bottom: 1.5rem;
 }
+
+::ng-deep .selected {
+  --mdc-chip-elevated-container-color: var(--mat-sys-primary-container);
+  --mdc-chip-label-text-color: var(--mat-sys-on-primary-container);
+}

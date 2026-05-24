@@ -12,7 +12,7 @@
     @if (assignedCountries().length > 0) {
       <mat-chip-set>
         @for (cc of assignedCountries(); track cc.id) {
-          <mat-chip (removed)="onRemove(cc.id)" [disabled]="loading()">
+          <mat-chip (click)="onSelectCountry(cc)" (removed)="onRemove(cc.id)" [disabled]="loading()" [class.selected]="cc.id === selectedAssignedCountryId()">
             {{ cc.countryName }} ({{ cc.countryCode }})
             @if (cc.localAlias) {
               <span class="chip-alias">— {{ cc.localAlias }}</span>
