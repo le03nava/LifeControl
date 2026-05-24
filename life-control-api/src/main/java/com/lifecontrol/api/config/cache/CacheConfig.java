@@ -61,6 +61,9 @@ public class CacheConfig {
                 .withCacheConfiguration("countries",
                         RedisCacheConfiguration.defaultCacheConfig()
                                 .entryTtl(Duration.ofHours(1)))
+                .withCacheConfiguration("companyRegions",
+                        RedisCacheConfiguration.defaultCacheConfig()
+                                .entryTtl(Duration.ofHours(1)))
                 .build();
     }
 
@@ -76,7 +79,8 @@ public class CacheConfig {
         log.info("Redis not available — using SimpleCacheManager fallback (in-memory, no TTL)");
         var cacheManager = new SimpleCacheManager();
         cacheManager.setCaches(Set.of(
-                new ConcurrentMapCache("countries")
+                new ConcurrentMapCache("countries"),
+                new ConcurrentMapCache("companyRegions")
         ));
         return cacheManager;
     }
