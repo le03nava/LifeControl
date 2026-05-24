@@ -68,7 +68,7 @@ class CompanyRegionServiceTest {
 
         testCompany = Company.builder()
                 .id(companyId)
-                .companyId(1)
+                .companyKey("1")
                 .companyName("Test Company")
                 .rfc("XAXX010101000")
                 .enabled(true)

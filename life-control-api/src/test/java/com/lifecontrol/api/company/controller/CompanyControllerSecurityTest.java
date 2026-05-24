@@ -81,7 +81,7 @@ class CompanyControllerSecurityTest {
 
     private CompanyRequest buildCompanyRequest() {
         return new CompanyRequest(
-                1, "Test Company", 1, "Razon Social",
+                "1", "Test Company", 1, "Razon Social",
                 "XAXX010101000", "+1234567890", "test@company.com", true
         );
     }
@@ -97,7 +97,7 @@ class CompanyControllerSecurityTest {
         @DisplayName("returns 200 OK for user with life-control-admin role")
         void adminCanGetCompanies() throws Exception {
             var response = new CompanyResponse(
-                    UUID.randomUUID(), 1, "Test", 1, "RS",
+                    UUID.randomUUID(), "1", "Test", 1, "RS",
                     "XAXX010101000", "555", "e@e.com", true,
                     LocalDateTime.now(), LocalDateTime.now()
             );
@@ -136,7 +136,7 @@ class CompanyControllerSecurityTest {
         @DisplayName("returns 201 Created for user with life-control-admin role")
         void adminCanCreateCompany() throws Exception {
             var response = new CompanyResponse(
-                    UUID.randomUUID(), 1, "Test", 1, "RS",
+                    UUID.randomUUID(), "1", "Test", 1, "RS",
                     "XAXX010101000", "555", "e@e.com", true,
                     LocalDateTime.now(), LocalDateTime.now()
             );

@@ -14,9 +14,9 @@ import java.util.UUID;
 @Repository
 public interface CompanyRepository extends JpaRepository<Company, UUID> {
 
-    Optional<Company> findByCompanyId(Integer companyId);
+    Optional<Company> findByCompanyKey(String companyKey);
 
-    boolean existsByCompanyId(Integer companyId);
+    boolean existsByCompanyKey(String companyKey);
 
     boolean existsByRfc(String rfc);
 

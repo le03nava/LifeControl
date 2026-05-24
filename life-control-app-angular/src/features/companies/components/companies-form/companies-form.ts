@@ -122,7 +122,7 @@ export class CompaniesForm {
       const raw = this.formGroup().getRawValue();
       const companyData: Company = {
         ...raw,
-        companyId: raw.companyId ?? 0,
+        companyKey: raw.companyKey ?? '',
         createdAt: '',
         updatedAt: '',
       };

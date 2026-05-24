@@ -35,13 +35,13 @@ class KeycloakGroupEventListenerTest {
     class OnCompanyCreatedTests {
 
         private final UUID companyUuid = UUID.randomUUID();
-        private final int companyId = 42;
+        private final String companyKey = "KEY-001";
         private final String companyName = "Acme Corp";
 
         @Test
         @DisplayName("should create company group with sanitized name and UUID")
         void shouldCreateCompanyGroup() {
-            var event = new CompanyCreatedEvent(this, companyUuid, companyId, companyName);
+            var event = new CompanyCreatedEvent(this, companyUuid, companyKey, companyName);
 
             listener.onCompanyCreated(event);
 
@@ -51,7 +51,7 @@ class KeycloakGroupEventListenerTest {
         @Test
         @DisplayName("should sanitize special characters in company name")
         void shouldSanitizeSpecialCharacters() {
-            var event = new CompanyCreatedEvent(this, companyUuid, companyId, "Acme-Corp S.A. de C.V.");
+            var event = new CompanyCreatedEvent(this, companyUuid, companyKey, "Acme-Corp S.A. de C.V.");
 
             listener.onCompanyCreated(event);
 
@@ -61,7 +61,7 @@ class KeycloakGroupEventListenerTest {
         @Test
         @DisplayName("should lowercase company name")
         void shouldLowercaseCompanyName() {
-            var event = new CompanyCreatedEvent(this, companyUuid, companyId, "ACME CORPORATION");
+            var event = new CompanyCreatedEvent(this, companyUuid, companyKey, "ACME CORPORATION");
 
             listener.onCompanyCreated(event);
 
@@ -71,7 +71,7 @@ class KeycloakGroupEventListenerTest {
         @Test
         @DisplayName("should handle underscores and hyphens in name")
         void shouldHandleUnderscoresAndHyphens() {
-            var event = new CompanyCreatedEvent(this, companyUuid, companyId, "my-company_test");
+            var event = new CompanyCreatedEvent(this, companyUuid, companyKey, "my-company_test");
 
             listener.onCompanyCreated(event);
 
@@ -81,7 +81,7 @@ class KeycloakGroupEventListenerTest {
         @Test
         @DisplayName("should not re-throw when group creation fails")
         void shouldNotRethrowOnFailure() {
-            var event = new CompanyCreatedEvent(this, companyUuid, companyId, companyName);
+            var event = new CompanyCreatedEvent(this, companyUuid, companyKey, companyName);
             doThrow(new IdentityProviderConnectionException("Keycloak unavailable"))
                     .when(identityProvider).createCompanyGroup("company-acme_corp", companyUuid.toString());
 

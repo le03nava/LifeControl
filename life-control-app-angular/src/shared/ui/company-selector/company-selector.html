@@ -5,12 +5,12 @@
     <span class="empty-label">Sin empresas</span>
   } @else {
     <mat-select
-      [value]="currentCompany()?.companyId ?? null"
+      [value]="currentCompany()?.companyKey ?? null"
       (selectionChange)="onCompanyChange($event.value)"
       placeholder="Seleccionar empresa"
     >
-      @for (company of companies(); track company.companyId) {
-        <mat-option [value]="company.companyId">
+      @for (company of companies(); track company.companyKey) {
+        <mat-option [value]="company.companyKey">
           {{ company.companyName }}
         </mat-option>
       }

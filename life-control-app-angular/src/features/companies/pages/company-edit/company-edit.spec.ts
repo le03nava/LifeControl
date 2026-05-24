@@ -37,7 +37,7 @@ describe('CompanyEdit', () => {
   function createCompanyData(overrides: Partial<Company> = {}): Company {
     return {
       id: '',
-      companyId: 0,
+      companyKey: '',
       companyName: 'Test',
       tipoPersonaId: 1,
       razonSocial: 'Test SA',

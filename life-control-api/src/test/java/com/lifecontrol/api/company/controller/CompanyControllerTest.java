@@ -71,7 +71,7 @@ class CompanyControllerTest {
 
         testCompanyResponse = new CompanyResponse(
                 testCompanyId,
-                1,
+ "1",
                 "Test Company",
                 1,
                 "Razon Social Test SA de CV",
@@ -84,7 +84,7 @@ class CompanyControllerTest {
         );
 
         testCompanyRequest = new CompanyRequest(
-                1,
+                "1",
                 "Updated Company",
                 2,
                 "Nueva Razon Social",
@@ -231,7 +231,7 @@ class CompanyControllerTest {
         void updateCompany_InvalidInput_BadRequest() throws Exception {
             // Arrange - missing required field companyName
             CompanyRequest invalidRequest = new CompanyRequest(
-                    1,
+                    "1",
                     null,  // companyName is required but missing
                     null,
                     null,

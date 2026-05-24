@@ -21,9 +21,9 @@ describe('CompanyList', () => {
   let router: Router;
 
   const mockCompanies: Company[] = [
-    { id: '1', companyId: 1, companyName: 'Alpha Corp', tipoPersonaId: 1, razonSocial: 'Razon Alpha', rfc: 'RFC0000000001', email: 'alpha@test.com', phone: '5551112222', enabled: true, createdAt: '', updatedAt: '' },
-    { id: '2', companyId: 2, companyName: 'Beta Inc', tipoPersonaId: 1, razonSocial: 'Razon Beta', rfc: 'RFC0000000002', email: 'beta@test.com', phone: '5553334444', enabled: true, createdAt: '', updatedAt: '' },
-    { id: '3', companyId: 3, companyName: 'Gamma SA', tipoPersonaId: 1, razonSocial: 'Razon Gamma', rfc: 'RFC0000000003', email: 'gamma@test.com', phone: '5555556666', enabled: false, createdAt: '', updatedAt: '' },
+    { id: '1', companyKey: '1', companyName: 'Alpha Corp', tipoPersonaId: 1, razonSocial: 'Razon Alpha', rfc: 'RFC0000000001', email: 'alpha@test.com', phone: '5551112222', enabled: true, createdAt: '', updatedAt: '' },
+    { id: '2', companyKey: '2', companyName: 'Beta Inc', tipoPersonaId: 1, razonSocial: 'Razon Beta', rfc: 'RFC0000000002', email: 'beta@test.com', phone: '5553334444', enabled: true, createdAt: '', updatedAt: '' },
+    { id: '3', companyKey: '3', companyName: 'Gamma SA', tipoPersonaId: 1, razonSocial: 'Razon Gamma', rfc: 'RFC0000000003', email: 'gamma@test.com', phone: '5555556666', enabled: false, createdAt: '', updatedAt: '' },
   ];
 
   const createMockPage = (companies: Company[], page: number = 0, size: number = 12): Page<Company> => ({

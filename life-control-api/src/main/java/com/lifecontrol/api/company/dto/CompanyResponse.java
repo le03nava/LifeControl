@@ -5,7 +5,7 @@ import java.util.UUID;
 
 public record CompanyResponse(
     UUID id,
-    Integer companyId,
+    String companyKey,
     String companyName,
     Integer tipoPersonaId,
     String razonSocial,

@@ -6,18 +6,18 @@ import java.util.UUID;
 
 /**
  * Event published after a company has been successfully persisted.
- * Carries the company's internal UUID, business companyId, and name.
+ * Carries the company's internal UUID, business companyKey, and name.
  */
 public class CompanyCreatedEvent extends ApplicationEvent {
 
     private final UUID id;
-    private final Integer companyId;
+    private final String companyKey;
     private final String companyName;
 
-    public CompanyCreatedEvent(Object source, UUID id, Integer companyId, String companyName) {
+    public CompanyCreatedEvent(Object source, UUID id, String companyKey, String companyName) {
         super(source);
         this.id = id;
-        this.companyId = companyId;
+        this.companyKey = companyKey;
         this.companyName = companyName;
     }
 
@@ -25,8 +25,8 @@ public class CompanyCreatedEvent extends ApplicationEvent {
         return id;
     }
 
-    public Integer getCompanyId() {
-        return companyId;
+    public String getCompanyKey() {
+        return companyKey;
     }
 
     public String getCompanyName() {

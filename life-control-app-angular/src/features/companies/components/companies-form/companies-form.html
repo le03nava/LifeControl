@@ -8,14 +8,14 @@
   </h2>
   <form [formGroup]="formGroup()" (ngSubmit)="onSave()">
     <mat-form-field appearance="outline">
-      <mat-label>ID de Compañía</mat-label>
+      <mat-label>Clave de Compañía</mat-label>
       <input
         matInput
-        type="number"
-        formControlName="companyId"
-        placeholder="Ingrese el ID numérico de la compañía"
+        type="text"
+        formControlName="companyKey"
+        placeholder="Ingrese la clave de la compañía (máx. 50 caracteres)"
       />
-      @if (getErrorMessage(formGroup().controls.companyId); as msg) {
+      @if (getErrorMessage(formGroup().controls.companyKey); as msg) {
         <mat-error>{{ msg }}</mat-error>
       }
     </mat-form-field>

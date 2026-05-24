@@ -35,7 +35,7 @@ class CompanyRequestValidationTest {
         @DisplayName("should pass validation with valid persona física RFC")
         void validPersonaFisicaRfc_NoViolations() {
             var request = new CompanyRequest(
-                    1, "Test Company", 1, "Test S.A.",
+                    "1", "Test Company", 1, "Test S.A.",
                     "GOML850101XXX", "555-1234", "test@test.com", true
             );
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
@@ -46,7 +46,7 @@ class CompanyRequestValidationTest {
         @DisplayName("should pass validation with valid persona moral RFC")
         void validPersonaMoralRfc_NoViolations() {
             var request = new CompanyRequest(
-                    1, "Test Company", 2, "Test S.A.",
+                    "1", "Test Company", 2, "Test S.A.",
                     "ABC850101XXX", "555-1234", "test@test.com", true
             );
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
@@ -57,7 +57,7 @@ class CompanyRequestValidationTest {
         @DisplayName("should fail validation with invalid RFC")
         void invalidRfc_HasViolation() {
             var request = new CompanyRequest(
-                    1, "Test Company", 1, "Test S.A.",
+                    "1", "Test Company", 1, "Test S.A.",
                     "INVALID123", "555-1234", "test@test.com", true
             );
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
@@ -70,7 +70,7 @@ class CompanyRequestValidationTest {
         @DisplayName("should fail validation with blank RFC")
         void blankRfc_HasViolation() {
             var request = new CompanyRequest(
-                    1, "Test Company", 1, "Test S.A.",
+                    "1", "Test Company", 1, "Test S.A.",
                     "", "555-1234", "test@test.com", true
             );
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
@@ -89,7 +89,7 @@ class CompanyRequestValidationTest {
         @ValueSource(ints = {1, 2, 3, 4, 5})
         void validTipoPersonaId_NoViolations(int tipoPersonaId) {
             var request = new CompanyRequest(
-                    1, "Test Company", tipoPersonaId, "Test S.A.",
+                    "1", "Test Company", tipoPersonaId, "Test S.A.",
                     "GOML850101XXX", "555-1234", "test@test.com", true
             );
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
@@ -100,7 +100,7 @@ class CompanyRequestValidationTest {
         @DisplayName("should fail validation with tipoPersonaId less than 1")
         void tipoPersonaIdLessThanOne_HasViolation() {
             var request = new CompanyRequest(
-                    1, "Test Company", 0, "Test S.A.",
+                    "1", "Test Company", 0, "Test S.A.",
                     "GOML850101XXX", "555-1234", "test@test.com", true
             );
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
@@ -113,7 +113,7 @@ class CompanyRequestValidationTest {
         @DisplayName("should fail validation with tipoPersonaId greater than 5")
         void tipoPersonaIdGreaterThanFive_HasViolation() {
             var request = new CompanyRequest(
-                    1, "Test Company", 7, "Test S.A.",
+                    "1", "Test Company", 7, "Test S.A.",
                     "GOML850101XXX", "555-1234", "test@test.com", true
             );
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
@@ -126,7 +126,7 @@ class CompanyRequestValidationTest {
         @DisplayName("should fail validation with negative tipoPersonaId")
         void negativeTipoPersonaId_HasViolation() {
             var request = new CompanyRequest(
-                    1, "Test Company", -1, "Test S.A.",
+                    "1", "Test Company", -1, "Test S.A.",
                     "GOML850101XXX", "555-1234", "test@test.com", true
             );
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
@@ -144,7 +144,7 @@ class CompanyRequestValidationTest {
         @DisplayName("should fail validation when companyName is blank")
         void blankCompanyName_HasViolation() {
             var request = new CompanyRequest(
-                    1, "", 1, "Test S.A.",
+                    "1", "", 1, "Test S.A.",
                     "GOML850101XXX", "555-1234", "test@test.com", true
             );
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
@@ -153,24 +153,24 @@ class CompanyRequestValidationTest {
                     .anyMatch(v -> v.getPropertyPath().toString().equals("companyName"));
         }
 
-        @Test
-        @DisplayName("should fail validation when companyId is null")
-        void nullCompanyId_HasViolation() {
-            var request = new CompanyRequest(
-                    null, "Test Company", 1, "Test S.A.",
-                    "GOML850101XXX", "555-1234", "test@test.com", true
-            );
-            Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
-            assertThat(violations).isNotEmpty();
-            assertThat(violations)
-                    .anyMatch(v -> v.getPropertyPath().toString().equals("companyId"));
-        }
+    @Test
+    @DisplayName("should fail validation when companyKey is null")
+    void nullCompanyKey_HasViolation() {
+        var request = new CompanyRequest(
+                null, "Test Company", 1, "Test S.A.",
+                "GOML850101XXX", "555-1234", "test@test.com", true
+        );
+        Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
+        assertThat(violations).isNotEmpty();
+        assertThat(violations)
+                .anyMatch(v -> v.getPropertyPath().toString().equals("companyKey"));
+    }
 
         @Test
         @DisplayName("should fail validation with invalid email format")
         void invalidEmail_HasViolation() {
             var request = new CompanyRequest(
-                    1, "Test Company", 1, "Test S.A.",
+                    "1", "Test Company", 1, "Test S.A.",
                     "GOML850101XXX", "555-1234", "not-an-email", true
             );
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);

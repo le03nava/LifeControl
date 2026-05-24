@@ -11,7 +11,7 @@ describe('CompaniesForm', () => {
   function createFormGroup(): FormGroup<CompanyControl> {
     return new FormGroup<CompanyControl>({
       id: new FormControl('', { nonNullable: true }),
-      companyId: new FormControl<number | null>(null, Validators.required),
+      companyKey: new FormControl<string | null>(null, Validators.required),
       companyName: new FormControl('', { nonNullable: true, validators: Validators.required }),
       tipoPersonaId: new FormControl<number>(1, { nonNullable: true, validators: Validators.required }),
       razonSocial: new FormControl('', { nonNullable: true, validators: Validators.required }),
@@ -39,7 +39,7 @@ describe('CompaniesForm', () => {
   });
 
   function triggerErrorsOnTrackedFields(): void {
-    ['companyId', 'companyName', 'tipoPersonaId', 'razonSocial', 'rfc', 'email', 'phone']
+    ['companyKey', 'companyName', 'tipoPersonaId', 'razonSocial', 'rfc', 'email', 'phone']
       .forEach(key => {
         const control = component.formGroup().get(key);
         control?.markAsTouched();
@@ -52,7 +52,7 @@ describe('CompaniesForm', () => {
     triggerErrorsOnTrackedFields();
 
     const matErrors = fixture.nativeElement.querySelectorAll('mat-error');
-    // 7 tracked fields: companyId, companyName, tipoPersonaId, razonSocial, rfc, email, phone
+    // 7 tracked fields: companyKey, companyName, tipoPersonaId, razonSocial, rfc, email, phone
     expect(matErrors.length).toBe(7);
   });
 

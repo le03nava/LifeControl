@@ -50,7 +50,7 @@ export class CompanyEdit implements OnInit {
     } else {
       const current = this.companyContextService.currentCompany();
       if (current) {
-        this.companyForm().controls.companyId.setValue(current.companyId);
+        this.companyForm().controls.companyKey.setValue(current.companyKey);
       }
     }
     this.loadCountries();
@@ -62,7 +62,7 @@ export class CompanyEdit implements OnInit {
         this.companyForm.set(
           this.fb.group({
             id: this.fb.control(company.id),
-            companyId: this.fb.control<number | null>(company.companyId, Validators.required),
+            companyKey: this.fb.control(company.companyKey, Validators.required),
             companyName: this.fb.control(company.companyName, Validators.required),
             tipoPersonaId: this.fb.control(company.tipoPersonaId, Validators.required),
             razonSocial: this.fb.control(company.razonSocial, Validators.required),
@@ -91,7 +91,7 @@ export class CompanyEdit implements OnInit {
   private createForm(): FormGroup<CompanyControl> {
     return this.fb.group({
       id: this.fb.control(''),
-      companyId: this.fb.control<number | null>(null, Validators.required),
+      companyKey: this.fb.control('', Validators.required),
       companyName: this.fb.control('', Validators.required),
       tipoPersonaId: this.fb.control(1, Validators.required),
       razonSocial: this.fb.control('', Validators.required),

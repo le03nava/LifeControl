@@ -44,7 +44,7 @@ export interface CompanyRegionRequest {
 
 export interface Company {
   id: string;
-  companyId: number;
+  companyKey: string;
   companyName: string;
   tipoPersonaId: number;
   razonSocial: string;
@@ -71,7 +71,7 @@ export interface Page<T> {
 
 export interface CompanyControl {
   id: FormControl<string>;
-  companyId: FormControl<number | null>;
+  companyKey: FormControl<string>;
   companyName: FormControl<string>;
   tipoPersonaId: FormControl<number>;
   razonSocial: FormControl<string>;

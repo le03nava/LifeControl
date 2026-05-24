@@ -63,7 +63,7 @@ describe('CompanyModels — Country Types', () => {
   it('should allow Company with optional countries field', () => {
     const company: Company = {
       id: '1',
-      companyId: 1,
+      companyKey: '1',
       companyName: 'Test Corp',
       tipoPersonaId: 1,
       razonSocial: 'Test Corp SA',
@@ -81,7 +81,7 @@ describe('CompanyModels — Country Types', () => {
   it('should allow Company without countries field', () => {
     const company: Company = {
       id: '2',
-      companyId: 2,
+      companyKey: '2',
       companyName: 'Other Corp',
       tipoPersonaId: 1,
       razonSocial: 'Other Corp SA',

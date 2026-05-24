@@ -14,8 +14,8 @@ public class Company extends Auditable {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @Column(name = "company_id", nullable = false, unique = true)
-    private Integer companyId;
+    @Column(name = "company_key", nullable = false, unique = true)
+    private String companyKey;
 
     @Column(name = "company_name", nullable = false)
     private String companyName;
@@ -44,8 +44,8 @@ public class Company extends Auditable {
         return id;
     }
 
-    public Integer getCompanyId() {
-        return companyId;
+    public String getCompanyKey() {
+        return companyKey;
     }
 
     public String getCompanyName() {
@@ -81,8 +81,8 @@ public class Company extends Auditable {
         this.id = id;
     }
 
-    public void setCompanyId(Integer companyId) {
-        this.companyId = companyId;
+    public void setCompanyKey(String companyKey) {
+        this.companyKey = companyKey;
     }
 
     public void setCompanyName(String companyName) {
@@ -126,8 +126,8 @@ public class Company extends Auditable {
             return this;
         }
 
-        public Builder companyId(Integer companyId) {
-            company.companyId = companyId;
+        public Builder companyKey(String companyKey) {
+            company.companyKey = companyKey;
             return this;
         }
 

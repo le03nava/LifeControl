@@ -59,7 +59,7 @@ class CompanyServiceTest {
         
         testCompany = Company.builder()
                 .id(testCompanyId)
-                .companyId(1)
+                .companyKey("1")
                 .companyName("Test Company")
                 .tipoPersonaId(1)
                 .razonSocial("Razon Social Test SA de CV")
@@ -72,7 +72,7 @@ class CompanyServiceTest {
                 .build();
 
         testCompanyRequest = new CompanyRequest(
-                1,
+                "1",
                 "Test Company",
                 1,
                 "Razon Social Test SA de CV",
@@ -183,7 +183,7 @@ class CompanyServiceTest {
 
             // Assert
             assertThat(result).isNotNull();
-            assertThat(result.companyId()).isEqualTo(testCompany.getCompanyId());
+            assertThat(result.companyKey()).isEqualTo(testCompany.getCompanyKey());
             assertThat(result.companyName()).isEqualTo(testCompany.getCompanyName());
         }
 
@@ -209,7 +209,7 @@ class CompanyServiceTest {
         void updateCompany_Success() {
             // Arrange
             CompanyRequest updateRequest = new CompanyRequest(
-                    1,
+                    "1",
                     "Updated Company Name",
                     2,
                     "Nueva Razon Social SA de CV",
@@ -254,7 +254,7 @@ class CompanyServiceTest {
         void updateCompany_DuplicateRfc_ThrowsException() {
             // Arrange
             CompanyRequest duplicateRfcRequest = new CompanyRequest(
-                    1,
+                    "1",
                     "Test Company",
                     null,
                     null,
@@ -274,11 +274,11 @@ class CompanyServiceTest {
         }
 
         @Test
-        @DisplayName("updateCompany - should ignore companyId from request and use path ID")
-        void updateCompany_IgnoreCompanyIdFromRequest() {
-            // Arrange - request has different companyId but should be ignored
+        @DisplayName("updateCompany - should ignore companyKey from request and use path ID")
+        void updateCompany_IgnoreCompanyKeyFromRequest() {
+            // Arrange - request has different companyKey but should be ignored
             CompanyRequest updateRequest = new CompanyRequest(
-                    999,  // Different from existing company
+                    "999",  // Different from existing company
                     "Updated Company",
                     null,
                     null,
@@ -297,8 +297,8 @@ class CompanyServiceTest {
 
             // Assert
             assertThat(result).isNotNull();
-            // companyId should remain 1, not 999 from request
-            assertThat(result.companyId()).isEqualTo(1);
+            // companyKey should remain "1", not "999" from request
+            assertThat(result.companyKey()).isEqualTo("1");
             verify(companyRepository).save(any(Company.class));
         }
 
@@ -307,7 +307,7 @@ class CompanyServiceTest {
         void updateCompany_SameRfcAllowed() {
             // Arrange - same RFC as current company should pass
             CompanyRequest sameRfcRequest = new CompanyRequest(
-                    1,
+                    "1",
                     "Updated Name",
                     null,
                     null,
@@ -370,7 +370,7 @@ class CompanyServiceTest {
         @DisplayName("should publish CompanyCreatedEvent after saving company")
         void shouldPublishEvent() {
             // Arrange
-            when(companyRepository.existsByCompanyId(any())).thenReturn(false);
+            when(companyRepository.existsByCompanyKey(any())).thenReturn(false);
             when(companyRepository.existsByRfc(any())).thenReturn(false);
             when(companyRepository.save(any(Company.class))).thenReturn(testCompany);
 
@@ -385,7 +385,7 @@ class CompanyServiceTest {
         @DisplayName("should publish CompanyCreatedEvent with correct company data")
         void shouldPublishEventWithCorrectData() {
             // Arrange
-            when(companyRepository.existsByCompanyId(any())).thenReturn(false);
+            when(companyRepository.existsByCompanyKey(any())).thenReturn(false);
             when(companyRepository.existsByRfc(any())).thenReturn(false);
             when(companyRepository.save(any(Company.class))).thenReturn(testCompany);
 
@@ -397,7 +397,7 @@ class CompanyServiceTest {
             verify(eventPublisher).publishEvent(captor.capture());
             var event = captor.getValue();
             assertThat(event.getId()).isEqualTo(testCompanyId);
-            assertThat(event.getCompanyId()).isEqualTo(testCompany.getCompanyId());
+            assertThat(event.getCompanyKey()).isEqualTo(testCompany.getCompanyKey());
             assertThat(event.getCompanyName()).isEqualTo(testCompany.getCompanyName());
         }
     }

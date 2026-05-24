@@ -9,7 +9,7 @@ describe('CompanyService', () => {
   let httpMock: HttpTestingController;
 
   const mockCompany: Company = {
-    id: '1', companyId: 1, companyName: 'Company A', tipoPersonaId: 1,
+    id: '1', companyKey: '1', companyName: 'Company A', tipoPersonaId: 1,
     razonSocial: 'Razon A', rfc: 'RFC123456789', email: 'test@a.com',
     phone: '5551234567', enabled: true, createdAt: '', updatedAt: '',
   };

@@ -54,8 +54,8 @@ public class CompanyService {
     @Transactional
     public CompanyResponse createCompany(CompanyRequest request) {
         // Validate uniqueness
-        if (companyRepository.existsByCompanyId(request.companyId())) {
-            throw new DuplicateCompanyException("Ya existe una compañía con companyId: " + request.companyId());
+        if (companyRepository.existsByCompanyKey(request.companyKey())) {
+            throw new DuplicateCompanyException("Ya existe una compañía con companyKey: " + request.companyKey());
         }
 
         if (companyRepository.existsByRfc(request.rfc())) {
@@ -64,7 +64,7 @@ public class CompanyService {
 
         // Build entity
         Company company = Company.builder()
-                .companyId(request.companyId())
+                .companyKey(request.companyKey())
                 .companyName(request.companyName())
                 .tipoPersonaId(request.tipoPersonaId())
                 .razonSocial(request.razonSocial())
@@ -76,9 +76,9 @@ public class CompanyService {
 
         Company saved = companyRepository.save(company);
 
-        eventPublisher.publishEvent(new CompanyCreatedEvent(this, saved.getId(), saved.getCompanyId(), saved.getCompanyName()));
-        logger.info("Company created and event published: id={}, companyId={}, name={}",
-                saved.getId(), saved.getCompanyId(), saved.getCompanyName());
+        eventPublisher.publishEvent(new CompanyCreatedEvent(this, saved.getId(), saved.getCompanyKey(), saved.getCompanyName()));
+        logger.info("Company created and event published: id={}, companyKey={}, name={}",
+                saved.getId(), saved.getCompanyKey(), saved.getCompanyName());
 
         return toResponse(saved);
     }
@@ -94,7 +94,7 @@ public class CompanyService {
             throw new DuplicateCompanyException("Ya existe una compañía con RFC: " + request.rfc());
         }
 
-        // Update fields (companyId is immutable)
+        // Update fields (companyKey is immutable)
         company.setCompanyName(request.companyName());
         company.setTipoPersonaId(request.tipoPersonaId());
         company.setRazonSocial(request.razonSocial());
@@ -116,14 +116,14 @@ public class CompanyService {
         company.setEnabled(false);
         companyRepository.save(company);
         
-        logger.info("Company soft-deleted: id={}, companyId={}, timestamp={}", 
-                id, company.getCompanyId(), java.time.LocalDateTime.now());
+        logger.info("Company soft-deleted: id={}, companyKey={}, timestamp={}", 
+                id, company.getCompanyKey(), java.time.LocalDateTime.now());
     }
 
     private CompanyResponse toResponse(Company company) {
         return new CompanyResponse(
                 company.getId(),
-                company.getCompanyId(),
+                company.getCompanyKey(),
                 company.getCompanyName(),
                 company.getTipoPersonaId(),
                 company.getRazonSocial(),

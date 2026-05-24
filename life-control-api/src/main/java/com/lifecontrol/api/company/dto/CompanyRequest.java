@@ -5,12 +5,12 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 public record CompanyRequest(
-    @NotNull(message = "companyId es requerido")
-    Integer companyId,
+    @NotBlank(message = "companyKey es requerido")
+    @Size(max = 50, message = "companyKey no puede exceder 50 caracteres")
+    String companyKey,
 
     @NotBlank(message = "companyName es requerido")
     @Size(max = 200, message = "companyName no puede exceder 200 caracteres")
