@@ -32,7 +32,6 @@ export class Header implements OnInit {
   private showMenu = signal(false);
   private isSmallScreen = signal(false);
   isAdmin = signal(false);
-  isLifeControlAdmin = signal(false);
 
   // Computed properties
   isMenuOpen = computed(() => {
@@ -44,12 +43,8 @@ export class Header implements OnInit {
   items = computed(() => {
     const menuItems = [
       { id: '1', routeLink: '/home', textLink: 'Home', icon: 'home' },
-      { id: '2', routeLink: '/products', textLink: 'products', icon: 'inventory_2' },
+      { id: '2', routeLink: '/companies', textLink: 'Companies', icon: 'business' },
     ];
-
-    if (this.isLifeControlAdmin()) {
-      menuItems.push({ id: '3', routeLink: '/companies', textLink: 'Companies', icon: 'business' });
-    }
 
     if (this.isAdmin()) {
       menuItems.push({ id: '4', routeLink: '/users-admin', textLink: 'Users Admin', icon: 'admin_panel_settings' });
@@ -81,12 +76,10 @@ export class Header implements OnInit {
       if (event?.type === KeycloakEventType.Ready) {
         this.authenticated = this.keycloak.authenticated ?? false;
         this.isAdmin.set(this.keycloak.hasRealmRole('admin'));
-        this.isLifeControlAdmin.set(this.keycloak.hasRealmRole('life-control-admin'));
       }
       if (event?.type === KeycloakEventType.AuthLogout) {
         this.authenticated = false;
         this.isAdmin.set(false);
-        this.isLifeControlAdmin.set(false);
       }
     });
   }

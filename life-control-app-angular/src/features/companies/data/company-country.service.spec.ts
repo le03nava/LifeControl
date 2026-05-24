@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
+import { firstValueFrom } from 'rxjs';
 import { CompanyCountryService } from './company-country.service';
 import { CompanyCountry, CompanyCountryRequest } from '../models/company.models';
 
@@ -43,54 +44,61 @@ describe('CompanyCountryService', () => {
   });
 
   describe('getCountries', () => {
-    it('should fetch assigned countries for a company', (done) => {
-      service.getCountries(companyId).subscribe(countries => {
-        expect(countries).toEqual(mockCountries);
-        expect(countries.length).toBe(2);
-        done();
-      });
+    it('should fetch assigned countries for a company', async () => {
+      const countriesPromise = firstValueFrom(service.getCountries(companyId));
 
       const req = httpMock.expectOne(
         r => r.url === `${baseUrl}/companies/${companyId}/countries` && r.method === 'GET'
       );
       req.flush(mockCountries);
+
+      const countries = await countriesPromise;
+      expect(countries).toEqual(mockCountries);
+      expect(countries.length).toBe(2);
     });
 
-    it('should populate the assignedCountries signal', (done) => {
-      service.getCountries(companyId).subscribe(() => {
-        expect(service.assignedCountries()).toEqual(mockCountries);
-        expect(service.assignedCountries().length).toBe(2);
-        done();
-      });
+    it('should populate the assignedCountries signal', async () => {
+      const fetchPromise = firstValueFrom(service.getCountries(companyId));
 
       const req = httpMock.expectOne(`${baseUrl}/companies/${companyId}/countries`);
       req.flush(mockCountries);
+
+      await fetchPromise;
+
+      expect(service.assignedCountries()).toEqual(mockCountries);
+      expect(service.assignedCountries().length).toBe(2);
     });
 
-    it('should set loading true during fetch and false after', (done) => {
+    it('should set loading true during fetch and false after', async () => {
       expect(service.loading()).toBe(false);
 
-      service.getCountries(companyId).subscribe(() => {
-        expect(service.loading()).toBe(false);
-        done();
-      });
+      const fetchPromise = firstValueFrom(service.getCountries(companyId));
 
+      // Give time for the subscription to trigger
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      // After subscribe triggers, loading should be true
       expect(service.loading()).toBe(true);
 
+      // Flush the HTTP response
       const req = httpMock.expectOne(`${baseUrl}/companies/${companyId}/countries`);
       req.flush(mockCountries);
+
+      await fetchPromise;
+
+      // After completion, loading should be false
+      expect(service.loading()).toBe(false);
     });
 
-    it('should set error signal on HTTP failure', (done) => {
-      service.getCountries(companyId).subscribe({
-        error: () => {
-          expect(service.error()).toBe('Error al cargar los países de la empresa');
-          done();
-        },
-      });
+    it('should set error signal on HTTP failure', async () => {
+      const errorPromise = firstValueFrom(service.getCountries(companyId));
 
       const req = httpMock.expectOne(`${baseUrl}/companies/${companyId}/countries`);
       req.flush('Server error', { status: 500, statusText: 'Internal Server Error' });
+
+      await expect(errorPromise).rejects.toThrow();
+
+      expect(service.error()).toBe('Error al cargar los países de la empresa');
     });
   });
 
@@ -106,27 +114,27 @@ describe('CompanyCountryService', () => {
       createdAt: '2024-01-01', updatedAt: '2024-01-01',
     };
 
-    it('should POST and push the new country to the signal', (done) => {
+    it('should POST and push the new country to the signal', async () => {
       // Pre-seed the signal with existing data
       (service as any)._assignedCountries.set([mockCountries[0]]);
       expect(service.assignedCountries().length).toBe(1);
 
-      service.addCountry(companyId, request).subscribe(cc => {
-        expect(cc).toEqual(response);
-        expect(service.assignedCountries().length).toBe(2);
-        expect(service.assignedCountries()[1].countryCode).toBe('CO');
-        expect(service.assignedCountries()[1].localAlias).toBe('Sucursal Bogotá');
-        done();
-      });
+      const addPromise = firstValueFrom(service.addCountry(companyId, request));
 
       const req = httpMock.expectOne(
         r => r.url === `${baseUrl}/companies/${companyId}/countries` && r.method === 'POST'
       );
       expect(req.request.body).toEqual(request);
       req.flush(response);
+
+      const cc = await addPromise;
+      expect(cc).toEqual(response);
+      expect(service.assignedCountries().length).toBe(2);
+      expect(service.assignedCountries()[1].countryCode).toBe('CO');
+      expect(service.assignedCountries()[1].localAlias).toBe('Sucursal Bogotá');
     });
 
-    it('should add country without localAlias', (done) => {
+    it('should add country without localAlias', async () => {
       const requestNoAlias: CompanyCountryRequest = { countryCode: 'BR' };
       const responseNoAlias: CompanyCountry = {
         id: 'cc-4', companyId: 'company-123', countryId: '4',
@@ -134,88 +142,85 @@ describe('CompanyCountryService', () => {
         createdAt: '2024-01-01', updatedAt: '2024-01-01',
       };
 
-      service.addCountry(companyId, requestNoAlias).subscribe(cc => {
-        expect(cc.countryCode).toBe('BR');
-        done();
-      });
+      const addPromise = firstValueFrom(service.addCountry(companyId, requestNoAlias));
 
       const req = httpMock.expectOne(`${baseUrl}/companies/${companyId}/countries`);
       expect(req.request.body).toEqual(requestNoAlias);
       req.flush(responseNoAlias);
+
+      const cc = await addPromise;
+      expect(cc.countryCode).toBe('BR');
     });
 
-    it('should set specific error message on 409 Conflict', (done) => {
-      service.addCountry(companyId, request).subscribe({
-        error: () => {
-          expect(service.error()).toBe('Este país ya está asignado a esta empresa');
-          done();
-        },
-      });
+    it('should set specific error message on 409 Conflict', async () => {
+      const addPromise = firstValueFrom(service.addCountry(companyId, request));
 
       const req = httpMock.expectOne(`${baseUrl}/companies/${companyId}/countries`);
       req.flush({ message: 'Conflict' }, { status: 409, statusText: 'Conflict' });
+
+      await expect(addPromise).rejects.toThrow();
+
+      expect(service.error()).toBe('Este país ya está asignado a esta empresa');
     });
 
-    it('should NOT modify signal on error', (done) => {
+    it('should NOT modify signal on error', async () => {
       (service as any)._assignedCountries.set([mockCountries[0]]);
 
-      service.addCountry(companyId, request).subscribe({
-        error: () => {
-          // Signal should still have only the original entry
-          expect(service.assignedCountries().length).toBe(1);
-          done();
-        },
-      });
+      const addPromise = firstValueFrom(service.addCountry(companyId, request));
 
       const req = httpMock.expectOne(`${baseUrl}/companies/${companyId}/countries`);
       req.flush('Server error', { status: 500, statusText: 'Internal Server Error' });
+
+      await expect(addPromise).rejects.toThrow();
+
+      // Signal should still have only the original entry
+      expect(service.assignedCountries().length).toBe(1);
     });
 
-    it('should set generic error on non-409 failure', (done) => {
-      service.addCountry(companyId, request).subscribe({
-        error: () => {
-          expect(service.error()).toBe('Error al agregar país');
-          done();
-        },
-      });
+    it('should set generic error on non-409 failure', async () => {
+      const addPromise = firstValueFrom(service.addCountry(companyId, request));
 
       const req = httpMock.expectOne(`${baseUrl}/companies/${companyId}/countries`);
       req.flush('Server error', { status: 500, statusText: 'Internal Server Error' });
+
+      await expect(addPromise).rejects.toThrow();
+
+      expect(service.error()).toBe('Error al agregar país');
     });
   });
 
   describe('removeCountry', () => {
     const companyCountryId = 'cc-1';
 
-    it('should DELETE and filter out the removed country', (done) => {
+    it('should DELETE and filter out the removed country', async () => {
       (service as any)._assignedCountries.set(mockCountries);
       expect(service.assignedCountries().length).toBe(2);
 
-      service.removeCountry(companyId, companyCountryId).subscribe(() => {
-        expect(service.assignedCountries().length).toBe(1);
-        expect(service.assignedCountries()[0].id).toBe('cc-2');
-        done();
-      });
+      const removePromise = firstValueFrom(service.removeCountry(companyId, companyCountryId));
 
       const req = httpMock.expectOne(
         r => r.url === `${baseUrl}/companies/${companyId}/countries/${companyCountryId}`
           && r.method === 'DELETE'
       );
       req.flush(null);
+
+      await removePromise;
+
+      expect(service.assignedCountries().length).toBe(1);
+      expect(service.assignedCountries()[0].id).toBe('cc-2');
     });
 
-    it('should set error on remove failure', (done) => {
-      service.removeCountry(companyId, companyCountryId).subscribe({
-        error: () => {
-          expect(service.error()).toBe('Error al eliminar país');
-          done();
-        },
-      });
+    it('should set error on remove failure', async () => {
+      const removePromise = firstValueFrom(service.removeCountry(companyId, companyCountryId));
 
       const req = httpMock.expectOne(
         `${baseUrl}/companies/${companyId}/countries/${companyCountryId}`
       );
       req.flush('Error', { status: 500, statusText: 'Internal Server Error' });
+
+      await expect(removePromise).rejects.toThrow();
+
+      expect(service.error()).toBe('Error al eliminar país');
     });
   });
 

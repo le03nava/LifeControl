@@ -1,12 +1,13 @@
 import { Component, input, output, computed } from '@angular/core';
 import { Company } from '../../models/company.models';
-import { Button } from '@shared/ui';
+import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
+import { MatCardModule } from '@angular/material/card';
 
 @Component({
   selector: 'app-companies-card',
   standalone: true,
-  imports: [Button, MatIconModule],
+  imports: [MatButtonModule, MatIconModule, MatCardModule],
   templateUrl: './companies-card.html',
   styleUrl: './companies-card.scss',
 })

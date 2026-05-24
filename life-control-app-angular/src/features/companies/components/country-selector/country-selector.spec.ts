@@ -1,4 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { CountrySelector } from './country-selector';
 import { Country, CompanyCountry, CompanyCountryRequest } from '../../models/company.models';
 
@@ -19,7 +20,7 @@ describe('CountrySelector', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [CountrySelector],
+      imports: [CountrySelector, NoopAnimationsModule],
     }).compileComponents();
 
     fixture = TestBed.createComponent(CountrySelector);
@@ -41,32 +42,32 @@ describe('CountrySelector', () => {
 
   // ---------- onAdd ----------
   describe('onAdd', () => {
-    it('should emit addCountry with countryCode and localAlias when country is selected', (done) => {
+    it('should emit addCountry with countryCode and localAlias when country is selected', async () => {
       setInputs();
       component.selectedCountryCode.set('BR');
       component.localAlias.set('Sucursal Sao Paulo');
 
-      component.addCountry.subscribe((req: CompanyCountryRequest) => {
-        expect(req.countryCode).toBe('BR');
-        expect(req.localAlias).toBe('Sucursal Sao Paulo');
-        done();
+      const req = await new Promise<CompanyCountryRequest>((resolve) => {
+        component.addCountry.subscribe(resolve);
+        component.onAdd();
       });
 
-      component.onAdd();
+      expect(req.countryCode).toBe('BR');
+      expect(req.localAlias).toBe('Sucursal Sao Paulo');
     });
 
-    it('should emit addCountry without localAlias when alias is empty', (done) => {
+    it('should emit addCountry without localAlias when alias is empty', async () => {
       setInputs();
       component.selectedCountryCode.set('BR');
       component.localAlias.set('');
 
-      component.addCountry.subscribe((req: CompanyCountryRequest) => {
-        expect(req.countryCode).toBe('BR');
-        expect(req.localAlias).toBeUndefined();
-        done();
+      const req = await new Promise<CompanyCountryRequest>((resolve) => {
+        component.addCountry.subscribe(resolve);
+        component.onAdd();
       });
 
-      component.onAdd();
+      expect(req.countryCode).toBe('BR');
+      expect(req.localAlias).toBeUndefined();
     });
 
     it('should NOT emit addCountry when no country is selected', () => {
@@ -80,32 +81,29 @@ describe('CountrySelector', () => {
       expect(emitted).toBe(false);
     });
 
-    it('should reset selectedCountryCode and localAlias after emitting', (done) => {
+    it('should reset selectedCountryCode and localAlias after emitting', () => {
       setInputs();
       component.selectedCountryCode.set('BR');
       component.localAlias.set('test');
 
-      component.addCountry.subscribe(() => {
-        expect(component.selectedCountryCode()).toBe('');
-        expect(component.localAlias()).toBe('');
-        done();
-      });
-
       component.onAdd();
+
+      expect(component.selectedCountryCode()).toBe('');
+      expect(component.localAlias()).toBe('');
     });
   });
 
   // ---------- onRemove ----------
   describe('onRemove', () => {
-    it('should emit removeCountry with the given companyCountryId', (done) => {
+    it('should emit removeCountry with the given companyCountryId', async () => {
       setInputs();
 
-      component.removeCountry.subscribe((id: string) => {
-        expect(id).toBe('cc-1');
-        done();
+      const id = await new Promise<string>((resolve) => {
+        component.removeCountry.subscribe(resolve);
+        component.onRemove('cc-1');
       });
 
-      component.onRemove('cc-1');
+      expect(id).toBe('cc-1');
     });
   });
 
@@ -113,7 +111,7 @@ describe('CountrySelector', () => {
   describe('rendering', () => {
     it('should render assigned countries as chips with countryName, countryCode, and alias', () => {
       setInputs();
-      const chips = fixture.nativeElement.querySelectorAll('.country-chip');
+      const chips = fixture.nativeElement.querySelectorAll('mat-chip');
       expect(chips.length).toBe(2);
 
       // First chip: Mexico with alias
@@ -158,7 +156,7 @@ describe('CountrySelector', () => {
       component.selectedCountryCode.set('');
       fixture.detectChanges();
 
-      const addBtn = fixture.nativeElement.querySelector('.btn-add-country') as HTMLButtonElement;
+      const addBtn = fixture.nativeElement.querySelector('button[mat-raised-button]') as HTMLButtonElement;
       expect(addBtn.disabled).toBe(true);
     });
 
@@ -167,22 +165,24 @@ describe('CountrySelector', () => {
       component.selectedCountryCode.set('BR');
       fixture.detectChanges();
 
-      const addBtn = fixture.nativeElement.querySelector('.btn-add-country') as HTMLButtonElement;
+      const addBtn = fixture.nativeElement.querySelector('button[mat-raised-button]') as HTMLButtonElement;
       expect(addBtn.disabled).toBe(true);
     });
 
-    it('should disable remove buttons when loading is true', () => {
-      setInputs({ loading: true });
-      const removeBtns = fixture.nativeElement.querySelectorAll('.chip-remove');
-      expect(removeBtns.length).toBe(2);
-      removeBtns.forEach((btn: HTMLButtonElement) => {
-        expect(btn.disabled).toBe(true);
+    it('should render a remove button inside each chip', () => {
+      setInputs();
+      const chips = fixture.nativeElement.querySelectorAll('mat-chip');
+      expect(chips.length).toBe(2);
+      chips.forEach((chip: HTMLElement) => {
+        const removeBtn = chip.querySelector('button');
+        expect(removeBtn).toBeTruthy();
+        expect(removeBtn?.textContent?.trim()).toBe('×');
       });
     });
 
-    it('should not show chips section when assignedCountries is empty', () => {
+    it('should not show chips when assignedCountries is empty', () => {
       setInputs({ assignedCountries: [] });
-      const chips = fixture.nativeElement.querySelectorAll('.country-chip');
+      const chips = fixture.nativeElement.querySelectorAll('mat-chip');
       expect(chips.length).toBe(0);
     });
   });

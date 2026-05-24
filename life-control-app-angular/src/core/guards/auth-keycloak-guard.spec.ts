@@ -4,15 +4,19 @@ import Keycloak from 'keycloak-js';
 import { keycloakRoleGuard } from './auth-keycloak-guard';
 
 describe('keycloakRoleGuard', () => {
-  let keycloakMock: jasmine.SpyObj<Keycloak>;
-  let routerMock: jasmine.SpyObj<Router>;
+  let keycloakMock: Partial<Keycloak>;
+  let routerMock: Partial<Router>;
 
   beforeEach(() => {
-    keycloakMock = jasmine.createSpyObj<Keycloak>('Keycloak', ['login'], {
+    keycloakMock = {
       authenticated: true,
       tokenParsed: undefined,
-    });
-    routerMock = jasmine.createSpyObj<Router>('Router', ['navigate']);
+      login: vi.fn().mockResolvedValue(undefined),
+    };
+
+    routerMock = {
+      navigate: vi.fn(),
+    };
 
     TestBed.configureTestingModule({
       providers: [
@@ -34,9 +38,9 @@ describe('keycloakRoleGuard', () => {
 
   it('should allow user with admin role when data.role is "admin"', async () => {
     keycloakMock.authenticated = true;
-    keycloakMock.tokenParsed = {
+    (keycloakMock as any).tokenParsed = {
       realm_access: { roles: ['admin'] },
-    } as unknown as Keycloak['tokenParsed'];
+    };
     const route = createRouteSnapshot({ role: 'admin' });
     const state = createStateSnapshot('/users-admin');
 
@@ -44,14 +48,14 @@ describe('keycloakRoleGuard', () => {
       keycloakRoleGuard(route, state),
     );
 
-    expect(result).toBeTrue();
+    expect(result).toBe(true);
   });
 
   it('should allow user with admin role when data.roles is ["admin", "manager"]', async () => {
     keycloakMock.authenticated = true;
-    keycloakMock.tokenParsed = {
-      realm_access: { roles: ['user', 'manager'] },
-    } as unknown as Keycloak['tokenParsed'];
+    (keycloakMock as any).tokenParsed = {
+      realm_access: { roles: ['admin', 'manager', 'user'] },
+    };
     const route = createRouteSnapshot({ roles: ['admin', 'manager'] });
     const state = createStateSnapshot('/users-admin');
 
@@ -59,7 +63,7 @@ describe('keycloakRoleGuard', () => {
       keycloakRoleGuard(route, state),
     );
 
-    expect(result).toBeTrue();
+    expect(result).toBe(true);
   });
 
   // ─── User without required role ────────────────────────────
@@ -76,7 +80,7 @@ describe('keycloakRoleGuard', () => {
       keycloakRoleGuard(route, state),
     );
 
-    expect(result).toBeFalse();
+    expect(result).toBe(false);
     expect(routerMock.navigate).toHaveBeenCalledWith(['/unauthorized']);
   });
 
@@ -92,7 +96,7 @@ describe('keycloakRoleGuard', () => {
       keycloakRoleGuard(route, state),
     );
 
-    expect(result).toBeFalse();
+    expect(result).toBe(false);
     expect(routerMock.navigate).toHaveBeenCalledWith(['/unauthorized']);
   });
 
@@ -110,13 +114,14 @@ describe('keycloakRoleGuard', () => {
       keycloakRoleGuard(route, state),
     );
 
-    expect(result).toBeTrue();
+    expect(result).toBe(true);
   });
 
   // ─── Unauthenticated user ──────────────────────────────────
 
   it('should redirect to login when user is not authenticated', async () => {
     keycloakMock.authenticated = false;
+    (keycloakMock as any).tokenParsed = null;
     const route = createRouteSnapshot({ role: 'admin' });
     const state = createStateSnapshot('/users-admin');
 
@@ -124,7 +129,7 @@ describe('keycloakRoleGuard', () => {
       keycloakRoleGuard(route, state),
     );
 
-    expect(result).toBeFalse();
+    expect(result).toBe(false);
     expect(keycloakMock.login).toHaveBeenCalled();
   });
 });

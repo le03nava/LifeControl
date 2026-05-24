@@ -17,7 +17,7 @@ Aplicación Angular principal del proyecto LifeControl. Esta es la aplicación A
 | Authentication | Keycloak v26 (`keycloak-js`) |
 | UI Library | Angular Material 20 |
 | SSR | `@angular/ssr` 20.3.6 |
-| Testing | Karma + Jasmine |
+| Testing | Vitest (migrado desde Karma+Jasmine) |
 | Build System | esbuild (`@angular/build`) |
 
 ---
@@ -274,13 +274,99 @@ export const appConfig: ApplicationConfig = {
 
 ### Configuración
 
-- **Test Runner**: Karma (configurado en angular.json)
-- **Framework**: Jasmine
+- **Test Runner**: Vitest (configurado en `angular.json` con `@angular/build:unit-test`)
+- **Framework**: Vitest + Angular Testing (TestBed)
 - **Spec Files**: Co-locados con componentes (`*.spec.ts`)
+- **Coverage**: `@vitest/coverage-v8`
 
-### Ejemplo de Test
+### Commands
+
+```bash
+# Ejecutar tests
+npm test
+
+# Tests en modo watch
+npm run test:watch
+
+# Tests con coverage
+npm run test:coverage
+```
+
+### Migración desde Jasmine (2026-05)
+
+**Cambios principales:**
+
+| Jasmine | Vitest |
+|---------|--------|
+| `jasmine.createSpy()` | `vi.fn()` |
+| `jasmine.createSpyObj()` | `{ fn: vi.fn() }` |
+| `jasmine.SpyObj<T>()` | `Partial<T>` o `Record<string, vi.fn()>` |
+| `done()` callbacks | `async/await` + `firstValueFrom()` |
+| `toBeTrue()` / `toBeFalse()` | `toBe(true)` / `toBe(false)` |
+| `jasmine.any()` | `expect.any()` |
+
+**Mocks de servicios con `done()`:**
 
 ```typescript
+// ❌ ANTIGUO (Jasmine)
+it('should load companies', (done) => {
+  service.getAll();
+  httpMock.expectOne('/api/companies').flush(mockData);
+  setTimeout(() => {
+    expect(service.companies()).toEqual(mockData);
+    done();
+  }, 100);
+});
+
+// ✅ NUEVO (Vitest)
+it('should load companies', async () => {
+  service.getAll();
+  httpMock.expectOne('/api/companies').flush(mockData);
+  await firstValueFrom(toObservable(service.companies));
+  expect(service.companies()).toEqual(mockData);
+});
+```
+
+**Mocks de matchMedia (para Angular Material):**
+
+```typescript
+// Setup global en test-setup.ts o beforeEach
+Object.defineProperty(window, 'matchMedia', {
+  writable: true,
+  value: vi.fn().mockImplementation(query => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })),
+});
+```
+
+**Fake Timers:**
+
+```typescript
+// ✅ Vitest
+it('should debounce search', async () => {
+  vi.useFakeTimers();
+  
+  component.search('test');
+  vi.advanceTimersByTime(300);
+  
+  expect(mockService.search).toHaveBeenCalledWith('test');
+  
+  vi.useRealTimers();
+});
+```
+
+### Ejemplo de Test (Vitest)
+
+```typescript
+import { firstValueFrom, toObservable } from '@angular/core/rxjs-interop';
+
 describe('CompanyService', () => {
   let service: CompanyService;
   let httpMock: HttpTestingController;
@@ -299,7 +385,7 @@ describe('CompanyService', () => {
     expect(service).toBeTruthy();
   });
   
-  it('should load companies', () => {
+  it('should load companies', async () => {
     const mockCompanies: Company[] = [
       { id: '1', name: 'Test', rfc: 'XAXX010101', email: 'test@test.com' }
     ];
@@ -309,10 +395,20 @@ describe('CompanyService', () => {
     httpMock.expectOne('http://localhost:9000/api/companies')
       .flush(mockCompanies);
     
+    // Wait for signal update
+    await firstValueFrom(toObservable(service.companies));
+    
     expect(service.companies()).toEqual(mockCompanies);
   });
 });
 ```
+
+### Notas Importantes
+
+1. `@angular/build:unit-test` ignora `vitest.config.ts` - usar `setupFiles` en `angular.json`
+2. El mock de matchMedia debe incluir `addListener`/`removeListener` para Angular Material
+3. Router mocks no pueden combinarse con `provideRouter()` - usar `vi.spyOn(router, 'navigate')`
+4. Los tests asíncronos usar `firstValueFrom` + `toObservable` para esperar signal updates
 
 ---
 
@@ -349,36 +445,45 @@ npm test -- --watch
 
 ### Docker
 
-```bash
-# Build de imagen
-docker build -t life-control-app-angular:latest .
-
-# Ejecutar contenedor
-docker run -p 4200:4200 life-control-app-angular:latest
-```
-
-### Docker (Fast Rebuild)
-
-Cuando hacés cambios en el frontend y querés actualizar el contenedor sin rebuildear todo:
+#### Rebuild Rápido (solo cambios en Angular)
 
 ```bash
-# 1. Build Angular (development: source maps, más rápido)
-npm run build --configuration=development
+# 1. Build local de Angular (desde el directorio del proyecto)
+cd life-control-app-angular
+npm run build
 
-# 2. Rebuildear solo la imagen del web-app
-cd ../docker && docker compose build web-app
+# 2. Build de imagen Docker (sin caché para actualizar COPY dist/)
+docker build --no-cache -t life-control-app-angular:latest .
 
-# 3. Recrear el contenedor
-docker compose up -d web-app
+# 3. Recrear el contenedor (desde el directorio docker)
+cd ../docker
+docker compose up -d --force-recreate web-app
 ```
 
-> **Perfiles de build**: `production` (default) optimiza el bundle, ofusca y sin source maps. `development` compila más rápido con source maps. Usá `development` para iterar rápido, `production` solo para validar el bundle final.
+**Por qué no usar `deploy.sh dev start`:**
+-Hace un rebuild multi-stage completo de TODOS los servicios (incluyendo Gradle)
+-Los builds de Gradle dentro del contenedor fallan por falta de conectividad a internet
+-Es innecesariamente lento para cambios solo en Angular
 
-Si el cambio es solo de configuración de entorno (variables KEYCLOAK_URL, API_GATEWAY_URL, etc.), solo necesitás recrear el contenedor sin rebuild:
+**Por qué `--force-recreate` y `--no-cache`:**
+-`restart` solo reinicia el contenedor pero no carga la nueva imagen
+-`--no-cache` evita que Docker use caché stale para el `COPY dist/`
+-`--force-recreate` destruye y crea un contenedor nuevo con la imagen actualizada
 
+**Verificar que los cambios aplican:**
 ```bash
-cd ../docker && docker compose up -d web-app
+# Verificar que los archivos en el contenedor tienen la fecha correcta
+docker exec lifecontrol-dev-web-app ls -la /app/public/*.js | head -5
+
+# Los archivos deben mostrar la fecha/hora del último build local
 ```
+
+#### Troubleshooting
+
+Si después del rebuild no ves los cambios:
+1. Hard refresh en el browser: `Ctrl + Shift + R` (Chrome) o `Cmd + Shift + R` (Safari)
+2. Verificar fecha de archivos en el contenedor (debe ser reciente)
+3. Si sigue sin funcionar, limpiar cache de Docker: `docker builder prune -af`
 
 ---
 

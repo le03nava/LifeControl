@@ -2,6 +2,7 @@
 // _form-layout.scss — Partial compartido para formularios CRUD
 // ============================================================
 // Uso: @use '../../shared/styles/form-layout' as form;
+@use 'variables' as *;
 //
 // Proporciona estilos base para .form-container con CSS Grid
 // responsivo, botones y touch targets WCAG.
@@ -10,7 +11,7 @@
 // ============================================================
 
 // ─── Container card ──────────────────────────────────────────
-.form-container {
+.form-card {
   max-width: 100%;
   margin: 0 auto;
   padding: var(--space-lg);
@@ -19,19 +20,19 @@
   box-shadow: var(--shadow-md);
 
   // Container sizing per breakpoint
-  @media (min-width: 576px) {
+  @media (min-width: $bp-sm) {
     max-width: 720px;
   }
 
-  @media (min-width: 1024px) {
+  @media (min-width: $bp-md) {
     max-width: 960px;
   }
 
-  @media (min-width: 1440px) {
+  @media (min-width: $bp-lg) {
     max-width: 1140px;
   }
 
-  // ─── Title ──────────────────────────────────────────────────
+  // ─── Input inte  // ─── Title ──────────────────────────────────────────────────
   h2 {
     margin-bottom: var(--space-lg);
     color: var(--color-gray-700);
@@ -41,17 +42,17 @@
   // ─── CSS Grid layout (mobile-first) ─────────────────────────
   form {
     display: grid;
-    grid-template-columns: 1fr;              // xs: 1 columna
-    gap: var(--space-md);                    // 16px
+    grid-template-columns: 1fr; // xs: 1 columna
+    gap: var(--space-md); // 16px
 
-    @media (min-width: 576px) {
+    @media (min-width: $bp-sm) {
       grid-template-columns: repeat(2, 1fr); // s: 2 columnas
       gap: 20px;
     }
 
-    @media (min-width: 1024px) {
+    @media (min-width: $bp-md) {
       grid-template-columns: repeat(3, 1fr); // m/l: 3 columnas
-      gap: var(--space-lg);                  // 24px
+      gap: var(--space-lg); // 24px
     }
   }
 }
@@ -72,73 +73,13 @@
   border-top: 1px solid var(--color-gray-200);
 }
 
-// ─── Touch targets (WCAG 2.1 Target Size) ────────────────────
-app-field {
-  min-height: 44px;
-
-  @media (max-width: 575.98px) {
-    min-height: 48px;
-  }
-}
-
 input,
 select,
 textarea,
 button {
-  min-height: 44px;
   font-size: 1rem; // 16px base — iOS zoom prevention
 
-  @media (max-width: 575.98px) {
+  @media (max-width: $bp-sm) {
     min-height: 48px;
-  }
-}
-
-// ─── Labels 16px override ────────────────────────────────────
-app-field ::ng-deep .label {
-  font-size: 1rem;
-}
-
-// ─── Input internal padding ───────────────────────────────────
-input,
-select,
-textarea {
-  padding-inline: 12px;
-  padding-block: 10px;
-}
-
-// ─── Buttons ──────────────────────────────────────────────────
-.btn-cancel,
-.btn-save {
-  padding: 10px var(--space-lg);
-  border: none;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  font-size: 1rem;
-  font-weight: 600;
-  transition: all 0.2s ease;
-  min-height: 44px;
-}
-
-.btn-cancel {
-  background-color: var(--color-secondary);
-  color: white;
-
-  &:hover {
-    filter: brightness(0.9);
-  }
-}
-
-.btn-save {
-  background-color: var(--color-success);
-  color: white;
-
-  &:hover:not(:disabled) {
-    filter: brightness(0.9);
-  }
-
-  &:disabled {
-    background-color: var(--color-secondary);
-    cursor: not-allowed;
-    opacity: 0.6;
   }
 }

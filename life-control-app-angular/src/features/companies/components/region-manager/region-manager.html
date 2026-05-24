@@ -1,0 +1,171 @@
+@if (!countryId()) {
+  <div class="form-card">
+    <p class="placeholder-text">Seleccioná un país para administrar sus regiones</p>
+  </div>
+} @else {
+  <div class="form-card">
+    <!-- Header with title and toggle -->
+    <div class="header-row">
+      <h2>Regiones</h2>
+      <mat-slide-toggle
+        [checked]="showDisabled()"
+        (change)="showDisabled.set($event.checked)"
+      >
+        Mostrar deshabilitadas
+      </mat-slide-toggle>
+    </div>
+
+    @if (errorMessage()) {
+      <div class="error-message">{{ errorMessage() }}</div>
+    }
+
+    @if (loading()) {
+      <p class="loading-text">Cargando regiones...</p>
+    }
+
+    <!-- Add region form -->
+    <form [formGroup]="newRegionForm" class="add-form-row">
+      <mat-form-field appearance="outline">
+        <mat-label>Código</mat-label>
+        <input
+          matInput
+          type="text"
+          formControlName="regionCode"
+          placeholder="Ej: US-CA"
+          maxlength="10"
+        />
+        @if (newRegionForm.controls.regionCode.errors?.['pattern']) {
+          <mat-error>Solo letras, números y guiones</mat-error>
+        } @else if (newRegionForm.controls.regionCode.errors?.['required']) {
+          <mat-error>El código es requerido</mat-error>
+        }
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Nombre</mat-label>
+        <input
+          matInput
+          type="text"
+          formControlName="regionName"
+          placeholder="Ej: California"
+          maxlength="100"
+        />
+        @if (newRegionForm.controls.regionName.errors?.['required']) {
+          <mat-error>El nombre es requerido</mat-error>
+        }
+      </mat-form-field>
+
+      <button
+        mat-raised-button
+        color="primary"
+        type="button"
+        (click)="onAdd()"
+        [disabled]="newRegionForm.invalid || loading()"
+      >
+        Agregar
+      </button>
+    </form>
+
+    <!-- Regions table -->
+    @if (filteredRegions().length > 0) {
+      <table mat-table [dataSource]="filteredRegions()" class="regions-table">
+        <ng-container matColumnDef="regionCode">
+          <th mat-header-cell *matHeaderCellDef>Código</th>
+          <td mat-cell *matCellDef="let region">
+            @if (editMode()[region.id]; as editForm) {
+              <mat-form-field appearance="outline" class="inline-edit-field">
+                <input
+                  matInput
+                  type="text"
+                  [formControl]="editForms[region.id].controls.regionCode"
+                  maxlength="10"
+                />
+                @if (editForms[region.id].controls.regionCode.errors?.['pattern']) {
+                  <mat-error>Solo letras, números y guiones</mat-error>
+                }
+              </mat-form-field>
+            } @else {
+              <span>{{ region.regionCode }}</span>
+            }
+          </td>
+        </ng-container>
+
+        <ng-container matColumnDef="regionName">
+          <th mat-header-cell *matHeaderCellDef>Nombre</th>
+          <td mat-cell *matCellDef="let region">
+            @if (editMode()[region.id]) {
+              <mat-form-field appearance="outline" class="inline-edit-field">
+                <input
+                  matInput
+                  type="text"
+                  [formControl]="editForms[region.id].controls.regionName"
+                  maxlength="100"
+                />
+              </mat-form-field>
+            } @else {
+              <span>{{ region.regionName }}</span>
+            }
+          </td>
+        </ng-container>
+
+        <ng-container matColumnDef="enabled">
+          <th mat-header-cell *matHeaderCellDef>Estado</th>
+          <td mat-cell *matCellDef="let region">
+            <mat-slide-toggle
+              [checked]="region.enabled"
+              [disabled]="editMode()[region.id]"
+              (change)="onToggleRegion(region)"
+            />
+          </td>
+        </ng-container>
+
+        <ng-container matColumnDef="actions">
+          <th mat-header-cell *matHeaderCellDef>Acciones</th>
+          <td mat-cell *matCellDef="let region">
+            <div class="action-buttons">
+              @if (editMode()[region.id]) {
+                <button
+                  mat-raised-button
+                  color="primary"
+                  type="button"
+                  (click)="onSaveEdit(region.id)"
+                  [disabled]="editForms[region.id]?.invalid"
+                >
+                  Guardar
+                </button>
+                <button
+                  mat-raised-button
+                  type="button"
+                  (click)="onCancelEdit(region.id)"
+                >
+                  Cancelar
+                </button>
+              } @else {
+                <button
+                  mat-stroked-button
+                  type="button"
+                  (click)="onStartEdit(region)"
+                >
+                  Editar
+                </button>
+                <button
+                  mat-stroked-button
+                  color="warn"
+                  type="button"
+                  (click)="onRemove(region.id)"
+                >
+                  Eliminar
+                </button>
+              }
+            </div>
+          </td>
+        </ng-container>
+
+        <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+        <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
+      </table>
+    } @else if (!loading()) {
+      <p class="empty-state">No hay regiones registradas para este país</p>
+    }
+  </div>
+}

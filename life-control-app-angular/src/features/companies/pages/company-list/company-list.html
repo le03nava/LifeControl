@@ -1,34 +1,27 @@
 <div class="company-list-page">
   <app-page-header title="Empresas" subtitle="Gestión de empresas del sistema">
-    <button app-button variant="primary" routerLink="/companies/create">
+    <button mat-flat-button color="primary" routerLink="/companies/create">
       <mat-icon fontIcon="add" /> Agregar Empresa
     </button>
   </app-page-header>
 
   <!-- Search Filter -->
   <div class="filters-section">
-    <div class="search-filter">
-      <div class="search-input-wrapper">
-        <mat-icon fontIcon="search" class="search-icon" />
-        <input
-          type="text"
-          [value]="searchQuery()"
-          (input)="searchQuery.set($any($event.target).value)"
-          placeholder="Buscar por nombre, RFC, razón social o email..."
-          class="search-input"
-        />
-        @if (searchQuery()) {
-          <button
-            type="button"
-            class="search-clear"
-            (click)="clearSearch()"
-            aria-label="Limpiar búsqueda"
-          >
-            <mat-icon fontIcon="close" />
-          </button>
-        }
-      </div>
-    </div>
+    <mat-form-field appearance="outline" class="search-field" subscriptSizing="dynamic">
+      <mat-icon matPrefix>search</mat-icon>
+      <input
+        matInput
+        type="text"
+        [value]="searchQuery()"
+        (input)="searchQuery.set($any($event.target).value)"
+        placeholder="Buscar por nombre, RFC, razón social o email..."
+      />
+      @if (searchQuery()) {
+        <button matSuffix mat-icon-button aria-label="Limpiar búsqueda" (click)="clearSearch()" type="button">
+          <mat-icon>close</mat-icon>
+        </button>
+      }
+    </mat-form-field>
   </div>
 
   <!-- Error State -->
@@ -138,28 +131,5 @@
     </div>
   }
 
-  <!-- Delete Confirmation Modal -->
-  <app-modal
-    [isOpen]="showDeleteModal()"
-    title="Confirmar Eliminación"
-    size="small"
-    (modalClose)="cancelDelete()"
-  >
-    <p>
-      ¿Está seguro que desea eliminar <strong>{{ companyToDelete()?.name }}</strong
-      >?
-    </p>
-    <p class="warning-text">Esta acción no se puede deshacer.</p>
 
-    <div slot="footer">
-      <button app-button variant="secondary" (buttonClick)="cancelDelete()">Cancelar</button>
-      <button app-button variant="danger" (buttonClick)="executeDelete()" [disabled]="isDeleting()">
-        @if (isDeleting()) {
-          Eliminando...
-        } @else {
-          Eliminar
-        }
-      </button>
-    </div>
-  </app-modal>
 </div>

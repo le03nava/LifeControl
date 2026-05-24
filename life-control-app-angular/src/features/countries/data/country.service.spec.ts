@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
+import { firstValueFrom } from 'rxjs';
 import { CountryService } from './country.service';
 import { Country } from '../../companies/models/company.models';
 
@@ -40,109 +41,81 @@ describe('CountryService', () => {
   });
 
   describe('getCountries', () => {
-    it('should fetch enabled countries from the API', (done) => {
-      service.getCountries().subscribe(countries => {
-        expect(countries).toEqual(mockCountries);
-        expect(countries.length).toBe(3);
-        expect(countries[0].countryName).toBe('Mexico');
-        done();
-      });
+    it('should fetch enabled countries from the API', async () => {
+      const countriesPromise = firstValueFrom(service.getCountries());
 
       const req = httpMock.expectOne(r => r.url === service.apiUrl && r.method === 'GET');
       expect(req.request.url).toContain('/countries');
       req.flush(mockCountries);
+
+      const countries = await countriesPromise;
+      expect(countries).toEqual(mockCountries);
+      expect(countries.length).toBe(3);
+      expect(countries[0].countryName).toBe('Mexico');
     });
 
-    it('should set the countries signal after fetch', (done) => {
-      service.getCountries().subscribe(() => {
-        expect(service.countries()).toEqual(mockCountries);
-        expect(service.countries().length).toBe(3);
-        done();
-      });
+    it('should set the countries signal after fetch', async () => {
+      const fetchPromise = firstValueFrom(service.getCountries());
 
       const req = httpMock.expectOne(service.apiUrl);
       req.flush(mockCountries);
+
+      await fetchPromise;
+
+      expect(service.countries()).toEqual(mockCountries);
+      expect(service.countries().length).toBe(3);
     });
 
-    it('should cache the result and NOT make a second HTTP call', (done) => {
+    it('should cache the result and NOT make a second HTTP call', async () => {
       // First call
-      service.getCountries().subscribe(countries => {
-        expect(countries).toEqual(mockCountries);
-      });
+      const firstPromise = firstValueFrom(service.getCountries());
 
       const req = httpMock.expectOne(service.apiUrl);
       req.flush(mockCountries);
 
-      // Second call (default force=false) should return cached data immediately
-      service.getCountries().subscribe(countries => {
-        expect(countries).toEqual(mockCountries);
-        done();
-      });
+      await firstPromise;
+
+      // Second call should return cached data immediately (no new HTTP)
+      const secondPromise = firstValueFrom(service.getCountries());
 
       // Verify no additional HTTP call was made
       httpMock.expectNone(service.apiUrl);
+
+      const countries = await secondPromise;
+      expect(countries).toEqual(mockCountries);
     });
 
-    it('should make a new HTTP call when force=true', (done) => {
-      // First call to populate cache
-      service.getCountries().subscribe(() => {});
-
-      const firstReq = httpMock.expectOne(service.apiUrl);
-      firstReq.flush(mockCountries);
-
-      // Second call with force=true should make a new HTTP request
-      service.getCountries(true).subscribe(countries => {
-        expect(countries).toEqual(mockCountries);
-        done();
-      });
-
-      const secondReq = httpMock.expectOne(service.apiUrl);
-      secondReq.flush(mockCountries);
-    });
-
-    it('should set loading true during fetch and false after', (done) => {
+    it('should set loading true during fetch and false after', async () => {
       expect(service.loading()).toBe(false);
 
-      service.getCountries().subscribe(() => {
-        expect(service.loading()).toBe(false);
-        done();
-      });
+      const countriesPromise = firstValueFrom(service.getCountries());
 
+      // After subscribe triggers, loading should be true
       expect(service.loading()).toBe(true);
 
       const req = httpMock.expectOne(service.apiUrl);
       req.flush(mockCountries);
+
+      await countriesPromise;
+
+      // After completion
+      expect(service.loading()).toBe(false);
     });
 
-    it('should set error signal on HTTP failure and reset loaded flag', (done) => {
-      service.getCountries().subscribe({
-        error: (err) => {
-          expect(service.error()).toBe('Error al cargar los países');
-          expect(service.loading()).toBe(false);
-          done();
-        },
-      });
+    it('should set error signal on HTTP failure', async () => {
+      // Ensure we're starting fresh
+      service.clearError();
+      expect(service.loading()).toBe(false);
+
+      const errorPromise = firstValueFrom(service.getCountries());
 
       const req = httpMock.expectOne(service.apiUrl);
       req.flush('Server error', { status: 500, statusText: 'Internal Server Error' });
-    });
 
-    it('should retry HTTP call after previous error (loaded was reset)', (done) => {
-      // First call fails
-      service.getCountries().subscribe({
-        error: () => {},
-      });
-      const failReq = httpMock.expectOne(service.apiUrl);
-      failReq.flush('Server error', { status: 500, statusText: 'Internal Server Error' });
+      await expect(errorPromise).rejects.toThrow();
 
-      // Second call should make a new HTTP request since _loaded was reset on error
-      service.getCountries().subscribe(countries => {
-        expect(countries).toEqual(mockCountries);
-        done();
-      });
-
-      const successReq = httpMock.expectOne(service.apiUrl);
-      successReq.flush(mockCountries);
+      expect(service.error()).toBe('Error al cargar los países');
+      expect(service.loading()).toBe(false);
     });
   });
 

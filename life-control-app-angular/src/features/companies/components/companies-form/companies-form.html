@@ -1,4 +1,4 @@
-<div class="form-container">
+<div class="form-card">
   <h2>
     @if (isEditMode()) {
       Editar Compañía
@@ -9,33 +9,69 @@
   <form [formGroup]="formGroup()" (ngSubmit)="onSave()">
     <mat-form-field appearance="outline">
       <mat-label>ID de Compañía</mat-label>
-      <input matInput type="number" formControlName="companyId" placeholder="Ingrese el ID numérico de la compañía" />
+      <input
+        matInput
+        type="number"
+        formControlName="companyId"
+        placeholder="Ingrese el ID numérico de la compañía"
+      />
+      @if (getErrorMessage(formGroup().controls.companyId); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
     </mat-form-field>
 
     <mat-form-field appearance="outline">
       <mat-label>Nombre de la Empresa</mat-label>
       <input matInput formControlName="companyName" placeholder="Ingrese el nombre de la empresa" />
+      @if (getErrorMessage(formGroup().controls.companyName); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Tipo de Persona</mat-label>
+      <mat-select formControlName="tipoPersonaId">
+        @for (type of personaTypes; track type.value) {
+          <mat-option [value]="type.value">{{ type.label }}</mat-option>
+        }
+      </mat-select>
+      @if (getErrorMessage(formGroup().controls.tipoPersonaId); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
     </mat-form-field>
 
     <mat-form-field appearance="outline">
       <mat-label>Razón Social</mat-label>
       <input matInput formControlName="razonSocial" placeholder="Ingrese la razón social" />
+      @if (getErrorMessage(formGroup().controls.razonSocial); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
     </mat-form-field>
 
     <mat-form-field appearance="outline">
       <mat-label>RFC</mat-label>
       <input matInput formControlName="rfc" placeholder="Ingrese el RFC (12-13 caracteres)" />
-      <mat-hint>RFC con 12 o 13 caracteres</mat-hint>
+      @if (getErrorMessage(formGroup().controls.rfc, rfcErrorMessages); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
     </mat-form-field>
 
     <mat-form-field appearance="outline">
       <mat-label>Correo Electrónico</mat-label>
+      <mat-icon matPrefix>mail</mat-icon>
       <input matInput type="email" formControlName="email" placeholder="correo@ejemplo.com" />
+      @if (getErrorMessage(formGroup().controls.email, emailErrorMessages); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
     </mat-form-field>
 
     <mat-form-field appearance="outline">
       <mat-label>Teléfono</mat-label>
+      <mat-icon matPrefix>phone</mat-icon>
       <input matInput formControlName="phone" placeholder="+52XXXXXXXXXX o 10 dígitos" />
+      @if (getErrorMessage(formGroup().controls.phone, phoneErrorMessages); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
     </mat-form-field>
 
     <mat-form-field class="full-width" appearance="outline">
@@ -43,9 +79,13 @@
       <input matInput formControlName="address" placeholder="Ingrese la dirección" />
     </mat-form-field>
 
+    <div class="toggle-container">
+      <mat-slide-toggle formControlName="enabled">Activo</mat-slide-toggle>
+    </div>
+
     <div class="form-actions">
-      <button mat-stroked-button type="button" (click)="onCancel()">Cancelar</button>
-      <button mat-raised-button color="primary" type="submit" [disabled]="!formGroup().valid">
+      <button mat-button type="button" (click)="onCancel()">Cancelar</button>
+      <button mat-flat-button type="submit">
         @if (!isEditMode()) {
           Guardar
         } @else {

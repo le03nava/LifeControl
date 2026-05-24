@@ -1,69 +1,39 @@
 @if (company(); as c) {
-  <div class="card">
-    <div class="card-header">
-      <div class="card-title-row">
-        <h3 class="card-title">{{ c.companyName }}</h3>
-        <span class="badge status" [class.active]="isActive()" [class.inactive]="!isActive()">
-          {{ statusLabel() }}
+  <mat-card class="company-card" appearance="outlined">
+    <mat-card-header>
+      <mat-card-title>
+        <div class="card-title-row">
+          <span>{{ c.companyName }}</span>
+          <span class="badge status" [class.active]="isActive()" [class.inactive]="!isActive()">
+            {{ statusLabel() }}
+          </span>
+        </div>
+      </mat-card-title>
+      <mat-card-subtitle>
+        <span class="badge rfc-badge">
+          <mat-icon fontIcon="badge" class="badge-icon" /> RFC: {{ c.rfc }}
         </span>
-      </div>
-      <span class="badge rfc-badge">
-        <mat-icon fontIcon="badge" class="badge-icon" /> RFC: {{ c.rfc }}
-      </span>
-    </div>
-
-    <div class="card-body">
-      @if (c.razonSocial) {
-        <div class="card-field">
-          <mat-icon fontIcon="business" class="field-icon" />
-          <span class="field-label">Razón Social:</span>
-          <span class="field-value">{{ c.razonSocial }}</span>
-        </div>
-      }
-
-      @if (c.email) {
-        <div class="card-field">
-          <mat-icon fontIcon="mail" class="field-icon" />
-          <span class="field-label">Email:</span>
-          <span class="field-value">{{ c.email }}</span>
-        </div>
-      }
-
-      @if (c.phone) {
-        <div class="card-field">
-          <mat-icon fontIcon="phone" class="field-icon" />
-          <span class="field-label">Teléfono:</span>
-          <span class="field-value">{{ c.phone }}</span>
-        </div>
-      }
-    </div>
-
-    <div class="card-actions">
-      <button
-        app-button
-        variant="secondary"
-        size="small"
-        (buttonClick)="onEditCompany($event)"
-        class="action-btn"
-        aria-label="Editar empresa"
-      >
-        <mat-icon fontIcon="edit" /> <span class="btn-label">Editar</span>
+      </mat-card-subtitle>
+    </mat-card-header>
+    <mat-card-content>
+      @if (c.razonSocial) { <div class="card-field"><mat-icon fontIcon="business" class="field-icon" /><span class="field-label">Razón Social:</span><span class="field-value">{{ c.razonSocial }}</span></div> }
+      @if (c.email) { <div class="card-field"><mat-icon fontIcon="mail" class="field-icon" /><span class="field-label">Email:</span><span class="field-value">{{ c.email }}</span></div> }
+      @if (c.phone) { <div class="card-field"><mat-icon fontIcon="phone" class="field-icon" /><span class="field-label">Teléfono:</span><span class="field-value">{{ c.phone }}</span></div> }
+    </mat-card-content>
+    <mat-card-actions align="end">
+      <button mat-button (click)="onEditCompany($event)" aria-label="Editar empresa">
+        <mat-icon fontIcon="edit" /> Editar
       </button>
-      <button
-        app-button
-        variant="danger"
-        size="small"
-        (buttonClick)="onDeleteCompany($event)"
-        class="action-btn"
-        aria-label="Eliminar empresa"
-      >
-        <mat-icon fontIcon="delete" /> <span class="btn-label">Eliminar</span>
+      <button mat-flat-button color="warn" (click)="onDeleteCompany($event)" aria-label="Eliminar empresa">
+        <mat-icon fontIcon="delete" /> Eliminar
       </button>
-    </div>
-  </div>
+    </mat-card-actions>
+  </mat-card>
 } @else {
-  <div class="card card-empty">
-    <mat-icon fontIcon="info" class="empty-icon" />
-    <p>No hay información de la empresa disponible</p>
-  </div>
+  <mat-card class="company-card card-empty" appearance="outlined">
+    <mat-card-content>
+      <mat-icon fontIcon="info" class="empty-icon" />
+      <p>No hay información de la empresa disponible</p>
+    </mat-card-content>
+  </mat-card>
 }

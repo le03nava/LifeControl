@@ -55,11 +55,11 @@ export class CompanyService {
     );
   }
 
-  updateCompany(data: Company): Observable<Company> {
+  updateCompany(id: string, data: Company): Observable<Company> {
     this._loading.set(true);
     this._error.set(null);
 
-    return this.http.put<Company>(this.apiUrl, data).pipe(
+    return this.http.put<Company>(`${this.apiUrl}/${id}`, data).pipe(
       finalize(() => this._loading.set(false)),
       catchError(err => {
         this._error.set('Error al actualizar la empresa');

@@ -16,11 +16,6 @@ describe('app.routes', () => {
     expect(loginRoute).toBeDefined();
   });
 
-  it('should still contain the products route', () => {
-    const productsRoute = routes.find((r) => r.path === 'products');
-    expect(productsRoute).toBeDefined();
-  });
-
   it('should still contain the companies route', () => {
     const companiesRoute = routes.find((r) => r.path === 'companies');
     expect(companiesRoute).toBeDefined();

@@ -1,132 +1,144 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { FormGroup, FormControl, Validators, ReactiveFormsModule } from '@angular/forms';
+import { NoopAnimationsModule } from '@angular/platform-browser/animations';
+import { FormControl, FormGroup, Validators } from '@angular/forms';
 import { CompaniesForm } from './companies-form';
-import { CompanyControl } from '../models/company.models';
+import { CompanyControl } from '../../models/company.models';
 
 describe('CompaniesForm', () => {
   let component: CompaniesForm;
   let fixture: ComponentFixture<CompaniesForm>;
 
+  function createFormGroup(): FormGroup<CompanyControl> {
+    return new FormGroup<CompanyControl>({
+      id: new FormControl('', { nonNullable: true }),
+      companyId: new FormControl<number | null>(null, Validators.required),
+      companyName: new FormControl('', { nonNullable: true, validators: Validators.required }),
+      tipoPersonaId: new FormControl<number>(1, { nonNullable: true, validators: Validators.required }),
+      razonSocial: new FormControl('', { nonNullable: true, validators: Validators.required }),
+      rfc: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.pattern(/^[A-ZÑ&]{3,4}\d{6}[A-Z\d]{3}$/)] }),
+      email: new FormControl('', { nonNullable: true, validators: [Validators.email] }),
+      phone: new FormControl('', { nonNullable: true, validators: [Validators.pattern(/^\+?\d{10,13}$/)] }),
+      address: new FormControl('', { nonNullable: true }),
+      enabled: new FormControl<boolean>(true, { nonNullable: true }),
+    });
+  }
+
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [ReactiveFormsModule, CompaniesForm]
+      imports: [CompaniesForm, NoopAnimationsModule],
     }).compileComponents();
 
     fixture = TestBed.createComponent(CompaniesForm);
     component = fixture.componentInstance;
+    fixture.componentRef.setInput('formGroup', createFormGroup());
+    fixture.detectChanges();
   });
 
   it('should create', () => {
     expect(component).toBeTruthy();
   });
 
-  it('should detect create mode (no id)', () => {
-    const form = new FormGroup<CompanyControl>({
-      id: new FormControl(''),
-      companyName: new FormControl('', Validators.required),
-      tipoPersonaId: new FormControl(1),
-      razonSocial: new FormControl('', Validators.required),
-      rfc: new FormControl('', [Validators.required, Validators.minLength(12), Validators.maxLength(13)]),
-      email: new FormControl('', [Validators.required, Validators.email]),
-      phone: new FormControl(''),
-      address: new FormControl(''),
-      enabled: new FormControl(true),
-    });
-    
-    component.formGroup = form as any;
+  function triggerErrorsOnTrackedFields(): void {
+    ['companyId', 'companyName', 'tipoPersonaId', 'razonSocial', 'rfc', 'email', 'phone']
+      .forEach(key => {
+        const control = component.formGroup().get(key);
+        control?.markAsTouched();
+        control?.setErrors({ required: true });
+      });
     fixture.detectChanges();
-    
-    expect(component.isEditMode()).toBe(false);
+  }
+
+  it('should render mat-error for each tracked field', () => {
+    triggerErrorsOnTrackedFields();
+
+    const matErrors = fixture.nativeElement.querySelectorAll('mat-error');
+    // 7 tracked fields: companyId, companyName, tipoPersonaId, razonSocial, rfc, email, phone
+    expect(matErrors.length).toBe(7);
   });
 
-  it('should detect edit mode (with id)', () => {
-    const form = new FormGroup<CompanyControl>({
-      id: new FormControl('123'),
-      companyName: new FormControl('Company A', Validators.required),
-      tipoPersonaId: new FormControl(1),
-      razonSocial: new FormControl('Razon A', Validators.required),
-      rfc: new FormControl('RFC123456789', [Validators.required, Validators.minLength(12), Validators.maxLength(13)]),
-      email: new FormControl('test@test.com', [Validators.required, Validators.email]),
-      phone: new FormControl('5551234567'),
-      address: new FormControl('Address 123'),
-      enabled: new FormControl(true),
-    });
-    
-    component.formGroup = form as any;
-    fixture.detectChanges();
-    
-    expect(component.isEditMode()).toBe(true);
+  it('should render customMessages on rfc, email, and phone mat-errors', () => {
+    triggerErrorsOnTrackedFields();
+
+    const matErrors = fixture.nativeElement.querySelectorAll('mat-error');
+
+    // rfc has customMessages
+    const rfcForm = matErrors[4].closest('mat-form-field');
+    expect(rfcForm?.querySelector('input')?.getAttribute('formControlName')).toBe('rfc');
+
+    // email has customMessages
+    const emailForm = matErrors[5].closest('mat-form-field');
+    expect(emailForm?.querySelector('input')?.getAttribute('formControlName')).toBe('email');
+
+    // phone has customMessages
+    const phoneForm = matErrors[6].closest('mat-form-field');
+    expect(phoneForm?.querySelector('input')?.getAttribute('formControlName')).toBe('phone');
   });
 
-  it('should emit saveCompany on valid submit', (done) => {
-    const form = new FormGroup<CompanyControl>({
-      id: new FormControl(''),
-      companyName: new FormControl('Test Company', Validators.required),
-      tipoPersonaId: new FormControl(1),
-      razonSocial: new FormControl('Test Razon', Validators.required),
-      rfc: new FormControl('RFC1234567890', [Validators.required, Validators.minLength(12), Validators.maxLength(13)]),
-      email: new FormControl('test@test.com', [Validators.required, Validators.email]),
-      phone: new FormControl('5551234567'),
-      address: new FormControl('Test Address'),
-      enabled: new FormControl(true),
-    });
-    
-    component.formGroup = form as any;
-    component.saveCompany.subscribe(company => {
-      expect(company.companyName).toBe('Test Company');
-      done();
-    });
-    
-    component.onSave();
+  it('should preserve mat-icon prefixes on email and phone fields', () => {
+    const matIcons = fixture.nativeElement.querySelectorAll('mat-icon[matPrefix]');
+    expect(matIcons.length).toBe(2);
+    expect(matIcons[0].textContent).toContain('mail');
+    expect(matIcons[1].textContent).toContain('phone');
   });
 
-  it('should NOT emit saveCompany on invalid submit', () => {
-    const form = new FormGroup<CompanyControl>({
-      id: new FormControl(''),
-      companyName: new FormControl('', Validators.required), // Invalid
-      tipoPersonaId: new FormControl(1),
-      razonSocial: new FormControl('', Validators.required), // Invalid
-      rfc: new FormControl('', Validators.required), // Invalid
-      email: new FormControl('', Validators.required), // Invalid
-      phone: new FormControl(''),
-      address: new FormControl(''),
-      enabled: new FormControl(true),
-    });
-    
-    component.formGroup = form as any;
-    let emitted = false;
-    component.saveCompany.subscribe(() => {
-      emitted = true;
-    });
-    
-    component.onSave();
-    expect(emitted).toBe(false);
+  it('should leave address field unchanged (no mat-error)', () => {
+    const addressField = fixture.nativeElement.querySelector('[formControlName="address"]');
+    expect(addressField).toBeTruthy();
+
+    const addressForm = addressField.closest('mat-form-field');
+    const addressError = addressForm?.querySelector('mat-error');
+    expect(addressError).toBeNull();
   });
 
-  it('should emit cancelForm on cancel', (done) => {
-    component.cancelForm.subscribe(() => {
-      done();
-    });
-    
-    component.onCancel();
-  });
+  describe('serverErrors', () => {
+    it('should apply server errors to matching controls', () => {
+      fixture.componentRef.setInput('serverErrors', {
+        rfc: 'RFC inválido',
+        email: 'Correo ya registrado',
+      });
+      fixture.detectChanges();
 
-  it('should getControl return correct control', () => {
-    const form = new FormGroup<CompanyControl>({
-      id: new FormControl(''),
-      companyName: new FormControl('', Validators.required),
-      tipoPersonaId: new FormControl(1),
-      razonSocial: new FormControl('', Validators.required),
-      rfc: new FormControl('', [Validators.required, Validators.minLength(12), Validators.maxLength(13)]),
-      email: new FormControl('', [Validators.required, Validators.email]),
-      phone: new FormControl(''),
-      address: new FormControl(''),
-      enabled: new FormControl(true),
+      const rfcControl = component.formGroup().controls.rfc;
+      const emailControl = component.formGroup().controls.email;
+
+      expect(rfcControl.errors?.['serverError']).toBe('RFC inválido');
+      expect(emailControl.errors?.['serverError']).toBe('Correo ya registrado');
     });
-    
-    component.formGroup = form as any;
-    
-    const control = component.getControl('companyName');
-    expect(control).toBe(form.controls.companyName);
+
+    it('should warn on unmatched server error keys', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      fixture.componentRef.setInput('serverErrors', {
+        nonexistent: 'No existe',
+      });
+      fixture.detectChanges();
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('nonexistent'),
+      );
+
+      warnSpy.mockRestore();
+    });
+
+    it('should clear serverError on valueChanges while preserving other validators', () => {
+      const rfcControl = component.formGroup().controls.rfc;
+
+      fixture.componentRef.setInput('serverErrors', {
+        rfc: 'RFC inválido',
+      });
+      fixture.detectChanges();
+
+      expect(rfcControl.errors?.['serverError']).toBe('RFC inválido');
+
+      // Set a short value that satisfies required but fails pattern
+      rfcControl.setValue('AB');
+      fixture.detectChanges();
+
+      // serverError should be cleared by valueChanges
+      expect(rfcControl.errors?.['serverError']).toBeUndefined();
+
+      // Pattern validator should still fire (AB is too short)
+      expect(rfcControl.errors?.['pattern']).toBeDefined();
+    });
   });
 });

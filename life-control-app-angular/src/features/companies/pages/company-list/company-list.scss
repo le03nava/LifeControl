@@ -1,3 +1,5 @@
+@use '../../../../shared/styles/variables' as *;
+
 :host {
   display: block;
   width: 100%;
@@ -9,83 +11,7 @@
 }
 
 .filters-section {
-  display: flex;
-  gap: var(--space-lg);
   margin-bottom: var(--space-sm);
-  flex-wrap: wrap;
-}
-
-.search-filter {
-  flex: 1;
-  min-width: 300px;
-}
-
-.search-input-wrapper {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-
-.search-icon {
-  position: absolute;
-  left: var(--space-md);
-  color: var(--mat-sys-on-surface-variant);
-  font-size: 20px;
-  width: 20px;
-  height: 20px;
-  pointer-events: none;
-}
-
-.search-input {
-  width: 100%;
-  padding: var(--space-md) var(--space-md) var(--space-md) 3rem;
-  border: 1px solid var(--mat-sys-outline);
-  border-radius: var(--radius-lg);
-  font-size: 1rem;
-  background-color: var(--mat-sys-surface-container);
-  color: var(--mat-sys-on-surface);
-  transition:
-    border-color 0.2s ease,
-    box-shadow 0.2s ease;
-
-  &:focus {
-    outline: none;
-    border-color: var(--mat-sys-primary);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--mat-sys-primary) 15%, transparent);
-  }
-
-  &::placeholder {
-    color: var(--mat-sys-on-surface-variant);
-    opacity: 0.7;
-  }
-}
-
-.search-clear {
-  position: absolute;
-  right: var(--space-sm);
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: var(--space-xs);
-  border-radius: var(--radius-md);
-  color: var(--mat-sys-on-surface-variant);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition:
-    background-color 0.2s ease,
-    color 0.2s ease;
-
-  &:hover {
-    background-color: var(--mat-sys-surface-variant);
-    color: var(--mat-sys-on-surface);
-  }
-
-  mat-icon {
-    font-size: 18px;
-    width: 18px;
-    height: 18px;
-  }
 }
 
 /* Companies Grid - auto-fill intrinsic sizing */
@@ -143,11 +69,11 @@
   grid-template-columns: 1fr;
   gap: var(--space-lg);
 
-  @media (min-width: 576px) {
+  @media (min-width: $bp-sm) {
     grid-template-columns: repeat(2, 1fr);
   }
 
-  @media (min-width: 1024px) {
+  @media (min-width: $bp-md) {
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   }
 }
@@ -336,12 +262,6 @@
   color: var(--mat-sys-on-surface-variant);
 }
 
-.warning-text {
-  color: var(--mat-sys-error);
-  font-size: 0.875rem;
-  margin-top: var(--space-sm);
-}
-
 /* Pagination Section */
 .pagination-section {
   display: flex;
@@ -356,15 +276,7 @@
 }
 
 /* Responsive */
-@media (max-width: 575.98px) {
-  .filters-section {
-    flex-direction: column;
-  }
-
-  .search-filter {
-    min-width: auto;
-  }
-
+@media (max-width: $bp-sm) {
   .empty-svg {
     width: 160px;
     height: 160px;

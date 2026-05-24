@@ -1,12 +1,37 @@
 import { provideLocationMocks } from '@angular/common/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
+import { KEYCLOAK_EVENT_SIGNAL, KeycloakEventType } from 'keycloak-angular';
 import { Header } from './header';
+import Keycloak from 'keycloak-js';
 
 describe('Header', () => {
+  let keycloakMock: Partial<Keycloak>;
+
   const setup = () => {
+    keycloakMock = {
+      login: vi.fn(),
+      logout: vi.fn(),
+      hasRealmRole: vi.fn().mockReturnValue(false),
+      authenticated: false,
+    };
+
+    // Create a keycloak event signal for the test
+    const keycloakEventSignal = signal({
+      type: KeycloakEventType.Ready,
+      token: null,
+    });
+
     TestBed.configureTestingModule({
-      providers: [provideRouter([]), provideLocationMocks()],
+      providers: [
+        provideRouter([]),
+        provideLocationMocks(),
+        provideHttpClient(),
+        { provide: Keycloak, useValue: keycloakMock },
+        { provide: KEYCLOAK_EVENT_SIGNAL, useValue: keycloakEventSignal },
+      ],
     });
 
     const fixture = TestBed.createComponent(Header);
@@ -33,14 +58,6 @@ describe('Header', () => {
       expect(homeItem?.textLink).toBe('Home');
     });
 
-    it('should include products menu item', () => {
-      const { component } = setup();
-      const items = component.items();
-      const productsItem = items.find((item) => item.routeLink === '/products');
-      expect(productsItem).toBeDefined();
-      expect(productsItem?.textLink).toBe('products');
-    });
-
     it('should include companies menu item', () => {
       const { component } = setup();
       const items = component.items();
@@ -51,9 +68,9 @@ describe('Header', () => {
   });
 
   describe('menu items count without admin role', () => {
-    it('should have exactly 3 menu items when user is not admin', () => {
+    it('should have exactly 2 menu items when user is not admin', () => {
       const { component } = setup();
-      expect(component.items().length).toBe(3);
+      expect(component.items().length).toBe(2);
     });
   });
 });

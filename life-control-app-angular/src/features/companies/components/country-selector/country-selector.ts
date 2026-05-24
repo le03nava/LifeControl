@@ -5,12 +5,23 @@ import {
   output,
   signal,
 } from '@angular/core';
+import { MatButtonModule } from '@angular/material/button';
+import { MatChipsModule } from '@angular/material/chips';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
+import { MatSelectModule } from '@angular/material/select';
 import { Country, CompanyCountry, CompanyCountryRequest } from '../../models/company.models';
 
 @Component({
   selector: 'app-country-selector',
   standalone: true,
-  imports: [],
+  imports: [
+    MatSelectModule,
+    MatChipsModule,
+    MatButtonModule,
+    MatFormFieldModule,
+    MatInputModule,
+  ],
   templateUrl: './country-selector.html',
   styleUrl: './country-selector.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -23,9 +34,11 @@ export class CountrySelector {
 
   addCountry = output<CompanyCountryRequest>();
   removeCountry = output<string>();
+  countrySelected = output<CompanyCountry>();
 
   selectedCountryCode = signal('');
   localAlias = signal('');
+  selectedAssignedCountryId = signal<string | null>(null);
 
   onAdd(): void {
     const code = this.selectedCountryCode();
@@ -40,5 +53,14 @@ export class CountrySelector {
 
   onRemove(companyCountryId: string): void {
     this.removeCountry.emit(companyCountryId);
+  }
+
+  onSelectCountry(cc: CompanyCountry): void {
+    if (this.selectedAssignedCountryId() === cc.id) {
+      this.selectedAssignedCountryId.set(null);
+      return;
+    }
+    this.selectedAssignedCountryId.set(cc.id);
+    this.countrySelected.emit(cc);
   }
 }

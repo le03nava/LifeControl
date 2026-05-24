@@ -621,7 +621,7 @@ services:
       context: ../life-control-app-angular
       dockerfile: Dockerfile
     image: ${WEB_APP_IMAGE:-life-control-app-angular:latest}
-    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-web-app
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-life-control-app-angular
     ports:
       - "${WEB_APP_PORT:-4200}:3000"
     environment:

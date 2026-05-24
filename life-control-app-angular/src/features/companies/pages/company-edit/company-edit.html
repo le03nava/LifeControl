@@ -1,6 +1,10 @@
+@if (generalError(); as errorMessage) {
+  <div class="error-banner" role="alert">{{ errorMessage }}</div>
+}
+
 <app-companies-form
   [formGroup]="companyForm()"
-  [companyId]="defaultCompanyId()"
+  [serverErrors]="serverErrors()"
   (saveCompany)="onSaveCompany($event)"
   (cancelForm)="cancelForm()"
 />
@@ -14,6 +18,24 @@
       [errorMessage]="companyCountryService.error()"
       (addCountry)="onAddCountry($event)"
       (removeCountry)="onRemoveCountry($event)"
+      (countrySelected)="onSelectCountry($event)"
     />
   </section>
+
+  @if (selectedCountry(); as selCountry) {
+    <section class="regions-section">
+      <h3>Regiones de {{ selCountry.localAlias ?? selCountry.countryName }}</h3>
+      <app-region-manager
+        [regions]="companyRegionService.regions()"
+        [companyId]="companyId()!"
+        [countryId]="selCountry.id"
+        [loading]="companyRegionService.loading()"
+        [errorMessage]="companyRegionService.error()"
+        (addRegion)="onAddRegion($event)"
+        (updateRegion)="onUpdateRegion($event)"
+        (removeRegion)="onRemoveRegion($event)"
+        (enableRegion)="onEnableRegion($event)"
+      />
+    </section>
+  }
 }

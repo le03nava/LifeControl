@@ -1,6 +1,7 @@
 import { ApplicationConfig, inject, provideAppInitializer, provideZonelessChangeDetection } from '@angular/core';
 import { provideHttpClient, withInterceptors, withFetch } from '@angular/common/http';
 import { provideRouter, withComponentInputBinding } from '@angular/router';
+import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { provideKeycloak } from '@core/config/keycloak';
 import { errorInterceptor } from '@shared/data/error-interceptor';
 import { bearerTokenInterceptor } from '@core/interceptors/bearer-token.interceptor';
@@ -14,6 +15,9 @@ const initializeApp = () => {
 
 export const appConfig: ApplicationConfig = {
   providers: [
+    // 0. Animaciones (requerido por Angular Material)
+    provideAnimationsAsync(),
+
     // 1. Core providers - HttpClient con interceptores personalizados
     provideHttpClient(
       withFetch(),

@@ -25,6 +25,23 @@ export interface CompanyCountryRequest {
   localAlias?: string;
 }
 
+export interface CompanyRegion {
+  id: string;
+  companyCountryId: string;
+  companyId: string;
+  countryId: string;
+  regionCode: string;
+  regionName: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CompanyRegionRequest {
+  regionCode: string;
+  regionName: string;
+}
+
 export interface Company {
   id: string;
   companyId: number;
