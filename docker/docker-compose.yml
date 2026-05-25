@@ -486,7 +486,7 @@ services:
         limits:
           memory: ${API_GATEWAY_MEMORY_LIMIT:-512m}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:${API_GATEWAY_SERVER_PORT:-9000}/actuator/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:${API_GATEWAY_MANAGEMENT_PORT:-9001}/actuator/health"]
       interval: ${HEALTH_CHECK_INTERVAL:-30s}
       timeout: ${HEALTH_CHECK_TIMEOUT:-3s}
       retries: ${HEALTH_CHECK_RETRIES:-3}

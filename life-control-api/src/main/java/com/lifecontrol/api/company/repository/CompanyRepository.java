@@ -9,6 +9,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 @Repository
@@ -30,4 +31,16 @@ public interface CompanyRepository extends JpaRepository<Company, UUID> {
                OR LOWER(c.email) LIKE LOWER(CONCAT('%', :search, '%'))
             """)
     Page<Company> findBySearchTerm(@Param("search") String search, Pageable pageable);
+
+    Page<Company> findAllByIdIn(Set<UUID> ids, Pageable pageable);
+
+    @Query("""
+            SELECT c FROM Company c
+            WHERE (LOWER(c.companyName) LIKE LOWER(CONCAT('%', :search, '%'))
+               OR LOWER(c.rfc) LIKE LOWER(CONCAT('%', :search, '%'))
+               OR LOWER(c.razonSocial) LIKE LOWER(CONCAT('%', :search, '%'))
+               OR LOWER(c.email) LIKE LOWER(CONCAT('%', :search, '%')))
+            AND c.id IN :ids
+            """)
+    Page<Company> findBySearchTermAndIdIn(@Param("search") String search, @Param("ids") Set<UUID> ids, Pageable pageable);
 }

@@ -6,6 +6,7 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 @Repository
@@ -16,4 +17,6 @@ public interface CompanyCountryRepository extends JpaRepository<CompanyCountry, 
     boolean existsByCompanyIdAndCountryId(UUID companyId, UUID countryId);
 
     Optional<CompanyCountry> findByCompanyIdAndCountryId(UUID companyId, UUID countryId);
+
+    List<CompanyCountry> findAllByIdIn(Set<UUID> ids);
 }
