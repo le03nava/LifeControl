@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -18,6 +19,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/companies/{companyId}/countries/{countryId}/regions")
 @Tag(name = "Company Region Management", description = "API for managing regions within a company's country presence")
+@PreAuthorize("hasAnyRole('life-control-admin','life-control-country')")
 public class CompanyRegionController {
 
     private final CompanyRegionService companyRegionService;
