@@ -1,5 +1,6 @@
 package com.lifecontrol.api.company.service;
 
+import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.company.dto.CompanyRegionResponse;
 import com.lifecontrol.api.company.dto.CreateCompanyRegionRequest;
 import com.lifecontrol.api.company.dto.UpdateCompanyRegionRequest;
@@ -30,13 +31,16 @@ public class CompanyRegionService {
     private final CompanyRegionRepository companyRegionRepository;
     private final CompanyRepository companyRepository;
     private final CompanyCountryRepository companyCountryRepository;
+    private final CurrentUserContext currentUserContext;
 
     public CompanyRegionService(CompanyRegionRepository companyRegionRepository,
                                  CompanyRepository companyRepository,
-                                 CompanyCountryRepository companyCountryRepository) {
+                                 CompanyCountryRepository companyCountryRepository,
+                                 CurrentUserContext currentUserContext) {
         this.companyRegionRepository = companyRegionRepository;
         this.companyRepository = companyRepository;
         this.companyCountryRepository = companyCountryRepository;
+        this.currentUserContext = currentUserContext;
     }
 
     private UUID resolveCompanyCountryId(UUID companyId, UUID countryId) {
@@ -53,6 +57,7 @@ public class CompanyRegionService {
     @Cacheable(value = "companyRegions", key = "'all-' + #companyCountryId + '-' + #includeDisabled")
     @Transactional(readOnly = true)
     public List<CompanyRegionResponse> getAllRegions(UUID companyId, UUID countryId, boolean includeDisabled) {
+        currentUserContext.verifyCompanyAccess(companyId);
         UUID companyCountryId = resolveCompanyCountryId(companyId, countryId);
         List<CompanyRegion> regions = companyRegionRepository
                 .findByCompanyCountryIdOrderByRegionNameAsc(companyCountryId);
@@ -65,6 +70,7 @@ public class CompanyRegionService {
     @Cacheable(value = "companyRegions", key = "#id")
     @Transactional(readOnly = true)
     public CompanyRegionResponse getRegionById(UUID companyId, UUID countryId, UUID id) {
+        currentUserContext.verifyCompanyAccess(companyId);
         UUID companyCountryId = resolveCompanyCountryId(companyId, countryId);
         CompanyRegion region = companyRegionRepository.findByIdAndCompanyCountryId(id, companyCountryId)
                 .orElseThrow(() -> new CompanyRegionNotFoundException("Company region not found with id: " + id));
@@ -74,6 +80,7 @@ public class CompanyRegionService {
     @CacheEvict(value = "companyRegions", allEntries = true)
     @Transactional
     public CompanyRegionResponse createRegion(UUID companyId, UUID countryId, CreateCompanyRegionRequest request) {
+        currentUserContext.verifyCompanyAccess(companyId);
         companyRepository.findById(companyId)
                 .orElseThrow(() -> new CompanyNotFoundException(companyId));
 
@@ -100,6 +107,7 @@ public class CompanyRegionService {
     @CacheEvict(value = "companyRegions", allEntries = true)
     @Transactional
     public CompanyRegionResponse updateRegion(UUID companyId, UUID countryId, UUID id, UpdateCompanyRegionRequest request) {
+        currentUserContext.verifyCompanyAccess(companyId);
         companyRepository.findById(companyId)
                 .orElseThrow(() -> new CompanyNotFoundException(companyId));
 
@@ -126,6 +134,7 @@ public class CompanyRegionService {
     @CacheEvict(value = "companyRegions", allEntries = true)
     @Transactional
     public void deleteRegion(UUID companyId, UUID countryId, UUID id) {
+        currentUserContext.verifyCompanyAccess(companyId);
         companyRepository.findById(companyId)
                 .orElseThrow(() -> new CompanyNotFoundException(companyId));
 
@@ -143,6 +152,7 @@ public class CompanyRegionService {
     @CacheEvict(value = "companyRegions", allEntries = true)
     @Transactional
     public CompanyRegionResponse enableRegion(UUID companyId, UUID countryId, UUID id) {
+        currentUserContext.verifyCompanyAccess(companyId);
         companyRepository.findById(companyId)
                 .orElseThrow(() -> new CompanyNotFoundException(companyId));
 

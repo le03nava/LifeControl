@@ -1,5 +1,6 @@
 package com.lifecontrol.api.company.service;
 
+import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.company.dto.CompanyCountryRequest;
 import com.lifecontrol.api.company.dto.CompanyCountryResponse;
 import com.lifecontrol.api.company.exception.CompanyCountryNotFoundException;
@@ -28,17 +29,22 @@ public class CompanyCountryService {
     private final CompanyCountryRepository companyCountryRepository;
     private final CompanyRepository companyRepository;
     private final CountryRepository countryRepository;
+    private final CurrentUserContext currentUserContext;
 
     public CompanyCountryService(CompanyCountryRepository companyCountryRepository,
                                   CompanyRepository companyRepository,
-                                  CountryRepository countryRepository) {
+                                  CountryRepository countryRepository,
+                                  CurrentUserContext currentUserContext) {
         this.companyCountryRepository = companyCountryRepository;
         this.companyRepository = companyRepository;
         this.countryRepository = countryRepository;
+        this.currentUserContext = currentUserContext;
     }
 
     @Transactional(readOnly = true)
     public List<CompanyCountryResponse> getCountriesByCompanyId(UUID companyId) {
+        currentUserContext.verifyCompanyAccess(companyId);
+
         // Verify company exists
         if (!companyRepository.existsById(companyId)) {
             throw new CompanyNotFoundException(companyId);
@@ -51,6 +57,7 @@ public class CompanyCountryService {
 
     @Transactional
     public CompanyCountryResponse addCountryToCompany(UUID companyId, CompanyCountryRequest request) {
+        currentUserContext.verifyCompanyAccess(companyId);
         logger.info("Adding country {} to company {}", request.countryCode(), companyId);
 
         Company company = companyRepository.findById(companyId)
@@ -77,6 +84,7 @@ public class CompanyCountryService {
 
     @Transactional
     public void removeCountryFromCompany(UUID companyId, UUID companyCountryId) {
+        currentUserContext.verifyCompanyAccess(companyId);
         logger.info("Removing country relation {} from company {}", companyCountryId, companyId);
 
         CompanyCountry companyCountry = companyCountryRepository.findById(companyCountryId)

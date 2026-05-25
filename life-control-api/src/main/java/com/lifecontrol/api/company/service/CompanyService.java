@@ -1,5 +1,6 @@
 package com.lifecontrol.api.company.service;
 
+import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.company.dto.CompanyRequest;
 import com.lifecontrol.api.company.dto.CompanyResponse;
 import com.lifecontrol.api.company.event.CompanyCreatedEvent;
@@ -16,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -25,17 +27,32 @@ public class CompanyService {
 
     private final CompanyRepository companyRepository;
     private final ApplicationEventPublisher eventPublisher;
+    private final CurrentUserContext currentUserContext;
 
-    public CompanyService(CompanyRepository companyRepository, ApplicationEventPublisher eventPublisher) {
+    public CompanyService(CompanyRepository companyRepository,
+                          ApplicationEventPublisher eventPublisher,
+                          CurrentUserContext currentUserContext) {
         this.companyRepository = companyRepository;
         this.eventPublisher = eventPublisher;
+        this.currentUserContext = currentUserContext;
     }
 
     @Transactional(readOnly = true)
     public Page<CompanyResponse> getAllCompanies(Pageable pageable, String search) {
         Page<Company> companies;
 
-        if (StringUtils.hasText(search)) {
+        if (!currentUserContext.isAdmin()) {
+            // Country-role user: filter by assigned company IDs
+            Set<UUID> companyIds = currentUserContext.getCompanyIds();
+            if (companyIds.isEmpty()) {
+                return Page.empty(pageable);
+            }
+            if (StringUtils.hasText(search)) {
+                companies = companyRepository.findBySearchTermAndIdIn(search.trim(), companyIds, pageable);
+            } else {
+                companies = companyRepository.findAllByIdIn(companyIds, pageable);
+            }
+        } else if (StringUtils.hasText(search)) {
             companies = companyRepository.findBySearchTerm(search.trim(), pageable);
         } else {
             companies = companyRepository.findAll(pageable);
@@ -46,6 +63,7 @@ public class CompanyService {
 
     @Transactional(readOnly = true)
     public CompanyResponse getCompanyById(UUID id) {
+        currentUserContext.verifyCompanyAccess(id);
         return companyRepository.findById(id)
                 .map(this::toResponse)
                 .orElseThrow(() -> new CompanyNotFoundException(id));
