@@ -21,6 +21,13 @@ describe('app.routes', () => {
     expect(companiesRoute).toBeDefined();
   });
 
+  it('should have companies route with loadChildren for lazy-loaded children', () => {
+    const companiesRoute = routes.find((r) => r.path === 'companies');
+    expect(companiesRoute).toBeDefined();
+    // Companies uses loadChildren (lazy-loaded feature routes)
+    expect(companiesRoute?.loadChildren).toBeDefined();
+  });
+
   it('should still contain the users-admin route', () => {
     const usersAdminRoute = routes.find((r) => r.path === 'users-admin');
     expect(usersAdminRoute).toBeDefined();
