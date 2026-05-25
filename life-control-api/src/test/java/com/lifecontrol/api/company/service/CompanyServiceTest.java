@@ -1,5 +1,6 @@
 package com.lifecontrol.api.company.service;
 
+import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.company.dto.CompanyRequest;
 import com.lifecontrol.api.company.dto.CompanyResponse;
 import com.lifecontrol.api.company.event.CompanyCreatedEvent;
@@ -24,15 +25,20 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -46,6 +52,9 @@ class CompanyServiceTest {
     @Mock
     private ApplicationEventPublisher eventPublisher;
 
+    @Mock
+    private CurrentUserContext currentUserContext;
+
     @InjectMocks
     private CompanyService companyService;
 
@@ -55,6 +64,7 @@ class CompanyServiceTest {
 
     @BeforeEach
     void setUp() {
+        lenient().when(currentUserContext.isAdmin()).thenReturn(true);
         testCompanyId = UUID.randomUUID();
         
         testCompany = Company.builder()
@@ -165,6 +175,81 @@ class CompanyServiceTest {
             assertThat(result).isNotNull();
             assertThat(result.getContent()).hasSize(1);
             verify(companyRepository).findAll(pageable);
+        }
+
+        // ── Country-role filtering ────────────────────────────
+
+        @Test
+        @DisplayName("getAllCompanies - should filter by companyIds when country role")
+        void getAllCompanies_CountryRole_FiltersByCompanyIds() {
+            // Override admin default — simulate country-role user
+            reset(currentUserContext);
+            var companyId1 = UUID.randomUUID();
+            var companyId2 = UUID.randomUUID();
+            var ids = Set.of(companyId1, companyId2);
+
+            lenient().when(currentUserContext.isAdmin()).thenReturn(false);
+            lenient().when(currentUserContext.getCompanyIds()).thenReturn(ids);
+
+            var pageable = PageRequest.of(0, 12);
+            var companies = List.of(testCompany);
+            var expectedPage = new PageImpl<>(companies, pageable, 1);
+
+            when(companyRepository.findAllByIdIn(ids, pageable)).thenReturn(expectedPage);
+
+            // Act
+            Page<CompanyResponse> result = companyService.getAllCompanies(pageable, null);
+
+            // Assert
+            assertThat(result).isNotNull();
+            assertThat(result.getContent()).hasSize(1);
+            verify(companyRepository).findAllByIdIn(ids, pageable);
+        }
+
+        @Test
+        @DisplayName("getAllCompanies - should return empty page when country-role has no companyIds")
+        void getAllCompanies_CountryRole_NoCompanyIds_ReturnsEmpty() {
+            // Override admin default — simulate country-role with empty companyIds
+            reset(currentUserContext);
+            lenient().when(currentUserContext.isAdmin()).thenReturn(false);
+            lenient().when(currentUserContext.getCompanyIds()).thenReturn(Collections.emptySet());
+
+            var pageable = PageRequest.of(0, 12);
+
+            // Act
+            Page<CompanyResponse> result = companyService.getAllCompanies(pageable, null);
+
+            // Assert
+            assertThat(result).isNotNull();
+            assertThat(result.getContent()).isEmpty();
+            assertThat(result.getTotalElements()).isZero();
+            verify(companyRepository, never()).findAllByIdIn(anySet(), any());
+            verify(companyRepository, never()).findAll(any(Pageable.class));
+        }
+
+        @Test
+        @DisplayName("getAllCompanies - should filter by companyIds with search when country role")
+        void getAllCompanies_CountryRole_WithSearch() {
+            // Override admin default
+            reset(currentUserContext);
+            var ids = Set.of(testCompanyId);
+            lenient().when(currentUserContext.isAdmin()).thenReturn(false);
+            lenient().when(currentUserContext.getCompanyIds()).thenReturn(ids);
+
+            var pageable = PageRequest.of(0, 12);
+            var companies = List.of(testCompany);
+            var expectedPage = new PageImpl<>(companies, pageable, 1);
+
+            when(companyRepository.findBySearchTermAndIdIn(eq("Test"), eq(ids), eq(pageable)))
+                    .thenReturn(expectedPage);
+
+            // Act
+            Page<CompanyResponse> result = companyService.getAllCompanies(pageable, "Test");
+
+            // Assert
+            assertThat(result).isNotNull();
+            assertThat(result.getContent()).hasSize(1);
+            verify(companyRepository).findBySearchTermAndIdIn("Test", ids, pageable);
         }
     }
 

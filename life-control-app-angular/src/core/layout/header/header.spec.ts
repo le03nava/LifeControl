@@ -10,12 +10,12 @@ import Keycloak from 'keycloak-js';
 describe('Header', () => {
   let keycloakMock: Partial<Keycloak>;
 
-  const setup = () => {
+  const setup = (realmRoles: string[] = []) => {
     keycloakMock = {
       login: vi.fn(),
       logout: vi.fn(),
-      hasRealmRole: vi.fn().mockReturnValue(false),
-      authenticated: false,
+      hasRealmRole: vi.fn().mockImplementation((role: string) => realmRoles.includes(role)),
+      authenticated: realmRoles.length > 0,
     };
 
     // Create a keycloak event signal for the test
@@ -71,6 +71,41 @@ describe('Header', () => {
     it('should have exactly 2 menu items when user is not admin', () => {
       const { component } = setup();
       expect(component.items().length).toBe(2);
+    });
+  });
+
+  describe('role visibility', () => {
+    it('should show Users Admin nav and company-selector for admin role', () => {
+      const { component, fixture } = setup(['life-control-admin']);
+      expect(component.isAdmin()).toBe(true);
+      expect(component.isCompanyRole()).toBe(true);
+      const items = component.items();
+      expect(items.some((i) => i.routeLink === '/users-admin')).toBe(true);
+      expect(items.length).toBe(3); // Home + Companies + Users Admin
+      const companySelector = fixture.nativeElement.querySelector('app-company-selector');
+      expect(companySelector).toBeTruthy();
+    });
+
+    it('should show company-selector but NOT Users Admin for country role', () => {
+      const { component, fixture } = setup(['life-control-country']);
+      expect(component.isAdmin()).toBe(false);
+      expect(component.isCompanyRole()).toBe(true);
+      const items = component.items();
+      expect(items.some((i) => i.routeLink === '/users-admin')).toBe(false);
+      expect(items.length).toBe(2); // Home + Companies only
+      const companySelector = fixture.nativeElement.querySelector('app-company-selector');
+      expect(companySelector).toBeTruthy();
+    });
+
+    it('should hide both Users Admin and company-selector for neither role', () => {
+      const { component, fixture } = setup(['some-other-role']);
+      expect(component.isAdmin()).toBe(false);
+      expect(component.isCompanyRole()).toBe(false);
+      const items = component.items();
+      expect(items.some((i) => i.routeLink === '/users-admin')).toBe(false);
+      expect(items.length).toBe(2); // Home + Companies only
+      const companySelector = fixture.nativeElement.querySelector('app-company-selector');
+      expect(companySelector).toBeFalsy();
     });
   });
 });

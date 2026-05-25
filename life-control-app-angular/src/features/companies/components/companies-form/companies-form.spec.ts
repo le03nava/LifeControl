@@ -11,7 +11,7 @@ describe('CompaniesForm', () => {
   function createFormGroup(): FormGroup<CompanyControl> {
     return new FormGroup<CompanyControl>({
       id: new FormControl('', { nonNullable: true }),
-      companyKey: new FormControl<string | null>(null, Validators.required),
+      companyKey: new FormControl('', { nonNullable: true, validators: Validators.required }),
       companyName: new FormControl('', { nonNullable: true, validators: Validators.required }),
       tipoPersonaId: new FormControl<number>(1, { nonNullable: true, validators: Validators.required }),
       razonSocial: new FormControl('', { nonNullable: true, validators: Validators.required }),

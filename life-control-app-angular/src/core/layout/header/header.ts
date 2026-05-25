@@ -31,6 +31,7 @@ export class Header implements OnInit {
   // Signals
   private showMenu = signal(false);
   private isSmallScreen = signal(false);
+  isCompanyRole = signal(false);
   isAdmin = signal(false);
 
   // Computed properties
@@ -75,11 +76,16 @@ export class Header implements OnInit {
       const event = this.keycloakSignal();
       if (event?.type === KeycloakEventType.Ready) {
         this.authenticated = this.keycloak.authenticated ?? false;
-        this.isAdmin.set(this.keycloak.hasRealmRole('admin'));
+        this.isAdmin.set(this.keycloak.hasRealmRole('life-control-admin'));
+        this.isCompanyRole.set(
+          this.keycloak.hasRealmRole('life-control-admin') ||
+          this.keycloak.hasRealmRole('life-control-country')
+        );
       }
       if (event?.type === KeycloakEventType.AuthLogout) {
         this.authenticated = false;
         this.isAdmin.set(false);
+        this.isCompanyRole.set(false);
       }
     });
   }

@@ -1,5 +1,6 @@
 package com.lifecontrol.api.company.service;
 
+import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.company.dto.CompanyCountryRequest;
 import com.lifecontrol.api.company.dto.CompanyCountryResponse;
 import com.lifecontrol.api.company.exception.CompanyCountryNotFoundException;
@@ -39,6 +40,8 @@ class CompanyCountryServiceTest {
     private CompanyRepository companyRepository;
     @Mock
     private CountryRepository countryRepository;
+    @Mock
+    private CurrentUserContext currentUserContext;
 
     @InjectMocks
     private CompanyCountryService companyCountryService;

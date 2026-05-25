@@ -1,5 +1,6 @@
 package com.lifecontrol.api.company.service;
 
+import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.company.dto.CompanyRegionResponse;
 import com.lifecontrol.api.company.dto.CreateCompanyRegionRequest;
 import com.lifecontrol.api.company.dto.UpdateCompanyRegionRequest;
@@ -42,6 +43,8 @@ class CompanyRegionServiceTest {
     private CompanyRepository companyRepository;
     @Mock
     private CompanyCountryRepository companyCountryRepository;
+    @Mock
+    private CurrentUserContext currentUserContext;
 
     @InjectMocks
     private CompanyRegionService companyRegionService;
