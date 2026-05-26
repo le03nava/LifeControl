@@ -1,6 +1,6 @@
 import { inject, Injectable, signal } from '@angular/core';
-import { CompanyService } from '@features/companies/data/company.service';
-import { Company, Page } from '@features/companies/models/company.models';
+import { CompanyService } from '@features/companies/companies/data/company.service';
+import { Company, Page } from '@features/companies/companies/models/company.models';
 
 @Injectable({ providedIn: 'root' })
 export class CompanyContextService {

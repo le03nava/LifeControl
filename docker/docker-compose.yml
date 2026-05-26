@@ -2,8 +2,6 @@
 # LifeControl - Docker Compose Parametrizado
 # ============================================
 
-version: "3.8"
-
 # Network configuration - default bridge network
 # For custom network, use NETWORK_NAME environment variable in each service
 networks:
@@ -84,7 +82,17 @@ services:
         limits:
           memory: ${MYSQL_MEMORY_LIMIT:-512m}
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      test:
+        [
+          "CMD",
+          "mysqladmin",
+          "ping",
+          "-h",
+          "localhost",
+          "-u",
+          "root",
+          "-p${MYSQL_ROOT_PASSWORD}",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -229,7 +237,8 @@ services:
         limits:
           memory: ${PRODUCT_POSTGRES_MEMORY_LIMIT:-256m}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${PRODUCT_POSTGRES_USER:-product_user}"]
+      test:
+        ["CMD-SHELL", "pg_isready -U ${PRODUCT_POSTGRES_USER:-product_user}"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -286,7 +295,11 @@ services:
         limits:
           memory: ${LIFECONTROL_POSTGRES_MEMORY_LIMIT:-256m}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${LIFECONTROL_POSTGRES_USER:-lifecontrol_user}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${LIFECONTROL_POSTGRES_USER:-lifecontrol_user}",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -348,7 +361,15 @@ services:
         limits:
           memory: ${LOKI_MEMORY_LIMIT:-256m}
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3100/ready"]
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:3100/ready",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -378,7 +399,15 @@ services:
         limits:
           memory: ${PROMETHEUS_MEMORY_LIMIT:-512m}
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:9090/-/healthy",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -393,8 +422,8 @@ services:
     user: "0:0"
     command: ["-config.file=/etc/tempo/tempo.yml"]
     ports:
-      - "${TEMPO_PORT:-3110}:3100"  # Tempo
-      - "${TEMPO_ZIPKIN_PORT:-9411}:9411"  # Zipkin
+      - "${TEMPO_PORT:-3110}:3100" # Tempo
+      - "${TEMPO_ZIPKIN_PORT:-9411}:9411" # Zipkin
     volumes:
       - ${TEMPO_CONFIG_PATH:-./volumes-dev/tempo/config}:/etc/tempo:ro
       - ${TEMPO_DATA_PATH:-./volumes-dev/tempo/data}:/var/tempo
@@ -405,7 +434,15 @@ services:
         limits:
           memory: ${TEMPO_MEMORY_LIMIT:-512m}
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3100/ready"]
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:3100/ready",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -434,7 +471,15 @@ services:
         limits:
           memory: ${GRAFANA_MEMORY_LIMIT:-256m}
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:3000/api/health",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -486,7 +531,13 @@ services:
         limits:
           memory: ${API_GATEWAY_MEMORY_LIMIT:-512m}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:${API_GATEWAY_MANAGEMENT_PORT:-9001}/actuator/health"]
+      test:
+        [
+          "CMD",
+          "curl",
+          "-f",
+          "http://localhost:${API_GATEWAY_MANAGEMENT_PORT:-9001}/actuator/health",
+        ]
       interval: ${HEALTH_CHECK_INTERVAL:-30s}
       timeout: ${HEALTH_CHECK_TIMEOUT:-3s}
       retries: ${HEALTH_CHECK_RETRIES:-3}
@@ -530,7 +581,13 @@ services:
         limits:
           memory: ${PRODUCT_SERVICE_MEMORY_LIMIT:-512m}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:${PRODUCT_SERVICE_PORT:-8080}/actuator/health"]
+      test:
+        [
+          "CMD",
+          "curl",
+          "-f",
+          "http://localhost:${PRODUCT_SERVICE_PORT:-8080}/actuator/health",
+        ]
       interval: ${HEALTH_CHECK_INTERVAL:-30s}
       timeout: ${HEALTH_CHECK_TIMEOUT:-3s}
       retries: ${HEALTH_CHECK_RETRIES:-3}
@@ -545,7 +602,16 @@ services:
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-redis
     ports:
       - "${REDIS_PORT:-6379}:6379"
-    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "${REDIS_MAXMEMORY:-128mb}", "--maxmemory-policy", "allkeys-lru"]
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--maxmemory",
+        "${REDIS_MAXMEMORY:-128mb}",
+        "--maxmemory-policy",
+        "allkeys-lru",
+      ]
     volumes:
       - ${REDIS_DATA_PATH:-./volumes-dev/redis/data}:/data
     networks:
@@ -606,7 +672,13 @@ services:
         limits:
           memory: ${LIFECONTROL_API_MEMORY_LIMIT:-512m}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:${LIFECONTROL_API_PORT:-8082}/actuator/health"]
+      test:
+        [
+          "CMD",
+          "curl",
+          "-f",
+          "http://localhost:${LIFECONTROL_API_PORT:-8082}/actuator/health",
+        ]
       interval: ${HEALTH_CHECK_INTERVAL:-30s}
       timeout: ${HEALTH_CHECK_TIMEOUT:-3s}
       retries: ${HEALTH_CHECK_RETRIES:-3}

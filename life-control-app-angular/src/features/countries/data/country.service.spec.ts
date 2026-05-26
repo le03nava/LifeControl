@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 import { firstValueFrom } from 'rxjs';
 import { CountryService } from './country.service';
-import { Country } from '../../companies/models/company.models';
+import { Country } from '../../companies/companies/models/company.models';
 
 describe('CountryService', () => {
   let service: CountryService;

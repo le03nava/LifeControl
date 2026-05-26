@@ -10,21 +10,26 @@ export const companyRoutes: Routes = [
         {
           path: '',
           loadComponent: () =>
-            import('./pages/companies-admin/companies-admin.component').then(
+            import('./companies/pages/companies-admin/companies-admin.component').then(
               (m) => m.CompaniesAdminComponent,
             ),
         },
         {
           path: 'list',
-          loadComponent: () => import('./pages/company-list/company-list').then((m) => m.CompanyList),
+          loadComponent: () => import('./companies/pages/company-list/company-list').then((m) => m.CompanyList),
         },
         {
           path: 'edit/:id',
-          loadComponent: () => import('./pages/company-edit/company-edit').then((m) => m.CompanyEdit),
+          loadComponent: () => import('./companies/pages/company-edit/company-edit').then((m) => m.CompanyEdit),
         },
         {
           path: 'create',
-          loadComponent: () => import('./pages/company-edit/company-edit').then((m) => m.CompanyEdit),
+          loadComponent: () => import('./companies/pages/company-edit/company-edit').then((m) => m.CompanyEdit),
+        },
+        {
+          path: 'countries',
+          loadComponent: () =>
+            import('./countries/pages/countries-page/countries-page').then((m) => m.CountriesPage),
         },
       ],
   },

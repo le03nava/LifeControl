@@ -4,8 +4,6 @@
 # Use: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up
 # Or use the provided scripts
 
-version: "3.8"
-
 # Network configuration - default bridge network
 # Override with NETWORK_NAME in each service if needed
 networks:
@@ -52,10 +50,10 @@ services:
       resources:
         limits:
           memory: ${MONGO_MEMORY_LIMIT:-2g}
-          cpus: '1.0'
+          cpus: "1.0"
         reservations:
           memory: 1g
-          cpus: '0.5'
+          cpus: "0.5"
       restart_policy:
         condition: on-failure
         delay: 5s
@@ -91,10 +89,10 @@ services:
       resources:
         limits:
           memory: ${MYSQL_MEMORY_LIMIT:-2g}
-          cpus: '1.0'
+          cpus: "1.0"
         reservations:
           memory: 1g
-          cpus: '0.5'
+          cpus: "0.5"
       restart_policy:
         condition: on-failure
         delay: 5s
@@ -129,17 +127,18 @@ services:
       resources:
         limits:
           memory: ${PRODUCT_POSTGRES_MEMORY_LIMIT:-1g}
-          cpus: '0.5'
+          cpus: "0.5"
         reservations:
           memory: 512m
-          cpus: '0.25'
+          cpus: "0.25"
       restart_policy:
         condition: on-failure
         delay: 5s
         max_attempts: 5
         window: 180s
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${PRODUCT_POSTGRES_USER:-product_user}"]
+      test:
+        ["CMD-SHELL", "pg_isready -U ${PRODUCT_POSTGRES_USER:-product_user}"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -165,7 +164,7 @@ services:
       resources:
         limits:
           memory: ${ZOOKEEPER_MEMORY_LIMIT:-512m}
-          cpus: '0.5'
+          cpus: "0.5"
     restart: always
 
   # ============================================
@@ -197,10 +196,10 @@ services:
       resources:
         limits:
           memory: ${KAFKA_MEMORY_LIMIT:-4g}
-          cpus: '2.0'
+          cpus: "2.0"
         reservations:
           memory: 2g
-          cpus: '1.0'
+          cpus: "1.0"
       restart_policy:
         condition: on-failure
         delay: 10s
@@ -230,7 +229,7 @@ services:
       resources:
         limits:
           memory: ${SCHEMA_REGISTRY_MEMORY_LIMIT:-1g}
-          cpus: '0.5'
+          cpus: "0.5"
     restart: always
 
   # ============================================
@@ -277,10 +276,10 @@ services:
       resources:
         limits:
           memory: ${POSTGRES_MEMORY_LIMIT:-2g}
-          cpus: '1.0'
+          cpus: "1.0"
         reservations:
           memory: 1g
-          cpus: '0.5'
+          cpus: "0.5"
       restart_policy:
         condition: on-failure
         delay: 5s
@@ -326,10 +325,10 @@ services:
       resources:
         limits:
           memory: ${KEYCLOAK_MEMORY_LIMIT:-2g}
-          cpus: '1.0'
+          cpus: "1.0"
         reservations:
           memory: 1g
-          cpus: '0.5'
+          cpus: "0.5"
       update_config:
         parallelism: 1
         delay: 10s
@@ -364,7 +363,7 @@ services:
       resources:
         limits:
           memory: ${LOKI_MEMORY_LIMIT:-1g}
-          cpus: '0.5'
+          cpus: "0.5"
     restart: always
 
   prometheus:
@@ -387,7 +386,7 @@ services:
       resources:
         limits:
           memory: ${PROMETHEUS_MEMORY_LIMIT:-2g}
-          cpus: '1.0'
+          cpus: "1.0"
     restart: always
 
   tempo:
@@ -406,7 +405,7 @@ services:
       resources:
         limits:
           memory: ${TEMPO_MEMORY_LIMIT:-2g}
-          cpus: '1.0'
+          cpus: "1.0"
     restart: always
 
   grafana:
@@ -431,7 +430,7 @@ services:
       resources:
         limits:
           memory: ${GRAFANA_MEMORY_LIMIT:-1g}
-          cpus: '0.5'
+          cpus: "0.5"
     restart: always
 
   # ============================================
@@ -481,10 +480,10 @@ services:
       resources:
         limits:
           memory: ${API_GATEWAY_MEMORY_LIMIT:-2g}
-          cpus: '1.0'
+          cpus: "1.0"
         reservations:
           memory: 1g
-          cpus: '0.5'
+          cpus: "0.5"
       update_config:
         parallelism: 1
         delay: 10s
@@ -495,7 +494,13 @@ services:
         max_attempts: 3
         window: 120s
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:${API_GATEWAY_SERVER_PORT:-9200}/actuator/health"]
+      test:
+        [
+          "CMD",
+          "curl",
+          "-f",
+          "http://localhost:${API_GATEWAY_SERVER_PORT:-9200}/actuator/health",
+        ]
       interval: 30s
       timeout: 5s
       retries: 5
@@ -542,10 +547,10 @@ services:
       resources:
         limits:
           memory: ${PRODUCT_SERVICE_MEMORY_LIMIT:-1g}
-          cpus: '1.0'
+          cpus: "1.0"
         reservations:
           memory: 512m
-          cpus: '0.5'
+          cpus: "0.5"
       update_config:
         parallelism: 1
         delay: 10s
@@ -556,7 +561,13 @@ services:
         max_attempts: 3
         window: 120s
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:${PRODUCT_SERVICE_PORT:-8080}/actuator/health"]
+      test:
+        [
+          "CMD",
+          "curl",
+          "-f",
+          "http://localhost:${PRODUCT_SERVICE_PORT:-8080}/actuator/health",
+        ]
       interval: 30s
       timeout: 5s
       retries: 5
@@ -585,17 +596,21 @@ services:
       resources:
         limits:
           memory: ${LIFECONTROL_POSTGRES_MEMORY_LIMIT:-512m}
-          cpus: '0.5'
+          cpus: "0.5"
         reservations:
           memory: 256m
-          cpus: '0.25'
+          cpus: "0.25"
       restart_policy:
         condition: on-failure
         delay: 5s
         max_attempts: 5
         window: 180s
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${LIFECONTROL_POSTGRES_USER:-lifecontrol_user}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${LIFECONTROL_POSTGRES_USER:-lifecontrol_user}",
+        ]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -640,7 +655,7 @@ secrets:
       resources:
         limits:
           memory: ${WEB_APP_MEMORY_LIMIT:-512m}
-          cpus: '0.5'
+          cpus: "0.5"
       update_config:
         parallelism: 1
         delay: 10s

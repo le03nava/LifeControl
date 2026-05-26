@@ -1,0 +1,68 @@
+@use '../../../../../shared/styles/form-layout' as *;
+
+.header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+
+  h2 {
+    margin-bottom: 0;
+    text-align: left;
+  }
+}
+
+.add-form-row {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  margin-bottom: 1.5rem;
+
+  mat-form-field {
+    flex: 1;
+  }
+}
+
+.regions-table {
+  width: 100%;
+  margin-bottom: 1rem;
+}
+
+.inline-edit-field {
+  width: 100%;
+  margin: 0;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.error-message {
+  background-color: var(--mat-sys-warning-container);
+  color: var(--mat-sys-on-warning-container);
+  padding: 0.75rem 1rem;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+.loading-text {
+  color: var(--color-gray-500);
+  font-style: italic;
+}
+
+.empty-state {
+  color: var(--color-gray-400);
+  font-style: italic;
+  margin-bottom: 1.5rem;
+  text-align: center;
+  padding: 2rem 0;
+}
+
+.placeholder-text {
+  color: var(--color-gray-400);
+  font-style: italic;
+  text-align: center;
+  padding: 2rem 0;
+}

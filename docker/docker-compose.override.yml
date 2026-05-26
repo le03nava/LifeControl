@@ -4,8 +4,6 @@
 # Automatically loaded when running: docker-compose up
 # Use: docker-compose up (override applied automatically)
 
-version: "3.8"
-
 services:
   # ============================================
   # Development API Gateway Overrides

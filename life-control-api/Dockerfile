@@ -33,9 +33,12 @@ RUN ls -la /app/app.jar && \
         exit 1; \
     fi
 
-RUN apk add --no-cache curl && \
-    addgroup -g 1001 ${APP_GROUP} && \
+# Crear usuario/grupo sin depender de apk
+RUN addgroup -g 1001 ${APP_GROUP} && \
     adduser -u 1001 -G ${APP_GROUP} -s /bin/sh -D ${APP_USER}
+
+# Intentar instalar curl para HEALTHCHECK; si falla DNS no bloquea el build
+RUN apk add --no-cache curl || true
 
 USER ${APP_USER}
 
@@ -45,10 +48,12 @@ LABEL maintainer="LifeControl Team" \
       version="${APP_VERSION}" \
       description="LifeControl API with multi-environment support"
 
+# HEALTHCHECK: usa curl si está instalado, sino wget (busybox), sino falla
 HEALTHCHECK --interval=30s \
             --timeout=3s \
             --start-period=60s \
             --retries=3 \
-  CMD curl -f http://localhost:${SERVER_PORT:-8082}/actuator/health || exit 1
+  CMD curl -f http://localhost:${SERVER_PORT:-8082}/actuator/health || \
+      wget -qO- http://localhost:${SERVER_PORT:-8082}/actuator/health || exit 1
 
 ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
