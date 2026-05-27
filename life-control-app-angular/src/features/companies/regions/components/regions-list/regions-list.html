@@ -1,0 +1,115 @@
+<div class="form-card">
+  <!-- Company → Country drill-down selectors -->
+  <div class="selector-row">
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>Empresa</mat-label>
+      <mat-select
+        [value]="selectedCompanyId()"
+        (selectionChange)="onCompanyChange($event.value)"
+      >
+        @for (company of companies(); track company.id) {
+          <mat-option [value]="company.id">
+            {{ company.companyName }}
+          </mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>País</mat-label>
+      <mat-select
+        [value]="selectedCompanyCountryId()"
+        [disabled]="!selectedCompanyId() || companyCountries().length === 0"
+        (selectionChange)="onCountryChange($event.value)"
+      >
+        @for (cc of companyCountries(); track cc.id) {
+          <mat-option [value]="cc">
+            {{ cc.countryName }}
+          </mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+  </div>
+
+  @if (!selectedCompanyCountryId()) {
+    <!-- Placeholder when no country selected -->
+    <p class="placeholder-text">Seleccioná un país para ver sus regiones</p>
+  } @else {
+    <!-- Header with toggle -->
+    <div class="header-row">
+      <h2>Regiones</h2>
+      <mat-slide-toggle
+        [checked]="showDisabled()"
+        (change)="showDisabled.set($event.checked)"
+      >
+        Mostrar deshabilitadas
+      </mat-slide-toggle>
+    </div>
+
+    <!-- Error message -->
+    @if (error(); as errMsg) {
+      <div class="error-message">{{ errMsg }}</div>
+    }
+
+    <!-- Loading state -->
+    @if (loading()) {
+      <p class="loading-text">Cargando regiones...</p>
+    } @else if (filteredRegions().length > 0) {
+      <!-- Regions table -->
+      <table mat-table [dataSource]="filteredRegions()" class="regions-table">
+        <ng-container matColumnDef="regionCode">
+          <th mat-header-cell *matHeaderCellDef>Código</th>
+          <td mat-cell *matCellDef="let region">
+            <span>{{ region.regionCode }}</span>
+          </td>
+        </ng-container>
+
+        <ng-container matColumnDef="regionName">
+          <th mat-header-cell *matHeaderCellDef>Nombre</th>
+          <td mat-cell *matCellDef="let region">
+            <span>{{ region.regionName }}</span>
+          </td>
+        </ng-container>
+
+        <ng-container matColumnDef="enabled">
+          <th mat-header-cell *matHeaderCellDef>Estado</th>
+          <td mat-cell *matCellDef="let region">
+            <mat-slide-toggle
+              [checked]="region.enabled"
+              (change)="onToggle(region)"
+            />
+          </td>
+        </ng-container>
+
+        <ng-container matColumnDef="actions">
+          <th mat-header-cell *matHeaderCellDef>Acciones</th>
+          <td mat-cell *matCellDef="let region">
+            <div class="action-buttons">
+              <button
+                mat-stroked-button
+                type="button"
+                (click)="onEdit(region)"
+              >
+                Editar
+              </button>
+              <button
+                mat-stroked-button
+                color="warn"
+                type="button"
+                (click)="onDelete(region.id)"
+              >
+                Eliminar
+              </button>
+            </div>
+          </td>
+        </ng-container>
+
+        <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+        <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
+      </table>
+    } @else {
+      <!-- Empty state -->
+      <p class="empty-state">No hay regiones registradas para este país</p>
+    }
+  }
+</div>

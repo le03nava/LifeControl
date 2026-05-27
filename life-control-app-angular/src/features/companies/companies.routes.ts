@@ -31,6 +31,11 @@ export const companyRoutes: Routes = [
           loadComponent: () =>
             import('./countries/pages/countries-page/countries-page').then((m) => m.CountriesPage),
         },
+        {
+          path: 'regions',
+          loadComponent: () =>
+            import('./regions/pages/regions-page/regions-page').then((m) => m.RegionsPage),
+        },
       ],
   },
 ];

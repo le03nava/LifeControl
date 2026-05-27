@@ -1,0 +1,44 @@
+<div class="regions-page">
+  <h1>Gestión de Regiones</h1>
+
+  <mat-form-field appearance="outline" class="company-selector">
+    <mat-label>Empresa</mat-label>
+    <mat-select (selectionChange)="onCompanyChange($event.value)">
+      <mat-option value="">— Seleccionar empresa —</mat-option>
+      @for (company of companies(); track company.id) {
+        <mat-option [value]="company.id">{{ company.companyName }}</mat-option>
+      }
+    </mat-select>
+  </mat-form-field>
+
+  @if (selectedCompanyId()) {
+    @if (companyCountryService.assignedCountries().length > 0) {
+      <mat-chip-set>
+        @for (cc of companyCountryService.assignedCountries(); track cc.id) {
+          <mat-chip
+            [class.selected]="selectedCountry()?.id === cc.id"
+            (click)="onSelectCountry(cc)"
+          >
+            {{ cc.countryName }}
+          </mat-chip>
+        }
+      </mat-chip-set>
+    }
+
+    @if (selectedCountry()) {
+      <app-region-manager
+        [regions]="companyRegionService.regions()"
+        [companyId]="selectedCountry()!.companyId"
+        [countryId]="selectedCountry()!.id"
+        [loading]="companyRegionService.loading()"
+        [errorMessage]="companyRegionService.error()"
+        (addRegion)="onAddRegion($event)"
+        (updateRegion)="onUpdateRegion($event)"
+        (removeRegion)="onRemoveRegion($event)"
+        (enableRegion)="onEnableRegion($event)"
+      />
+    }
+  } @else {
+    <p class="empty-prompt">Seleccioná una empresa para gestionar sus regiones</p>
+  }
+</div>

@@ -17,7 +17,7 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatTableModule } from '@angular/material/table';
-import { CompanyRegion, CompanyRegionRequest } from '../../models/company.models';
+import { CompanyRegion, CompanyRegionRequest } from '../../models/region.models';
 
 const REGION_CODE_PATTERN = /^[a-zA-Z0-9-]+$/;
 

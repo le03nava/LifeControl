@@ -3,23 +3,6 @@ import type { Country, CompanyCountry, CompanyCountryRequest } from '../../count
 
 export type { Country, CompanyCountry, CompanyCountryRequest };
 
-export interface CompanyRegion {
-  id: string;
-  companyCountryId: string;
-  companyId: string;
-  countryId: string;
-  regionCode: string;
-  regionName: string;
-  enabled: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface CompanyRegionRequest {
-  regionCode: string;
-  regionName: string;
-}
-
 export interface Company {
   id: string;
   companyKey: string;

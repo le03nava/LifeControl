@@ -1,4 +1,4 @@
-import { ComponentFixture, TestBed, NO_ERRORS_SCHEMA } from '@angular/core/testing';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { signal } from '@angular/core';
@@ -79,8 +79,8 @@ describe('CountriesPage', () => {
     loading = this._loading.asReadonly();
     error = this._error.asReadonly();
 
-    getCountries = jasmine.createSpy('getCountries').and.returnValue(of(mockAssignedCountries));
-    addCountry = jasmine.createSpy('addCountry').and.returnValue(
+    getCountries = vi.fn().mockReturnValue(of(mockAssignedCountries));
+    addCountry = vi.fn().mockReturnValue(
       of({
         id: 'cc-new',
         companyId: 'company-1',
@@ -92,18 +92,18 @@ describe('CountriesPage', () => {
         updatedAt: '2024-01-01',
       } as CompanyCountry),
     );
-    removeCountry = jasmine.createSpy('removeCountry').and.returnValue(of(undefined));
+    removeCountry = vi.fn().mockReturnValue(of(undefined));
   }
 
   class MockCountryService {
     private _countries = signal<Country[]>(mockCountries);
     countries = this._countries.asReadonly();
 
-    getCountries = jasmine.createSpy('getCountries').and.returnValue(of(mockCountries));
+    getCountries = vi.fn().mockReturnValue(of(mockCountries));
   }
 
   class MockCompanyService {
-    getCompanies = jasmine.createSpy('getCompanies').and.returnValue(of(mockCompaniesPage));
+    getCompanies = vi.fn().mockReturnValue(of(mockCompaniesPage));
   }
 
   beforeEach(async () => {
@@ -114,7 +114,7 @@ describe('CountriesPage', () => {
         { provide: CompanyCountryService, useClass: MockCompanyCountryService },
         { provide: CountryService, useClass: MockCountryService },
       ],
-      schemas: [NO_ERRORS_SCHEMA],
+
     }).compileComponents();
 
     fixture = TestBed.createComponent(CountriesPage);

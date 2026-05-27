@@ -1,0 +1,1 @@
+export { RegionsPage } from './pages';

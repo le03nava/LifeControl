@@ -1,5 +1,5 @@
 import { inject, Injectable, signal } from '@angular/core';
-import { CompanyRegion, CompanyRegionRequest } from '../models/company.models';
+import { CompanyRegion, CompanyRegionRequest } from '../models/region.models';
 import { Observable, throwError } from 'rxjs';
 import { catchError, finalize, tap } from 'rxjs/operators';
 import { HttpClient } from '@angular/common/http';

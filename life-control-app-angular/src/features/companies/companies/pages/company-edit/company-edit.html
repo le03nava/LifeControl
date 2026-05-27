@@ -9,37 +9,3 @@
   (cancelForm)="cancelForm()"
 />
 
-@if (isEditMode()) {
-  @if (companyCountryService.assignedCountries(); as assigned) {
-    <section class="country-select-mini">
-      <h3>País</h3>
-      <mat-chip-set>
-        @for (cc of assigned; track cc.id) {
-          <mat-chip
-            [class.selected]="cc.id === selectedCountry()?.id"
-            (click)="onSelectCountry(cc)"
-          >
-            {{ cc.countryName }}
-          </mat-chip>
-        }
-      </mat-chip-set>
-    </section>
-  }
-
-  @if (selectedCountry(); as selCountry) {
-    <section class="regions-section">
-      <h3>Regiones de {{ selCountry.localAlias ?? selCountry.countryName }}</h3>
-      <app-region-manager
-        [regions]="companyRegionService.regions()"
-        [companyId]="companyId()!"
-        [countryId]="selCountry.id"
-        [loading]="companyRegionService.loading()"
-        [errorMessage]="companyRegionService.error()"
-        (addRegion)="onAddRegion($event)"
-        (updateRegion)="onUpdateRegion($event)"
-        (removeRegion)="onRemoveRegion($event)"
-        (enableRegion)="onEnableRegion($event)"
-      />
-    </section>
-  }
-}

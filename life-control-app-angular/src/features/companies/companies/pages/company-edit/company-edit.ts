@@ -4,10 +4,8 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { CompanyService } from '@features/companies/companies/data/company.service';
 import { CompanyContextService } from '@shared/data/company-context.service';
 import { ApiError } from '@shared/models';
-import { Company, CompanyControl, CompanyRegionRequest } from '@features/companies/companies/models/company.models';
-import { CompanyCountry } from '@features/companies/countries/models/country.models';
+import { Company, CompanyControl } from '@features/companies/companies/models/company.models';
 import { CompanyCountryService } from '@features/companies/countries/data';
-import { CompanyRegionService } from '@features/companies/companies/data/company-region.service';
 import {
   NonNullableFormBuilder,
   FormGroup,
@@ -16,12 +14,10 @@ import {
 } from '@angular/forms';
 import { CompaniesForm } from '@features/companies/companies/components/companies-form/companies-form';
 
-import { MatChipSet, MatChip } from '@angular/material/chips';
-import { RegionManager } from '@features/companies/companies/components/region-manager/region-manager';
 
 @Component({
   selector: 'app-company-edit',
-  imports: [ReactiveFormsModule, CompaniesForm, RegionManager, MatChipSet, MatChip],
+  imports: [ReactiveFormsModule, CompaniesForm],
   templateUrl: './company-edit.html',
   styleUrl: './company-edit.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -33,7 +29,6 @@ export class CompanyEdit implements OnInit {
   private fb = inject(NonNullableFormBuilder);
   private router = inject(Router);
   companyCountryService = inject(CompanyCountryService);
-  companyRegionService = inject(CompanyRegionService);
 
   companyId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
 
@@ -136,39 +131,4 @@ export class CompanyEdit implements OnInit {
     this.router.navigate(['/companies']);
   }
 
-  selectedCountry = signal<CompanyCountry | null>(null);
-
-  onSelectCountry(cc: CompanyCountry): void {
-    this.selectedCountry.set(cc);
-    this.companyRegionService.getRegions(cc.companyId, cc.id, false).subscribe();
-  }
-
-  onAddRegion(request: CompanyRegionRequest): void {
-    const companyId = this.companyId();
-    const countryId = this.selectedCountry()?.id;
-    if (!companyId || !countryId) return;
-    this.companyRegionService.addRegion(companyId, countryId, request).subscribe();
-  }
-
-  onUpdateRegion(event: { id: string; data: CompanyRegionRequest }): void {
-    const companyId = this.companyId();
-    const countryId = this.selectedCountry()?.id;
-    if (!companyId || !countryId) return;
-    this.companyRegionService.updateRegion(companyId, countryId, event.id, event.data).subscribe();
-  }
-
-  onRemoveRegion(regionId: string): void {
-    const companyId = this.companyId();
-    const countryId = this.selectedCountry()?.id;
-    if (!companyId || !countryId) return;
-    this.companyRegionService.removeRegion(companyId, countryId, regionId).subscribe();
-  }
-
-  onEnableRegion(regionId: string): void {
-    const companyId = this.companyId();
-    const countryId = this.selectedCountry()?.id;
-    if (!companyId || !countryId) return;
-    this.companyRegionService.enableRegion(companyId, countryId, regionId).subscribe();
-  }
-
-  }
+}

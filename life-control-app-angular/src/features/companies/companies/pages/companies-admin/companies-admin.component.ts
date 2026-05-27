@@ -37,8 +37,8 @@ export class CompaniesAdminComponent {
       title: 'Regions',
       icon: 'location_on',
       description: 'Manage geographic regions and their assignments.',
-      route: null,
-      disabled: true,
+      route: '/companies/regions',
+      disabled: false,
     },
     {
       title: 'Zones',

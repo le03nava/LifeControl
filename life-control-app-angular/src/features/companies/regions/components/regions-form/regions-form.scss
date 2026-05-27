@@ -1,0 +1,23 @@
+// regions-form.scss — Region form with Company→Country drill-down selectors
+// Responsive CSS Grid via shared _form-layout.scss
+//
+// Estilos base inyectados desde _form-layout.scss (shared):
+// - .form-card (card, container sizing, h2)
+// - form grid (1col xs | 2col sm | 3col md/lg)
+// - .form-actions (button bar, full-width span)
+// - .full-width (span all grid columns)
+
+@use '../../../../../shared/styles/form-layout' as *;
+
+// Selector fields span full width in add mode before form activation
+.selector-field {
+  grid-column: 1 / -1;
+}
+
+// Placeholder shown when no country selected
+.placeholder-text {
+  text-align: center;
+  padding: var(--space-lg);
+  color: var(--color-gray-500);
+  font-style: italic;
+}

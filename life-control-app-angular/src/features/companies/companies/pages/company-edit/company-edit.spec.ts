@@ -1,11 +1,10 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { CompanyEdit } from './company-edit';
-import { Company, CompanyCountry } from '@features/companies/companies/models/company.models';
+import { Company } from '@features/companies/companies/models/company.models';
 import { CompanyService } from '@features/companies/companies/data/company.service';
 import { CompanyContextService } from '@shared/data/company-context.service';
 import { CompanyCountryService } from '@features/companies/countries/data';
-import { CompanyRegionService } from '@features/companies/companies/data/company-region.service';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ReactiveFormsModule } from '@angular/forms';
 import { of, throwError } from 'rxjs';
@@ -71,20 +70,6 @@ describe('CompanyEdit', () => {
             assignedCountries: vi.fn().mockReturnValue([]),
             loading: vi.fn().mockReturnValue(false),
             error: vi.fn().mockReturnValue(null),
-          },
-        },
-        {
-          provide: CompanyRegionService,
-          useValue: {
-            regions: vi.fn().mockReturnValue([]),
-            loading: vi.fn().mockReturnValue(false),
-            error: vi.fn().mockReturnValue(null),
-            getRegions: vi.fn().mockReturnValue(of([])),
-            addRegion: vi.fn().mockReturnValue(of({ id: 'r1', companyCountryId: 'cc1', companyId: 'c1', countryId: 'cnt1', regionCode: 'US-CA', regionName: 'California', enabled: true, createdAt: '', updatedAt: '' })),
-            updateRegion: vi.fn().mockReturnValue(of({ id: 'r1', companyCountryId: 'cc1', companyId: 'c1', countryId: 'cnt1', regionCode: 'US-CA', regionName: 'California Updated', enabled: true, createdAt: '', updatedAt: '' })),
-            removeRegion: vi.fn().mockReturnValue(of(undefined)),
-            enableRegion: vi.fn().mockReturnValue(of({ id: 'r1', companyCountryId: 'cc1', companyId: 'c1', countryId: 'cnt1', regionCode: 'US-CA', regionName: 'California', enabled: true, createdAt: '', updatedAt: '' })),
-            clearError: vi.fn(),
           },
         },
         { provide: Router, useValue: routerMock },
@@ -165,113 +150,4 @@ describe('CompanyEdit', () => {
     });
   });
 
-  describe('region integration', () => {
-    const mockCountry: CompanyCountry = {
-      id: 'cc1',
-      companyId: 'c1',
-      countryId: 'cnt1',
-      countryCode: 'MX',
-      countryName: 'México',
-      localAlias: 'Sucursal CDMX',
-      createdAt: '',
-      updatedAt: '',
-    };
-
-    beforeEach(() => {
-      component.isEditMode.set(true);
-      component.companyId.set('c1');
-    });
-
-    it('should have region section hidden when no country is selected', () => {
-      fixture.detectChanges();
-      const compiled = fixture.nativeElement as HTMLElement;
-      expect(component.selectedCountry()).toBeNull();
-      expect(compiled.querySelector('.regions-section')).toBeNull();
-    });
-
-    it('should set selectedCountry and call getRegions on country selection', () => {
-      const regionService = TestBed.inject(CompanyRegionService);
-      const getRegionsSpy = vi.spyOn(regionService, 'getRegions').mockReturnValue(of([]));
-
-      component.onSelectCountry(mockCountry);
-
-      expect(component.selectedCountry()).toEqual(mockCountry);
-      expect(getRegionsSpy).toHaveBeenCalledWith(mockCountry.companyId, mockCountry.id, false);
-    });
-
-    it('should show region section after country is selected', () => {
-      const regionService = TestBed.inject(CompanyRegionService);
-      vi.spyOn(regionService, 'getRegions').mockReturnValue(of([]));
-
-      component.onSelectCountry(mockCountry);
-      fixture.detectChanges();
-
-      const compiled = fixture.nativeElement as HTMLElement;
-      const section = compiled.querySelector('.regions-section');
-      expect(section).not.toBeNull();
-      expect(section!.textContent).toContain('Sucursal CDMX');
-    });
-
-    it('should call addRegion on onAddRegion', () => {
-      const regionService = TestBed.inject(CompanyRegionService);
-      vi.spyOn(regionService, 'getRegions').mockReturnValue(of([]));
-      const addSpy = vi.spyOn(regionService, 'addRegion').mockReturnValue(of({} as any));
-
-      component.onSelectCountry(mockCountry);
-      component.onAddRegion({ regionCode: 'US-CA', regionName: 'California' });
-
-      expect(addSpy).toHaveBeenCalledWith('c1', 'cc1', { regionCode: 'US-CA', regionName: 'California' });
-    });
-
-    it('should not call addRegion when no country is selected', () => {
-      const regionService = TestBed.inject(CompanyRegionService);
-      const addSpy = vi.spyOn(regionService, 'addRegion');
-
-      component.onAddRegion({ regionCode: 'US-CA', regionName: 'California' });
-
-      expect(addSpy).not.toHaveBeenCalled();
-    });
-
-    it('should call updateRegion on onUpdateRegion', () => {
-      const regionService = TestBed.inject(CompanyRegionService);
-      vi.spyOn(regionService, 'getRegions').mockReturnValue(of([]));
-      const updateSpy = vi.spyOn(regionService, 'updateRegion').mockReturnValue(of({} as any));
-
-      component.onSelectCountry(mockCountry);
-      component.onUpdateRegion({ id: 'r1', data: { regionCode: 'US-CA', regionName: 'California Updated' } });
-
-      expect(updateSpy).toHaveBeenCalledWith('c1', 'cc1', 'r1', { regionCode: 'US-CA', regionName: 'California Updated' });
-    });
-
-    it('should call removeRegion on onRemoveRegion', () => {
-      const regionService = TestBed.inject(CompanyRegionService);
-      vi.spyOn(regionService, 'getRegions').mockReturnValue(of([]));
-      const removeSpy = vi.spyOn(regionService, 'removeRegion').mockReturnValue(of(undefined));
-
-      component.onSelectCountry(mockCountry);
-      component.onRemoveRegion('r1');
-
-      expect(removeSpy).toHaveBeenCalledWith('c1', 'cc1', 'r1');
-    });
-
-    it('should call enableRegion on onEnableRegion', () => {
-      const regionService = TestBed.inject(CompanyRegionService);
-      vi.spyOn(regionService, 'getRegions').mockReturnValue(of([]));
-      const enableSpy = vi.spyOn(regionService, 'enableRegion').mockReturnValue(of({} as any));
-
-      component.onSelectCountry(mockCountry);
-      component.onEnableRegion('r1');
-
-      expect(enableSpy).toHaveBeenCalledWith('c1', 'cc1', 'r1');
-    });
-
-    it('should not call enableRegion when no country is selected', () => {
-      const regionService = TestBed.inject(CompanyRegionService);
-      const enableSpy = vi.spyOn(regionService, 'enableRegion');
-
-      component.onEnableRegion('r1');
-
-      expect(enableSpy).not.toHaveBeenCalled();
-    });
-  });
 });

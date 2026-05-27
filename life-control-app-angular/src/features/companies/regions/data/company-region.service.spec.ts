@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 import { firstValueFrom } from 'rxjs';
 import { CompanyRegionService } from './company-region.service';
-import { CompanyRegion, CompanyRegionRequest } from '../models/company.models';
+import { CompanyRegion, CompanyRegionRequest } from '../models/region.models';
 
 describe('CompanyRegionService', () => {
   let service: CompanyRegionService;
