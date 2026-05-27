@@ -6,29 +6,16 @@ import {
   output,
   signal,
 } from '@angular/core';
-import {
-  FormControl,
-  FormGroup,
-  ReactiveFormsModule,
-  Validators,
-} from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { CompanyRegion, CompanyRegionRequest } from '../../models/region.models';
 import { RegionsCard } from '../regions-card/regions-card';
-
-const REGION_CODE_PATTERN = /^[a-zA-Z0-9-]+$/;
 
 @Component({
   selector: 'app-region-manager',
   standalone: true,
   imports: [
-    ReactiveFormsModule,
     MatButtonModule,
-    MatFormFieldModule,
-    MatInputModule,
     MatSlideToggleModule,
     RegionsCard,
   ],
@@ -49,25 +36,11 @@ export class RegionManager {
   updateRegion = output<{ id: string; data: CompanyRegionRequest }>();
   removeRegion = output<string>();
   enableRegion = output<string>();
+  editRegion = output<CompanyRegion>();
+  createRegion = output<void>();
 
   // ─── Internal state ─────────────────────────────────────────
   showDisabled = signal(false);
-
-  /** Add form — Reactive Form with validators */
-  newRegionForm = new FormGroup({
-    regionCode: new FormControl('', {
-      nonNullable: true,
-      validators: [
-        Validators.required,
-        Validators.maxLength(10),
-        Validators.pattern(REGION_CODE_PATTERN),
-      ],
-    }),
-    regionName: new FormControl('', {
-      nonNullable: true,
-      validators: [Validators.required, Validators.maxLength(100)],
-    }),
-  });
 
   // ─── Computed ───────────────────────────────────────────────
   filteredRegions = computed(() => {
@@ -77,23 +50,15 @@ export class RegionManager {
   });
 
   // ─── Methods ────────────────────────────────────────────────
-  onAdd(): void {
-    if (this.newRegionForm.invalid) return;
-    const { regionCode, regionName } = this.newRegionForm.getRawValue();
-    this.addRegion.emit({ regionCode: regionCode.trim(), regionName: regionName.trim() });
-    this.newRegionForm.reset();
-  }
-
   onRemove(id: string): void {
     this.removeRegion.emit(id);
   }
 
-  /**
-   * Placeholder for future edit implementation.
-   * The card emits the region id; the edit flow is deferred.
-   */
   onEditRegion(regionId: string): void {
-    // Edit implementation deferred
+    const region = this.regions().find(r => r.id === regionId);
+    if (region) {
+      this.editRegion.emit(region);
+    }
   }
 
   /** Fired when the card's delete button is clicked. */

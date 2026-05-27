@@ -4,15 +4,20 @@
   </div>
 } @else {
   <div class="form-card">
-    <!-- Header with title and toggle -->
+    <!-- Header with title, actions, and toggle -->
     <div class="header-row">
       <h2>Regiones</h2>
-      <mat-slide-toggle
-        [checked]="showDisabled()"
-        (change)="showDisabled.set($event.checked)"
-      >
-        Mostrar deshabilitadas
-      </mat-slide-toggle>
+      <div class="header-actions">
+        <button mat-raised-button color="primary" type="button" (click)="createRegion.emit()">
+          Nueva Región
+        </button>
+        <mat-slide-toggle
+          [checked]="showDisabled()"
+          (change)="showDisabled.set($event.checked)"
+        >
+          Mostrar deshabilitadas
+        </mat-slide-toggle>
+      </div>
     </div>
 
     @if (errorMessage()) {
@@ -22,49 +27,6 @@
     @if (loading()) {
       <p class="loading-text">Cargando regiones...</p>
     }
-
-    <!-- Add region form -->
-    <form [formGroup]="newRegionForm" class="add-form-row">
-      <mat-form-field appearance="outline">
-        <mat-label>Código</mat-label>
-        <input
-          matInput
-          type="text"
-          formControlName="regionCode"
-          placeholder="Ej: US-CA"
-          maxlength="10"
-        />
-        @if (newRegionForm.controls.regionCode.errors?.['pattern']) {
-          <mat-error>Solo letras, números y guiones</mat-error>
-        } @else if (newRegionForm.controls.regionCode.errors?.['required']) {
-          <mat-error>El código es requerido</mat-error>
-        }
-      </mat-form-field>
-
-      <mat-form-field appearance="outline">
-        <mat-label>Nombre</mat-label>
-        <input
-          matInput
-          type="text"
-          formControlName="regionName"
-          placeholder="Ej: California"
-          maxlength="100"
-        />
-        @if (newRegionForm.controls.regionName.errors?.['required']) {
-          <mat-error>El nombre es requerido</mat-error>
-        }
-      </mat-form-field>
-
-      <button
-        mat-raised-button
-        color="primary"
-        type="button"
-        (click)="onAdd()"
-        [disabled]="newRegionForm.invalid || loading()"
-      >
-        Agregar
-      </button>
-    </form>
 
     <!-- Regions card grid -->
     @if (filteredRegions().length > 0) {

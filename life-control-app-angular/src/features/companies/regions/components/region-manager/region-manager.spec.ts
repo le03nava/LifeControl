@@ -2,7 +2,7 @@ import { By } from '@angular/platform-browser';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { RegionManager } from './region-manager';
-import { CompanyRegion, CompanyRegionRequest } from '../../models/region.models';
+import { CompanyRegion } from '../../models/region.models';
 import { RegionsCard } from '../regions-card/regions-card';
 
 describe('RegionManager', () => {
@@ -86,19 +86,6 @@ describe('RegionManager', () => {
       const emptyEl = fixture.nativeElement.querySelector('.empty-message');
       expect(emptyEl).toBeNull();
     });
-
-    it('should render add form with code and name fields and add button', () => {
-      setInputs();
-      const addForm = fixture.nativeElement.querySelector('.add-form-row');
-      expect(addForm).toBeTruthy();
-
-      const inputs = addForm!.querySelectorAll('input');
-      expect(inputs.length).toBeGreaterThanOrEqual(2);
-
-      const addBtn = addForm!.querySelector('button');
-      expect(addBtn).toBeTruthy();
-      expect(addBtn?.textContent?.trim()).toContain('Agregar');
-    });
   });
 
   // ---------- Card grid rendering ----------
@@ -147,78 +134,35 @@ describe('RegionManager', () => {
       expect(emittedId).toBe('reg-1');
     });
 
-    it('should not emit removeRegion when card editRegion fires (placeholder)', () => {
+    it('should emit editRegion with full region when card editRegion fires', async () => {
       setInputs();
 
-      let emitted = false;
-      component.removeRegion.subscribe(() => { emitted = true; });
+      const region = await new Promise<CompanyRegion>((resolve) => {
+        component.editRegion.subscribe(resolve);
 
-      const cards = fixture.debugElement.queryAll(By.directive(RegionsCard));
-      cards[0].componentInstance.onEdit(new MouseEvent('click'));
+        const cards = fixture.debugElement.queryAll(By.directive(RegionsCard));
+        cards[0].componentInstance.onEdit(new MouseEvent('click'));
+      });
 
-      expect(emitted).toBe(false);
+      expect(region).toEqual(mockRegions[0]);
     });
   });
 
-  // ---------- onAdd ----------
-  describe('onAdd', () => {
-    it('should emit addRegion when form is valid', async () => {
+  // ---------- createRegion output ----------
+  describe('createRegion', () => {
+    it('should emit createRegion when "Nueva Región" button is clicked', () => {
       setInputs();
-      component.newRegionForm.patchValue({ regionCode: 'US-NY', regionName: 'New York' });
-
-      const req = await new Promise<CompanyRegionRequest>((resolve) => {
-        component.addRegion.subscribe(resolve);
-        component.onAdd();
-      });
-
-      expect(req.regionCode).toBe('US-NY');
-      expect(req.regionName).toBe('New York');
-    });
-
-    it('should reset the form after emitting', () => {
-      setInputs();
-      component.newRegionForm.patchValue({ regionCode: 'US-NY', regionName: 'New York' });
-      component.onAdd();
-
-      expect(component.newRegionForm.value).toEqual({ regionCode: '', regionName: '' });
-    });
-
-    it('should NOT emit addRegion when form is invalid (empty fields)', () => {
-      setInputs();
-      let emitted = false;
-      component.addRegion.subscribe(() => { emitted = true; });
-      component.onAdd();
-
-      expect(emitted).toBe(false);
-    });
-
-    it('should NOT emit when regionCode fails pattern validation', () => {
-      setInputs();
-      component.newRegionForm.patchValue({ regionCode: 'INVALID CHARS!!!', regionName: 'Test' });
 
       let emitted = false;
-      component.addRegion.subscribe(() => { emitted = true; });
-      component.onAdd();
+      component.createRegion.subscribe(() => { emitted = true; });
 
-      expect(component.newRegionForm.controls.regionCode.errors?.['pattern']).toBeTruthy();
-      expect(emitted).toBe(false);
-    });
+      // Find the button with "Nueva Región" text
+      const buttons = fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>;
+      const nuevoBtn = Array.from(buttons).find(b => b.textContent?.trim().includes('Nueva Región'))!;
+      expect(nuevoBtn).toBeTruthy();
+      nuevoBtn.click();
 
-    it('should disable add button when form is invalid', () => {
-      setInputs();
-      fixture.detectChanges();
-
-      const addBtn = fixture.nativeElement.querySelector('.add-form-row button') as HTMLButtonElement;
-      expect(addBtn.disabled).toBe(true);
-    });
-
-    it('should disable add button when loading', () => {
-      setInputs({ loading: true });
-      component.newRegionForm.patchValue({ regionCode: 'US-NY', regionName: 'New York' });
-      fixture.detectChanges();
-
-      const addBtn = fixture.nativeElement.querySelector('.add-form-row button') as HTMLButtonElement;
-      expect(addBtn.disabled).toBe(true);
+      expect(emitted).toBe(true);
     });
   });
 
@@ -277,32 +221,38 @@ describe('RegionManager', () => {
       expect(component.filteredRegions().length).toBe(3);
     });
 
-    it('should render the showDisabled toggle in the header', () => {
+    it('should render the header with title, toggle, and Nueva Región button', () => {
       setInputs();
       const headerRow = fixture.nativeElement.querySelector('.header-row');
       expect(headerRow).toBeTruthy();
       expect(headerRow?.textContent).toContain('Mostrar deshabilitadas');
+      expect(headerRow?.textContent).toContain('Nueva Región');
+      const buttons = headerRow?.querySelectorAll('button');
+      expect(buttons?.length).toBeGreaterThanOrEqual(1);
     });
   });
 
-  // ---------- Validation ----------
-  describe('validation', () => {
-    it('should reject regionCode with special characters', () => {
-      const control = component.newRegionForm.controls.regionCode;
-      control.setValue('INVALID!!!');
-      expect(control.errors?.['pattern']).toBeTruthy();
+  // ---------- onEditRegion ----------
+  describe('onEditRegion', () => {
+    it('should emit editRegion with found region when regionId exists', async () => {
+      setInputs();
+
+      const region = await new Promise<CompanyRegion>((resolve) => {
+        component.editRegion.subscribe(resolve);
+        component.onEditRegion('reg-2');
+      });
+
+      expect(region).toEqual(mockRegions[1]);
     });
 
-    it('should accept regionCode with letters, numbers, and hyphens', () => {
-      const control = component.newRegionForm.controls.regionCode;
-      control.setValue('US-CA-2');
-      expect(control.valid).toBe(true);
-    });
+    it('should NOT emit editRegion when regionId is not found', () => {
+      setInputs();
 
-    it('should enforce maxLength 10 on regionCode', () => {
-      const control = component.newRegionForm.controls.regionCode;
-      control.setValue('ABCDEFGHIJK');
-      expect(control.errors?.['maxlength']).toBeTruthy();
+      let emitted = false;
+      component.editRegion.subscribe(() => { emitted = true; });
+      component.onEditRegion('non-existent');
+
+      expect(emitted).toBe(false);
     });
   });
 });
