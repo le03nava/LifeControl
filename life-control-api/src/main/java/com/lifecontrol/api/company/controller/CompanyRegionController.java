@@ -17,7 +17,7 @@ import java.util.List;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/api/companies/{companyId}/countries/{countryId}/regions")
+@RequestMapping("/api/companies/{companyId}/countries/{companyCountryId}/regions")
 @Tag(name = "Company Region Management", description = "API for managing regions within a company's country presence")
 @PreAuthorize("hasAnyRole('life-control-admin','life-control-country')")
 public class CompanyRegionController {
@@ -33,9 +33,9 @@ public class CompanyRegionController {
     @ApiResponse(responseCode = "200", description = "List of regions")
     public ResponseEntity<List<CompanyRegionResponse>> getAllRegions(
             @PathVariable UUID companyId,
-            @PathVariable UUID countryId,
+            @PathVariable UUID companyCountryId,
             @RequestParam(defaultValue = "false") boolean includeDisabled) {
-        return ResponseEntity.ok(companyRegionService.getAllRegions(companyId, countryId, includeDisabled));
+        return ResponseEntity.ok(companyRegionService.getAllRegions(companyId, companyCountryId, includeDisabled));
     }
 
     @GetMapping("/{id}")
@@ -44,9 +44,9 @@ public class CompanyRegionController {
     @ApiResponse(responseCode = "404", description = "Region not found")
     public ResponseEntity<CompanyRegionResponse> getRegionById(
             @PathVariable UUID companyId,
-            @PathVariable UUID countryId,
+            @PathVariable UUID companyCountryId,
             @PathVariable UUID id) {
-        return ResponseEntity.ok(companyRegionService.getRegionById(companyId, countryId, id));
+        return ResponseEntity.ok(companyRegionService.getRegionById(companyId, companyCountryId, id));
     }
 
     @PostMapping
@@ -56,9 +56,9 @@ public class CompanyRegionController {
     @ApiResponse(responseCode = "409", description = "Duplicate region code")
     public ResponseEntity<CompanyRegionResponse> createRegion(
             @PathVariable UUID companyId,
-            @PathVariable UUID countryId,
+            @PathVariable UUID companyCountryId,
             @Valid @RequestBody CreateCompanyRegionRequest request) {
-        CompanyRegionResponse response = companyRegionService.createRegion(companyId, countryId, request);
+        CompanyRegionResponse response = companyRegionService.createRegion(companyId, companyCountryId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
@@ -70,10 +70,10 @@ public class CompanyRegionController {
     @ApiResponse(responseCode = "409", description = "Duplicate region code")
     public ResponseEntity<CompanyRegionResponse> updateRegion(
             @PathVariable UUID companyId,
-            @PathVariable UUID countryId,
+            @PathVariable UUID companyCountryId,
             @PathVariable UUID id,
             @Valid @RequestBody UpdateCompanyRegionRequest request) {
-        return ResponseEntity.ok(companyRegionService.updateRegion(companyId, countryId, id, request));
+        return ResponseEntity.ok(companyRegionService.updateRegion(companyId, companyCountryId, id, request));
     }
 
     @DeleteMapping("/{id}")
@@ -82,9 +82,9 @@ public class CompanyRegionController {
     @ApiResponse(responseCode = "404", description = "Region not found")
     public ResponseEntity<Void> deleteRegion(
             @PathVariable UUID companyId,
-            @PathVariable UUID countryId,
+            @PathVariable UUID companyCountryId,
             @PathVariable UUID id) {
-        companyRegionService.deleteRegion(companyId, countryId, id);
+        companyRegionService.deleteRegion(companyId, companyCountryId, id);
         return ResponseEntity.noContent().build();
     }
 
@@ -94,8 +94,8 @@ public class CompanyRegionController {
     @ApiResponse(responseCode = "404", description = "Region not found")
     public ResponseEntity<CompanyRegionResponse> enableRegion(
             @PathVariable UUID companyId,
-            @PathVariable UUID countryId,
+            @PathVariable UUID companyCountryId,
             @PathVariable UUID id) {
-        return ResponseEntity.ok(companyRegionService.enableRegion(companyId, countryId, id));
+        return ResponseEntity.ok(companyRegionService.enableRegion(companyId, companyCountryId, id));
     }
 }

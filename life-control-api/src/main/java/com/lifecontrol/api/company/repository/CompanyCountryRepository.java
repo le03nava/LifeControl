@@ -18,5 +18,7 @@ public interface CompanyCountryRepository extends JpaRepository<CompanyCountry, 
 
     Optional<CompanyCountry> findByCompanyIdAndCountryId(UUID companyId, UUID countryId);
 
+    Optional<CompanyCountry> findByCompanyIdAndId(UUID companyId, UUID id);
+
     List<CompanyCountry> findAllByIdIn(Set<UUID> ids);
 }

@@ -69,19 +69,19 @@ class CompanyRegionControllerSecurityTest {
     private RateLimitProperties rateLimitProperties;
 
     private final UUID companyId = UUID.randomUUID();
-    private final UUID countryId = UUID.randomUUID();
+    private final UUID companyCountryId = UUID.randomUUID();
     private final UUID regionId = UUID.randomUUID();
-    private static final String BASE_URL = "/api/companies/{companyId}/countries/{countryId}/regions";
+    private static final String BASE_URL = "/api/companies/{companyId}/countries/{companyCountryId}/regions";
 
     private CompanyRegionResponse buildRegionResponse() {
         return new CompanyRegionResponse(
-                regionId, UUID.randomUUID(), companyId, countryId,
+                regionId, UUID.randomUUID(), companyId, UUID.randomUUID(),
                 "NORTE", "Norte", true,
                 LocalDateTime.now(), LocalDateTime.now()
         );
     }
 
-    // ─── GET /api/companies/{companyId}/countries/{countryId}/regions ──
+    // ─── GET /api/companies/{companyId}/countries/{companyCountryId}/regions ──
 
     @Nested
     @DisplayName("GET " + BASE_URL)
@@ -91,10 +91,10 @@ class CompanyRegionControllerSecurityTest {
         @WithMockUser(roles = {"life-control-admin"})
         @DisplayName("returns 200 OK for admin")
         void adminCanGetRegions() throws Exception {
-            when(companyRegionService.getAllRegions(companyId, countryId, false))
+            when(companyRegionService.getAllRegions(companyId, companyCountryId, false))
                     .thenReturn(List.of(buildRegionResponse()));
 
-            mockMvc.perform(get(BASE_URL, companyId, countryId))
+            mockMvc.perform(get(BASE_URL, companyId, companyCountryId))
                     .andExpect(status().isOk());
         }
 
@@ -102,10 +102,10 @@ class CompanyRegionControllerSecurityTest {
         @WithMockUser(roles = {"life-control-country"})
         @DisplayName("returns 200 OK for country-role")
         void countryRoleCanGetRegions() throws Exception {
-            when(companyRegionService.getAllRegions(companyId, countryId, false))
+            when(companyRegionService.getAllRegions(companyId, companyCountryId, false))
                     .thenReturn(List.of(buildRegionResponse()));
 
-            mockMvc.perform(get(BASE_URL, companyId, countryId))
+            mockMvc.perform(get(BASE_URL, companyId, companyCountryId))
                     .andExpect(status().isOk());
         }
 
@@ -113,7 +113,7 @@ class CompanyRegionControllerSecurityTest {
         @WithMockUser
         @DisplayName("returns 403 for user with no roles")
         void userWithNoRolesGetsForbidden() throws Exception {
-            mockMvc.perform(get(BASE_URL, companyId, countryId))
+            mockMvc.perform(get(BASE_URL, companyId, companyCountryId))
                     .andExpect(status().isForbidden());
         }
 
@@ -121,12 +121,12 @@ class CompanyRegionControllerSecurityTest {
         @WithMockUser(roles = {"other-role"})
         @DisplayName("returns 403 for user with wrong role")
         void userWithWrongRoleGetsForbidden() throws Exception {
-            mockMvc.perform(get(BASE_URL, companyId, countryId))
+            mockMvc.perform(get(BASE_URL, companyId, companyCountryId))
                     .andExpect(status().isForbidden());
         }
     }
 
-    // ─── POST /api/companies/{companyId}/countries/{countryId}/regions ──
+    // ─── POST /api/companies/{companyId}/countries/{companyCountryId}/regions ──
 
     @Nested
     @DisplayName("POST " + BASE_URL)
@@ -137,10 +137,10 @@ class CompanyRegionControllerSecurityTest {
         @DisplayName("returns 201 Created for admin")
         void adminCanCreateRegion() throws Exception {
             var request = new CreateCompanyRegionRequest("NORTE", "Norte");
-            when(companyRegionService.createRegion(eq(companyId), eq(countryId), any(CreateCompanyRegionRequest.class)))
+            when(companyRegionService.createRegion(eq(companyId), eq(companyCountryId), any(CreateCompanyRegionRequest.class)))
                     .thenReturn(buildRegionResponse());
 
-            mockMvc.perform(post(BASE_URL, companyId, countryId)
+            mockMvc.perform(post(BASE_URL, companyId, companyCountryId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request)))
                     .andExpect(status().isCreated());
@@ -151,10 +151,10 @@ class CompanyRegionControllerSecurityTest {
         @DisplayName("returns 201 Created for country-role")
         void countryRoleCanCreateRegion() throws Exception {
             var request = new CreateCompanyRegionRequest("NORTE", "Norte");
-            when(companyRegionService.createRegion(eq(companyId), eq(countryId), any(CreateCompanyRegionRequest.class)))
+            when(companyRegionService.createRegion(eq(companyId), eq(companyCountryId), any(CreateCompanyRegionRequest.class)))
                     .thenReturn(buildRegionResponse());
 
-            mockMvc.perform(post(BASE_URL, companyId, countryId)
+            mockMvc.perform(post(BASE_URL, companyId, companyCountryId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request)))
                     .andExpect(status().isCreated());
@@ -165,7 +165,7 @@ class CompanyRegionControllerSecurityTest {
         @DisplayName("returns 403 for user with no roles")
         void userWithNoRolesGetsForbidden() throws Exception {
             var request = new CreateCompanyRegionRequest("NORTE", "Norte");
-            mockMvc.perform(post(BASE_URL, companyId, countryId)
+            mockMvc.perform(post(BASE_URL, companyId, companyCountryId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request)))
                     .andExpect(status().isForbidden());
@@ -176,14 +176,14 @@ class CompanyRegionControllerSecurityTest {
         @DisplayName("returns 403 for user with wrong role")
         void userWithWrongRoleGetsForbidden() throws Exception {
             var request = new CreateCompanyRegionRequest("NORTE", "Norte");
-            mockMvc.perform(post(BASE_URL, companyId, countryId)
+            mockMvc.perform(post(BASE_URL, companyId, companyCountryId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request)))
                     .andExpect(status().isForbidden());
         }
     }
 
-    // ─── PUT /api/companies/{companyId}/countries/{countryId}/regions/{id} ──
+    // ─── PUT /api/companies/{companyId}/countries/{companyCountryId}/regions/{id} ──
 
     @Nested
     @DisplayName("PUT " + BASE_URL + "/{id}")
@@ -194,11 +194,11 @@ class CompanyRegionControllerSecurityTest {
         @DisplayName("returns 200 OK for admin")
         void adminCanUpdateRegion() throws Exception {
             var request = new UpdateCompanyRegionRequest("NORTE", "Norte Actualizado");
-            when(companyRegionService.updateRegion(eq(companyId), eq(countryId), eq(regionId),
+            when(companyRegionService.updateRegion(eq(companyId), eq(companyCountryId), eq(regionId),
                     any(UpdateCompanyRegionRequest.class)))
                     .thenReturn(buildRegionResponse());
 
-            mockMvc.perform(put(BASE_URL + "/{id}", companyId, countryId, regionId)
+            mockMvc.perform(put(BASE_URL + "/{id}", companyId, companyCountryId, regionId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request)))
                     .andExpect(status().isOk());
@@ -209,11 +209,11 @@ class CompanyRegionControllerSecurityTest {
         @DisplayName("returns 200 OK for country-role")
         void countryRoleCanUpdateRegion() throws Exception {
             var request = new UpdateCompanyRegionRequest("NORTE", "Norte Actualizado");
-            when(companyRegionService.updateRegion(eq(companyId), eq(countryId), eq(regionId),
+            when(companyRegionService.updateRegion(eq(companyId), eq(companyCountryId), eq(regionId),
                     any(UpdateCompanyRegionRequest.class)))
                     .thenReturn(buildRegionResponse());
 
-            mockMvc.perform(put(BASE_URL + "/{id}", companyId, countryId, regionId)
+            mockMvc.perform(put(BASE_URL + "/{id}", companyId, companyCountryId, regionId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request)))
                     .andExpect(status().isOk());
@@ -224,7 +224,7 @@ class CompanyRegionControllerSecurityTest {
         @DisplayName("returns 403 for user with no roles")
         void userWithNoRolesGetsForbidden() throws Exception {
             var request = new UpdateCompanyRegionRequest("NORTE", "Norte");
-            mockMvc.perform(put(BASE_URL + "/{id}", companyId, countryId, regionId)
+            mockMvc.perform(put(BASE_URL + "/{id}", companyId, companyCountryId, regionId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request)))
                     .andExpect(status().isForbidden());
@@ -235,14 +235,14 @@ class CompanyRegionControllerSecurityTest {
         @DisplayName("returns 403 for user with wrong role")
         void userWithWrongRoleGetsForbidden() throws Exception {
             var request = new UpdateCompanyRegionRequest("NORTE", "Norte");
-            mockMvc.perform(put(BASE_URL + "/{id}", companyId, countryId, regionId)
+            mockMvc.perform(put(BASE_URL + "/{id}", companyId, companyCountryId, regionId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request)))
                     .andExpect(status().isForbidden());
         }
     }
 
-    // ─── DELETE /api/companies/{companyId}/countries/{countryId}/regions/{id} ──
+    // ─── DELETE /api/companies/{companyId}/countries/{companyCountryId}/regions/{id} ──
 
     @Nested
     @DisplayName("DELETE " + BASE_URL + "/{id}")
@@ -252,7 +252,7 @@ class CompanyRegionControllerSecurityTest {
         @WithMockUser(roles = {"life-control-admin"})
         @DisplayName("returns 204 No Content for admin")
         void adminCanDeleteRegion() throws Exception {
-            mockMvc.perform(delete(BASE_URL + "/{id}", companyId, countryId, regionId))
+            mockMvc.perform(delete(BASE_URL + "/{id}", companyId, companyCountryId, regionId))
                     .andExpect(status().isNoContent());
         }
 
@@ -260,7 +260,7 @@ class CompanyRegionControllerSecurityTest {
         @WithMockUser(roles = {"life-control-country"})
         @DisplayName("returns 204 No Content for country-role")
         void countryRoleCanDeleteRegion() throws Exception {
-            mockMvc.perform(delete(BASE_URL + "/{id}", companyId, countryId, regionId))
+            mockMvc.perform(delete(BASE_URL + "/{id}", companyId, companyCountryId, regionId))
                     .andExpect(status().isNoContent());
         }
 
@@ -268,7 +268,7 @@ class CompanyRegionControllerSecurityTest {
         @WithMockUser
         @DisplayName("returns 403 for user with no roles")
         void userWithNoRolesGetsForbidden() throws Exception {
-            mockMvc.perform(delete(BASE_URL + "/{id}", companyId, countryId, regionId))
+            mockMvc.perform(delete(BASE_URL + "/{id}", companyId, companyCountryId, regionId))
                     .andExpect(status().isForbidden());
         }
 
@@ -276,7 +276,7 @@ class CompanyRegionControllerSecurityTest {
         @WithMockUser(roles = {"other-role"})
         @DisplayName("returns 403 for user with wrong role")
         void userWithWrongRoleGetsForbidden() throws Exception {
-            mockMvc.perform(delete(BASE_URL + "/{id}", companyId, countryId, regionId))
+            mockMvc.perform(delete(BASE_URL + "/{id}", companyId, companyCountryId, regionId))
                     .andExpect(status().isForbidden());
         }
     }
