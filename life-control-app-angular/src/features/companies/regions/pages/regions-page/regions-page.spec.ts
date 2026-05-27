@@ -258,7 +258,7 @@ describe('RegionsPage', () => {
 
     expect(companyRegionService.addRegion).toHaveBeenCalledWith(
       'company-1',
-      'c1',
+      'cc-1',
       request,
     );
   });
@@ -293,7 +293,7 @@ describe('RegionsPage', () => {
 
     expect(companyRegionService.updateRegion).toHaveBeenCalledWith(
       'company-1',
-      'c1',
+      'cc-1',
       'r-1',
       event.data,
     );
@@ -325,7 +325,7 @@ describe('RegionsPage', () => {
 
     expect(companyRegionService.removeRegion).toHaveBeenCalledWith(
       'company-1',
-      'c1',
+      'cc-1',
       'r-1',
     );
   });
@@ -352,7 +352,7 @@ describe('RegionsPage', () => {
 
     expect(companyRegionService.enableRegion).toHaveBeenCalledWith(
       'company-1',
-      'c1',
+      'cc-1',
       'r-1',
     );
   });

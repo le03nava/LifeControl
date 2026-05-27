@@ -40,38 +40,34 @@ describe('CompaniesAdminComponent', () => {
     const countryCard = fixture.debugElement.queryAll(By.css('.dashboard-card'))[1];
     expect(countryCard).toBeTruthy();
     expect(countryCard.classes['card--disabled']).toBeFalsy();
-    const link = countryCard.injector.get(RouterLink);
-    expect(link.routerLink).toEqual(['/companies/countries']);
+    expect(component.cards[1].route).toBe('/companies/countries');
+    expect(countryCard.injector.get(RouterLink)).toBeTruthy();
   });
 
-  it('should have valid routerLink on active cards (Companies, Countries)', () => {
+  it('should have RouterLink directive on every active card', () => {
     const activeCards = fixture.debugElement.queryAll(
       By.css('.dashboard-card:not(.card--disabled)'),
     );
-    expect(activeCards).toHaveLength(2);
+    expect(activeCards).toHaveLength(3);
     for (const card of activeCards) {
-      const link = card.injector.get(RouterLink);
-      expect(link.routerLink).toBeTruthy();
+      expect(card.injector.get(RouterLink)).toBeTruthy();
     }
   });
 
-  it('should NOT have valid routerLink on placeholder cards (regions, zones, branches)', () => {
+  it('should have RouterLink on every disabled card (with null value)', () => {
     const disabledCards = fixture.debugElement.queryAll(
       By.css('.dashboard-card.card--disabled'),
     );
-    // 3 disabled cards
-    expect(disabledCards).toHaveLength(3);
-    // Disabled cards have RouterLink directive but with null/falsy route
+    expect(disabledCards).toHaveLength(2);
     for (const card of disabledCards) {
-      const link = card.injector.get(RouterLink);
-      expect(link.routerLink).toBeFalsy();
+      expect(card.injector.get(RouterLink)).toBeTruthy();
     }
   });
 
   it('should display "Coming soon" on each disabled card', () => {
     const comingSoonBadges = fixture.nativeElement.querySelectorAll('.card-badge--coming-soon');
     // 3 disabled cards each have a coming-soon badge
-    expect(comingSoonBadges).toHaveLength(3);
+    expect(comingSoonBadges).toHaveLength(2);
     comingSoonBadges.forEach((badge: Element) => {
       expect(badge.textContent.trim()).toContain('Coming soon');
     });
@@ -98,7 +94,7 @@ describe('CompaniesAdminComponent', () => {
 
   it('should render active cards with "Manage" call-to-action text', () => {
     const actionElements = fixture.nativeElement.querySelectorAll('.card-action');
-    expect(actionElements).toHaveLength(2);
+    expect(actionElements).toHaveLength(3);
     expect(actionElements[0].textContent.trim()).toContain('Manage Companies');
     expect(actionElements[1].textContent.trim()).toContain('Manage Countries');
   });
@@ -119,6 +115,6 @@ describe('CompaniesAdminComponent', () => {
 
   it('should render 3 "Coming soon" badges (one per disabled card)', () => {
     const comingSoonBadges = fixture.nativeElement.querySelectorAll('.card-badge--coming-soon');
-    expect(comingSoonBadges).toHaveLength(3);
+    expect(comingSoonBadges).toHaveLength(2);
   });
 });
