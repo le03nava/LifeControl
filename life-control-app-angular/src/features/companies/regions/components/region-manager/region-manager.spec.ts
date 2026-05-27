@@ -1,7 +1,9 @@
+import { By } from '@angular/platform-browser';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { RegionManager } from './region-manager';
 import { CompanyRegion, CompanyRegionRequest } from '../../models/region.models';
+import { RegionsCard } from '../regions-card/regions-card';
 
 describe('RegionManager', () => {
   let component: RegionManager;
@@ -72,16 +74,16 @@ describe('RegionManager', () => {
       expect(loadingEl.textContent).toContain('Cargando regiones');
     });
 
-    it('should show empty state when no regions and not loading', () => {
+    it('should show empty message when no regions and not loading', () => {
       setInputs({ regions: [] });
-      const emptyEl = fixture.nativeElement.querySelector('.empty-state');
+      const emptyEl = fixture.nativeElement.querySelector('.empty-message');
       expect(emptyEl).toBeTruthy();
       expect(emptyEl.textContent).toContain('No hay regiones registradas');
     });
 
-    it('should NOT show empty state when loading', () => {
+    it('should NOT show empty message when loading', () => {
       setInputs({ regions: [], loading: true });
-      const emptyEl = fixture.nativeElement.querySelector('.empty-state');
+      const emptyEl = fixture.nativeElement.querySelector('.empty-message');
       expect(emptyEl).toBeNull();
     });
 
@@ -99,35 +101,62 @@ describe('RegionManager', () => {
     });
   });
 
-  // ---------- Table rendering ----------
-  describe('table', () => {
-    it('should display enabled regions in table rows', () => {
+  // ---------- Card grid rendering ----------
+  describe('card grid', () => {
+    it('should render an app-regions-card for each enabled region', () => {
       setInputs();
-      const rows = fixture.nativeElement.querySelectorAll('tr.mat-mdc-row');
-      expect(rows.length).toBe(2);
-
-      expect(rows[0].textContent).toContain('US-CA');
-      expect(rows[0].textContent).toContain('California');
+      const cards = fixture.nativeElement.querySelectorAll('app-regions-card');
+      // 2 enabled regions by default
+      expect(cards.length).toBe(2);
     });
 
-    it('should show header columns: Código, Nombre, Estado, Acciones', () => {
+    it('should render cards for all regions when showDisabled is on', () => {
       setInputs();
-      const headerRow = fixture.nativeElement.querySelector('tr.mat-mdc-header-row');
-      expect(headerRow).toBeTruthy();
-      expect(headerRow!.textContent).toContain('Código');
-      expect(headerRow!.textContent).toContain('Nombre');
-      expect(headerRow!.textContent).toContain('Estado');
-      expect(headerRow!.textContent).toContain('Acciones');
+      component.showDisabled.set(true);
+      fixture.detectChanges();
+      const cards = fixture.nativeElement.querySelectorAll('app-regions-card');
+      expect(cards.length).toBe(3);
     });
 
-    it('should render an interactive slide-toggle for each region row', () => {
+    it('should pass the correct region data to each card', () => {
       setInputs();
-      const toggles = fixture.nativeElement.querySelectorAll('mat-slide-toggle');
-      expect(toggles.length).toBe(3);
-      // All toggles should be enabled (both enable and disable are supported now)
-      toggles.forEach((toggle: Element) => {
-        expect(toggle.hasAttribute('ng-reflect-disabled')).toBe(false);
-      });
+      const cards = fixture.debugElement.queryAll(By.directive(RegionsCard));
+      expect(cards.length).toBe(2);
+      expect(cards[0].componentInstance.region()).toEqual(mockRegions[0]);
+      expect(cards[1].componentInstance.region()).toEqual(mockRegions[1]);
+    });
+
+    it('should have a CSS grid container wrapping the cards', () => {
+      setInputs();
+      const grid = fixture.nativeElement.querySelector('.regions-grid');
+      expect(grid).toBeTruthy();
+      const cards = grid!.querySelectorAll('app-regions-card');
+      expect(cards.length).toBe(2);
+    });
+
+    it('should emit removeRegion when card deleteRegion fires', () => {
+      setInputs();
+
+      let emittedId: string | undefined;
+      component.removeRegion.subscribe((id) => { emittedId = id; });
+
+      // Access the first card component instance and trigger its delete
+      const cards = fixture.debugElement.queryAll(By.directive(RegionsCard));
+      cards[0].componentInstance.onDelete(new MouseEvent('click'));
+
+      expect(emittedId).toBe('reg-1');
+    });
+
+    it('should not emit removeRegion when card editRegion fires (placeholder)', () => {
+      setInputs();
+
+      let emitted = false;
+      component.removeRegion.subscribe(() => { emitted = true; });
+
+      const cards = fixture.debugElement.queryAll(By.directive(RegionsCard));
+      cards[0].componentInstance.onEdit(new MouseEvent('click'));
+
+      expect(emitted).toBe(false);
     });
   });
 
@@ -190,73 +219,6 @@ describe('RegionManager', () => {
 
       const addBtn = fixture.nativeElement.querySelector('.add-form-row button') as HTMLButtonElement;
       expect(addBtn.disabled).toBe(true);
-    });
-  });
-
-  // ---------- Edit mode ----------
-  describe('edit mode', () => {
-    it('should enter edit mode on startEdit and show Save/Cancel buttons', () => {
-      setInputs();
-      component.onStartEdit(mockRegions[0]);
-      fixture.detectChanges();
-
-      expect(component.editMode()['reg-1']).toBe(true);
-      expect(component.editForms['reg-1'].value).toEqual({ regionCode: 'US-CA', regionName: 'California' });
-
-      const actionButtons = fixture.nativeElement.querySelectorAll('.action-buttons button');
-      expect(actionButtons.length).toBe(4);
-
-      const btnTexts = [...actionButtons].map(b => b.textContent?.trim() ?? '');
-      expect(btnTexts).toContain('Guardar');
-      expect(btnTexts).toContain('Cancelar');
-      expect(btnTexts).toContain('Editar');
-      expect(btnTexts).toContain('Eliminar');
-    });
-
-    it('should exit edit mode on cancelEdit', () => {
-      setInputs();
-      component.onStartEdit(mockRegions[0]);
-      component.onCancelEdit('reg-1');
-      fixture.detectChanges();
-
-      expect(component.editMode()['reg-1']).toBeFalsy();
-      expect(component.editForms['reg-1']).toBeUndefined();
-    });
-
-    it('should emit updateRegion on saveEdit', async () => {
-      setInputs();
-      component.onStartEdit(mockRegions[0]);
-      component.editForms['reg-1'].patchValue({ regionCode: 'US-CA-UPD', regionName: 'California Updated' });
-
-      const result = await new Promise<{ id: string; data: CompanyRegionRequest }>((resolve) => {
-        component.updateRegion.subscribe(resolve);
-        component.onSaveEdit('reg-1');
-      });
-
-      expect(result.id).toBe('reg-1');
-      expect(result.data.regionCode).toBe('US-CA-UPD');
-      expect(result.data.regionName).toBe('California Updated');
-    });
-
-    it('should exit edit mode and clean up form after saveEdit', () => {
-      setInputs();
-      component.onStartEdit(mockRegions[0]);
-      component.onSaveEdit('reg-1');
-
-      expect(component.editMode()['reg-1']).toBeFalsy();
-      expect(component.editForms['reg-1']).toBeUndefined();
-    });
-
-    it('should NOT emit updateRegion when form is invalid', () => {
-      setInputs();
-      component.onStartEdit(mockRegions[0]);
-      component.editForms['reg-1'].controls.regionCode.setValue('');
-
-      let emitted = false;
-      component.updateRegion.subscribe(() => { emitted = true; });
-      component.onSaveEdit('reg-1');
-
-      expect(emitted).toBe(false);
     });
   });
 

@@ -16,8 +16,8 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
-import { MatTableModule } from '@angular/material/table';
 import { CompanyRegion, CompanyRegionRequest } from '../../models/region.models';
+import { RegionsCard } from '../regions-card/regions-card';
 
 const REGION_CODE_PATTERN = /^[a-zA-Z0-9-]+$/;
 
@@ -26,11 +26,11 @@ const REGION_CODE_PATTERN = /^[a-zA-Z0-9-]+$/;
   standalone: true,
   imports: [
     ReactiveFormsModule,
-    MatTableModule,
     MatButtonModule,
     MatFormFieldModule,
     MatInputModule,
     MatSlideToggleModule,
+    RegionsCard,
   ],
   templateUrl: './region-manager.html',
   styleUrl: './region-manager.scss',
@@ -50,11 +50,7 @@ export class RegionManager {
   removeRegion = output<string>();
   enableRegion = output<string>();
 
-  // ─── Table config ───────────────────────────────────────────
-  displayedColumns = ['regionCode', 'regionName', 'enabled', 'actions'];
-
   // ─── Internal state ─────────────────────────────────────────
-  editMode = signal<Record<string, boolean>>({});
   showDisabled = signal(false);
 
   /** Add form — Reactive Form with validators */
@@ -73,12 +69,6 @@ export class RegionManager {
     }),
   });
 
-  /** Inline edit — one form per row keyed by region id */
-  editForms: Record<string, FormGroup<{
-    regionCode: FormControl<string>;
-    regionName: FormControl<string>;
-  }>> = {};
-
   // ─── Computed ───────────────────────────────────────────────
   filteredRegions = computed(() => {
     const all = this.regions();
@@ -94,48 +84,21 @@ export class RegionManager {
     this.newRegionForm.reset();
   }
 
-  onStartEdit(region: CompanyRegion): void {
-    this.editForms[region.id] = new FormGroup({
-      regionCode: new FormControl(region.regionCode, {
-        nonNullable: true,
-        validators: [
-          Validators.required,
-          Validators.maxLength(10),
-          Validators.pattern(REGION_CODE_PATTERN),
-        ],
-      }),
-      regionName: new FormControl(region.regionName, {
-        nonNullable: true,
-        validators: [Validators.required, Validators.maxLength(100)],
-      }),
-    });
-    this.editMode.update(m => ({ ...m, [region.id]: true }));
-  }
-
-  onCancelEdit(id: string): void {
-    delete this.editForms[id];
-    this.editMode.update(m => {
-      const next = { ...m };
-      delete next[id];
-      return next;
-    });
-  }
-
-  onSaveEdit(id: string): void {
-    const form = this.editForms[id];
-    if (!form || form.invalid) return;
-    const { regionCode, regionName } = form.getRawValue();
-    this.updateRegion.emit({ id, data: { regionCode: regionCode.trim(), regionName: regionName.trim() } });
-    delete this.editForms[id];
-    this.editMode.update(m => {
-      const next = { ...m };
-      delete next[id];
-      return next;
-    });
-  }
-
   onRemove(id: string): void {
     this.removeRegion.emit(id);
+  }
+
+  /**
+   * Placeholder for future edit implementation.
+   * The card emits the region id; the edit flow is deferred.
+   */
+  onEditRegion(regionId: string): void {
+    // Edit implementation deferred
+  }
+
+  /** Fired when the card's delete button is clicked. */
+  onDeleteRegion(regionId: string): void {
+    this.removeRegion.emit(regionId);
   }
 
   /**

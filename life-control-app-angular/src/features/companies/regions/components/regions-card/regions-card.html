@@ -1,0 +1,34 @@
+@if (region(); as r) {
+  <mat-card class="region-card" appearance="outlined">
+    <mat-card-header>
+      <mat-card-title>
+        <div class="card-title-row">
+          <span>{{ r.regionName }}</span>
+          <span class="badge status" [class.active]="isEnabled()" [class.inactive]="!isEnabled()">
+            {{ statusLabel() }}
+          </span>
+        </div>
+      </mat-card-title>
+      <mat-card-subtitle>
+        <span class="badge region-code-badge">
+          <mat-icon fontIcon="pin" class="badge-icon" /> {{ r.regionCode }}
+        </span>
+      </mat-card-subtitle>
+    </mat-card-header>
+    <mat-card-actions align="end">
+      <button mat-button (click)="onEdit($event)" aria-label="Editar región">
+        <mat-icon fontIcon="edit" /> Editar
+      </button>
+      <button mat-flat-button color="warn" (click)="onDelete($event)" aria-label="Eliminar región">
+        <mat-icon fontIcon="delete" /> Eliminar
+      </button>
+    </mat-card-actions>
+  </mat-card>
+} @else {
+  <mat-card class="region-card card-empty" appearance="outlined">
+    <mat-card-content>
+      <mat-icon fontIcon="info" class="empty-icon" />
+      <p>No hay región disponible</p>
+    </mat-card-content>
+  </mat-card>
+}
