@@ -29,6 +29,8 @@ export interface RegionSaveEvent {
   companyId: string;
   countryId: string;
   request: CompanyRegionRequest;
+  /** Populated for edit mode (updateRegion), omitted for create mode (addRegion). */
+  regionId?: string;
 }
 
 /**
