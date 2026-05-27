@@ -1,5 +1,6 @@
 import { Component, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
+import { Router } from '@angular/router';
 import { MatSelectModule } from '@angular/material/select';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatChipsModule } from '@angular/material/chips';
@@ -9,7 +10,7 @@ import { CompanyCountryService } from '../../../countries/data/company-country.s
 import { CompanyRegionService } from '../../data/company-region.service';
 import { CompanyCountry } from '../../../countries/models/country.models';
 import { RegionManager } from '../../components/region-manager/region-manager';
-import { CompanyRegionRequest } from '../../models/region.models';
+import { CompanyRegion } from '../../models/region.models';
 
 @Component({
   selector: 'app-regions-page',
@@ -19,6 +20,7 @@ import { CompanyRegionRequest } from '../../models/region.models';
   styleUrl: './regions-page.scss',
 })
 export class RegionsPage {
+  private router = inject(Router);
   private companyService = inject(CompanyService);
   companyCountryService = inject(CompanyCountryService);
   companyRegionService = inject(CompanyRegionService);
@@ -46,18 +48,18 @@ export class RegionsPage {
       .subscribe();
   }
 
-  onAddRegion(request: CompanyRegionRequest): void {
+  onCreateRegion(): void {
     const cc = this.selectedCountry();
     if (!cc) return;
-    this.companyRegionService.addRegion(cc.companyId, cc.id, request).subscribe();
+    this.router.navigate(['/companies/regions/create'], {
+      queryParams: { companyId: cc.companyId, countryId: cc.id },
+    });
   }
 
-  onUpdateRegion(event: { id: string; data: CompanyRegionRequest }): void {
-    const cc = this.selectedCountry();
-    if (!cc) return;
-    this.companyRegionService
-      .updateRegion(cc.companyId, cc.id, event.id, event.data)
-      .subscribe();
+  onEditRegion(region: CompanyRegion): void {
+    this.router.navigate(['/companies/regions/edit', region.id], {
+      state: { region },
+    });
   }
 
   onRemoveRegion(regionId: string): void {

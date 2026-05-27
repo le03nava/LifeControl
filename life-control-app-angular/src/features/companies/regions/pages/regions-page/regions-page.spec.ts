@@ -3,13 +3,13 @@ import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { signal } from '@angular/core';
 import { of } from 'rxjs';
+import { Router } from '@angular/router';
 import { RegionsPage } from './regions-page';
 import { CompanyService } from '../../../companies/data/company.service';
 import { CompanyCountryService } from '../../../countries/data/company-country.service';
 import { CompanyRegionService } from '../../data/company-region.service';
 import {
   CompanyRegion,
-  CompanyRegionRequest,
 } from '../../models/region.models';
 import { CompanyCountry } from '../../../countries/models/country.models';
 import { Company, Page } from '../../../companies/models/company.models';
@@ -134,6 +134,10 @@ describe('RegionsPage', () => {
         { provide: CompanyService, useClass: MockCompanyService },
         { provide: CompanyCountryService, useClass: MockCompanyCountryService },
         { provide: CompanyRegionService, useClass: MockCompanyRegionService },
+        {
+          provide: Router,
+          useValue: { navigate: vi.fn() },
+        },
       ],
     }).compileComponents();
 
@@ -242,75 +246,38 @@ describe('RegionsPage', () => {
     );
   });
 
-  // ─── onAddRegion ─────────────────────────────────────────────
+  // ─── onCreateRegion ──────────────────────────────────────────
 
-  it('should delegate onAddRegion to companyRegionService when country is selected', () => {
-    const companyRegionService = TestBed.inject(
-      CompanyRegionService,
-    ) as unknown as MockCompanyRegionService;
-    const request: CompanyRegionRequest = {
-      regionCode: 'NORTE',
-      regionName: 'Zona Norte',
-    };
+  it('should navigate to create with company and country query params when country is selected', () => {
+    const router = TestBed.inject(Router) as unknown as { navigate: ReturnType<typeof vi.fn> };
 
     component.onSelectCountry(mockAssignedCountries[0]);
-    component.onAddRegion(request);
+    component.onCreateRegion();
 
-    expect(companyRegionService.addRegion).toHaveBeenCalledWith(
-      'company-1',
-      'cc-1',
-      request,
-    );
+    expect(router.navigate).toHaveBeenCalledWith(['/companies/regions/create'], {
+      queryParams: { companyId: 'company-1', countryId: 'cc-1' },
+    });
   });
 
-  it('should NOT call addRegion when no country is selected', () => {
-    const companyRegionService = TestBed.inject(
-      CompanyRegionService,
-    ) as unknown as MockCompanyRegionService;
-    const request: CompanyRegionRequest = {
-      regionCode: 'SUR',
-      regionName: 'Zona Sur',
-    };
+  it('should NOT navigate when no country is selected', () => {
+    const router = TestBed.inject(Router) as unknown as { navigate: ReturnType<typeof vi.fn> };
 
-    component.onAddRegion(request);
+    component.onCreateRegion();
 
-    expect(companyRegionService.addRegion).not.toHaveBeenCalled();
+    expect(router.navigate).not.toHaveBeenCalled();
   });
 
-  // ─── onUpdateRegion ──────────────────────────────────────────
+  // ─── onEditRegion ────────────────────────────────────────────
 
-  it('should delegate onUpdateRegion to companyRegionService when country is selected', () => {
-    const companyRegionService = TestBed.inject(
-      CompanyRegionService,
-    ) as unknown as MockCompanyRegionService;
-    const event = {
-      id: 'r-1',
-      data: { regionCode: 'CENTRO', regionName: 'Centro Mod' } as CompanyRegionRequest,
-    };
+  it('should navigate to edit with region id and state when country is selected', () => {
+    const router = TestBed.inject(Router) as unknown as { navigate: ReturnType<typeof vi.fn> };
+    const region = mockRegions[0];
 
-    component.onSelectCountry(mockAssignedCountries[0]);
-    component.onUpdateRegion(event);
+    component.onEditRegion(region);
 
-    expect(companyRegionService.updateRegion).toHaveBeenCalledWith(
-      'company-1',
-      'cc-1',
-      'r-1',
-      event.data,
-    );
-  });
-
-  it('should NOT call updateRegion when no country is selected', () => {
-    const companyRegionService = TestBed.inject(
-      CompanyRegionService,
-    ) as unknown as MockCompanyRegionService;
-    const event = {
-      id: 'r-1',
-      data: { regionCode: 'CENTRO' } as CompanyRegionRequest,
-    };
-
-    component.onUpdateRegion(event);
-
-    expect(companyRegionService.updateRegion).not.toHaveBeenCalled();
+    expect(router.navigate).toHaveBeenCalledWith(['/companies/regions/edit', region.id], {
+      state: { region },
+    });
   });
 
   // ─── onRemoveRegion ──────────────────────────────────────────
