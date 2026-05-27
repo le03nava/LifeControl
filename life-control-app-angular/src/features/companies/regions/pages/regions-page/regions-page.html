@@ -32,8 +32,8 @@
         [countryId]="selectedCountry()!.id"
         [loading]="companyRegionService.loading()"
         [errorMessage]="companyRegionService.error()"
-        (addRegion)="onAddRegion($event)"
-        (updateRegion)="onUpdateRegion($event)"
+        (createRegion)="onCreateRegion()"
+        (editRegion)="onEditRegion($event)"
         (removeRegion)="onRemoveRegion($event)"
         (enableRegion)="onEnableRegion($event)"
       />

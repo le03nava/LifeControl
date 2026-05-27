@@ -32,6 +32,16 @@ export const companyRoutes: Routes = [
             import('./countries/pages/countries-page/countries-page').then((m) => m.CountriesPage),
         },
         {
+          path: 'regions/create',
+          loadComponent: () =>
+            import('./regions/pages/regions-edit/regions-edit').then((m) => m.RegionsEdit),
+        },
+        {
+          path: 'regions/edit/:id',
+          loadComponent: () =>
+            import('./regions/pages/regions-edit/regions-edit').then((m) => m.RegionsEdit),
+        },
+        {
           path: 'regions',
           loadComponent: () =>
             import('./regions/pages/regions-page/regions-page').then((m) => m.RegionsPage),

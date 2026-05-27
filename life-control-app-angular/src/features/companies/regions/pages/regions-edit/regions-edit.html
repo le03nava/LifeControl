@@ -1,0 +1,14 @@
+<div class="regions-edit-page">
+  <h1>{{ isEditMode() ? 'Editar Región' : 'Nueva Región' }}</h1>
+
+  <app-regions-form
+    [companies]="companies()"
+    [companyCountries]="companyCountries()"
+    [regionToEdit]="regionToEdit()"
+    [serverErrors]="serverErrors()"
+    (saveRegion)="onSaveRegion($event)"
+    (cancelForm)="onCancelForm()"
+    (selectedCompanyChange)="onSelectedCompanyChange($event)"
+    (selectedCountryChange)="onSelectedCountryChange($event)"
+  />
+</div>
