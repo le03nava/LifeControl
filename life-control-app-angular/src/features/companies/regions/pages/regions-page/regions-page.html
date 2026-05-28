@@ -1,43 +1,74 @@
 <div class="regions-page">
-  <h1>Gestión de Regiones</h1>
+  <app-page-header title="Regiones" subtitle="Gestión de regiones del sistema">
+    <button mat-flat-button color="primary" type="button" [disabled]="!selectedCountry()" (click)="onCreateRegion()">
+      <mat-icon fontIcon="add" /> Nueva Región
+    </button>
+  </app-page-header>
 
-  <mat-form-field appearance="outline" class="company-selector">
-    <mat-label>Empresa</mat-label>
-    <mat-select (selectionChange)="onCompanyChange($event.value)">
-      <mat-option value="">— Seleccionar empresa —</mat-option>
-      @for (company of companies(); track company.id) {
-        <mat-option [value]="company.id">{{ company.companyName }}</mat-option>
-      }
-    </mat-select>
-  </mat-form-field>
-
-  @if (selectedCompanyId()) {
-    @if (companyCountryService.assignedCountries().length > 0) {
-      <mat-chip-set>
-        @for (cc of companyCountryService.assignedCountries(); track cc.id) {
-          <mat-chip
-            [class.selected]="selectedCountry()?.id === cc.id"
-            (click)="onSelectCountry(cc)"
-          >
-            {{ cc.countryName }}
-          </mat-chip>
+  <div class="filters-section">
+    <mat-form-field appearance="outline" class="company-selector" subscriptSizing="dynamic">
+      <mat-label>Empresa</mat-label>
+      <mat-select (selectionChange)="onCompanyChange($event.value)">
+        <mat-option value="">— Seleccionar empresa —</mat-option>
+        @for (company of companies(); track company.id) {
+          <mat-option [value]="company.id">{{ company.companyName }}</mat-option>
         }
-      </mat-chip-set>
-    }
+      </mat-select>
+    </mat-form-field>
 
-    @if (selectedCountry()) {
-      <app-region-manager
-        [regions]="companyRegionService.regions()"
-        [companyId]="selectedCountry()!.companyId"
-        [countryId]="selectedCountry()!.id"
-        [loading]="companyRegionService.loading()"
-        [errorMessage]="companyRegionService.error()"
-        (createRegion)="onCreateRegion()"
-        (editRegion)="onEditRegion($event)"
-        (removeRegion)="onRemoveRegion($event)"
-        (enableRegion)="onEnableRegion($event)"
-      />
-    }
+    <mat-form-field appearance="outline" class="country-selector" subscriptSizing="dynamic">
+      <mat-label>País</mat-label>
+      <mat-select
+        [value]="selectedCountry()"
+        [disabled]="companyCountryService.assignedCountries().length === 0"
+        (selectionChange)="onSelectCountry($event.value)"
+      >
+        @for (cc of companyCountryService.assignedCountries(); track cc.id) {
+          <mat-option [value]="cc">
+            {{ cc.countryName }}
+          </mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-slide-toggle
+      class="filter-toggle"
+      [checked]="showDisabled()"
+      (change)="showDisabled.set($event.checked)"
+    >
+      Mostrar deshabilitadas
+    </mat-slide-toggle>
+  </div>
+
+  @if (selectedCountry()) {
+    <div class="regions-grid">
+      @if (companyRegionService.error(); as errorMsg) {
+        <div class="error-state">
+          <mat-icon fontIcon="error" />
+          <p>{{ errorMsg }}</p>
+        </div>
+      }
+
+      @if (companyRegionService.loading()) {
+        <p class="loading-text">Cargando regiones...</p>
+      }
+
+      @if (filteredRegions().length > 0) {
+        @for (region of filteredRegions(); track region.id; let i = $index) {
+          <div class="card-wrapper" [style.--i]="i">
+            <app-regions-card
+              [region]="region"
+              (editRegion)="onCardEditRegion($event)"
+              (deleteRegion)="onRemoveRegion($event)"
+            />
+          </div>
+        }
+      } @else if (!companyRegionService.loading()) {
+        <div class="empty-state">
+          <p>No hay regiones registradas para este país</p>
+        </div>
+      }
+    </div>
   } @else {
     <p class="empty-prompt">Seleccioná una empresa para gestionar sus regiones</p>
   }

@@ -1,21 +1,32 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
+import { MatButtonModule } from '@angular/material/button';
+import { MatIconModule } from '@angular/material/icon';
 import { MatSelectModule } from '@angular/material/select';
 import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatChipsModule } from '@angular/material/chips';
+import { MatSlideToggleModule } from '@angular/material/slide-toggle';
+import { PageHeader } from '@shared/ui';
 import { map } from 'rxjs/operators';
 import { CompanyService } from '../../../companies/data/company.service';
 import { CompanyCountryService } from '../../../countries/data/company-country.service';
 import { CompanyRegionService } from '../../data/company-region.service';
+import { RegionsCard } from '../../components/regions-card/regions-card';
 import { CompanyCountry } from '../../../countries/models/country.models';
-import { RegionManager } from '../../components/region-manager/region-manager';
 import { CompanyRegion } from '../../models/region.models';
 
 @Component({
   selector: 'app-regions-page',
   standalone: true,
-  imports: [MatSelectModule, MatFormFieldModule, MatChipsModule, RegionManager],
+  imports: [
+    MatButtonModule,
+    MatIconModule,
+    MatSelectModule,
+    MatFormFieldModule,
+    MatSlideToggleModule,
+    PageHeader,
+    RegionsCard,
+  ],
   templateUrl: './regions-page.html',
   styleUrl: './regions-page.scss',
 })
@@ -33,6 +44,17 @@ export class RegionsPage {
   selectedCompanyId = signal<string | null>(null);
   selectedCountry = signal<CompanyCountry | null>(null);
 
+  // ─── Filter state ────────────────────────────────────────────
+  showDisabled = signal(false);
+
+  filteredRegions = computed(() => {
+    const all = this.companyRegionService.regions();
+    if (this.showDisabled()) return all;
+    return all.filter((r) => r.enabled);
+  });
+
+  // ─── Event handlers ──────────────────────────────────────────
+
   onCompanyChange(companyId: string): void {
     this.selectedCompanyId.set(companyId);
     this.selectedCountry.set(null);
@@ -43,9 +65,7 @@ export class RegionsPage {
 
   onSelectCountry(cc: CompanyCountry): void {
     this.selectedCountry.set(cc);
-    this.companyRegionService
-      .getRegions(cc.companyId, cc.id)
-      .subscribe();
+    this.companyRegionService.getRegions(cc.companyId, cc.id).subscribe();
   }
 
   onCreateRegion(): void {
@@ -62,15 +82,42 @@ export class RegionsPage {
     });
   }
 
+  /** Bridge: the card emits a region ID; look up the full region and delegate. */
+  onCardEditRegion(regionId: string): void {
+    const region = this.companyRegionService
+      .regions()
+      .find((r) => r.id === regionId);
+    if (region) {
+      this.onEditRegion(region);
+    }
+  }
+
   onRemoveRegion(regionId: string): void {
     const cc = this.selectedCountry();
     if (!cc) return;
-    this.companyRegionService.removeRegion(cc.companyId, cc.id, regionId).subscribe();
+    this.companyRegionService
+      .removeRegion(cc.companyId, cc.id, regionId)
+      .subscribe();
   }
 
   onEnableRegion(regionId: string): void {
     const cc = this.selectedCountry();
     if (!cc) return;
-    this.companyRegionService.enableRegion(cc.companyId, cc.id, regionId).subscribe();
+    this.companyRegionService
+      .enableRegion(cc.companyId, cc.id, regionId)
+      .subscribe();
+  }
+
+  /**
+   * When a user slides the toggle:
+   * - ON → OFF → soft-delete (disable)
+   * - OFF → ON → re-enable
+   */
+  onToggleRegion(region: CompanyRegion): void {
+    if (region.enabled) {
+      this.onRemoveRegion(region.id);
+    } else {
+      this.onEnableRegion(region.id);
+    }
   }
 }

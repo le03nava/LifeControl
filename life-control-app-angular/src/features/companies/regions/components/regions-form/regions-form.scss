@@ -14,10 +14,12 @@
   grid-column: 1 / -1;
 }
 
-// Placeholder shown when no country selected
-.placeholder-text {
-  text-align: center;
-  padding: var(--space-lg);
-  color: var(--color-gray-500);
-  font-style: italic;
+// Toggle container — places the mat-slide-toggle in the form grid
+.toggle-container {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  padding-block: var(--space-sm);
 }
+
+

@@ -18,6 +18,7 @@ export interface CompanyRegion {
 export interface CompanyRegionRequest {
   regionCode: string;
   regionName: string;
+  enabled?: boolean;
 }
 
 /**
@@ -39,4 +40,5 @@ export interface RegionSaveEvent {
 export interface RegionControl {
   regionCode: FormControl<string>;
   regionName: FormControl<string>;
+  enabled: FormControl<boolean>;
 }

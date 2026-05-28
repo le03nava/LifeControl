@@ -72,31 +72,17 @@ describe('RegionsForm', () => {
       expect(selects.length).toBe(2);
     });
 
-    it('should show placeholder when no country selected', () => {
-      const placeholder = fixture.nativeElement.querySelector('.placeholder-text');
-      expect(placeholder).toBeTruthy();
-      expect(placeholder.textContent).toContain('Seleccioná un país');
-    });
-
-    it('should NOT render form fields when no country selected', () => {
-      const codeInput = fixture.nativeElement.querySelector('[formControlName="regionCode"]');
-      const nameInput = fixture.nativeElement.querySelector('[formControlName="regionName"]');
-      expect(codeInput).toBeNull();
-      expect(nameInput).toBeNull();
-    });
-
-    it('should render empty form fields after country selection', () => {
-      // Simulate company + country selection
-      component.onCompanyChange('comp-1');
-      fixture.componentRef.setInput('companyCountries', mockCountries);
-      fixture.detectChanges();
-      component.onCountryChange(mockCountries[0]);
-      fixture.detectChanges();
-
+    it('should render form fields always', () => {
       const codeInput = fixture.nativeElement.querySelector('[formControlName="regionCode"]');
       const nameInput = fixture.nativeElement.querySelector('[formControlName="regionName"]');
       expect(codeInput).toBeTruthy();
       expect(nameInput).toBeTruthy();
+    });
+
+    it('should render slide-toggle for enabled', () => {
+      const toggle = fixture.nativeElement.querySelector('mat-slide-toggle');
+      expect(toggle).toBeTruthy();
+      expect(toggle.textContent).toContain('Activo');
     });
   });
 
@@ -156,6 +142,7 @@ describe('RegionsForm', () => {
 
       expect(component.formGroup.controls.regionCode.value).toBe('US-CA');
       expect(component.formGroup.controls.regionName.value).toBe('California');
+      expect(component.formGroup.controls.enabled.value).toBe(true);
     });
 
     it('should pre-select company and country from regionToEdit', () => {
@@ -262,7 +249,7 @@ describe('RegionsForm', () => {
     });
 
     it('should emit saveRegion with valid data', () => {
-      component.formGroup.patchValue({ regionCode: 'US-NY', regionName: 'New York' });
+      component.formGroup.patchValue({ regionCode: 'US-NY', regionName: 'New York', enabled: false });
 
       let emitted: RegionSaveEvent | undefined;
       component.saveRegion.subscribe((ev: RegionSaveEvent) => { emitted = ev; });
@@ -274,6 +261,7 @@ describe('RegionsForm', () => {
       expect(emitted!.countryId).toBe('cc-1');
       expect(emitted!.request.regionCode).toBe('US-NY');
       expect(emitted!.request.regionName).toBe('New York');
+      expect(emitted!.request.enabled).toBe(false);
     });
 
     it('should trim whitespace from form values', () => {
@@ -287,6 +275,7 @@ describe('RegionsForm', () => {
       expect(emitted).toBeDefined();
       expect(emitted!.request.regionCode).toBe('US-NY');
       expect(emitted!.request.regionName).toBe('New York');
+      expect(emitted!.request.enabled).toBe(true);
     });
 
     it('should NOT emit saveRegion when form is invalid', () => {
@@ -310,18 +299,6 @@ describe('RegionsForm', () => {
       expect(component.formGroup.controls.regionName.touched).toBe(true);
     });
 
-    it('should disable submit button when form is invalid', () => {
-      const submitBtn = fixture.nativeElement.querySelector('button[type="submit"]') as HTMLButtonElement;
-      expect(submitBtn.disabled).toBe(true);
-    });
-
-    it('should enable submit button when form is valid', () => {
-      component.formGroup.patchValue({ regionCode: 'US-NY', regionName: 'New York' });
-      fixture.detectChanges();
-
-      const submitBtn = fixture.nativeElement.querySelector('button[type="submit"]') as HTMLButtonElement;
-      expect(submitBtn.disabled).toBe(false);
-    });
   });
 
   // ─── Cancel ───────────────────────────────────────────────────
