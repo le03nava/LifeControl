@@ -1,0 +1,65 @@
+<div class="form-card">
+  <h2>
+    @if (isEditMode()) {
+      Editar País
+    } @else {
+      Nuevo País
+    }
+  </h2>
+
+  <form [formGroup]="formGroup" (ngSubmit)="onSave()">
+    <!-- Company selector -->
+    <mat-form-field appearance="outline" class="selector-field">
+      <mat-label>Empresa</mat-label>
+      <mat-select
+        (selectionChange)="onCompanyChange($event.value)"
+        [value]="selectedCompanyId()"
+      >
+        <mat-option value="">— Seleccionar empresa —</mat-option>
+        @for (company of companies(); track company.id) {
+          <mat-option [value]="company.id">{{ company.companyName }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <!-- Catalog country selector -->
+    <mat-form-field appearance="outline" class="selector-field">
+      <mat-label>País</mat-label>
+      <mat-select
+        (selectionChange)="onCountryChange($event.value)"
+        [value]="selectedCatalogCountry()"
+        [compareWith]="compareCountryByCode"
+      >
+        <mat-option [value]="null">— Seleccionar país —</mat-option>
+        @for (country of catalogCountries(); track country.id) {
+          <mat-option [value]="country">{{ country.countryName }} ({{ country.countryCode }})</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <!-- localAlias -->
+    <mat-form-field appearance="outline" class="selector-field">
+      <mat-label>Alias local</mat-label>
+      <input
+        matInput
+        type="text"
+        formControlName="localAlias"
+        placeholder="Alias opcional (máx. 100 caracteres)"
+      />
+      @if (getErrorMessage(formGroup.controls.localAlias); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <div class="form-actions">
+      <button mat-button type="button" (click)="onCancel()">Cancelar</button>
+      <button mat-flat-button type="submit">
+        @if (!isEditMode()) {
+          Guardar
+        } @else {
+          Actualizar
+        }
+      </button>
+    </div>
+  </form>
+</div>

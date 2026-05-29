@@ -1,0 +1,36 @@
+@if (cc(); as c) {
+  <mat-card class="country-card" appearance="outlined">
+    <mat-card-header>
+      <mat-card-title>
+        <div class="card-title-row">
+          <span>{{ c.countryName }}</span>
+        </div>
+      </mat-card-title>
+      <mat-card-subtitle>
+        <span class="badge country-code-badge">
+          <mat-icon fontIcon="pin" class="badge-icon" /> {{ c.countryCode }}
+        </span>
+      </mat-card-subtitle>
+    </mat-card-header>
+    <mat-card-content>
+      @if (c.localAlias) {
+        <p class="local-alias">{{ c.localAlias }}</p>
+      }
+    </mat-card-content>
+    <mat-card-actions align="end">
+      <button mat-button (click)="onEdit($event)" aria-label="Editar país">
+        <mat-icon fontIcon="edit" /> Editar
+      </button>
+      <button mat-flat-button color="warn" (click)="onDelete($event)" aria-label="Eliminar país">
+        <mat-icon fontIcon="delete" /> Eliminar
+      </button>
+    </mat-card-actions>
+  </mat-card>
+} @else {
+  <mat-card class="country-card card-empty" appearance="outlined">
+    <mat-card-content>
+      <mat-icon fontIcon="info" class="empty-icon" />
+      <p>No hay país disponible</p>
+    </mat-card-content>
+  </mat-card>
+}

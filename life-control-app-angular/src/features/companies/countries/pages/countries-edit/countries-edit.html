@@ -1,0 +1,8 @@
+<app-countries-form
+  [companies]="companies()"
+  [ccToEdit]="ccToEdit()"
+  [initialCompanyId]="initialCompanyId()"
+  [serverErrors]="serverErrors()"
+  (saveCountry)="onSaveCountry($event)"
+  (cancelForm)="onCancelForm()"
+/>

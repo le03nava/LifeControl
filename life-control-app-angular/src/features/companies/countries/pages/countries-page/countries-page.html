@@ -1,25 +1,51 @@
 <div class="countries-page">
-  <h1>Gestión de Países</h1>
+  <app-page-header title="Países" subtitle="Gestión de países del sistema">
+    <button mat-flat-button color="primary" type="button" [disabled]="!selectedCompanyId()" (click)="onCreateCountry()">
+      <mat-icon fontIcon="add" /> Agregar País
+    </button>
+  </app-page-header>
 
-  <mat-form-field appearance="outline" class="company-selector">
-    <mat-label>Empresa</mat-label>
-    <mat-select (selectionChange)="onCompanyChange($event.value)">
-      <mat-option value="">— Seleccionar empresa —</mat-option>
-      @for (company of companies(); track company.id) {
-        <mat-option [value]="company.id">{{ company.companyName }}</mat-option>
-      }
-    </mat-select>
-  </mat-form-field>
+  <div class="filters-section">
+    <mat-form-field appearance="outline" class="company-selector" subscriptSizing="dynamic">
+      <mat-label>Empresa</mat-label>
+      <mat-select [value]="selectedCompanyId()" (selectionChange)="onCompanyChange($event.value)">
+        <mat-option value="">— Seleccionar empresa —</mat-option>
+        @for (company of companies(); track company.id) {
+          <mat-option [value]="company.id">{{ company.companyName }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+  </div>
 
   @if (selectedCompanyId()) {
-    <app-country-selector
-      [countries]="countryService.countries()"
-      [assignedCountries]="companyCountryService.assignedCountries()"
-      [loading]="companyCountryService.loading()"
-      [errorMessage]="companyCountryService.error()"
-      (addCountry)="onAddCountry($event)"
-      (removeCountry)="onRemoveCountry($event)"
-    />
+    <div class="countries-grid">
+      @if (companyCountryService.error(); as errorMsg) {
+        <div class="error-state">
+          <mat-icon fontIcon="error" />
+          <p>{{ errorMsg }}</p>
+        </div>
+      }
+
+      @if (companyCountryService.loading()) {
+        <p class="loading-text">Cargando países...</p>
+      }
+
+      @if (companyCountryService.assignedCountries().length > 0) {
+        @for (cc of companyCountryService.assignedCountries(); track cc.id; let i = $index) {
+          <div class="card-wrapper" [style.--i]="i">
+            <app-countries-card
+              [cc]="cc"
+              (editCountry)="onCardEditCountry($event)"
+              (deleteCountry)="onDeleteCountry($event)"
+            />
+          </div>
+        }
+      } @else if (!companyCountryService.loading()) {
+        <div class="empty-state">
+          <p>No hay países asignados para esta empresa</p>
+        </div>
+      }
+    </div>
   } @else {
     <p class="empty-prompt">Seleccioná una empresa para gestionar sus países</p>
   }

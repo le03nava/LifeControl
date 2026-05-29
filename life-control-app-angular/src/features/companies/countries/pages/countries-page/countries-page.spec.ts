@@ -1,18 +1,15 @@
+import { By } from '@angular/platform-browser';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
-import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { signal } from '@angular/core';
 import { of } from 'rxjs';
+import { ActivatedRoute, Router } from '@angular/router';
 import { CountriesPage } from './countries-page';
 import { CompanyService } from '../../../companies/data/company.service';
 import { CompanyCountryService } from '../../data/company-country.service';
-import { CountryService } from '@features/countries/data';
-import {
-  Country,
-  CompanyCountry,
-  CompanyCountryRequest,
-} from '../../models/country.models';
+import { CompanyCountry } from '../../models/country.models';
 import { Company, Page } from '../../../companies/models/company.models';
+import { CountriesCard } from '../../components/countries-card/countries-card';
 
 describe('CountriesPage', () => {
   let component: CountriesPage;
@@ -56,71 +53,73 @@ describe('CountriesPage', () => {
       createdAt: '2024-01-01',
       updatedAt: '2024-01-01',
     },
-  ];
-
-  const mockCountries: Country[] = [
     {
-      id: 'c1',
-      countryCode: 'MX',
-      countryName: 'Mexico',
-      enabled: true,
+      id: 'cc-2',
+      companyId: 'company-1',
+      countryId: 'c2',
+      countryCode: 'US',
+      countryName: 'United States',
+      localAlias: null,
       createdAt: '2024-01-01',
       updatedAt: '2024-01-01',
     },
   ];
 
-  // Create mock services using real classes that extend the originals
   class MockCompanyCountryService {
     private _assignedCountries = signal<CompanyCountry[]>([]);
-    private _loading = signal(false);
-    private _error = signal<string | null>(null);
+    _loading = signal(false);
+    _error = signal<string | null>(null);
 
-    assignedCountries = this._assignedCountries.asReadonly();
-    loading = this._loading.asReadonly();
-    error = this._error.asReadonly();
+    readonly assignedCountries = this._assignedCountries.asReadonly();
+    readonly loading = this._loading.asReadonly();
+    readonly error = this._error.asReadonly();
 
-    getCountries = vi.fn().mockReturnValue(of(mockAssignedCountries));
-    addCountry = vi.fn().mockReturnValue(
-      of({
-        id: 'cc-new',
-        companyId: 'company-1',
-        countryId: 'c2',
-        countryCode: 'US',
-        countryName: 'United States',
-        localAlias: null,
-        createdAt: '2024-01-01',
-        updatedAt: '2024-01-01',
-      } as CompanyCountry),
-    );
+    getCountries = vi.fn().mockImplementation(() => {
+      this._assignedCountries.set(mockAssignedCountries);
+      return of(mockAssignedCountries);
+    });
+    addCountry = vi.fn().mockReturnValue(of(mockAssignedCountries[0]));
+    updateCountry = vi.fn().mockReturnValue(of(mockAssignedCountries[0]));
     removeCountry = vi.fn().mockReturnValue(of(undefined));
-  }
-
-  class MockCountryService {
-    private _countries = signal<Country[]>(mockCountries);
-    countries = this._countries.asReadonly();
-
-    getCountries = vi.fn().mockReturnValue(of(mockCountries));
   }
 
   class MockCompanyService {
     getCompanies = vi.fn().mockReturnValue(of(mockCompaniesPage));
   }
 
+  let routerMock: { navigate: ReturnType<typeof vi.fn> };
+  let routeMock: {
+    snapshot: {
+      queryParamMap: { get: ReturnType<typeof vi.fn> };
+    };
+  };
+
   beforeEach(async () => {
+    routerMock = { navigate: vi.fn() };
+    routeMock = {
+      snapshot: {
+        queryParamMap: {
+          get: vi.fn().mockReturnValue(null),
+        },
+      },
+    };
+
     await TestBed.configureTestingModule({
-      imports: [CountriesPage, NoopAnimationsModule, HttpClientTestingModule],
+      imports: [CountriesPage, NoopAnimationsModule],
       providers: [
         { provide: CompanyService, useClass: MockCompanyService },
         { provide: CompanyCountryService, useClass: MockCompanyCountryService },
-        { provide: CountryService, useClass: MockCountryService },
+        { provide: Router, useValue: routerMock },
+        { provide: ActivatedRoute, useValue: routeMock },
       ],
-
     }).compileComponents();
 
     fixture = TestBed.createComponent(CountriesPage);
     component = fixture.componentInstance;
     fixture.detectChanges();
   });
+
+  // ─── Basic creation and initial state ────────────────────────
 
   it('should create', () => {
     expect(component).toBeTruthy();
@@ -130,7 +129,9 @@ describe('CountriesPage', () => {
     expect(component.selectedCompanyId()).toBeNull();
   });
 
-  it('should set selectedCompanyId when onCompanyChange is called', () => {
+  // ─── onCompanyChange ─────────────────────────────────────────
+
+  it('should set selectedCompanyId on company change', () => {
     component.onCompanyChange('company-1');
     expect(component.selectedCompanyId()).toBe('company-1');
   });
@@ -143,65 +144,166 @@ describe('CountriesPage', () => {
     expect(component.selectedCompanyId()).toBe('');
   });
 
-  it('should load company countries and available countries when onCompanyChange is called with valid id', () => {
-    const companyCountryService = TestBed.inject(CompanyCountryService);
-    const countryService = TestBed.inject(CountryService);
+  it('should load countries on company change', () => {
+    const companyCountryService = TestBed.inject(
+      CompanyCountryService,
+    ) as unknown as MockCompanyCountryService;
 
     component.onCompanyChange('company-1');
 
     expect(companyCountryService.getCountries).toHaveBeenCalledWith('company-1');
-    expect(countryService.getCountries).toHaveBeenCalled();
   });
 
-  it('should NOT load countries when onCompanyChange is called with empty string', () => {
-    const companyCountryService = TestBed.inject(CompanyCountryService);
+  it('should NOT load countries when empty string', () => {
+    const companyCountryService = TestBed.inject(
+      CompanyCountryService,
+    ) as unknown as MockCompanyCountryService;
 
     component.onCompanyChange('');
 
     expect(companyCountryService.getCountries).not.toHaveBeenCalled();
   });
 
-  it('should delegate onAddCountry to companyCountryService when company is selected', () => {
-    const companyCountryService = TestBed.inject(CompanyCountryService);
-    const request: CompanyCountryRequest = { countryCode: 'BR', localAlias: 'Test' };
+  // ─── onCreateCountry ─────────────────────────────────────────
 
-    component.onCompanyChange('company-1');
-    component.onAddCountry(request);
+  it('should navigate to create with correct queryParams', () => {
+    component.selectedCompanyId.set('company-1');
+    component.onCreateCountry();
 
-    expect(companyCountryService.addCountry).toHaveBeenCalledWith('company-1', request);
+    expect(routerMock.navigate).toHaveBeenCalledWith(
+      ['/companies/countries/create'],
+      { queryParams: { companyId: 'company-1' } },
+    );
   });
 
-  it('should NOT call addCountry when no company is selected', () => {
-    const companyCountryService = TestBed.inject(CompanyCountryService);
-    const request: CompanyCountryRequest = { countryCode: 'BR' };
+  it('should NOT navigate when no company is selected', () => {
+    component.onCreateCountry();
 
-    component.onAddCountry(request);
-
-    expect(companyCountryService.addCountry).not.toHaveBeenCalled();
+    expect(routerMock.navigate).not.toHaveBeenCalled();
   });
 
-  it('should delegate onRemoveCountry to companyCountryService when company is selected', () => {
-    const companyCountryService = TestBed.inject(CompanyCountryService);
+  // ─── onCardEditCountry ───────────────────────────────────────
 
+  it('should navigate to edit with state', () => {
     component.onCompanyChange('company-1');
-    component.onRemoveCountry('cc-1');
+    component.onCardEditCountry('cc-1');
 
-    expect(companyCountryService.removeCountry).toHaveBeenCalledWith('company-1', 'cc-1');
+    expect(routerMock.navigate).toHaveBeenCalledWith(
+      ['/companies/countries/edit', 'cc-1'],
+      { state: { cc: mockAssignedCountries[0] } },
+    );
+  });
+
+  it('should NOT navigate when cc is not found', () => {
+    component.onCompanyChange('company-1');
+    component.onCardEditCountry('non-existent');
+
+    expect(routerMock.navigate).not.toHaveBeenCalled();
+  });
+
+  // ─── onDeleteCountry ─────────────────────────────────────────
+
+  it('should call removeCountry on delete', () => {
+    const companyCountryService = TestBed.inject(
+      CompanyCountryService,
+    ) as unknown as MockCompanyCountryService;
+
+    component.selectedCompanyId.set('company-1');
+    component.onDeleteCountry('cc-1');
+
+    expect(companyCountryService.removeCountry).toHaveBeenCalledWith(
+      'company-1',
+      'cc-1',
+    );
   });
 
   it('should NOT call removeCountry when no company is selected', () => {
-    const companyCountryService = TestBed.inject(CompanyCountryService);
+    const companyCountryService = TestBed.inject(
+      CompanyCountryService,
+    ) as unknown as MockCompanyCountryService;
 
-    component.onRemoveCountry('cc-1');
+    component.onDeleteCountry('cc-1');
 
     expect(companyCountryService.removeCountry).not.toHaveBeenCalled();
   });
 
-  describe('rendering', () => {
-    it('should show empty prompt when no company is selected', () => {
-      const emptyPrompt = fixture.nativeElement.querySelector('.empty-prompt');
-      expect(emptyPrompt).toBeTruthy();
-      expect(emptyPrompt.textContent).toContain('Seleccioná una empresa');
-    });
+  // ─── Rendering ───────────────────────────────────────────────
+
+  it('should show empty prompt when no company is selected', () => {
+    const emptyPrompt = fixture.nativeElement.querySelector('.empty-prompt');
+    expect(emptyPrompt).toBeTruthy();
+    expect(emptyPrompt.textContent).toContain('Seleccioná una empresa');
+  });
+
+  it('should render app-countries-card when countries are loaded', () => {
+    component.onCompanyChange('company-1');
+    fixture.detectChanges();
+
+    const cards = fixture.nativeElement.querySelectorAll('app-countries-card');
+    expect(cards.length).toBe(2);
+  });
+
+  it('should pass the correct country data to each card', () => {
+    component.onCompanyChange('company-1');
+    fixture.detectChanges();
+
+    const cards = fixture.debugElement.queryAll(By.directive(CountriesCard));
+    expect(cards.length).toBe(2);
+    expect(cards[0].componentInstance.cc()).toEqual(mockAssignedCountries[0]);
+    expect(cards[1].componentInstance.cc()).toEqual(mockAssignedCountries[1]);
+  });
+
+  it('should display error message when error is set', () => {
+    component.onCompanyChange('company-1');
+    const svc = TestBed.inject(
+      CompanyCountryService,
+    ) as unknown as MockCompanyCountryService;
+    svc._error.set('Error al cargar los países');
+    fixture.detectChanges();
+
+    const errorEl = fixture.nativeElement.querySelector('.error-state');
+    expect(errorEl).toBeTruthy();
+    expect(errorEl.textContent).toContain('Error al cargar los países');
+  });
+
+  it('should display loading text when loading', () => {
+    component.onCompanyChange('company-1');
+    const svc = TestBed.inject(
+      CompanyCountryService,
+    ) as unknown as MockCompanyCountryService;
+    svc._loading.set(true);
+    fixture.detectChanges();
+
+    const loadingEl = fixture.nativeElement.querySelector('.loading-text');
+    expect(loadingEl).toBeTruthy();
+    expect(loadingEl.textContent).toContain('Cargando países');
+  });
+
+  it('should show empty message when no countries and not loading', () => {
+    component.onCompanyChange('company-1');
+    const svc = TestBed.inject(
+      CompanyCountryService,
+    ) as unknown as MockCompanyCountryService;
+    // Accessing private property for test - using type assertion
+    (svc as any)._assignedCountries.set([]);
+    fixture.detectChanges();
+
+    const emptyEl = fixture.nativeElement.querySelector('.empty-state');
+    expect(emptyEl).toBeTruthy();
+    expect(emptyEl.textContent).toContain('No hay países asignados');
+  });
+
+  it('should NOT show empty message when loading even if no countries', () => {
+    component.onCompanyChange('company-1');
+    const svc = TestBed.inject(
+      CompanyCountryService,
+    ) as unknown as MockCompanyCountryService;
+    // Accessing private property for test - using type assertion
+    (svc as any)._assignedCountries.set([]);
+    svc._loading.set(true);
+    fixture.detectChanges();
+
+    const emptyEl = fixture.nativeElement.querySelector('.empty-state');
+    expect(emptyEl).toBeNull();
   });
 });

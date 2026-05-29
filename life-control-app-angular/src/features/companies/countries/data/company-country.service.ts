@@ -56,6 +56,26 @@ export class CompanyCountryService {
     );
   }
 
+  updateCountry(companyId: string, companyCountryId: string, request: CompanyCountryRequest): Observable<CompanyCountry> {
+    this._loading.set(true);
+    this._error.set(null);
+    return this.http.put<CompanyCountry>(`${this.countriesUrl(companyId)}/${companyCountryId}`, request).pipe(
+      tap(updated => {
+        const current = this._assignedCountries();
+        this._assignedCountries.set(current.map(cc => (cc.id === companyCountryId ? updated : cc)));
+      }),
+      catchError(err => {
+        if (err.status === 409) {
+          this._error.set('Este país ya está asignado a esta empresa');
+        } else {
+          this._error.set('Error al actualizar el país');
+        }
+        return throwError(() => err);
+      }),
+      finalize(() => this._loading.set(false)),
+    );
+  }
+
   removeCountry(companyId: string, companyCountryId: string): Observable<void> {
     this._loading.set(true);
     return this.http.delete<void>(`${this.countriesUrl(companyId)}/${companyCountryId}`).pipe(
