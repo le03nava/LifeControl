@@ -1,59 +1,101 @@
-# LifeControlAppAngular
+# LifeControl — Angular App
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 20.3.6.
+Aplicación Angular 20 con Signals, Zoneless, Standalone components y Angular Material 3, parte del ecosistema LifeControl de microservicios.
 
-## Development server
+## Stack
 
-To start a local development server, run:
+| Capa              | Tecnología                                 |
+|-------------------|--------------------------------------------|
+| Framework         | Angular 20.3.0                             |
+| Change Detection  | Zoneless (`provideZonelessChangeDetection`) |
+| Componentes       | 100% Standalone + OnPush                   |
+| State Management  | Angular Signals + `rxResource`             |
+| UI                | Angular Material 20 (M3 theme)             |
+| Autenticación     | Keycloak v26 (`keycloak-angular`)          |
+| SSR               | `@angular/ssr`                             |
+| Testing           | Vitest via `@angular/build:unit-test`      |
+| Build             | esbuild (`@angular/build`)                 |
+| Layout            | `@angular/cdk/layout` (BreakpointObserver) |
 
-```bash
-ng serve
-```
+## Requisitos
 
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
+- Node.js 20+
+- Docker (para el ecosistema completo)
 
-## Code scaffolding
-
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
-
-```bash
-ng generate component component-name
-```
-
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
-
-```bash
-ng generate --help
-```
-
-## Building
-
-To build the project run:
+## Desarrollo
 
 ```bash
-ng build
+# Instalar dependencias
+npm install
+
+# Servidor de desarrollo (http://localhost:4200)
+npm start
+
+# Build de producción
+npm run build
+
+# Build con SSR
+npm run build:ssr
 ```
-
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
-
-## Running unit tests
-
-To execute unit tests with the [Karma](https://karma-runner.github.io) test runner, use the following command:
 
 ```bash
-ng test
+# Tests unitarios
+npm test
+
+# Tests en modo watch
+npm run test:watch
+
+# Tests con coverage
+npm run test:coverage
 ```
 
-## Running end-to-end tests
+## Arquitectura
 
-For end-to-end (e2e) testing, run:
+```
+src/
+├── app/               # Config raíz (providers, routing, root component)
+├── core/              # Cross-feature: guards, interceptors, layout, keycloak
+├── features/          # Feature modules con lazy loading
+│   ├── companies/     # Empresas, países asignados, regiones
+│   ├── countries/     # Catálogo de países
+│   ├── home/          # Página principal
+│   ├── auth/          # Login
+│   └── users-admin/   # Administración de usuarios
+├── shared/            # UI components, servicios globales, modelos, estilos
+└── styles.scss        # Tema Material 3 + dark mode + CSS custom properties
+```
+
+Cada feature sigue esta estructura: `components/`, `data/`, `models/`, `pages/`, `index.ts`.
+
+Path aliases disponibles: `@app`, `@core`, `@features`, `@shared`.
+
+## Patrones Clave
+
+- **Servicios**: retornan `Observable` y mantienen signals para estado síncrono (loading, error, listas cacheadas via `tap()`)
+- **Páginas de listado**: `rxResource` para ciclo de vida HTTP automático con signals
+- **Formularios**: `NonNullableFormBuilder` + `signal<FormGroup>` + `serverErrors` signal + `ApiError` handling
+- **Navegación**: `history.state` para pasar datos a edit, `queryParams` para create/pre-selección
+- **ConfigService**: URLs dinámicas desde `window.env`, cargado via `provideAppInitializer`
+
+Para una guía detallada de patrones y convenciones, ver [`AGENTS.md`](./AGENTS.md).
+
+## Entorno
+
+Las URLs de API y Keycloak se configuran en tiempo de ejecución via `window.env` (sin rebuild). Ver `ConfigService` en `src/app/services/config.service.ts`.
+
+## Docker
+
+Para rebuild rápido de solo el frontend:
 
 ```bash
-ng e2e
+npm run build
+docker build --no-cache -t life-control-app-angular:latest .
+docker compose -f ../docker/docker-compose.yml up -d --force-recreate web-app
 ```
 
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
+## Links
 
-## Additional Resources
-
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+- [Angular](https://angular.dev)
+- [Angular Material](https://material.angular.io)
+- [Keycloak Angular](https://www.npmjs.com/package/keycloak-angular)
+- [Vitest](https://vitest.dev)

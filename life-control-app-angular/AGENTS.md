@@ -1,24 +1,26 @@
-# Life Control App Angular - Developer Guide
+# Life Control App Angular — Guía de Desarrollo
 
 ## Descripción
 
-Aplicación Angular principal del proyecto LifeControl. Esta es la aplicación Angular más moderna del proyecto (v20.3.0), utilizando patrones de última generación como Signals, Zoneless y componentes standalone.
+Aplicación Angular principal del proyecto LifeControl (v20.3.0), construida con patrones modernos: **Signals, Zoneless, Standalone**, y **Angular Material 3** con soporte de tema oscuro.
 
 ---
 
 ## Tech Stack
 
-| Componente | Tecnología |
-|------------|------------|
-| Framework | Angular 20.3.0 |
-| State Management | Angular Signals |
-| Change Detection | Zoneless |
-| Componentes | 100% Standalone |
-| Authentication | Keycloak v26 (`keycloak-js`) |
-| UI Library | Angular Material 20 |
-| SSR | `@angular/ssr` 20.3.6 |
-| Testing | Vitest (migrado desde Karma+Jasmine) |
-| Build System | esbuild (`@angular/build`) |
+| Componente              | Tecnología                                        |
+|------------------------|---------------------------------------------------|
+| Framework              | Angular 20.3.0                                    |
+| State Management       | Angular Signals                                   |
+| Change Detection       | Zoneless (`provideZonelessChangeDetection()`)     |
+| Componentes            | 100% Standalone                                   |
+| Autenticación          | Keycloak v26 (`keycloak-angular`, `keycloak-js`) |
+| UI Library             | Angular Material 20 (M3 theme)                   |
+| SSR                   | `@angular/ssr` 20.3.6                            |
+| Testing                | Vitest via `@angular/build:unit-test`            |
+| Build System           | esbuild (`@angular/build`)                       |
+| Layout Utilities       | `@angular/cdk/layout` (BreakpointObserver)        |
+| HTTP                   | `withFetch()` + functional interceptors           |
 
 ---
 
@@ -28,81 +30,359 @@ Aplicación Angular principal del proyecto LifeControl. Esta es la aplicación A
 
 ```
 src/
-├── app/                    # Configuración de la app
-│   ├── app.config.ts       # Providers (Zoneless, HTTP, Keycloak)
-│   ├── app.routes.ts      # Rutas raíz con lazy loading
-│   └── app.ts             # Root component
-├── core/                  # Configuración central
-│   ├── config/            # Configuración de Keycloak
-│   ├── guards/            # Functional route guards
-│   ├── interceptors/      # Functional HTTP interceptors
-│   └── layout/            # Header, footer, layout
-├── features/              # Módulos por característica
-│   ├── companies/
-│   ├── products/
-│   ├── users/
+├── app/                          # Config raíz de la app
+│   ├── app.config.ts             # Providers globales
+│   ├── app.config.server.ts      # Providers SSR
+│   ├── app.routes.ts             # Rutas raíz con lazy loading
+│   ├── app.ts                    # Root component
+│   ├── app.scss                  # Estilos del layout raíz
+│   ├── models/                   # Modelos globales (AppConfig)
+│   ├── services/                 # Servicios globales (ConfigService)
+│   ├── core/                     # Repite estructura de src/core/
+│   └── models/                   # Modelos globales (AppConfig)
+├── core/                         # Configuración central cross-feature
+│   ├── config/
+│   │   └── keycloak.ts           # Re-export de provideKeycloak
+│   ├── guards/
+│   │   └── auth-keycloak-guard.ts
+│   ├── interceptors/
+│   │   └── bearer-token.interceptor.ts
+│   └── layout/
+│       ├── header/               # Header responsivo con navegación
+│       ├── footer/
+│       └── index.ts              # Barrel export
+├── features/                     # Feature modules
+│   ├── auth/
+│   │   └── login.ts
+│   ├── companies/                # Feature "Companies" (con sub-features)
+│   │   ├── companies.routes.ts   # Rutas anidadas con guard de roles
+│   │   ├── index.ts
+│   │   ├── companies/            # Sub-feature: empresas
+│   │   │   ├── components/       # Componentes de UI locales
+│   │   │   ├── data/             # Servicios + specs
+│   │   │   ├── index.ts
+│   │   │   ├── models/           # Modelos de datos
+│   │   │   ├── pages/            # Páginas (company-list, company-edit, etc.)
+│   │   │   └── ui/               # UI específica (dialogs, etc.)
+│   │   ├── countries/            # Sub-feature: países
+│   │   │   ├── components/
+│   │   │   ├── data/
+│   │   │   ├── index.ts
+│   │   │   ├── models/
+│   │   │   └── pages/
+│   │   └── regions/              # Sub-feature: regiones
+│   │       ├── components/
+│   │       ├── data/
+│   │       ├── index.ts
+│   │       ├── models/
+│   │       └── pages/
+│   ├── countries/                # Feature independiente: catálogo de países
+│   │   ├── data/
+│   │   └── index.ts
 │   ├── home/
-│   └── auth/
-├── shared/                # Componentes compartidos
-│   └── ui/                # Atomic Design (atoms, molecules)
-└── styles.scss            # Estilos globales
+│   │   ├── home.ts
+│   │   ├── home.html
+│   │   └── home.scss
+│   └── users-admin/              # Feature: administración de usuarios
+│       ├── models/
+│       ├── pages/
+│       ├── services/
+│       ├── index.ts
+│       └── users-admin.routes.ts
+├── shared/                       # Código compartido cross-feature
+│   ├── data/                     # Servicios globales
+│   │   ├── auth.ts
+│   │   ├── company-context.service.ts
+│   │   ├── error-interceptor.ts
+│   │   ├── loading-interceptor.ts
+│   │   ├── loading.ts
+│   │   ├── notification.ts
+│   │   └── index.ts
+│   ├── models/
+│   │   ├── api-error.model.ts
+│   │   └── index.ts
+│   ├── styles/                   # SCSS partials compartidos
+│   │   ├── _variables.scss       # Breakpoints ($bp-sm, $bp-md, $bp-lg)
+│   │   └── _form-layout.scss     # Layout de formularios CRUD
+│   └── ui/                       # Atomic Design
+│       ├── button/
+│       ├── company-selector/
+│       ├── field/
+│       ├── form-input/
+│       ├── hyperlink/
+│       ├── input/
+│       ├── modal.ts
+│       ├── loading-indicator.ts
+│       ├── not-found.ts
+│       ├── notification-toast/
+│       ├── page-header/
+│       ├── spinner.ts
+│       ├── unauthorized.ts
+│       └── index.ts              # Barrel export
+├── styles.scss                   # Estilos globales (M3 theme, dark mode)
+├── main.ts                       # Entry point browser
+├── main.server.ts                # Entry point SSR
+└── test-setup.ts                 # Configuración de tests (Vitest)
 ```
 
 ### Path Aliases
 
-El proyecto usa TypeScript path aliases:
-
-| Alias | Ruta Real |
-|-------|-----------|
-| `@app/*` | `src/app/*` |
-| `@core/*` | `src/core/*` |
-| `@features/*` | `src/features/*` |
-| `@shared/*` | `src/shared/*` |
+```json
+{
+  "paths": {
+    "@app/*":     ["src/app/*"],
+    "@core/*":    ["src/core/*"],
+    "@features/*":["src/features/*"],
+    "@shared/*":  ["src/shared/*"]
+  }
+}
+```
 
 ---
 
 ## Patrones de Código
 
-### Service Pattern (Signals)
+### Principios Generales
 
-Los servicios deben usar signals privados con acceso público de solo lectura:
+| ✅ Hacer                                                           | ❌ No hacer                          |
+|-------------------------------------------------------------------|--------------------------------------|
+| Componentes standalone (`standalone: true`, sin NgModules)         | Usar `NgModule`                      |
+| Signals para estado síncrono                                       | NgRx o RxJS Subjects para estado local |
+| Functional guards (`CanActivateFn`)                                | Class-based guards                    |
+| Functional interceptors (`HttpInterceptorFn`)                      | Class-based interceptors              |
+| `ChangeDetectionStrategy.OnPush` en todos los componentes          | `Default` change detection            |
+| ReactiveForms con `NonNullableFormBuilder` y signals de errores   | Template-driven forms complejos       |
+| RxJS para operaciones asíncronas (HTTP, eventos), signals para UI | Mezclar Signals y RxJS sin criterio   |
+| `toSignal()` para convertir observables a signals                  | Subscribe manual en el template        |
+| `effect()` con cleanup (`onCleanup`) para side effects             | Subscription manual sin DestroyRef     |
+| Control flow (`@if`, `@for`, `@let`)                               | `*ngIf`, `*ngFor` estructurales       |
+| SCSS `@use` en vez de `@import`                                    | `@import` (deprecated en Sass moderno) |
+
+### Service Pattern (Observable + Signals)
+
+Los servicios exponen **Observables** para llamadas HTTP pero mantienen **signals** para estado síncrono (loading, error, listas cacheadas). Usan `ConfigService` para URLs dinámicas (`window.env`).
 
 ```typescript
 @Injectable({ providedIn: 'root' })
-export class CompanyService {
-  private readonly http = inject(HttpClient);
-  
+export class CompanyRegionService {
+  private configService = inject(ConfigService);
+  private http = inject(HttpClient);
+
   // Signals privados
-  private _companies = signal<Company[]>([]);
+  private _regions = signal<CompanyRegion[]>([]);
   private _loading = signal(false);
   private _error = signal<string | null>(null);
-  
+
   // Señales públicas de solo lectura
-  readonly companies = this._companies.asReadonly();
+  readonly regions = this._regions.asReadonly();
   readonly loading = this._loading.asReadonly();
   readonly error = this._error.asReadonly();
-  
-  // Valor computado
-  readonly hasCompanies = computed(() => this._companies().length > 0);
-  
-  getAll(): void {
+
+  private regionsUrl(companyId: string, countryId: string): string {
+    return `${this.configService.apiUrl}/companies/${companyId}/countries/${countryId}/regions`;
+  }
+
+  // GET: retorna Observable + actualiza signal via tap()
+  getRegions(companyId: string, countryId: string): Observable<CompanyRegion[]> {
     this._loading.set(true);
-    this.http.get<Company[]>('http://localhost:9000/api/companies')
-      .pipe(
-        tap(companies => this._companies.set(companies)),
-        catchError(error => {
-          this._error.set(error.message);
-          return EMPTY;
-        }),
-        finalize(() => this._loading.set(false))
-      ).subscribe();
+    this._error.set(null);
+    return this.http.get<CompanyRegion[]>(this.regionsUrl(companyId, countryId)).pipe(
+      tap(regions => this._regions.set(regions)),
+      catchError(err => {
+        this._error.set('Error al cargar las regiones');
+        return throwError(() => err);
+      }),
+      finalize(() => this._loading.set(false)),
+    );
+  }
+
+  // Mutaciones: actualizan la señal local vía tap() para reactividad inmediata
+  addRegion(companyId: string, countryId: string, request: CompanyRegionRequest): Observable<CompanyRegion> {
+    this._loading.set(true);
+    this._error.set(null);
+    return this.http.post<CompanyRegion>(this.regionsUrl(companyId, countryId), request).pipe(
+      tap(region => {
+        this._regions.update(current => [...current, region]);
+      }),
+      catchError(err => {
+        this._error.set(err.status === 409 ? 'Ya existe una región con ese código' : 'Error al crear la región');
+        return throwError(() => err);
+      }),
+      finalize(() => this._loading.set(false)),
+    );
+  }
+
+  // DELETE / PUT: actualizan in situ
+  removeRegion(companyId: string, countryId: string, regionId: string): Observable<void> {
+    this._loading.set(true);
+    return this.http.delete<void>(`${this.regionsUrl(companyId, countryId)}/${regionId}`).pipe(
+      tap(() => this._regions.update(current => current.filter(r => r.id !== regionId))),
+      catchError(err => {
+        this._error.set('Error al eliminar la región');
+        return throwError(() => err);
+      }),
+      finalize(() => this._loading.set(false)),
+    );
+  }
+
+  clearError(): void { this._error.set(null); }
+}
+```
+
+**Variante Observable-only** (para servicios de consulta sin estado local):
+
+```typescript
+// CompanyService: retorna Observable, el componente maneja estado via rxResource
+export class CompanyService {
+  private configService = inject(ConfigService);
+  private http = inject(HttpClient);
+
+  get apiUrl(): string {
+    return `${this.configService.apiUrl}/companies`;
+  }
+
+  getCompanies(page = 0, size = 12, search?: string): Observable<Page<Company>> {
+    let params = new HttpParams().set('page', page).set('size', size);
+    if (search) params = params.set('search', search);
+    return this.http.get<Page<Company>>(this.apiUrl, { params });
+  }
+}
+```
+
+### Page Pattern (rxResource)
+
+Las páginas de listado usan `rxResource` para manejar el ciclo de vida HTTP + signals automáticamente:
+
+```typescript
+@Component({
+  standalone: true,
+  imports: [PageHeader, CompaniesCard, MatIconModule, MatPaginatorModule, /* ... */],
+  templateUrl: './company-list.html',
+  styleUrl: './company-list.scss',
+})
+export class CompanyList {
+  private companyService = inject(CompanyService);
+  private router = inject(Router);
+  private dialog = inject(MatDialog);
+  private destroyRef = inject(DestroyRef);
+
+  // Paginación como signals
+  readonly pageSize = signal(12);
+  readonly pageIndex = signal(0);
+
+  // Search con debounce
+  readonly searchQuery = signal('');
+  private readonly _debouncedSearch = signal('');
+
+  // rxResource: llama al backend automáticamente cuando params cambian
+  readonly companiesResource = rxResource({
+    params: () => ({
+      page: this.pageIndex(),
+      size: this.pageSize(),
+      search: this._debouncedSearch(),
+    }),
+    stream: ({ params }) =>
+      this.companyService.getCompanies(params.page, params.size, params.search || undefined),
+  });
+
+  // Computed helpers
+  readonly companies = this.companiesResource.value;
+  readonly loading = this.companiesResource.isLoading;
+  readonly error = this.companiesResource.error;
+
+  constructor() {
+    // Debounce effect: searchQuery → 300ms → _debouncedSearch
+    effect((onCleanup) => {
+      const query = this.searchQuery();
+      const timer = setTimeout(() => this._debouncedSearch.set(query), 300);
+      onCleanup(() => clearTimeout(timer));
+    });
+
+    // Reset a página 0 cuando cambia la búsqueda
+    effect(() => {
+      this._debouncedSearch();
+      if (this.pageIndex() !== 0) this.pageIndex.set(0);
+    });
+  }
+
+  confirmDelete(companyInfo: { id: string; name: string }): void {
+    const dialogRef = this.dialog.open(DeleteCompanyDialogComponent, {
+      data: { companyName: companyInfo.name },
+    });
+    dialogRef.afterClosed().pipe(takeUntilDestroyed(this.destroyRef)).subscribe(result => {
+      if (result) {
+        this.companyService.deleteCompany(companyInfo.id).pipe(
+          takeUntilDestroyed(this.destroyRef),
+        ).subscribe({ next: () => this.companiesResource.reload() });
+      }
+    });
+  }
+}
+```
+
+### Page Edit Pattern (Formularios)
+
+Para create/edit, se usa `NonNullableFormBuilder` + `signal<FormGroup>` + `serverErrors` signal:
+
+```typescript
+@Component({
+  standalone: true,
+  imports: [ReactiveFormsModule, CompaniesForm],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class CompanyEdit implements OnInit {
+  private fb = inject(NonNullableFormBuilder);
+  private route = inject(ActivatedRoute);
+  private router = inject(Router);
+  private companyService = inject(CompanyService);
+
+  // El ID se lee del snapshot (no de un observable)
+  companyId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
+
+  companyForm = signal<FormGroup<CompanyControl>>(this.createForm());
+  isEditMode = signal(false);
+  serverErrors = signal<Record<string, string>>({});
+  generalError = signal<string | null>(null);
+
+  ngOnInit(): void {
+    const id = this.companyId();
+    if (id) {
+      this.isEditMode.set(true);
+      this.loadCompany(id);
+    }
+  }
+
+  onSaveCompany(companyData: Company): void {
+    if (!companyData.id) {
+      this.companyService.createCompany(companyData).subscribe({
+        next: (created) => this.router.navigate(['/companies/edit', created.id]),
+        error: (err: HttpErrorResponse) => this.handleServerError(err),
+      });
+    } else {
+      this.companyService.updateCompany(companyData.id, companyData).subscribe({
+        next: () => this.router.navigate(['/companies']),
+        error: (err: HttpErrorResponse) => this.handleServerError(err),
+      });
+    }
+  }
+
+  private handleServerError(err: HttpErrorResponse): void {
+    const apiError = err.error as ApiError | undefined;
+    if (apiError?.errors && Object.keys(apiError.errors).length > 0) {
+      this.serverErrors.set(apiError.errors);
+      this.generalError.set(null);
+    } else if (apiError?.message) {
+      this.serverErrors.set({});
+      this.generalError.set(apiError.message);
+    } else {
+      this.serverErrors.set({});
+      this.generalError.set('Error inesperado. Intente de nuevo más tarde.');
+    }
   }
 }
 ```
 
 ### Component Pattern (Signal Inputs)
-
-Componentes modernos con signal inputs:
 
 ```typescript
 @Component({
@@ -112,159 +392,350 @@ Componentes modernos con signal inputs:
   styleUrl: './companies-table.scss',
 })
 export class CompaniesTable {
-  // Signal input (Angular 17+)
   readonly companies = input.required<Company[]>();
   readonly loading = input<boolean>(false);
-  
-  // Signal output
+
   readonly editCompany = output<Company>();
   readonly deleteCompany = output<Company>();
-  
-  // Computed
-  readonly displayedColumns = computed(() => 
-    this.companies().length > 0 
-      ? ['name', 'rfc', 'email', 'actions'] 
-      : []
+
+  readonly displayedColumns = computed(() =>
+    this.companies().length > 0 ? ['name', 'rfc', 'email', 'actions'] : []
   );
 }
 ```
 
-### Route Pattern (Lazy Loading)
-
-Rutas con lazy loading y guards funcionales:
+### Route Pattern (Lazy Loading + Guards Funcionales)
 
 ```typescript
+// Rutas raíz (app.routes.ts)
 export const routes: Routes = [
+  { path: '', component: Home, title: 'Home' },
+  { path: 'login', loadComponent: () => import('@features/auth/login').then(m => m.Login) },
   {
     path: 'companies',
-    loadChildren: () => import('@features/companies/companies.routes')
-      .then(m => m.companyRoutes),
+    loadChildren: () => import('@features/companies/companies.routes').then(m => m.companyRoutes),
   },
   {
-    path: 'products',
-    loadComponent: () => import('@features/products/pages/product-list')
-      .then(m => m.ProductList),
-  },
-  {
-    path: 'admin',
+    path: 'users-admin',
+    loadChildren: () => import('@features/users-admin/users-admin.routes').then(m => m.usersAdminRoutes),
     canActivate: [keycloakRoleGuard],
     data: { role: 'admin' },
-    loadChildren: () => import('@features/admin/admin.routes')
-      .then(m => m.adminRoutes),
+  },
+  { path: 'unauthorized', loadComponent: () => import('@shared/ui/unauthorized').then(m => m.Unauthorized) },
+  { path: '**', loadComponent: () => import('@shared/ui/not-found').then(m => m.NotFound) },
+];
+```
+
+```typescript
+// Rutas anidadas con roles (companies.routes.ts)
+export const companyRoutes: Routes = [
+  {
+    path: '',
+    canActivate: [keycloakRoleGuard],
+    data: { roles: ['life-control-admin', 'life-control-country'] },
+    children: [
+      { path: '', loadComponent: () => import('./companies/pages/companies-admin/...') },
+      { path: 'list', loadComponent: () => import('./companies/pages/company-list/company-list') },
+      { path: 'edit/:id', loadComponent: () => import('./companies/pages/company-edit/company-edit') },
+      { path: 'create', loadComponent: () => import('./companies/pages/company-edit/company-edit') },
+      { path: 'countries', loadComponent: () => import('./countries/pages/countries-page/...') },
+      { path: 'regions', loadComponent: () => import('./regions/pages/regions-page/regions-page') },
+      { path: 'regions/create', loadComponent: () => import('./regions/pages/regions-edit/regions-edit') },
+      { path: 'regions/edit/:id', loadComponent: () => import('./regions/pages/regions-edit/regions-edit') },
+    ],
   },
 ];
 ```
 
 ### Guard Pattern (Functional)
 
-Guards funcionales (no usar clase):
-
 ```typescript
-// ✅ CORRECTO - Functional guard
-export const keycloakRoleGuard: CanActivateFn = async (route, state) => {
-  const keycloak = inject(KeycloakService);
-  
-  const requiredRole = route.data?.['role'];
-  
-  if (!requiredRole) {
-    return true;
-  }
-  
-  const hasRole = keycloak.isUserInRole(requiredRole);
-  
-  if (!hasRole) {
-    return createUrlTreeFromSnapshot(route, ['/unauthorized']);
-  }
-  
-  return true;
+// ✅ CORRECTO - Functional guard con soporte de múltiples roles
+export const keycloakRoleGuard: CanActivateFn = async (route) => {
+  const keycloak = inject(Keycloak);
+  const requiredRoles = route.data?.['roles'] as string[] | undefined;
+  const requiredRole = route.data?.['role'] as string | undefined;
+
+  // Soporta tanto data.roles (array) como data.role (string)
+  const roles = requiredRoles ?? (requiredRole ? [requiredRole] : []);
+
+  if (roles.length === 0) return true;
+  return roles.some(role => keycloak.hasRealmRole(role));
 };
 
-// ❌ INCORRECTO - Class-based guard (deprecated)
+// ❌ INCORRECTO - Class-based guard
 @Injectable()
 export class AuthGuard implements CanActivate { ... }
 ```
 
 ### Interceptor Pattern (Functional)
 
-Interceptores funcionales:
-
 ```typescript
-// ✅ CORRECTO - Functional interceptor
-export const bearerTokenInterceptor: HttpInterceptorFn = (req, next) => {
-  const keycloak = inject(KeycloakService);
-  
-  const token = keycloak.token;
-  
-  if (token) {
-    const authReq = req.clone({
-      setHeaders: { Authorization: `Bearer ${token}` }
-    });
-    return next(authReq);
-  }
-  
-  return next(req);
+// ✅ CORRECTO - Functional interceptor con try/catch para Keycloak opcional
+export const errorInterceptor: HttpInterceptorFn = (req, next) => {
+  const notificationService = inject(NotificationService);
+
+  // Keycloak puede no estar disponible durante la inicialización
+  let keycloak: Keycloak | undefined;
+  try { keycloak = inject(Keycloak); } catch { /* Keycloak no disponible aún */ }
+
+  return next(req).pipe(
+    catchError((error: HttpErrorResponse) => {
+      let errorMessage = 'An unexpected error occurred';
+      switch (error.status) {
+        case 401: errorMessage = 'You are not authorized. Please log in.'; break;
+        case 403: errorMessage = 'You do not have permission.'; break;
+        case 404: errorMessage = 'Resource not found.'; break;
+        case 500: errorMessage = 'Server error. Please try again later.'; break;
+        default: if (error.error?.message) errorMessage = error.error.message;
+      }
+      notificationService.showError(errorMessage);
+      return throwError(() => error);
+    }),
+  );
 };
 
-// ❌ INCORRECTO - Class-based interceptor (deprecated)
+// ❌ INCORRECTO - Class-based interceptor
 @Injectable()
 export class TokenInterceptor implements HttpInterceptor { ... }
 ```
 
-### Atomic Design (UI Components)
+### Navegación con Contexto (queryParams + history.state)
 
-Estructura de componentes usando Atomic Design:
+Para preservar contexto entre páginas (ej: empresa/país seleccionado en regiones):
 
+```typescript
+// Al navegar desde RegionsPage → RegionsEdit:
+onEditRegion(region: CompanyRegion): void {
+  this.router.navigate(['/companies/regions/edit', region.id], {
+    state: { region },  // history.state en el destino
+  });
+}
+
+onCreateRegion(): void {
+  const cc = this.selectedCountry();
+  this.router.navigate(['/companies/regions/create'], {
+    queryParams: { companyId: cc.companyId, countryId: cc.id },
+  });
+}
+
+// En RegionsEdit, leer el state:
+ngOnInit(): void {
+  // Leer del history.state (NO de router.getCurrentNavigation() que devuelve null post-navegación)
+  const regionFromState = (globalThis.history?.state as { region?: CompanyRegion })?.region;
+  if (regionFromState) this.regionToEdit.set(regionFromState);
+
+  // Create mode: query params para pre-selección
+  const companyId = this.route.snapshot.queryParamMap.get('companyId');
+  const countryId = this.route.snapshot.queryParamMap.get('countryId');
+  if (companyId) this.initialCompanyId.set(companyId);
+}
+
+// Al volver a RegionsPage, preservar selección:
+onCancelForm(): void {
+  const qp: Record<string, string> = {};
+  const region = this.regionToEdit();
+  if (region) {
+    qp['companyId'] = region.companyId;
+    qp['countryId'] = region.companyCountryId;
+  } else {
+    if (this.initialCompanyId()) qp['companyId'] = this.initialCompanyId()!;
+    if (this.initialCountryId()) qp['countryId'] = this.initialCountryId()!;
+  }
+  this.router.navigate(['/companies/regions'], { queryParams: qp });
+}
 ```
-src/shared/ui/
-├── button/              # Atom: Botón básico
-│   ├── button.ts
-│   ├── button.html
-│   └── button.scss
-├── input/               # Atom: Input básico
-│   └── ...
-├── modal.ts             # Molecule: Modal dialog
-├── form-input/          # Molecule: Input con label y validación
-├── field.ts             # Molecule: Campo de formulario
-├── spinner.ts           # Atom: Loading spinner
-├── companies-table/     # Organism: Tabla de empresas
-│   └── ...
-└── companies-card/      # Organism: Card de empresa
-    └── ...
+
+### toSignal Pattern
+
+Para convertir Observables a signals cuando el componente necesita valores reactivos:
+
+```typescript
+export class RegionsPage implements OnInit {
+  private companyService = inject(CompanyService);
+
+  // toSignal: Observable → Signal con valor inicial
+  companies = toSignal(
+    this.companyService.getCompanies(0, 1000).pipe(map(page => page.content)),
+    { initialValue: [] },
+  );
+
+  // También para signals del servicio directamente:
+  companyCountries = this.companyCountryService.assignedCountries;
+}
 ```
 
 ---
 
 ## Configuración
 
-### Zoneless Change Detection
+### App Config (app.config.ts)
 
 ```typescript
-// app.config.ts
 export const appConfig: ApplicationConfig = {
   providers: [
-    provideRouter(routes),
-    provideHttpClient(withInterceptors([bearerTokenInterceptor])),
-    provideAnimations(),
-    provideZonelessChangeDetection(),  // ✅ Zoneless
-    provideClientHydration(),
-    KeycloakService,
-  ]
+    // 0. Animaciones (Material 3 async)
+    provideAnimationsAsync(),
+
+    // 1. HTTP Client con fetch API + interceptores
+    provideHttpClient(
+      withFetch(),
+      withInterceptors([errorInterceptor, bearerTokenInterceptor])
+    ),
+
+    // 2. Zoneless change detection
+    provideZonelessChangeDetection(),
+
+    // 3. Router con component input binding
+    provideRouter(routes, withComponentInputBinding()),
+
+    // 4. App initializer (carga window.env antes de cualquier cosa)
+    provideAppInitializer(initializeApp),
+    ConfigService,
+
+    // 5. Keycloak (después de inicialización)
+    provideKeycloak({
+      config: {
+        url: (window as any).env.KEYCLOAK_URL || 'http://localhost:8181',
+        realm: (window as any).env.KEYCLOAK_REALM || 'life-control-realm',
+        clientId: (window as any).env.KEYCLOAK_CLIENT_ID || 'life-control-client',
+      },
+      initOptions: {
+        onLoad: 'check-sso',
+        silentCheckSsoRedirectUri: window.location.origin + '/assets/silent-check-sso.html',
+      },
+    }),
+  ],
 };
 ```
 
-### Path Aliases (tsconfig.json)
+### ConfigService (Runtime Environment)
 
-```json
-{
-  "compilerOptions": {
-    "baseUrl": ".",
-    "paths": {
-      "@app/*": ["src/app/*"],
-      "@core/*": ["src/core/*"],
-      "@features/*": ["src/features/*"],
-      "@shared/*": ["src/shared/*"]
+```typescript
+@Injectable({ providedIn: 'root' })
+export class ConfigService {
+  private config = signal<AppConfig>(DEFAULT_CONFIG);
+  readonly config$ = this.config.asReadonly();
+
+  // Se carga via provideAppInitializer antes de que la app renderice
+  async loadConfig(): Promise<void> {
+    const envConfig = (window as any).env;
+    if (envConfig) {
+      this.config.set({
+        keycloak: {
+          url: envConfig.KEYCLOAK_URL || DEFAULT_CONFIG.keycloak.url,
+          realm: envConfig.KEYCLOAK_REALM || DEFAULT_CONFIG.keycloak.realm,
+          clientId: envConfig.KEYCLOAK_CLIENT_ID || DEFAULT_CONFIG.keycloak.clientId,
+        },
+        apiGateway: {
+          url: envConfig.API_GATEWAY_URL || DEFAULT_CONFIG.apiGateway.url,
+          basePath: envConfig.API_BASE_PATH || DEFAULT_CONFIG.apiGateway.basePath,
+        },
+      });
     }
   }
+
+  get apiUrl(): string {
+    return `${this.config().apiGateway.url}${this.config().apiGateway.basePath}`;
+  }
+}
+```
+
+**⚠️ Regla importante:** Todos los servicios deben usar `ConfigService.apiUrl` para las URLs de API. **No hardcodear URLs** (`http://localhost:9000/api/...`).
+
+### Tema (styles.scss)
+
+- **Material 3** con `mat.define-theme()` (primary: azure, tertiary: cyan)
+- **Dark mode** vía `@media (prefers-color-scheme: dark)`
+- **CSS Custom Properties**: --color-primary, --color-gray-*, --space-*, --radius-*, --shadow-*
+- **Design Tokens**: --mat-sys-* (surface, primary, error, etc.)
+- **Componentes Material incluidos**: button, card, checkbox, chips, dialog, form-field, icon, input, option, paginator, select, slide-toggle, table, tabs, tooltip
+
+### SCSS Partials Compartidos
+
+**`_variables.scss`** — Único lugar para SCSS breakpoints:
+```scss
+$bp-sm: 576px;
+$bp-md: 1024px;
+$bp-lg: 1440px;
+```
+
+**`_form-layout.scss`** — Layout responsivo para formularios CRUD:
+```scss
+@use 'variables' as *;
+
+.form-card {
+  max-width: 100%; margin: 0 auto; padding: var(--space-lg);
+  background-color: var(--color-gray-50); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+
+  @media (min-width: $bp-sm) { max-width: 720px; }
+  @media (min-width: $bp-md) { max-width: 960px; }
+
+  form {
+    display: grid; grid-template-columns: 1fr; gap: var(--space-md);
+    @media (min-width: $bp-sm) { grid-template-columns: repeat(2, 1fr); }
+    @media (min-width: $bp-md) { grid-template-columns: repeat(3, 1fr); }
+  }
+}
+
+.form-actions {
+  grid-column: 1 / -1; display: flex; gap: var(--space-md);
+  justify-content: flex-end; margin-top: var(--space-lg);
+  border-top: 1px solid var(--color-gray-200);
+}
+```
+
+**Uso:** `@use '../../shared/styles/variables' as *;`
+
+---
+
+## Patrones de CSS
+
+| Uso                                             | Ejemplo                                          |
+|-------------------------------------------------|--------------------------------------------------|
+| `@use 'variables' as *` para breakpoints        | `@media (min-width: $bp-sm)`                     |
+| CSS custom properties para spacing/colores      | `var(--space-md)`, `var(--color-primary)`        |
+| Design tokens Material 3                        | `var(--mat-sys-surface)`, `var(--mat-sys-error)` |
+| `:host { display: block; width: 100%; }`        | Siempre en page components                       |
+| Skeleton loading con animación                  | `animation: skeleton 1.5s infinite`              |
+| Grid responsivo: `1fr → 2fr → auto-fill`        | `grid-template-columns: repeat(auto-fill, minmax(320px, 1fr))` |
+| BEM-ish naming: `.block__element--modifier`     | `.form-card`, `.filters-section`, `.card-wrapper` |
+| Mobile-first media queries                      | `min-width` en vez de `max-width`                |
+| `color-mix()` para variantes translúcidas       | `color-mix(in srgb, var(--mat-sys-error) 8%, transparent)` |
+| Animaciones con `--i` stagger                   | `animation-delay: calc(var(--i, 0) * 50ms)`      |
+
+### Estados de UI Consistentes
+
+Todas las páginas de listado implementan estos estados con clases consistentes:
+
+```html
+<!-- Loading: skeletons -->
+@if (loading()) {
+  <div class="loading-skeleton">
+    @for (_ of [1, 2, 3, 4]; track $index) {
+      <div class="skeleton-card">...</div>
+    }
+  </div>
+}
+
+<!-- Error state -->
+@if (error(); as err) {
+  <div class="error-state">
+    <mat-icon fontIcon="error" />
+    <p>{{ err }}</p>
+  </div>
+}
+
+<!-- Empty state -->
+@if (page && page.content.length > 0) {
+  <!-- grid de cards -->
+} @else {
+  <div class="empty-state">
+    <div class="empty-illustration"><!-- SVG --></div>
+    <h3 class="empty-title">No hay elementos</h3>
+    <p class="empty-subtitle">Clic en "Agregar" para crear el primero</p>
+  </div>
 }
 ```
 
@@ -274,232 +745,131 @@ export const appConfig: ApplicationConfig = {
 
 ### Configuración
 
-- **Test Runner**: Vitest (configurado en `angular.json` con `@angular/build:unit-test`)
-- **Framework**: Vitest + Angular Testing (TestBed)
-- **Spec Files**: Co-locados con componentes (`*.spec.ts`)
+- **Builder**: `@angular/build:unit-test` (en `angular.json`)
+- **Runner**: Vitest
+- **Spec files**: Co-locados (`*.spec.ts`)
+- **Setup**: `src/test-setup.ts` (zona.js + matchMedia mock)
 - **Coverage**: `@vitest/coverage-v8`
 
-### Commands
-
 ```bash
-# Ejecutar tests
-npm test
-
-# Tests en modo watch
-npm run test:watch
-
-# Tests con coverage
-npm run test:coverage
+npm test              # Ejecutar tests
+npm run test:watch    # Modo watch
+npm run test:coverage # Con coverage
 ```
 
-### Migración desde Jasmine (2026-05)
-
-**Cambios principales:**
-
-| Jasmine | Vitest |
-|---------|--------|
-| `jasmine.createSpy()` | `vi.fn()` |
-| `jasmine.createSpyObj()` | `{ fn: vi.fn() }` |
-| `jasmine.SpyObj<T>()` | `Partial<T>` o `Record<string, vi.fn()>` |
-| `done()` callbacks | `async/await` + `firstValueFrom()` |
-| `toBeTrue()` / `toBeFalse()` | `toBe(true)` / `toBe(false)` |
-| `jasmine.any()` | `expect.any()` |
-
-**Mocks de servicios con `done()`:**
+### Patrones de Test
 
 ```typescript
-// ❌ ANTIGUO (Jasmine)
-it('should load companies', (done) => {
-  service.getAll();
-  httpMock.expectOne('/api/companies').flush(mockData);
-  setTimeout(() => {
-    expect(service.companies()).toEqual(mockData);
-    done();
-  }, 100);
-});
+// 1. Mocks con Partial<Service> + vi.fn()
+let companyServiceMock: Partial<Record<keyof CompanyService, unknown>>;
+companyServiceMock = {
+  createCompany: vi.fn(),
+  updateCompany: vi.fn(),
+};
 
-// ✅ NUEVO (Vitest)
-it('should load companies', async () => {
-  service.getAll();
-  httpMock.expectOne('/api/companies').flush(mockData);
-  await firstValueFrom(toObservable(service.companies));
-  expect(service.companies()).toEqual(mockData);
-});
-```
+// 2. SpyOn para navegación
+routerMock = { navigate: vi.fn() };
 
-**Mocks de matchMedia (para Angular Material):**
-
-```typescript
-// Setup global en test-setup.ts o beforeEach
-Object.defineProperty(window, 'matchMedia', {
-  writable: true,
-  value: vi.fn().mockImplementation(query => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addListener: vi.fn(),
-    removeListener: vi.fn(),
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    dispatchEvent: vi.fn(),
-  })),
-});
-```
-
-**Fake Timers:**
-
-```typescript
-// ✅ Vitest
-it('should debounce search', async () => {
-  vi.useFakeTimers();
-  
-  component.search('test');
-  vi.advanceTimersByTime(300);
-  
-  expect(mockService.search).toHaveBeenCalledWith('test');
-  
-  vi.useRealTimers();
-});
-```
-
-### Ejemplo de Test (Vitest)
-
-```typescript
-import { firstValueFrom, toObservable } from '@angular/core/rxjs-interop';
-
-describe('CompanyService', () => {
-  let service: CompanyService;
-  let httpMock: HttpTestingController;
-  
-  beforeEach(() => {
-    TestBed.configureTestingModule({
-      imports: [HttpClientTestingModule],
-      providers: [CompanyService]
-    });
-    
-    service = TestBed.inject(CompanyService);
-    httpMock = TestBed.inject(HttpTestingController);
+// 3. HttpErrorResponse factory function
+function createApiError(overrides = {}): HttpErrorResponse {
+  return new HttpErrorResponse({
+    error: { status: 400, message: 'Error', errors: undefined, ...overrides },
+    status: 400, statusText: 'Bad Request',
   });
-  
-  it('should be created', () => {
-    expect(service).toBeTruthy();
-  });
-  
-  it('should load companies', async () => {
-    const mockCompanies: Company[] = [
-      { id: '1', name: 'Test', rfc: 'XAXX010101', email: 'test@test.com' }
-    ];
-    
-    service.getAll();
-    
-    httpMock.expectOne('http://localhost:9000/api/companies')
-      .flush(mockCompanies);
-    
-    // Wait for signal update
-    await firstValueFrom(toObservable(service.companies));
-    
-    expect(service.companies()).toEqual(mockCompanies);
-  });
+}
+
+// 4. ActivatedRoute mock con snapshot
+{
+  provide: ActivatedRoute,
+  useValue: { snapshot: { paramMap: { get: () => null }, queryParamMap: { get: () => null } } },
+}
+
+// 5. Async testing con signals: evaluar después de cambios
+it('should set serverErrors signal', () => {
+  const httpError = createApiError({ errors: { rfc: 'RFC inválido' } });
+  companyServiceMock.createCompany = vi.fn().mockReturnValue(throwError(() => httpError));
+  component.onSaveCompany(createCompanyData());
+  expect(component.serverErrors()).toEqual({ rfc: 'RFC inválido' });
 });
 ```
 
-### Notas Importantes
-
-1. `@angular/build:unit-test` ignora `vitest.config.ts` - usar `setupFiles` en `angular.json`
-2. El mock de matchMedia debe incluir `addListener`/`removeListener` para Angular Material
-3. Router mocks no pueden combinarse con `provideRouter()` - usar `vi.spyOn(router, 'navigate')`
-4. Los tests asíncronos usar `firstValueFrom` + `toObservable` para esperar signal updates
+**Importante:** `@angular/build:unit-test` **ignora** `vitest.config.ts`. Usar `setupFiles` en `angular.json` y `test-setup.ts`.
 
 ---
 
-## Commands
+## Keycloak
 
-### Desarrollo
+| Aspecto              | Detalle                                              |
+|----------------------|------------------------------------------------------|
+| Paquete              | `keycloak-angular` + `keycloak-js`                   |
+| Provider             | `provideKeycloak()` desde `@core/config/keycloak`    |
+| Token en requests    | `bearer-token.interceptor.ts` (functional)           |
+| Eventos              | `KEYCLOAK_EVENT_SIGNAL` (signal reactiva)            |
+| Inject               | `inject(Keycloak)` directamente                      |
+| Roles en guards      | `keycloak.hasRealmRole('life-control-admin')`        |
+| Silent SSO           | `silent-check-sso.html` actualizado para keycloak-js v26 |
+| Login manual         | `keycloak.login()` — no auto-redirect en 401         |
 
-```bash
-# Servidor de desarrollo
-npm start
+---
 
-# Puerto por defecto: 4200
+## Convenciones y Reglas
+
+### Estructura de Features
+
+Cada feature (o sub-feature dentro de `companies/`) sigue esta estructura:
+
+```
+feature-name/
+├── components/     # Componentes de UI específicos del feature
+├── data/           # Servicios + specs
+├── models/         # Interfaces + specs de modelos
+├── pages/          # Componentes-página (ruteables)
+└── index.ts        # Barrel export
 ```
 
-### Build
+Los **pages** son componentes ruteables (`loadComponent` en las rutas). Los **components** son UI reutilizable dentro del feature. Los **data** son servicios con lógica de negocio + llamadas HTTP.
 
-```bash
-# Production build
-npm run build
+### Navegación entre Páginas
 
-# Build con SSR
-npm run build:ssr
-```
+| Origen → Destino                        | Mecanismo               |
+|-----------------------------------------|-------------------------|
+| List → Edit (con datos)                 | `router.navigate([...], { state: { item } })` + `globalThis.history?.state` |
+| Page1 → Page2 (create, con selección)   | `queryParams: { companyId, countryId }` |
+| Create/Edit → Cancel → List (preservar) | `queryParams` de vuelta al listado |
+| `router.getCurrentNavigation()`         | ❌ No usar — devuelve `null` post-navegación |
 
-### Testing
+### Nombres de Archivos
 
-```bash
-# Ejecutar tests
-npm test
+| Tipo                             | Convención                           |
+|----------------------------------|--------------------------------------|
+| Componente ruteable              | `company-list.ts`, `regions-edit.ts` |
+| Componente UI interno            | `companies-card.ts`, `regions-form.ts` |
+| Servicio                         | `company.service.ts`                 |
+| Modelo                           | `company.models.ts`                  |
+| Test                             | `company-list.spec.ts`               |
+| Plantilla HTML                   | `company-list.html`                  |
+| Estilos SCSS                     | `company-list.scss`                  |
+| Barrel                           | `index.ts`                           |
 
-# Tests en modo watch
-npm test -- --watch
-```
+### Cosas que NO hacer
 
-### Docker
-
-#### Rebuild Rápido (solo cambios en Angular)
-
-```bash
-# 1. Build local de Angular (desde el directorio del proyecto)
-cd life-control-app-angular
-npm run build
-
-# 2. Build de imagen Docker (sin caché para actualizar COPY dist/)
-docker build --no-cache -t life-control-app-angular:latest .
-
-# 3. Recrear el contenedor (desde el directorio docker)
-cd ../docker
-docker compose up -d --force-recreate web-app
-```
-
-**Por qué no usar `deploy.sh dev start`:**
--Hace un rebuild multi-stage completo de TODOS los servicios (incluyendo Gradle)
--Los builds de Gradle dentro del contenedor fallan por falta de conectividad a internet
--Es innecesariamente lento para cambios solo en Angular
-
-**Por qué `--force-recreate` y `--no-cache`:**
--`restart` solo reinicia el contenedor pero no carga la nueva imagen
--`--no-cache` evita que Docker use caché stale para el `COPY dist/`
--`--force-recreate` destruye y crea un contenedor nuevo con la imagen actualizada
-
-**Verificar que los cambios aplican:**
-```bash
-# Verificar que los archivos en el contenedor tienen la fecha correcta
-docker exec lifecontrol-dev-web-app ls -la /app/public/*.js | head -5
-
-# Los archivos deben mostrar la fecha/hora del último build local
-```
-
-#### Troubleshooting
-
-Si después del rebuild no ves los cambios:
-1. Hard refresh en el browser: `Ctrl + Shift + R` (Chrome) o `Cmd + Shift + R` (Safari)
-2. Verificar fecha de archivos en el contenedor (debe ser reciente)
-3. Si sigue sin funcionar, limpiar cache de Docker: `docker builder prune -af`
+- ❌ **No usar NgModules** — todo standalone
+- ❌ **No hardcodear URLs de API** — usar `ConfigService.apiUrl`
+- ❌ **No usar `*ngIf` / `*ngFor`** — usar `@if` / `@for`
+- ❌ **No usar `router.getCurrentNavigation()`** — usar `globalThis.history?.state` o `ActivatedRoute.snapshot.queryParamMap`
+- ❌ **No subscribirse manualmente sin cleanup** — usar `takeUntilDestroyed` o `rxResource`
+- ❌ **No usar `provideAnimations()`** — usar `provideAnimationsAsync()`
+- ❌ **No poner lógica de negocio en los componentes** — debe estar en servicios (data/)
+- ❌ **No usar `@import` en SCSS** — usar `@use`
+- ❌ **No mezclar signals y RxJS sin criterio** — signals para UI, RxJS para streams HTTP/eventos
 
 ---
 
 ## Referencias
 
 - [Angular 20 Documentation](https://angular.dev)
-- [Angular Signals](https://angular.dev/guide/signals)
-- [Keycloak Angular](https://github.com/mauriziovigelati/angular-keycloak)
+- [Angular Signals Guide](https://angular.dev/guide/signals)
+- [Angular rxResource](https://angular.dev/guide/rx-resource)
+- [Keycloak Angular](https://www.npmjs.com/package/keycloak-angular)
 - [Angular Material](https://material.angular.io)
-
----
-
-## Notas
-
-- **NO usar NgModules** - Todos los componentes deben ser standalone
-- **NO usar NgRx** - Usar Signals para state management
-- **NO usar Lombok** - Esta regla aplica al backend (Spring Boot), no a Angular
-- **Priorizar Signals** sobre RxJS para estado síncrono
-- **Usar RxJS** solo para operaciones asíncronas (HTTP, eventos)
+- [Vitest](https://vitest.dev)
