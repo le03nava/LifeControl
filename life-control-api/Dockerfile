@@ -48,12 +48,10 @@ LABEL maintainer="LifeControl Team" \
       version="${APP_VERSION}" \
       description="LifeControl API with multi-environment support"
 
-# HEALTHCHECK: usa curl si está instalado, sino wget (busybox), sino falla
 HEALTHCHECK --interval=30s \
             --timeout=3s \
             --start-period=60s \
             --retries=3 \
-  CMD curl -f http://localhost:${SERVER_PORT:-8082}/actuator/health || \
-      wget -qO- http://localhost:${SERVER_PORT:-8082}/actuator/health || exit 1
+  CMD wget -qO- http://localhost:${SERVER_PORT:-8082}/actuator/health || exit 1
 
 ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
