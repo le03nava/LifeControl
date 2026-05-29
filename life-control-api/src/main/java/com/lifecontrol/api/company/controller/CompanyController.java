@@ -105,4 +105,14 @@ public class CompanyController {
         companyCountryService.removeCountryFromCompany(companyId, id);
         return ResponseEntity.noContent().build();
     }
+
+    @PutMapping("/{companyId}/countries/{id}")
+    @Operation(summary = "Update country assignment", description = "Updates an existing country assignment for a company")
+    public ResponseEntity<CompanyCountryResponse> updateCompanyCountry(
+            @PathVariable UUID companyId,
+            @PathVariable UUID id,
+            @Valid @RequestBody CompanyCountryRequest request) {
+        CompanyCountryResponse response = companyCountryService.updateCountry(companyId, id, request);
+        return ResponseEntity.ok(response);
+    }
 }
