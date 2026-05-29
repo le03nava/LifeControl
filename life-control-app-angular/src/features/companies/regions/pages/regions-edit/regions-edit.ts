@@ -109,7 +109,24 @@ export class RegionsEdit implements OnInit {
   }
 
   onCancelForm(): void {
-    this.router.navigate(['/companies/regions']);
+    const region = this.regionToEdit();
+    const qp: Record<string, string> = {};
+
+    if (region) {
+      // Edit mode — sacar companyId y countryId del region en state
+      qp['companyId'] = region.companyId;
+      qp['countryId'] = region.companyCountryId;
+    } else {
+      // Create mode — preservar los valores originales de query params
+      const companyId = this.initialCompanyId();
+      const countryId = this.initialCountryId();
+      if (companyId) {
+        qp['companyId'] = companyId;
+        if (countryId) qp['countryId'] = countryId;
+      }
+    }
+
+    this.router.navigate(['/companies/regions'], { queryParams: qp });
   }
 
   private handleError(err: HttpErrorResponse): void {
