@@ -1,6 +1,6 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal, OnInit } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatSelectModule } from '@angular/material/select';
@@ -30,8 +30,9 @@ import { CompanyRegion } from '../../models/region.models';
   templateUrl: './regions-page.html',
   styleUrl: './regions-page.scss',
 })
-export class RegionsPage {
+export class RegionsPage implements OnInit {
   private router = inject(Router);
+  private route = inject(ActivatedRoute);
   private companyService = inject(CompanyService);
   companyCountryService = inject(CompanyCountryService);
   companyRegionService = inject(CompanyRegionService);
@@ -52,6 +53,31 @@ export class RegionsPage {
     if (this.showDisabled()) return all;
     return all.filter((r) => r.enabled);
   });
+
+  /** compareWith for mat-select: both sides are CompanyCountry objects */
+  protected compareCompanyCountry = (a: CompanyCountry | null, b: CompanyCountry | null): boolean => {
+    return a?.id === b?.id;
+  };
+
+  // ─── Lifecycle ───────────────────────────────────────────────
+
+  ngOnInit(): void {
+    const companyId = this.route.snapshot.queryParamMap.get('companyId');
+    const countryId = this.route.snapshot.queryParamMap.get('countryId');
+
+    if (companyId) {
+      this.selectedCompanyId.set(companyId);
+      this.companyCountryService.getCountries(companyId).subscribe((countries) => {
+        if (countryId) {
+          const cc = countries.find((c) => c.id === countryId);
+          if (cc) {
+            this.selectedCountry.set(cc);
+            this.companyRegionService.getRegions(cc.companyId, cc.id).subscribe();
+          }
+        }
+      });
+    }
+  }
 
   // ─── Event handlers ──────────────────────────────────────────
 

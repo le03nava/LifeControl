@@ -8,7 +8,7 @@
   <div class="filters-section">
     <mat-form-field appearance="outline" class="company-selector" subscriptSizing="dynamic">
       <mat-label>Empresa</mat-label>
-      <mat-select (selectionChange)="onCompanyChange($event.value)">
+      <mat-select [value]="selectedCompanyId()" (selectionChange)="onCompanyChange($event.value)">
         <mat-option value="">— Seleccionar empresa —</mat-option>
         @for (company of companies(); track company.id) {
           <mat-option [value]="company.id">{{ company.companyName }}</mat-option>
@@ -20,6 +20,7 @@
       <mat-label>País</mat-label>
       <mat-select
         [value]="selectedCountry()"
+        [compareWith]="compareCompanyCountry"
         [disabled]="companyCountryService.assignedCountries().length === 0"
         (selectionChange)="onSelectCountry($event.value)"
       >

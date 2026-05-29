@@ -4,7 +4,7 @@ import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { signal } from '@angular/core';
 import { of } from 'rxjs';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { RegionsPage } from './regions-page';
 import { CompanyService } from '../../../companies/data/company.service';
 import { CompanyCountryService } from '../../../countries/data/company-country.service';
@@ -163,6 +163,16 @@ describe('RegionsPage', () => {
         {
           provide: Router,
           useValue: { navigate: vi.fn() },
+        },
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            snapshot: {
+              queryParamMap: {
+                get: vi.fn().mockReturnValue(null),
+              },
+            },
+          },
         },
       ],
     }).compileComponents();

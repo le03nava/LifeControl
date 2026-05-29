@@ -17,11 +17,13 @@ describe('RegionsEdit', () => {
   let fixture: ComponentFixture<RegionsEdit>;
 
   let routeMock: {
-    snapshot: { paramMap: { get: ReturnType<typeof vi.fn> } };
+    snapshot: {
+      paramMap: { get: ReturnType<typeof vi.fn> };
+      queryParamMap: { get: ReturnType<typeof vi.fn> };
+    };
   };
   let routerMock: {
     navigate: ReturnType<typeof vi.fn>;
-    getCurrentNavigation: ReturnType<typeof vi.fn>;
   };
   let companyRegionServiceMock: {
     addRegion: ReturnType<typeof vi.fn>;
@@ -81,16 +83,21 @@ describe('RegionsEdit', () => {
   };
 
   beforeEach(async () => {
+    // Reset history.state para cada test (no depender del state de tests anteriores)
+    window.history.replaceState(null, '');
+
     routeMock = {
       snapshot: {
         paramMap: {
           get: vi.fn(),
         },
+        queryParamMap: {
+          get: vi.fn().mockReturnValue(null),
+        },
       },
     };
     routerMock = {
       navigate: vi.fn(),
-      getCurrentNavigation: vi.fn(),
     };
     companyRegionServiceMock = {
       addRegion: vi.fn().mockReturnValue(of(mockRegion)),
@@ -157,9 +164,7 @@ describe('RegionsEdit', () => {
 
   it('should detect edit mode from route param', () => {
     routeMock.snapshot.paramMap.get.mockReturnValue('r-1');
-    routerMock.getCurrentNavigation.mockReturnValue({
-      extras: { state: { region: mockRegion } },
-    });
+    window.history.replaceState({ region: mockRegion }, '');
     const { component } = createComponent();
 
     expect(component.isEditMode()).toBe(true);
@@ -168,17 +173,15 @@ describe('RegionsEdit', () => {
 
   it('should restore region from router state in edit mode', () => {
     routeMock.snapshot.paramMap.get.mockReturnValue('r-1');
-    routerMock.getCurrentNavigation.mockReturnValue({
-      extras: { state: { region: mockRegion } },
-    });
+    window.history.replaceState({ region: mockRegion }, '');
     const { component } = createComponent();
 
     expect(component.regionToEdit()).toEqual(mockRegion);
   });
 
-  it('should redirect to regions list when edit mode has no router state', () => {
+  it('should redirect to regions list when edit mode has no history state', () => {
     routeMock.snapshot.paramMap.get.mockReturnValue('r-1');
-    routerMock.getCurrentNavigation.mockReturnValue(null);
+    window.history.replaceState(null, '');
     createComponent();
 
     expect(routerMock.navigate).toHaveBeenCalledWith(['/companies/regions']);
@@ -216,16 +219,16 @@ describe('RegionsEdit', () => {
     };
     component.onSaveRegion(event);
 
-    expect(routerMock.navigate).toHaveBeenCalledWith(['/companies/regions']);
+    expect(routerMock.navigate).toHaveBeenCalledWith(['/companies/regions'], {
+      queryParams: { companyId: 'company-1', countryId: 'cc-1' },
+    });
   });
 
   // ─── Save: updateRegion (edit mode) ────────────────────
 
   it('should call updateRegion when saving in edit mode', () => {
     routeMock.snapshot.paramMap.get.mockReturnValue('r-1');
-    routerMock.getCurrentNavigation.mockReturnValue({
-      extras: { state: { region: mockRegion } },
-    });
+    window.history.replaceState({ region: mockRegion }, '');
     const { component } = createComponent();
 
     const event: RegionSaveEvent = {
@@ -246,9 +249,7 @@ describe('RegionsEdit', () => {
 
   it('should navigate to regions list after successful update', () => {
     routeMock.snapshot.paramMap.get.mockReturnValue('r-1');
-    routerMock.getCurrentNavigation.mockReturnValue({
-      extras: { state: { region: mockRegion } },
-    });
+    window.history.replaceState({ region: mockRegion }, '');
     const { component } = createComponent();
 
     const event: RegionSaveEvent = {
@@ -258,7 +259,9 @@ describe('RegionsEdit', () => {
     };
     component.onSaveRegion(event);
 
-    expect(routerMock.navigate).toHaveBeenCalledWith(['/companies/regions']);
+    expect(routerMock.navigate).toHaveBeenCalledWith(['/companies/regions'], {
+      queryParams: { companyId: 'company-1', countryId: 'cc-1' },
+    });
   });
 
   // ─── Cancel navigation ─────────────────────────────────

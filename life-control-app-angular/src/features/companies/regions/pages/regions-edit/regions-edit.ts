@@ -40,19 +40,35 @@ export class RegionsEdit implements OnInit {
   // ─── Edit mode data ────────────────────────────────────
   regionToEdit = signal<CompanyRegion | null>(null);
 
+  // ─── Create mode initial values (from query params) ───
+  initialCompanyId = signal<string | null>(null);
+  initialCountryId = signal<string | null>(null);
+
   ngOnInit(): void {
     const id = this.regionId();
     if (id) {
       this.isEditMode.set(true);
-      // Try router state first
-      const navigation = this.router.getCurrentNavigation();
-      const state = navigation?.extras.state as { region?: CompanyRegion } | null;
-      if (state?.region) {
-        this.regionToEdit.set(state.region);
+      // Leer el region del state desde history.state (vía globalThis para
+      // ser SSR-safe — en servidor globalThis.history es undefined).
+      // NO usar router.getCurrentNavigation() — devuelve null cuando
+      // ngOnInit se ejecuta después de que la navegación ya se completó.
+      const regionFromState = (globalThis.history?.state as { region?: CompanyRegion })?.region;
+      if (regionFromState) {
+        this.regionToEdit.set(regionFromState);
       } else {
         // Fallback: redirect to regions list if no state
         this.router.navigate(['/companies/regions']);
       }
+    }
+
+    // ─── Create mode: pre-select company/country from query params ──
+    const companyId = this.route.snapshot.queryParamMap.get('companyId');
+    const countryId = this.route.snapshot.queryParamMap.get('countryId');
+
+    if (!id && companyId) {
+      this.initialCompanyId.set(companyId);
+      this.initialCountryId.set(countryId);
+      this.companyCountryService.getCountries(companyId).subscribe();
     }
   }
 
@@ -73,14 +89,20 @@ export class RegionsEdit implements OnInit {
       this.companyRegionService
         .updateRegion(event.companyId, event.countryId, regionId, event.request)
         .subscribe({
-          next: () => this.router.navigate(['/companies/regions']),
+          next: () =>
+            this.router.navigate(['/companies/regions'], {
+              queryParams: { companyId: event.companyId, countryId: event.countryId },
+            }),
           error: (err: HttpErrorResponse) => this.handleError(err),
         });
     } else {
       this.companyRegionService
         .addRegion(event.companyId, event.countryId, event.request)
         .subscribe({
-          next: () => this.router.navigate(['/companies/regions']),
+          next: () =>
+            this.router.navigate(['/companies/regions'], {
+              queryParams: { companyId: event.companyId, countryId: event.countryId },
+            }),
           error: (err: HttpErrorResponse) => this.handleError(err),
         });
     }

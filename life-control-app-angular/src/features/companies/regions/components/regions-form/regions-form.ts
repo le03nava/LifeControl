@@ -51,6 +51,8 @@ export class RegionsForm {
   companyCountries = input<CompanyCountry[]>([]);
   regionToEdit = input<CompanyRegion | null>(null);
   serverErrors = input<Record<string, string>>({});
+  initialCompanyId = input<string | null>(null);
+  initialCountryId = input<string | null>(null);
 
   // ─── Outputs ────────────────────────────────────────────────
   saveRegion = output<RegionSaveEvent>();
@@ -127,6 +129,29 @@ export class RegionsForm {
       });
     });
 
+    // --- Create mode: pre-select company from query params ---
+    effect(() => {
+      const companyId = this.initialCompanyId();
+      const region = this.regionToEdit();
+
+      if (region || !companyId) return;
+      this.selectedCompanyId.set(companyId);
+    });
+
+    // --- Create mode: pre-select country when countries load ---
+    effect(() => {
+      const countryId = this.initialCountryId();
+      const region = this.regionToEdit();
+      const countries = this.companyCountries();
+
+      if (region || !countryId || countries.length === 0) return;
+
+      const cc = countries.find((c) => c.id === countryId);
+      if (cc) {
+        this.selectedCompanyCountryId.set(cc.id);
+      }
+    });
+
     // --- Server errors: map to controls, clear on value change ---
     effect((onCleanup) => {
       const errors = this.serverErrors();
@@ -168,8 +193,9 @@ export class RegionsForm {
     this.selectedCompanyChange.emit(companyId);
   }
 
-  protected compareCompanyCountryById = (a: string | null, b: CompanyCountry | null): boolean => {
-    return a === b?.id;
+  /** compareWith for mat-select: option value is CompanyCountry, selected value is string ID */
+  protected compareCompanyCountryById = (option: CompanyCountry | null, selectedId: string | null): boolean => {
+    return option?.id === selectedId;
   };
 
   onCountryChange(cc: CompanyCountry): void {
