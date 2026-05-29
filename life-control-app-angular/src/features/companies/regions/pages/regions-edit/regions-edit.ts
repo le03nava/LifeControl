@@ -126,7 +126,11 @@ export class RegionsEdit implements OnInit {
       }
     }
 
-    this.router.navigate(['/companies/regions'], { queryParams: qp });
+    if (Object.keys(qp).length > 0) {
+      this.router.navigate(['/companies/regions'], { queryParams: qp });
+    } else {
+      this.router.navigate(['/companies/regions']);
+    }
   }
 
   private handleError(err: HttpErrorResponse): void {

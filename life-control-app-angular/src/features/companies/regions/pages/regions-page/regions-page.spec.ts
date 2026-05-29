@@ -455,7 +455,7 @@ describe('RegionsPage', () => {
       component.onSelectCountry(mockAssignedCountries[0]);
       fixture.detectChanges();
 
-      const headerRow = fixture.nativeElement.querySelector('.header-row');
+      const headerRow = fixture.nativeElement.querySelector('app-page-header');
       expect(headerRow).toBeTruthy();
       expect(headerRow.textContent).toContain('Mostrar deshabilitadas');
       expect(headerRow.textContent).toContain('Nueva Región');
@@ -511,7 +511,7 @@ describe('RegionsPage', () => {
       companyRegionService._error.set('Este código de región ya existe');
       fixture.detectChanges();
 
-      const errorEl = fixture.nativeElement.querySelector('.error-message');
+      const errorEl = fixture.nativeElement.querySelector('.error-state');
       expect(errorEl).toBeTruthy();
       expect(errorEl.textContent).toContain('Este código de región ya existe');
     });
@@ -539,7 +539,7 @@ describe('RegionsPage', () => {
       companyRegionService._regions.set([]);
       fixture.detectChanges();
 
-      const emptyEl = fixture.nativeElement.querySelector('.empty-message');
+      const emptyEl = fixture.nativeElement.querySelector('.empty-state');
       expect(emptyEl).toBeTruthy();
       expect(emptyEl.textContent).toContain('No hay regiones registradas');
     });
@@ -554,7 +554,7 @@ describe('RegionsPage', () => {
       companyRegionService._loading.set(true);
       fixture.detectChanges();
 
-      const emptyEl = fixture.nativeElement.querySelector('.empty-message');
+      const emptyEl = fixture.nativeElement.querySelector('.empty-state');
       expect(emptyEl).toBeNull();
     });
   });
