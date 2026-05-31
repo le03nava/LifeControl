@@ -56,6 +56,21 @@ export const companyRoutes: Routes = [
           loadComponent: () =>
             import('./regions/pages/regions-page/regions-page').then((m) => m.RegionsPage),
         },
+        {
+          path: 'zones/create',
+          loadComponent: () =>
+            import('./zones/pages/zones-edit/zones-edit').then((m) => m.ZonesEdit),
+        },
+        {
+          path: 'zones/edit/:id',
+          loadComponent: () =>
+            import('./zones/pages/zones-edit/zones-edit').then((m) => m.ZonesEdit),
+        },
+        {
+          path: 'zones',
+          loadComponent: () =>
+            import('./zones/pages/zones-page/zones-page').then((m) => m.ZonesPage),
+        },
       ],
   },
 ];

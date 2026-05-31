@@ -1,0 +1,92 @@
+<div class="zones-container">
+  <!-- Header with toggle -->
+  <div class="header-row">
+    <h2>Zonas</h2>
+    <mat-slide-toggle
+      [checked]="showDisabled()"
+      (change)="showDisabled.set($event.checked)"
+    >
+      Mostrar deshabilitadas
+    </mat-slide-toggle>
+  </div>
+
+  <!-- Error message -->
+  @if (error(); as errMsg) {
+    <div class="error-message">{{ errMsg }}</div>
+  }
+
+  <!-- Loading state -->
+  @if (loading()) {
+    <p class="loading-text">Cargando zonas...</p>
+  } @else if (filteredZones().length > 0) {
+    <!-- Zones table -->
+    <table mat-table [dataSource]="filteredZones()" class="zones-table">
+      <ng-container matColumnDef="zoneCode">
+        <th mat-header-cell *matHeaderCellDef>Código</th>
+        <td mat-cell *matCellDef="let zone">
+          <span>{{ zone.zoneCode }}</span>
+        </td>
+      </ng-container>
+
+      <ng-container matColumnDef="zoneName">
+        <th mat-header-cell *matHeaderCellDef>Nombre</th>
+        <td mat-cell *matCellDef="let zone">
+          <span>{{ zone.zoneName }}</span>
+        </td>
+      </ng-container>
+
+      <ng-container matColumnDef="description">
+        <th mat-header-cell *matHeaderCellDef>Descripción</th>
+        <td mat-cell *matCellDef="let zone">
+          <span>{{ zone.description || '—' }}</span>
+        </td>
+      </ng-container>
+
+      <ng-container matColumnDef="displayOrder">
+        <th mat-header-cell *matHeaderCellDef>Orden</th>
+        <td mat-cell *matCellDef="let zone">
+          <span>{{ zone.displayOrder ?? '—' }}</span>
+        </td>
+      </ng-container>
+
+      <ng-container matColumnDef="enabled">
+        <th mat-header-cell *matHeaderCellDef>Estado</th>
+        <td mat-cell *matCellDef="let zone">
+          <mat-slide-toggle
+            [checked]="zone.enabled"
+            (change)="onToggle(zone)"
+          />
+        </td>
+      </ng-container>
+
+      <ng-container matColumnDef="actions">
+        <th mat-header-cell *matHeaderCellDef>Acciones</th>
+        <td mat-cell *matCellDef="let zone">
+          <div class="action-buttons">
+            <button
+              mat-stroked-button
+              type="button"
+              (click)="onEdit(zone.id)"
+            >
+              Editar
+            </button>
+            <button
+              mat-stroked-button
+              color="warn"
+              type="button"
+              (click)="onRemove(zone.id)"
+            >
+              Eliminar
+            </button>
+          </div>
+        </td>
+      </ng-container>
+
+      <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+      <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
+    </table>
+  } @else {
+    <!-- Empty state -->
+    <p class="empty-state">No hay zonas registradas</p>
+  }
+</div>

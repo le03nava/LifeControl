@@ -1,0 +1,50 @@
+@if (zone(); as z) {
+  <mat-card class="zone-card" appearance="outlined">
+    <mat-card-header>
+      <mat-card-title>
+        <div class="card-title-row">
+          <span>{{ z.zoneName }}</span>
+          <span class="badge status" [class.active]="isEnabled()" [class.inactive]="!isEnabled()">
+            {{ statusLabel() }}
+          </span>
+        </div>
+      </mat-card-title>
+      <mat-card-subtitle>
+        <span class="badge zone-code-badge">
+          <mat-icon fontIcon="pin" class="badge-icon" /> {{ z.zoneCode }}
+        </span>
+        @if (z.displayOrder) {
+          <span class="badge order-badge">
+            <mat-icon fontIcon="format_list_numbered" class="badge-icon" />
+            Ord. {{ z.displayOrder }}
+          </span>
+        }
+      </mat-card-subtitle>
+    </mat-card-header>
+    <mat-card-content>
+      @if (z.description) {
+        <p class="description">{{ z.description }}</p>
+      }
+    </mat-card-content>
+    <mat-card-actions align="end">
+      <mat-slide-toggle
+        [checked]="z.enabled"
+        (change)="onToggle()"
+        aria-label="Habilitar/Deshabilitar zona"
+      />
+      <button mat-button (click)="onEdit($event)" aria-label="Editar zona">
+        <mat-icon fontIcon="edit" /> Editar
+      </button>
+      <button mat-flat-button color="warn" (click)="onRemove($event)" aria-label="Eliminar zona">
+        <mat-icon fontIcon="delete" /> Eliminar
+      </button>
+    </mat-card-actions>
+  </mat-card>
+} @else {
+  <mat-card class="zone-card card-empty" appearance="outlined">
+    <mat-card-content>
+      <mat-icon fontIcon="info" class="empty-icon" />
+      <p>No hay zona disponible</p>
+    </mat-card-content>
+  </mat-card>
+}

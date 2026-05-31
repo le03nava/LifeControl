@@ -44,8 +44,8 @@ export class CompaniesAdminComponent {
       title: 'Zones',
       icon: 'map',
       description: 'Define operational zones for your company structure.',
-      route: null,
-      disabled: true,
+      route: '/companies/zones',
+      disabled: false,
     },
     {
       title: 'Branches',
