@@ -6,6 +6,8 @@ import com.lifecontrol.api.company.exception.CompanyRegionNotFoundException;
 import com.lifecontrol.api.company.exception.DuplicateCompanyCountryException;
 import com.lifecontrol.api.company.exception.DuplicateCompanyException;
 import com.lifecontrol.api.company.exception.DuplicateCompanyRegionException;
+import com.lifecontrol.api.company.exception.CompanyZoneNotFoundException;
+import com.lifecontrol.api.company.exception.DuplicateCompanyZoneException;
 import com.lifecontrol.api.country.exception.CountryNotFoundException;
 import com.lifecontrol.api.country.exception.DuplicateCountryException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderConflictException;
@@ -106,6 +108,30 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(DuplicateCompanyRegionException.class)
     public ResponseEntity<ErrorResponse> handleDuplicateCompanyRegion(DuplicateCompanyRegionException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.CONFLICT.value(),
+                ex.getMessage(),
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
+        );
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
+    }
+
+    @ExceptionHandler(CompanyZoneNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleCompanyZoneNotFound(CompanyZoneNotFoundException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.NOT_FOUND.value(),
+                ex.getMessage(),
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
+        );
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    }
+
+    @ExceptionHandler(DuplicateCompanyZoneException.class)
+    public ResponseEntity<ErrorResponse> handleDuplicateCompanyZone(DuplicateCompanyZoneException ex) {
         ErrorResponse error = new ErrorResponse(
                 HttpStatus.CONFLICT.value(),
                 ex.getMessage(),
