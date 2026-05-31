@@ -67,3 +67,46 @@ CREATE TABLE IF NOT EXISTS company_regions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_cr_company_country ON company_regions(company_country_id);
+
+-- ============================================
+-- Activity Process Reference Table
+-- ============================================
+CREATE TABLE IF NOT EXISTS activity_processes (
+    id UUID PRIMARY KEY,
+    name VARCHAR(50) NOT NULL UNIQUE,
+    description VARCHAR(255),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ============================================
+-- Activity Event Reference Table
+-- ============================================
+CREATE TABLE IF NOT EXISTS activity_events (
+    id UUID PRIMARY KEY,
+    name VARCHAR(50) NOT NULL UNIQUE,
+    description VARCHAR(255),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ============================================
+-- Activity Log Table (immutable audit trail)
+-- ============================================
+CREATE TABLE IF NOT EXISTS activity_logs (
+    id UUID PRIMARY KEY,
+    user_id VARCHAR(255),
+    username VARCHAR(255),
+    activity_process_id UUID NOT NULL REFERENCES activity_processes(id),
+    activity_event_id UUID NOT NULL REFERENCES activity_events(id),
+    http_method VARCHAR(10) NOT NULL,
+    http_status INTEGER NOT NULL,
+    request_path VARCHAR(500) NOT NULL,
+    ip_address VARCHAR(45),
+    user_agent TEXT,
+    payload_json TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_activity_logs_user_id ON activity_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_activity_logs_created_at ON activity_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_activity_logs_process ON activity_logs(activity_process_id);
+CREATE INDEX IF NOT EXISTS idx_activity_logs_event ON activity_logs(activity_event_id);

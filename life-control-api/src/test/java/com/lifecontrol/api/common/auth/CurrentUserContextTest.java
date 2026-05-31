@@ -52,6 +52,51 @@ class CurrentUserContextTest {
     }
 
     @Nested
+    @DisplayName("getUserId / getUsername — JWT claim extraction")
+    class UserIdentityTests {
+
+        @Test
+        @DisplayName("getUserId should return the sub claim")
+        void getUserIdReturnsSub() {
+            when(jwt.getClaimAsString("sub")).thenReturn("a1b2c3d4-e5f6-7890-abcd-ef1234567890");
+
+            var result = currentUserContext.getUserId();
+
+            assertThat(result).isEqualTo("a1b2c3d4-e5f6-7890-abcd-ef1234567890");
+        }
+
+        @Test
+        @DisplayName("getUserId should return null when JWT has no sub claim")
+        void getUserIdReturnsNullWhenMissing() {
+            when(jwt.getClaimAsString("sub")).thenReturn(null);
+
+            var result = currentUserContext.getUserId();
+
+            assertThat(result).isNull();
+        }
+
+        @Test
+        @DisplayName("getUsername should return the preferred_username claim")
+        void getUsernameReturnsPreferredUsername() {
+            when(jwt.getClaimAsString("preferred_username")).thenReturn("jdoe");
+
+            var result = currentUserContext.getUsername();
+
+            assertThat(result).isEqualTo("jdoe");
+        }
+
+        @Test
+        @DisplayName("getUsername should return null when JWT has no preferred_username claim")
+        void getUsernameReturnsNullWhenMissing() {
+            when(jwt.getClaimAsString("preferred_username")).thenReturn(null);
+
+            var result = currentUserContext.getUsername();
+
+            assertThat(result).isNull();
+        }
+    }
+
+    @Nested
     @DisplayName("getCompanyIds")
     class GetCompanyIdsTests {
 

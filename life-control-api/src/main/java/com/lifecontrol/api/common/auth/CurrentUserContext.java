@@ -38,6 +38,8 @@ public class CurrentUserContext {
     private Set<UUID> companyIds;
     private Boolean admin;
     private Boolean countryRole;
+    private String userId;
+    private String username;
 
     /**
      * Returns the set of company IDs extracted from the JWT {@code company_id} claim.
@@ -91,6 +93,32 @@ public class CurrentUserContext {
         }
     }
 
+    /**
+     * Returns the JWT {@code sub} claim — the unique user identifier.
+     * Lazily extracted and cached per request.
+     *
+     * @return the subject claim, or {@code null} if no valid JWT is present
+     */
+    public String getUserId() {
+        if (userId == null) {
+            userId = extractClaim("sub");
+        }
+        return userId;
+    }
+
+    /**
+     * Returns the JWT {@code preferred_username} claim — the human-readable username.
+     * Lazily extracted and cached per request.
+     *
+     * @return the preferred username, or {@code null} if no valid JWT is present
+     */
+    public String getUsername() {
+        if (username == null) {
+            username = extractClaim("preferred_username");
+        }
+        return username;
+    }
+
     // ── Private helpers ──────────────────────────────────────
 
     private Set<UUID> extractCompanyIds() {
@@ -135,5 +163,19 @@ public class CurrentUserContext {
         }
         return authentication.getAuthorities().stream()
                 .anyMatch(a -> authority.equals(a.getAuthority()));
+    }
+
+    /**
+     * Extracts a claim value from the JWT principal in the current security context.
+     *
+     * @param claimName the JWT claim name to extract
+     * @return the claim string value, or {@code null} if not available
+     */
+    private String extractClaim(String claimName) {
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication != null && authentication.getPrincipal() instanceof Jwt jwt) {
+            return jwt.getClaimAsString(claimName);
+        }
+        return null;
     }
 }
