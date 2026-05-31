@@ -73,3 +73,37 @@ CREATE TABLE IF NOT EXISTS company_countries (
 
 CREATE INDEX IF NOT EXISTS idx_cc_company ON company_countries(company_id);
 CREATE INDEX IF NOT EXISTS idx_cc_country ON company_countries(country_id);
+
+-- ============================================
+-- Company Regions Table
+-- ============================================
+CREATE TABLE IF NOT EXISTS company_regions (
+    id UUID PRIMARY KEY,
+    company_country_id UUID NOT NULL REFERENCES company_countries(id),
+    region_code VARCHAR(10) NOT NULL,
+    region_name VARCHAR(100) NOT NULL,
+    enabled BOOLEAN DEFAULT true NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(company_country_id, region_code)
+);
+
+CREATE INDEX IF NOT EXISTS idx_cr_company_country ON company_regions(company_country_id);
+
+-- ============================================
+-- Company Zones Table
+-- ============================================
+CREATE TABLE IF NOT EXISTS company_zones (
+    id UUID PRIMARY KEY,
+    company_region_id UUID NOT NULL REFERENCES company_regions(id),
+    zone_code VARCHAR(10) NOT NULL,
+    zone_name VARCHAR(100) NOT NULL,
+    description VARCHAR(255),
+    display_order INTEGER,
+    enabled BOOLEAN DEFAULT true NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(company_region_id, zone_code)
+);
+
+CREATE INDEX IF NOT EXISTS idx_cz_region ON company_zones(company_region_id);
