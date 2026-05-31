@@ -3,7 +3,7 @@
 ## How to Use This Guide
 
 - Start here for project-wide norms.
-- Each component has specific guidelines in su `AGENTS.md` (ej: `order-service/AGENTS.md`, `product-service/AGENTS.md`).
+- Each active component has specific guidelines in su `AGENTS.md` (ej: `life-control-api/AGENTS.md`).
 - Component docs override this file when guidance conflicts.
 
 ---
@@ -51,18 +51,18 @@
 
 ## Project Overview
 
-LifeControl es un sistema de gestión con arquitectura de microservicios.
+LifeControl es un sistema de gestión que está migrando de una arquitectura de microservicios a un monolito modular en `life-control-api`.
 
-| Component | Location | Tech Stack |
-|-----------|----------|------------|
-| API Gateway | `api-gateway/` | Spring Boot |
-| Life Control API | `life-control-api/` | Spring Boot |
-| Order Service | `order-service/` | Spring Boot, Gradle |
-| Inventory Service | `inventory-service/` | Spring Boot, Gradle |
-| Product Service | `product-service/` | Spring Boot, Gradle |
-| Notification Service | `notification-service/` | Spring Boot |
-| Angular App | `life-control-app-angular/` | Angular 20.3.0, SSR + Material |
-| Backstage | `backstage/` | Backstage framework |
+| Component | Location | Tech Stack | Estado |
+|-----------|----------|------------|--------|
+| API Gateway | `api-gateway/` | Spring Boot | Activo |
+| Life Control API | `life-control-api/` | Spring Boot, Java 21, PostgreSQL | **Activo** — núcleo del sistema |
+| Order Service | `order-service/` | Spring Boot, MySQL, Kafka | ⚠️ **Deprecado** — migrar a `life-control-api` |
+| Inventory Service | `inventory-service/` | Spring Boot, MySQL | ⚠️ **Deprecado** — migrar a `life-control-api` |
+| Product Service | `product-service/` | Spring Boot, PostgreSQL | ⚠️ **Deprecado** — migrar a `life-control-api` |
+| Notification Service | `notification-service/` | Spring Boot, Kafka | ⚠️ **Deprecado** — migrar a `life-control-api` |
+| Angular App | `life-control-app-angular/` | Angular 20.3.0, SSR + Material | Activo |
+| Backstage | `backstage/` | Backstage framework | Activo |
 
 ---
 
@@ -157,9 +157,20 @@ Follow conventional-commit style: `<type>[scope]: <description>`
 
 ---
 
+## Servicios Deprecados
+
+Los siguientes servicios serán eliminados una vez que su funcionalidad esté migrada a `life-control-api`:
+
+| Servicio | AGENTS.md | Funcionalidad |
+|----------|-----------|---------------|
+| `order-service/` | [AGENTS.md](order-service/AGENTS.md) | Órdenes, Kafka, MySQL |
+| `inventory-service/` | [AGENTS.md](inventory-service/AGENTS.md) | Inventario/stock, MySQL |
+| `product-service/` | [AGENTS.md](product-service/AGENTS.md) | CRUD de productos, PostgreSQL |
+| `notification-service/` | [AGENTS.md](notification-service/AGENTS.md) | Notificaciones email, Kafka |
+
+**No desarrollar nueva funcionalidad en estos servicios.** Cualquier cambio necesario debe implementarse directamente en `life-control-api/`.
+
 ## Component-Specific Guidelines
 
-Para cada componente, ver su propio `AGENTS.md`:
-- `order-service/AGENTS.md` - Spring Boot service patterns
-- `inventory-service/AGENTS.md` - Spring Boot service patterns
-- `product-service/AGENTS.md` - Spring Boot service patterns
+Para cada componente activo, ver su propio `AGENTS.md`:
+- `life-control-api/AGENTS.md` - Spring Boot 3 patterns + NO Lombok (records, constructor injection)
