@@ -18,6 +18,10 @@ export const routes: Routes = [
     loadChildren: () => import('@features/companies/companies.routes').then((m) => m.companyRoutes),
   },
   {
+    path: 'products',
+    loadChildren: () => import('@features/products/products.routes').then((m) => m.productRoutes),
+  },
+  {
     path: 'users-admin',
     loadChildren: () => import('@features/users-admin/users-admin.routes').then((m) => m.usersAdminRoutes),
     canActivate: [keycloakRoleGuard],

@@ -48,7 +48,10 @@ export class Header implements OnInit {
     ];
 
     if (this.isAdmin()) {
-      menuItems.push({ id: '4', routeLink: '/users-admin', textLink: 'Users Admin', icon: 'admin_panel_settings' });
+      menuItems.push(
+        { id: '3', routeLink: '/products', textLink: 'Products', icon: 'inventory_2' },
+        { id: '4', routeLink: '/users-admin', textLink: 'Users Admin', icon: 'admin_panel_settings' },
+      );
     }
 
     return menuItems;

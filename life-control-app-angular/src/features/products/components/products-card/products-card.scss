@@ -1,0 +1,62 @@
+.product-card {
+  height: 100%;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  &:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-lg);
+  }
+  mat-card-header {
+    margin-bottom: 0.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--mat-sys-outline-variant);
+  }
+  mat-card-subtitle {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-top: 0.25rem;
+  }
+  mat-card-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    flex: 1;
+  }
+  mat-card-actions {
+    border-top: 1px solid var(--mat-sys-outline-variant);
+    padding: 0.5rem;
+  }
+}
+.card-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+}
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+  &.status.active { background-color: var(--mat-sys-success-container); color: var(--mat-sys-on-success-container); }
+  &.status.inactive { background-color: var(--mat-sys-error-container); color: var(--mat-sys-on-error-container); }
+  &.sku-badge { background-color: var(--mat-sys-secondary-container); color: var(--mat-sys-on-secondary-container); }
+  &.type-badge { background-color: var(--mat-sys-tertiary-container); color: var(--mat-sys-on-tertiary-container); }
+}
+.badge-icon { font-size: 14px; width: 14px; height: 14px; }
+.card-field {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+}
+.field-label { color: var(--mat-sys-on-surface-variant); font-weight: 500; flex-shrink: 0; }
+.field-value { color: var(--mat-sys-on-surface); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 575.98px) {
+  .field-label { display: none; }
+}

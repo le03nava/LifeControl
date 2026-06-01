@@ -1,0 +1,94 @@
+<div class="form-card">
+  <h2>
+    @if (isEditMode()) {
+      Editar Producto
+    } @else {
+      Nuevo Producto
+    }
+  </h2>
+  <form [formGroup]="formGroup()" (ngSubmit)="onSave()">
+    <mat-form-field appearance="outline">
+      <mat-label>SKU</mat-label>
+      <input
+        matInput
+        type="text"
+        formControlName="sku"
+        placeholder="Ingrese el SKU del producto"
+      />
+      @if (getErrorMessage(formGroup().controls.sku); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Nombre del Producto</mat-label>
+      <input
+        matInput
+        type="text"
+        formControlName="name"
+        placeholder="Ingrese el nombre del producto"
+      />
+      @if (getErrorMessage(formGroup().controls.name); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Nombre Corto</mat-label>
+      <input
+        matInput
+        type="text"
+        formControlName="shortName"
+        placeholder="Nombre corto (opcional)"
+      />
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Código SAT</mat-label>
+      <input
+        matInput
+        type="text"
+        formControlName="satCode"
+        placeholder="Código SAT (opcional)"
+      />
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Tipo de Producto</mat-label>
+      <input
+        matInput
+        type="text"
+        formControlName="productType"
+        placeholder="Ej: Producto, Servicio, Insumo"
+      />
+    </mat-form-field>
+
+    <mat-form-field class="full-width" appearance="outline">
+      <mat-label>Atributos (JSON)</mat-label>
+      <textarea
+        matInput
+        formControlName="attributes"
+        placeholder='{"key": "value"}'
+        rows="4"
+      ></textarea>
+      @if (getErrorMessage(formGroup().controls.attributes); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <div class="toggle-container">
+      <mat-slide-toggle formControlName="enabled">Activo</mat-slide-toggle>
+    </div>
+
+    <div class="form-actions">
+      <button mat-button type="button" (click)="onCancel()">Cancelar</button>
+      <button mat-flat-button type="submit">
+        @if (!isEditMode()) {
+          Guardar
+        } @else {
+          Actualizar
+        }
+      </button>
+    </div>
+  </form>
+</div>

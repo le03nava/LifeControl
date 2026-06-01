@@ -1,0 +1,286 @@
+@use '../../../../shared/styles/variables' as *;
+
+:host {
+  display: block;
+  width: 100%;
+  padding: 0 var(--space-md);
+}
+
+.product-list-page {
+  width: 100%;
+}
+
+.filters-section {
+  margin-bottom: var(--space-sm);
+}
+
+/* Products Grid - auto-fill intrinsic sizing */
+.products-grid {
+  min-height: 200px;
+  margin-bottom: var(--space-sm);
+}
+
+.card-wrapper {
+  animation: slideInUp 0.4s ease-out;
+  animation-delay: calc(var(--i, 0) * 50ms);
+  animation-fill-mode: both;
+}
+
+@keyframes slideInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Error State */
+.error-state {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-lg);
+  border: 1px solid var(--mat-sys-error);
+  border-radius: var(--radius-lg);
+  background-color: color-mix(in srgb, var(--mat-sys-error) 8%, transparent);
+  color: var(--mat-sys-error);
+  font-size: 1rem;
+
+  mat-icon {
+    font-size: 24px;
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+  }
+
+  p {
+    margin: 0;
+  }
+}
+
+/* Grid patterns - multi-breakpoint responsive grid */
+.products-grid,
+.loading-skeleton {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-lg);
+
+  @media (min-width: $bp-sm) {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  @media (min-width: $bp-md) {
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  }
+}
+
+/* Skeleton Loading - matching actual card layout */
+.loading-skeleton {
+  grid-column: 1 / -1;
+}
+
+.skeleton-card {
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  background-color: var(--mat-sys-surface-container);
+  height: 100%;
+  min-height: 240px;
+  display: flex;
+  flex-direction: column;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.skeleton-placeholder {
+  flex: 1;
+  background: linear-gradient(
+    90deg,
+    var(--mat-sys-surface-variant) 25%,
+    color-mix(in srgb, var(--mat-sys-on-surface-variant) 10%, var(--mat-sys-surface-variant)) 50%,
+    var(--mat-sys-surface-variant) 75%
+  );
+  background-size: 200% 100%;
+  animation: loading 1.5s infinite;
+  border-radius: var(--radius-md);
+}
+
+.skeleton-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: var(--space-sm);
+}
+
+.skeleton-title {
+  height: 24px;
+  width: 60%;
+  background: linear-gradient(
+    90deg,
+    var(--mat-sys-surface-variant) 25%,
+    color-mix(in srgb, var(--mat-sys-on-surface-variant) 10%, var(--mat-sys-surface-variant)) 50%,
+    var(--mat-sys-surface-variant) 75%
+  );
+  background-size: 200% 100%;
+  animation: loading 1.5s infinite;
+  border-radius: var(--radius-sm);
+}
+
+.skeleton-badge {
+  height: 20px;
+  width: 60px;
+  background: linear-gradient(
+    90deg,
+    var(--mat-sys-surface-variant) 25%,
+    color-mix(in srgb, var(--mat-sys-on-surface-variant) 10%, var(--mat-sys-surface-variant)) 50%,
+    var(--mat-sys-surface-variant) 75%
+  );
+  background-size: 200% 100%;
+  animation: loading 1.5s infinite;
+  border-radius: 9999px;
+}
+
+.skeleton-rfc {
+  height: 20px;
+  width: 120px;
+  margin-bottom: var(--space-md);
+  background: linear-gradient(
+    90deg,
+    var(--mat-sys-surface-variant) 25%,
+    color-mix(in srgb, var(--mat-sys-on-surface-variant) 10%, var(--mat-sys-surface-variant)) 50%,
+    var(--mat-sys-surface-variant) 75%
+  );
+  background-size: 200% 100%;
+  animation: loading 1.5s infinite;
+  border-radius: 9999px;
+}
+
+.skeleton-lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  flex: 1;
+  margin-bottom: var(--space-md);
+}
+
+.skeleton-line {
+  height: 16px;
+  width: 100%;
+  background: linear-gradient(
+    90deg,
+    var(--mat-sys-surface-variant) 25%,
+    color-mix(in srgb, var(--mat-sys-on-surface-variant) 10%, var(--mat-sys-surface-variant)) 50%,
+    var(--mat-sys-surface-variant) 75%
+  );
+  background-size: 200% 100%;
+  animation: loading 1.5s infinite;
+  border-radius: var(--radius-sm);
+
+  &.short {
+    width: 50%;
+  }
+
+  &.medium {
+    width: 75%;
+  }
+}
+
+.skeleton-actions {
+  display: flex;
+  gap: var(--space-sm);
+  justify-content: flex-end;
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--mat-sys-outline-variant);
+}
+
+.skeleton-btn {
+  height: 32px;
+  width: 80px;
+  background: linear-gradient(
+    90deg,
+    var(--mat-sys-surface-variant) 25%,
+    color-mix(in srgb, var(--mat-sys-on-surface-variant) 10%, var(--mat-sys-surface-variant)) 50%,
+    var(--mat-sys-surface-variant) 75%
+  );
+  background-size: 200% 100%;
+  animation: loading 1.5s infinite;
+  border-radius: var(--radius-md);
+}
+
+@keyframes loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+/* Empty State */
+.empty-state {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: var(--space-2xl) var(--space-xl);
+  color: var(--mat-sys-on-surface-variant);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.empty-illustration {
+  margin-bottom: var(--space-lg);
+}
+
+.empty-svg {
+  width: 200px;
+  height: 200px;
+}
+
+.empty-title {
+  margin: 0 0 var(--space-sm);
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--mat-sys-on-surface);
+}
+
+.empty-subtitle {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+/* Pagination Section */
+.pagination-section {
+  display: flex;
+  justify-content: center;
+  margin-top: var(--space-lg);
+  padding: var(--space-md) 0;
+
+  .mat-mdc-paginator {
+    background: transparent;
+    width: 100%;
+  }
+}
+
+/* Responsive */
+@media (max-width: $bp-sm) {
+  .empty-svg {
+    width: 160px;
+    height: 160px;
+  }
+}
+
+/* Skeleton inherits grid from .products-grid — no separate breakpoint needed */

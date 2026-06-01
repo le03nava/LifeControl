@@ -1,0 +1,92 @@
+.products-admin {
+  padding: 2rem;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.dashboard-title {
+  font-size: 1.75rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+  color: var(--mat-sys-on-surface);
+}
+
+.dashboard-subtitle {
+  font-size: 1rem;
+  color: var(--mat-sys-on-surface-variant);
+  margin: 0 0 2rem;
+}
+
+.dashboard-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1.5rem;
+}
+
+.dashboard-card {
+  cursor: pointer;
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+
+  &:hover {
+    box-shadow: var(--mat-sys-level3);
+    transform: translateY(-2px);
+  }
+}
+
+.card-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  background-color: var(--mat-sys-primary-container);
+  color: var(--mat-sys-on-primary-container);
+  margin-bottom: 1rem;
+
+  mat-icon {
+    font-size: 28px;
+    width: 28px;
+    height: 28px;
+  }
+}
+
+.card-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+}
+
+.card-description {
+  font-size: 0.875rem;
+  color: var(--mat-sys-on-surface-variant);
+  line-height: 1.5;
+  margin: 0 0 1rem;
+}
+
+.card-action {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--mat-sys-primary);
+}
+
+// Disabled card state
+.card--disabled {
+  opacity: 0.5;
+  cursor: default;
+
+  &:hover {
+    box-shadow: none;
+    transform: none;
+  }
+}
+
+.card-badge--coming-soon {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--mat-sys-on-surface-variant);
+  padding: 4px 12px;
+  border-radius: 12px;
+  background-color: var(--mat-sys-surface-container-highest);
+}

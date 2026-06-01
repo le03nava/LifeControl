@@ -1,0 +1,10 @@
+@if (generalError(); as errorMessage) {
+  <div class="error-banner" role="alert">{{ errorMessage }}</div>
+}
+
+<app-products-form
+  [formGroup]="productForm()"
+  [serverErrors]="serverErrors()"
+  (saveProduct)="onSaveProduct($event)"
+  (cancelForm)="cancelForm()"
+/>

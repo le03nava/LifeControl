@@ -1,0 +1,36 @@
+@if (product(); as p) {
+  <mat-card class="product-card" appearance="outlined">
+    <mat-card-header>
+      <mat-card-title>
+        <div class="card-title-row">
+          <span>{{ p.name }}</span>
+          <span class="badge status" [class.active]="isActive()" [class.inactive]="!isActive()">
+            {{ statusLabel() }}
+          </span>
+        </div>
+      </mat-card-title>
+      <mat-card-subtitle>
+        <span class="badge sku-badge">
+          <mat-icon fontIcon="inventory_2" class="badge-icon" /> SKU: {{ p.sku }}
+        </span>
+        @if (p.productType; as type) {
+          <span class="badge type-badge">
+            <mat-icon fontIcon="category" class="badge-icon" /> {{ type }}
+          </span>
+        }
+      </mat-card-subtitle>
+    </mat-card-header>
+    <mat-card-content>
+      @if (p.shortName) { <div class="card-field"><span class="field-label">Nombre Corto:</span><span class="field-value">{{ p.shortName }}</span></div> }
+      @if (p.satCode) { <div class="card-field"><span class="field-label">SAT:</span><span class="field-value">{{ p.satCode }}</span></div> }
+    </mat-card-content>
+    <mat-card-actions align="end">
+      <button mat-button (click)="onEditProduct($event)" aria-label="Editar producto">
+        <mat-icon fontIcon="edit" /> Editar
+      </button>
+      <button mat-flat-button color="warn" (click)="onDeleteProduct($event)" aria-label="Eliminar producto">
+        <mat-icon fontIcon="delete" /> Eliminar
+      </button>
+    </mat-card-actions>
+  </mat-card>
+}
