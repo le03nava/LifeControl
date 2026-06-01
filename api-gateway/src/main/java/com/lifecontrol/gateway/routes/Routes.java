@@ -19,7 +19,7 @@ public class Routes {
   @Bean
   public RouterFunction<ServerResponse> productServiceRoute() {
     return GatewayRouterFunctions.route("product_service")
-        .route(RequestPredicates.path("/api/products/**"), HandlerFunctions.http("http://lifecontrol-dev-product-service:8080"))
+        .route(RequestPredicates.path("/api/products/**"), HandlerFunctions.http("http://lifecontrol-dev-lifecontrol-api:8082"))
         .filter(CircuitBreakerFilterFunctions.circuitBreaker("productServiceCircuitBreaker",
             URI.create("forward:/fallbackRoute")))
         .build();
