@@ -1,0 +1,120 @@
+<div class="form-card">
+  <h2>
+    @if (isEditMode()) {
+      Editar Zona
+    } @else {
+      Nueva Zona
+    }
+  </h2>
+
+  <!-- Company + Country + Region drill-down selectors -->
+  <form [formGroup]="formGroup" (ngSubmit)="onSave()">
+    <mat-form-field appearance="outline" class="selector-field">
+      <mat-label>Empresa</mat-label>
+      <mat-select (selectionChange)="onCompanyChange($event.value)" [value]="selectedCompanyId()">
+        <mat-option value="">— Seleccionar empresa —</mat-option>
+        @for (company of companies(); track company.id) {
+          <mat-option [value]="company.id">{{ company.companyName }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="selector-field">
+      <mat-label>País</mat-label>
+      <mat-select
+        (selectionChange)="onCountryChange($event.value)"
+        [value]="selectedCompanyCountryId()"
+        [compareWith]="compareCompanyCountryById"
+        [disabled]="!selectedCompanyId()"
+      >
+        <mat-option value="">— Seleccionar país —</mat-option>
+        @for (cc of companyCountries(); track cc.id) {
+          <mat-option [value]="cc">{{ cc.countryName }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="selector-field">
+      <mat-label>Región</mat-label>
+      <mat-select
+        (selectionChange)="onRegionChange($event.value)"
+        [value]="selectedRegionId()"
+        [compareWith]="compareRegionById"
+        [disabled]="!selectedCompanyCountryId()"
+      >
+        <mat-option value="">— Seleccionar región —</mat-option>
+        @for (region of regions(); track region.id) {
+          <mat-option [value]="region">{{ region.regionName }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Código de Zona</mat-label>
+      <input
+        matInput
+        type="text"
+        formControlName="zoneCode"
+        placeholder="Ingrese el código de zona (máx. 10 caracteres)"
+      />
+      @if (getErrorMessage(formGroup.controls.zoneCode); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Nombre de Zona</mat-label>
+      <input
+        matInput
+        type="text"
+        formControlName="zoneName"
+        placeholder="Ingrese el nombre de la zona"
+      />
+      @if (getErrorMessage(formGroup.controls.zoneName); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Descripción</mat-label>
+      <textarea
+        matInput
+        formControlName="description"
+        placeholder="Descripción opcional (máx. 255 caracteres)"
+        rows="3"
+      ></textarea>
+      @if (getErrorMessage(formGroup.controls.description); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Orden de Visualización</mat-label>
+      <input
+        matInput
+        type="number"
+        formControlName="displayOrder"
+        placeholder="Opcional"
+        min="1"
+      />
+      @if (getErrorMessage(formGroup.controls.displayOrder); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <div class="toggle-container">
+      <mat-slide-toggle formControlName="enabled">Activo</mat-slide-toggle>
+    </div>
+
+    <div class="form-actions">
+      <button mat-button type="button" (click)="onCancel()">Cancelar</button>
+      <button mat-flat-button type="submit">
+        @if (!isEditMode()) {
+          Guardar
+        } @else {
+          Actualizar
+        }
+      </button>
+    </div>
+  </form>
+</div>

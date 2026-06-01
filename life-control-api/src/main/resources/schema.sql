@@ -97,6 +97,26 @@ CREATE TABLE IF NOT EXISTS activity_processes (
 );
 
 -- ============================================
+-- Products Table
+-- ============================================
+CREATE TABLE IF NOT EXISTS products (
+    id UUID PRIMARY KEY,
+    sku VARCHAR(50) NOT NULL UNIQUE,
+    name VARCHAR(255) NOT NULL,
+    short_name VARCHAR(100),
+    sat_code VARCHAR(20),
+    product_type VARCHAR(50),
+    attributes JSONB,
+    enabled BOOLEAN DEFAULT true NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku);
+CREATE INDEX IF NOT EXISTS idx_products_name ON products(name);
+CREATE INDEX IF NOT EXISTS idx_products_attributes ON products USING GIN (attributes);
+
+-- ============================================
 -- Activity Event Reference Table
 -- ============================================
 CREATE TABLE IF NOT EXISTS activity_events (

@@ -64,6 +64,9 @@ public class CacheConfig {
                 .withCacheConfiguration("companyRegions",
                         RedisCacheConfiguration.defaultCacheConfig()
                                 .entryTtl(Duration.ofHours(1)))
+                .withCacheConfiguration("companyZones",
+                        RedisCacheConfiguration.defaultCacheConfig()
+                                .entryTtl(Duration.ofHours(1)))
                 .build();
     }
 
@@ -80,7 +83,8 @@ public class CacheConfig {
         var cacheManager = new SimpleCacheManager();
         cacheManager.setCaches(Set.of(
                 new ConcurrentMapCache("countries"),
-                new ConcurrentMapCache("companyRegions")
+                new ConcurrentMapCache("companyRegions"),
+                new ConcurrentMapCache("companyZones")
         ));
         return cacheManager;
     }

@@ -1,0 +1,17 @@
+<div class="zones-edit-page">
+  <app-zones-form
+    [companies]="companies()"
+    [companyCountries]="companyCountries()"
+    [regions]="regionList()"
+    [zoneToEdit]="zoneToEdit()"
+    [serverErrors]="serverErrors()"
+    [initialCompanyId]="initialCompanyId()"
+    [initialCountryId]="initialCountryId()"
+    [initialRegionId]="initialRegionId()"
+    (save)="onSaveZone($event)"
+    (cancel)="onCancelForm()"
+    (selectedCompanyChange)="onSelectedCompanyChange($event)"
+    (selectedCountryChange)="onSelectedCountryChange($event)"
+    (selectedRegionChange)="onSelectedRegionChange($event)"
+  />
+</div>

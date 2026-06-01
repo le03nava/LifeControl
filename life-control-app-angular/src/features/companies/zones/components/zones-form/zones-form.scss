@@ -1,0 +1,23 @@
+// zones-form.scss — Zone form with Company→Country→Region drill-down selectors
+// Responsive CSS Grid via shared _form-layout.scss
+//
+// Estilos base inyectados desde _form-layout.scss (shared):
+// - .form-card (card, container sizing, h2)
+// - form grid (1col xs | 2col sm | 3col md/lg)
+// - .form-actions (button bar, full-width span)
+// - .full-width (span all grid columns)
+
+@use '../../../../../shared/styles/form-layout' as *;
+
+// Selector fields span full width in add mode before form activation
+.selector-field {
+  grid-column: 1 / -1;
+}
+
+// Toggle container — places the mat-slide-toggle in the form grid
+.toggle-container {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  padding-block: var(--space-sm);
+}
