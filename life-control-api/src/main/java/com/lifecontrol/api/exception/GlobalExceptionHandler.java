@@ -8,6 +8,8 @@ import com.lifecontrol.api.company.exception.DuplicateCompanyException;
 import com.lifecontrol.api.company.exception.DuplicateCompanyRegionException;
 import com.lifecontrol.api.company.exception.CompanyZoneNotFoundException;
 import com.lifecontrol.api.company.exception.DuplicateCompanyZoneException;
+import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
+import com.lifecontrol.api.store.exception.DuplicateCompanyStoreException;
 import com.lifecontrol.api.country.exception.CountryNotFoundException;
 import com.lifecontrol.api.country.exception.DuplicateCountryException;
 import com.lifecontrol.api.product.exception.DuplicateProductException;
@@ -158,6 +160,30 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(DuplicateCompanyZoneException.class)
     public ResponseEntity<ErrorResponse> handleDuplicateCompanyZone(DuplicateCompanyZoneException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.CONFLICT.value(),
+                ex.getMessage(),
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
+        );
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
+    }
+
+    @ExceptionHandler(CompanyStoreNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleCompanyStoreNotFound(CompanyStoreNotFoundException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.NOT_FOUND.value(),
+                ex.getMessage(),
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
+        );
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    }
+
+    @ExceptionHandler(DuplicateCompanyStoreException.class)
+    public ResponseEntity<ErrorResponse> handleDuplicateCompanyStore(DuplicateCompanyStoreException ex) {
         ErrorResponse error = new ErrorResponse(
                 HttpStatus.CONFLICT.value(),
                 ex.getMessage(),
