@@ -87,6 +87,45 @@ CREATE TABLE IF NOT EXISTS company_zones (
 CREATE INDEX IF NOT EXISTS idx_cz_region ON company_zones(company_region_id);
 
 -- ============================================
+-- Company Store Addresses Table
+-- ============================================
+CREATE TABLE IF NOT EXISTS company_store_addresses (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    street VARCHAR(255) NOT NULL,
+    street_number VARCHAR(20) NOT NULL,
+    internal_number VARCHAR(20),
+    neighborhood VARCHAR(255) NOT NULL,
+    zip_code VARCHAR(20) NOT NULL,
+    city VARCHAR(255) NOT NULL,
+    state VARCHAR(255) NOT NULL,
+    country_id UUID NOT NULL REFERENCES countries(id),
+    enabled BOOLEAN DEFAULT true NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_company_store_addresses_country_id ON company_store_addresses(country_id);
+
+-- ============================================
+-- Company Stores Table
+-- ============================================
+CREATE TABLE IF NOT EXISTS company_stores (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_zone_id UUID NOT NULL REFERENCES company_zones(id),
+    store_name VARCHAR(255) NOT NULL,
+    email VARCHAR(255),
+    phone_number VARCHAR(50),
+    address_id UUID REFERENCES company_store_addresses(id),
+    enabled BOOLEAN DEFAULT true NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(store_name, company_zone_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_company_stores_company_zone_id ON company_stores(company_zone_id);
+CREATE INDEX IF NOT EXISTS idx_company_stores_address_id ON company_stores(address_id);
+
+-- ============================================
 -- Activity Process Reference Table
 -- ============================================
 CREATE TABLE IF NOT EXISTS activity_processes (
