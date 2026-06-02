@@ -180,6 +180,24 @@ CREATE INDEX IF NOT EXISTS idx_products_name ON products(name);
 CREATE INDEX IF NOT EXISTS idx_products_attributes ON products USING GIN (attributes);
 
 -- ============================================
+-- Product Suppliers Table (M:N relationship)
+-- ============================================
+CREATE TABLE IF NOT EXISTS product_suppliers (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    product_id UUID NOT NULL REFERENCES products(id),
+    supplier_id UUID NOT NULL REFERENCES suppliers(id),
+    purchase_cost DECIMAL(12,2),
+    main BOOLEAN DEFAULT false,
+    enabled BOOLEAN DEFAULT true NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(product_id, supplier_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ps_product ON product_suppliers(product_id);
+CREATE INDEX IF NOT EXISTS idx_ps_supplier ON product_suppliers(supplier_id);
+
+-- ============================================
 -- Activity Event Reference Table
 -- ============================================
 CREATE TABLE IF NOT EXISTS activity_events (
