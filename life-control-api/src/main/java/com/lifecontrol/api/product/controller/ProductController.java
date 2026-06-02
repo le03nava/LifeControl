@@ -3,6 +3,9 @@ package com.lifecontrol.api.product.controller;
 import com.lifecontrol.api.product.dto.ProductRequest;
 import com.lifecontrol.api.product.dto.ProductResponse;
 import com.lifecontrol.api.product.service.ProductService;
+import com.lifecontrol.api.product.supplier.dto.ProductSupplierRequest;
+import com.lifecontrol.api.product.supplier.dto.ProductSupplierResponse;
+import com.lifecontrol.api.product.supplier.service.ProductSupplierService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -11,8 +14,10 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -21,9 +26,11 @@ import java.util.UUID;
 public class ProductController {
 
     private final ProductService productService;
+    private final ProductSupplierService productSupplierService;
 
-    public ProductController(ProductService productService) {
+    public ProductController(ProductService productService, ProductSupplierService productSupplierService) {
         this.productService = productService;
+        this.productSupplierService = productSupplierService;
     }
 
     @GetMapping
@@ -58,6 +65,46 @@ public class ProductController {
     @Operation(summary = "Delete a product", description = "Soft-deletes a product by setting enabled to false")
     public ResponseEntity<Void> deleteProduct(@PathVariable UUID id) {
         productService.deleteProduct(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    // --- ProductSupplier nested endpoints ---
+
+    @GetMapping("/{productId}/suppliers")
+    @PreAuthorize("hasAnyRole('life-control-admin','life-control-country')")
+    @Operation(summary = "Get suppliers by product", description = "Returns all suppliers associated with a product")
+    public ResponseEntity<List<ProductSupplierResponse>> getProductSuppliers(@PathVariable UUID productId) {
+        return ResponseEntity.ok(productSupplierService.listSuppliersByProductId(productId));
+    }
+
+    @PostMapping("/{productId}/suppliers")
+    @PreAuthorize("hasAnyRole('life-control-admin','life-control-country')")
+    @Operation(summary = "Add supplier to product", description = "Associates a supplier with a product including pricing metadata")
+    public ResponseEntity<ProductSupplierResponse> addProductSupplier(
+            @PathVariable UUID productId,
+            @Valid @RequestBody ProductSupplierRequest request) {
+        var response = productSupplierService.addSupplierToProduct(productId, request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @PutMapping("/{productId}/suppliers/{id}")
+    @PreAuthorize("hasAnyRole('life-control-admin','life-control-country')")
+    @Operation(summary = "Update supplier assignment", description = "Updates pricing and main flag for a product-supplier relation")
+    public ResponseEntity<ProductSupplierResponse> updateProductSupplier(
+            @PathVariable UUID productId,
+            @PathVariable UUID id,
+            @Valid @RequestBody ProductSupplierRequest request) {
+        var response = productSupplierService.updateSupplier(productId, id, request);
+        return ResponseEntity.ok(response);
+    }
+
+    @DeleteMapping("/{productId}/suppliers/{id}")
+    @PreAuthorize("hasAnyRole('life-control-admin','life-control-country')")
+    @Operation(summary = "Remove supplier from product", description = "Removes a supplier association from a product (hard delete)")
+    public ResponseEntity<Void> removeProductSupplier(
+            @PathVariable UUID productId,
+            @PathVariable UUID id) {
+        productSupplierService.removeSupplierFromProduct(productId, id);
         return ResponseEntity.noContent().build();
     }
 }
