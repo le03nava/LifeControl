@@ -1,0 +1,57 @@
+@if (supplier(); as s) {
+  <mat-card class="supplier-card" appearance="outlined">
+    <mat-card-header>
+      <mat-card-title>
+        <div class="card-title-row">
+          <span>{{ s.supplierName }}</span>
+          <span class="badge status" [class.active]="isActive()" [class.inactive]="!isActive()">
+            {{ statusLabel() }}
+          </span>
+        </div>
+      </mat-card-title>
+      <mat-card-subtitle>
+        <span class="badge rfc-badge">
+          <mat-icon fontIcon="badge" class="badge-icon" /> RFC: {{ s.rfc }}
+        </span>
+      </mat-card-subtitle>
+    </mat-card-header>
+    <mat-card-content>
+      @if (s.razonSocial) {
+        <div class="card-field">
+          <mat-icon fontIcon="business" class="field-icon" />
+          <span class="field-label">Razón Social:</span>
+          <span class="field-value">{{ s.razonSocial }}</span>
+        </div>
+      }
+      @if (s.email) {
+        <div class="card-field">
+          <mat-icon fontIcon="mail" class="field-icon" />
+          <span class="field-label">Email:</span>
+          <span class="field-value">{{ s.email }}</span>
+        </div>
+      }
+      @if (s.phoneNumber) {
+        <div class="card-field">
+          <mat-icon fontIcon="phone" class="field-icon" />
+          <span class="field-label">Teléfono:</span>
+          <span class="field-value">{{ s.phoneNumber }}</span>
+        </div>
+      }
+      @if (hasAddress()) {
+        <div class="card-field">
+          <mat-icon fontIcon="location_on" class="field-icon" />
+          <span class="field-label">Ubicación:</span>
+          <span class="field-value">{{ addressDisplay() }}</span>
+        </div>
+      }
+    </mat-card-content>
+    <mat-card-actions align="end">
+      <button mat-button (click)="onEditSupplier($event)" aria-label="Editar proveedor">
+        <mat-icon fontIcon="edit" /> Editar
+      </button>
+      <button mat-flat-button color="warn" (click)="onDeleteSupplier($event)" aria-label="Eliminar proveedor">
+        <mat-icon fontIcon="delete" /> Eliminar
+      </button>
+    </mat-card-actions>
+  </mat-card>
+}
