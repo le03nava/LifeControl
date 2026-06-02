@@ -1,0 +1,135 @@
+<div class="supplier-list-page">
+  <app-page-header title="Proveedores" subtitle="Gestión de proveedores del sistema">
+    <button mat-flat-button color="primary" routerLink="/products/suppliers/create">
+      <mat-icon fontIcon="add" /> Agregar Proveedor
+    </button>
+  </app-page-header>
+
+  <!-- Search Filter -->
+  <div class="filters-section">
+    <mat-form-field appearance="outline" class="search-field" subscriptSizing="dynamic">
+      <mat-icon matPrefix>search</mat-icon>
+      <input
+        matInput
+        type="text"
+        [value]="searchQuery()"
+        (input)="searchQuery.set($any($event.target).value)"
+        placeholder="Buscar por nombre, RFC, razón social o email..."
+      />
+      @if (searchQuery()) {
+        <button matSuffix mat-icon-button aria-label="Limpiar búsqueda" (click)="clearSearch()" type="button">
+          <mat-icon>close</mat-icon>
+        </button>
+      }
+    </mat-form-field>
+  </div>
+
+  <!-- Error State -->
+  @if (error(); as err) {
+    <div class="error-state">
+      <mat-icon fontIcon="error" />
+      <p>{{ err }}</p>
+    </div>
+  }
+
+  <!-- Suppliers Grid -->
+  <div class="suppliers-grid">
+    @if (loading()) {
+      <div class="loading-skeleton">
+        @for (_ of [1, 2, 3, 4]; track $index) {
+          <div class="skeleton-card" [style.--i]="$index">
+            <div class="skeleton-header">
+              <div class="skeleton-title"></div>
+              <div class="skeleton-badge"></div>
+            </div>
+            <div class="skeleton-rfc"></div>
+            <div class="skeleton-lines">
+              <div class="skeleton-line"></div>
+              <div class="skeleton-line short"></div>
+              <div class="skeleton-line medium"></div>
+            </div>
+            <div class="skeleton-actions">
+              <div class="skeleton-btn"></div>
+              <div class="skeleton-btn"></div>
+            </div>
+          </div>
+        }
+      </div>
+    } @else {
+      @let page = suppliers();
+      @if (page && page.content.length > 0) {
+        @for (supplier of page.content; track supplier.id; let i = $index) {
+          <div class="card-wrapper" [style.--i]="i">
+            <app-suppliers-card
+              [supplier]="supplier"
+              (editSupplier)="editSupplier($event)"
+              (deleteSupplier)="confirmDelete($event)"
+            />
+          </div>
+        }
+      } @else {
+        <div class="empty-state">
+          <div class="empty-illustration">
+            <svg viewBox="0 0 200 200" class="empty-svg">
+              <defs>
+                <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" style="stop-color:#2563eb;stop-opacity:0.1" />
+                  <stop offset="100%" style="stop-color:#06b6d4;stop-opacity:0.1" />
+                </linearGradient>
+              </defs>
+              <circle cx="100" cy="100" r="80" fill="url(#grad1)" />
+              <g transform="translate(60, 60)">
+                <rect x="0" y="0" width="80" height="60" rx="4" fill="none" stroke="var(--mat-sys-outline, #cbd5e1)" stroke-width="2" />
+                <rect x="5" y="5" width="70" height="8" rx="2" fill="var(--mat-sys-primary, #2563eb)" opacity="0.3" />
+                <rect x="5" y="18" width="50" height="5" rx="2" fill="var(--mat-sys-on-surface-variant, #94a3b8)" opacity="0.3" />
+                <rect x="5" y="28" width="60" height="5" rx="2" fill="var(--mat-sys-on-surface-variant, #94a3b8)" opacity="0.3" />
+                <rect x="5" y="38" width="40" height="5" rx="2" fill="var(--mat-sys-on-surface-variant, #94a3b8)" opacity="0.3" />
+                <rect x="5" y="50" width="25" height="6" rx="2" fill="var(--mat-sys-secondary, #64748b)" opacity="0.3" />
+                <rect x="50" y="50" width="25" height="6" rx="2" fill="var(--mat-sys-error, #ef4444)" opacity="0.3" />
+              </g>
+              <g transform="translate(85, 130)">
+                <circle cx="0" cy="0" r="15" fill="var(--mat-sys-surface-container, #ffffff)" stroke="var(--mat-sys-outline, #cbd5e1)" stroke-width="2" />
+                <path d="M-5,-5 L5,5 M-5,5 L5,-5" stroke="var(--mat-sys-on-surface-variant, #94a3b8)" stroke-width="2" stroke-linecap="round" />
+              </g>
+            </svg>
+          </div>
+          <h3 class="empty-title">
+            @if (searchQuery()) {
+              No se encontraron proveedores
+            } @else {
+              No hay proveedores registrados
+            }
+          </h3>
+          @if (searchQuery()) {
+            <p class="empty-subtitle">
+              Intentá con otro término de búsqueda
+            </p>
+          } @else {
+            <p class="empty-subtitle">
+              Clic en "Agregar Proveedor" para crear el primero
+            </p>
+          }
+        </div>
+      }
+    }
+  </div>
+
+  <!-- Paginator -->
+  @let page = suppliers();
+  @if (page && page.totalPages > 1) {
+    <div class="pagination-section">
+      <mat-paginator
+        [length]="page.totalElements"
+        [pageSize]="pageSize()"
+        [pageIndex]="pageIndex()"
+        [pageSizeOptions]="pageSizeOptions()"
+        (page)="onPageChange($event)"
+        [showFirstLastButtons]="!isMobile()"
+        aria-label="Paginación de proveedores"
+      >
+      </mat-paginator>
+    </div>
+  }
+
+
+</div>
