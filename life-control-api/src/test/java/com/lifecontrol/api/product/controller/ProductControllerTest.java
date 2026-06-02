@@ -8,6 +8,7 @@ import com.lifecontrol.api.product.dto.ProductResponse;
 import com.lifecontrol.api.product.exception.DuplicateProductException;
 import com.lifecontrol.api.product.exception.ProductNotFoundException;
 import com.lifecontrol.api.product.service.ProductService;
+import com.lifecontrol.api.product.supplier.service.ProductSupplierService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -51,6 +52,9 @@ class ProductControllerTest {
 
     @Mock
     private ProductService productService;
+
+    @Mock
+    private ProductSupplierService productSupplierService;
 
     @InjectMocks
     private ProductController productController;

@@ -14,6 +14,8 @@ import com.lifecontrol.api.country.exception.CountryNotFoundException;
 import com.lifecontrol.api.country.exception.DuplicateCountryException;
 import com.lifecontrol.api.product.exception.DuplicateProductException;
 import com.lifecontrol.api.product.exception.ProductNotFoundException;
+import com.lifecontrol.api.product.supplier.exception.DuplicateProductSupplierException;
+import com.lifecontrol.api.product.supplier.exception.ProductSupplierNotFoundException;
 import com.lifecontrol.api.supplier.exception.DuplicateSupplierException;
 import com.lifecontrol.api.supplier.exception.SupplierNotFoundException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderConflictException;
@@ -102,6 +104,30 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(DuplicateProductException.class)
     public ResponseEntity<ErrorResponse> handleDuplicateProduct(DuplicateProductException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.CONFLICT.value(),
+                ex.getMessage(),
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
+        );
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
+    }
+
+    @ExceptionHandler(ProductSupplierNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleProductSupplierNotFound(ProductSupplierNotFoundException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.NOT_FOUND.value(),
+                ex.getMessage(),
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
+        );
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    }
+
+    @ExceptionHandler(DuplicateProductSupplierException.class)
+    public ResponseEntity<ErrorResponse> handleDuplicateProductSupplier(DuplicateProductSupplierException ex) {
         ErrorResponse error = new ErrorResponse(
                 HttpStatus.CONFLICT.value(),
                 ex.getMessage(),
