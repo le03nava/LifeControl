@@ -81,6 +81,10 @@ export class SupplierService {
     );
   }
 
+  getAllSuppliers(page = 0, size = 1000, search?: string): Observable<Page<Supplier>> {
+    return this.getSuppliers(page, size, search);
+  }
+
   clearError(): void {
     this._error.set(null);
   }

@@ -1,0 +1,133 @@
+<div class="product-supplier-list-page">
+  <!-- Loading State -->
+  @if (loading()) {
+    <div class="loading-skeleton">
+      @for (_ of [1, 2, 3]; track $index) {
+        <div class="skeleton-row" [style.--i]="$index">
+          <div class="skeleton-cell name"></div>
+          <div class="skeleton-cell cost"></div>
+          <div class="skeleton-cell badge"></div>
+          <div class="skeleton-cell chip"></div>
+          <div class="skeleton-cell actions"></div>
+        </div>
+      }
+    </div>
+  }
+
+  <!-- Error State -->
+  @if (error(); as err) {
+    <div class="error-state">
+      <mat-icon fontIcon="error" />
+      <p>{{ err }}</p>
+      <button mat-stroked-button (click)="onRetry()">Retry</button>
+    </div>
+  }
+
+  <!-- Table State -->
+  @let supplierList = suppliers();
+  @if (supplierList && supplierList.length > 0) {
+    <mat-card appearance="outlined" class="table-card">
+      <mat-card-content>
+        <table mat-table [dataSource]="supplierList">
+          <!-- Supplier Name -->
+          <ng-container matColumnDef="supplierName">
+            <th mat-header-cell *matHeaderCellDef>Supplier</th>
+            <td mat-cell *matCellDef="let row">{{ row.supplierName }}</td>
+          </ng-container>
+
+          <!-- Purchase Cost -->
+          <ng-container matColumnDef="purchaseCost">
+            <th mat-header-cell *matHeaderCellDef>Purchase Cost</th>
+            <td mat-cell *matCellDef="let row">{{ row.purchaseCost | currency }}</td>
+          </ng-container>
+
+          <!-- Main Flag -->
+          <ng-container matColumnDef="main">
+            <th mat-header-cell *matHeaderCellDef>Main</th>
+            <td mat-cell *matCellDef="let row">
+              @if (row.main) {
+                <mat-chip highlighted color="primary" class="main-chip">Main</mat-chip>
+              }
+            </td>
+          </ng-container>
+
+          <!-- Enabled -->
+          <ng-container matColumnDef="enabled">
+            <th mat-header-cell *matHeaderCellDef>Status</th>
+            <td mat-cell *matCellDef="let row">
+              @if (row.enabled) {
+                <mat-chip class="enabled-chip">Enabled</mat-chip>
+              } @else {
+                <mat-chip class="disabled-chip">Disabled</mat-chip>
+              }
+            </td>
+          </ng-container>
+
+          <!-- Actions -->
+          <ng-container matColumnDef="actions">
+            <th mat-header-cell *matHeaderCellDef>Actions</th>
+            <td mat-cell *matCellDef="let row">
+              <div class="actions-cell">
+                <button mat-icon-button (click)="editSupplier(row.id)" aria-label="Edit supplier assignment">
+                  <mat-icon>edit</mat-icon>
+                </button>
+                <button mat-icon-button (click)="confirmDelete(row.id, row.supplierName)" aria-label="Remove supplier assignment">
+                  <mat-icon>delete</mat-icon>
+                </button>
+              </div>
+            </td>
+          </ng-container>
+
+          <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+          <tr mat-row *matRowDef="let row; columns: displayedColumns"></tr>
+        </table>
+      </mat-card-content>
+    </mat-card>
+  }
+
+  <!-- Empty State -->
+  @if (supplierList && supplierList.length === 0 && !loading() && !error()) {
+    <div class="empty-state">
+      <div class="empty-illustration">
+        <svg viewBox="0 0 200 200" class="empty-svg">
+          <defs>
+            <linearGradient id="supplierGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" style="stop-color:#2563eb;stop-opacity:0.1" />
+              <stop offset="100%" style="stop-color:#06b6d4;stop-opacity:0.1" />
+            </linearGradient>
+          </defs>
+          <circle cx="100" cy="100" r="80" fill="url(#supplierGrad)" />
+          <g transform="translate(60, 55)">
+            <rect x="0" y="0" width="80" height="70" rx="4" fill="none" stroke="var(--mat-sys-outline, #cbd5e1)" stroke-width="2" />
+            <rect x="5" y="5" width="35" height="8" rx="2" fill="var(--mat-sys-primary, #2563eb)" opacity="0.3" />
+            <rect x="45" y="5" width="30" height="8" rx="2" fill="var(--mat-sys-surface-variant, #94a3b8)" opacity="0.3" />
+            <rect x="5" y="18" width="50" height="4" rx="2" fill="var(--mat-sys-on-surface-variant, #94a3b8)" opacity="0.2" />
+            <rect x="5" y="28" width="70" height="4" rx="2" fill="var(--mat-sys-on-surface-variant, #94a3b8)" opacity="0.2" />
+            <rect x="5" y="38" width="40" height="4" rx="2" fill="var(--mat-sys-on-surface-variant, #94a3b8)" opacity="0.2" />
+            <rect x="5" y="48" width="60" height="4" rx="2" fill="var(--mat-sys-on-surface-variant, #94a3b8)" opacity="0.2" />
+            <rect x="5" y="60" width="25" height="6" rx="2" fill="var(--mat-sys-secondary, #64748b)" opacity="0.3" />
+            <rect x="50" y="60" width="25" height="6" rx="2" fill="var(--mat-sys-error, #ef4444)" opacity="0.3" />
+          </g>
+          <g transform="translate(85, 135)">
+            <circle cx="0" cy="0" r="15" fill="var(--mat-sys-surface-container, #ffffff)" stroke="var(--mat-sys-outline, #cbd5e1)" stroke-width="2" />
+            <path d="M-5,-5 L5,5 M-5,5 L5,-5" stroke="var(--mat-sys-on-surface-variant, #94a3b8)" stroke-width="2" stroke-linecap="round" />
+          </g>
+        </svg>
+      </div>
+      <h3 class="empty-title">No suppliers assigned</h3>
+      <p class="empty-subtitle">Click the button below to assign the first supplier to this product</p>
+      <button mat-flat-button color="primary" (click)="addSupplier()">
+        <mat-icon fontIcon="add" /> Add Supplier
+      </button>
+    </div>
+  }
+
+  <!-- Floating Add Button (visible when list is showing) -->
+  @if (supplierList && supplierList.length > 0 && !loading()) {
+    <div class="add-button-section">
+      <button mat-flat-button color="primary" (click)="addSupplier()">
+        <mat-icon fontIcon="add" /> Add Supplier
+      </button>
+    </div>
+  }
+</div>

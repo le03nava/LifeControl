@@ -5,7 +5,7 @@ export const productRoutes: Routes = [
   {
     path: '',
     canActivate: [keycloakRoleGuard],
-    data: { roles: ['life-control-admin'] },
+    data: { roles: ['life-control-admin', 'life-control-country'] },
     children: [
       {
         path: '',
@@ -27,16 +27,26 @@ export const productRoutes: Routes = [
         loadComponent: () => import('./pages/product-edit/product-edit').then((m) => m.ProductEdit),
       },
       {
+        path: 'edit/:id/suppliers',
+        loadComponent: () =>
+          import('./pages/product-supplier-list/product-supplier-list').then(
+            (m) => m.ProductSupplierList,
+          ),
+      },
+      {
         path: 'suppliers',
-        loadComponent: () => import('./suppliers/pages/supplier-list/supplier-list').then((m) => m.SupplierList),
+        loadComponent: () =>
+          import('./suppliers/pages/supplier-list/supplier-list').then((m) => m.SupplierList),
       },
       {
         path: 'suppliers/create',
-        loadComponent: () => import('./suppliers/pages/supplier-edit/supplier-edit').then((m) => m.SupplierEdit),
+        loadComponent: () =>
+          import('./suppliers/pages/supplier-edit/supplier-edit').then((m) => m.SupplierEdit),
       },
       {
         path: 'suppliers/edit/:id',
-        loadComponent: () => import('./suppliers/pages/supplier-edit/supplier-edit').then((m) => m.SupplierEdit),
+        loadComponent: () =>
+          import('./suppliers/pages/supplier-edit/supplier-edit').then((m) => m.SupplierEdit),
       },
     ],
   },
