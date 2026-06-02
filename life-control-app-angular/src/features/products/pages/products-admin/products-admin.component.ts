@@ -47,5 +47,12 @@ export class ProductsAdminComponent {
       route: null,
       disabled: true,
     },
+    {
+      title: 'Suppliers',
+      icon: 'local_shipping',
+      description: 'Manage procurement partners.',
+      route: '/products/suppliers',
+      disabled: false,
+    },
   ];
 }
