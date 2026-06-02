@@ -48,11 +48,11 @@ export class CompaniesAdminComponent {
       disabled: false,
     },
     {
-      title: 'Branches',
-      icon: 'account_balance',
-      description: 'Configure company branches and their relationships.',
-      route: null,
-      disabled: true,
+      title: 'Stores',
+      icon: 'store',
+      description: 'Manage operational store locations and their details.',
+      route: '/companies/stores',
+      disabled: false,
     },
   ];
 }

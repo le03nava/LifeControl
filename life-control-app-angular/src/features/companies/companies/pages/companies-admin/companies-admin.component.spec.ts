@@ -48,29 +48,22 @@ describe('CompaniesAdminComponent', () => {
     const activeCards = fixture.debugElement.queryAll(
       By.css('.dashboard-card:not(.card--disabled)'),
     );
-    expect(activeCards).toHaveLength(4);
+    expect(activeCards).toHaveLength(5);
     for (const card of activeCards) {
       expect(card.injector.get(RouterLink)).toBeTruthy();
     }
   });
 
-  it('should have RouterLink on every disabled card (with null value)', () => {
+  it('should have no disabled cards when all are active', () => {
     const disabledCards = fixture.debugElement.queryAll(
       By.css('.dashboard-card.card--disabled'),
     );
-    expect(disabledCards).toHaveLength(1);
-    for (const card of disabledCards) {
-      expect(card.injector.get(RouterLink)).toBeTruthy();
-    }
+    expect(disabledCards).toHaveLength(0);
   });
 
-  it('should display "Coming soon" on each disabled card', () => {
+  it('should display no "Coming soon" badges when all cards are active', () => {
     const comingSoonBadges = fixture.nativeElement.querySelectorAll('.card-badge--coming-soon');
-    // 1 disabled card each have a coming-soon badge
-    expect(comingSoonBadges).toHaveLength(1);
-    comingSoonBadges.forEach((badge: Element) => {
-      expect(badge.textContent.trim()).toContain('Coming soon');
-    });
+    expect(comingSoonBadges).toHaveLength(0);
   });
 
   it('should render each placeholder card with correct title from data', () => {
@@ -81,20 +74,20 @@ describe('CompaniesAdminComponent', () => {
     expect(titles).toContain('Countries');
     expect(titles).toContain('Regions');
     expect(titles).toContain('Zones');
-    expect(titles).toContain('Branches');
+    expect(titles).toContain('Stores');
   });
 
   it('should render the dashboard subtitle', () => {
     const subtitle = fixture.nativeElement.querySelector('.dashboard-subtitle');
     expect(subtitle).toBeTruthy();
     expect(subtitle.textContent.trim()).toBe(
-      'Manage companies, countries, regions, zones, and branches',
+      'Manage companies, countries, regions, zones, and stores',
     );
   });
 
   it('should render active cards with "Manage" call-to-action text', () => {
     const actionElements = fixture.nativeElement.querySelectorAll('.card-action');
-    expect(actionElements).toHaveLength(4);
+    expect(actionElements).toHaveLength(5);
     expect(actionElements[0].textContent.trim()).toContain('Manage Companies');
     expect(actionElements[1].textContent.trim()).toContain('Manage Countries');
   });
@@ -110,11 +103,11 @@ describe('CompaniesAdminComponent', () => {
     expect(iconNames).toContain('public');
     expect(iconNames).toContain('location_on');
     expect(iconNames).toContain('map');
-    expect(iconNames).toContain('account_balance');
+    expect(iconNames).toContain('store');
   });
 
-  it('should render 1 "Coming soon" badge (one per disabled card)', () => {
+  it('should render no "Coming soon" badge when no cards are disabled', () => {
     const comingSoonBadges = fixture.nativeElement.querySelectorAll('.card-badge--coming-soon');
-    expect(comingSoonBadges).toHaveLength(1);
+    expect(comingSoonBadges).toHaveLength(0);
   });
 });
