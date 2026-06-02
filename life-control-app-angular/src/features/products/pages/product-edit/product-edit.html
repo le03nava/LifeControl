@@ -8,3 +8,12 @@
   (saveProduct)="onSaveProduct($event)"
   (cancelForm)="cancelForm()"
 />
+
+@if (isEditMode()) {
+  <div class="manage-suppliers-section">
+    <button mat-stroked-button color="primary" (click)="navigateToSuppliers()">
+      <mat-icon fontIcon="inventory_2" />
+      Manage Suppliers
+    </button>
+  </div>
+}

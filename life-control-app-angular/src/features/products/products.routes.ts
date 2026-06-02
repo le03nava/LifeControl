@@ -27,6 +27,20 @@ export const productRoutes: Routes = [
         loadComponent: () => import('./pages/product-edit/product-edit').then((m) => m.ProductEdit),
       },
       {
+        path: 'edit/:id/suppliers/create',
+        loadComponent: () =>
+          import('./pages/product-supplier-edit/product-supplier-edit').then(
+            (m) => m.ProductSupplierEdit,
+          ),
+      },
+      {
+        path: 'edit/:id/suppliers/edit/:supplierId',
+        loadComponent: () =>
+          import('./pages/product-supplier-edit/product-supplier-edit').then(
+            (m) => m.ProductSupplierEdit,
+          ),
+      },
+      {
         path: 'edit/:id/suppliers',
         loadComponent: () =>
           import('./pages/product-supplier-list/product-supplier-list').then(

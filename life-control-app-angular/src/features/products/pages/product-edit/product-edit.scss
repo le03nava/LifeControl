@@ -14,3 +14,19 @@
   font-size: 0.875rem;
   line-height: 1.5;
 }
+
+.manage-suppliers-section {
+  max-width: 100%;
+  margin: var(--space-md) auto 0;
+  padding: 0 var(--space-lg);
+  display: flex;
+  justify-content: flex-start;
+
+  @media (min-width: 576px) {
+    max-width: 720px;
+  }
+
+  @media (min-width: 1024px) {
+    max-width: 960px;
+  }
+}

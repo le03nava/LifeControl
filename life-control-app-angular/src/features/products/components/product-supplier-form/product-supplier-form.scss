@@ -1,0 +1,21 @@
+@use '../../../../shared/styles/variables' as *;
+@use '../../../../shared/styles/form-layout' as *;
+
+.toggles-row {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: var(--space-lg);
+  align-items: center;
+  padding-block: var(--space-sm);
+
+  @media (max-width: $bp-sm) {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-md);
+  }
+}
+
+.toggle-container {
+  display: flex;
+  align-items: center;
+}

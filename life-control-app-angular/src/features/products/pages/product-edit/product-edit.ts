@@ -11,11 +11,13 @@ import {
   ReactiveFormsModule,
 } from '@angular/forms';
 import { ProductsForm } from '../../components/products-form/products-form';
+import { MatButtonModule } from '@angular/material/button';
+import { MatIconModule } from '@angular/material/icon';
 
 
 @Component({
   selector: 'app-product-edit',
-  imports: [ReactiveFormsModule, ProductsForm],
+  imports: [ReactiveFormsModule, ProductsForm, MatButtonModule, MatIconModule],
   templateUrl: './product-edit.html',
   styleUrl: './product-edit.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -116,6 +118,13 @@ export class ProductEdit implements OnInit {
 
   cancelForm(): void {
     this.router.navigate(['/products']);
+  }
+
+  navigateToSuppliers(): void {
+    const id = this.productId();
+    if (id) {
+      this.router.navigate(['/products/edit', id, 'suppliers']);
+    }
   }
 
 }

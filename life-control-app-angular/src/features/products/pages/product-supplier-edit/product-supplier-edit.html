@@ -1,0 +1,12 @@
+@if (generalError(); as errorMessage) {
+  <div class="error-banner" role="alert">{{ errorMessage }}</div>
+}
+
+<app-product-supplier-form
+  [formGroup]="assignmentForm()"
+  [serverErrors]="serverErrors()"
+  [editMode]="isEditMode()"
+  [availableSuppliers]="availableSuppliers()"
+  (saveSupplier)="onSaveAssignment($event)"
+  (cancelForm)="cancelForm()"
+/>

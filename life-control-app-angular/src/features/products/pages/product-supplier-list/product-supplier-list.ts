@@ -8,8 +8,10 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatCardModule } from '@angular/material/card';
+import { MatDialog } from '@angular/material/dialog';
 import { ProductSupplierService } from '../../data/product-supplier.service';
 import { ProductSupplier } from '../../models/product-supplier.models';
+import { RemoveSupplierDialog } from '../../ui/remove-supplier-dialog/remove-supplier-dialog';
 import { of } from 'rxjs';
 
 @Component({
@@ -31,6 +33,7 @@ export class ProductSupplierList {
   private productSupplierService = inject(ProductSupplierService);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
+  private dialog = inject(MatDialog);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly productId = signal<string | null>(
@@ -85,20 +88,26 @@ export class ProductSupplierList {
   }
 
   confirmDelete(psId: string, supplierName: string): void {
-    const confirmed = window.confirm(
-      `Are you sure you want to remove the assignment for "${supplierName}"? This action cannot be undone.`,
-    );
-    if (confirmed) {
-      const id = this.productId();
-      if (id) {
-        this.productSupplierService
-          .removeSupplier(id, psId)
-          .pipe(takeUntilDestroyed(this.destroyRef))
-          .subscribe({
-            next: () => this.suppliersResource.reload(),
-          });
-      }
-    }
+    const dialogRef = this.dialog.open(RemoveSupplierDialog, {
+      data: { supplierName },
+    });
+
+    dialogRef
+      .afterClosed()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((result) => {
+        if (result) {
+          const id = this.productId();
+          if (id) {
+            this.productSupplierService
+              .removeSupplier(id, psId)
+              .pipe(takeUntilDestroyed(this.destroyRef))
+              .subscribe({
+                next: () => this.suppliersResource.reload(),
+              });
+          }
+        }
+      });
   }
 
   onRetry(): void {
