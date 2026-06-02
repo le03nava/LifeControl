@@ -1,0 +1,22 @@
+@use '../../../../../shared/styles/form-layout' as *;
+
+.selector-field {
+  grid-column: 1 / -1;
+}
+
+.address-heading {
+  grid-column: 1 / -1;
+  margin: var(--space-sm) 0 0 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--mat-sys-on-surface-variant);
+  border-bottom: 1px solid var(--mat-sys-outline-variant);
+  padding-bottom: var(--space-xs);
+}
+
+.toggle-container {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  padding-block: var(--space-sm);
+}

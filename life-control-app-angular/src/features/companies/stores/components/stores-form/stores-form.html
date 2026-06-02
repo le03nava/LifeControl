@@ -1,0 +1,189 @@
+<div class="form-card">
+  <h2>
+    @if (isEditMode()) {
+      Editar Tienda
+    } @else {
+      Nueva Tienda
+    }
+  </h2>
+
+  <!-- Company + Country + Region + Zone drill-down selectors -->
+  <form [formGroup]="formGroup" (ngSubmit)="onSave()">
+    <mat-form-field appearance="outline" class="selector-field">
+      <mat-label>Empresa</mat-label>
+      <mat-select (selectionChange)="onCompanyChange($event.value)" [value]="selectedCompanyId()">
+        <mat-option value="">— Seleccionar empresa —</mat-option>
+        @for (company of companies(); track company.id) {
+          <mat-option [value]="company.id">{{ company.companyName }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="selector-field">
+      <mat-label>País</mat-label>
+      <mat-select
+        (selectionChange)="onCountryChange($event.value)"
+        [value]="selectedCompanyCountryId()"
+        [compareWith]="compareCompanyCountryById"
+        [disabled]="!selectedCompanyId()"
+      >
+        <mat-option value="">— Seleccionar país —</mat-option>
+        @for (cc of companyCountries(); track cc.id) {
+          <mat-option [value]="cc">{{ cc.countryName }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="selector-field">
+      <mat-label>Región</mat-label>
+      <mat-select
+        (selectionChange)="onRegionChange($event.value)"
+        [value]="selectedRegionId()"
+        [compareWith]="compareRegionById"
+        [disabled]="!selectedCompanyCountryId()"
+      >
+        <mat-option value="">— Seleccionar región —</mat-option>
+        @for (region of regions(); track region.id) {
+          <mat-option [value]="region">{{ region.regionName }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="selector-field">
+      <mat-label>Zona</mat-label>
+      <mat-select
+        (selectionChange)="onZoneChange($event.value)"
+        [value]="selectedZoneId()"
+        [compareWith]="compareZoneById"
+        [disabled]="!selectedRegionId()"
+      >
+        <mat-option value="">— Seleccionar zona —</mat-option>
+        @for (zone of zones(); track zone.id) {
+          <mat-option [value]="zone">{{ zone.zoneName }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <!-- Store details -->
+    <mat-form-field appearance="outline">
+      <mat-label>Nombre de Tienda</mat-label>
+      <input
+        matInput
+        type="text"
+        formControlName="storeName"
+        placeholder="Ingrese el nombre de la tienda"
+      />
+      @if (getErrorMessage(formGroup.controls.storeName); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Correo Electrónico</mat-label>
+      <input
+        matInput
+        type="email"
+        formControlName="email"
+        placeholder="correo@ejemplo.com"
+      />
+      @if (getErrorMessage(formGroup.controls.email); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Teléfono</mat-label>
+      <input
+        matInput
+        type="tel"
+        formControlName="phoneNumber"
+        placeholder="+525512345678"
+      />
+      @if (getErrorMessage(formGroup.controls.phoneNumber); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <!-- Address section -->
+    <h3 class="address-heading">Dirección</h3>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Calle</mat-label>
+      <input matInput type="text" formControlName="street" placeholder="Calle" />
+      @if (getErrorMessage(formGroup.controls.street); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Número Exterior</mat-label>
+      <input matInput type="text" formControlName="streetNumber" placeholder="N° exterior" />
+      @if (getErrorMessage(formGroup.controls.streetNumber); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Número Interior</mat-label>
+      <input matInput type="text" formControlName="internalNumber" placeholder="N° interior (opcional)" />
+      @if (getErrorMessage(formGroup.controls.internalNumber); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Colonia</mat-label>
+      <input matInput type="text" formControlName="neighborhood" placeholder="Colonia" />
+      @if (getErrorMessage(formGroup.controls.neighborhood); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Código Postal</mat-label>
+      <input matInput type="text" formControlName="zipCode" placeholder="C.P." />
+      @if (getErrorMessage(formGroup.controls.zipCode); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Ciudad</mat-label>
+      <input matInput type="text" formControlName="city" placeholder="Ciudad" />
+      @if (getErrorMessage(formGroup.controls.city); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Estado</mat-label>
+      <input matInput type="text" formControlName="state" placeholder="Estado" />
+      @if (getErrorMessage(formGroup.controls.state); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>País (código ISO)</mat-label>
+      <input matInput type="text" formControlName="countryId" placeholder="MX, US, etc." />
+      @if (getErrorMessage(formGroup.controls.countryId); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <div class="toggle-container">
+      <mat-slide-toggle formControlName="enabled">Activo</mat-slide-toggle>
+    </div>
+
+    <div class="form-actions">
+      <button mat-button type="button" (click)="onCancel()">Cancelar</button>
+      <button mat-flat-button type="submit">
+        @if (!isEditMode()) {
+          Guardar
+        } @else {
+          Actualizar
+        }
+      </button>
+    </div>
+  </form>
+</div>

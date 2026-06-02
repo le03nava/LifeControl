@@ -1,0 +1,56 @@
+@use '../../../../../shared/styles/form-layout' as *;
+
+.stores-container {
+  width: 100%;
+}
+
+.header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+
+  h2 {
+    margin-bottom: 0;
+    text-align: left;
+  }
+}
+
+.stores-table {
+  width: 100%;
+  margin-bottom: 1rem;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.error-message {
+  background-color: var(--mat-sys-warning-container);
+  color: var(--mat-sys-on-warning-container);
+  padding: 0.75rem 1rem;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+.loading-text {
+  color: var(--color-gray-500);
+  font-style: italic;
+}
+
+.empty-state {
+  color: var(--color-gray-400);
+  font-style: italic;
+  margin-bottom: 1.5rem;
+  text-align: center;
+  padding: 2rem 0;
+}
+
+@media (max-width: 575.98px) {
+  .action-buttons {
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+}

@@ -1,0 +1,55 @@
+@if (store(); as s) {
+  <mat-card class="store-card" appearance="outlined">
+    <mat-card-header>
+      <mat-card-title>
+        <div class="card-title-row">
+          <span>{{ s.storeName }}</span>
+          <span class="badge status" [class.active]="isEnabled()" [class.inactive]="!isEnabled()">
+            {{ statusLabel() }}
+          </span>
+        </div>
+      </mat-card-title>
+    </mat-card-header>
+    <mat-card-content>
+      @if (s.email || s.phoneNumber) {
+        <div class="contact-info">
+          @if (s.email) {
+            <div class="contact-row">
+              <mat-icon fontIcon="email" class="contact-icon" />
+              <span>{{ s.email }}</span>
+            </div>
+          }
+          @if (s.phoneNumber) {
+            <div class="contact-row">
+              <mat-icon fontIcon="phone" class="contact-icon" />
+              <span>{{ s.phoneNumber }}</span>
+            </div>
+          }
+        </div>
+      }
+      @if (addressSummary()) {
+        <div class="address-summary">
+          <mat-icon fontIcon="location_on" class="contact-icon" />
+          <span>{{ addressSummary() }}</span>
+        </div>
+      }
+    </mat-card-content>
+    <mat-card-actions align="end">
+      <mat-slide-toggle
+        [checked]="s.enabled"
+        (change)="onToggle()"
+        aria-label="Habilitar/Deshabilitar tienda"
+      />
+      <button mat-button (click)="onEdit($event)" aria-label="Editar tienda">
+        <mat-icon fontIcon="edit" /> Editar
+      </button>
+    </mat-card-actions>
+  </mat-card>
+} @else {
+  <mat-card class="store-card card-empty" appearance="outlined">
+    <mat-card-content>
+      <mat-icon fontIcon="info" class="empty-icon" />
+      <p>No hay tienda disponible</p>
+    </mat-card-content>
+  </mat-card>
+}
