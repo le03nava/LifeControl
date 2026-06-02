@@ -1,0 +1,16 @@
+// suppliers-form.scss — Supplier form responsivo con CSS Grid + Material Design
+// Breakpoints: xs (<576px) 1col | s (≥576px) 2col | m (≥1024px) 3col | l (≥1440px) 3col
+//
+// Estilos base inyectados desde _form-layout.scss (shared):
+// - .form-card (card, container sizing, grid, h2)
+// - .form-actions, .full-width
+// - Touch targets WCAG
+@use '../../../../../shared/styles/form-layout' as *;
+
+// Toggle container — places the mat-slide-toggle in the form grid
+.toggle-container {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  padding-block: var(--space-sm);
+}

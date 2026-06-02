@@ -1,0 +1,155 @@
+<div class="form-card">
+  <h2>
+    @if (editMode()) {
+      Editar Proveedor
+    } @else {
+      Nuevo Proveedor
+    }
+  </h2>
+  <form [formGroup]="formGroup()" (ngSubmit)="onSave()">
+    <!-- Row 1: supplierName full-width -->
+    <mat-form-field class="full-width" appearance="outline">
+      <mat-label>Nombre del Proveedor</mat-label>
+      <input
+        matInput
+        type="text"
+        formControlName="supplierName"
+        placeholder="Ingrese el nombre del proveedor"
+      />
+      @if (getErrorMessage(formGroup().controls.supplierName); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Razón Social</mat-label>
+      <input
+        matInput
+        type="text"
+        formControlName="razonSocial"
+        placeholder="Ingrese la razón social"
+      />
+      @if (getErrorMessage(formGroup().controls.razonSocial); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>RFC</mat-label>
+      <input
+        matInput
+        type="text"
+        formControlName="rfc"
+        placeholder="RFC (12-13 caracteres alfanuméricos)"
+      />
+      @if (getErrorMessage(formGroup().controls.rfc, rfcErrorMessages); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Correo Electrónico</mat-label>
+      <mat-icon matPrefix>mail</mat-icon>
+      <input
+        matInput
+        type="email"
+        formControlName="email"
+        placeholder="correo@ejemplo.com"
+      />
+      @if (getErrorMessage(formGroup().controls.email); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Teléfono</mat-label>
+      <mat-icon matPrefix>phone</mat-icon>
+      <input
+        matInput
+        type="tel"
+        formControlName="phoneNumber"
+        placeholder="+52XXXXXXXXXX"
+      />
+      @if (getErrorMessage(formGroup().controls.phoneNumber); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <!-- Address section: street full-width -->
+    <mat-form-field class="full-width" appearance="outline">
+      <mat-label>Calle</mat-label>
+      <mat-icon matPrefix>location_on</mat-icon>
+      <input
+        matInput
+        type="text"
+        formControlName="street"
+        placeholder="Nombre de la calle"
+      />
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Número Exterior</mat-label>
+      <input
+        matInput
+        type="text"
+        formControlName="streetNumber"
+        placeholder="Ej: 123"
+      />
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Colonia</mat-label>
+      <input
+        matInput
+        type="text"
+        formControlName="neighborhood"
+        placeholder="Nombre de la colonia"
+      />
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Código Postal</mat-label>
+      <input
+        matInput
+        type="text"
+        formControlName="zipCode"
+        placeholder="Ej: 12345"
+      />
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Ciudad</mat-label>
+      <input
+        matInput
+        type="text"
+        formControlName="city"
+        placeholder="Ciudad"
+      />
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Estado</mat-label>
+      <input
+        matInput
+        type="text"
+        formControlName="state"
+        placeholder="Estado"
+      />
+    </mat-form-field>
+
+    <div class="toggle-container">
+      <mat-slide-toggle formControlName="enabled">Activo</mat-slide-toggle>
+    </div>
+
+    <div class="form-actions">
+      <button mat-button type="button" (click)="onCancel()">Cancelar</button>
+      <button mat-flat-button type="submit">
+        @if (!editMode()) {
+          Guardar
+        } @else {
+          Actualizar
+        }
+      </button>
+    </div>
+  </form>
+</div>
