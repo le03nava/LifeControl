@@ -126,6 +126,30 @@ CREATE INDEX IF NOT EXISTS idx_company_stores_company_zone_id ON company_stores(
 CREATE INDEX IF NOT EXISTS idx_company_stores_address_id ON company_stores(address_id);
 
 -- ============================================
+-- Suppliers Table
+-- ============================================
+CREATE TABLE IF NOT EXISTS suppliers (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    supplier_name VARCHAR(255) NOT NULL,
+    razon_social VARCHAR(255),
+    rfc VARCHAR(13) NOT NULL UNIQUE,
+    email VARCHAR(255),
+    phone_number VARCHAR(50),
+    street VARCHAR(255),
+    street_number VARCHAR(20),
+    neighborhood VARCHAR(255),
+    zip_code VARCHAR(20),
+    city VARCHAR(255),
+    state VARCHAR(255),
+    enabled BOOLEAN DEFAULT true NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_suppliers_name ON suppliers(supplier_name);
+CREATE INDEX IF NOT EXISTS idx_suppliers_rfc ON suppliers(rfc);
+
+-- ============================================
 -- Activity Process Reference Table
 -- ============================================
 CREATE TABLE IF NOT EXISTS activity_processes (
