@@ -258,3 +258,18 @@ CREATE TABLE IF NOT EXISTS statuses (
 
 CREATE INDEX IF NOT EXISTS idx_statuses_type ON statuses(status_type_id);
 CREATE INDEX IF NOT EXISTS idx_statuses_name ON statuses(status_name);
+
+-- ============================================
+-- Payment Methods Table
+-- ============================================
+CREATE TABLE IF NOT EXISTS payment_methods (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    payment_method_name VARCHAR(100) NOT NULL UNIQUE,
+    payment_method_short_name VARCHAR(50) NOT NULL,
+    enabled BOOLEAN DEFAULT true NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_payment_methods_name ON payment_methods(payment_method_name);
+CREATE INDEX IF NOT EXISTS idx_payment_methods_enabled ON payment_methods(enabled);
