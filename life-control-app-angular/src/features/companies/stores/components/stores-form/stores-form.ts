@@ -31,6 +31,8 @@ import {
   StoreSaveEvent,
 } from '../../models/store.models';
 import { CompanyZoneService } from '../../../zones/data/company-zone.service';
+import { CountryService } from '../../../../countries/data/country.service';
+import { Country } from '../../../countries/models/country.models';
 
 @Component({
   selector: 'app-stores-form',
@@ -49,6 +51,7 @@ import { CompanyZoneService } from '../../../zones/data/company-zone.service';
 })
 export class StoresForm {
   private companyZoneService = inject(CompanyZoneService);
+  private countryService = inject(CountryService);
 
   // ─── Inputs ─────────────────────────────────────────────────
   companies = input.required<Company[]>();
@@ -146,6 +149,10 @@ export class StoresForm {
     });
   }
 
+  // ─── Country catalog for address country selector ────────────
+  private _countriesCatalog = signal<Country[]>([]);
+  readonly countriesCatalog = this._countriesCatalog.asReadonly();
+
   // ─── Helpers for mat-select compareWith ──────────────────────
   protected compareCompanyCountryById = (option: CompanyCountry | null, selectedId: string | null): boolean => {
     return option?.id === selectedId;
@@ -159,8 +166,18 @@ export class StoresForm {
     return option?.id === selectedId;
   };
 
+  protected compareCountryById = (optionId: string | null, selectedId: string | null): boolean => {
+    return optionId === selectedId;
+  };
+
   // ─── Constructor ────────────────────────────────────────────
   constructor() {
+    // --- Load country catalog for address country selector ---
+    this.countryService.getCountries().subscribe({
+      next: (countries) => this._countriesCatalog.set(countries),
+      error: () => this._countriesCatalog.set([]),
+    });
+
     // --- Edit mode: patch form and pre-select hierarchy ---
     effect(() => {
       const store = this.storeToEdit();
@@ -216,6 +233,7 @@ export class StoresForm {
       const region = regionList.find((r) => r.id === regionId);
       if (region) {
         this.selectedRegionId.set(region.id);
+        this.loadZonesForRegion(region.id);
       }
     });
 

@@ -10,8 +10,10 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatCardModule } from '@angular/material/card';
 import { MatDialog } from '@angular/material/dialog';
 import { ProductSupplierService } from '../../data/product-supplier.service';
+import { ProductService } from '../../data/product.service';
 import { ProductSupplier } from '../../models/product-supplier.models';
 import { RemoveSupplierDialog } from '../../ui/remove-supplier-dialog/remove-supplier-dialog';
+import { PageHeader } from '@shared/ui';
 import { of } from 'rxjs';
 
 @Component({
@@ -25,12 +27,14 @@ import { of } from 'rxjs';
     MatChipsModule,
     MatProgressSpinnerModule,
     MatCardModule,
+    PageHeader,
   ],
   templateUrl: './product-supplier-list.html',
   styleUrl: './product-supplier-list.scss',
 })
 export class ProductSupplierList {
   private productSupplierService = inject(ProductSupplierService);
+  private productService = inject(ProductService);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private dialog = inject(MatDialog);
@@ -39,6 +43,17 @@ export class ProductSupplierList {
   readonly productId = signal<string | null>(
     this.route.snapshot.paramMap.get('id'),
   );
+
+  readonly productResource = rxResource({
+    params: () => ({ productId: this.productId() }),
+    stream: ({ params }) => {
+      if (!params.productId) {
+        return of(null);
+      }
+      return this.productService.getProductById(params.productId);
+    },
+  });
+  readonly product = this.productResource.value;
 
   readonly displayedColumns: string[] = [
     'supplierName',

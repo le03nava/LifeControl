@@ -1,4 +1,16 @@
 <div class="product-supplier-list-page">
+  <!-- Product Header -->
+  <app-page-header
+    [title]="product()?.name ?? 'Supplier Assignments'"
+    [subtitle]="product()?.sku ? 'SKU: ' + product()?.sku : ''"
+  >
+    @if (product() && (suppliers()?.length ?? 0) > 0) {
+      <button mat-flat-button color="primary" (click)="addSupplier()">
+        <mat-icon fontIcon="add" /> Add Supplier
+      </button>
+    }
+  </app-page-header>
+
   <!-- Loading State -->
   @if (loading()) {
     <div class="loading-skeleton">
@@ -122,12 +134,4 @@
     </div>
   }
 
-  <!-- Floating Add Button (visible when list is showing) -->
-  @if (supplierList && supplierList.length > 0 && !loading()) {
-    <div class="add-button-section">
-      <button mat-flat-button color="primary" (click)="addSupplier()">
-        <mat-icon fontIcon="add" /> Add Supplier
-      </button>
-    </div>
-  }
 </div>

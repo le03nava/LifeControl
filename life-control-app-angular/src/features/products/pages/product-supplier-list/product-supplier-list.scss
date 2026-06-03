@@ -176,14 +176,6 @@
   color: var(--mat-sys-on-surface-variant);
 }
 
-/* Add Button Section */
-.add-button-section {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: var(--space-md);
-  padding: var(--space-md) 0;
-}
-
 /* Responsive */
 @media (max-width: $bp-sm) {
   .empty-svg {

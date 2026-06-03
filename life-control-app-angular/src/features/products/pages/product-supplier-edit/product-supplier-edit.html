@@ -1,3 +1,9 @@
+<!-- Product Header -->
+<app-page-header
+  [title]="product()?.name ?? 'Supplier Assignment'"
+  [subtitle]="headerSubtitle()"
+/>
+
 @if (generalError(); as errorMessage) {
   <div class="error-banner" role="alert">{{ errorMessage }}</div>
 }

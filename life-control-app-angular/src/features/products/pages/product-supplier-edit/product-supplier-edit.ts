@@ -19,6 +19,7 @@ import {
   ReactiveFormsModule,
 } from '@angular/forms';
 import { ProductSupplierService } from '../../data/product-supplier.service';
+import { ProductService } from '../../data/product.service';
 import { SupplierService } from '../../suppliers/data/supplier.service';
 import { ApiError } from '@shared/models';
 import {
@@ -27,11 +28,12 @@ import {
   ProductSupplierRequest,
 } from '../../models/product-supplier.models';
 import { ProductSupplierForm } from '../../components/product-supplier-form/product-supplier-form';
+import { PageHeader } from '@shared/ui';
 
 @Component({
   selector: 'app-product-supplier-edit',
   standalone: true,
-  imports: [ReactiveFormsModule, ProductSupplierForm],
+  imports: [ReactiveFormsModule, ProductSupplierForm, PageHeader],
   templateUrl: './product-supplier-edit.html',
   styleUrl: './product-supplier-edit.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -41,6 +43,7 @@ export class ProductSupplierEdit implements OnInit {
   private router = inject(Router);
   private fb = inject(NonNullableFormBuilder);
   private productSupplierService = inject(ProductSupplierService);
+  private productService = inject(ProductService);
   private supplierService = inject(SupplierService);
   private destroyRef = inject(DestroyRef);
 
@@ -50,6 +53,23 @@ export class ProductSupplierEdit implements OnInit {
   readonly psId = signal<string | null>(
     this.route.snapshot.paramMap.get('supplierId'),
   );
+
+  readonly productResource = rxResource({
+    params: () => ({ productId: this.productId() }),
+    stream: ({ params }) => {
+      if (!params.productId) {
+        return of(null);
+      }
+      return this.productService.getProductById(params.productId);
+    },
+  });
+  readonly product = this.productResource.value;
+
+  readonly headerSubtitle = computed(() => {
+    const sku = this.product()?.sku;
+    const mode = this.isEditMode() ? 'Edit assignment' : 'New assignment';
+    return sku ? `SKU: ${sku} — ${mode}` : mode;
+  });
 
   readonly assignmentForm = signal<FormGroup<ProductSupplierControl>>(
     this.createForm(),

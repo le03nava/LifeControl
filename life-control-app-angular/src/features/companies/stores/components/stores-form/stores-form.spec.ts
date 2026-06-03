@@ -83,9 +83,9 @@ describe('StoresForm', () => {
       expect(title.textContent).toContain('Nueva Tienda');
     });
 
-    it('should render company, country, region, and zone selectors', () => {
+    it('should render company, country, region, zone, and address country selectors', () => {
       const selects = fixture.nativeElement.querySelectorAll('mat-select');
-      expect(selects.length).toBe(4);
+      expect(selects.length).toBe(5);
     });
 
     it('should render storeName field', () => {
