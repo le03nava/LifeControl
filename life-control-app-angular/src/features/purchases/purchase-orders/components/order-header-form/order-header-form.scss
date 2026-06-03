@@ -1,0 +1,53 @@
+@use '../../../../../shared/styles/variables' as *;
+
+:host {
+  display: block;
+}
+
+.status-section {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+  padding: var(--space-md);
+  background-color: var(--mat-sys-surface-container-lowest, #f8fafc);
+  border-radius: var(--radius-md);
+  flex-wrap: wrap;
+
+  .order-number {
+    font-size: 0.875rem;
+    color: var(--mat-sys-on-surface-variant, #64748b);
+  }
+}
+
+.form-card {
+  margin-bottom: var(--space-lg);
+  background-color: var(--mat-sys-surface-container-lowest, #fff);
+
+  mat-card-title {
+    font-size: 1.125rem;
+    font-weight: 600;
+  }
+
+  mat-card-content {
+    padding-top: var(--space-md);
+  }
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-md);
+
+  @media (min-width: $bp-sm) {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  @media (min-width: $bp-md) {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .full-width {
+    grid-column: 1 / -1;
+  }
+}

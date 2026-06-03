@@ -50,7 +50,8 @@ export class Header implements OnInit {
     if (this.isAdmin()) {
       menuItems.push(
         { id: '3', routeLink: '/products', textLink: 'Products', icon: 'inventory_2' },
-        { id: '4', routeLink: '/users-admin', textLink: 'Users Admin', icon: 'admin_panel_settings' },
+        { id: '4', routeLink: '/purchases', textLink: 'Compras', icon: 'shopping_cart' },
+        { id: '5', routeLink: '/users-admin', textLink: 'Users Admin', icon: 'admin_panel_settings' },
       );
     }
 

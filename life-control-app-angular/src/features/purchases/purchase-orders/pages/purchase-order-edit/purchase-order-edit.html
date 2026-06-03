@@ -1,0 +1,89 @@
+<div class="purchase-order-edit-page">
+  <app-page-header
+    [title]="
+      isEditMode()
+        ? 'Editar Orden de Compra'
+        : 'Nueva Orden de Compra'
+    "
+    [subtitle]="
+      isEditMode()
+        ? 'Modificá los datos de la orden'
+        : 'Completá los datos para crear una nueva orden'
+    "
+  >
+    <button mat-stroked-button routerLink="/purchases/orders">
+      <mat-icon fontIcon="arrow_back" /> Volver
+    </button>
+  </app-page-header>
+
+  <!-- General Error -->
+  @if (generalError(); as errorMessage) {
+    <div class="error-banner" role="alert">
+      <mat-icon fontIcon="error" />
+      <span>{{ errorMessage }}</span>
+    </div>
+  }
+
+  <!-- Status Selector (edit mode only) -->
+  @if (loadedOrder(); as order) {
+    <app-status-selector
+      [order]="order"
+      (statusChanged)="onStatusChanged($event)"
+    />
+  }
+
+  <form [formGroup]="headerForm()" (ngSubmit)="onSave()" novalidate>
+    <!-- Header Form (supplier, store cascade, payment method, comments) -->
+    <app-order-header-form
+      [headerForm]="headerForm()"
+      [isEditMode]="isEditMode()"
+      [loadedOrder]="loadedOrder()"
+      [serverErrors]="serverErrors()"
+      [initialStore]="initialStore()"
+    />
+
+    <!-- Line Items Table -->
+    <app-detail-table
+      [items]="lineItems()"
+      [isDraft]="isDraft()"
+      [availableProducts]="allProducts()"
+      (itemsChanged)="onItemsChanged($event)"
+    />
+
+    <!-- Server Errors -->
+    @if (generalError()) {
+      <div class="error-banner" role="alert">
+        <mat-icon fontIcon="error" />
+        <span>{{ generalError() }}</span>
+      </div>
+    }
+
+    <!-- Action Buttons -->
+    <div class="form-actions">
+      <button
+        mat-stroked-button
+        type="button"
+        (click)="onCancel()"
+        [disabled]="saving()"
+        aria-label="Cancelar"
+      >
+        Cancelar
+      </button>
+      <button
+        mat-flat-button
+        color="primary"
+        type="submit"
+        [disabled]="saving() || headerForm().invalid"
+        aria-label="Guardar orden"
+      >
+        @if (saving()) {
+          <mat-icon fontIcon="hourglass_empty" />
+          Guardando...
+        } @else {
+          <mat-icon fontIcon="save" />
+          {{ isEditMode() ? 'Actualizar Orden' : 'Crear Orden' }}
+        }
+      </button>
+    </div>
+  </form>
+</div>

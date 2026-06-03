@@ -1,0 +1,89 @@
+@use '../../../../../shared/styles/variables' as *;
+
+:host {
+  display: block;
+  margin-bottom: var(--space-lg);
+}
+
+// Wrap content in a card-like container
+.detail-table {
+  mat-card-content {
+    padding-top: var(--space-md);
+  }
+}
+
+table {
+  width: 100%;
+}
+
+.line-items-total {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  border-top: 1px solid var(--mat-sys-outline-variant, #e2e8f0);
+  margin-top: var(--space-sm);
+
+  .total-label {
+    font-weight: 600;
+    color: var(--mat-sys-on-surface-variant, #64748b);
+  }
+
+  .total-value {
+    font-weight: 700;
+    font-size: 1.125rem;
+    color: var(--mat-sys-primary, #2563eb);
+  }
+}
+
+.no-line-items {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-xl);
+  gap: var(--space-sm);
+  color: var(--mat-sys-on-surface-variant, #94a3b8);
+
+  mat-icon {
+    font-size: 36px;
+    width: 36px;
+    height: 36px;
+  }
+
+  p {
+    margin: 0;
+    font-size: 0.875rem;
+  }
+}
+
+.add-line-item {
+  margin-top: var(--space-lg);
+  padding-top: var(--space-lg);
+  border-top: 1px solid var(--mat-sys-outline-variant, #e2e8f0);
+
+  .add-line-item-title {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-md);
+    font-weight: 500;
+    color: var(--mat-sys-on-surface, #1e293b);
+  }
+
+  .add-line-item-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr auto;
+    gap: var(--space-md);
+    align-items: start;
+
+    @media (max-width: ($bp-sm - 1px)) {
+      grid-template-columns: 1fr;
+    }
+
+    button[mat-mini-fab] {
+      margin-top: 4px;
+    }
+  }
+}

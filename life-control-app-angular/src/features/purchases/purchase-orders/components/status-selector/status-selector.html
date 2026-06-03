@@ -1,0 +1,30 @@
+<div class="status-selector">
+  @if (statusFetchFailed()) {
+    <p class="status-error">No se pudieron cargar las transiciones de estado.</p>
+  } @else if (isTerminal()) {
+    <p class="status-terminal">
+      <mat-icon fontIcon="lock" inline />
+      Este estado es terminal y no permite cambios.
+    </p>
+  } @else if (validTransitions().length > 0) {
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>Cambiar Estado</mat-label>
+      <mat-select
+        [disabled]="changing()"
+        (selectionChange)="onStatusChange($event.value)"
+        placeholder="Seleccioná el nuevo estado"
+      >
+        @for (t of validTransitions(); track t.id) {
+          <mat-option [value]="t.id">
+            {{ t.label }}
+          </mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+    @if (changing()) {
+      <span class="changing-indicator">Actualizando estado...</span>
+    }
+  } @else {
+    <p class="status-loading">Cargando transiciones...</p>
+  }
+</div>
