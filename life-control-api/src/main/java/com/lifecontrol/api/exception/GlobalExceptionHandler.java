@@ -24,6 +24,8 @@ import com.lifecontrol.api.status.exception.StatusNotFoundException;
 import com.lifecontrol.api.measureunit.exception.MeasureUnitNotFoundException;
 import com.lifecontrol.api.measureunit.exception.DuplicateMeasureUnitException;
 import com.lifecontrol.api.status.exception.StatusTypeNotFoundException;
+import com.lifecontrol.api.paymentmethod.exception.DuplicatePaymentMethodException;
+import com.lifecontrol.api.paymentmethod.exception.PaymentMethodNotFoundException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderConflictException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderConnectionException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderNotFoundException;
@@ -242,6 +244,30 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(DuplicateCompanyStoreException.class)
     public ResponseEntity<ErrorResponse> handleDuplicateCompanyStore(DuplicateCompanyStoreException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.CONFLICT.value(),
+                ex.getMessage(),
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
+        );
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
+    }
+
+    @ExceptionHandler(PaymentMethodNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handlePaymentMethodNotFound(PaymentMethodNotFoundException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.NOT_FOUND.value(),
+                ex.getMessage(),
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
+        );
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    }
+
+    @ExceptionHandler(DuplicatePaymentMethodException.class)
+    public ResponseEntity<ErrorResponse> handleDuplicatePaymentMethod(DuplicatePaymentMethodException ex) {
         ErrorResponse error = new ErrorResponse(
                 HttpStatus.CONFLICT.value(),
                 ex.getMessage(),

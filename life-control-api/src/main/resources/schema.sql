@@ -260,6 +260,7 @@ CREATE INDEX IF NOT EXISTS idx_statuses_type ON statuses(status_type_id);
 CREATE INDEX IF NOT EXISTS idx_statuses_name ON statuses(status_name);
 
 -- ============================================
+-- ============================================
 -- Measure Units Table
 -- ============================================
 CREATE TABLE IF NOT EXISTS measure_units (
@@ -276,3 +277,18 @@ CREATE TABLE IF NOT EXISTS measure_units (
 
 CREATE INDEX IF NOT EXISTS idx_measure_units_sat_code ON measure_units(sat_code);
 CREATE INDEX IF NOT EXISTS idx_measure_units_type ON measure_units(unit_type);
+
+-- ============================================
+-- Payment Methods Table
+-- ============================================
+CREATE TABLE IF NOT EXISTS payment_methods (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    payment_method_name VARCHAR(100) NOT NULL UNIQUE,
+    payment_method_short_name VARCHAR(50) NOT NULL,
+    enabled BOOLEAN DEFAULT true NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_payment_methods_name ON payment_methods(payment_method_name);
+CREATE INDEX IF NOT EXISTS idx_payment_methods_enabled ON payment_methods(enabled);
