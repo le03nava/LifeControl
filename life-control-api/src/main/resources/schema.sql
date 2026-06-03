@@ -229,3 +229,32 @@ CREATE INDEX IF NOT EXISTS idx_activity_logs_user_id ON activity_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_activity_logs_created_at ON activity_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_activity_logs_process ON activity_logs(activity_process_id);
 CREATE INDEX IF NOT EXISTS idx_activity_logs_event ON activity_logs(activity_event_id);
+
+-- ============================================
+-- Status Types Table
+-- ============================================
+CREATE TABLE IF NOT EXISTS status_types (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    status_type_name VARCHAR(100) NOT NULL UNIQUE,
+    enabled BOOLEAN DEFAULT true NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_status_types_name ON status_types(status_type_name);
+
+-- ============================================
+-- Statuses Table
+-- ============================================
+CREATE TABLE IF NOT EXISTS statuses (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    status_name VARCHAR(100) NOT NULL,
+    status_type_id UUID NOT NULL REFERENCES status_types(id),
+    enabled BOOLEAN DEFAULT true NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(status_type_id, status_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_statuses_type ON statuses(status_type_id);
+CREATE INDEX IF NOT EXISTS idx_statuses_name ON statuses(status_name);
