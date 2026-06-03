@@ -292,3 +292,50 @@ CREATE TABLE IF NOT EXISTS payment_methods (
 
 CREATE INDEX IF NOT EXISTS idx_payment_methods_name ON payment_methods(payment_method_name);
 CREATE INDEX IF NOT EXISTS idx_payment_methods_enabled ON payment_methods(enabled);
+
+-- ============================================
+-- Purchase Orders Table
+-- ============================================
+CREATE TABLE IF NOT EXISTS purchase_orders (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    order_number VARCHAR(30) NOT NULL UNIQUE,
+    supplier_id UUID NOT NULL REFERENCES suppliers(id),
+    company_store_id UUID NOT NULL REFERENCES company_stores(id),
+    payment_method_id UUID NOT NULL REFERENCES payment_methods(id),
+    status_id UUID NOT NULL REFERENCES statuses(id),
+    comments VARCHAR(500),
+    enabled BOOLEAN DEFAULT true NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_po_order_number ON purchase_orders(order_number);
+CREATE INDEX IF NOT EXISTS idx_po_supplier ON purchase_orders(supplier_id);
+CREATE INDEX IF NOT EXISTS idx_po_store ON purchase_orders(company_store_id);
+CREATE INDEX IF NOT EXISTS idx_po_payment_method ON purchase_orders(payment_method_id);
+CREATE INDEX IF NOT EXISTS idx_po_status ON purchase_orders(status_id);
+CREATE INDEX IF NOT EXISTS idx_po_enabled ON purchase_orders(enabled);
+CREATE INDEX IF NOT EXISTS idx_po_created_at ON purchase_orders(created_at);
+
+-- ============================================
+-- Purchase Order Details Table
+-- ============================================
+CREATE TABLE IF NOT EXISTS purchase_order_details (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    purchase_order_id UUID NOT NULL REFERENCES purchase_orders(id),
+    product_id UUID NOT NULL REFERENCES products(id),
+    quantity INTEGER NOT NULL CHECK (quantity > 0),
+    unit_price DECIMAL(12,2) NOT NULL CHECK (unit_price >= 0),
+    total DECIMAL(12,2) NOT NULL CHECK (total >= 0),
+    received_quantity INTEGER NOT NULL DEFAULT 0 CHECK (received_quantity >= 0),
+    comments VARCHAR(500),
+    status_id UUID NOT NULL REFERENCES statuses(id),
+    enabled BOOLEAN DEFAULT true NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_pod_order ON purchase_order_details(purchase_order_id);
+CREATE INDEX IF NOT EXISTS idx_pod_product ON purchase_order_details(product_id);
+CREATE INDEX IF NOT EXISTS idx_pod_status ON purchase_order_details(status_id);
+CREATE INDEX IF NOT EXISTS idx_pod_enabled ON purchase_order_details(enabled);

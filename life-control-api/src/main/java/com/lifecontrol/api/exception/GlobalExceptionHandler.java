@@ -26,6 +26,10 @@ import com.lifecontrol.api.measureunit.exception.DuplicateMeasureUnitException;
 import com.lifecontrol.api.status.exception.StatusTypeNotFoundException;
 import com.lifecontrol.api.paymentmethod.exception.DuplicatePaymentMethodException;
 import com.lifecontrol.api.paymentmethod.exception.PaymentMethodNotFoundException;
+import com.lifecontrol.api.purchaseorder.exception.DuplicatePurchaseOrderException;
+import com.lifecontrol.api.purchaseorder.exception.InvalidStatusTransitionException;
+import com.lifecontrol.api.purchaseorder.exception.PurchaseOrderDetailNotFoundException;
+import com.lifecontrol.api.purchaseorder.exception.PurchaseOrderNotFoundException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderConflictException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderConnectionException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderNotFoundException;
@@ -264,6 +268,54 @@ public class GlobalExceptionHandler {
                 getCorrelationId()
         );
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    }
+
+    @ExceptionHandler(PurchaseOrderNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handlePurchaseOrderNotFound(PurchaseOrderNotFoundException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.NOT_FOUND.value(),
+                ex.getMessage(),
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
+        );
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    }
+
+    @ExceptionHandler(PurchaseOrderDetailNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handlePurchaseOrderDetailNotFound(PurchaseOrderDetailNotFoundException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.NOT_FOUND.value(),
+                ex.getMessage(),
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
+        );
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    }
+
+    @ExceptionHandler(InvalidStatusTransitionException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidStatusTransition(InvalidStatusTransitionException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.CONFLICT.value(),
+                ex.getMessage(),
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
+        );
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
+    }
+
+    @ExceptionHandler(DuplicatePurchaseOrderException.class)
+    public ResponseEntity<ErrorResponse> handleDuplicatePurchaseOrder(DuplicatePurchaseOrderException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.CONFLICT.value(),
+                ex.getMessage(),
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
+        );
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
     }
 
     @ExceptionHandler(DuplicatePaymentMethodException.class)
