@@ -21,6 +21,8 @@ import com.lifecontrol.api.supplier.exception.SupplierNotFoundException;
 import com.lifecontrol.api.status.exception.DuplicateStatusException;
 import com.lifecontrol.api.status.exception.DuplicateStatusTypeException;
 import com.lifecontrol.api.status.exception.StatusNotFoundException;
+import com.lifecontrol.api.measureunit.exception.MeasureUnitNotFoundException;
+import com.lifecontrol.api.measureunit.exception.DuplicateMeasureUnitException;
 import com.lifecontrol.api.status.exception.StatusTypeNotFoundException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderConflictException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderConnectionException;
@@ -296,6 +298,30 @@ public class GlobalExceptionHandler {
                 getCorrelationId()
         );
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    }
+
+    @ExceptionHandler(MeasureUnitNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleMeasureUnitNotFound(MeasureUnitNotFoundException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.NOT_FOUND.value(),
+                ex.getMessage(),
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
+        );
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    }
+
+    @ExceptionHandler(DuplicateMeasureUnitException.class)
+    public ResponseEntity<ErrorResponse> handleDuplicateMeasureUnit(DuplicateMeasureUnitException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.CONFLICT.value(),
+                ex.getMessage(),
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
+        );
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
     }
 
     @ExceptionHandler(DuplicateStatusException.class)

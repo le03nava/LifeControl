@@ -258,3 +258,21 @@ CREATE TABLE IF NOT EXISTS statuses (
 
 CREATE INDEX IF NOT EXISTS idx_statuses_type ON statuses(status_type_id);
 CREATE INDEX IF NOT EXISTS idx_statuses_name ON statuses(status_name);
+
+-- ============================================
+-- Measure Units Table
+-- ============================================
+CREATE TABLE IF NOT EXISTS measure_units (
+    id UUID PRIMARY KEY,
+    measure_unit_name VARCHAR(100) NOT NULL,
+    measure_unit_short_name VARCHAR(10) NOT NULL,
+    unit_type VARCHAR(20) NOT NULL,
+    sat_code VARCHAR(5) NOT NULL UNIQUE,
+    description VARCHAR(255),
+    enabled BOOLEAN DEFAULT true NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_measure_units_sat_code ON measure_units(sat_code);
+CREATE INDEX IF NOT EXISTS idx_measure_units_type ON measure_units(unit_type);

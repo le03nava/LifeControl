@@ -73,6 +73,9 @@ public class CacheConfig {
                 .withCacheConfiguration("statuses",
                         RedisCacheConfiguration.defaultCacheConfig()
                                 .entryTtl(Duration.ofHours(1)))
+                .withCacheConfiguration("measureUnits",
+                        RedisCacheConfiguration.defaultCacheConfig()
+                                .entryTtl(Duration.ofHours(1)))
                 .build();
     }
 
@@ -92,7 +95,8 @@ public class CacheConfig {
                 new ConcurrentMapCache("companyRegions"),
                 new ConcurrentMapCache("companyZones"),
                 new ConcurrentMapCache("statusTypes"),
-                new ConcurrentMapCache("statuses")
+                new ConcurrentMapCache("statuses"),
+                new ConcurrentMapCache("measureUnits")
         ));
         return cacheManager;
     }
