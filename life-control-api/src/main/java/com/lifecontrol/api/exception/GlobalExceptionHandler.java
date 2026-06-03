@@ -18,6 +18,10 @@ import com.lifecontrol.api.product.supplier.exception.DuplicateProductSupplierEx
 import com.lifecontrol.api.product.supplier.exception.ProductSupplierNotFoundException;
 import com.lifecontrol.api.supplier.exception.DuplicateSupplierException;
 import com.lifecontrol.api.supplier.exception.SupplierNotFoundException;
+import com.lifecontrol.api.status.exception.DuplicateStatusException;
+import com.lifecontrol.api.status.exception.DuplicateStatusTypeException;
+import com.lifecontrol.api.status.exception.StatusNotFoundException;
+import com.lifecontrol.api.status.exception.StatusTypeNotFoundException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderConflictException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderConnectionException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderNotFoundException;
@@ -248,6 +252,54 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(DuplicateCompanyCountryException.class)
     public ResponseEntity<ErrorResponse> handleDuplicateCompanyCountry(DuplicateCompanyCountryException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.CONFLICT.value(),
+                ex.getMessage(),
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
+        );
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
+    }
+
+    @ExceptionHandler(StatusTypeNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleStatusTypeNotFound(StatusTypeNotFoundException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.NOT_FOUND.value(),
+                ex.getMessage(),
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
+        );
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    }
+
+    @ExceptionHandler(DuplicateStatusTypeException.class)
+    public ResponseEntity<ErrorResponse> handleDuplicateStatusType(DuplicateStatusTypeException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.CONFLICT.value(),
+                ex.getMessage(),
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
+        );
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
+    }
+
+    @ExceptionHandler(StatusNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleStatusNotFound(StatusNotFoundException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.NOT_FOUND.value(),
+                ex.getMessage(),
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
+        );
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    }
+
+    @ExceptionHandler(DuplicateStatusException.class)
+    public ResponseEntity<ErrorResponse> handleDuplicateStatus(DuplicateStatusException ex) {
         ErrorResponse error = new ErrorResponse(
                 HttpStatus.CONFLICT.value(),
                 ex.getMessage(),

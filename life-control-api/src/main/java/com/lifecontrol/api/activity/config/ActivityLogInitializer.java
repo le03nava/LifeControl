@@ -23,7 +23,7 @@ public class ActivityLogInitializer implements ApplicationRunner {
     private static final Logger log = LoggerFactory.getLogger(ActivityLogInitializer.class);
 
     private static final List<String> PROCESSES = List.of(
-            "COMPANY", "ORDER", "INVENTORY", "PRODUCT", "NOTIFICATION", "AUTH", "SECURITY"
+            "COMPANY", "ORDER", "INVENTORY", "PRODUCT", "NOTIFICATION", "AUTH", "SECURITY", "STATUS"
     );
 
     private static final List<String> EVENTS = List.of(
