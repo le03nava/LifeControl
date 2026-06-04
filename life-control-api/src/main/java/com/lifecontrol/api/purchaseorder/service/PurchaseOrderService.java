@@ -124,7 +124,11 @@ public class PurchaseOrderService {
         var supplier = validateSupplierExists(request.supplierId());
         var store = validateCompanyStoreExists(request.companyStoreId());
         var paymentMethod = validatePaymentMethodExists(request.paymentMethodId());
-        var status = validateStatusExistsAndType(request.statusId(), "PURCHASE_ORDER");
+        var status = request.statusId() != null
+                ? validateStatusExistsAndType(request.statusId(), "PURCHASE_ORDER")
+                : statusRepository.findByTypeNameAndStatusName("PURCHASE_ORDER", "Draft")
+                        .orElseThrow(() -> new StatusNotFoundException(
+                                "Default status 'Draft' not found for PURCHASE_ORDER type"));
 
         var orderNumber = generateOrderNumber();
 
@@ -176,7 +180,9 @@ public class PurchaseOrderService {
         var supplier = validateSupplierExists(request.supplierId());
         var store = validateCompanyStoreExists(request.companyStoreId());
         var paymentMethod = validatePaymentMethodExists(request.paymentMethodId());
-        var status = validateStatusExistsAndType(request.statusId(), "PURCHASE_ORDER");
+        var status = request.statusId() != null
+                ? validateStatusExistsAndType(request.statusId(), "PURCHASE_ORDER")
+                : po.getStatus();
 
         po.setSupplier(supplier);
         po.setCompanyStore(store);
