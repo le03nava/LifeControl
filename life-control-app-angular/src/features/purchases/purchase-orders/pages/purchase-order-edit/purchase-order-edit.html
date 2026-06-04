@@ -78,11 +78,10 @@
       >
         @if (saving()) {
           <mat-icon fontIcon="hourglass_empty" />
-          Guardando...
         } @else {
           <mat-icon fontIcon="save" />
-          {{ isEditMode() ? 'Actualizar Orden' : 'Crear Orden' }}
         }
+        {{ saving() ? 'Guardando...' : (isEditMode() ? 'Actualizar Orden' : 'Crear Orden') }}
       </button>
     </div>
   </form>

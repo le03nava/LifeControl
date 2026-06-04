@@ -15,7 +15,6 @@ import {
   ReactiveFormsModule,
 } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
-import { DatePipe } from '@angular/common';
 import { ConfigService } from '@app/services/config.service';
 import { SupplierService } from '@features/products/suppliers/data/supplier.service';
 import { CompanyService } from '@features/companies/companies/data/company.service';
@@ -56,7 +55,6 @@ interface DropdownOption {
   standalone: true,
   imports: [
     ReactiveFormsModule,
-    DatePipe,
     MatCardModule,
     MatFormFieldModule,
     MatInputModule,
