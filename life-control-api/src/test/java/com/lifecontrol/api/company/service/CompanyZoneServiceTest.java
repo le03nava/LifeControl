@@ -17,6 +17,7 @@ import com.lifecontrol.api.company.repository.CompanyCountryRepository;
 import com.lifecontrol.api.company.repository.CompanyRegionRepository;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.company.repository.CompanyZoneRepository;
+import com.lifecontrol.api.company.event.CompanyZoneCreatedEvent;
 import com.lifecontrol.api.country.model.Country;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -26,6 +27,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -51,6 +53,8 @@ class CompanyZoneServiceTest {
     private CompanyCountryRepository companyCountryRepository;
     @Mock
     private CurrentUserContext currentUserContext;
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
     private CompanyZoneService companyZoneService;
@@ -300,9 +304,8 @@ class CompanyZoneServiceTest {
             assertThat(result.zoneName()).isEqualTo("Centro");
             assertThat(result.enabled()).isTrue();
             verify(companyZoneRepository).save(any(CompanyZone.class));
+            verify(eventPublisher).publishEvent(any(CompanyZoneCreatedEvent.class));
         }
-
-        @Test
         @DisplayName("should throw CompanyNotFoundException when company not found")
         void createZone_CompanyNotFound_ThrowsException() {
             // Arrange

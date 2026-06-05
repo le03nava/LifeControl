@@ -13,6 +13,7 @@ import com.lifecontrol.api.company.model.CompanyRegion;
 import com.lifecontrol.api.company.repository.CompanyCountryRepository;
 import com.lifecontrol.api.company.repository.CompanyRegionRepository;
 import com.lifecontrol.api.company.repository.CompanyRepository;
+import com.lifecontrol.api.company.event.CompanyRegionCreatedEvent;
 import com.lifecontrol.api.country.model.Country;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -22,6 +23,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -45,6 +47,8 @@ class CompanyRegionServiceTest {
     private CompanyCountryRepository companyCountryRepository;
     @Mock
     private CurrentUserContext currentUserContext;
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
     private CompanyRegionService companyRegionService;
@@ -281,6 +285,7 @@ class CompanyRegionServiceTest {
             assertThat(result.regionName()).isEqualTo("Norte");
             assertThat(result.enabled()).isTrue();
             verify(companyRegionRepository).save(any(CompanyRegion.class));
+            verify(eventPublisher).publishEvent(any(CompanyRegionCreatedEvent.class));
         }
 
         @Test
