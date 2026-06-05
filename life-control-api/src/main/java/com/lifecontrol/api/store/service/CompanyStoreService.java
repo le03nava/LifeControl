@@ -15,6 +15,7 @@ import com.lifecontrol.api.country.repository.CountryRepository;
 import com.lifecontrol.api.store.dto.CompanyStoreResponse;
 import com.lifecontrol.api.store.dto.CreateCompanyStoreRequest;
 import com.lifecontrol.api.store.dto.UpdateCompanyStoreRequest;
+import com.lifecontrol.api.store.event.CompanyStoreCreatedEvent;
 import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.exception.DuplicateCompanyStoreException;
 import com.lifecontrol.api.store.model.CompanyStore;
@@ -22,6 +23,7 @@ import com.lifecontrol.api.store.model.CompanyStoreAddress;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,6 +42,7 @@ public class CompanyStoreService {
     private final CompanyRepository companyRepository;
     private final CountryRepository countryRepository;
     private final CurrentUserContext currentUserContext;
+    private final ApplicationEventPublisher eventPublisher;
 
     public CompanyStoreService(CompanyStoreRepository companyStoreRepository,
                                CompanyZoneRepository companyZoneRepository,
@@ -47,7 +50,8 @@ public class CompanyStoreService {
                                CompanyCountryRepository companyCountryRepository,
                                CompanyRepository companyRepository,
                                CountryRepository countryRepository,
-                               CurrentUserContext currentUserContext) {
+                               CurrentUserContext currentUserContext,
+                               ApplicationEventPublisher eventPublisher) {
         this.companyStoreRepository = companyStoreRepository;
         this.companyZoneRepository = companyZoneRepository;
         this.companyRegionRepository = companyRegionRepository;
@@ -55,6 +59,7 @@ public class CompanyStoreService {
         this.companyRepository = companyRepository;
         this.countryRepository = countryRepository;
         this.currentUserContext = currentUserContext;
+        this.eventPublisher = eventPublisher;
     }
 
     private CompanyZone resolveCompanyZone(UUID companyId, UUID companyCountryId, UUID regionId, UUID zoneId) {
@@ -136,6 +141,8 @@ public class CompanyStoreService {
                 .build();
 
         var saved = companyStoreRepository.save(store);
+        eventPublisher.publishEvent(new CompanyStoreCreatedEvent(
+                this, saved.getId(), companyId, saved.getStoreName()));
         logger.info("CompanyStore created: name={}, zoneId={}", saved.getStoreName(), zone.getId());
         return toResponse(saved);
     }

@@ -4,6 +4,7 @@ import com.lifecontrol.api.company.event.CompanyCountryCreatedEvent;
 import com.lifecontrol.api.company.event.CompanyCreatedEvent;
 import com.lifecontrol.api.company.event.CompanyRegionCreatedEvent;
 import com.lifecontrol.api.company.event.CompanyZoneCreatedEvent;
+import com.lifecontrol.api.store.event.CompanyStoreCreatedEvent;
 import com.lifecontrol.api.usersadmin.identity.IdentityProvider;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderException;
 import org.slf4j.Logger;
@@ -40,6 +41,10 @@ public class KeycloakGroupEventListener {
     private static final String ZONE_GROUP_PREFIX = "lc-company-zone-";
     private static final String ZONE_ROLE_NAME = "lc-company-zone";
     private static final String ZONE_CLIENT_ID = "life-control-client";
+
+    private static final String STORE_GROUP_PREFIX = "lc-company-store-";
+    private static final String STORE_ROLE_NAME = "lc-company-store";
+    private static final String STORE_CLIENT_ID = "life-control-client";
 
     private final IdentityProvider identityProvider;
 
@@ -115,6 +120,24 @@ public class KeycloakGroupEventListener {
         } catch (IdentityProviderException e) {
             logger.warn("Failed to create Keycloak group for company-zone: name={}, id={}, error={}",
                     groupName, event.getCompanyZoneId(), e.getMessage());
+        }
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onCompanyStoreCreated(CompanyStoreCreatedEvent event) {
+        var groupName = STORE_GROUP_PREFIX + sanitizeGroupName(event.getStoreName());
+        try {
+            identityProvider.createGroupWithRole(
+                    groupName,
+                    Map.of("company_store_id", List.of(event.getCompanyStoreId().toString())),
+                    STORE_ROLE_NAME,
+                    STORE_CLIENT_ID
+            );
+            logger.info("Keycloak group created for company-store: name={}, id={}",
+                    groupName, event.getCompanyStoreId());
+        } catch (IdentityProviderException e) {
+            logger.warn("Failed to create Keycloak group for company-store: name={}, id={}, error={}",
+                    groupName, event.getCompanyStoreId(), e.getMessage());
         }
     }
 

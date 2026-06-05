@@ -4,6 +4,7 @@ import com.lifecontrol.api.company.event.CompanyCountryCreatedEvent;
 import com.lifecontrol.api.company.event.CompanyCreatedEvent;
 import com.lifecontrol.api.company.event.CompanyRegionCreatedEvent;
 import com.lifecontrol.api.company.event.CompanyZoneCreatedEvent;
+import com.lifecontrol.api.store.event.CompanyStoreCreatedEvent;
 import com.lifecontrol.api.usersadmin.identity.IdentityProvider;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderConnectionException;
 import org.junit.jupiter.api.BeforeEach;
@@ -394,6 +395,96 @@ class KeycloakGroupEventListenerTest {
                     "lc-company-zone-zona_a",
                     Map.of("company_zone_id", List.of(companyZoneUuid.toString())),
                     "lc-company-zone",
+                    "life-control-client"
+            );
+        }
+    }
+
+    @Nested
+    @DisplayName("onCompanyStoreCreated")
+    class OnCompanyStoreCreatedTests {
+
+        private final UUID companyStoreUuid = UUID.randomUUID();
+        private final UUID companyUuid = UUID.randomUUID();
+
+        @Test
+        @DisplayName("should create company-store group with sanitized name and attributes")
+        void shouldCreateCompanyStoreGroup() {
+            var event = new CompanyStoreCreatedEvent(this, companyStoreUuid, companyUuid, "Main Store");
+
+            listener.onCompanyStoreCreated(event);
+
+            verify(identityProvider).createGroupWithRole(
+                    "lc-company-store-main_store",
+                    Map.of("company_store_id", List.of(companyStoreUuid.toString())),
+                    "lc-company-store",
+                    "life-control-client"
+            );
+        }
+
+        @Test
+        @DisplayName("should sanitize special characters in store name")
+        void shouldSanitizeSpecialCharacters() {
+            var event = new CompanyStoreCreatedEvent(this, companyStoreUuid, companyUuid, "Mi Tienda #1!");
+
+            listener.onCompanyStoreCreated(event);
+
+            verify(identityProvider).createGroupWithRole(
+                    "lc-company-store-mi_tienda__1_",
+                    Map.of("company_store_id", List.of(companyStoreUuid.toString())),
+                    "lc-company-store",
+                    "life-control-client"
+            );
+        }
+
+        @Test
+        @DisplayName("should handle underscores and hyphens in store name")
+        void shouldHandleUnderscoresAndHyphens() {
+            var event = new CompanyStoreCreatedEvent(this, companyStoreUuid, companyUuid, "Store-North_test");
+
+            listener.onCompanyStoreCreated(event);
+
+            verify(identityProvider).createGroupWithRole(
+                    "lc-company-store-store-north_test",
+                    Map.of("company_store_id", List.of(companyStoreUuid.toString())),
+                    "lc-company-store",
+                    "life-control-client"
+            );
+        }
+
+        @Test
+        @DisplayName("should lowercase store name")
+        void shouldLowercaseStoreName() {
+            var event = new CompanyStoreCreatedEvent(this, companyStoreUuid, companyUuid, "MAIN STORE");
+
+            listener.onCompanyStoreCreated(event);
+
+            verify(identityProvider).createGroupWithRole(
+                    "lc-company-store-main_store",
+                    Map.of("company_store_id", List.of(companyStoreUuid.toString())),
+                    "lc-company-store",
+                    "life-control-client"
+            );
+        }
+
+        @Test
+        @DisplayName("should not re-throw when group creation fails")
+        void shouldNotRethrowOnFailure() {
+            var event = new CompanyStoreCreatedEvent(this, companyStoreUuid, companyUuid, "Main Store");
+            doThrow(new IdentityProviderConnectionException("Keycloak unavailable"))
+                    .when(identityProvider).createGroupWithRole(
+                            "lc-company-store-main_store",
+                            Map.of("company_store_id", List.of(companyStoreUuid.toString())),
+                            "lc-company-store",
+                            "life-control-client");
+
+            // Should not throw
+            listener.onCompanyStoreCreated(event);
+
+            verify(identityProvider).createGroupWithRole(
+                    "lc-company-store-main_store",
+                    Map.of("company_store_id", List.of(companyStoreUuid.toString())),
+                    "lc-company-store",
                     "life-control-client"
             );
         }

@@ -18,12 +18,14 @@ import com.lifecontrol.api.country.repository.CountryRepository;
 import com.lifecontrol.api.store.dto.CompanyStoreResponse;
 import com.lifecontrol.api.store.dto.CreateCompanyStoreRequest;
 import com.lifecontrol.api.store.dto.UpdateCompanyStoreRequest;
+import com.lifecontrol.api.store.event.CompanyStoreCreatedEvent;
 import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.exception.DuplicateCompanyStoreException;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.model.CompanyStoreAddress;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import org.junit.jupiter.api.BeforeEach;
+import org.springframework.context.ApplicationEventPublisher;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -60,6 +62,8 @@ class CompanyStoreServiceTest {
     private CountryRepository countryRepository;
     @Mock
     private CurrentUserContext currentUserContext;
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
     private CompanyStoreService companyStoreService;
@@ -335,6 +339,7 @@ class CompanyStoreServiceTest {
             assertThat(result.streetNumber()).isEqualTo("456");
             assertThat(result.enabled()).isTrue();
             verify(companyStoreRepository).save(any(CompanyStore.class));
+            verify(eventPublisher).publishEvent(any(CompanyStoreCreatedEvent.class));
         }
 
         @Test
@@ -358,6 +363,7 @@ class CompanyStoreServiceTest {
             assertThat(result.addressId()).isNull();
             assertThat(result.enabled()).isTrue();
             verify(companyStoreRepository).save(any(CompanyStore.class));
+            verify(eventPublisher).publishEvent(any(CompanyStoreCreatedEvent.class));
         }
 
         @Test
@@ -374,6 +380,7 @@ class CompanyStoreServiceTest {
                     companyId, companyCountryId, regionId, zoneId, createWithAddressRequest))
                     .isInstanceOf(DuplicateCompanyStoreException.class);
             verify(companyStoreRepository, never()).save(any());
+            verify(eventPublisher, never()).publishEvent(any());
         }
 
         @Test
@@ -393,6 +400,7 @@ class CompanyStoreServiceTest {
                     companyId, companyCountryId, regionId, zoneId, createWithAddressRequest))
                     .isInstanceOf(CompanyZoneNotFoundException.class);
             verify(companyStoreRepository, never()).save(any());
+            verify(eventPublisher, never()).publishEvent(any());
         }
     }
 
