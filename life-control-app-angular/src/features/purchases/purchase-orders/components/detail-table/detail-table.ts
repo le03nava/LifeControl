@@ -11,6 +11,7 @@ import { MatTableModule } from '@angular/material/table';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatSelectModule } from '@angular/material/select';
 import { MatInputModule } from '@angular/material/input';
+import { MatAutocompleteModule } from '@angular/material/autocomplete';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
@@ -45,6 +46,7 @@ export interface DetailTableRow {
     MatFormFieldModule,
     MatSelectModule,
     MatInputModule,
+    MatAutocompleteModule,
     MatButtonModule,
     MatIconModule,
     MatTooltipModule,
@@ -60,9 +62,9 @@ export class DetailTable {
   /** Whether the parent order is in Draft status (mutation guard). */
   readonly isDraft = input<boolean>(false);
 
-  /** Available products for the add-row product dropdown. */
+  /** Available products for the add-row product autocomplete. */
   readonly availableProducts = input.required<
-    { id: string; name: string }[]
+    { id: string; name: string; sku: string }[]
   >();
 
   /** Emits the full updated items array after any add or remove. */
@@ -72,6 +74,20 @@ export class DetailTable {
   readonly newProductId = signal('');
   readonly newQuantity = signal(1);
   readonly newUnitPrice = signal(0);
+  readonly searchQuery = signal('');
+  readonly selectedProductName = signal('');
+
+  /** Products filtered by the local search query (client-side on the already supplier-filtered list). */
+  readonly filteredProducts = computed(() => {
+    const query = this.searchQuery().toLowerCase();
+    const products = this.availableProducts();
+    if (!query) return products;
+    return products.filter(
+      (p) =>
+        p.name.toLowerCase().includes(query) ||
+        p.sku.toLowerCase().includes(query),
+    );
+  });
 
   // ─── Computed ──────────────────────────────────────────
   readonly displayedColumns: string[] = [
@@ -135,6 +151,12 @@ export class DetailTable {
 
   onNewProductChange(value: string): void {
     this.newProductId.set(value);
+    const product = this.availableProducts().find((p) => p.id === value);
+    this.searchQuery.set(product?.name ?? '');
+  }
+
+  onSearchChange(value: string): void {
+    this.searchQuery.set(value);
   }
 
   onNewQuantityChange(value: number): void {

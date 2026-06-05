@@ -10,7 +10,6 @@ import {
 import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { map } from 'rxjs/operators';
 import {
   NonNullableFormBuilder,
   FormGroup,
@@ -93,11 +92,29 @@ export class PurchaseOrderEdit implements OnInit {
   // ─── Line items ────────────────────────────────────────
   readonly lineItems = signal<DetailTableRow[]>([]);
 
-  // Products for detail-table dropdown
-  readonly allProducts = signal<{ id: string; name: string }[]>([]);
+  /** Products filtered by the selected supplier, passed to DetailTable. */
+  readonly supplierProducts = signal<{ id: string; name: string; sku: string }[]>([]);
 
   ngOnInit(): void {
-    this.loadProducts();
+    // Watch supplier changes to load associated products
+    this.headerForm().controls.supplierId.valueChanges
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((supplierId) => {
+        if (supplierId) {
+          this.productService.getProductsBySupplier(supplierId).subscribe({
+            next: (products) =>
+              this.supplierProducts.set(
+                products.map((p) => ({
+                  id: p.productId,
+                  name: p.productName,
+                  sku: p.sku,
+                })),
+              ),
+          });
+        } else {
+          this.supplierProducts.set([]);
+        }
+      });
 
     const id = this.orderId();
     if (id) {
@@ -108,20 +125,6 @@ export class PurchaseOrderEdit implements OnInit {
   // ══════════════════════════════════════════════════════════
   // DATA LOADING
   // ══════════════════════════════════════════════════════════
-
-  private loadProducts(): void {
-    this.productService
-      .getProducts(0, 1000)
-      .pipe(
-        map((p) =>
-          p.content.map((prod) => ({ id: prod.id, name: prod.name })),
-        ),
-        takeUntilDestroyed(this.destroyRef),
-      )
-      .subscribe({
-        next: (list) => this.allProducts.set(list),
-      });
-  }
 
   private loadOrder(id: string): void {
     this.purchaseOrderService

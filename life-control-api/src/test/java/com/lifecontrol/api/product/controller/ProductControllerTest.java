@@ -8,6 +8,7 @@ import com.lifecontrol.api.product.dto.ProductResponse;
 import com.lifecontrol.api.product.exception.DuplicateProductException;
 import com.lifecontrol.api.product.exception.ProductNotFoundException;
 import com.lifecontrol.api.product.service.ProductService;
+import com.lifecontrol.api.product.supplier.dto.SupplierProductResponse;
 import com.lifecontrol.api.product.supplier.service.ProductSupplierService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -237,6 +238,68 @@ class ProductControllerTest {
                     .andExpect(jsonPath("$.content").isEmpty())
                     .andExpect(jsonPath("$.totalElements").value(0))
                     .andExpect(jsonPath("$.totalPages").value(0));
+        }
+    }
+
+    // ─────────────────────────────────────────────
+    // GET /api/products/by-supplier/{supplierId}
+    // ─────────────────────────────────────────────
+    @Nested
+    @DisplayName("GET /api/products/by-supplier/{supplierId}")
+    class GetProductsBySupplierTests {
+
+        private UUID supplierId;
+
+        @BeforeEach
+        void setUp() {
+            supplierId = UUID.randomUUID();
+        }
+
+        @Test
+        @DisplayName("should return 200 with list of products for supplier")
+        void getProductsBySupplier_Success() throws Exception {
+            var products = List.of(
+                    new SupplierProductResponse(productId, "Test Product", "SKU-001"),
+                    new SupplierProductResponse(UUID.randomUUID(), "Another Product", "SKU-002")
+            );
+            when(productSupplierService.listProductsBySupplier(supplierId, null))
+                    .thenReturn(products);
+
+            mockMvc.perform(get("/api/products/by-supplier/{supplierId}", supplierId))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$").isArray())
+                    .andExpect(jsonPath("$[0].productId").value(productId.toString()))
+                    .andExpect(jsonPath("$[0].productName").value("Test Product"))
+                    .andExpect(jsonPath("$[0].sku").value("SKU-001"))
+                    .andExpect(jsonPath("$[1].productName").value("Another Product"));
+        }
+
+        @Test
+        @DisplayName("should return 200 with empty list when supplier has no products")
+        void getProductsBySupplier_EmptyList() throws Exception {
+            when(productSupplierService.listProductsBySupplier(supplierId, null))
+                    .thenReturn(List.of());
+
+            mockMvc.perform(get("/api/products/by-supplier/{supplierId}", supplierId))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$").isArray())
+                    .andExpect(jsonPath("$").isEmpty());
+        }
+
+        @Test
+        @DisplayName("should filter by search term when provided")
+        void getProductsBySupplier_WithSearch() throws Exception {
+            var products = List.of(
+                    new SupplierProductResponse(productId, "Test Product", "SKU-001")
+            );
+            when(productSupplierService.listProductsBySupplier(supplierId, "Test"))
+                    .thenReturn(products);
+
+            mockMvc.perform(get("/api/products/by-supplier/{supplierId}", supplierId)
+                            .param("search", "Test"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$").isArray())
+                    .andExpect(jsonPath("$[0].productName").value("Test Product"));
         }
     }
 

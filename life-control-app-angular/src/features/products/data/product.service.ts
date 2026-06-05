@@ -5,6 +5,12 @@ import { catchError, finalize } from 'rxjs/operators';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { ConfigService } from '@app/services/config.service';
 
+export interface SupplierProduct {
+  productId: string;
+  productName: string;
+  sku: string;
+}
+
 @Injectable({
   providedIn: 'root',
 })
@@ -40,6 +46,14 @@ export class ProductService {
 
   getProductById(id: string): Observable<Product> {
     return this.http.get<Product>(`${this.apiUrl}/${id}`);
+  }
+
+  getProductsBySupplier(supplierId: string, search?: string): Observable<SupplierProduct[]> {
+    let params = new HttpParams();
+    if (search) {
+      params = params.set('search', search);
+    }
+    return this.http.get<SupplierProduct[]>(`${this.apiUrl}/by-supplier/${supplierId}`, { params });
   }
 
   createProduct(data: Product): Observable<Product> {

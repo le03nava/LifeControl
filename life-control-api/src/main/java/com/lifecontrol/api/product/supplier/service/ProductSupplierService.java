@@ -5,6 +5,7 @@ import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.repository.ProductRepository;
 import com.lifecontrol.api.product.supplier.dto.ProductSupplierRequest;
 import com.lifecontrol.api.product.supplier.dto.ProductSupplierResponse;
+import com.lifecontrol.api.product.supplier.dto.SupplierProductResponse;
 import com.lifecontrol.api.product.supplier.exception.DuplicateProductSupplierException;
 import com.lifecontrol.api.product.supplier.exception.ProductSupplierNotFoundException;
 import com.lifecontrol.api.product.supplier.model.ProductSupplier;
@@ -46,6 +47,18 @@ public class ProductSupplierService {
 
         return productSupplierRepository.findByProductId(productId).stream()
                 .map(this::toResponse)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<SupplierProductResponse> listProductsBySupplier(UUID supplierId, String search) {
+        logger.debug("Listing products for supplier {} with search: {}", supplierId, search);
+
+        return productSupplierRepository.findBySupplierIdWithSearch(supplierId, search).stream()
+                .map(ps -> new SupplierProductResponse(
+                        ps.getProduct().getId(),
+                        ps.getProduct().getName(),
+                        ps.getProduct().getSku()))
                 .toList();
     }
 

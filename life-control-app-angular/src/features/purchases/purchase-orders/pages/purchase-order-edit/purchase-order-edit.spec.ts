@@ -85,7 +85,7 @@ describe('PurchaseOrderEdit', () => {
   let component: PurchaseOrderEdit;
   let fixture: ComponentFixture<PurchaseOrderEdit>;
   let purchaseOrderService: { [K in keyof PurchaseOrderService]?: ReturnType<typeof vi.fn> };
-  let productService: { getProducts: ReturnType<typeof vi.fn> };
+  let productService: { getProductsBySupplier: ReturnType<typeof vi.fn> };
   let router: Router;
 
   // ─── Default service mocks (empty) ──────────────────────
@@ -111,7 +111,7 @@ describe('PurchaseOrderEdit', () => {
     {
       provide: ProductService,
       useValue: {
-        getProducts: vi.fn().mockReturnValue(of(emptyPage)),
+        getProductsBySupplier: vi.fn().mockReturnValue(of([])),
       },
     },
     {
@@ -205,8 +205,23 @@ describe('PurchaseOrderEdit', () => {
       expect(form.controls.paymentMethodId.value).toBe('');
     });
 
-    it('should load products for line item dropdown', () => {
-      expect(productService.getProducts).toHaveBeenCalledWith(0, 1000);
+    it('should initially have empty supplier products (no supplier selected)', () => {
+      expect(component.supplierProducts()).toEqual([]);
+    });
+
+    it('should load supplier products when supplier changes', () => {
+      const mockProducts = [
+        { productId: 'prod-1', productName: 'Widget A', sku: 'SKU-001' },
+      ];
+      productService.getProductsBySupplier = vi.fn().mockReturnValue(of(mockProducts));
+
+      const form = component.headerForm();
+      form.controls.supplierId.setValue('sup-1');
+
+      expect(productService.getProductsBySupplier).toHaveBeenCalledWith('sup-1');
+      expect(component.supplierProducts()).toEqual([
+        { id: 'prod-1', name: 'Widget A', sku: 'SKU-001' },
+      ]);
     });
 
     it('should call service.create with form data on valid save', () => {

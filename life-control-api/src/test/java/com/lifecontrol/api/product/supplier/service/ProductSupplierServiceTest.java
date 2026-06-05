@@ -5,6 +5,7 @@ import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.repository.ProductRepository;
 import com.lifecontrol.api.product.supplier.dto.ProductSupplierRequest;
 import com.lifecontrol.api.product.supplier.dto.ProductSupplierResponse;
+import com.lifecontrol.api.product.supplier.dto.SupplierProductResponse;
 import com.lifecontrol.api.product.supplier.exception.DuplicateProductSupplierException;
 import com.lifecontrol.api.product.supplier.exception.ProductSupplierNotFoundException;
 import com.lifecontrol.api.product.supplier.model.ProductSupplier;
@@ -138,6 +139,76 @@ class ProductSupplierServiceTest {
 
             assertThatThrownBy(() -> service.listSuppliersByProductId(productId))
                     .isInstanceOf(ProductNotFoundException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("listProductsBySupplier")
+    class ListProductsBySupplierTests {
+
+        @Test
+        @DisplayName("should return list of products for existing supplier")
+        void listProductsBySupplier_Success() {
+            var searchProduct = Product.builder()
+                    .id(UUID.randomUUID())
+                    .sku("SKU-002")
+                    .name("Searchable Product")
+                    .enabled(true)
+                    .build();
+
+            var searchRelation = ProductSupplier.builder()
+                    .id(UUID.randomUUID())
+                    .product(searchProduct)
+                    .supplier(testSupplier)
+                    .build();
+
+            when(productSupplierRepository.findBySupplierIdWithSearch(supplierId, null))
+                    .thenReturn(List.of(testRelation, searchRelation));
+
+            var result = service.listProductsBySupplier(supplierId, null);
+
+            assertThat(result).hasSize(2);
+            assertThat(result.get(0).productId()).isEqualTo(productId);
+            assertThat(result.get(0).productName()).isEqualTo("Test Product");
+            assertThat(result.get(0).sku()).isEqualTo("SKU-001");
+            assertThat(result.get(1).productName()).isEqualTo("Searchable Product");
+        }
+
+        @Test
+        @DisplayName("should return empty list when supplier has no products")
+        void listProductsBySupplier_EmptyList() {
+            when(productSupplierRepository.findBySupplierIdWithSearch(supplierId, null))
+                    .thenReturn(List.of());
+
+            var result = service.listProductsBySupplier(supplierId, null);
+
+            assertThat(result).isEmpty();
+        }
+
+        @Test
+        @DisplayName("should filter products by search term")
+        void listProductsBySupplier_WithSearch_ReturnsMatching() {
+            var searchProduct = Product.builder()
+                    .id(UUID.randomUUID())
+                    .sku("SKU-002")
+                    .name("Searchable Product")
+                    .enabled(true)
+                    .build();
+
+            var searchRelation = ProductSupplier.builder()
+                    .id(UUID.randomUUID())
+                    .product(searchProduct)
+                    .supplier(testSupplier)
+                    .build();
+
+            when(productSupplierRepository.findBySupplierIdWithSearch(supplierId, "Searchable"))
+                    .thenReturn(List.of(searchRelation));
+
+            var result = service.listProductsBySupplier(supplierId, "Searchable");
+
+            assertThat(result).hasSize(1);
+            assertThat(result.get(0).productName()).isEqualTo("Searchable Product");
+            assertThat(result.get(0).sku()).isEqualTo("SKU-002");
         }
     }
 

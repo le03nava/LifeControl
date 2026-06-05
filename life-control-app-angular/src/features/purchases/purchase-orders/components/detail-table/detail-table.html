@@ -78,18 +78,34 @@
     </div>
 
     <div class="add-line-item-row">
-      <!-- Product -->
+      <!-- Product (autocomplete with local search) -->
       <mat-form-field appearance="outline" subscriptSizing="dynamic">
         <mat-label>Producto</mat-label>
-        <mat-select
-          [value]="newProductId()"
-          (selectionChange)="onNewProductChange($event.value)"
+        <input
+          matInput
+          type="text"
+          [value]="searchQuery()"
+          (input)="onSearchChange(($any($event.target).value))"
+          [matAutocomplete]="auto"
           [disabled]="!isDraft()"
+          placeholder="Buscá por nombre o SKU"
+        />
+        <mat-autocomplete
+          #auto="matAutocomplete"
+          (optionSelected)="onNewProductChange($event.option.value)"
         >
-          @for (p of availableProducts(); track p.id) {
-            <mat-option [value]="p.id">{{ p.name }}</mat-option>
+          @for (p of filteredProducts(); track p.id) {
+            <mat-option [value]="p.id">
+              <span class="product-option-name">{{ p.name }}</span>
+              <span class="product-option-sku">({{ p.sku }})</span>
+            </mat-option>
           }
-        </mat-select>
+          @if (filteredProducts().length === 0 && searchQuery()) {
+            <mat-option disabled>
+              Sin resultados para "{{ searchQuery() }}"
+            </mat-option>
+          }
+        </mat-autocomplete>
       </mat-form-field>
 
       <!-- Quantity -->

@@ -85,5 +85,15 @@ table {
     button[mat-mini-fab] {
       margin-top: 4px;
     }
+
+    .product-option-name {
+      font-weight: 500;
+    }
+
+    .product-option-sku {
+      margin-inline-start: var(--space-sm);
+      font-size: 0.8em;
+      color: var(--mat-sys-on-surface-variant, #94a3b8);
+    }
   }
 }

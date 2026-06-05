@@ -5,6 +5,7 @@ import com.lifecontrol.api.product.dto.ProductResponse;
 import com.lifecontrol.api.product.service.ProductService;
 import com.lifecontrol.api.product.supplier.dto.ProductSupplierRequest;
 import com.lifecontrol.api.product.supplier.dto.ProductSupplierResponse;
+import com.lifecontrol.api.product.supplier.dto.SupplierProductResponse;
 import com.lifecontrol.api.product.supplier.service.ProductSupplierService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -40,6 +41,16 @@ public class ProductController {
             @RequestParam(required = false) String search,
             @RequestParam(defaultValue = "false") boolean includeDisabled) {
         return ResponseEntity.ok(productService.listProducts(pageable, search, includeDisabled));
+    }
+
+    @GetMapping("/by-supplier/{supplierId}")
+    @PreAuthorize("hasAnyRole('life-control-admin','life-control-country')")
+    @Operation(summary = "Get products by supplier",
+               description = "Returns all products associated with a supplier, optionally filtered by product name or SKU")
+    public ResponseEntity<List<SupplierProductResponse>> getProductsBySupplier(
+            @PathVariable UUID supplierId,
+            @RequestParam(required = false) String search) {
+        return ResponseEntity.ok(productSupplierService.listProductsBySupplier(supplierId, search));
     }
 
     @GetMapping("/{id}")

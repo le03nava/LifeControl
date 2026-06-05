@@ -190,6 +190,44 @@ public class PurchaseOrderService {
         po.setStatus(status);
         po.setComments(request.comments());
 
+        // ─── Process details (full replacement) ─────────────────────
+        if (request.details() != null) {
+            // Soft-delete existing details
+            for (var existingDetail : po.getDetails()) {
+                existingDetail.setEnabled(false);
+                detailRepository.save(existingDetail);
+            }
+            po.getDetails().clear();
+
+            if (!request.details().isEmpty()) {
+                var defaultDetailStatus = statusRepository
+                        .findByTypeNameAndStatusName("PURCHASE_ORDER_DETAIL", "Pending")
+                        .orElseThrow(() -> new StatusNotFoundException(
+                                "Default status 'Pending' not found for PURCHASE_ORDER_DETAIL type"));
+
+                for (var detailReq : request.details()) {
+                    var product = validateProductExists(detailReq.productId());
+                    var detailStatus = detailReq.statusId() != null
+                            ? validateStatusExistsAndType(detailReq.statusId(), "PURCHASE_ORDER_DETAIL")
+                            : defaultDetailStatus;
+                    var total = detailReq.unitPrice().multiply(BigDecimal.valueOf(detailReq.quantity()));
+
+                    var detail = PurchaseOrderDetail.builder()
+                            .purchaseOrder(po)
+                            .product(product)
+                            .quantity(detailReq.quantity())
+                            .unitPrice(detailReq.unitPrice())
+                            .total(total)
+                            .receivedQuantity(0)
+                            .comments(detailReq.comments())
+                            .status(detailStatus)
+                            .enabled(true)
+                            .build();
+                    detailRepository.save(detail);
+                }
+            }
+        }
+
         var updated = purchaseOrderRepository.save(po);
         return toResponse(updated);
     }

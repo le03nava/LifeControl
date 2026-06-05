@@ -46,7 +46,7 @@
     <app-detail-table
       [items]="lineItems()"
       [isDraft]="isDraft()"
-      [availableProducts]="allProducts()"
+      [availableProducts]="supplierProducts()"
       (itemsChanged)="onItemsChanged($event)"
     />
 
