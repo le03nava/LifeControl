@@ -3,6 +3,7 @@ package com.lifecontrol.api.company.service;
 import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.company.dto.CompanyCountryRequest;
 import com.lifecontrol.api.company.dto.CompanyCountryResponse;
+import com.lifecontrol.api.company.event.CompanyCountryCreatedEvent;
 import com.lifecontrol.api.company.exception.CompanyCountryNotFoundException;
 import com.lifecontrol.api.company.exception.CompanyNotFoundException;
 import com.lifecontrol.api.company.exception.DuplicateCompanyCountryException;
@@ -17,9 +18,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.util.List;
 import java.util.Optional;
@@ -42,6 +45,8 @@ class CompanyCountryServiceTest {
     private CountryRepository countryRepository;
     @Mock
     private CurrentUserContext currentUserContext;
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
     private CompanyCountryService companyCountryService;
@@ -147,6 +152,36 @@ class CompanyCountryServiceTest {
             assertThat(result.countryCode()).isEqualTo("MX");
             assertThat(result.localAlias()).isEqualTo("Oficina MX");
             verify(companyCountryRepository).save(any(CompanyCountry.class));
+            verify(eventPublisher).publishEvent(any(CompanyCountryCreatedEvent.class));
+        }
+
+        @Test
+        @DisplayName("should publish CompanyCountryCreatedEvent with correct fields")
+        void addCountryToCompany_PublishesEvent() {
+            // Arrange
+            when(companyRepository.findById(companyId)).thenReturn(Optional.of(testCompany));
+            when(countryRepository.findByCountryCode("MX")).thenReturn(Optional.of(testCountry));
+            when(companyCountryRepository.existsByCompanyIdAndCountryId(companyId, countryId)).thenReturn(false);
+            when(companyCountryRepository.save(any(CompanyCountry.class))).thenAnswer(inv -> {
+                CompanyCountry cc = inv.getArgument(0);
+                return CompanyCountry.builder()
+                        .id(companyCountryId)
+                        .company(cc.getCompany())
+                        .country(cc.getCountry())
+                        .localAlias(cc.getLocalAlias())
+                        .build();
+            });
+
+            // Act
+            companyCountryService.addCountryToCompany(companyId, testRequest);
+
+            // Assert
+            var captor = ArgumentCaptor.forClass(CompanyCountryCreatedEvent.class);
+            verify(eventPublisher).publishEvent(captor.capture());
+            var event = captor.getValue();
+            assertThat(event.getCompanyCountryId()).isEqualTo(companyCountryId);
+            assertThat(event.getCompanyId()).isEqualTo(companyId);
+            assertThat(event.getCountryName()).isEqualTo("México");
         }
 
         @Test

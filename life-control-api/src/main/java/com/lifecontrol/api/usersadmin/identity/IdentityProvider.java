@@ -60,9 +60,12 @@ public interface IdentityProvider {
 
     PageResponse<UserSearchDto> searchUsers(String query, int page, int size);
 
-    // --- Company Groups ---
-
-    void createCompanyGroup(String groupName, String companyIdAttribute);
+    // --- Groups ---
 
     boolean companyGroupExists(String groupName);
+
+    // --- Generic Group with Role ---
+
+    void createGroupWithRole(String groupName, Map<String, List<String>> attributes,
+                             String roleName, String clientId);
 }

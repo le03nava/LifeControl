@@ -3,6 +3,7 @@ package com.lifecontrol.api.company.service;
 import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.company.dto.CompanyCountryRequest;
 import com.lifecontrol.api.company.dto.CompanyCountryResponse;
+import com.lifecontrol.api.company.event.CompanyCountryCreatedEvent;
 import com.lifecontrol.api.company.exception.CompanyCountryNotFoundException;
 import com.lifecontrol.api.company.exception.CompanyNotFoundException;
 import com.lifecontrol.api.company.exception.DuplicateCompanyCountryException;
@@ -15,6 +16,7 @@ import com.lifecontrol.api.country.model.Country;
 import com.lifecontrol.api.country.repository.CountryRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,15 +32,18 @@ public class CompanyCountryService {
     private final CompanyRepository companyRepository;
     private final CountryRepository countryRepository;
     private final CurrentUserContext currentUserContext;
+    private final ApplicationEventPublisher eventPublisher;
 
     public CompanyCountryService(CompanyCountryRepository companyCountryRepository,
                                   CompanyRepository companyRepository,
                                   CountryRepository countryRepository,
-                                  CurrentUserContext currentUserContext) {
+                                  CurrentUserContext currentUserContext,
+                                  ApplicationEventPublisher eventPublisher) {
         this.companyCountryRepository = companyCountryRepository;
         this.companyRepository = companyRepository;
         this.countryRepository = countryRepository;
         this.currentUserContext = currentUserContext;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional(readOnly = true)
@@ -77,7 +82,10 @@ public class CompanyCountryService {
                 .build();
 
         CompanyCountry saved = companyCountryRepository.save(companyCountry);
-        logger.info("Country {} added to company {} successfully", request.countryCode(), companyId);
+
+        eventPublisher.publishEvent(new CompanyCountryCreatedEvent(
+                this, saved.getId(), companyId, country.getCountryName()));
+        logger.info("Country {} added to company {} successfully, event published", request.countryCode(), companyId);
 
         return toResponse(saved);
     }

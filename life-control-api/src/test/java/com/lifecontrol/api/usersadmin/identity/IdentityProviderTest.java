@@ -34,8 +34,8 @@ class IdentityProviderTest {
             "getUserAttributes",
             "updateUserAttribute",
             "deleteUserAttribute",
+            "createGroupWithRole",
             "searchUsers",
-            "createCompanyGroup",
             "companyGroupExists"
     );
 
@@ -85,13 +85,6 @@ class IdentityProviderTest {
         void getUserAttributesSignature() throws Exception {
             var method = IdentityProvider.class.getMethod("getUserAttributes", String.class);
             assertThat(method.getReturnType()).isEqualTo(Map.class);
-        }
-
-        @Test
-        @DisplayName("createCompanyGroup should accept String groupName and String companyIdAttribute")
-        void createCompanyGroupSignature() throws Exception {
-            var method = IdentityProvider.class.getMethod("createCompanyGroup", String.class, String.class);
-            assertThat(method.getReturnType()).isEqualTo(void.class);
         }
 
         @Test
