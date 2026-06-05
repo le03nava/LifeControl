@@ -31,6 +31,9 @@ import java.util.Map;
 @Component
 public class KeycloakIdentityProvider implements IdentityProvider {
 
+    private static final String COMPANY_CLIENT_ID = "life-control-client";
+    private static final String COMPANY_ROLE_NAME = "life-control-company";
+
     private final Keycloak keycloak;
     private final KeycloakAdminProperties properties;
 
@@ -409,7 +412,24 @@ public class KeycloakIdentityProvider implements IdentityProvider {
             var attrs = new HashMap<String, List<String>>();
             attrs.put("company_id", List.of(companyIdAttribute));
             groupRep.setAttributes(attrs);
-            keycloak.realm(realm()).groups().add(groupRep).close();
+
+            var response = keycloak.realm(realm()).groups().add(groupRep);
+            var location = response.getLocation();
+            if (location == null) {
+                throw new IdentityProviderConnectionException(
+                        "Failed to create company group: no Location header in response");
+            }
+            var groupId = location.getPath().substring(location.getPath().lastIndexOf('/') + 1);
+            response.close();
+
+            var clientUuid = resolveClientUuid(COMPANY_CLIENT_ID);
+            var roleRep = keycloak.realm(realm()).clients().get(clientUuid)
+                    .roles().get(COMPANY_ROLE_NAME).toRepresentation();
+            keycloak.realm(realm()).groups().group(groupId)
+                    .roles().clientLevel(clientUuid).add(List.of(roleRep));
+        } catch (NotFoundException e) {
+            throw new IdentityProviderNotFoundException(
+                    "Company role '%s' not found for client '%s'".formatted(COMPANY_ROLE_NAME, COMPANY_CLIENT_ID), e);
         } catch (ClientErrorException e) {
             if (e.getResponse().getStatus() == 409) {
                 throw new IdentityProviderConflictException(
