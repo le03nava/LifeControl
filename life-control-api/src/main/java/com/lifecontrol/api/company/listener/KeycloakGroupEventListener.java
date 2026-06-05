@@ -2,6 +2,7 @@ package com.lifecontrol.api.company.listener;
 
 import com.lifecontrol.api.company.event.CompanyCountryCreatedEvent;
 import com.lifecontrol.api.company.event.CompanyCreatedEvent;
+import com.lifecontrol.api.company.event.CompanyRegionCreatedEvent;
 import com.lifecontrol.api.usersadmin.identity.IdentityProvider;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderException;
 import org.slf4j.Logger;
@@ -30,6 +31,10 @@ public class KeycloakGroupEventListener {
     private static final String COUNTRY_GROUP_PREFIX = "lc-company-country-";
     private static final String COUNTRY_ROLE_NAME = "lc-company-country";
     private static final String COUNTRY_CLIENT_ID = "life-control-client";
+
+    private static final String REGION_GROUP_PREFIX = "lc-company-region-";
+    private static final String REGION_ROLE_NAME = "lc-company-region";
+    private static final String REGION_CLIENT_ID = "life-control-client";
 
     private final IdentityProvider identityProvider;
 
@@ -69,6 +74,24 @@ public class KeycloakGroupEventListener {
         } catch (IdentityProviderException e) {
             logger.warn("Failed to create Keycloak group for company-country: name={}, id={}, error={}",
                     groupName, event.getCompanyCountryId(), e.getMessage());
+        }
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onCompanyRegionCreated(CompanyRegionCreatedEvent event) {
+        var groupName = REGION_GROUP_PREFIX + sanitizeGroupName(event.getRegionName());
+        try {
+            identityProvider.createGroupWithRole(
+                    groupName,
+                    Map.of("company_region_id", List.of(event.getCompanyRegionId().toString())),
+                    REGION_ROLE_NAME,
+                    REGION_CLIENT_ID
+            );
+            logger.info("Keycloak group created for company-region: name={}, id={}",
+                    groupName, event.getCompanyRegionId());
+        } catch (IdentityProviderException e) {
+            logger.warn("Failed to create Keycloak group for company-region: name={}, id={}, error={}",
+                    groupName, event.getCompanyRegionId(), e.getMessage());
         }
     }
 

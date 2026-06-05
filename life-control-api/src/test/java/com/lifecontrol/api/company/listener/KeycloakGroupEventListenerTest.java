@@ -2,6 +2,7 @@ package com.lifecontrol.api.company.listener;
 
 import com.lifecontrol.api.company.event.CompanyCountryCreatedEvent;
 import com.lifecontrol.api.company.event.CompanyCreatedEvent;
+import com.lifecontrol.api.company.event.CompanyRegionCreatedEvent;
 import com.lifecontrol.api.usersadmin.identity.IdentityProvider;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderConnectionException;
 import org.junit.jupiter.api.BeforeEach;
@@ -212,6 +213,96 @@ class KeycloakGroupEventListenerTest {
                     "lc-company-country-argentina",
                     Map.of("company_country_id", List.of(companyCountryUuid.toString())),
                     "lc-company-country",
+                    "life-control-client"
+            );
+        }
+    }
+
+    @Nested
+    @DisplayName("onCompanyRegionCreated")
+    class OnCompanyRegionCreatedTests {
+
+        private final UUID companyRegionUuid = UUID.randomUUID();
+        private final UUID companyUuid = UUID.randomUUID();
+
+        @Test
+        @DisplayName("should create company-region group with sanitized name and attributes")
+        void shouldCreateCompanyRegionGroup() {
+            var event = new CompanyRegionCreatedEvent(this, companyRegionUuid, companyUuid, "Region Norte");
+
+            listener.onCompanyRegionCreated(event);
+
+            verify(identityProvider).createGroupWithRole(
+                    "lc-company-region-region_norte",
+                    Map.of("company_region_id", List.of(companyRegionUuid.toString())),
+                    "lc-company-region",
+                    "life-control-client"
+            );
+        }
+
+        @Test
+        @DisplayName("should sanitize special characters in region name")
+        void shouldSanitizeSpecialCharacters() {
+            var event = new CompanyRegionCreatedEvent(this, companyRegionUuid, companyUuid, "Región Sur Este");
+
+            listener.onCompanyRegionCreated(event);
+
+            verify(identityProvider).createGroupWithRole(
+                    "lc-company-region-regi_n_sur_este",
+                    Map.of("company_region_id", List.of(companyRegionUuid.toString())),
+                    "lc-company-region",
+                    "life-control-client"
+            );
+        }
+
+        @Test
+        @DisplayName("should handle underscores and hyphens in region name")
+        void shouldHandleUnderscoresAndHyphens() {
+            var event = new CompanyRegionCreatedEvent(this, companyRegionUuid, companyUuid, "Norte-Sur_test");
+
+            listener.onCompanyRegionCreated(event);
+
+            verify(identityProvider).createGroupWithRole(
+                    "lc-company-region-norte-sur_test",
+                    Map.of("company_region_id", List.of(companyRegionUuid.toString())),
+                    "lc-company-region",
+                    "life-control-client"
+            );
+        }
+
+        @Test
+        @DisplayName("should lowercase region name")
+        void shouldLowercaseRegionName() {
+            var event = new CompanyRegionCreatedEvent(this, companyRegionUuid, companyUuid, "ZONA NORTE");
+
+            listener.onCompanyRegionCreated(event);
+
+            verify(identityProvider).createGroupWithRole(
+                    "lc-company-region-zona_norte",
+                    Map.of("company_region_id", List.of(companyRegionUuid.toString())),
+                    "lc-company-region",
+                    "life-control-client"
+            );
+        }
+
+        @Test
+        @DisplayName("should not re-throw when group creation fails")
+        void shouldNotRethrowOnFailure() {
+            var event = new CompanyRegionCreatedEvent(this, companyRegionUuid, companyUuid, "Region Norte");
+            doThrow(new IdentityProviderConnectionException("Keycloak unavailable"))
+                    .when(identityProvider).createGroupWithRole(
+                            "lc-company-region-region_norte",
+                            Map.of("company_region_id", List.of(companyRegionUuid.toString())),
+                            "lc-company-region",
+                            "life-control-client");
+
+            // Should not throw
+            listener.onCompanyRegionCreated(event);
+
+            verify(identityProvider).createGroupWithRole(
+                    "lc-company-region-region_norte",
+                    Map.of("company_region_id", List.of(companyRegionUuid.toString())),
+                    "lc-company-region",
                     "life-control-client"
             );
         }
