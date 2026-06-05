@@ -3,6 +3,7 @@ package com.lifecontrol.api.company.listener;
 import com.lifecontrol.api.company.event.CompanyCountryCreatedEvent;
 import com.lifecontrol.api.company.event.CompanyCreatedEvent;
 import com.lifecontrol.api.company.event.CompanyRegionCreatedEvent;
+import com.lifecontrol.api.company.event.CompanyZoneCreatedEvent;
 import com.lifecontrol.api.usersadmin.identity.IdentityProvider;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderConnectionException;
 import org.junit.jupiter.api.BeforeEach;
@@ -303,6 +304,96 @@ class KeycloakGroupEventListenerTest {
                     "lc-company-region-region_norte",
                     Map.of("company_region_id", List.of(companyRegionUuid.toString())),
                     "lc-company-region",
+                    "life-control-client"
+            );
+        }
+    }
+
+    @Nested
+    @DisplayName("onCompanyZoneCreated")
+    class OnCompanyZoneCreatedTests {
+
+        private final UUID companyZoneUuid = UUID.randomUUID();
+        private final UUID companyUuid = UUID.randomUUID();
+
+        @Test
+        @DisplayName("should create company-zone group with sanitized name and attributes")
+        void shouldCreateCompanyZoneGroup() {
+            var event = new CompanyZoneCreatedEvent(this, companyZoneUuid, companyUuid, "Zona A");
+
+            listener.onCompanyZoneCreated(event);
+
+            verify(identityProvider).createGroupWithRole(
+                    "lc-company-zone-zona_a",
+                    Map.of("company_zone_id", List.of(companyZoneUuid.toString())),
+                    "lc-company-zone",
+                    "life-control-client"
+            );
+        }
+
+        @Test
+        @DisplayName("should sanitize special characters in zone name")
+        void shouldSanitizeSpecialCharacters() {
+            var event = new CompanyZoneCreatedEvent(this, companyZoneUuid, companyUuid, "Zona #1 (Sucursal)");
+
+            listener.onCompanyZoneCreated(event);
+
+            verify(identityProvider).createGroupWithRole(
+                    "lc-company-zone-zona__1__sucursal_",
+                    Map.of("company_zone_id", List.of(companyZoneUuid.toString())),
+                    "lc-company-zone",
+                    "life-control-client"
+            );
+        }
+
+        @Test
+        @DisplayName("should handle underscores and hyphens in zone name")
+        void shouldHandleUnderscoresAndHyphens() {
+            var event = new CompanyZoneCreatedEvent(this, companyZoneUuid, companyUuid, "Zona-Norte_test");
+
+            listener.onCompanyZoneCreated(event);
+
+            verify(identityProvider).createGroupWithRole(
+                    "lc-company-zone-zona-norte_test",
+                    Map.of("company_zone_id", List.of(companyZoneUuid.toString())),
+                    "lc-company-zone",
+                    "life-control-client"
+            );
+        }
+
+        @Test
+        @DisplayName("should lowercase zone name")
+        void shouldLowercaseZoneName() {
+            var event = new CompanyZoneCreatedEvent(this, companyZoneUuid, companyUuid, "ZONA CENTRAL");
+
+            listener.onCompanyZoneCreated(event);
+
+            verify(identityProvider).createGroupWithRole(
+                    "lc-company-zone-zona_central",
+                    Map.of("company_zone_id", List.of(companyZoneUuid.toString())),
+                    "lc-company-zone",
+                    "life-control-client"
+            );
+        }
+
+        @Test
+        @DisplayName("should not re-throw when group creation fails")
+        void shouldNotRethrowOnFailure() {
+            var event = new CompanyZoneCreatedEvent(this, companyZoneUuid, companyUuid, "Zona A");
+            doThrow(new IdentityProviderConnectionException("Keycloak unavailable"))
+                    .when(identityProvider).createGroupWithRole(
+                            "lc-company-zone-zona_a",
+                            Map.of("company_zone_id", List.of(companyZoneUuid.toString())),
+                            "lc-company-zone",
+                            "life-control-client");
+
+            // Should not throw
+            listener.onCompanyZoneCreated(event);
+
+            verify(identityProvider).createGroupWithRole(
+                    "lc-company-zone-zona_a",
+                    Map.of("company_zone_id", List.of(companyZoneUuid.toString())),
+                    "lc-company-zone",
                     "life-control-client"
             );
         }
