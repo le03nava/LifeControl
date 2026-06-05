@@ -4,6 +4,7 @@ import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.company.dto.CompanyZoneResponse;
 import com.lifecontrol.api.company.dto.CreateCompanyZoneRequest;
 import com.lifecontrol.api.company.dto.UpdateCompanyZoneRequest;
+import com.lifecontrol.api.company.event.CompanyZoneCreatedEvent;
 import com.lifecontrol.api.company.exception.CompanyCountryNotFoundException;
 import com.lifecontrol.api.company.exception.CompanyNotFoundException;
 import com.lifecontrol.api.company.exception.CompanyRegionNotFoundException;
@@ -19,6 +20,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,17 +37,20 @@ public class CompanyZoneService {
     private final CompanyRepository companyRepository;
     private final CompanyCountryRepository companyCountryRepository;
     private final CurrentUserContext currentUserContext;
+    private final ApplicationEventPublisher eventPublisher;
 
     public CompanyZoneService(CompanyZoneRepository companyZoneRepository,
                               CompanyRegionRepository companyRegionRepository,
                               CompanyRepository companyRepository,
                               CompanyCountryRepository companyCountryRepository,
-                              CurrentUserContext currentUserContext) {
+                              CurrentUserContext currentUserContext,
+                              ApplicationEventPublisher eventPublisher) {
         this.companyZoneRepository = companyZoneRepository;
         this.companyRegionRepository = companyRegionRepository;
         this.companyRepository = companyRepository;
         this.companyCountryRepository = companyCountryRepository;
         this.currentUserContext = currentUserContext;
+        this.eventPublisher = eventPublisher;
     }
 
     private CompanyRegion resolveCompanyRegion(UUID companyId, UUID companyCountryId, UUID regionId) {
@@ -101,6 +106,8 @@ public class CompanyZoneService {
                 .build();
 
         CompanyZone saved = companyZoneRepository.save(zone);
+        eventPublisher.publishEvent(new CompanyZoneCreatedEvent(
+                this, saved.getId(), companyId, saved.getZoneName()));
         logger.info("CompanyZone created: code={}, regionId={}", saved.getZoneCode(), region.getId());
         return toResponse(saved);
     }
