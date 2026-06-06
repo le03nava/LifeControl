@@ -392,7 +392,6 @@ class CompanyCountryServiceTest {
         @DisplayName("lc-admin bypasses country filtering in GET")
         void getCountriesByCompanyId_Admin_BypassesCountryFiltering() {
             when(currentUserContext.isAdmin()).thenReturn(true);
-            when(currentUserContext.hasCompanyCountryRole()).thenReturn(true);
             when(companyRepository.existsById(companyId)).thenReturn(true);
             when(companyCountryRepository.findByCompanyId(companyId))
                     .thenReturn(List.of(testCompanyCountry));

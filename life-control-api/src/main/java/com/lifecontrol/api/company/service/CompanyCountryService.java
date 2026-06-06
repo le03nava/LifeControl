@@ -55,7 +55,8 @@ public class CompanyCountryService {
             throw new CompanyNotFoundException(companyId);
         }
 
-        if (currentUserContext.hasCompanyCountryRole() && !currentUserContext.isAdmin()) {
+        if (!currentUserContext.isAdmin() && !currentUserContext.hasCompanyRole()
+                && currentUserContext.hasCompanyCountryRole()) {
             var countryIds = currentUserContext.getCompanyCountryIds();
             if (countryIds.isEmpty()) {
                 return List.of();
