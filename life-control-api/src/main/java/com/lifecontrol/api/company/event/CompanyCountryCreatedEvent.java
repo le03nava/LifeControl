@@ -6,20 +6,22 @@ import java.util.UUID;
 
 /**
  * Event published after a country has been successfully associated with a company.
- * Carries the company-country ID, company ID, and the country name.
+ * Carries the company-country ID, company ID, the country name, and the parent company name.
  */
 public class CompanyCountryCreatedEvent extends ApplicationEvent {
 
     private final UUID companyCountryId;
     private final UUID companyId;
     private final String countryName;
+    private final String companyName;
 
     public CompanyCountryCreatedEvent(Object source, UUID companyCountryId,
-                                       UUID companyId, String countryName) {
+                                       UUID companyId, String countryName, String companyName) {
         super(source);
         this.companyCountryId = companyCountryId;
         this.companyId = companyId;
         this.countryName = countryName;
+        this.companyName = companyName;
     }
 
     public UUID getCompanyCountryId() {
@@ -32,5 +34,9 @@ public class CompanyCountryCreatedEvent extends ApplicationEvent {
 
     public String getCountryName() {
         return countryName;
+    }
+
+    public String getCompanyName() {
+        return companyName;
     }
 }

@@ -17,6 +17,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.anyMap;
@@ -24,6 +25,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("KeycloakGroupEventListener Tests")
@@ -136,11 +138,15 @@ class KeycloakGroupEventListenerTest {
 
         private final UUID companyCountryUuid = UUID.randomUUID();
         private final UUID companyUuid = UUID.randomUUID();
+        private final String companyName = "Acme Corp";
 
         @Test
         @DisplayName("should create company-country group with sanitized name and attributes")
         void shouldCreateCompanyCountryGroup() {
-            var event = new CompanyCountryCreatedEvent(this, companyCountryUuid, companyUuid, "Argentina");
+            var event = new CompanyCountryCreatedEvent(this, companyCountryUuid, companyUuid,
+                    "Argentina", companyName);
+            when(identityProvider.findGroupIdByName("lc-company-acme_corp"))
+                    .thenReturn(Optional.empty());
 
             listener.onCompanyCountryCreated(event);
 
@@ -148,14 +154,18 @@ class KeycloakGroupEventListenerTest {
                     "lc-company-country-argentina",
                     Map.of("company_country_id", List.of(companyCountryUuid.toString())),
                     "lc-company-country",
-                    "life-control-client"
+                    "life-control-client",
+                    (String) null
             );
         }
 
         @Test
         @DisplayName("should sanitize special characters in country name")
         void shouldSanitizeSpecialCharacters() {
-            var event = new CompanyCountryCreatedEvent(this, companyCountryUuid, companyUuid, "São Paulo");
+            var event = new CompanyCountryCreatedEvent(this, companyCountryUuid, companyUuid,
+                    "São Paulo", companyName);
+            when(identityProvider.findGroupIdByName("lc-company-acme_corp"))
+                    .thenReturn(Optional.empty());
 
             listener.onCompanyCountryCreated(event);
 
@@ -163,14 +173,18 @@ class KeycloakGroupEventListenerTest {
                     "lc-company-country-s_o_paulo",
                     Map.of("company_country_id", List.of(companyCountryUuid.toString())),
                     "lc-company-country",
-                    "life-control-client"
+                    "life-control-client",
+                    (String) null
             );
         }
 
         @Test
         @DisplayName("should handle underscores and hyphens in country name")
         void shouldHandleUnderscoresAndHyphens() {
-            var event = new CompanyCountryCreatedEvent(this, companyCountryUuid, companyUuid, "Costa-Rica_test");
+            var event = new CompanyCountryCreatedEvent(this, companyCountryUuid, companyUuid,
+                    "Costa-Rica_test", companyName);
+            when(identityProvider.findGroupIdByName("lc-company-acme_corp"))
+                    .thenReturn(Optional.empty());
 
             listener.onCompanyCountryCreated(event);
 
@@ -178,14 +192,18 @@ class KeycloakGroupEventListenerTest {
                     "lc-company-country-costa-rica_test",
                     Map.of("company_country_id", List.of(companyCountryUuid.toString())),
                     "lc-company-country",
-                    "life-control-client"
+                    "life-control-client",
+                    (String) null
             );
         }
 
         @Test
         @DisplayName("should lowercase country name")
         void shouldLowercaseCountryName() {
-            var event = new CompanyCountryCreatedEvent(this, companyCountryUuid, companyUuid, "UNITED KINGDOM");
+            var event = new CompanyCountryCreatedEvent(this, companyCountryUuid, companyUuid,
+                    "UNITED KINGDOM", companyName);
+            when(identityProvider.findGroupIdByName("lc-company-acme_corp"))
+                    .thenReturn(Optional.empty());
 
             listener.onCompanyCountryCreated(event);
 
@@ -193,20 +211,25 @@ class KeycloakGroupEventListenerTest {
                     "lc-company-country-united_kingdom",
                     Map.of("company_country_id", List.of(companyCountryUuid.toString())),
                     "lc-company-country",
-                    "life-control-client"
+                    "life-control-client",
+                    (String) null
             );
         }
 
         @Test
         @DisplayName("should not re-throw when group creation fails")
         void shouldNotRethrowOnFailure() {
-            var event = new CompanyCountryCreatedEvent(this, companyCountryUuid, companyUuid, "Argentina");
+            var event = new CompanyCountryCreatedEvent(this, companyCountryUuid, companyUuid,
+                    "Argentina", companyName);
+            when(identityProvider.findGroupIdByName("lc-company-acme_corp"))
+                    .thenReturn(Optional.empty());
             doThrow(new IdentityProviderConnectionException("Keycloak unavailable"))
                     .when(identityProvider).createGroupWithRole(
                             "lc-company-country-argentina",
                             Map.of("company_country_id", List.of(companyCountryUuid.toString())),
                             "lc-company-country",
-                            "life-control-client");
+                            "life-control-client",
+                            (String) null);
 
             // Should not throw
             listener.onCompanyCountryCreated(event);
@@ -215,7 +238,8 @@ class KeycloakGroupEventListenerTest {
                     "lc-company-country-argentina",
                     Map.of("company_country_id", List.of(companyCountryUuid.toString())),
                     "lc-company-country",
-                    "life-control-client"
+                    "life-control-client",
+                    (String) null
             );
         }
     }
@@ -226,11 +250,15 @@ class KeycloakGroupEventListenerTest {
 
         private final UUID companyRegionUuid = UUID.randomUUID();
         private final UUID companyUuid = UUID.randomUUID();
+        private static final String COUNTRY_NAME = "Mexico";
 
         @Test
         @DisplayName("should create company-region group with sanitized name and attributes")
         void shouldCreateCompanyRegionGroup() {
-            var event = new CompanyRegionCreatedEvent(this, companyRegionUuid, companyUuid, "Region Norte");
+            var event = new CompanyRegionCreatedEvent(this, companyRegionUuid, companyUuid,
+                    "Region Norte", COUNTRY_NAME);
+            when(identityProvider.findGroupIdByName("lc-company-country-mexico"))
+                    .thenReturn(Optional.empty());
 
             listener.onCompanyRegionCreated(event);
 
@@ -238,14 +266,18 @@ class KeycloakGroupEventListenerTest {
                     "lc-company-region-region_norte",
                     Map.of("company_region_id", List.of(companyRegionUuid.toString())),
                     "lc-company-region",
-                    "life-control-client"
+                    "life-control-client",
+                    (String) null
             );
         }
 
         @Test
         @DisplayName("should sanitize special characters in region name")
         void shouldSanitizeSpecialCharacters() {
-            var event = new CompanyRegionCreatedEvent(this, companyRegionUuid, companyUuid, "Región Sur Este");
+            var event = new CompanyRegionCreatedEvent(this, companyRegionUuid, companyUuid,
+                    "Región Sur Este", COUNTRY_NAME);
+            when(identityProvider.findGroupIdByName("lc-company-country-mexico"))
+                    .thenReturn(Optional.empty());
 
             listener.onCompanyRegionCreated(event);
 
@@ -253,14 +285,18 @@ class KeycloakGroupEventListenerTest {
                     "lc-company-region-regi_n_sur_este",
                     Map.of("company_region_id", List.of(companyRegionUuid.toString())),
                     "lc-company-region",
-                    "life-control-client"
+                    "life-control-client",
+                    (String) null
             );
         }
 
         @Test
         @DisplayName("should handle underscores and hyphens in region name")
         void shouldHandleUnderscoresAndHyphens() {
-            var event = new CompanyRegionCreatedEvent(this, companyRegionUuid, companyUuid, "Norte-Sur_test");
+            var event = new CompanyRegionCreatedEvent(this, companyRegionUuid, companyUuid,
+                    "Norte-Sur_test", COUNTRY_NAME);
+            when(identityProvider.findGroupIdByName("lc-company-country-mexico"))
+                    .thenReturn(Optional.empty());
 
             listener.onCompanyRegionCreated(event);
 
@@ -268,14 +304,18 @@ class KeycloakGroupEventListenerTest {
                     "lc-company-region-norte-sur_test",
                     Map.of("company_region_id", List.of(companyRegionUuid.toString())),
                     "lc-company-region",
-                    "life-control-client"
+                    "life-control-client",
+                    (String) null
             );
         }
 
         @Test
         @DisplayName("should lowercase region name")
         void shouldLowercaseRegionName() {
-            var event = new CompanyRegionCreatedEvent(this, companyRegionUuid, companyUuid, "ZONA NORTE");
+            var event = new CompanyRegionCreatedEvent(this, companyRegionUuid, companyUuid,
+                    "ZONA NORTE", COUNTRY_NAME);
+            when(identityProvider.findGroupIdByName("lc-company-country-mexico"))
+                    .thenReturn(Optional.empty());
 
             listener.onCompanyRegionCreated(event);
 
@@ -283,20 +323,25 @@ class KeycloakGroupEventListenerTest {
                     "lc-company-region-zona_norte",
                     Map.of("company_region_id", List.of(companyRegionUuid.toString())),
                     "lc-company-region",
-                    "life-control-client"
+                    "life-control-client",
+                    (String) null
             );
         }
 
         @Test
         @DisplayName("should not re-throw when group creation fails")
         void shouldNotRethrowOnFailure() {
-            var event = new CompanyRegionCreatedEvent(this, companyRegionUuid, companyUuid, "Region Norte");
+            var event = new CompanyRegionCreatedEvent(this, companyRegionUuid, companyUuid,
+                    "Region Norte", COUNTRY_NAME);
+            when(identityProvider.findGroupIdByName("lc-company-country-mexico"))
+                    .thenReturn(Optional.empty());
             doThrow(new IdentityProviderConnectionException("Keycloak unavailable"))
                     .when(identityProvider).createGroupWithRole(
                             "lc-company-region-region_norte",
                             Map.of("company_region_id", List.of(companyRegionUuid.toString())),
                             "lc-company-region",
-                            "life-control-client");
+                            "life-control-client",
+                            (String) null);
 
             // Should not throw
             listener.onCompanyRegionCreated(event);
@@ -305,7 +350,8 @@ class KeycloakGroupEventListenerTest {
                     "lc-company-region-region_norte",
                     Map.of("company_region_id", List.of(companyRegionUuid.toString())),
                     "lc-company-region",
-                    "life-control-client"
+                    "life-control-client",
+                    (String) null
             );
         }
     }
@@ -316,11 +362,15 @@ class KeycloakGroupEventListenerTest {
 
         private final UUID companyZoneUuid = UUID.randomUUID();
         private final UUID companyUuid = UUID.randomUUID();
+        private static final String REGION_NAME = "North Region";
 
         @Test
         @DisplayName("should create company-zone group with sanitized name and attributes")
         void shouldCreateCompanyZoneGroup() {
-            var event = new CompanyZoneCreatedEvent(this, companyZoneUuid, companyUuid, "Zona A");
+            var event = new CompanyZoneCreatedEvent(this, companyZoneUuid, companyUuid,
+                    "Zona A", REGION_NAME);
+            when(identityProvider.findGroupIdByName("lc-company-region-north_region"))
+                    .thenReturn(Optional.empty());
 
             listener.onCompanyZoneCreated(event);
 
@@ -328,14 +378,18 @@ class KeycloakGroupEventListenerTest {
                     "lc-company-zone-zona_a",
                     Map.of("company_zone_id", List.of(companyZoneUuid.toString())),
                     "lc-company-zone",
-                    "life-control-client"
+                    "life-control-client",
+                    (String) null
             );
         }
 
         @Test
         @DisplayName("should sanitize special characters in zone name")
         void shouldSanitizeSpecialCharacters() {
-            var event = new CompanyZoneCreatedEvent(this, companyZoneUuid, companyUuid, "Zona #1 (Sucursal)");
+            var event = new CompanyZoneCreatedEvent(this, companyZoneUuid, companyUuid,
+                    "Zona #1 (Sucursal)", REGION_NAME);
+            when(identityProvider.findGroupIdByName("lc-company-region-north_region"))
+                    .thenReturn(Optional.empty());
 
             listener.onCompanyZoneCreated(event);
 
@@ -343,14 +397,18 @@ class KeycloakGroupEventListenerTest {
                     "lc-company-zone-zona__1__sucursal_",
                     Map.of("company_zone_id", List.of(companyZoneUuid.toString())),
                     "lc-company-zone",
-                    "life-control-client"
+                    "life-control-client",
+                    (String) null
             );
         }
 
         @Test
         @DisplayName("should handle underscores and hyphens in zone name")
         void shouldHandleUnderscoresAndHyphens() {
-            var event = new CompanyZoneCreatedEvent(this, companyZoneUuid, companyUuid, "Zona-Norte_test");
+            var event = new CompanyZoneCreatedEvent(this, companyZoneUuid, companyUuid,
+                    "Zona-Norte_test", REGION_NAME);
+            when(identityProvider.findGroupIdByName("lc-company-region-north_region"))
+                    .thenReturn(Optional.empty());
 
             listener.onCompanyZoneCreated(event);
 
@@ -358,14 +416,18 @@ class KeycloakGroupEventListenerTest {
                     "lc-company-zone-zona-norte_test",
                     Map.of("company_zone_id", List.of(companyZoneUuid.toString())),
                     "lc-company-zone",
-                    "life-control-client"
+                    "life-control-client",
+                    (String) null
             );
         }
 
         @Test
         @DisplayName("should lowercase zone name")
         void shouldLowercaseZoneName() {
-            var event = new CompanyZoneCreatedEvent(this, companyZoneUuid, companyUuid, "ZONA CENTRAL");
+            var event = new CompanyZoneCreatedEvent(this, companyZoneUuid, companyUuid,
+                    "ZONA CENTRAL", REGION_NAME);
+            when(identityProvider.findGroupIdByName("lc-company-region-north_region"))
+                    .thenReturn(Optional.empty());
 
             listener.onCompanyZoneCreated(event);
 
@@ -373,20 +435,25 @@ class KeycloakGroupEventListenerTest {
                     "lc-company-zone-zona_central",
                     Map.of("company_zone_id", List.of(companyZoneUuid.toString())),
                     "lc-company-zone",
-                    "life-control-client"
+                    "life-control-client",
+                    (String) null
             );
         }
 
         @Test
         @DisplayName("should not re-throw when group creation fails")
         void shouldNotRethrowOnFailure() {
-            var event = new CompanyZoneCreatedEvent(this, companyZoneUuid, companyUuid, "Zona A");
+            var event = new CompanyZoneCreatedEvent(this, companyZoneUuid, companyUuid,
+                    "Zona A", REGION_NAME);
+            when(identityProvider.findGroupIdByName("lc-company-region-north_region"))
+                    .thenReturn(Optional.empty());
             doThrow(new IdentityProviderConnectionException("Keycloak unavailable"))
                     .when(identityProvider).createGroupWithRole(
                             "lc-company-zone-zona_a",
                             Map.of("company_zone_id", List.of(companyZoneUuid.toString())),
                             "lc-company-zone",
-                            "life-control-client");
+                            "life-control-client",
+                            (String) null);
 
             // Should not throw
             listener.onCompanyZoneCreated(event);
@@ -395,7 +462,8 @@ class KeycloakGroupEventListenerTest {
                     "lc-company-zone-zona_a",
                     Map.of("company_zone_id", List.of(companyZoneUuid.toString())),
                     "lc-company-zone",
-                    "life-control-client"
+                    "life-control-client",
+                    (String) null
             );
         }
     }
@@ -406,11 +474,15 @@ class KeycloakGroupEventListenerTest {
 
         private final UUID companyStoreUuid = UUID.randomUUID();
         private final UUID companyUuid = UUID.randomUUID();
+        private static final String ZONE_NAME = "Downtown Zone";
 
         @Test
         @DisplayName("should create company-store group with sanitized name and attributes")
         void shouldCreateCompanyStoreGroup() {
-            var event = new CompanyStoreCreatedEvent(this, companyStoreUuid, companyUuid, "Main Store");
+            var event = new CompanyStoreCreatedEvent(this, companyStoreUuid, companyUuid,
+                    "Main Store", ZONE_NAME);
+            when(identityProvider.findGroupIdByName("lc-company-zone-downtown_zone"))
+                    .thenReturn(Optional.empty());
 
             listener.onCompanyStoreCreated(event);
 
@@ -418,14 +490,18 @@ class KeycloakGroupEventListenerTest {
                     "lc-company-store-main_store",
                     Map.of("company_store_id", List.of(companyStoreUuid.toString())),
                     "lc-company-store",
-                    "life-control-client"
+                    "life-control-client",
+                    (String) null
             );
         }
 
         @Test
         @DisplayName("should sanitize special characters in store name")
         void shouldSanitizeSpecialCharacters() {
-            var event = new CompanyStoreCreatedEvent(this, companyStoreUuid, companyUuid, "Mi Tienda #1!");
+            var event = new CompanyStoreCreatedEvent(this, companyStoreUuid, companyUuid,
+                    "Mi Tienda #1!", ZONE_NAME);
+            when(identityProvider.findGroupIdByName("lc-company-zone-downtown_zone"))
+                    .thenReturn(Optional.empty());
 
             listener.onCompanyStoreCreated(event);
 
@@ -433,14 +509,18 @@ class KeycloakGroupEventListenerTest {
                     "lc-company-store-mi_tienda__1_",
                     Map.of("company_store_id", List.of(companyStoreUuid.toString())),
                     "lc-company-store",
-                    "life-control-client"
+                    "life-control-client",
+                    (String) null
             );
         }
 
         @Test
         @DisplayName("should handle underscores and hyphens in store name")
         void shouldHandleUnderscoresAndHyphens() {
-            var event = new CompanyStoreCreatedEvent(this, companyStoreUuid, companyUuid, "Store-North_test");
+            var event = new CompanyStoreCreatedEvent(this, companyStoreUuid, companyUuid,
+                    "Store-North_test", ZONE_NAME);
+            when(identityProvider.findGroupIdByName("lc-company-zone-downtown_zone"))
+                    .thenReturn(Optional.empty());
 
             listener.onCompanyStoreCreated(event);
 
@@ -448,14 +528,18 @@ class KeycloakGroupEventListenerTest {
                     "lc-company-store-store-north_test",
                     Map.of("company_store_id", List.of(companyStoreUuid.toString())),
                     "lc-company-store",
-                    "life-control-client"
+                    "life-control-client",
+                    (String) null
             );
         }
 
         @Test
         @DisplayName("should lowercase store name")
         void shouldLowercaseStoreName() {
-            var event = new CompanyStoreCreatedEvent(this, companyStoreUuid, companyUuid, "MAIN STORE");
+            var event = new CompanyStoreCreatedEvent(this, companyStoreUuid, companyUuid,
+                    "MAIN STORE", ZONE_NAME);
+            when(identityProvider.findGroupIdByName("lc-company-zone-downtown_zone"))
+                    .thenReturn(Optional.empty());
 
             listener.onCompanyStoreCreated(event);
 
@@ -463,20 +547,25 @@ class KeycloakGroupEventListenerTest {
                     "lc-company-store-main_store",
                     Map.of("company_store_id", List.of(companyStoreUuid.toString())),
                     "lc-company-store",
-                    "life-control-client"
+                    "life-control-client",
+                    (String) null
             );
         }
 
         @Test
         @DisplayName("should not re-throw when group creation fails")
         void shouldNotRethrowOnFailure() {
-            var event = new CompanyStoreCreatedEvent(this, companyStoreUuid, companyUuid, "Main Store");
+            var event = new CompanyStoreCreatedEvent(this, companyStoreUuid, companyUuid,
+                    "Main Store", ZONE_NAME);
+            when(identityProvider.findGroupIdByName("lc-company-zone-downtown_zone"))
+                    .thenReturn(Optional.empty());
             doThrow(new IdentityProviderConnectionException("Keycloak unavailable"))
                     .when(identityProvider).createGroupWithRole(
                             "lc-company-store-main_store",
                             Map.of("company_store_id", List.of(companyStoreUuid.toString())),
                             "lc-company-store",
-                            "life-control-client");
+                            "life-control-client",
+                            (String) null);
 
             // Should not throw
             listener.onCompanyStoreCreated(event);
@@ -485,7 +574,120 @@ class KeycloakGroupEventListenerTest {
                     "lc-company-store-main_store",
                     Map.of("company_store_id", List.of(companyStoreUuid.toString())),
                     "lc-company-store",
-                    "life-control-client"
+                    "life-control-client",
+                    (String) null
+            );
+        }
+    }
+
+    @Nested
+    @DisplayName("Parent Resolution — 5-arg createGroupWithRole")
+    class ParentResolutionTests {
+
+        private static final String PARENT_ID = "parent-group-uuid";
+
+        @Test
+        @DisplayName("6.3: onCompanyCountryCreated calls 5-arg with resolved parent company ID")
+        void shouldCall5ArgForCountryWithCompanyParent() {
+            var companyUuid = UUID.randomUUID();
+            var countryUuid = UUID.randomUUID();
+            var event = new CompanyCountryCreatedEvent(this, countryUuid, companyUuid,
+                    "Argentina", "Acme Corp");
+            when(identityProvider.findGroupIdByName("lc-company-acme_corp"))
+                    .thenReturn(Optional.of(PARENT_ID));
+
+            listener.onCompanyCountryCreated(event);
+
+            verify(identityProvider).createGroupWithRole(
+                    "lc-company-country-argentina",
+                    Map.of("company_country_id", List.of(countryUuid.toString())),
+                    "lc-company-country",
+                    "life-control-client",
+                    PARENT_ID
+            );
+        }
+
+        @Test
+        @DisplayName("6.4: onCompanyRegionCreated calls 5-arg with resolved country parent ID")
+        void shouldCall5ArgForRegionWithCountryParent() {
+            var companyUuid = UUID.randomUUID();
+            var regionUuid = UUID.randomUUID();
+            var event = new CompanyRegionCreatedEvent(this, regionUuid, companyUuid,
+                    "South", "Argentina");
+            when(identityProvider.findGroupIdByName("lc-company-country-argentina"))
+                    .thenReturn(Optional.of(PARENT_ID));
+
+            listener.onCompanyRegionCreated(event);
+
+            verify(identityProvider).createGroupWithRole(
+                    "lc-company-region-south",
+                    Map.of("company_region_id", List.of(regionUuid.toString())),
+                    "lc-company-region",
+                    "life-control-client",
+                    PARENT_ID
+            );
+        }
+
+        @Test
+        @DisplayName("6.5: onCompanyZoneCreated calls 5-arg with resolved region parent ID")
+        void shouldCall5ArgForZoneWithRegionParent() {
+            var companyUuid = UUID.randomUUID();
+            var zoneUuid = UUID.randomUUID();
+            var event = new CompanyZoneCreatedEvent(this, zoneUuid, companyUuid,
+                    "Downtown", "North");
+            when(identityProvider.findGroupIdByName("lc-company-region-north"))
+                    .thenReturn(Optional.of(PARENT_ID));
+
+            listener.onCompanyZoneCreated(event);
+
+            verify(identityProvider).createGroupWithRole(
+                    "lc-company-zone-downtown",
+                    Map.of("company_zone_id", List.of(zoneUuid.toString())),
+                    "lc-company-zone",
+                    "life-control-client",
+                    PARENT_ID
+            );
+        }
+
+        @Test
+        @DisplayName("6.6: onCompanyStoreCreated calls 5-arg with resolved zone parent ID")
+        void shouldCall5ArgForStoreWithZoneParent() {
+            var companyUuid = UUID.randomUUID();
+            var storeUuid = UUID.randomUUID();
+            var event = new CompanyStoreCreatedEvent(this, storeUuid, companyUuid,
+                    "Main Branch", "Downtown");
+            when(identityProvider.findGroupIdByName("lc-company-zone-downtown"))
+                    .thenReturn(Optional.of(PARENT_ID));
+
+            listener.onCompanyStoreCreated(event);
+
+            verify(identityProvider).createGroupWithRole(
+                    "lc-company-store-main_branch",
+                    Map.of("company_store_id", List.of(storeUuid.toString())),
+                    "lc-company-store",
+                    "life-control-client",
+                    PARENT_ID
+            );
+        }
+
+        @Test
+        @DisplayName("6.7: fallback — when findGroupIdByName returns empty, 4-arg is called")
+        void shouldFallbackTo4ArgWhenParentNotFound() {
+            var companyUuid = UUID.randomUUID();
+            var countryUuid = UUID.randomUUID();
+            var event = new CompanyCountryCreatedEvent(this, countryUuid, companyUuid,
+                    "Chile", "MissingCorp");
+            when(identityProvider.findGroupIdByName("lc-company-missingcorp"))
+                    .thenReturn(Optional.empty());
+
+            listener.onCompanyCountryCreated(event);
+
+            verify(identityProvider).createGroupWithRole(
+                    "lc-company-country-chile",
+                    Map.of("company_country_id", List.of(countryUuid.toString())),
+                    "lc-company-country",
+                    "life-control-client",
+                    (String) null
             );
         }
     }

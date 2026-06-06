@@ -103,6 +103,29 @@ describe('Header', () => {
       expect(items.length).toBe(2); // Home + Companies only
     });
 
+    it('should show Companies menu when user has lc-company-country client role', () => {
+      const { component } = setup(['lc-company-country']);
+      expect(component.isCompanyRole()).toBe(true);
+      expect(component.isAdmin()).toBe(false);
+      const items = component.items();
+      const companiesItem = items.find((i) => i.routeLink === '/companies');
+      expect(companiesItem).toBeDefined();
+      expect(companiesItem?.textLink).toBe('Companies');
+      expect(items.length).toBe(2); // Home + Companies only
+    });
+
+    it('should show Companies + admin menus when user has lc-admin + lc-company-country', () => {
+      const { component } = setup(['lc-admin', 'lc-company-country']);
+      expect(component.isCompanyRole()).toBe(true);
+      expect(component.isAdmin()).toBe(true);
+      const items = component.items();
+      const companiesItem = items.find((i) => i.routeLink === '/companies');
+      expect(companiesItem).toBeDefined();
+      expect(companiesItem?.textLink).toBe('Companies');
+      expect(items.some((i) => i.routeLink === '/users-admin')).toBe(true);
+      expect(items.length).toBe(5); // Home + Companies + Products + Purchases + Users Admin
+    });
+
     it('should NOT show Companies menu when user has no company client roles', () => {
       const { component } = setup([]);
       expect(component.isCompanyRole()).toBe(false);

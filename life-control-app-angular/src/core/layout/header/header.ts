@@ -89,7 +89,7 @@ export class Header implements OnInit {
         const clientRoles: string[] = token?.resource_access?.['life-control-client']?.roles ?? [];
         this.isAdmin.set(clientRoles.includes('lc-admin'));
         this.isCompanyRole.set(
-          clientRoles.includes('lc-admin') || clientRoles.includes('lc-company')
+          clientRoles.includes('lc-admin') || clientRoles.includes('lc-company') || clientRoles.includes('lc-company-country')
         );
       }
       if (event?.type === KeycloakEventType.AuthLogout) {

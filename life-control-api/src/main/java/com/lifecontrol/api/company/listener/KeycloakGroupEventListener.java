@@ -15,6 +15,7 @@ import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Listens for {@link CompanyCreatedEvent} and creates a corresponding group in
@@ -69,12 +70,14 @@ public class KeycloakGroupEventListener {
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onCompanyCountryCreated(CompanyCountryCreatedEvent event) {
         var groupName = COUNTRY_GROUP_PREFIX + sanitizeGroupName(event.getCountryName());
+        var parentGroupName = COMPANY_GROUP_PREFIX + sanitizeGroupName(event.getCompanyName());
         try {
             identityProvider.createGroupWithRole(
                     groupName,
                     Map.of("company_country_id", List.of(event.getCompanyCountryId().toString())),
                     COUNTRY_ROLE_NAME,
-                    CLIENT_ID
+                    CLIENT_ID,
+                    resolveParentGroupId(parentGroupName).orElse(null)
             );
             logger.info("Keycloak group created for company-country: name={}, id={}",
                     groupName, event.getCompanyCountryId());
@@ -87,12 +90,14 @@ public class KeycloakGroupEventListener {
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onCompanyRegionCreated(CompanyRegionCreatedEvent event) {
         var groupName = REGION_GROUP_PREFIX + sanitizeGroupName(event.getRegionName());
+        var parentGroupName = COUNTRY_GROUP_PREFIX + sanitizeGroupName(event.getCountryName());
         try {
             identityProvider.createGroupWithRole(
                     groupName,
                     Map.of("company_region_id", List.of(event.getCompanyRegionId().toString())),
                     REGION_ROLE_NAME,
-                    CLIENT_ID
+                    CLIENT_ID,
+                    resolveParentGroupId(parentGroupName).orElse(null)
             );
             logger.info("Keycloak group created for company-region: name={}, id={}",
                     groupName, event.getCompanyRegionId());
@@ -105,12 +110,14 @@ public class KeycloakGroupEventListener {
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onCompanyZoneCreated(CompanyZoneCreatedEvent event) {
         var groupName = ZONE_GROUP_PREFIX + sanitizeGroupName(event.getZoneName());
+        var parentGroupName = REGION_GROUP_PREFIX + sanitizeGroupName(event.getRegionName());
         try {
             identityProvider.createGroupWithRole(
                     groupName,
                     Map.of("company_zone_id", List.of(event.getCompanyZoneId().toString())),
                     ZONE_ROLE_NAME,
-                    CLIENT_ID
+                    CLIENT_ID,
+                    resolveParentGroupId(parentGroupName).orElse(null)
             );
             logger.info("Keycloak group created for company-zone: name={}, id={}",
                     groupName, event.getCompanyZoneId());
@@ -123,12 +130,14 @@ public class KeycloakGroupEventListener {
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onCompanyStoreCreated(CompanyStoreCreatedEvent event) {
         var groupName = STORE_GROUP_PREFIX + sanitizeGroupName(event.getStoreName());
+        var parentGroupName = ZONE_GROUP_PREFIX + sanitizeGroupName(event.getZoneName());
         try {
             identityProvider.createGroupWithRole(
                     groupName,
                     Map.of("company_store_id", List.of(event.getCompanyStoreId().toString())),
                     STORE_ROLE_NAME,
-                    CLIENT_ID
+                    CLIENT_ID,
+                    resolveParentGroupId(parentGroupName).orElse(null)
             );
             logger.info("Keycloak group created for company-store: name={}, id={}",
                     groupName, event.getCompanyStoreId());
@@ -136,6 +145,15 @@ public class KeycloakGroupEventListener {
             logger.warn("Failed to create Keycloak group for company-store: name={}, id={}, error={}",
                     groupName, event.getCompanyStoreId(), e.getMessage());
         }
+    }
+
+    private Optional<String> resolveParentGroupId(String parentGroupName) {
+        var parentId = identityProvider.findGroupIdByName(parentGroupName);
+        if (parentId.isEmpty()) {
+            logger.warn("Parent Keycloak group not found: name={}, creating group at top level",
+                    parentGroupName);
+        }
+        return parentId;
     }
 
     private static String sanitizeGroupName(String name) {

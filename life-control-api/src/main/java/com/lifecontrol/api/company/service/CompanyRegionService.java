@@ -100,7 +100,8 @@ public class CompanyRegionService {
         CompanyRegion saved = companyRegionRepository.save(region);
 
         eventPublisher.publishEvent(new CompanyRegionCreatedEvent(
-                this, saved.getId(), companyId, saved.getRegionName()));
+                this, saved.getId(), companyId, saved.getRegionName(),
+                companyCountry.getCountry().getCountryName()));
 
         logger.info("CompanyRegion created: code={}, companyCountryId={}", saved.getRegionCode(), companyCountry.getId());
         return toResponse(saved);

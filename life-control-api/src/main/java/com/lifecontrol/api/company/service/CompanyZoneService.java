@@ -107,7 +107,8 @@ public class CompanyZoneService {
 
         CompanyZone saved = companyZoneRepository.save(zone);
         eventPublisher.publishEvent(new CompanyZoneCreatedEvent(
-                this, saved.getId(), companyId, saved.getZoneName()));
+                this, saved.getId(), companyId, saved.getZoneName(),
+                region.getRegionName()));
         logger.info("CompanyZone created: code={}, regionId={}", saved.getZoneCode(), region.getId());
         return toResponse(saved);
     }
