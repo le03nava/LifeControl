@@ -37,18 +37,22 @@ public class CurrentUserContext {
 
     private static final String CLAIM_COMPANY_COUNTRY_ID = "company_country_id";
     private static final String CLAIM_COMPANY_REGION_ID = "company_region_id";
+    private static final String CLAIM_COMPANY_ZONE_ID = "company_zone_id";
     static final String ROLE_LC_COMPANY = "ROLE_lc-company";
     static final String ROLE_LC_COMPANY_COUNTRY = "ROLE_lc-company-country";
     static final String ROLE_LC_COMPANY_REGION = "ROLE_lc-company-region";
+    static final String ROLE_LC_COMPANY_ZONE = "ROLE_lc-company-zone";
 
     private Set<UUID> companyIds;
     private Set<UUID> companyCountryIds;
     private Set<UUID> companyRegionIds;
+    private Set<UUID> companyZoneIds;
     private Boolean admin;
     private Boolean countryRole;
     private Boolean companyRole;
     private Boolean companyCountryRole;
     private Boolean companyRegionRole;
+    private Boolean companyZoneRole;
     private String userId;
     private String username;
 
@@ -92,6 +96,20 @@ public class CurrentUserContext {
             companyRegionIds = extractCompanyRegionIds();
         }
         return companyRegionIds;
+    }
+
+    /**
+     * Returns the set of company zone IDs extracted from the JWT {@code company_zone_id} claim.
+     * The claim may be a single UUID or comma-separated UUIDs.
+     * Whitespace is trimmed, malformed UUIDs are silently skipped, and duplicates are removed.
+     *
+     * @return an immutable set of parsed UUIDs; empty if none found
+     */
+    public Set<UUID> getCompanyZoneIds() {
+        if (companyZoneIds == null) {
+            companyZoneIds = extractCompanyZoneIds();
+        }
+        return companyZoneIds;
     }
 
     /**
@@ -142,6 +160,16 @@ public class CurrentUserContext {
             companyRegionRole = hasAuthority(ROLE_LC_COMPANY_REGION);
         }
         return companyRegionRole;
+    }
+
+    /**
+     * Returns {@code true} if the current user has the {@code ROLE_lc-company-zone} authority.
+     */
+    public boolean hasCompanyZoneRole() {
+        if (companyZoneRole == null) {
+            companyZoneRole = hasAuthority(ROLE_LC_COMPANY_ZONE);
+        }
+        return companyZoneRole;
     }
 
     /**
@@ -240,6 +268,73 @@ public class CurrentUserContext {
             return;
         }
         throw new AccessDeniedException("Insufficient role for company-region access");
+    }
+
+    /**
+     * Five-tier access check for CompanyZone records.
+     * <ul>
+     *   <li>lc-admin: bypasses all checks (returns immediately).</li>
+     *   <li>lc-company: delegates to {@link #verifyCompanyAccess(UUID)} for company-level check.</li>
+     *   <li>lc-company-country: verifies company access AND that the given
+     *       {@code companyCountryId} is present in the {@code company_country_id} JWT claim set.</li>
+     *   <li>lc-company-region: verifies company access AND that the given
+     *       {@code companyCountryId} is present in the {@code company_country_id} claim set AND
+     *       that the given {@code regionId} is present in the {@code company_region_id} claim set.</li>
+     *   <li>lc-company-zone: verifies company access AND country AND region AND that the given
+     *       {@code zoneId} is present in the {@code company_zone_id} claim set.</li>
+     * </ul>
+     *
+     * @param companyId        the company UUID to verify (company-level check)
+     * @param companyCountryId the company-country UUID to verify (country-level check)
+     * @param regionId         the company-region UUID to verify (region-level check)
+     * @param zoneId           the company-zone UUID to verify (zone-level check), nullable for create ops
+     * @throws AccessDeniedException if access is denied for any reason
+     */
+    public void verifyCompanyZoneAccess(UUID companyId, UUID companyCountryId, UUID regionId, UUID zoneId) {
+        if (isAdmin()) {
+            return;
+        }
+        if (hasCompanyRole()) {
+            verifyCompanyAccess(companyId);
+            return;
+        }
+        if (hasCompanyCountryRole()) {
+            verifyCompanyAccess(companyId);
+            if (companyCountryId == null || !getCompanyCountryIds().contains(companyCountryId)) {
+                log.warn("Access denied to company-country {} for lc-company-country user", companyCountryId);
+                throw new AccessDeniedException("Access denied to company country: " + companyCountryId);
+            }
+            return;
+        }
+        if (hasCompanyRegionRole()) {
+            verifyCompanyAccess(companyId);
+            if (companyCountryId == null || !getCompanyCountryIds().contains(companyCountryId)) {
+                log.warn("Access denied to company-country {} for lc-company-region user", companyCountryId);
+                throw new AccessDeniedException("Access denied to company country: " + companyCountryId);
+            }
+            if (regionId != null && !getCompanyRegionIds().contains(regionId)) {
+                log.warn("Access denied to company-region {} for lc-company-region user", regionId);
+                throw new AccessDeniedException("Access denied to company region: " + regionId);
+            }
+            return;
+        }
+        if (hasCompanyZoneRole()) {
+            verifyCompanyAccess(companyId);
+            if (companyCountryId == null || !getCompanyCountryIds().contains(companyCountryId)) {
+                log.warn("Access denied to company-country {} for lc-company-zone user", companyCountryId);
+                throw new AccessDeniedException("Access denied to company country: " + companyCountryId);
+            }
+            if (regionId != null && !getCompanyRegionIds().contains(regionId)) {
+                log.warn("Access denied to company-region {} for lc-company-zone user", regionId);
+                throw new AccessDeniedException("Access denied to company region: " + regionId);
+            }
+            if (zoneId != null && !getCompanyZoneIds().contains(zoneId)) {
+                log.warn("Access denied to company-zone {} for lc-company-zone user", zoneId);
+                throw new AccessDeniedException("Access denied to company zone: " + zoneId);
+            }
+            return;
+        }
+        throw new AccessDeniedException("Insufficient role for company-zone access");
     }
 
     /**
@@ -342,6 +437,32 @@ public class CurrentUserContext {
 
         if (ids.isEmpty()) {
             log.warn("JWT contains company_region_id claim but no valid UUIDs could be parsed: '{}'",
+                    claim);
+        }
+
+        return Collections.unmodifiableSet(ids);
+    }
+
+    private Set<UUID> extractCompanyZoneIds() {
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !(authentication.getPrincipal() instanceof Jwt jwt)) {
+            return Collections.emptySet();
+        }
+
+        String claim = jwt.getClaimAsString(CLAIM_COMPANY_ZONE_ID);
+        if (claim == null || claim.isBlank()) {
+            return Collections.emptySet();
+        }
+
+        Set<UUID> ids = Stream.of(claim.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .map(this::tryParseUuid)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(HashSet::new));
+
+        if (ids.isEmpty()) {
+            log.warn("JWT contains company_zone_id claim but no valid UUIDs could be parsed: '{}'",
                     claim);
         }
 
