@@ -36,15 +36,19 @@ public class CurrentUserContext {
     private static final Logger log = LoggerFactory.getLogger(CurrentUserContext.class);
 
     private static final String CLAIM_COMPANY_COUNTRY_ID = "company_country_id";
+    private static final String CLAIM_COMPANY_REGION_ID = "company_region_id";
     static final String ROLE_LC_COMPANY = "ROLE_lc-company";
     static final String ROLE_LC_COMPANY_COUNTRY = "ROLE_lc-company-country";
+    static final String ROLE_LC_COMPANY_REGION = "ROLE_lc-company-region";
 
     private Set<UUID> companyIds;
     private Set<UUID> companyCountryIds;
+    private Set<UUID> companyRegionIds;
     private Boolean admin;
     private Boolean countryRole;
     private Boolean companyRole;
     private Boolean companyCountryRole;
+    private Boolean companyRegionRole;
     private String userId;
     private String username;
 
@@ -74,6 +78,20 @@ public class CurrentUserContext {
             companyCountryIds = extractCompanyCountryIds();
         }
         return companyCountryIds;
+    }
+
+    /**
+     * Returns the set of company region IDs extracted from the JWT {@code company_region_id} claim.
+     * The claim may be a single UUID or comma-separated UUIDs.
+     * Whitespace is trimmed, malformed UUIDs are silently skipped, and duplicates are removed.
+     *
+     * @return an immutable set of parsed UUIDs; empty if none found
+     */
+    public Set<UUID> getCompanyRegionIds() {
+        if (companyRegionIds == null) {
+            companyRegionIds = extractCompanyRegionIds();
+        }
+        return companyRegionIds;
     }
 
     /**
@@ -114,6 +132,16 @@ public class CurrentUserContext {
             companyCountryRole = hasAuthority(ROLE_LC_COMPANY_COUNTRY);
         }
         return companyCountryRole;
+    }
+
+    /**
+     * Returns {@code true} if the current user has the {@code ROLE_lc-company-region} authority.
+     */
+    public boolean hasCompanyRegionRole() {
+        if (companyRegionRole == null) {
+            companyRegionRole = hasAuthority(ROLE_LC_COMPANY_REGION);
+        }
+        return companyRegionRole;
     }
 
     /**
@@ -164,6 +192,54 @@ public class CurrentUserContext {
             return;
         }
         throw new AccessDeniedException("Insufficient role for company-country access");
+    }
+
+    /**
+     * Four-tier access check for CompanyRegion records.
+     * <ul>
+     *   <li>lc-admin: bypasses all checks (returns immediately).</li>
+     *   <li>lc-company: delegates to {@link #verifyCompanyAccess(UUID)} for company-level check.</li>
+     *   <li>lc-company-country: verifies company access AND that the given
+     *       {@code companyCountryId} is present in the {@code company_country_id} JWT claim set.</li>
+     *   <li>lc-company-region: verifies company access AND that the given
+     *       {@code companyCountryId} is present in the {@code company_country_id} claim set AND
+     *       that the given {@code regionId} is present in the {@code company_region_id} claim set.</li>
+     * </ul>
+     *
+     * @param companyId        the company UUID to verify (company-level check)
+     * @param companyCountryId the company-country UUID to verify (country-level check)
+     * @param regionId         the company-region UUID to verify (region-level check)
+     * @throws AccessDeniedException if access is denied for any reason
+     */
+    public void verifyCompanyRegionAccess(UUID companyId, UUID companyCountryId, UUID regionId) {
+        if (isAdmin()) {
+            return;
+        }
+        if (hasCompanyRole()) {
+            verifyCompanyAccess(companyId);
+            return;
+        }
+        if (hasCompanyCountryRole()) {
+            verifyCompanyAccess(companyId);
+            if (companyCountryId == null || !getCompanyCountryIds().contains(companyCountryId)) {
+                log.warn("Access denied to company-country {} for lc-company-country user", companyCountryId);
+                throw new AccessDeniedException("Access denied to company country: " + companyCountryId);
+            }
+            return;
+        }
+        if (hasCompanyRegionRole()) {
+            verifyCompanyAccess(companyId);
+            if (companyCountryId == null || !getCompanyCountryIds().contains(companyCountryId)) {
+                log.warn("Access denied to company-country {} for lc-company-region user", companyCountryId);
+                throw new AccessDeniedException("Access denied to company country: " + companyCountryId);
+            }
+            if (regionId != null && !getCompanyRegionIds().contains(regionId)) {
+                log.warn("Access denied to company-region {} for lc-company-region user", regionId);
+                throw new AccessDeniedException("Access denied to company region: " + regionId);
+            }
+            return;
+        }
+        throw new AccessDeniedException("Insufficient role for company-region access");
     }
 
     /**
@@ -240,6 +316,32 @@ public class CurrentUserContext {
 
         if (ids.isEmpty()) {
             log.warn("JWT contains company_country_id claim but no valid UUIDs could be parsed: '{}'",
+                    claim);
+        }
+
+        return Collections.unmodifiableSet(ids);
+    }
+
+    private Set<UUID> extractCompanyRegionIds() {
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !(authentication.getPrincipal() instanceof Jwt jwt)) {
+            return Collections.emptySet();
+        }
+
+        String claim = jwt.getClaimAsString(CLAIM_COMPANY_REGION_ID);
+        if (claim == null || claim.isBlank()) {
+            return Collections.emptySet();
+        }
+
+        Set<UUID> ids = Stream.of(claim.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .map(this::tryParseUuid)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(HashSet::new));
+
+        if (ids.isEmpty()) {
+            log.warn("JWT contains company_region_id claim but no valid UUIDs could be parsed: '{}'",
                     claim);
         }
 

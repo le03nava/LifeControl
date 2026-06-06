@@ -99,9 +99,53 @@ class CompanyRegionControllerSecurityTest {
         }
 
         @Test
+        @WithMockUser(roles = {"lc-admin"})
+        @DisplayName("returns 200 OK for lc-admin")
+        void lcAdminCanGetRegions() throws Exception {
+            when(companyRegionService.getAllRegions(companyId, companyCountryId, false))
+                    .thenReturn(List.of(buildRegionResponse()));
+
+            mockMvc.perform(get(BASE_URL, companyId, companyCountryId))
+                    .andExpect(status().isOk());
+        }
+
+        @Test
+        @WithMockUser(roles = {"lc-company"})
+        @DisplayName("returns 200 OK for lc-company")
+        void lcCompanyCanGetRegions() throws Exception {
+            when(companyRegionService.getAllRegions(companyId, companyCountryId, false))
+                    .thenReturn(List.of(buildRegionResponse()));
+
+            mockMvc.perform(get(BASE_URL, companyId, companyCountryId))
+                    .andExpect(status().isOk());
+        }
+
+        @Test
+        @WithMockUser(roles = {"lc-company-country"})
+        @DisplayName("returns 200 OK for lc-company-country")
+        void lcCompanyCountryCanGetRegions() throws Exception {
+            when(companyRegionService.getAllRegions(companyId, companyCountryId, false))
+                    .thenReturn(List.of(buildRegionResponse()));
+
+            mockMvc.perform(get(BASE_URL, companyId, companyCountryId))
+                    .andExpect(status().isOk());
+        }
+
+        @Test
+        @WithMockUser(roles = {"lc-company-region"})
+        @DisplayName("returns 200 OK for lc-company-region")
+        void lcCompanyRegionCanGetRegions() throws Exception {
+            when(companyRegionService.getAllRegions(companyId, companyCountryId, false))
+                    .thenReturn(List.of(buildRegionResponse()));
+
+            mockMvc.perform(get(BASE_URL, companyId, companyCountryId))
+                    .andExpect(status().isOk());
+        }
+
+        @Test
         @WithMockUser(roles = {"life-control-country"})
-        @DisplayName("returns 200 OK for country-role")
-        void countryRoleCanGetRegions() throws Exception {
+        @DisplayName("returns 200 OK for legacy life-control-country role")
+        void legacyCountryRoleCanGetRegions() throws Exception {
             when(companyRegionService.getAllRegions(companyId, companyCountryId, false))
                     .thenReturn(List.of(buildRegionResponse()));
 
@@ -147,9 +191,67 @@ class CompanyRegionControllerSecurityTest {
         }
 
         @Test
+        @WithMockUser(roles = {"lc-admin"})
+        @DisplayName("returns 201 Created for lc-admin")
+        void lcAdminCanCreateRegion() throws Exception {
+            var request = new CreateCompanyRegionRequest("NORTE", "Norte");
+            when(companyRegionService.createRegion(eq(companyId), eq(companyCountryId), any(CreateCompanyRegionRequest.class)))
+                    .thenReturn(buildRegionResponse());
+
+            mockMvc.perform(post(BASE_URL, companyId, companyCountryId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isCreated());
+        }
+
+        @Test
+        @WithMockUser(roles = {"lc-company"})
+        @DisplayName("returns 201 Created for lc-company")
+        void lcCompanyCanCreateRegion() throws Exception {
+            var request = new CreateCompanyRegionRequest("NORTE", "Norte");
+            when(companyRegionService.createRegion(eq(companyId), eq(companyCountryId), any(CreateCompanyRegionRequest.class)))
+                    .thenReturn(buildRegionResponse());
+
+            mockMvc.perform(post(BASE_URL, companyId, companyCountryId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isCreated());
+        }
+
+        @Test
+        @WithMockUser(roles = {"lc-company-country"})
+        @DisplayName("returns 201 Created for lc-company-country")
+        void lcCompanyCountryCanCreateRegion() throws Exception {
+            var request = new CreateCompanyRegionRequest("NORTE", "Norte");
+            when(companyRegionService.createRegion(eq(companyId), eq(companyCountryId), any(CreateCompanyRegionRequest.class)))
+                    .thenReturn(buildRegionResponse());
+
+            mockMvc.perform(post(BASE_URL, companyId, companyCountryId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isCreated());
+        }
+
+        @Test
+        @WithMockUser(roles = {"lc-company-region"})
+        @DisplayName("returns 403 Forbidden for lc-company-region (cannot create)")
+        void lcCompanyRegionCannotCreate() throws Exception {
+            var request = new CreateCompanyRegionRequest("NORTE", "Norte");
+            // lc-company-region passes @PreAuthorize but service layer denies
+            when(companyRegionService.createRegion(eq(companyId), eq(companyCountryId), any(CreateCompanyRegionRequest.class)))
+                    .thenThrow(new org.springframework.security.access.AccessDeniedException(
+                            "Access denied to company region"));
+
+            mockMvc.perform(post(BASE_URL, companyId, companyCountryId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isForbidden());
+        }
+
+        @Test
         @WithMockUser(roles = {"life-control-country"})
-        @DisplayName("returns 201 Created for country-role")
-        void countryRoleCanCreateRegion() throws Exception {
+        @DisplayName("returns 201 Created for legacy life-control-country role")
+        void legacyCountryRoleCanCreateRegion() throws Exception {
             var request = new CreateCompanyRegionRequest("NORTE", "Norte");
             when(companyRegionService.createRegion(eq(companyId), eq(companyCountryId), any(CreateCompanyRegionRequest.class)))
                     .thenReturn(buildRegionResponse());
