@@ -55,6 +55,16 @@ public class CompanyCountryService {
             throw new CompanyNotFoundException(companyId);
         }
 
+        if (currentUserContext.hasCompanyCountryRole() && !currentUserContext.isAdmin()) {
+            var countryIds = currentUserContext.getCompanyCountryIds();
+            if (countryIds.isEmpty()) {
+                return List.of();
+            }
+            return companyCountryRepository.findByIdInAndCompanyId(countryIds, companyId).stream()
+                    .map(this::toResponse)
+                    .toList();
+        }
+
         return companyCountryRepository.findByCompanyId(companyId).stream()
                 .map(this::toResponse)
                 .toList();
@@ -92,7 +102,7 @@ public class CompanyCountryService {
 
     @Transactional
     public void removeCountryFromCompany(UUID companyId, UUID companyCountryId) {
-        currentUserContext.verifyCompanyAccess(companyId);
+        currentUserContext.verifyCompanyCountryAccess(companyId, companyCountryId);
         logger.info("Removing country relation {} from company {}", companyCountryId, companyId);
 
         CompanyCountry companyCountry = companyCountryRepository.findById(companyCountryId)
@@ -108,7 +118,7 @@ public class CompanyCountryService {
 
     @Transactional
     public CompanyCountryResponse updateCountry(UUID companyId, UUID companyCountryId, CompanyCountryRequest request) {
-        currentUserContext.verifyCompanyAccess(companyId);
+        currentUserContext.verifyCompanyCountryAccess(companyId, companyCountryId);
         logger.info("Updating country relation {} for company {} with request: {}", companyCountryId, companyId, request);
 
         CompanyCountry companyCountry = companyCountryRepository.findById(companyCountryId)

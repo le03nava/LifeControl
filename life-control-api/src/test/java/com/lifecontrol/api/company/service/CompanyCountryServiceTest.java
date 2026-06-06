@@ -26,12 +26,15 @@ import org.springframework.context.ApplicationEventPublisher;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
+
+import org.springframework.security.access.AccessDeniedException;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("CompanyCountryService Tests")
@@ -261,6 +264,172 @@ class CompanyCountryServiceTest {
             // Act & Assert
             assertThatThrownBy(() -> companyCountryService.removeCountryFromCompany(wrongCompanyId, companyCountryId))
                     .isInstanceOf(CompanyCountryNotFoundException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("getCountriesByCompanyId with lc-company-country role")
+    class GetCountriesByCompanyIdCountryRoleTests {
+
+        @Test
+        @DisplayName("should return only records matching user's company_country_id claim")
+        void getCountriesByCompanyId_CountryRole_ReturnsFilteredRecords() {
+            when(currentUserContext.isAdmin()).thenReturn(false);
+            when(currentUserContext.hasCompanyCountryRole()).thenReturn(true);
+            when(currentUserContext.getCompanyCountryIds()).thenReturn(Set.of(companyCountryId));
+            when(companyRepository.existsById(companyId)).thenReturn(true);
+            when(companyCountryRepository.findByIdInAndCompanyId(Set.of(companyCountryId), companyId))
+                    .thenReturn(List.of(testCompanyCountry));
+
+            List<CompanyCountryResponse> result = companyCountryService.getCountriesByCompanyId(companyId);
+
+            assertThat(result).hasSize(1);
+            assertThat(result.get(0).id()).isEqualTo(companyCountryId);
+            assertThat(result.get(0).countryCode()).isEqualTo("MX");
+            verify(companyCountryRepository).findByIdInAndCompanyId(any(), eq(companyId));
+            verify(companyCountryRepository, never()).findByCompanyId(any());
+        }
+
+        @Test
+        @DisplayName("should return empty when no records match user's company_country_id claim")
+        void getCountriesByCompanyId_CountryRole_NoMatch_ReturnsEmpty() {
+            var nonMatchingId = UUID.randomUUID();
+            when(currentUserContext.isAdmin()).thenReturn(false);
+            when(currentUserContext.hasCompanyCountryRole()).thenReturn(true);
+            when(currentUserContext.getCompanyCountryIds()).thenReturn(Set.of(nonMatchingId));
+            when(companyRepository.existsById(companyId)).thenReturn(true);
+            when(companyCountryRepository.findByIdInAndCompanyId(Set.of(nonMatchingId), companyId))
+                    .thenReturn(List.of());
+
+            List<CompanyCountryResponse> result = companyCountryService.getCountriesByCompanyId(companyId);
+
+            assertThat(result).isEmpty();
+            verify(companyCountryRepository).findByIdInAndCompanyId(any(), eq(companyId));
+        }
+
+        @Test
+        @DisplayName("should return empty when company_country_id claim is empty")
+        void getCountriesByCompanyId_CountryRole_EmptyClaim_ReturnsEmpty() {
+            when(currentUserContext.isAdmin()).thenReturn(false);
+            when(currentUserContext.hasCompanyCountryRole()).thenReturn(true);
+            when(currentUserContext.getCompanyCountryIds()).thenReturn(Set.of());
+            when(companyRepository.existsById(companyId)).thenReturn(true);
+
+            List<CompanyCountryResponse> result = companyCountryService.getCountriesByCompanyId(companyId);
+
+            assertThat(result).isEmpty();
+            verify(companyCountryRepository, never()).findByIdInAndCompanyId(any(), any());
+            verify(companyCountryRepository, never()).findByCompanyId(any());
+        }
+    }
+
+    @Nested
+    @DisplayName("removeCountryFromCompany with lc-company-country role")
+    class RemoveCountryFromCompanyCountryRoleTests {
+
+        @Test
+        @DisplayName("should succeed when verifyCompanyCountryAccess passes")
+        void removeCountryFromCompany_CountryRole_Success() {
+            when(companyCountryRepository.findById(companyCountryId))
+                    .thenReturn(Optional.of(testCompanyCountry));
+
+            companyCountryService.removeCountryFromCompany(companyId, companyCountryId);
+
+            verify(companyCountryRepository).delete(testCompanyCountry);
+        }
+
+        @Test
+        @DisplayName("should throw AccessDeniedException when verifyCompanyCountryAccess fails")
+        void removeCountryFromCompany_CountryRole_AccessDenied() {
+            var nonMatchingId = UUID.randomUUID();
+            doThrow(new AccessDeniedException("Access denied"))
+                    .when(currentUserContext).verifyCompanyCountryAccess(companyId, nonMatchingId);
+
+            assertThatThrownBy(() -> companyCountryService.removeCountryFromCompany(companyId, nonMatchingId))
+                    .isInstanceOf(AccessDeniedException.class);
+            verify(companyCountryRepository, never()).findById(any());
+        }
+    }
+
+    @Nested
+    @DisplayName("updateCountry with lc-company-country role")
+    class UpdateCountryCountryRoleTests {
+
+        @Test
+        @DisplayName("should succeed when verifyCompanyCountryAccess passes")
+        void updateCountry_CountryRole_Success() {
+            when(companyCountryRepository.findById(companyCountryId))
+                    .thenReturn(Optional.of(testCompanyCountry));
+            when(countryRepository.findByCountryCode("MX")).thenReturn(Optional.of(testCountry));
+            when(companyCountryRepository.existsByCompanyIdAndCountryId(companyId, countryId)).thenReturn(false);
+            when(companyCountryRepository.save(any(CompanyCountry.class))).thenReturn(testCompanyCountry);
+
+            CompanyCountryResponse result = companyCountryService.updateCountry(companyId, companyCountryId, testRequest);
+
+            assertThat(result).isNotNull();
+            assertThat(result.countryCode()).isEqualTo("MX");
+            verify(companyCountryRepository).save(any(CompanyCountry.class));
+        }
+
+        @Test
+        @DisplayName("should throw AccessDeniedException when verifyCompanyCountryAccess fails")
+        void updateCountry_CountryRole_AccessDenied() {
+            var nonMatchingId = UUID.randomUUID();
+            doThrow(new AccessDeniedException("Access denied"))
+                    .when(currentUserContext).verifyCompanyCountryAccess(companyId, nonMatchingId);
+
+            assertThatThrownBy(() -> companyCountryService.updateCountry(companyId, nonMatchingId, testRequest))
+                    .isInstanceOf(AccessDeniedException.class);
+            verify(companyCountryRepository, never()).findById(any());
+        }
+    }
+
+    @Nested
+    @DisplayName("Backward compatibility regression")
+    class BackwardCompatibilityTests {
+
+        @Test
+        @DisplayName("lc-admin bypasses country filtering in GET")
+        void getCountriesByCompanyId_Admin_BypassesCountryFiltering() {
+            when(currentUserContext.isAdmin()).thenReturn(true);
+            when(currentUserContext.hasCompanyCountryRole()).thenReturn(true);
+            when(companyRepository.existsById(companyId)).thenReturn(true);
+            when(companyCountryRepository.findByCompanyId(companyId))
+                    .thenReturn(List.of(testCompanyCountry));
+
+            List<CompanyCountryResponse> result = companyCountryService.getCountriesByCompanyId(companyId);
+
+            assertThat(result).hasSize(1);
+            verify(companyCountryRepository).findByCompanyId(companyId);
+            verify(companyCountryRepository, never()).findByIdInAndCompanyId(any(), any());
+        }
+
+        @Test
+        @DisplayName("lc-company user uses findByCompanyId in GET (not country-filtered)")
+        void getCountriesByCompanyId_CompanyRole_UsesFindByCompanyId() {
+            when(currentUserContext.hasCompanyCountryRole()).thenReturn(false);
+            when(companyRepository.existsById(companyId)).thenReturn(true);
+            when(companyCountryRepository.findByCompanyId(companyId))
+                    .thenReturn(List.of(testCompanyCountry));
+
+            List<CompanyCountryResponse> result = companyCountryService.getCountriesByCompanyId(companyId);
+
+            assertThat(result).hasSize(1);
+            verify(companyCountryRepository).findByCompanyId(companyId);
+            verify(companyCountryRepository, never()).findByIdInAndCompanyId(any(), any());
+        }
+
+        @Test
+        @DisplayName("addCountryToCompany still uses verifyCompanyAccess (not verifyCompanyCountryAccess)")
+        void addCountryToCompany_UsesVerifyCompanyAccess() {
+            when(companyRepository.findById(companyId)).thenReturn(Optional.of(testCompany));
+            when(countryRepository.findByCountryCode("MX")).thenReturn(Optional.of(testCountry));
+            when(companyCountryRepository.existsByCompanyIdAndCountryId(companyId, countryId)).thenReturn(false);
+            when(companyCountryRepository.save(any(CompanyCountry.class))).thenReturn(testCompanyCountry);
+
+            companyCountryService.addCountryToCompany(companyId, testRequest);
+
+            verify(currentUserContext).verifyCompanyAccess(companyId);
         }
     }
 }
