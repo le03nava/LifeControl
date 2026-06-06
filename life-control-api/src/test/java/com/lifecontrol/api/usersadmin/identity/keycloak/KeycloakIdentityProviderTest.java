@@ -128,6 +128,10 @@ class KeycloakIdentityProviderTest {
             when(realmResource.groups()).thenReturn(groupsResource);
             when(groupsResource.groups(GROUP_NAME, 0, Integer.MAX_VALUE))
                     .thenReturn(List.of(otherGroup));
+            // Stub sub-group lookup — findInTree recurses into sub-groups
+            when(groupsResource.group("other-id")).thenReturn(groupResource);
+            when(groupResource.getSubGroups(0, Integer.MAX_VALUE, false))
+                    .thenReturn(List.of());
 
             var result = provider.findGroupIdByName(GROUP_NAME);
 

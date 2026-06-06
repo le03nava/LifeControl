@@ -450,15 +450,31 @@ public class KeycloakIdentityProvider implements IdentityProvider {
     @Override
     public Optional<String> findGroupIdByName(String name) {
         try {
-            return keycloak.realm(realm()).groups().groups(name, 0, Integer.MAX_VALUE)
-                    .stream()
-                    .filter(g -> name.equals(g.getName()))
-                    .map(GroupRepresentation::getId)
-                    .findFirst();
+            // Search returns top-level groups whose name or path matches
+            var candidates = keycloak.realm(realm()).groups().groups(name, 0, Integer.MAX_VALUE);
+            for (var group : candidates) {
+                var found = findInTree(group, name);
+                if (found.isPresent()) return found;
+            }
+            return Optional.empty();
         } catch (ProcessingException e) {
             throw new IdentityProviderConnectionException(
                     "Failed to search group: " + name, e);
         }
+    }
+
+    private Optional<String> findInTree(GroupRepresentation group, String targetName) {
+        if (targetName.equals(group.getName())) {
+            return Optional.of(group.getId());
+        }
+        // Search sub-groups — Keycloak 26+ search only returns top-level matches
+        var subGroups = keycloak.realm(realm()).groups().group(group.getId())
+                .getSubGroups(0, Integer.MAX_VALUE, false);
+        for (var sub : subGroups) {
+            var found = findInTree(sub, targetName);
+            if (found.isPresent()) return found;
+        }
+        return Optional.empty();
     }
 
     @Override
