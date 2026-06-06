@@ -19,7 +19,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/companies/{companyId}/countries/{companyCountryId}/regions/{regionId}/zones")
 @Tag(name = "Company Zone Management", description = "API for managing zones within a company's region")
-@PreAuthorize("hasAnyRole('life-control-admin','life-control-country')")
+@PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-region','lc-company-zone','life-control-admin','life-control-country')")
 public class CompanyZoneController {
 
     private final CompanyZoneService companyZoneService;
