@@ -56,11 +56,11 @@ public class CurrentUserContext {
     }
 
     /**
-     * Returns {@code true} if the current user has the {@code ROLE_life-control-admin} authority.
+     * Returns {@code true} if the current user has the {@code ROLE_life-control-admin} or {@code ROLE_lc-admin} authority.
      */
     public boolean isAdmin() {
         if (admin == null) {
-            admin = hasAuthority("ROLE_life-control-admin");
+            admin = hasAuthority("ROLE_life-control-admin") || hasAuthority("ROLE_lc-admin");
         }
         return admin;
     }

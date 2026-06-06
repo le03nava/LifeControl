@@ -95,8 +95,8 @@ class CompanyControllerSecurityTest {
     class GetCompanies {
 
         @Test
-        @WithMockUser(roles = {"life-control-admin"})
-        @DisplayName("returns 200 OK for user with life-control-admin role")
+        @WithMockUser(roles = {"lc-admin"})
+        @DisplayName("returns 200 OK for user with lc-admin role")
         void adminCanGetCompanies() throws Exception {
             var response = new CompanyResponse(
                     UUID.randomUUID(), "1", "Test", 1, "RS",
@@ -127,9 +127,9 @@ class CompanyControllerSecurityTest {
         }
 
         @Test
-        @WithMockUser(roles = {"life-control-country"})
-        @DisplayName("returns 200 OK for user with life-control-country role")
-        void countryRoleCanGetCompanies() throws Exception {
+        @WithMockUser(roles = {"lc-company"})
+        @DisplayName("returns 200 OK for user with lc-company role")
+        void lcCompanyRoleCanGetCompanies() throws Exception {
             var response = new CompanyResponse(
                     UUID.randomUUID(), "1", "Test", 1, "RS",
                     "XAXX010101000", "555", "e@e.com", true,
@@ -143,6 +143,51 @@ class CompanyControllerSecurityTest {
         }
     }
 
+    // ─── GET /api/companies/{id} ──────────────────────────────
+
+    @Nested
+    @DisplayName("GET /api/companies/{id}")
+    class GetCompanyById {
+
+        @Test
+        @WithMockUser(roles = {"lc-admin"})
+        @DisplayName("returns 200 OK for user with lc-admin role")
+        void adminCanGetCompanyById() throws Exception {
+            var response = new CompanyResponse(
+                    UUID.randomUUID(), "1", "Test", 1, "RS",
+                    "XAXX010101000", "555", "e@e.com", true,
+                    LocalDateTime.now(), LocalDateTime.now()
+            );
+            when(companyService.getCompanyById(any())).thenReturn(response);
+
+            mockMvc.perform(get("/api/companies/{id}", UUID.randomUUID()))
+                    .andExpect(status().isOk());
+        }
+
+        @Test
+        @WithMockUser(roles = {"lc-company"})
+        @DisplayName("returns 200 OK for user with lc-company role")
+        void lcCompanyCanGetCompanyById() throws Exception {
+            var response = new CompanyResponse(
+                    UUID.randomUUID(), "1", "Test", 1, "RS",
+                    "XAXX010101000", "555", "e@e.com", true,
+                    LocalDateTime.now(), LocalDateTime.now()
+            );
+            when(companyService.getCompanyById(any())).thenReturn(response);
+
+            mockMvc.perform(get("/api/companies/{id}", UUID.randomUUID()))
+                    .andExpect(status().isOk());
+        }
+
+        @Test
+        @WithMockUser
+        @DisplayName("returns 403 Forbidden for authenticated user with no roles")
+        void userWithNoRolesGetsForbidden() throws Exception {
+            mockMvc.perform(get("/api/companies/{id}", UUID.randomUUID()))
+                    .andExpect(status().isForbidden());
+        }
+    }
+
     // ─── POST /api/companies ─────────────────────────────────
 
     @Nested
@@ -150,8 +195,8 @@ class CompanyControllerSecurityTest {
     class PostCompanies {
 
         @Test
-        @WithMockUser(roles = {"life-control-admin"})
-        @DisplayName("returns 201 Created for user with life-control-admin role")
+        @WithMockUser(roles = {"lc-admin"})
+        @DisplayName("returns 201 Created for user with lc-admin role")
         void adminCanCreateCompany() throws Exception {
             var response = new CompanyResponse(
                     UUID.randomUUID(), "1", "Test", 1, "RS",
@@ -187,13 +232,20 @@ class CompanyControllerSecurityTest {
         }
 
         @Test
-        @WithMockUser(roles = {"life-control-country"})
-        @DisplayName("returns 403 Forbidden for country-role (admin-only write)")
-        void countryRoleCannotCreateCompany() throws Exception {
+        @WithMockUser(roles = {"lc-company"})
+        @DisplayName("returns 201 Created for user with lc-company role")
+        void lcCompanyCanCreateCompany() throws Exception {
+            var response = new CompanyResponse(
+                    UUID.randomUUID(), "1", "Test", 1, "RS",
+                    "XAXX010101000", "555", "e@e.com", true,
+                    LocalDateTime.now(), LocalDateTime.now()
+            );
+            when(companyService.createCompany(any())).thenReturn(response);
+
             mockMvc.perform(post("/api/companies")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(buildCompanyRequest())))
-                    .andExpect(status().isForbidden());
+                    .andExpect(status().isCreated());
         }
     }
 
@@ -204,8 +256,8 @@ class CompanyControllerSecurityTest {
     class PutCompanies {
 
         @Test
-        @WithMockUser(roles = {"life-control-admin"})
-        @DisplayName("returns 200 OK for user with life-control-admin role")
+        @WithMockUser(roles = {"lc-admin"})
+        @DisplayName("returns 200 OK for user with lc-admin role")
         void adminCanUpdateCompany() throws Exception {
             var response = new CompanyResponse(
                     UUID.randomUUID(), "1", "Test", 1, "RS",
@@ -221,13 +273,20 @@ class CompanyControllerSecurityTest {
         }
 
         @Test
-        @WithMockUser(roles = {"life-control-country"})
-        @DisplayName("returns 403 Forbidden for country-role (admin-only write)")
-        void countryRoleCannotUpdateCompany() throws Exception {
+        @WithMockUser(roles = {"lc-company"})
+        @DisplayName("returns 200 OK for user with lc-company role")
+        void lcCompanyCanUpdateCompany() throws Exception {
+            var response = new CompanyResponse(
+                    UUID.randomUUID(), "1", "Test", 1, "RS",
+                    "XAXX010101000", "555", "e@e.com", true,
+                    LocalDateTime.now(), LocalDateTime.now()
+            );
+            when(companyService.updateCompany(any(), any())).thenReturn(response);
+
             mockMvc.perform(put("/api/companies/{id}", UUID.randomUUID())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(buildCompanyRequest())))
-                    .andExpect(status().isForbidden());
+                    .andExpect(status().isOk());
         }
 
         @Test
@@ -248,8 +307,8 @@ class CompanyControllerSecurityTest {
     class DeleteCompanies {
 
         @Test
-        @WithMockUser(roles = {"life-control-admin"})
-        @DisplayName("returns 204 No Content for user with life-control-admin role")
+        @WithMockUser(roles = {"lc-admin"})
+        @DisplayName("returns 204 No Content for user with lc-admin role")
         void adminCanDeleteCompany() throws Exception {
             var id = UUID.randomUUID();
             mockMvc.perform(delete("/api/companies/{id}", id))
@@ -257,11 +316,11 @@ class CompanyControllerSecurityTest {
         }
 
         @Test
-        @WithMockUser(roles = {"life-control-country"})
-        @DisplayName("returns 403 Forbidden for country-role (admin-only write)")
-        void countryRoleCannotDeleteCompany() throws Exception {
+        @WithMockUser(roles = {"lc-company"})
+        @DisplayName("returns 204 No Content for user with lc-company role")
+        void lcCompanyCanDeleteCompany() throws Exception {
             mockMvc.perform(delete("/api/companies/{id}", UUID.randomUUID()))
-                    .andExpect(status().isForbidden());
+                    .andExpect(status().isNoContent());
         }
 
         @Test

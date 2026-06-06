@@ -26,25 +26,22 @@ public class KeycloakGroupEventListener {
 
     private static final Logger logger = LoggerFactory.getLogger(KeycloakGroupEventListener.class);
 
-    private static final String COMPANY_GROUP_PREFIX = "company-";
-    private static final String COMPANY_ROLE_NAME = "life-control-company";
-    private static final String COMPANY_CLIENT_ID = "life-control-client";
+    private static final String CLIENT_ID = "life-control-client";
+
+    private static final String COMPANY_GROUP_PREFIX = "lc-company-";
+    private static final String COMPANY_ROLE_NAME = "lc-company";
 
     private static final String COUNTRY_GROUP_PREFIX = "lc-company-country-";
     private static final String COUNTRY_ROLE_NAME = "lc-company-country";
-    private static final String COUNTRY_CLIENT_ID = "life-control-client";
 
     private static final String REGION_GROUP_PREFIX = "lc-company-region-";
     private static final String REGION_ROLE_NAME = "lc-company-region";
-    private static final String REGION_CLIENT_ID = "life-control-client";
 
     private static final String ZONE_GROUP_PREFIX = "lc-company-zone-";
     private static final String ZONE_ROLE_NAME = "lc-company-zone";
-    private static final String ZONE_CLIENT_ID = "life-control-client";
 
     private static final String STORE_GROUP_PREFIX = "lc-company-store-";
     private static final String STORE_ROLE_NAME = "lc-company-store";
-    private static final String STORE_CLIENT_ID = "life-control-client";
 
     private final IdentityProvider identityProvider;
 
@@ -60,7 +57,7 @@ public class KeycloakGroupEventListener {
                     groupName,
                     Map.of("company_id", List.of(event.getId().toString())),
                     COMPANY_ROLE_NAME,
-                    COMPANY_CLIENT_ID
+                    CLIENT_ID
             );
             logger.info("Keycloak group created for company: name={}, id={}", groupName, event.getId());
         } catch (IdentityProviderException e) {
@@ -77,7 +74,7 @@ public class KeycloakGroupEventListener {
                     groupName,
                     Map.of("company_country_id", List.of(event.getCompanyCountryId().toString())),
                     COUNTRY_ROLE_NAME,
-                    COUNTRY_CLIENT_ID
+                    CLIENT_ID
             );
             logger.info("Keycloak group created for company-country: name={}, id={}",
                     groupName, event.getCompanyCountryId());
@@ -95,7 +92,7 @@ public class KeycloakGroupEventListener {
                     groupName,
                     Map.of("company_region_id", List.of(event.getCompanyRegionId().toString())),
                     REGION_ROLE_NAME,
-                    REGION_CLIENT_ID
+                    CLIENT_ID
             );
             logger.info("Keycloak group created for company-region: name={}, id={}",
                     groupName, event.getCompanyRegionId());
@@ -113,7 +110,7 @@ public class KeycloakGroupEventListener {
                     groupName,
                     Map.of("company_zone_id", List.of(event.getCompanyZoneId().toString())),
                     ZONE_ROLE_NAME,
-                    ZONE_CLIENT_ID
+                    CLIENT_ID
             );
             logger.info("Keycloak group created for company-zone: name={}, id={}",
                     groupName, event.getCompanyZoneId());
@@ -131,7 +128,7 @@ public class KeycloakGroupEventListener {
                     groupName,
                     Map.of("company_store_id", List.of(event.getCompanyStoreId().toString())),
                     STORE_ROLE_NAME,
-                    STORE_CLIENT_ID
+                    CLIENT_ID
             );
             logger.info("Keycloak group created for company-store: name={}, id={}",
                     groupName, event.getCompanyStoreId());

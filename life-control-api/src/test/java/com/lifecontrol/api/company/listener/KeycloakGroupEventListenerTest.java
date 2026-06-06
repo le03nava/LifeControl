@@ -55,9 +55,9 @@ class KeycloakGroupEventListenerTest {
             listener.onCompanyCreated(event);
 
             verify(identityProvider).createGroupWithRole(
-                    "company-acme_corp",
+                    "lc-company-acme_corp",
                     Map.of("company_id", List.of(companyUuid.toString())),
-                    "life-control-company",
+                    "lc-company",
                     "life-control-client"
             );
         }
@@ -70,9 +70,9 @@ class KeycloakGroupEventListenerTest {
             listener.onCompanyCreated(event);
 
             verify(identityProvider).createGroupWithRole(
-                    "company-acme-corp_s_a__de_c_v_",
+                    "lc-company-acme-corp_s_a__de_c_v_",
                     Map.of("company_id", List.of(companyUuid.toString())),
-                    "life-control-company",
+                    "lc-company",
                     "life-control-client"
             );
         }
@@ -85,9 +85,9 @@ class KeycloakGroupEventListenerTest {
             listener.onCompanyCreated(event);
 
             verify(identityProvider).createGroupWithRole(
-                    "company-acme_corporation",
+                    "lc-company-acme_corporation",
                     Map.of("company_id", List.of(companyUuid.toString())),
-                    "life-control-company",
+                    "lc-company",
                     "life-control-client"
             );
         }
@@ -100,9 +100,9 @@ class KeycloakGroupEventListenerTest {
             listener.onCompanyCreated(event);
 
             verify(identityProvider).createGroupWithRole(
-                    "company-my-company_test",
+                    "lc-company-my-company_test",
                     Map.of("company_id", List.of(companyUuid.toString())),
-                    "life-control-company",
+                    "lc-company",
                     "life-control-client"
             );
         }
@@ -113,18 +113,18 @@ class KeycloakGroupEventListenerTest {
             var event = new CompanyCreatedEvent(this, companyUuid, companyKey, companyName);
             doThrow(new IdentityProviderConnectionException("Keycloak unavailable"))
                     .when(identityProvider).createGroupWithRole(
-                            "company-acme_corp",
+                            "lc-company-acme_corp",
                             Map.of("company_id", List.of(companyUuid.toString())),
-                            "life-control-company",
+                            "lc-company",
                             "life-control-client");
 
             // Should not throw
             listener.onCompanyCreated(event);
 
             verify(identityProvider).createGroupWithRole(
-                    "company-acme_corp",
+                    "lc-company-acme_corp",
                     Map.of("company_id", List.of(companyUuid.toString())),
-                    "life-control-company",
+                    "lc-company",
                     "life-control-client"
             );
         }

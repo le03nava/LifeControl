@@ -207,6 +207,15 @@ class CurrentUserContextTest {
         }
 
         @Test
+        @DisplayName("isAdmin returns true when user has ROLE_lc-admin")
+        void lcAdminRole() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-admin"));
+
+            assertThat(currentUserContext.isAdmin()).isTrue();
+            assertThat(currentUserContext.isCountryRole()).isFalse();
+        }
+
+        @Test
         @DisplayName("isCountryRole returns true when user has ROLE_life-control-country")
         void countryRole() {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_life-control-country"));
@@ -269,6 +278,31 @@ class CurrentUserContextTest {
         @DisplayName("country-role cannot access non-assigned company")
         void countryRoleCannotAccessNonAssignedCompany() {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_life-control-country"));
+            UUID assignedId = UUID.randomUUID();
+            UUID otherId = UUID.randomUUID();
+            when(jwt.getClaimAsString("company_id")).thenReturn(assignedId.toString());
+
+            org.junit.jupiter.api.Assertions.assertThrows(
+                    org.springframework.security.access.AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyAccess(otherId)
+            );
+        }
+
+        @Test
+        @DisplayName("lc-company role can access assigned company")
+        void lcCompanyRoleCanAccessAssignedCompany() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company"));
+            UUID companyId = UUID.randomUUID();
+            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
+
+            // Should not throw — lc-company user has matching company_id
+            currentUserContext.verifyCompanyAccess(companyId);
+        }
+
+        @Test
+        @DisplayName("lc-company role cannot access non-assigned company")
+        void lcCompanyRoleCannotAccessNonAssignedCompany() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company"));
             UUID assignedId = UUID.randomUUID();
             UUID otherId = UUID.randomUUID();
             when(jwt.getClaimAsString("company_id")).thenReturn(assignedId.toString());

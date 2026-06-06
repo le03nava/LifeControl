@@ -31,7 +31,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/companies")
 @Tag(name = "Company Management", description = "API for managing companies")
-@PreAuthorize("hasAnyRole('life-control-admin','life-control-country')")
+@PreAuthorize("hasAnyRole('lc-admin','lc-company')")
 public class CompanyController {
 
     private final CompanyService companyService;
@@ -58,7 +58,6 @@ public class CompanyController {
 
     @PostMapping
     @Operation(summary = "Create a new company", description = "Creates a new company with the provided details")
-    @PreAuthorize("hasRole('life-control-admin')")
     public ResponseEntity<CompanyResponse> createCompany(@Valid @RequestBody CompanyRequest request) {
         CompanyResponse response = companyService.createCompany(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
@@ -66,7 +65,6 @@ public class CompanyController {
 
     @PutMapping("/{id}")
     @Operation(summary = "Update a company", description = "Updates an existing company with the provided details")
-    @PreAuthorize("hasRole('life-control-admin')")
     public ResponseEntity<CompanyResponse> updateCompany(@PathVariable UUID id, @Valid @RequestBody CompanyRequest request) {
         CompanyResponse response = companyService.updateCompany(id, request);
         return ResponseEntity.ok(response);
@@ -74,7 +72,6 @@ public class CompanyController {
 
     @DeleteMapping("/{id}")
     @Operation(summary = "Delete a company", description = "Soft-deletes a company by setting enabled to false")
-    @PreAuthorize("hasRole('life-control-admin')")
     public ResponseEntity<Void> deleteCompany(@PathVariable UUID id) {
         companyService.deleteCompany(id);
         return ResponseEntity.noContent().build();

@@ -67,7 +67,7 @@ class KeycloakIdentityProviderTest {
     private static final String REALM = "life-control-realm";
     private static final String CLIENT_ID = "life-control-client";
     private static final String CLIENT_UUID = "client-uuid-123";
-    private static final String COMPANY_ROLE_NAME = "life-control-company";
+    private static final String COMPANY_ROLE_NAME = "lc-company";
     private static final String GROUP_NAME = "test-group";
     private static final String GROUP_ID = "group-id-456";
 

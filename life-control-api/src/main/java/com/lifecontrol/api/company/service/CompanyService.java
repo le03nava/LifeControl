@@ -103,6 +103,8 @@ public class CompanyService {
 
     @Transactional
     public CompanyResponse updateCompany(UUID id, CompanyRequest request) {
+        currentUserContext.verifyCompanyAccess(id);
+
         // Fetch existing company
         Company company = companyRepository.findById(id)
                 .orElseThrow(() -> new CompanyNotFoundException(id));
@@ -128,6 +130,8 @@ public class CompanyService {
 
     @Transactional
     public void deleteCompany(UUID id) {
+        currentUserContext.verifyCompanyAccess(id);
+
         Company company = companyRepository.findById(id)
                 .orElseThrow(() -> new CompanyNotFoundException(id));
         
