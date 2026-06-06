@@ -31,7 +31,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/companies")
 @Tag(name = "Company Management", description = "API for managing companies")
-@PreAuthorize("hasAnyRole('lc-admin','lc-company')")
+@PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country')")
 public class CompanyController {
 
     private final CompanyService companyService;
@@ -86,6 +86,7 @@ public class CompanyController {
     }
 
     @PostMapping("/{companyId}/countries")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-company')")
     @Operation(summary = "Add country to company", description = "Associates a country with a company")
     public ResponseEntity<CompanyCountryResponse> addCompanyCountry(
             @PathVariable UUID companyId,
