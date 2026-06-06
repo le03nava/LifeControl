@@ -35,9 +35,16 @@ public class CurrentUserContext {
 
     private static final Logger log = LoggerFactory.getLogger(CurrentUserContext.class);
 
+    private static final String CLAIM_COMPANY_COUNTRY_ID = "company_country_id";
+    static final String ROLE_LC_COMPANY = "ROLE_lc-company";
+    static final String ROLE_LC_COMPANY_COUNTRY = "ROLE_lc-company-country";
+
     private Set<UUID> companyIds;
+    private Set<UUID> companyCountryIds;
     private Boolean admin;
     private Boolean countryRole;
+    private Boolean companyRole;
+    private Boolean companyCountryRole;
     private String userId;
     private String username;
 
@@ -53,6 +60,20 @@ public class CurrentUserContext {
             companyIds = extractCompanyIds();
         }
         return companyIds;
+    }
+
+    /**
+     * Returns the set of company country IDs extracted from the JWT {@code company_country_id} claim.
+     * The claim may be a single UUID or comma-separated UUIDs.
+     * Whitespace is trimmed, malformed UUIDs are silently skipped, and duplicates are removed.
+     *
+     * @return an immutable set of parsed UUIDs; empty if none found
+     */
+    public Set<UUID> getCompanyCountryIds() {
+        if (companyCountryIds == null) {
+            companyCountryIds = extractCompanyCountryIds();
+        }
+        return companyCountryIds;
     }
 
     /**
@@ -76,6 +97,26 @@ public class CurrentUserContext {
     }
 
     /**
+     * Returns {@code true} if the current user has the {@code ROLE_lc-company} authority.
+     */
+    public boolean hasCompanyRole() {
+        if (companyRole == null) {
+            companyRole = hasAuthority(ROLE_LC_COMPANY);
+        }
+        return companyRole;
+    }
+
+    /**
+     * Returns {@code true} if the current user has the {@code ROLE_lc-company-country} authority.
+     */
+    public boolean hasCompanyCountryRole() {
+        if (companyCountryRole == null) {
+            companyCountryRole = hasAuthority(ROLE_LC_COMPANY_COUNTRY);
+        }
+        return companyCountryRole;
+    }
+
+    /**
      * Verifies that the current user has access to the given company.
      * Admin users have unrestricted access. Non-admin users must have the
      * company ID in their {@code company_id} claim set.
@@ -91,6 +132,38 @@ public class CurrentUserContext {
             log.warn("Access denied to company {} for non-admin user", companyId);
             throw new AccessDeniedException("Access denied to company: " + companyId);
         }
+    }
+
+    /**
+     * Three-tier access check for CompanyCountry records.
+     * <ul>
+     *   <li>lc-admin: bypasses all checks (returns immediately).</li>
+     *   <li>lc-company: delegates to {@link #verifyCompanyAccess(UUID)} for company-level check.</li>
+     *   <li>lc-company-country: verifies company access AND that the given
+     *       {@code companyCountryId} is present in the {@code company_country_id} JWT claim set.</li>
+     * </ul>
+     *
+     * @param companyId        the company UUID to verify (company-level check)
+     * @param companyCountryId the company-country UUID to verify (record-level check)
+     * @throws AccessDeniedException if access is denied for any reason
+     */
+    public void verifyCompanyCountryAccess(UUID companyId, UUID companyCountryId) {
+        if (isAdmin()) {
+            return;
+        }
+        if (hasCompanyRole()) {
+            verifyCompanyAccess(companyId);
+            return;
+        }
+        if (hasCompanyCountryRole()) {
+            verifyCompanyAccess(companyId);
+            if (companyCountryId == null || !getCompanyCountryIds().contains(companyCountryId)) {
+                log.warn("Access denied to company-country {} for lc-company-country user", companyCountryId);
+                throw new AccessDeniedException("Access denied to company country: " + companyCountryId);
+            }
+            return;
+        }
+        throw new AccessDeniedException("Insufficient role for company-country access");
     }
 
     /**
@@ -142,6 +215,32 @@ public class CurrentUserContext {
         if (ids.isEmpty()) {
             log.warn("JWT contains company_id claim but no valid UUIDs could be parsed: '{}'",
                     companyIdClaim);
+        }
+
+        return Collections.unmodifiableSet(ids);
+    }
+
+    private Set<UUID> extractCompanyCountryIds() {
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !(authentication.getPrincipal() instanceof Jwt jwt)) {
+            return Collections.emptySet();
+        }
+
+        String claim = jwt.getClaimAsString(CLAIM_COMPANY_COUNTRY_ID);
+        if (claim == null || claim.isBlank()) {
+            return Collections.emptySet();
+        }
+
+        Set<UUID> ids = Stream.of(claim.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .map(this::tryParseUuid)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(HashSet::new));
+
+        if (ids.isEmpty()) {
+            log.warn("JWT contains company_country_id claim but no valid UUIDs could be parsed: '{}'",
+                    claim);
         }
 
         return Collections.unmodifiableSet(ids);

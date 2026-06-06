@@ -21,4 +21,10 @@ public interface CompanyCountryRepository extends JpaRepository<CompanyCountry, 
     Optional<CompanyCountry> findByCompanyIdAndId(UUID companyId, UUID id);
 
     List<CompanyCountry> findAllByIdIn(Set<UUID> ids);
+
+    /**
+     * Returns CompanyCountry records whose IDs are in the given set AND belong to the given company.
+     * Used for lc-company-country filtered GET to scope results to the user's allowed country IDs.
+     */
+    List<CompanyCountry> findByIdInAndCompanyId(Set<UUID> ids, UUID companyId);
 }
