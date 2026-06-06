@@ -16,6 +16,7 @@ import com.lifecontrol.api.company.repository.CompanyRegionRepository;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.ApplicationEventPublisher;
@@ -56,8 +57,22 @@ public class CompanyRegionService {
     @Cacheable(value = "companyRegions", key = "'all-' + #companyCountryId + '-' + #includeDisabled")
     @Transactional(readOnly = true)
     public List<CompanyRegionResponse> getAllRegions(UUID companyId, UUID companyCountryId, boolean includeDisabled) {
-        currentUserContext.verifyCompanyAccess(companyId);
+        currentUserContext.verifyCompanyRegionAccess(companyId, companyCountryId, null);
         var companyCountry = resolveCompanyCountry(companyId, companyCountryId);
+
+        if (currentUserContext.hasCompanyRegionRole()) {
+            var regionIds = currentUserContext.getCompanyRegionIds();
+            if (regionIds.isEmpty()) {
+                return List.of();
+            }
+            List<CompanyRegion> regions = companyRegionRepository
+                    .findByIdInAndCompanyCountryId(regionIds, companyCountry.getId());
+            return regions.stream()
+                    .filter(r -> includeDisabled || r.getEnabled())
+                    .map(this::toResponse)
+                    .toList();
+        }
+
         List<CompanyRegion> regions = companyRegionRepository
                 .findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId());
         return regions.stream()
@@ -69,7 +84,7 @@ public class CompanyRegionService {
     @Cacheable(value = "companyRegions", key = "#id")
     @Transactional(readOnly = true)
     public CompanyRegionResponse getRegionById(UUID companyId, UUID companyCountryId, UUID id) {
-        currentUserContext.verifyCompanyAccess(companyId);
+        currentUserContext.verifyCompanyRegionAccess(companyId, companyCountryId, id);
         var companyCountry = resolveCompanyCountry(companyId, companyCountryId);
         CompanyRegion region = companyRegionRepository.findByIdAndCompanyCountryId(id, companyCountry.getId())
                 .orElseThrow(() -> new CompanyRegionNotFoundException("Company region not found with id: " + id));
@@ -79,7 +94,10 @@ public class CompanyRegionService {
     @CacheEvict(value = "companyRegions", allEntries = true)
     @Transactional
     public CompanyRegionResponse createRegion(UUID companyId, UUID companyCountryId, CreateCompanyRegionRequest request) {
-        currentUserContext.verifyCompanyAccess(companyId);
+        if (currentUserContext.hasCompanyRegionRole()) {
+            throw new AccessDeniedException("Region-scoped users cannot create regions");
+        }
+        currentUserContext.verifyCompanyRegionAccess(companyId, companyCountryId, null);
         companyRepository.findById(companyId)
                 .orElseThrow(() -> new CompanyNotFoundException(companyId));
 
@@ -110,7 +128,7 @@ public class CompanyRegionService {
     @CacheEvict(value = "companyRegions", allEntries = true)
     @Transactional
     public CompanyRegionResponse updateRegion(UUID companyId, UUID companyCountryId, UUID id, UpdateCompanyRegionRequest request) {
-        currentUserContext.verifyCompanyAccess(companyId);
+        currentUserContext.verifyCompanyRegionAccess(companyId, companyCountryId, id);
         companyRepository.findById(companyId)
                 .orElseThrow(() -> new CompanyNotFoundException(companyId));
 
@@ -137,7 +155,7 @@ public class CompanyRegionService {
     @CacheEvict(value = "companyRegions", allEntries = true)
     @Transactional
     public void deleteRegion(UUID companyId, UUID companyCountryId, UUID id) {
-        currentUserContext.verifyCompanyAccess(companyId);
+        currentUserContext.verifyCompanyRegionAccess(companyId, companyCountryId, id);
         companyRepository.findById(companyId)
                 .orElseThrow(() -> new CompanyNotFoundException(companyId));
 
@@ -155,7 +173,7 @@ public class CompanyRegionService {
     @CacheEvict(value = "companyRegions", allEntries = true)
     @Transactional
     public CompanyRegionResponse enableRegion(UUID companyId, UUID companyCountryId, UUID id) {
-        currentUserContext.verifyCompanyAccess(companyId);
+        currentUserContext.verifyCompanyRegionAccess(companyId, companyCountryId, id);
         companyRepository.findById(companyId)
                 .orElseThrow(() -> new CompanyNotFoundException(companyId));
 

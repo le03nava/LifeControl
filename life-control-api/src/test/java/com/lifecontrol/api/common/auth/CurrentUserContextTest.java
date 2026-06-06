@@ -193,6 +193,98 @@ class CurrentUserContextTest {
     }
 
     @Nested
+    @DisplayName("getCompanyRegionIds")
+    class GetCompanyRegionIdsTests {
+
+        @Test
+        @DisplayName("should extract single UUID from company_region_id claim")
+        void singleUuid() {
+            UUID id = UUID.randomUUID();
+            when(jwt.getClaimAsString("company_region_id")).thenReturn(id.toString());
+
+            Set<UUID> result = currentUserContext.getCompanyRegionIds();
+
+            assertThat(result).containsExactly(id);
+        }
+
+        @Test
+        @DisplayName("should extract multiple comma-separated UUIDs")
+        void multipleUuids() {
+            UUID id1 = UUID.randomUUID();
+            UUID id2 = UUID.randomUUID();
+            when(jwt.getClaimAsString("company_region_id")).thenReturn(id1 + "," + id2);
+
+            Set<UUID> result = currentUserContext.getCompanyRegionIds();
+
+            assertThat(result).containsExactlyInAnyOrder(id1, id2);
+        }
+
+        @Test
+        @DisplayName("should deduplicate repeated UUIDs")
+        void deduplicates() {
+            UUID id = UUID.randomUUID();
+            when(jwt.getClaimAsString("company_region_id")).thenReturn(id + "," + id);
+
+            Set<UUID> result = currentUserContext.getCompanyRegionIds();
+
+            assertThat(result).hasSize(1);
+            assertThat(result).containsExactly(id);
+        }
+
+        @Test
+        @DisplayName("should handle whitespace-padded UUIDs")
+        void whitespacePadded() {
+            UUID id = UUID.randomUUID();
+            when(jwt.getClaimAsString("company_region_id")).thenReturn(" " + id + " , " + id);
+
+            Set<UUID> result = currentUserContext.getCompanyRegionIds();
+
+            assertThat(result).containsExactly(id);
+        }
+
+        @Test
+        @DisplayName("should silently skip malformed UUIDs")
+        void malformedUuids() {
+            UUID validId = UUID.randomUUID();
+            when(jwt.getClaimAsString("company_region_id")).thenReturn("not-a-uuid," + validId);
+
+            Set<UUID> result = currentUserContext.getCompanyRegionIds();
+
+            assertThat(result).containsExactly(validId);
+        }
+
+        @Test
+        @DisplayName("all-malformed returns empty set")
+        void allMalformed() {
+            when(jwt.getClaimAsString("company_region_id")).thenReturn("not-a-uuid,also-bad");
+
+            Set<UUID> result = currentUserContext.getCompanyRegionIds();
+
+            assertThat(result).isEmpty();
+        }
+
+        @Test
+        @DisplayName("should return empty set when claim is missing")
+        void missingClaim() {
+            when(jwt.getClaimAsString("company_region_id")).thenReturn(null);
+
+            Set<UUID> result = currentUserContext.getCompanyRegionIds();
+
+            assertThat(result).isEmpty();
+        }
+
+        @Test
+        @DisplayName("should return empty set when claim is blank")
+        void blankClaim() {
+            when(jwt.getClaimAsString("company_region_id")).thenReturn("   ");
+
+            Set<UUID> result = currentUserContext.getCompanyRegionIds();
+
+            assertThat(result).isEmpty();
+        }
+    }
+
+    @Nested
     @DisplayName("getCompanyCountryIds")
     class GetCompanyCountryIdsTests {
 
@@ -373,6 +465,23 @@ class CurrentUserContextTest {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_other"));
 
             assertThat(currentUserContext.hasCompanyCountryRole()).isFalse();
+        }
+
+        @Test
+        @DisplayName("hasCompanyRegionRole returns true when user has ROLE_lc-company-region")
+        void companyRegionRole() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company-region"));
+
+            assertThat(currentUserContext.hasCompanyRegionRole()).isTrue();
+            assertThat(currentUserContext.hasCompanyCountryRole()).isFalse();
+        }
+
+        @Test
+        @DisplayName("hasCompanyRegionRole returns false when role not present")
+        void noCompanyRegionRole() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_other"));
+
+            assertThat(currentUserContext.hasCompanyRegionRole()).isFalse();
         }
     }
 
@@ -560,4 +669,164 @@ class CurrentUserContextTest {
                     () -> currentUserContext.verifyCompanyCountryAccess(UUID.randomUUID(), UUID.randomUUID()));
         }
     }
+
+    @Nested
+    @DisplayName("verifyCompanyRegionAccess")
+    class VerifyCompanyRegionAccessTests {
+
+        @SuppressWarnings("unchecked")
+        private void mockAuthorities(Collection<GrantedAuthority> authorities) {
+            when(authentication.getAuthorities()).thenReturn((Collection) authorities);
+        }
+
+        // ── 3.3: Admin bypass ──
+
+        @Test
+        @DisplayName("admin can access any region")
+        void adminCanAccessAnyRegion() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_life-control-admin"));
+
+            assertDoesNotThrow(() ->
+                    currentUserContext.verifyCompanyRegionAccess(
+                            UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
+        }
+
+        // ── 3.4: lc-company delegates to verifyCompanyAccess ──
+
+        @Test
+        @DisplayName("lc-company can access assigned company's regions")
+        void lcCompanyCanAccessAssignedCompany() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company"));
+            UUID companyId = UUID.randomUUID();
+            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
+
+            assertDoesNotThrow(() ->
+                    currentUserContext.verifyCompanyRegionAccess(companyId, UUID.randomUUID(), UUID.randomUUID()));
+        }
+
+        @Test
+        @DisplayName("lc-company cannot access non-assigned company's regions")
+        void lcCompanyCannotAccessNonAssignedCompany() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company"));
+            UUID assignedId = UUID.randomUUID();
+            UUID otherId = UUID.randomUUID();
+            when(jwt.getClaimAsString("company_id")).thenReturn(assignedId.toString());
+
+            assertThrows(AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyRegionAccess(otherId, UUID.randomUUID(), UUID.randomUUID()));
+        }
+
+        // ── 3.5: lc-company-country ──
+
+        @Test
+        @DisplayName("lc-company-country can access matching company country region")
+        void countryUserCanAccessMatchingCountry() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company-country"));
+            UUID companyId = UUID.randomUUID();
+            UUID countryId = UUID.randomUUID();
+            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaimAsString("company_country_id")).thenReturn(countryId.toString());
+
+            assertDoesNotThrow(() ->
+                    currentUserContext.verifyCompanyRegionAccess(companyId, countryId, UUID.randomUUID()));
+        }
+
+        @Test
+        @DisplayName("lc-company-country cannot access mismatched country")
+        void countryUserCannotAccessMismatchedCountry() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company-country"));
+            UUID companyId = UUID.randomUUID();
+            UUID assignedCountryId = UUID.randomUUID();
+            UUID otherCountryId = UUID.randomUUID();
+            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaimAsString("company_country_id")).thenReturn(assignedCountryId.toString());
+
+            assertThrows(AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyRegionAccess(companyId, otherCountryId, UUID.randomUUID()));
+        }
+
+        @Test
+        @DisplayName("lc-company-country cannot access wrong company")
+        void countryUserCannotAccessWrongCompany() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company-country"));
+            UUID assignedCompanyId = UUID.randomUUID();
+            UUID wrongCompanyId = UUID.randomUUID();
+            when(jwt.getClaimAsString("company_id")).thenReturn(assignedCompanyId.toString());
+
+            assertThrows(AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyRegionAccess(wrongCompanyId, UUID.randomUUID(), UUID.randomUUID()));
+        }
+
+        // ── 3.6: lc-company-region ──
+
+        @Test
+        @DisplayName("lc-company-region can access assigned region with all hierarchy matching")
+        void regionUserCanAccessMatchingRegion() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company-region"));
+            UUID companyId = UUID.randomUUID();
+            UUID countryId = UUID.randomUUID();
+            UUID regionId = UUID.randomUUID();
+            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaimAsString("company_country_id")).thenReturn(countryId.toString());
+            when(jwt.getClaimAsString("company_region_id")).thenReturn(regionId.toString());
+
+            assertDoesNotThrow(() ->
+                    currentUserContext.verifyCompanyRegionAccess(companyId, countryId, regionId));
+        }
+
+        @Test
+        @DisplayName("lc-company-region cannot access mismatched region")
+        void regionUserCannotAccessMismatchedRegion() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company-region"));
+            UUID companyId = UUID.randomUUID();
+            UUID countryId = UUID.randomUUID();
+            UUID assignedRegionId = UUID.randomUUID();
+            UUID otherRegionId = UUID.randomUUID();
+            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaimAsString("company_country_id")).thenReturn(countryId.toString());
+            when(jwt.getClaimAsString("company_region_id")).thenReturn(assignedRegionId.toString());
+
+            assertThrows(AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyRegionAccess(companyId, countryId, otherRegionId));
+        }
+
+        @Test
+        @DisplayName("lc-company-region cannot access mismatched country")
+        void regionUserCannotAccessMismatchedCountry() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company-region"));
+            UUID companyId = UUID.randomUUID();
+            UUID assignedCountryId = UUID.randomUUID();
+            UUID otherCountryId = UUID.randomUUID();
+            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaimAsString("company_country_id")).thenReturn(assignedCountryId.toString());
+
+            assertThrows(AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyRegionAccess(companyId, otherCountryId, UUID.randomUUID()));
+        }
+
+        @Test
+        @DisplayName("lc-company-region cannot access wrong company")
+        void regionUserCannotAccessWrongCompany() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company-region"));
+            UUID assignedCompanyId = UUID.randomUUID();
+            UUID wrongCompanyId = UUID.randomUUID();
+            when(jwt.getClaimAsString("company_id")).thenReturn(assignedCompanyId.toString());
+
+            assertThrows(AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyRegionAccess(wrongCompanyId, UUID.randomUUID(), UUID.randomUUID()));
+        }
+
+        // ── 3.7: Unrecognized role ──
+
+        @Test
+        @DisplayName("no recognized role throws AccessDeniedException")
+        void noRecognizedRoleThrows() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_other"));
+
+            assertThrows(AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyRegionAccess(
+                            UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
+        }
+    }
 }
+

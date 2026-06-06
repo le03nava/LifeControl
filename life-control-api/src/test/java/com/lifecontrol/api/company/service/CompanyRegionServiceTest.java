@@ -28,6 +28,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -319,6 +320,20 @@ class CompanyRegionServiceTest {
                     .isInstanceOf(DuplicateCompanyRegionException.class);
             verify(companyRegionRepository, never()).save(any());
         }
+
+        @Test
+        @DisplayName("should throw AccessDeniedException when user has company-region role")
+        void createRegion_RegionRoleDenied_ThrowsAccessDenied() {
+            // Arrange
+            when(currentUserContext.hasCompanyRegionRole()).thenReturn(true);
+
+            // Act & Assert
+            assertThatThrownBy(() -> companyRegionService.createRegion(companyId, companyCountryId, createRequest))
+                    .isInstanceOf(org.springframework.security.access.AccessDeniedException.class)
+                    .hasMessage("Region-scoped users cannot create regions");
+            verify(currentUserContext, never()).verifyCompanyRegionAccess(any(), any(), any());
+            verify(companyRegionRepository, never()).save(any());
+        }
     }
 
     @Nested
@@ -538,6 +553,168 @@ class CompanyRegionServiceTest {
             assertThatThrownBy(() -> companyRegionService.enableRegion(companyId, companyCountryId, regionId))
                     .isInstanceOf(CompanyRegionNotFoundException.class);
             verify(companyRegionRepository, never()).save(any());
+        }
+    }
+
+    // ── Phase 4: Role-based branching and verifyCompanyRegionAccess tests ──
+
+    @Nested
+    @DisplayName("getAllRegions — role-based branching")
+    class GetAllRegionsRoleBranchingTests {
+
+        @Test
+        @DisplayName("should use scoped query when user has company-region role")
+        void regionRoleUsesScopedQuery() {
+            when(currentUserContext.hasCompanyRegionRole()).thenReturn(true);
+            UUID regionId = UUID.randomUUID();
+            when(currentUserContext.getCompanyRegionIds()).thenReturn(Set.of(regionId));
+
+            var companyCountry = CompanyCountry.builder()
+                    .id(companyCountryId)
+                    .company(testCompany)
+                    .country(testCountry)
+                    .build();
+            when(companyCountryRepository.findByCompanyIdAndId(companyId, companyCountryId))
+                    .thenReturn(Optional.of(companyCountry));
+            when(companyRegionRepository.findByIdInAndCompanyCountryId(Set.of(regionId), companyCountryId))
+                    .thenReturn(List.of(testRegion));
+
+            List<CompanyRegionResponse> result = companyRegionService.getAllRegions(companyId, companyCountryId, false);
+
+            assertThat(result).hasSize(1);
+            verify(companyRegionRepository).findByIdInAndCompanyCountryId(Set.of(regionId), companyCountryId);
+            verify(companyRegionRepository, never()).findByCompanyCountryIdOrderByRegionNameAsc(any());
+        }
+
+        @Test
+        @DisplayName("should return empty list when region-role user has no region IDs")
+        void regionRoleWithEmptyIdsReturnsEmpty() {
+            when(currentUserContext.hasCompanyRegionRole()).thenReturn(true);
+            when(currentUserContext.getCompanyRegionIds()).thenReturn(Set.of());
+
+            var companyCountry = CompanyCountry.builder()
+                    .id(companyCountryId)
+                    .company(testCompany)
+                    .country(testCountry)
+                    .build();
+            when(companyCountryRepository.findByCompanyIdAndId(companyId, companyCountryId))
+                    .thenReturn(Optional.of(companyCountry));
+
+            List<CompanyRegionResponse> result = companyRegionService.getAllRegions(companyId, companyCountryId, false);
+
+            assertThat(result).isEmpty();
+            verify(companyRegionRepository, never()).findByIdInAndCompanyCountryId(any(), any());
+            verify(companyRegionRepository, never()).findByCompanyCountryIdOrderByRegionNameAsc(any());
+        }
+
+        @Test
+        @DisplayName("should use cached query when user does NOT have company-region role")
+        void nonRegionRoleUsesCachedQuery() {
+            when(currentUserContext.hasCompanyRegionRole()).thenReturn(false);
+
+            var companyCountry = CompanyCountry.builder()
+                    .id(companyCountryId)
+                    .company(testCompany)
+                    .country(testCountry)
+                    .build();
+            when(companyCountryRepository.findByCompanyIdAndId(companyId, companyCountryId))
+                    .thenReturn(Optional.of(companyCountry));
+            when(companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountryId))
+                    .thenReturn(List.of(testRegion));
+
+            List<CompanyRegionResponse> result = companyRegionService.getAllRegions(companyId, companyCountryId, false);
+
+            assertThat(result).hasSize(1);
+            verify(companyRegionRepository).findByCompanyCountryIdOrderByRegionNameAsc(companyCountryId);
+            verify(companyRegionRepository, never()).findByIdInAndCompanyCountryId(any(), any());
+        }
+    }
+
+    @Nested
+    @DisplayName("verifyCompanyRegionAccess — correct parameter passing")
+    class VerifyCompanyRegionAccessParameterTests {
+
+        @Test
+        @DisplayName("getRegionById verifies with regionId set")
+        void getRegionByIdPassesRegionId() {
+            var companyCountry = CompanyCountry.builder()
+                    .id(companyCountryId).company(testCompany).country(testCountry).build();
+            when(companyCountryRepository.findByCompanyIdAndId(companyId, companyCountryId))
+                    .thenReturn(Optional.of(companyCountry));
+            when(companyRegionRepository.findByIdAndCompanyCountryId(regionId, companyCountryId))
+                    .thenReturn(Optional.of(testRegion));
+
+            companyRegionService.getRegionById(companyId, companyCountryId, regionId);
+
+            verify(currentUserContext).verifyCompanyRegionAccess(companyId, companyCountryId, regionId);
+        }
+
+        @Test
+        @DisplayName("createRegion verifies with null regionId")
+        void createRegionPassesNullRegionId() {
+            when(companyRepository.findById(companyId)).thenReturn(Optional.of(testCompany));
+            var companyCountry = CompanyCountry.builder()
+                    .id(companyCountryId).company(testCompany).country(testCountry).build();
+            when(companyCountryRepository.findByCompanyIdAndId(companyId, companyCountryId))
+                    .thenReturn(Optional.of(companyCountry));
+            when(companyRegionRepository.existsByCompanyCountryIdAndRegionCode(companyCountryId, "NORTE"))
+                    .thenReturn(false);
+            when(companyRegionRepository.save(any(CompanyRegion.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            companyRegionService.createRegion(companyId, companyCountryId, createRequest);
+
+            verify(currentUserContext).verifyCompanyRegionAccess(companyId, companyCountryId, null);
+        }
+
+        @Test
+        @DisplayName("updateRegion verifies with regionId set")
+        void updateRegionPassesRegionId() {
+            when(companyRepository.findById(companyId)).thenReturn(Optional.of(testCompany));
+            var companyCountry = CompanyCountry.builder()
+                    .id(companyCountryId).company(testCompany).country(testCountry).build();
+            when(companyCountryRepository.findByCompanyIdAndId(companyId, companyCountryId))
+                    .thenReturn(Optional.of(companyCountry));
+            when(companyRegionRepository.findByIdAndCompanyCountryId(regionId, companyCountryId))
+                    .thenReturn(Optional.of(testRegion));
+            when(companyRegionRepository.save(any(CompanyRegion.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            companyRegionService.updateRegion(companyId, companyCountryId, regionId, updateRequest);
+
+            verify(currentUserContext).verifyCompanyRegionAccess(companyId, companyCountryId, regionId);
+        }
+
+        @Test
+        @DisplayName("deleteRegion verifies with regionId set")
+        void deleteRegionPassesRegionId() {
+            when(companyRepository.findById(companyId)).thenReturn(Optional.of(testCompany));
+            var companyCountry = CompanyCountry.builder()
+                    .id(companyCountryId).company(testCompany).country(testCountry).build();
+            when(companyCountryRepository.findByCompanyIdAndId(companyId, companyCountryId))
+                    .thenReturn(Optional.of(companyCountry));
+            when(companyRegionRepository.findByIdAndCompanyCountryId(regionId, companyCountryId))
+                    .thenReturn(Optional.of(testRegion));
+            when(companyRegionRepository.save(any(CompanyRegion.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            companyRegionService.deleteRegion(companyId, companyCountryId, regionId);
+
+            verify(currentUserContext).verifyCompanyRegionAccess(companyId, companyCountryId, regionId);
+        }
+
+        @Test
+        @DisplayName("enableRegion verifies with regionId set")
+        void enableRegionPassesRegionId() {
+            when(companyRepository.findById(companyId)).thenReturn(Optional.of(testCompany));
+            var companyCountry = CompanyCountry.builder()
+                    .id(companyCountryId).company(testCompany).country(testCountry).build();
+            when(companyCountryRepository.findByCompanyIdAndId(companyId, companyCountryId))
+                    .thenReturn(Optional.of(companyCountry));
+            when(companyRegionRepository.findByIdAndCompanyCountryId(regionId, companyCountryId))
+                    .thenReturn(Optional.of(testRegion));
+            when(companyRegionRepository.save(any(CompanyRegion.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            companyRegionService.enableRegion(companyId, companyCountryId, regionId);
+
+            verify(currentUserContext).verifyCompanyRegionAccess(companyId, companyCountryId, regionId);
         }
     }
 }
