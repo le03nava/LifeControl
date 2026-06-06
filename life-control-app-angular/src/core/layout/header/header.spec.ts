@@ -10,12 +10,30 @@ import Keycloak from 'keycloak-js';
 describe('Header', () => {
   let keycloakMock: Partial<Keycloak>;
 
-  const setup = (realmRoles: string[] = []) => {
+  /**
+   * Set up the Header component with mocked Keycloak tokenParsed.
+   * @param clientRoles - roles inside resource_access['life-control-client'].roles
+   * @param extraTokenParsed - additional tokenParsed properties (e.g. realm_access for backward-compat tests)
+   */
+  const setup = (
+    clientRoles: string[] = [],
+    extraTokenParsed: Record<string, unknown> = {},
+  ) => {
+    const tokenParsed = clientRoles.length > 0 || Object.keys(extraTokenParsed).length > 0
+      ? {
+          ...extraTokenParsed,
+          resource_access: {
+            'life-control-client': { roles: clientRoles },
+          },
+        }
+      : undefined;
+
     keycloakMock = {
       login: vi.fn(),
       logout: vi.fn(),
-      hasRealmRole: vi.fn().mockImplementation((role: string) => realmRoles.includes(role)),
-      authenticated: realmRoles.length > 0,
+      hasRealmRole: vi.fn().mockReturnValue(false),
+      tokenParsed: tokenParsed as Keycloak['tokenParsed'],
+      authenticated: clientRoles.length > 0 || Object.keys(extraTokenParsed).length > 0,
     };
 
     // Create a keycloak event signal for the test
@@ -42,6 +60,8 @@ describe('Header', () => {
     return { fixture, component };
   };
 
+  // ─── Menu items — basic structure ─────────────────────────────
+
   describe('menu items', () => {
     it('should not include expressions menu item after deletion', () => {
       const { component } = setup();
@@ -57,37 +77,59 @@ describe('Header', () => {
       expect(homeItem).toBeDefined();
       expect(homeItem?.textLink).toBe('Home');
     });
+  });
 
-    it('should include companies menu item', () => {
-      const { component } = setup();
+  // ─── Companies menu gating (client roles) ─────────────────────
+
+  describe('companies menu gating', () => {
+    it('should show Companies menu when user has lc-admin client role', () => {
+      const { component } = setup(['lc-admin']);
+      expect(component.isCompanyRole()).toBe(true);
+      expect(component.isAdmin()).toBe(true);
       const items = component.items();
-      const companiesItem = items.find((item) => item.routeLink === '/companies');
+      const companiesItem = items.find((i) => i.routeLink === '/companies');
       expect(companiesItem).toBeDefined();
       expect(companiesItem?.textLink).toBe('Companies');
     });
-  });
 
-  describe('menu items count without admin role', () => {
-    it('should have exactly 2 menu items when user is not admin', () => {
-      const { component } = setup();
-      expect(component.items().length).toBe(2);
+    it('should show Companies menu when user has lc-company client role', () => {
+      const { component } = setup(['lc-company']);
+      expect(component.isCompanyRole()).toBe(true);
+      expect(component.isAdmin()).toBe(false);
+      const items = component.items();
+      const companiesItem = items.find((i) => i.routeLink === '/companies');
+      expect(companiesItem).toBeDefined();
+      expect(companiesItem?.textLink).toBe('Companies');
+      expect(items.length).toBe(2); // Home + Companies only
+    });
+
+    it('should NOT show Companies menu when user has no company client roles', () => {
+      const { component } = setup([]);
+      expect(component.isCompanyRole()).toBe(false);
+      expect(component.isAdmin()).toBe(false);
+      const items = component.items();
+      const companiesItem = items.find((i) => i.routeLink === '/companies');
+      expect(companiesItem).toBeUndefined();
+      expect(items.length).toBe(1); // Home only
     });
   });
 
-  describe('role visibility', () => {
-    it('should show Users Admin nav and company-selector for admin role', () => {
-      const { component, fixture } = setup(['life-control-admin']);
+  // ─── Admin role visibility (client roles) ─────────────────────
+
+  describe('admin role visibility', () => {
+    it('should show Users Admin nav and company-selector for lc-admin role', () => {
+      const { component, fixture } = setup(['lc-admin']);
       expect(component.isAdmin()).toBe(true);
       expect(component.isCompanyRole()).toBe(true);
       const items = component.items();
       expect(items.some((i) => i.routeLink === '/users-admin')).toBe(true);
-      expect(items.length).toBe(3); // Home + Companies + Users Admin
+      expect(items.length).toBe(5); // Home + Companies + Products + Purchases + Users Admin
       const companySelector = fixture.nativeElement.querySelector('app-company-selector');
       expect(companySelector).toBeTruthy();
     });
 
-    it('should show company-selector but NOT Users Admin for country role', () => {
-      const { component, fixture } = setup(['life-control-country']);
+    it('should show company-selector but NOT Users Admin for lc-company role', () => {
+      const { component, fixture } = setup(['lc-company']);
       expect(component.isAdmin()).toBe(false);
       expect(component.isCompanyRole()).toBe(true);
       const items = component.items();
@@ -97,15 +139,31 @@ describe('Header', () => {
       expect(companySelector).toBeTruthy();
     });
 
-    it('should hide both Users Admin and company-selector for neither role', () => {
-      const { component, fixture } = setup(['some-other-role']);
+    it('should hide both Users Admin and company-selector with no client roles', () => {
+      const { component, fixture } = setup([]);
       expect(component.isAdmin()).toBe(false);
       expect(component.isCompanyRole()).toBe(false);
       const items = component.items();
       expect(items.some((i) => i.routeLink === '/users-admin')).toBe(false);
-      expect(items.length).toBe(2); // Home + Companies only
+      expect(items.length).toBe(1); // Home only
       const companySelector = fixture.nativeElement.querySelector('app-company-selector');
       expect(companySelector).toBeFalsy();
+    });
+  });
+
+  // ─── No backward compat for Companies (old realm roles ignored) ─
+
+  describe('no backward compat for companies', () => {
+    it('should NOT show Companies menu when user has old realm roles but no client roles', () => {
+      const { component } = setup([], {
+        realm_access: { roles: ['life-control-admin', 'life-control-country'] },
+      });
+      expect(component.isCompanyRole()).toBe(false);
+      expect(component.isAdmin()).toBe(false);
+      const items = component.items();
+      const companiesItem = items.find((i) => i.routeLink === '/companies');
+      expect(companiesItem).toBeUndefined();
+      expect(items.length).toBe(1); // Home only
     });
   });
 });

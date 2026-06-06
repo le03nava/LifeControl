@@ -1,7 +1,7 @@
 package com.lifecontrol.api.config.security;
 
 import java.time.Duration;
-import java.util.Collections;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -45,23 +45,50 @@ public class JwtDecoderConfig {
     public JwtAuthenticationConverter jwtAuthenticationConverter() {
         var converter = new JwtAuthenticationConverter();
         converter.setJwtGrantedAuthoritiesConverter(jwt -> {
+            var authorities = new ArrayList<GrantedAuthority>();
+
+            // 1) Realm roles from realm_access.roles
             Map<String, Object> realmAccess;
             try {
                 realmAccess = jwt.getClaimAsMap("realm_access");
             } catch (IllegalArgumentException e) {
-                return Collections.emptyList();
+                realmAccess = null;
             }
-            if (realmAccess == null) {
-                return Collections.emptyList();
+            if (realmAccess != null) {
+                @SuppressWarnings("unchecked")
+                var realmRoles = (List<String>) realmAccess.get("roles");
+                if (realmRoles != null) {
+                    realmRoles.stream()
+                        .map(role -> new SimpleGrantedAuthority("ROLE_" + role))
+                        .forEach(authorities::add);
+                }
             }
-            @SuppressWarnings("unchecked")
-            var roles = (List<String>) realmAccess.get("roles");
-            if (roles == null) {
-                return Collections.emptyList();
+
+            // 2) Client roles from resource_access.<azp>.roles
+            Map<String, Object> resourceAccess;
+            try {
+                resourceAccess = jwt.getClaimAsMap("resource_access");
+            } catch (IllegalArgumentException e) {
+                resourceAccess = null;
             }
-            return roles.stream()
-                .map(role -> (GrantedAuthority) new SimpleGrantedAuthority("ROLE_" + role))
-                .toList();
+            if (resourceAccess != null) {
+                var clientName = jwt.getClaimAsString("azp");
+                if (clientName != null) {
+                    @SuppressWarnings("unchecked")
+                    var clientAccess = (Map<String, Object>) resourceAccess.get(clientName);
+                    if (clientAccess != null) {
+                        @SuppressWarnings("unchecked")
+                        var clientRoles = (List<String>) clientAccess.get("roles");
+                        if (clientRoles != null) {
+                            clientRoles.stream()
+                                .map(role -> new SimpleGrantedAuthority("ROLE_" + role))
+                                .forEach(authorities::add);
+                        }
+                    }
+                }
+            }
+
+            return authorities;
         });
         return converter;
     }

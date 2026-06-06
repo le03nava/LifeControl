@@ -44,8 +44,13 @@ export class Header implements OnInit {
   items = computed(() => {
     const menuItems = [
       { id: '1', routeLink: '/home', textLink: 'Home', icon: 'home' },
-      { id: '2', routeLink: '/companies', textLink: 'Companies', icon: 'business' },
     ];
+
+    if (this.isCompanyRole()) {
+      menuItems.push(
+        { id: '2', routeLink: '/companies', textLink: 'Companies', icon: 'business' },
+      );
+    }
 
     if (this.isAdmin()) {
       menuItems.push(
@@ -80,10 +85,11 @@ export class Header implements OnInit {
       const event = this.keycloakSignal();
       if (event?.type === KeycloakEventType.Ready) {
         this.authenticated = this.keycloak.authenticated ?? false;
-        this.isAdmin.set(this.keycloak.hasRealmRole('life-control-admin'));
+        const token = this.keycloak.tokenParsed;
+        const clientRoles: string[] = token?.resource_access?.['life-control-client']?.roles ?? [];
+        this.isAdmin.set(clientRoles.includes('lc-admin'));
         this.isCompanyRole.set(
-          this.keycloak.hasRealmRole('life-control-admin') ||
-          this.keycloak.hasRealmRole('life-control-country')
+          clientRoles.includes('lc-admin') || clientRoles.includes('lc-company')
         );
       }
       if (event?.type === KeycloakEventType.AuthLogout) {

@@ -3,23 +3,24 @@ import { CanActivateFn, Router } from '@angular/router';
 import Keycloak from 'keycloak-js';
 
 /**
- * Guard para proteger rutas basándose en roles de realm de Keycloak.
+ * Dual-mode role guard supporting both realm roles (legacy) and client roles.
  *
- * Lee los roles directamente del claim `realm_access.roles` del token
- * decodificado (NO usa hasResourceRole, que verifica client roles).
+ * When `clientId` is present in route data, roles are resolved from
+ * `resource_access[clientId].roles`. When absent, the guard falls back to
+ * `realm_access.roles` for backward compatibility.
  *
- * Uso en rutas:
+ * Usage — realm roles (legacy, backward compat):
  * {
  *   path: 'admin',
  *   canActivate: [keycloakRoleGuard],
- *   data: { role: 'admin' }  // un solo rol requerido
+ *   data: { role: 'admin' }  // single role or roles array
  * }
  *
- * También soporta múltiples roles (cualquiera de ellos):
+ * Usage — client roles:
  * {
- *   path: 'admin',
+ *   path: 'companies',
  *   canActivate: [keycloakRoleGuard],
- *   data: { roles: ['admin', 'superadmin'] }
+ *   data: { roles: ['lc-admin', 'lc-company'], clientId: 'life-control-client' }
  * }
  */
 export const keycloakRoleGuard: CanActivateFn = async (route, state) => {
@@ -41,12 +42,16 @@ export const keycloakRoleGuard: CanActivateFn = async (route, state) => {
     return true;
   }
 
-  // Leer realm roles del token decodificado
+  // Dual-mode: resolve roles from client or realm based on presence of clientId
   const token = keycloak.tokenParsed;
-  const realmRoles: string[] = token?.realm_access?.roles ?? [];
+  const clientId = route.data['clientId'] as string | undefined;
+
+  const availableRoles: string[] = clientId
+    ? token?.resource_access?.[clientId]?.roles ?? []
+    : token?.realm_access?.roles ?? [];
 
   // Comprobar si el usuario tiene al menos uno de los roles requeridos
-  const hasRole = requiredRoles.some((role) => realmRoles.includes(role));
+  const hasRole = requiredRoles.some((role) => availableRoles.includes(role));
 
   if (!hasRole) {
     router.navigate(['/unauthorized']);
