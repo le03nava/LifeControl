@@ -4,6 +4,7 @@ import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.company.dto.CompanyZoneResponse;
 import com.lifecontrol.api.company.dto.CreateCompanyZoneRequest;
 import com.lifecontrol.api.company.dto.UpdateCompanyZoneRequest;
+import com.lifecontrol.api.company.event.CompanyZoneCreatedEvent;
 import com.lifecontrol.api.company.exception.CompanyCountryNotFoundException;
 import com.lifecontrol.api.company.exception.CompanyNotFoundException;
 import com.lifecontrol.api.company.exception.CompanyRegionNotFoundException;
@@ -17,7 +18,6 @@ import com.lifecontrol.api.company.repository.CompanyCountryRepository;
 import com.lifecontrol.api.company.repository.CompanyRegionRepository;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.company.repository.CompanyZoneRepository;
-import com.lifecontrol.api.company.event.CompanyZoneCreatedEvent;
 import com.lifecontrol.api.country.model.Country;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -28,10 +28,12 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.security.access.AccessDeniedException;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -545,6 +547,103 @@ class CompanyZoneServiceTest {
             assertThatThrownBy(() -> companyZoneService.enableZone(companyId, companyCountryId, regionId, zoneId))
                     .isInstanceOf(CompanyZoneNotFoundException.class);
             verify(companyZoneRepository, never()).save(any());
+        }
+    }
+
+    @Nested
+    @DisplayName("Zone-scoped filtering")
+    class ZoneScopedFilteringTests {
+
+        @Test
+        @DisplayName("getAllZones should filter by user zone IDs when hasCompanyZoneRole")
+        void getAllZones_FilterByZoneIds_WhenZoneRole() {
+            when(currentUserContext.hasCompanyZoneRole()).thenReturn(true);
+            UUID userZoneId = UUID.randomUUID();
+            when(currentUserContext.getCompanyZoneIds()).thenReturn(Set.of(userZoneId));
+            when(companyCountryRepository.findByCompanyIdAndId(companyId, companyCountryId))
+                    .thenReturn(Optional.of(testCompanyCountry));
+            when(companyRegionRepository.findByIdAndCompanyCountryId(regionId, companyCountryId))
+                    .thenReturn(Optional.of(testRegion));
+
+            var matchingZone = CompanyZone.builder()
+                    .id(userZoneId)
+                    .companyRegion(testRegion)
+                    .zoneCode("CEN")
+                    .zoneName("Centro")
+                    .enabled(true)
+                    .build();
+            when(companyZoneRepository.findByIdInAndCompanyRegionId(Set.of(userZoneId), regionId))
+                    .thenReturn(List.of(matchingZone));
+
+            List<CompanyZoneResponse> result = companyZoneService.getAllZones(companyId, companyCountryId, regionId, false);
+
+            assertThat(result).hasSize(1);
+            assertThat(result.get(0).zoneCode()).isEqualTo("CEN");
+            verify(companyZoneRepository).findByIdInAndCompanyRegionId(Set.of(userZoneId), regionId);
+            verify(companyZoneRepository, never()).findByCompanyRegionIdOrderByZoneNameAsc(any());
+        }
+
+        @Test
+        @DisplayName("getAllZones should use findAll when not zone role")
+        void getAllZones_UseFindAll_WhenNotZoneRole() {
+            when(currentUserContext.hasCompanyZoneRole()).thenReturn(false);
+            when(companyCountryRepository.findByCompanyIdAndId(companyId, companyCountryId))
+                    .thenReturn(Optional.of(testCompanyCountry));
+            when(companyRegionRepository.findByIdAndCompanyCountryId(regionId, companyCountryId))
+                    .thenReturn(Optional.of(testRegion));
+
+            when(companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(regionId))
+                    .thenReturn(List.of(testZone));
+
+            List<CompanyZoneResponse> result = companyZoneService.getAllZones(companyId, companyCountryId, regionId, false);
+
+            assertThat(result).hasSize(1);
+            verify(companyZoneRepository).findByCompanyRegionIdOrderByZoneNameAsc(regionId);
+            verify(companyZoneRepository, never()).findByIdInAndCompanyRegionId(any(), any());
+        }
+    }
+
+    @Nested
+    @DisplayName("Zone create denial")
+    class ZoneCreateDenialTests {
+
+        @Test
+        @DisplayName("createZone should throw AccessDeniedException when hasCompanyZoneRole")
+        void createZone_Denied_WhenZoneRole() {
+            when(currentUserContext.hasCompanyZoneRole()).thenReturn(true);
+
+            assertThatThrownBy(() -> companyZoneService.createZone(companyId, companyCountryId, regionId, createRequest))
+                    .isInstanceOf(AccessDeniedException.class)
+                    .hasMessageContaining("cannot create zones");
+            verify(companyZoneRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("createZone should allow when not zone role")
+        void createZone_Allowed_WhenNotZoneRole() {
+            when(currentUserContext.hasCompanyZoneRole()).thenReturn(false);
+            when(companyRepository.findById(companyId)).thenReturn(Optional.of(testCompany));
+            when(companyCountryRepository.findByCompanyIdAndId(companyId, companyCountryId))
+                    .thenReturn(Optional.of(testCompanyCountry));
+            when(companyRegionRepository.findByIdAndCompanyCountryId(regionId, companyCountryId))
+                    .thenReturn(Optional.of(testRegion));
+            when(companyZoneRepository.existsByCompanyRegionIdAndZoneCode(regionId, "CEN")).thenReturn(false);
+            when(companyZoneRepository.save(any(CompanyZone.class))).thenAnswer(inv -> {
+                CompanyZone saved = inv.getArgument(0);
+                return CompanyZone.builder()
+                        .id(zoneId)
+                        .companyRegion(saved.getCompanyRegion())
+                        .zoneCode(saved.getZoneCode())
+                        .zoneName(saved.getZoneName())
+                        .enabled(true)
+                        .build();
+            });
+
+            CompanyZoneResponse result = companyZoneService.createZone(companyId, companyCountryId, regionId, createRequest);
+
+            assertThat(result).isNotNull();
+            assertThat(result.zoneCode()).isEqualTo("CEN");
+            verify(companyZoneRepository).save(any(CompanyZone.class));
         }
     }
 }
