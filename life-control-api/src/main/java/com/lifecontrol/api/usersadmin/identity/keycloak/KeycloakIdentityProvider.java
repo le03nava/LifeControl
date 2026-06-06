@@ -468,11 +468,14 @@ public class KeycloakIdentityProvider implements IdentityProvider {
             var groupRep = new GroupRepresentation();
             groupRep.setName(groupName);
             groupRep.setAttributes(new HashMap<>(attributes));
-            if (parentGroupId != null) {
-                groupRep.setParentId(parentGroupId);
-            }
 
-            var response = keycloak.realm(realm()).groups().add(groupRep);
+            Response response;
+            if (parentGroupId != null) {
+                // Keycloak 26+: use subGroup() for child groups — groups().add() ignores parentId
+                response = keycloak.realm(realm()).groups().group(parentGroupId).subGroup(groupRep);
+            } else {
+                response = keycloak.realm(realm()).groups().add(groupRep);
+            }
             var groupId = resolveGroupIdFromResponse(response, groupName);
 
             var clientUuid = resolveClientUuid(clientId);

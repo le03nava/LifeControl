@@ -187,26 +187,31 @@ class KeycloakIdentityProviderTest {
         }
 
         @Test
-        @DisplayName("should set parentId on GroupRepresentation when parentGroupId is provided")
+        @DisplayName("should use subGroup() when parentGroupId is provided")
         void shouldSetParentIdWhenProvided() throws Exception {
             stubClientResolution();
-            stubGroupCreation();
+            lenient().when(realmResource.groups()).thenReturn(groupsResource);
+            lenient().when(groupsResource.group("parent-group-789")).thenReturn(groupResource);
+            lenient().when(groupResource.subGroup(any(GroupRepresentation.class))).thenReturn(response);
+            lenient().when(response.getLocation()).thenReturn(new URI("/groups/" + GROUP_ID));
+            lenient().when(realmResource.groups().group(GROUP_ID)).thenReturn(groupResource);
+            lenient().when(groupResource.roles()).thenReturn(roleMappingResource);
+            lenient().when(roleMappingResource.clientLevel(CLIENT_UUID)).thenReturn(roleScopeResource);
 
             var attrs = Map.of("company_country_id", List.of("uuid-123"));
             var parentId = "parent-group-789";
             provider.createGroupWithRole(GROUP_NAME, attrs, COMPANY_ROLE_NAME, CLIENT_ID, parentId);
 
             var groupCaptor = ArgumentCaptor.forClass(GroupRepresentation.class);
-            verify(groupsResource).add(groupCaptor.capture());
+            verify(groupResource).subGroup(groupCaptor.capture());
             var captured = groupCaptor.getValue();
             assertThat(captured.getName()).isEqualTo(GROUP_NAME);
-            assertThat(captured.getParentId()).isEqualTo(parentId);
             assertThat(captured.getAttributes())
                     .containsEntry("company_country_id", List.of("uuid-123"));
         }
 
         @Test
-        @DisplayName("should not set parentId when parentGroupId is null")
+        @DisplayName("should use add() when parentGroupId is null")
         void shouldNotSetParentIdWhenNull() throws Exception {
             stubClientResolution();
             stubGroupCreation();
