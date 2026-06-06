@@ -100,6 +100,54 @@ class KeycloakIdentityProviderTest {
     }
 
     @Nested
+    @DisplayName("findGroupIdByName")
+    class FindGroupIdByNameTests {
+
+        @Test
+        @DisplayName("should return group ID when exact name match is found")
+        void shouldReturnGroupIdWhenFound() {
+            var groupRep = new GroupRepresentation();
+            groupRep.setId(GROUP_ID);
+            groupRep.setName(GROUP_NAME);
+            when(realmResource.groups()).thenReturn(groupsResource);
+            when(groupsResource.groups(GROUP_NAME, 0, Integer.MAX_VALUE))
+                    .thenReturn(List.of(groupRep));
+
+            var result = provider.findGroupIdByName(GROUP_NAME);
+
+            assertThat(result).isPresent();
+            assertThat(result.get()).isEqualTo(GROUP_ID);
+        }
+
+        @Test
+        @DisplayName("should return empty when no group matches the exact name")
+        void shouldReturnEmptyWhenNotFound() {
+            var otherGroup = new GroupRepresentation();
+            otherGroup.setId("other-id");
+            otherGroup.setName("lc-company-other");
+            when(realmResource.groups()).thenReturn(groupsResource);
+            when(groupsResource.groups(GROUP_NAME, 0, Integer.MAX_VALUE))
+                    .thenReturn(List.of(otherGroup));
+
+            var result = provider.findGroupIdByName(GROUP_NAME);
+
+            assertThat(result).isEmpty();
+        }
+
+        @Test
+        @DisplayName("should return empty when search returns empty list")
+        void shouldReturnEmptyWhenEmptyList() {
+            when(realmResource.groups()).thenReturn(groupsResource);
+            when(groupsResource.groups("nonexistent", 0, Integer.MAX_VALUE))
+                    .thenReturn(List.of());
+
+            var result = provider.findGroupIdByName("nonexistent");
+
+            assertThat(result).isEmpty();
+        }
+    }
+
+    @Nested
     @DisplayName("createGroupWithRole")
     class CreateGroupWithRoleTests {
 
@@ -136,6 +184,41 @@ class KeycloakIdentityProviderTest {
             org.junit.jupiter.api.Assertions.assertThrows(
                     com.lifecontrol.api.usersadmin.identity.IdentityProviderConflictException.class,
                     () -> provider.createGroupWithRole(GROUP_NAME, attrs, COMPANY_ROLE_NAME, CLIENT_ID));
+        }
+
+        @Test
+        @DisplayName("should set parentId on GroupRepresentation when parentGroupId is provided")
+        void shouldSetParentIdWhenProvided() throws Exception {
+            stubClientResolution();
+            stubGroupCreation();
+
+            var attrs = Map.of("company_country_id", List.of("uuid-123"));
+            var parentId = "parent-group-789";
+            provider.createGroupWithRole(GROUP_NAME, attrs, COMPANY_ROLE_NAME, CLIENT_ID, parentId);
+
+            var groupCaptor = ArgumentCaptor.forClass(GroupRepresentation.class);
+            verify(groupsResource).add(groupCaptor.capture());
+            var captured = groupCaptor.getValue();
+            assertThat(captured.getName()).isEqualTo(GROUP_NAME);
+            assertThat(captured.getParentId()).isEqualTo(parentId);
+            assertThat(captured.getAttributes())
+                    .containsEntry("company_country_id", List.of("uuid-123"));
+        }
+
+        @Test
+        @DisplayName("should not set parentId when parentGroupId is null")
+        void shouldNotSetParentIdWhenNull() throws Exception {
+            stubClientResolution();
+            stubGroupCreation();
+
+            var attrs = Map.of("company_country_id", List.of("uuid-123"));
+            provider.createGroupWithRole(GROUP_NAME, attrs, COMPANY_ROLE_NAME, CLIENT_ID, null);
+
+            var groupCaptor = ArgumentCaptor.forClass(GroupRepresentation.class);
+            verify(groupsResource).add(groupCaptor.capture());
+            var captured = groupCaptor.getValue();
+            assertThat(captured.getName()).isEqualTo(GROUP_NAME);
+            assertThat(captured.getParentId()).isNull();
         }
     }
 

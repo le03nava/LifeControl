@@ -5,6 +5,7 @@ import com.lifecontrol.api.usersadmin.dto.RoleRequest;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Abstraction for identity provider operations (role CRUD, user assignment,
@@ -68,4 +69,20 @@ public interface IdentityProvider {
 
     void createGroupWithRole(String groupName, Map<String, List<String>> attributes,
                              String roleName, String clientId);
+
+    /**
+     * Overload with optional parent group ID. When {@code parentGroupId} is
+     * non-{@code null} the group is created as a child of that parent; otherwise
+     * it is created at the top level (equivalent to the 4-arg form).
+     */
+    void createGroupWithRole(String groupName, Map<String, List<String>> attributes,
+                             String roleName, String clientId, String parentGroupId);
+
+    /**
+     * Finds a group ID by its exact name in the identity provider.
+     *
+     * @param name the exact group name to search for
+     * @return the group ID if found, or {@link Optional#empty()} otherwise
+     */
+    Optional<String> findGroupIdByName(String name);
 }

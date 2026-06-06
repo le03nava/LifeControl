@@ -142,7 +142,8 @@ public class CompanyStoreService {
 
         var saved = companyStoreRepository.save(store);
         eventPublisher.publishEvent(new CompanyStoreCreatedEvent(
-                this, saved.getId(), companyId, saved.getStoreName()));
+                this, saved.getId(), companyId, saved.getStoreName(),
+                zone.getZoneName()));
         logger.info("CompanyStore created: name={}, zoneId={}", saved.getStoreName(), zone.getId());
         return toResponse(saved);
     }

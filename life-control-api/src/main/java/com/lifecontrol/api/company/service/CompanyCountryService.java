@@ -95,7 +95,7 @@ public class CompanyCountryService {
         CompanyCountry saved = companyCountryRepository.save(companyCountry);
 
         eventPublisher.publishEvent(new CompanyCountryCreatedEvent(
-                this, saved.getId(), companyId, country.getCountryName()));
+                this, saved.getId(), companyId, country.getCountryName(), company.getCompanyName()));
         logger.info("Country {} added to company {} successfully, event published", request.countryCode(), companyId);
 
         return toResponse(saved);

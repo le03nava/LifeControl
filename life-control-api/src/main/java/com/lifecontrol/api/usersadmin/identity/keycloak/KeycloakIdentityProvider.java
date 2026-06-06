@@ -22,6 +22,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Keycloak-specific adapter implementing {@link IdentityProvider}.
@@ -448,6 +449,61 @@ public class KeycloakIdentityProvider implements IdentityProvider {
         } catch (ProcessingException e) {
             throw new IdentityProviderConnectionException(
                     "Failed to check if group exists: " + groupName, e);
+        }
+    }
+
+    @Override
+    public Optional<String> findGroupIdByName(String name) {
+        try {
+            return keycloak.realm(realm()).groups().groups(name, 0, Integer.MAX_VALUE)
+                    .stream()
+                    .filter(g -> name.equals(g.getName()))
+                    .map(GroupRepresentation::getId)
+                    .findFirst();
+        } catch (ProcessingException e) {
+            throw new IdentityProviderConnectionException(
+                    "Failed to search group: " + name, e);
+        }
+    }
+
+    @Override
+    public void createGroupWithRole(String groupName, Map<String, List<String>> attributes,
+                                    String roleName, String clientId, String parentGroupId) {
+        try {
+            var groupRep = new GroupRepresentation();
+            groupRep.setName(groupName);
+            groupRep.setAttributes(new HashMap<>(attributes));
+            if (parentGroupId != null) {
+                groupRep.setParentId(parentGroupId);
+            }
+
+            var response = keycloak.realm(realm()).groups().add(groupRep);
+            var location = response.getLocation();
+            if (location == null) {
+                throw new IdentityProviderConnectionException(
+                        "Failed to create group: no Location header in response");
+            }
+            var groupId = location.getPath().substring(location.getPath().lastIndexOf('/') + 1);
+            response.close();
+
+            var clientUuid = resolveClientUuid(clientId);
+            var roleRep = keycloak.realm(realm()).clients().get(clientUuid)
+                    .roles().get(roleName).toRepresentation();
+            keycloak.realm(realm()).groups().group(groupId)
+                    .roles().clientLevel(clientUuid).add(List.of(roleRep));
+        } catch (NotFoundException e) {
+            throw new IdentityProviderNotFoundException(
+                    "Role '%s' not found for client '%s'".formatted(roleName, clientId), e);
+        } catch (ClientErrorException e) {
+            if (e.getResponse().getStatus() == 409) {
+                throw new IdentityProviderConflictException(
+                        "Group already exists: " + groupName, e);
+            }
+            throw new IdentityProviderConnectionException(
+                    "Failed to create group: " + groupName, e);
+        } catch (ProcessingException e) {
+            throw new IdentityProviderConnectionException(
+                    "Failed to create group: " + groupName, e);
         }
     }
 
