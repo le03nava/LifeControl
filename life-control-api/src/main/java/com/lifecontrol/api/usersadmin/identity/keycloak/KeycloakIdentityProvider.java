@@ -12,6 +12,7 @@ import com.lifecontrol.api.usersadmin.identity.UserSearchDto;
 import jakarta.ws.rs.ClientErrorException;
 import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.ProcessingException;
+import jakarta.ws.rs.core.Response;
 import org.keycloak.admin.client.Keycloak;
 import org.keycloak.representations.idm.GroupRepresentation;
 import org.keycloak.representations.idm.RoleRepresentation;
@@ -411,13 +412,7 @@ public class KeycloakIdentityProvider implements IdentityProvider {
             groupRep.setAttributes(new HashMap<>(attributes));
 
             var response = keycloak.realm(realm()).groups().add(groupRep);
-            var location = response.getLocation();
-            if (location == null) {
-                throw new IdentityProviderConnectionException(
-                        "Failed to create group: no Location header in response");
-            }
-            var groupId = location.getPath().substring(location.getPath().lastIndexOf('/') + 1);
-            response.close();
+            var groupId = resolveGroupIdFromResponse(response, groupName);
 
             var clientUuid = resolveClientUuid(clientId);
             var roleRep = keycloak.realm(realm()).clients().get(clientUuid)
@@ -478,13 +473,7 @@ public class KeycloakIdentityProvider implements IdentityProvider {
             }
 
             var response = keycloak.realm(realm()).groups().add(groupRep);
-            var location = response.getLocation();
-            if (location == null) {
-                throw new IdentityProviderConnectionException(
-                        "Failed to create group: no Location header in response");
-            }
-            var groupId = location.getPath().substring(location.getPath().lastIndexOf('/') + 1);
-            response.close();
+            var groupId = resolveGroupIdFromResponse(response, groupName);
 
             var clientUuid = resolveClientUuid(clientId);
             var roleRep = keycloak.realm(realm()).clients().get(clientUuid)
@@ -504,6 +493,20 @@ public class KeycloakIdentityProvider implements IdentityProvider {
         } catch (ProcessingException e) {
             throw new IdentityProviderConnectionException(
                     "Failed to create group: " + groupName, e);
+        }
+    }
+
+    private String resolveGroupIdFromResponse(Response response, String groupName) {
+        try (response) {
+            var location = response.getLocation();
+            if (location != null) {
+                return location.getPath().substring(location.getPath().lastIndexOf('/') + 1);
+            }
+            // Keycloak 26+ may omit Location header for child groups
+            return findGroupIdByName(groupName)
+                    .orElseThrow(() -> new IdentityProviderConnectionException(
+                            "Failed to create group '" + groupName
+                                    + "': no Location header and group not found by name"));
         }
     }
 
