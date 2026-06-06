@@ -195,6 +195,48 @@ describe('keycloakRoleGuard', () => {
     expect(routerMock.navigate).toHaveBeenCalledWith(['/unauthorized']);
   });
 
+  // ─── lc-company-country client role access ─────────────────────
+
+  it('should allow user with lc-company-country client role when clientId is present', async () => {
+    keycloakMock.authenticated = true;
+    (keycloakMock as any).tokenParsed = {
+      resource_access: {
+        'life-control-client': { roles: ['lc-company-country'] },
+      },
+    };
+    const route = createRouteSnapshot({
+      roles: ['lc-admin', 'lc-company', 'lc-company-country'],
+      clientId: 'life-control-client',
+    });
+    const state = createStateSnapshot('/companies');
+
+    const result = await TestBed.runInInjectionContext(() =>
+      keycloakRoleGuard(route, state),
+    );
+
+    expect(result).toBe(true);
+  });
+
+  it('should allow user with lc-company-country + lc-company roles (union)', async () => {
+    keycloakMock.authenticated = true;
+    (keycloakMock as any).tokenParsed = {
+      resource_access: {
+        'life-control-client': { roles: ['lc-company-country', 'lc-company'] },
+      },
+    };
+    const route = createRouteSnapshot({
+      roles: ['lc-admin', 'lc-company', 'lc-company-country'],
+      clientId: 'life-control-client',
+    });
+    const state = createStateSnapshot('/companies');
+
+    const result = await TestBed.runInInjectionContext(() =>
+      keycloakRoleGuard(route, state),
+    );
+
+    expect(result).toBe(true);
+  });
+
   // ─── Old realm role denied for Companies (no backward compat) ─
 
   it('should deny access when user has old realm roles but no client roles for Companies route', async () => {
