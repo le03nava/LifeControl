@@ -38,21 +38,25 @@ public class CurrentUserContext {
     private static final String CLAIM_COMPANY_COUNTRY_ID = "company_country_id";
     private static final String CLAIM_COMPANY_REGION_ID = "company_region_id";
     private static final String CLAIM_COMPANY_ZONE_ID = "company_zone_id";
+    private static final String CLAIM_COMPANY_STORE_ID = "company_store_id";
     static final String ROLE_LC_COMPANY = "ROLE_lc-company";
     static final String ROLE_LC_COMPANY_COUNTRY = "ROLE_lc-company-country";
     static final String ROLE_LC_COMPANY_REGION = "ROLE_lc-company-region";
     static final String ROLE_LC_COMPANY_ZONE = "ROLE_lc-company-zone";
+    static final String ROLE_LC_COMPANY_STORE = "ROLE_lc-company-store";
 
     private Set<UUID> companyIds;
     private Set<UUID> companyCountryIds;
     private Set<UUID> companyRegionIds;
     private Set<UUID> companyZoneIds;
+    private Set<UUID> companyStoreIds;
     private Boolean admin;
     private Boolean countryRole;
     private Boolean companyRole;
     private Boolean companyCountryRole;
     private Boolean companyRegionRole;
     private Boolean companyZoneRole;
+    private Boolean companyStoreRole;
     private String userId;
     private String username;
 
@@ -113,6 +117,20 @@ public class CurrentUserContext {
     }
 
     /**
+     * Returns the set of company store IDs extracted from the JWT {@code company_store_id} claim.
+     * The claim may be a single UUID or comma-separated UUIDs.
+     * Whitespace is trimmed, malformed UUIDs are silently skipped, and duplicates are removed.
+     *
+     * @return an immutable set of parsed UUIDs; empty if none found
+     */
+    public Set<UUID> getCompanyStoreIds() {
+        if (companyStoreIds == null) {
+            companyStoreIds = extractCompanyStoreIds();
+        }
+        return companyStoreIds;
+    }
+
+    /**
      * Returns {@code true} if the current user has the {@code ROLE_life-control-admin} or {@code ROLE_lc-admin} authority.
      */
     public boolean isAdmin() {
@@ -170,6 +188,16 @@ public class CurrentUserContext {
             companyZoneRole = hasAuthority(ROLE_LC_COMPANY_ZONE);
         }
         return companyZoneRole;
+    }
+
+    /**
+     * Returns {@code true} if the current user has the {@code ROLE_lc-company-store} authority.
+     */
+    public boolean hasCompanyStoreRole() {
+        if (companyStoreRole == null) {
+            companyStoreRole = hasAuthority(ROLE_LC_COMPANY_STORE);
+        }
+        return companyStoreRole;
     }
 
     /**
@@ -338,6 +366,71 @@ public class CurrentUserContext {
     }
 
     /**
+     * Six-tier access check for CompanyStore records.
+     * <ul>
+     *   <li>lc-admin: bypasses all checks (returns immediately).</li>
+     *   <li>lc-company: delegates to {@link #verifyCompanyAccess(UUID)} for company-level check.</li>
+     *   <li>lc-company-country: verifies company access AND that the given
+     *       {@code companyCountryId} is present in the {@code company_country_id} JWT claim set.</li>
+     *   <li>lc-company-region: verifies company access AND country AND that the given
+     *       {@code regionId} is present in the {@code company_region_id} claim set.</li>
+     *   <li>lc-company-zone: verifies company access AND country AND region AND that the given
+     *       {@code zoneId} is present in the {@code company_zone_id} claim set.</li>
+     *   <li>lc-company-store: verifies company access AND country AND region AND zone AND that the given
+     *       {@code storeId} is present in the {@code company_store_id} claim set.</li>
+     * </ul>
+     *
+     * @param companyId        the company UUID to verify (company-level check)
+     * @param companyCountryId the company-country UUID to verify (country-level check)
+     * @param regionId         the company-region UUID to verify (region-level check)
+     * @param zoneId           the company-zone UUID to verify (zone-level check)
+     * @param storeId          the company-store UUID to verify (store-level check), nullable for create ops
+     * @throws AccessDeniedException if access is denied for any reason
+     */
+    public void verifyCompanyStoreAccess(UUID companyId, UUID companyCountryId, UUID regionId, UUID zoneId, UUID storeId) {
+        if (isAdmin()) {
+            return;
+        }
+        if (hasCompanyStoreRole()) {
+            verifyCompanyAccess(companyId);
+            if (companyCountryId == null || !getCompanyCountryIds().contains(companyCountryId)) {
+                log.warn("Access denied to company-country {} for lc-company-store user", companyCountryId);
+                throw new AccessDeniedException("Access denied to company country: " + companyCountryId);
+            }
+            if (regionId != null && !getCompanyRegionIds().contains(regionId)) {
+                log.warn("Access denied to company-region {} for lc-company-store user", regionId);
+                throw new AccessDeniedException("Access denied to company region: " + regionId);
+            }
+            if (zoneId != null && !getCompanyZoneIds().contains(zoneId)) {
+                log.warn("Access denied to company-zone {} for lc-company-store user", zoneId);
+                throw new AccessDeniedException("Access denied to company zone: " + zoneId);
+            }
+            if (storeId != null && !getCompanyStoreIds().contains(storeId)) {
+                log.warn("Access denied to company-store {} for lc-company-store user", storeId);
+                throw new AccessDeniedException("Access denied to company store: " + storeId);
+            }
+            return;
+        }
+        if (hasCompanyZoneRole()) {
+            verifyCompanyZoneAccess(companyId, companyCountryId, regionId, zoneId);
+            return;
+        }
+        if (hasCompanyRegionRole()) {
+            verifyCompanyRegionAccess(companyId, companyCountryId, regionId);
+            return;
+        }
+        if (hasCompanyCountryRole()) {
+            verifyCompanyCountryAccess(companyId, companyCountryId);
+            return;
+        }
+        if (hasCompanyRole()) {
+            verifyCompanyAccess(companyId);
+            return;
+        }
+        throw new AccessDeniedException("Insufficient role for company-store access");
+    }
+
+    /**
      * Returns the JWT {@code sub} claim — the unique user identifier.
      * Lazily extracted and cached per request.
      *
@@ -463,6 +556,32 @@ public class CurrentUserContext {
 
         if (ids.isEmpty()) {
             log.warn("JWT contains company_zone_id claim but no valid UUIDs could be parsed: '{}'",
+                    claim);
+        }
+
+        return Collections.unmodifiableSet(ids);
+    }
+
+    private Set<UUID> extractCompanyStoreIds() {
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !(authentication.getPrincipal() instanceof Jwt jwt)) {
+            return Collections.emptySet();
+        }
+
+        String claim = jwt.getClaimAsString(CLAIM_COMPANY_STORE_ID);
+        if (claim == null || claim.isBlank()) {
+            return Collections.emptySet();
+        }
+
+        Set<UUID> ids = Stream.of(claim.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .map(this::tryParseUuid)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(HashSet::new));
+
+        if (ids.isEmpty()) {
+            log.warn("JWT contains company_store_id claim but no valid UUIDs could be parsed: '{}'",
                     claim);
         }
 

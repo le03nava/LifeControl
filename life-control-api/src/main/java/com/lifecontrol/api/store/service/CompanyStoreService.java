@@ -24,10 +24,12 @@ import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -63,7 +65,7 @@ public class CompanyStoreService {
     }
 
     private CompanyZone resolveCompanyZone(UUID companyId, UUID companyCountryId, UUID regionId, UUID zoneId) {
-        currentUserContext.verifyCompanyAccess(companyId);
+        currentUserContext.verifyCompanyStoreAccess(companyId, companyCountryId, regionId, zoneId, null);
 
         companyRepository.findById(companyId)
                 .orElseThrow(() -> new CompanyNotFoundException(companyId));
@@ -83,10 +85,17 @@ public class CompanyStoreService {
         var zone = resolveCompanyZone(companyId, companyCountryId, regionId, zoneId);
 
         List<CompanyStore> stores;
-        if (includeDisabled) {
-            stores = companyStoreRepository.findByCompanyZoneId(zone.getId());
+        if (currentUserContext.hasCompanyStoreRole()) {
+            var storeIds = currentUserContext.getCompanyStoreIds();
+            stores = companyStoreRepository.findByIdInAndCompanyZoneId(storeIds, zone.getId());
+        } else if (currentUserContext.hasCompanyZoneRole()) {
+            stores = includeDisabled
+                    ? companyStoreRepository.findByCompanyZoneId(zone.getId())
+                    : companyStoreRepository.findByCompanyZoneIdAndEnabledTrue(zone.getId());
         } else {
-            stores = companyStoreRepository.findByCompanyZoneIdAndEnabledTrue(zone.getId());
+            stores = includeDisabled
+                    ? companyStoreRepository.findByCompanyZoneId(zone.getId())
+                    : companyStoreRepository.findByCompanyZoneIdAndEnabledTrue(zone.getId());
         }
 
         return stores.stream()
@@ -106,6 +115,9 @@ public class CompanyStoreService {
 
     @Transactional
     public CompanyStoreResponse createStore(UUID companyId, UUID companyCountryId, UUID regionId, UUID zoneId, CreateCompanyStoreRequest request) {
+        if (currentUserContext.hasCompanyStoreRole()) {
+            throw new AccessDeniedException("Store-scoped users cannot create stores");
+        }
         var zone = resolveCompanyZone(companyId, companyCountryId, regionId, zoneId);
 
         if (companyStoreRepository.existsByStoreNameAndCompanyZoneId(request.storeName(), zone.getId())) {
