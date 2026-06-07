@@ -189,4 +189,89 @@ describe('Header', () => {
       expect(items.length).toBe(1); // Home only
     });
   });
+
+  // ─── New company hierarchy roles (lc-company-region, lc-company-zone, lc-company-store) ─
+
+  describe('region/zone/store company roles', () => {
+    it('should show Companies menu when user has only lc-company-region role', () => {
+      const { component } = setup(['lc-company-region']);
+      expect(component.isCompanyRole()).toBe(true);
+      expect(component.isAdmin()).toBe(false);
+      const items = component.items();
+      const companiesItem = items.find((i) => i.routeLink === '/companies');
+      expect(companiesItem).toBeDefined();
+      expect(companiesItem?.textLink).toBe('Companies');
+      expect(items.length).toBe(2); // Home + Companies only
+    });
+
+    it('should show Companies menu when user has only lc-company-zone role', () => {
+      const { component } = setup(['lc-company-zone']);
+      expect(component.isCompanyRole()).toBe(true);
+      expect(component.isAdmin()).toBe(false);
+      const items = component.items();
+      const companiesItem = items.find((i) => i.routeLink === '/companies');
+      expect(companiesItem).toBeDefined();
+      expect(companiesItem?.textLink).toBe('Companies');
+      expect(items.length).toBe(2); // Home + Companies only
+    });
+
+    it('should show Companies menu when user has only lc-company-store role', () => {
+      const { component } = setup(['lc-company-store']);
+      expect(component.isCompanyRole()).toBe(true);
+      expect(component.isAdmin()).toBe(false);
+      const items = component.items();
+      const companiesItem = items.find((i) => i.routeLink === '/companies');
+      expect(companiesItem).toBeDefined();
+      expect(companiesItem?.textLink).toBe('Companies');
+      expect(items.length).toBe(2); // Home + Companies only
+    });
+
+    it('should NOT set isCompanyRole when user has no company hierarchy roles', () => {
+      const { component } = setup(['lc-user']);
+      expect(component.isCompanyRole()).toBe(false);
+      expect(component.isAdmin()).toBe(false);
+    });
+
+    it('should reset isCompanyRole on AuthLogout event for lc-company-region user', () => {
+      const keycloakEventSignal = signal({
+        type: KeycloakEventType.Ready,
+        token: null,
+      });
+
+      TestBed.configureTestingModule({
+        providers: [
+          provideRouter([]),
+          provideLocationMocks(),
+          provideHttpClient(),
+          { provide: Keycloak, useValue: {
+            login: vi.fn(),
+            logout: vi.fn(),
+            hasRealmRole: vi.fn().mockReturnValue(false),
+            tokenParsed: {
+              resource_access: { 'life-control-client': { roles: ['lc-company-region'] } },
+            },
+            authenticated: true,
+          } as Partial<Keycloak> },
+          { provide: KEYCLOAK_EVENT_SIGNAL, useValue: keycloakEventSignal },
+        ],
+      });
+
+      const fixture = TestBed.createComponent(Header);
+      const component = fixture.componentInstance;
+      fixture.detectChanges();
+
+      // After Ready event, isCompanyRole should be true
+      expect(component.isCompanyRole()).toBe(true);
+
+      // Simulate AuthLogout event
+      keycloakEventSignal.set({ type: KeycloakEventType.AuthLogout, token: null });
+      fixture.detectChanges();
+
+      // After logout, isCompanyRole should be false
+      expect(component.isCompanyRole()).toBe(false);
+      const items = component.items();
+      const companiesItem = items.find((i) => i.routeLink === '/companies');
+      expect(companiesItem).toBeUndefined();
+    });
+  });
 });

@@ -3,7 +3,7 @@
   <p class="dashboard-subtitle">Manage companies, countries, regions, zones, and stores</p>
 
   <div class="dashboard-cards">
-    @for (card of cards; track card.title) {
+    @for (card of cards(); track card.title) {
       <mat-card
         class="dashboard-card"
         [class.card--disabled]="card.disabled"
