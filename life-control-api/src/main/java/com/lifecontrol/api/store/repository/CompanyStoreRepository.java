@@ -6,6 +6,7 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 @Repository
@@ -20,4 +21,6 @@ public interface CompanyStoreRepository extends JpaRepository<CompanyStore, UUID
     boolean existsByStoreNameAndCompanyZoneIdAndIdNot(String storeName, UUID companyZoneId, UUID excludeId);
 
     boolean existsByStoreNameAndCompanyZoneId(String storeName, UUID companyZoneId);
+
+    List<CompanyStore> findByIdInAndCompanyZoneId(Set<UUID> storeIds, UUID companyZoneId);
 }

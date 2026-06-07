@@ -34,9 +34,12 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import org.springframework.security.access.AccessDeniedException;
+
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -267,6 +270,62 @@ class CompanyStoreServiceTest {
                     companyId, companyCountryId, regionId, zoneId, false))
                     .isInstanceOf(CompanyZoneNotFoundException.class);
         }
+
+        @Test
+        @DisplayName("should filter by store IDs when user has store role")
+        void getAllStores_StoreRole_FiltersByStoreIds() {
+            // Arrange
+            mockZoneResolution();
+            UUID assignedStoreId = UUID.randomUUID();
+            when(currentUserContext.hasCompanyStoreRole()).thenReturn(true);
+            when(currentUserContext.getCompanyStoreIds()).thenReturn(Set.of(assignedStoreId));
+
+            var store = CompanyStore.builder()
+                    .id(assignedStoreId)
+                    .companyZone(testZone)
+                    .storeName("Mi Tienda")
+                    .enabled(true)
+                    .build();
+            when(companyStoreRepository.findByIdInAndCompanyZoneId(Set.of(assignedStoreId), zoneId))
+                    .thenReturn(List.of(store));
+
+            // Act
+            List<CompanyStoreResponse> result = companyStoreService.getAllStores(
+                    companyId, companyCountryId, regionId, zoneId, false);
+
+            // Assert
+            assertThat(result).hasSize(1);
+            assertThat(result.get(0).storeName()).isEqualTo("Mi Tienda");
+            assertThat(result.get(0).id()).isEqualTo(assignedStoreId);
+            verify(companyStoreRepository).findByIdInAndCompanyZoneId(Set.of(assignedStoreId), zoneId);
+        }
+
+        @Test
+        @DisplayName("should filter by zone when user has zone role")
+        void getAllStores_ZoneRole_UsesZoneFilter() {
+            // Arrange
+            mockZoneResolution();
+            when(currentUserContext.hasCompanyStoreRole()).thenReturn(false);
+            when(currentUserContext.hasCompanyZoneRole()).thenReturn(true);
+
+            var store = CompanyStore.builder()
+                    .id(storeId)
+                    .companyZone(testZone)
+                    .storeName("Tienda Zona")
+                    .enabled(true)
+                    .build();
+            when(companyStoreRepository.findByCompanyZoneIdAndEnabledTrue(zoneId))
+                    .thenReturn(List.of(store));
+
+            // Act
+            List<CompanyStoreResponse> result = companyStoreService.getAllStores(
+                    companyId, companyCountryId, regionId, zoneId, false);
+
+            // Assert
+            assertThat(result).hasSize(1);
+            assertThat(result.get(0).storeName()).isEqualTo("Tienda Zona");
+            verify(companyStoreRepository).findByCompanyZoneIdAndEnabledTrue(zoneId);
+        }
     }
 
     @Nested
@@ -399,6 +458,21 @@ class CompanyStoreServiceTest {
             assertThatThrownBy(() -> companyStoreService.createStore(
                     companyId, companyCountryId, regionId, zoneId, createWithAddressRequest))
                     .isInstanceOf(CompanyZoneNotFoundException.class);
+            verify(companyStoreRepository, never()).save(any());
+            verify(eventPublisher, never()).publishEvent(any());
+        }
+
+        @Test
+        @DisplayName("should throw AccessDeniedException when user has store role")
+        void createStore_StoreRole_ThrowsAccessDenied() {
+            // Arrange
+            when(currentUserContext.hasCompanyStoreRole()).thenReturn(true);
+
+            // Act & Assert
+            assertThatThrownBy(() -> companyStoreService.createStore(
+                    companyId, companyCountryId, regionId, zoneId, createWithAddressRequest))
+                    .isInstanceOf(AccessDeniedException.class)
+                    .hasMessage("Store-scoped users cannot create stores");
             verify(companyStoreRepository, never()).save(any());
             verify(eventPublisher, never()).publishEvent(any());
         }

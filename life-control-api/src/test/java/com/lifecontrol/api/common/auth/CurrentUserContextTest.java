@@ -592,6 +592,23 @@ class CurrentUserContextTest {
 
             assertThat(currentUserContext.hasCompanyZoneRole()).isFalse();
         }
+
+        @Test
+        @DisplayName("hasCompanyStoreRole returns true when user has ROLE_lc-company-store")
+        void companyStoreRole() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company-store"));
+
+            assertThat(currentUserContext.hasCompanyStoreRole()).isTrue();
+            assertThat(currentUserContext.hasCompanyZoneRole()).isFalse();
+        }
+
+        @Test
+        @DisplayName("hasCompanyStoreRole returns false when role not present")
+        void noCompanyStoreRole() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_other"));
+
+            assertThat(currentUserContext.hasCompanyStoreRole()).isFalse();
+        }
     }
 
     @Nested
@@ -1109,6 +1126,358 @@ class CurrentUserContextTest {
             assertThrows(AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyZoneAccess(
                             UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
+        }
+    }
+
+    @Nested
+    @DisplayName("getCompanyStoreIds")
+    class GetCompanyStoreIdsTests {
+
+        @Test
+        @DisplayName("should extract single UUID from company_store_id claim")
+        void singleUuid() {
+            UUID id = UUID.randomUUID();
+            when(jwt.getClaimAsString("company_store_id")).thenReturn(id.toString());
+
+            Set<UUID> result = currentUserContext.getCompanyStoreIds();
+
+            assertThat(result).containsExactly(id);
+        }
+
+        @Test
+        @DisplayName("should extract multiple comma-separated UUIDs")
+        void multipleUuids() {
+            UUID id1 = UUID.randomUUID();
+            UUID id2 = UUID.randomUUID();
+            when(jwt.getClaimAsString("company_store_id")).thenReturn(id1 + "," + id2);
+
+            Set<UUID> result = currentUserContext.getCompanyStoreIds();
+
+            assertThat(result).containsExactlyInAnyOrder(id1, id2);
+        }
+
+        @Test
+        @DisplayName("should deduplicate repeated UUIDs")
+        void deduplicates() {
+            UUID id = UUID.randomUUID();
+            when(jwt.getClaimAsString("company_store_id")).thenReturn(id + "," + id);
+
+            Set<UUID> result = currentUserContext.getCompanyStoreIds();
+
+            assertThat(result).hasSize(1);
+            assertThat(result).containsExactly(id);
+        }
+
+        @Test
+        @DisplayName("should handle whitespace-padded UUIDs")
+        void whitespacePadded() {
+            UUID id = UUID.randomUUID();
+            when(jwt.getClaimAsString("company_store_id")).thenReturn(" " + id + " , " + id);
+
+            Set<UUID> result = currentUserContext.getCompanyStoreIds();
+
+            assertThat(result).containsExactly(id);
+        }
+
+        @Test
+        @DisplayName("should silently skip malformed UUIDs")
+        void malformedUuids() {
+            UUID validId = UUID.randomUUID();
+            when(jwt.getClaimAsString("company_store_id")).thenReturn("not-a-uuid," + validId);
+
+            Set<UUID> result = currentUserContext.getCompanyStoreIds();
+
+            assertThat(result).containsExactly(validId);
+        }
+
+        @Test
+        @DisplayName("all-malformed returns empty set")
+        void allMalformed() {
+            when(jwt.getClaimAsString("company_store_id")).thenReturn("not-a-uuid,also-bad");
+
+            Set<UUID> result = currentUserContext.getCompanyStoreIds();
+
+            assertThat(result).isEmpty();
+        }
+
+        @Test
+        @DisplayName("should return empty set when claim is missing")
+        void missingClaim() {
+            when(jwt.getClaimAsString("company_store_id")).thenReturn(null);
+
+            Set<UUID> result = currentUserContext.getCompanyStoreIds();
+
+            assertThat(result).isEmpty();
+        }
+
+        @Test
+        @DisplayName("should return empty set when claim is blank")
+        void blankClaim() {
+            when(jwt.getClaimAsString("company_store_id")).thenReturn("   ");
+
+            Set<UUID> result = currentUserContext.getCompanyStoreIds();
+
+            assertThat(result).isEmpty();
+        }
+    }
+
+    @Nested
+    @DisplayName("verifyCompanyStoreAccess")
+    class VerifyCompanyStoreAccessTests {
+
+        @SuppressWarnings("unchecked")
+        private void mockAuthorities(Collection<GrantedAuthority> authorities) {
+            when(authentication.getAuthorities()).thenReturn((Collection) authorities);
+        }
+
+        // ── Admin bypass ──
+
+        @Test
+        @DisplayName("admin can access any store")
+        void adminCanAccessAnyStore() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_life-control-admin"));
+
+            assertDoesNotThrow(() ->
+                    currentUserContext.verifyCompanyStoreAccess(
+                            UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
+        }
+
+        // ── lc-company delegates to verifyCompanyAccess ──
+
+        @Test
+        @DisplayName("lc-company can access assigned company's stores")
+        void lcCompanyCanAccessAssignedCompany() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company"));
+            UUID companyId = UUID.randomUUID();
+            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
+
+            assertDoesNotThrow(() ->
+                    currentUserContext.verifyCompanyStoreAccess(companyId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
+        }
+
+        @Test
+        @DisplayName("lc-company cannot access non-assigned company's stores")
+        void lcCompanyCannotAccessNonAssignedCompany() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company"));
+            UUID assignedId = UUID.randomUUID();
+            UUID otherId = UUID.randomUUID();
+            when(jwt.getClaimAsString("company_id")).thenReturn(assignedId.toString());
+
+            assertThrows(AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyStoreAccess(otherId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
+        }
+
+        // ── lc-company-country ──
+
+        @Test
+        @DisplayName("lc-company-country can access matching country's stores")
+        void countryUserCanAccessMatchingCountry() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company-country"));
+            UUID companyId = UUID.randomUUID();
+            UUID countryId = UUID.randomUUID();
+            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaimAsString("company_country_id")).thenReturn(countryId.toString());
+
+            assertDoesNotThrow(() ->
+                    currentUserContext.verifyCompanyStoreAccess(companyId, countryId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
+        }
+
+        @Test
+        @DisplayName("lc-company-country cannot access mismatched country's stores")
+        void countryUserCannotAccessMismatchedCountry() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company-country"));
+            UUID companyId = UUID.randomUUID();
+            UUID assignedCountryId = UUID.randomUUID();
+            UUID otherCountryId = UUID.randomUUID();
+            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaimAsString("company_country_id")).thenReturn(assignedCountryId.toString());
+
+            assertThrows(AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyStoreAccess(companyId, otherCountryId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
+        }
+
+        // ── lc-company-region ──
+
+        @Test
+        @DisplayName("lc-company-region can access matching region's stores")
+        void regionUserCanAccessMatchingRegion() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company-region"));
+            UUID companyId = UUID.randomUUID();
+            UUID countryId = UUID.randomUUID();
+            UUID regionId = UUID.randomUUID();
+            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaimAsString("company_country_id")).thenReturn(countryId.toString());
+            when(jwt.getClaimAsString("company_region_id")).thenReturn(regionId.toString());
+
+            assertDoesNotThrow(() ->
+                    currentUserContext.verifyCompanyStoreAccess(companyId, countryId, regionId, UUID.randomUUID(), UUID.randomUUID()));
+        }
+
+        @Test
+        @DisplayName("lc-company-region cannot access mismatched region's stores")
+        void regionUserCannotAccessMismatchedRegion() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company-region"));
+            UUID companyId = UUID.randomUUID();
+            UUID countryId = UUID.randomUUID();
+            UUID assignedRegionId = UUID.randomUUID();
+            UUID otherRegionId = UUID.randomUUID();
+            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaimAsString("company_country_id")).thenReturn(countryId.toString());
+            when(jwt.getClaimAsString("company_region_id")).thenReturn(assignedRegionId.toString());
+
+            assertThrows(AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyStoreAccess(companyId, countryId, otherRegionId, UUID.randomUUID(), UUID.randomUUID()));
+        }
+
+        // ── lc-company-zone ──
+
+        @Test
+        @DisplayName("lc-company-zone can access matching zone's stores")
+        void zoneUserCanAccessMatchingZone() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company-zone"));
+            UUID companyId = UUID.randomUUID();
+            UUID countryId = UUID.randomUUID();
+            UUID regionId = UUID.randomUUID();
+            UUID zoneId = UUID.randomUUID();
+            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaimAsString("company_country_id")).thenReturn(countryId.toString());
+            when(jwt.getClaimAsString("company_region_id")).thenReturn(regionId.toString());
+            when(jwt.getClaimAsString("company_zone_id")).thenReturn(zoneId.toString());
+
+            assertDoesNotThrow(() ->
+                    currentUserContext.verifyCompanyStoreAccess(companyId, countryId, regionId, zoneId, UUID.randomUUID()));
+        }
+
+        @Test
+        @DisplayName("lc-company-zone cannot access mismatched zone's stores")
+        void zoneUserCannotAccessMismatchedZone() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company-zone"));
+            UUID companyId = UUID.randomUUID();
+            UUID countryId = UUID.randomUUID();
+            UUID regionId = UUID.randomUUID();
+            UUID assignedZoneId = UUID.randomUUID();
+            UUID otherZoneId = UUID.randomUUID();
+            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaimAsString("company_country_id")).thenReturn(countryId.toString());
+            when(jwt.getClaimAsString("company_region_id")).thenReturn(regionId.toString());
+            when(jwt.getClaimAsString("company_zone_id")).thenReturn(assignedZoneId.toString());
+
+            assertThrows(AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyStoreAccess(companyId, countryId, regionId, otherZoneId, UUID.randomUUID()));
+        }
+
+        // ── lc-company-store ──
+
+        @Test
+        @DisplayName("lc-company-store can access assigned store with all hierarchy matching")
+        void storeUserCanAccessMatchingStore() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company-store"));
+            UUID companyId = UUID.randomUUID();
+            UUID countryId = UUID.randomUUID();
+            UUID regionId = UUID.randomUUID();
+            UUID zoneId = UUID.randomUUID();
+            UUID storeId = UUID.randomUUID();
+            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaimAsString("company_country_id")).thenReturn(countryId.toString());
+            when(jwt.getClaimAsString("company_region_id")).thenReturn(regionId.toString());
+            when(jwt.getClaimAsString("company_zone_id")).thenReturn(zoneId.toString());
+            when(jwt.getClaimAsString("company_store_id")).thenReturn(storeId.toString());
+
+            assertDoesNotThrow(() ->
+                    currentUserContext.verifyCompanyStoreAccess(companyId, countryId, regionId, zoneId, storeId));
+        }
+
+        @Test
+        @DisplayName("lc-company-store cannot access mismatched store")
+        void storeUserCannotAccessMismatchedStore() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company-store"));
+            UUID companyId = UUID.randomUUID();
+            UUID countryId = UUID.randomUUID();
+            UUID regionId = UUID.randomUUID();
+            UUID zoneId = UUID.randomUUID();
+            UUID assignedStoreId = UUID.randomUUID();
+            UUID otherStoreId = UUID.randomUUID();
+            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaimAsString("company_country_id")).thenReturn(countryId.toString());
+            when(jwt.getClaimAsString("company_region_id")).thenReturn(regionId.toString());
+            when(jwt.getClaimAsString("company_zone_id")).thenReturn(zoneId.toString());
+            when(jwt.getClaimAsString("company_store_id")).thenReturn(assignedStoreId.toString());
+
+            assertThrows(AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyStoreAccess(companyId, countryId, regionId, zoneId, otherStoreId));
+        }
+
+        @Test
+        @DisplayName("lc-company-store allows null storeId for create ops")
+        void storeUserAllowsNullStoreId() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company-store"));
+            UUID companyId = UUID.randomUUID();
+            UUID countryId = UUID.randomUUID();
+            UUID regionId = UUID.randomUUID();
+            UUID zoneId = UUID.randomUUID();
+            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaimAsString("company_country_id")).thenReturn(countryId.toString());
+            when(jwt.getClaimAsString("company_region_id")).thenReturn(regionId.toString());
+            when(jwt.getClaimAsString("company_zone_id")).thenReturn(zoneId.toString());
+
+            assertDoesNotThrow(() ->
+                    currentUserContext.verifyCompanyStoreAccess(companyId, countryId, regionId, zoneId, null));
+        }
+
+        @Test
+        @DisplayName("lc-company-store cannot access mismatched company")
+        void storeUserCannotAccessMismatchedCompany() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company-store"));
+            UUID assignedCompanyId = UUID.randomUUID();
+            UUID otherCompanyId = UUID.randomUUID();
+            when(jwt.getClaimAsString("company_id")).thenReturn(assignedCompanyId.toString());
+
+            assertThrows(AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyStoreAccess(otherCompanyId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
+        }
+
+        @Test
+        @DisplayName("lc-company-store cannot access mismatched country")
+        void storeUserCannotAccessMismatchedCountry() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company-store"));
+            UUID companyId = UUID.randomUUID();
+            UUID assignedCountryId = UUID.randomUUID();
+            UUID otherCountryId = UUID.randomUUID();
+            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaimAsString("company_country_id")).thenReturn(assignedCountryId.toString());
+
+            assertThrows(AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyStoreAccess(companyId, otherCountryId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
+        }
+
+        @Test
+        @DisplayName("lc-company-store cannot access mismatched zone")
+        void storeUserCannotAccessMismatchedZone() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company-store"));
+            UUID companyId = UUID.randomUUID();
+            UUID countryId = UUID.randomUUID();
+            UUID regionId = UUID.randomUUID();
+            UUID assignedZoneId = UUID.randomUUID();
+            UUID otherZoneId = UUID.randomUUID();
+            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaimAsString("company_country_id")).thenReturn(countryId.toString());
+            when(jwt.getClaimAsString("company_region_id")).thenReturn(regionId.toString());
+            when(jwt.getClaimAsString("company_zone_id")).thenReturn(assignedZoneId.toString());
+
+            assertThrows(AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyStoreAccess(companyId, countryId, regionId, otherZoneId, UUID.randomUUID()));
+        }
+
+        // ── Unrecognized role ──
+
+        @Test
+        @DisplayName("no recognized role throws AccessDeniedException")
+        void noRecognizedRoleThrows() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_other"));
+
+            assertThrows(AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyStoreAccess(
+                            UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
         }
     }
 }
