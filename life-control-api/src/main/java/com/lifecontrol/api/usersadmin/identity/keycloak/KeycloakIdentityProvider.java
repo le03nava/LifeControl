@@ -404,34 +404,28 @@ public class KeycloakIdentityProvider implements IdentityProvider {
     // ---------------------------------------------------------------
 
     @Override
-    public void createGroupWithRole(String groupName, Map<String, List<String>> attributes,
-                                    String roleName, String clientId) {
+    public void createGroup(String name, Map<String, List<String>> attributes,
+                            Optional<String> parentId) {
         try {
             var groupRep = new GroupRepresentation();
-            groupRep.setName(groupName);
+            groupRep.setName(name);
             groupRep.setAttributes(new HashMap<>(attributes));
 
-            var response = keycloak.realm(realm()).groups().add(groupRep);
-            var groupId = resolveGroupIdFromResponse(response, groupName);
-
-            var clientUuid = resolveClientUuid(clientId);
-            var roleRep = keycloak.realm(realm()).clients().get(clientUuid)
-                    .roles().get(roleName).toRepresentation();
-            keycloak.realm(realm()).groups().group(groupId)
-                    .roles().clientLevel(clientUuid).add(List.of(roleRep));
-        } catch (NotFoundException e) {
-            throw new IdentityProviderNotFoundException(
-                    "Role '%s' not found for client '%s'".formatted(roleName, clientId), e);
+            if (parentId.isPresent()) {
+                keycloak.realm(realm()).groups().group(parentId.get()).subGroup(groupRep);
+            } else {
+                keycloak.realm(realm()).groups().add(groupRep);
+            }
         } catch (ClientErrorException e) {
             if (e.getResponse().getStatus() == 409) {
                 throw new IdentityProviderConflictException(
-                        "Group already exists: " + groupName, e);
+                        "Group already exists: " + name, e);
             }
             throw new IdentityProviderConnectionException(
-                    "Failed to create group: " + groupName, e);
+                    "Failed to create group: " + name, e);
         } catch (ProcessingException e) {
             throw new IdentityProviderConnectionException(
-                    "Failed to create group: " + groupName, e);
+                    "Failed to create group: " + name, e);
         }
     }
 
@@ -475,58 +469,6 @@ public class KeycloakIdentityProvider implements IdentityProvider {
             if (found.isPresent()) return found;
         }
         return Optional.empty();
-    }
-
-    @Override
-    public void createGroupWithRole(String groupName, Map<String, List<String>> attributes,
-                                    String roleName, String clientId, String parentGroupId) {
-        try {
-            var groupRep = new GroupRepresentation();
-            groupRep.setName(groupName);
-            groupRep.setAttributes(new HashMap<>(attributes));
-
-            Response response;
-            if (parentGroupId != null) {
-                // Keycloak 26+: use subGroup() for child groups — groups().add() ignores parentId
-                response = keycloak.realm(realm()).groups().group(parentGroupId).subGroup(groupRep);
-            } else {
-                response = keycloak.realm(realm()).groups().add(groupRep);
-            }
-            var groupId = resolveGroupIdFromResponse(response, groupName);
-
-            var clientUuid = resolveClientUuid(clientId);
-            var roleRep = keycloak.realm(realm()).clients().get(clientUuid)
-                    .roles().get(roleName).toRepresentation();
-            keycloak.realm(realm()).groups().group(groupId)
-                    .roles().clientLevel(clientUuid).add(List.of(roleRep));
-        } catch (NotFoundException e) {
-            throw new IdentityProviderNotFoundException(
-                    "Role '%s' not found for client '%s'".formatted(roleName, clientId), e);
-        } catch (ClientErrorException e) {
-            if (e.getResponse().getStatus() == 409) {
-                throw new IdentityProviderConflictException(
-                        "Group already exists: " + groupName, e);
-            }
-            throw new IdentityProviderConnectionException(
-                    "Failed to create group: " + groupName, e);
-        } catch (ProcessingException e) {
-            throw new IdentityProviderConnectionException(
-                    "Failed to create group: " + groupName, e);
-        }
-    }
-
-    private String resolveGroupIdFromResponse(Response response, String groupName) {
-        try (response) {
-            var location = response.getLocation();
-            if (location != null) {
-                return location.getPath().substring(location.getPath().lastIndexOf('/') + 1);
-            }
-            // Keycloak 26+ may omit Location header for child groups
-            return findGroupIdByName(groupName)
-                    .orElseThrow(() -> new IdentityProviderConnectionException(
-                            "Failed to create group '" + groupName
-                                    + "': no Location header and group not found by name"));
-        }
     }
 
     // ---------------------------------------------------------------

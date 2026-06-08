@@ -34,7 +34,7 @@ class IdentityProviderTest {
             "getUserAttributes",
             "updateUserAttribute",
             "deleteUserAttribute",
-            "createGroupWithRole",
+            "createGroup",
             "searchUsers",
             "companyGroupExists"
     );

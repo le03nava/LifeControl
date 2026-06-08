@@ -65,18 +65,18 @@ public interface IdentityProvider {
 
     boolean companyGroupExists(String groupName);
 
-    // --- Generic Group with Role ---
-
-    void createGroupWithRole(String groupName, Map<String, List<String>> attributes,
-                             String roleName, String clientId);
+    // --- Generic Group ---
 
     /**
-     * Overload with optional parent group ID. When {@code parentGroupId} is
-     * non-{@code null} the group is created as a child of that parent; otherwise
-     * it is created at the top level (equivalent to the 4-arg form).
+     * Creates a Keycloak group with the given name and attributes.
+     * No client or realm role is assigned to the group.
+     *
+     * @param name       the group name
+     * @param attributes the group attributes (e.g. company_id, company_country_id)
+     * @param parentId   if present the group is created as a child of that parent;
+     *                   otherwise it is created at the top level
      */
-    void createGroupWithRole(String groupName, Map<String, List<String>> attributes,
-                             String roleName, String clientId, String parentGroupId);
+    void createGroup(String name, Map<String, List<String>> attributes, Optional<String> parentId);
 
     /**
      * Finds a group ID by its exact name in the identity provider.

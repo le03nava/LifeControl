@@ -56,11 +56,10 @@ class KeycloakGroupEventListenerTest {
 
             listener.onCompanyCreated(event);
 
-            verify(identityProvider).createGroupWithRole(
+            verify(identityProvider).createGroup(
                     "lc-company-acme_corp",
                     Map.of("company_id", List.of(companyUuid.toString())),
-                    "lc-company",
-                    "life-control-client"
+                    Optional.empty()
             );
         }
 
@@ -71,11 +70,10 @@ class KeycloakGroupEventListenerTest {
 
             listener.onCompanyCreated(event);
 
-            verify(identityProvider).createGroupWithRole(
+            verify(identityProvider).createGroup(
                     "lc-company-acme-corp_s_a__de_c_v_",
                     Map.of("company_id", List.of(companyUuid.toString())),
-                    "lc-company",
-                    "life-control-client"
+                    Optional.empty()
             );
         }
 
@@ -86,11 +84,10 @@ class KeycloakGroupEventListenerTest {
 
             listener.onCompanyCreated(event);
 
-            verify(identityProvider).createGroupWithRole(
+            verify(identityProvider).createGroup(
                     "lc-company-acme_corporation",
                     Map.of("company_id", List.of(companyUuid.toString())),
-                    "lc-company",
-                    "life-control-client"
+                    Optional.empty()
             );
         }
 
@@ -101,11 +98,10 @@ class KeycloakGroupEventListenerTest {
 
             listener.onCompanyCreated(event);
 
-            verify(identityProvider).createGroupWithRole(
+            verify(identityProvider).createGroup(
                     "lc-company-my-company_test",
                     Map.of("company_id", List.of(companyUuid.toString())),
-                    "lc-company",
-                    "life-control-client"
+                    Optional.empty()
             );
         }
 
@@ -114,20 +110,18 @@ class KeycloakGroupEventListenerTest {
         void shouldNotRethrowOnFailure() {
             var event = new CompanyCreatedEvent(this, companyUuid, companyKey, companyName);
             doThrow(new IdentityProviderConnectionException("Keycloak unavailable"))
-                    .when(identityProvider).createGroupWithRole(
+                    .when(identityProvider).createGroup(
                             "lc-company-acme_corp",
                             Map.of("company_id", List.of(companyUuid.toString())),
-                            "lc-company",
-                            "life-control-client");
+                            Optional.empty());
 
             // Should not throw
             listener.onCompanyCreated(event);
 
-            verify(identityProvider).createGroupWithRole(
+            verify(identityProvider).createGroup(
                     "lc-company-acme_corp",
                     Map.of("company_id", List.of(companyUuid.toString())),
-                    "lc-company",
-                    "life-control-client"
+                    Optional.empty()
             );
         }
     }
@@ -150,12 +144,10 @@ class KeycloakGroupEventListenerTest {
 
             listener.onCompanyCountryCreated(event);
 
-            verify(identityProvider).createGroupWithRole(
+            verify(identityProvider).createGroup(
                     "lc-company-country-argentina",
                     Map.of("company_country_id", List.of(companyCountryUuid.toString())),
-                    "lc-company-country",
-                    "life-control-client",
-                    (String) null
+                    Optional.empty()
             );
         }
 
@@ -169,12 +161,10 @@ class KeycloakGroupEventListenerTest {
 
             listener.onCompanyCountryCreated(event);
 
-            verify(identityProvider).createGroupWithRole(
+            verify(identityProvider).createGroup(
                     "lc-company-country-s_o_paulo",
                     Map.of("company_country_id", List.of(companyCountryUuid.toString())),
-                    "lc-company-country",
-                    "life-control-client",
-                    (String) null
+                    Optional.empty()
             );
         }
 
@@ -188,12 +178,10 @@ class KeycloakGroupEventListenerTest {
 
             listener.onCompanyCountryCreated(event);
 
-            verify(identityProvider).createGroupWithRole(
+            verify(identityProvider).createGroup(
                     "lc-company-country-costa-rica_test",
                     Map.of("company_country_id", List.of(companyCountryUuid.toString())),
-                    "lc-company-country",
-                    "life-control-client",
-                    (String) null
+                    Optional.empty()
             );
         }
 
@@ -207,12 +195,10 @@ class KeycloakGroupEventListenerTest {
 
             listener.onCompanyCountryCreated(event);
 
-            verify(identityProvider).createGroupWithRole(
+            verify(identityProvider).createGroup(
                     "lc-company-country-united_kingdom",
                     Map.of("company_country_id", List.of(companyCountryUuid.toString())),
-                    "lc-company-country",
-                    "life-control-client",
-                    (String) null
+                    Optional.empty()
             );
         }
 
@@ -224,22 +210,18 @@ class KeycloakGroupEventListenerTest {
             when(identityProvider.findGroupIdByName("lc-company-acme_corp"))
                     .thenReturn(Optional.empty());
             doThrow(new IdentityProviderConnectionException("Keycloak unavailable"))
-                    .when(identityProvider).createGroupWithRole(
+                    .when(identityProvider).createGroup(
                             "lc-company-country-argentina",
                             Map.of("company_country_id", List.of(companyCountryUuid.toString())),
-                            "lc-company-country",
-                            "life-control-client",
-                            (String) null);
+                            Optional.empty());
 
             // Should not throw
             listener.onCompanyCountryCreated(event);
 
-            verify(identityProvider).createGroupWithRole(
+            verify(identityProvider).createGroup(
                     "lc-company-country-argentina",
                     Map.of("company_country_id", List.of(companyCountryUuid.toString())),
-                    "lc-company-country",
-                    "life-control-client",
-                    (String) null
+                    Optional.empty()
             );
         }
     }
@@ -262,12 +244,10 @@ class KeycloakGroupEventListenerTest {
 
             listener.onCompanyRegionCreated(event);
 
-            verify(identityProvider).createGroupWithRole(
+            verify(identityProvider).createGroup(
                     "lc-company-region-region_norte",
                     Map.of("company_region_id", List.of(companyRegionUuid.toString())),
-                    "lc-company-region",
-                    "life-control-client",
-                    (String) null
+                    Optional.empty()
             );
         }
 
@@ -281,12 +261,10 @@ class KeycloakGroupEventListenerTest {
 
             listener.onCompanyRegionCreated(event);
 
-            verify(identityProvider).createGroupWithRole(
+            verify(identityProvider).createGroup(
                     "lc-company-region-regi_n_sur_este",
                     Map.of("company_region_id", List.of(companyRegionUuid.toString())),
-                    "lc-company-region",
-                    "life-control-client",
-                    (String) null
+                    Optional.empty()
             );
         }
 
@@ -300,12 +278,10 @@ class KeycloakGroupEventListenerTest {
 
             listener.onCompanyRegionCreated(event);
 
-            verify(identityProvider).createGroupWithRole(
+            verify(identityProvider).createGroup(
                     "lc-company-region-norte-sur_test",
                     Map.of("company_region_id", List.of(companyRegionUuid.toString())),
-                    "lc-company-region",
-                    "life-control-client",
-                    (String) null
+                    Optional.empty()
             );
         }
 
@@ -319,12 +295,10 @@ class KeycloakGroupEventListenerTest {
 
             listener.onCompanyRegionCreated(event);
 
-            verify(identityProvider).createGroupWithRole(
+            verify(identityProvider).createGroup(
                     "lc-company-region-zona_norte",
                     Map.of("company_region_id", List.of(companyRegionUuid.toString())),
-                    "lc-company-region",
-                    "life-control-client",
-                    (String) null
+                    Optional.empty()
             );
         }
 
@@ -336,22 +310,18 @@ class KeycloakGroupEventListenerTest {
             when(identityProvider.findGroupIdByName("lc-company-country-mexico"))
                     .thenReturn(Optional.empty());
             doThrow(new IdentityProviderConnectionException("Keycloak unavailable"))
-                    .when(identityProvider).createGroupWithRole(
+                    .when(identityProvider).createGroup(
                             "lc-company-region-region_norte",
                             Map.of("company_region_id", List.of(companyRegionUuid.toString())),
-                            "lc-company-region",
-                            "life-control-client",
-                            (String) null);
+                            Optional.empty());
 
             // Should not throw
             listener.onCompanyRegionCreated(event);
 
-            verify(identityProvider).createGroupWithRole(
+            verify(identityProvider).createGroup(
                     "lc-company-region-region_norte",
                     Map.of("company_region_id", List.of(companyRegionUuid.toString())),
-                    "lc-company-region",
-                    "life-control-client",
-                    (String) null
+                    Optional.empty()
             );
         }
     }
@@ -374,12 +344,10 @@ class KeycloakGroupEventListenerTest {
 
             listener.onCompanyZoneCreated(event);
 
-            verify(identityProvider).createGroupWithRole(
+            verify(identityProvider).createGroup(
                     "lc-company-zone-zona_a",
                     Map.of("company_zone_id", List.of(companyZoneUuid.toString())),
-                    "lc-company-zone",
-                    "life-control-client",
-                    (String) null
+                    Optional.empty()
             );
         }
 
@@ -393,12 +361,10 @@ class KeycloakGroupEventListenerTest {
 
             listener.onCompanyZoneCreated(event);
 
-            verify(identityProvider).createGroupWithRole(
+            verify(identityProvider).createGroup(
                     "lc-company-zone-zona__1__sucursal_",
                     Map.of("company_zone_id", List.of(companyZoneUuid.toString())),
-                    "lc-company-zone",
-                    "life-control-client",
-                    (String) null
+                    Optional.empty()
             );
         }
 
@@ -412,12 +378,10 @@ class KeycloakGroupEventListenerTest {
 
             listener.onCompanyZoneCreated(event);
 
-            verify(identityProvider).createGroupWithRole(
+            verify(identityProvider).createGroup(
                     "lc-company-zone-zona-norte_test",
                     Map.of("company_zone_id", List.of(companyZoneUuid.toString())),
-                    "lc-company-zone",
-                    "life-control-client",
-                    (String) null
+                    Optional.empty()
             );
         }
 
@@ -431,12 +395,10 @@ class KeycloakGroupEventListenerTest {
 
             listener.onCompanyZoneCreated(event);
 
-            verify(identityProvider).createGroupWithRole(
+            verify(identityProvider).createGroup(
                     "lc-company-zone-zona_central",
                     Map.of("company_zone_id", List.of(companyZoneUuid.toString())),
-                    "lc-company-zone",
-                    "life-control-client",
-                    (String) null
+                    Optional.empty()
             );
         }
 
@@ -448,22 +410,18 @@ class KeycloakGroupEventListenerTest {
             when(identityProvider.findGroupIdByName("lc-company-region-north_region"))
                     .thenReturn(Optional.empty());
             doThrow(new IdentityProviderConnectionException("Keycloak unavailable"))
-                    .when(identityProvider).createGroupWithRole(
+                    .when(identityProvider).createGroup(
                             "lc-company-zone-zona_a",
                             Map.of("company_zone_id", List.of(companyZoneUuid.toString())),
-                            "lc-company-zone",
-                            "life-control-client",
-                            (String) null);
+                            Optional.empty());
 
             // Should not throw
             listener.onCompanyZoneCreated(event);
 
-            verify(identityProvider).createGroupWithRole(
+            verify(identityProvider).createGroup(
                     "lc-company-zone-zona_a",
                     Map.of("company_zone_id", List.of(companyZoneUuid.toString())),
-                    "lc-company-zone",
-                    "life-control-client",
-                    (String) null
+                    Optional.empty()
             );
         }
     }
@@ -486,12 +444,10 @@ class KeycloakGroupEventListenerTest {
 
             listener.onCompanyStoreCreated(event);
 
-            verify(identityProvider).createGroupWithRole(
+            verify(identityProvider).createGroup(
                     "lc-company-store-main_store",
                     Map.of("company_store_id", List.of(companyStoreUuid.toString())),
-                    "lc-company-store",
-                    "life-control-client",
-                    (String) null
+                    Optional.empty()
             );
         }
 
@@ -505,12 +461,10 @@ class KeycloakGroupEventListenerTest {
 
             listener.onCompanyStoreCreated(event);
 
-            verify(identityProvider).createGroupWithRole(
+            verify(identityProvider).createGroup(
                     "lc-company-store-mi_tienda__1_",
                     Map.of("company_store_id", List.of(companyStoreUuid.toString())),
-                    "lc-company-store",
-                    "life-control-client",
-                    (String) null
+                    Optional.empty()
             );
         }
 
@@ -524,12 +478,10 @@ class KeycloakGroupEventListenerTest {
 
             listener.onCompanyStoreCreated(event);
 
-            verify(identityProvider).createGroupWithRole(
+            verify(identityProvider).createGroup(
                     "lc-company-store-store-north_test",
                     Map.of("company_store_id", List.of(companyStoreUuid.toString())),
-                    "lc-company-store",
-                    "life-control-client",
-                    (String) null
+                    Optional.empty()
             );
         }
 
@@ -543,12 +495,10 @@ class KeycloakGroupEventListenerTest {
 
             listener.onCompanyStoreCreated(event);
 
-            verify(identityProvider).createGroupWithRole(
+            verify(identityProvider).createGroup(
                     "lc-company-store-main_store",
                     Map.of("company_store_id", List.of(companyStoreUuid.toString())),
-                    "lc-company-store",
-                    "life-control-client",
-                    (String) null
+                    Optional.empty()
             );
         }
 
@@ -560,35 +510,31 @@ class KeycloakGroupEventListenerTest {
             when(identityProvider.findGroupIdByName("lc-company-zone-downtown_zone"))
                     .thenReturn(Optional.empty());
             doThrow(new IdentityProviderConnectionException("Keycloak unavailable"))
-                    .when(identityProvider).createGroupWithRole(
+                    .when(identityProvider).createGroup(
                             "lc-company-store-main_store",
                             Map.of("company_store_id", List.of(companyStoreUuid.toString())),
-                            "lc-company-store",
-                            "life-control-client",
-                            (String) null);
+                            Optional.empty());
 
             // Should not throw
             listener.onCompanyStoreCreated(event);
 
-            verify(identityProvider).createGroupWithRole(
+            verify(identityProvider).createGroup(
                     "lc-company-store-main_store",
                     Map.of("company_store_id", List.of(companyStoreUuid.toString())),
-                    "lc-company-store",
-                    "life-control-client",
-                    (String) null
+                    Optional.empty()
             );
         }
     }
 
     @Nested
-    @DisplayName("Parent Resolution — 5-arg createGroupWithRole")
+    @DisplayName("Parent Resolution — createGroup")
     class ParentResolutionTests {
 
         private static final String PARENT_ID = "parent-group-uuid";
 
         @Test
-        @DisplayName("6.3: onCompanyCountryCreated calls 5-arg with resolved parent company ID")
-        void shouldCall5ArgForCountryWithCompanyParent() {
+        @DisplayName("6.3: onCompanyCountryCreated calls createGroup with resolved parent company ID")
+        void shouldCallCreateGroupForCountryWithCompanyParent() {
             var companyUuid = UUID.randomUUID();
             var countryUuid = UUID.randomUUID();
             var event = new CompanyCountryCreatedEvent(this, countryUuid, companyUuid,
@@ -598,18 +544,16 @@ class KeycloakGroupEventListenerTest {
 
             listener.onCompanyCountryCreated(event);
 
-            verify(identityProvider).createGroupWithRole(
+            verify(identityProvider).createGroup(
                     "lc-company-country-argentina",
                     Map.of("company_country_id", List.of(countryUuid.toString())),
-                    "lc-company-country",
-                    "life-control-client",
-                    PARENT_ID
+                    Optional.of(PARENT_ID)
             );
         }
 
         @Test
-        @DisplayName("6.4: onCompanyRegionCreated calls 5-arg with resolved country parent ID")
-        void shouldCall5ArgForRegionWithCountryParent() {
+        @DisplayName("6.4: onCompanyRegionCreated calls createGroup with resolved country parent ID")
+        void shouldCallCreateGroupForRegionWithCountryParent() {
             var companyUuid = UUID.randomUUID();
             var regionUuid = UUID.randomUUID();
             var event = new CompanyRegionCreatedEvent(this, regionUuid, companyUuid,
@@ -619,18 +563,16 @@ class KeycloakGroupEventListenerTest {
 
             listener.onCompanyRegionCreated(event);
 
-            verify(identityProvider).createGroupWithRole(
+            verify(identityProvider).createGroup(
                     "lc-company-region-south",
                     Map.of("company_region_id", List.of(regionUuid.toString())),
-                    "lc-company-region",
-                    "life-control-client",
-                    PARENT_ID
+                    Optional.of(PARENT_ID)
             );
         }
 
         @Test
-        @DisplayName("6.5: onCompanyZoneCreated calls 5-arg with resolved region parent ID")
-        void shouldCall5ArgForZoneWithRegionParent() {
+        @DisplayName("6.5: onCompanyZoneCreated calls createGroup with resolved region parent ID")
+        void shouldCallCreateGroupForZoneWithRegionParent() {
             var companyUuid = UUID.randomUUID();
             var zoneUuid = UUID.randomUUID();
             var event = new CompanyZoneCreatedEvent(this, zoneUuid, companyUuid,
@@ -640,18 +582,16 @@ class KeycloakGroupEventListenerTest {
 
             listener.onCompanyZoneCreated(event);
 
-            verify(identityProvider).createGroupWithRole(
+            verify(identityProvider).createGroup(
                     "lc-company-zone-downtown",
                     Map.of("company_zone_id", List.of(zoneUuid.toString())),
-                    "lc-company-zone",
-                    "life-control-client",
-                    PARENT_ID
+                    Optional.of(PARENT_ID)
             );
         }
 
         @Test
-        @DisplayName("6.6: onCompanyStoreCreated calls 5-arg with resolved zone parent ID")
-        void shouldCall5ArgForStoreWithZoneParent() {
+        @DisplayName("6.6: onCompanyStoreCreated calls createGroup with resolved zone parent ID")
+        void shouldCallCreateGroupForStoreWithZoneParent() {
             var companyUuid = UUID.randomUUID();
             var storeUuid = UUID.randomUUID();
             var event = new CompanyStoreCreatedEvent(this, storeUuid, companyUuid,
@@ -661,18 +601,16 @@ class KeycloakGroupEventListenerTest {
 
             listener.onCompanyStoreCreated(event);
 
-            verify(identityProvider).createGroupWithRole(
+            verify(identityProvider).createGroup(
                     "lc-company-store-main_branch",
                     Map.of("company_store_id", List.of(storeUuid.toString())),
-                    "lc-company-store",
-                    "life-control-client",
-                    PARENT_ID
+                    Optional.of(PARENT_ID)
             );
         }
 
         @Test
-        @DisplayName("6.7: fallback — when findGroupIdByName returns empty, 4-arg is called")
-        void shouldFallbackTo4ArgWhenParentNotFound() {
+        @DisplayName("6.7: fallback — when findGroupIdByName returns empty, createGroup with empty parent")
+        void shouldFallbackToEmptyParentWhenParentNotFound() {
             var companyUuid = UUID.randomUUID();
             var countryUuid = UUID.randomUUID();
             var event = new CompanyCountryCreatedEvent(this, countryUuid, companyUuid,
@@ -682,12 +620,10 @@ class KeycloakGroupEventListenerTest {
 
             listener.onCompanyCountryCreated(event);
 
-            verify(identityProvider).createGroupWithRole(
+            verify(identityProvider).createGroup(
                     "lc-company-country-chile",
                     Map.of("company_country_id", List.of(countryUuid.toString())),
-                    "lc-company-country",
-                    "life-control-client",
-                    (String) null
+                    Optional.empty()
             );
         }
     }
