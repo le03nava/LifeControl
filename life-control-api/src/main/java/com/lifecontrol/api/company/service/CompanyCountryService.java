@@ -56,7 +56,7 @@ public class CompanyCountryService {
         }
 
         if (!currentUserContext.isAdmin() && !currentUserContext.hasCompanyRole()
-                && currentUserContext.hasCompanyCountryRole()) {
+                && (currentUserContext.hasCompanyCountryRole() || currentUserContext.hasCompanyCountryReadRole())) {
             var countryIds = currentUserContext.getCompanyCountryIds();
             if (countryIds.isEmpty()) {
                 return List.of();

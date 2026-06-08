@@ -67,7 +67,7 @@ public class CompanyZoneService {
         currentUserContext.verifyCompanyZoneAccess(companyId, companyCountryId, regionId, null);
         var region = resolveCompanyRegion(companyId, companyCountryId, regionId);
 
-        if (currentUserContext.hasCompanyZoneRole()) {
+        if (currentUserContext.hasCompanyZoneRole() || currentUserContext.hasCompanyZoneReadRole()) {
             var zoneIds = currentUserContext.getCompanyZoneIds();
             if (zoneIds.isEmpty()) {
                 return List.of();

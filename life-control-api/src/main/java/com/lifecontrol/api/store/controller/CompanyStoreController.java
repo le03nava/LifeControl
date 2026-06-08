@@ -29,7 +29,8 @@ public class CompanyStoreController {
 
     @GetMapping
     @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-region','lc-company-zone','lc-company-store','lc-company-store-read')")
-    @Operation(summary = "List all stores", description = "Returns stores for a company's zone")
+    @Operation(summary = "List all stores",
+            description = "Returns stores for a company's zone. For lc-company-store and lc-company-store-read roles, results are scoped to the company_store_id values in the JWT.")
     @ApiResponse(responseCode = "200", description = "List of stores")
     public ResponseEntity<List<CompanyStoreResponse>> getAllStores(
             @PathVariable UUID companyId,
@@ -42,7 +43,8 @@ public class CompanyStoreController {
 
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-region','lc-company-zone','lc-company-store','lc-company-store-read')")
-    @Operation(summary = "Get a store by ID")
+    @Operation(summary = "Get a store by ID",
+            description = "Returns a specific store. Access is verified via verifyCompanyStoreAccess which checks store ownership for scoped roles.")
     @ApiResponse(responseCode = "200", description = "Store found")
     @ApiResponse(responseCode = "404", description = "Store not found")
     public ResponseEntity<CompanyStoreResponse> getStoreById(

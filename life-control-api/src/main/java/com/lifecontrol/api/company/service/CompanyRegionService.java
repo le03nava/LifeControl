@@ -60,7 +60,7 @@ public class CompanyRegionService {
         currentUserContext.verifyCompanyRegionAccess(companyId, companyCountryId, null);
         var companyCountry = resolveCompanyCountry(companyId, companyCountryId);
 
-        if (currentUserContext.hasCompanyRegionRole()) {
+        if (currentUserContext.hasCompanyRegionRole() || currentUserContext.hasCompanyRegionReadRole()) {
             var regionIds = currentUserContext.getCompanyRegionIds();
             if (regionIds.isEmpty()) {
                 return List.of();

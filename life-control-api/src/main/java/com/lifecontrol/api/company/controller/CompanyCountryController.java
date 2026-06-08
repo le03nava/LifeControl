@@ -34,7 +34,8 @@ public class CompanyCountryController {
 
     @GetMapping
     @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-country-read')")
-    @Operation(summary = "Get countries by company", description = "Returns all countries associated with a company")
+    @Operation(summary = "Get countries by company",
+            description = "Returns countries associated with a company. For lc-company-country and lc-company-country-read roles, results are scoped to the company_country_id values in the JWT.")
     public ResponseEntity<List<CompanyCountryResponse>> getCompanyCountries(@PathVariable UUID companyId) {
         return ResponseEntity.ok(companyCountryService.getCountriesByCompanyId(companyId));
     }

@@ -29,7 +29,8 @@ public class CompanyZoneController {
 
     @GetMapping
     @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-region','lc-company-zone','lc-company-zone-read')")
-    @Operation(summary = "List all zones", description = "Returns zones for a company's region")
+    @Operation(summary = "List all zones",
+            description = "Returns zones for a company's region. For lc-company-zone and lc-company-zone-read roles, results are scoped to the company_zone_id values in the JWT.")
     @ApiResponse(responseCode = "200", description = "List of zones")
     public ResponseEntity<List<CompanyZoneResponse>> getAllZones(
             @PathVariable UUID companyId,
@@ -41,7 +42,8 @@ public class CompanyZoneController {
 
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-region','lc-company-zone','lc-company-zone-read')")
-    @Operation(summary = "Get a zone by ID")
+    @Operation(summary = "Get a zone by ID",
+            description = "Returns a specific zone. Access is verified via verifyCompanyZoneAccess which checks zone ownership for scoped roles.")
     @ApiResponse(responseCode = "200", description = "Zone found")
     @ApiResponse(responseCode = "404", description = "Zone not found")
     public ResponseEntity<CompanyZoneResponse> getZoneById(

@@ -85,7 +85,7 @@ public class CompanyStoreService {
         var zone = resolveCompanyZone(companyId, companyCountryId, regionId, zoneId);
 
         List<CompanyStore> stores;
-        if (currentUserContext.hasCompanyStoreRole()) {
+        if (currentUserContext.hasCompanyStoreRole() || currentUserContext.hasCompanyStoreReadRole()) {
             var storeIds = currentUserContext.getCompanyStoreIds();
             stores = companyStoreRepository.findByIdInAndCompanyZoneId(storeIds, zone.getId());
         } else if (currentUserContext.hasCompanyZoneRole()) {

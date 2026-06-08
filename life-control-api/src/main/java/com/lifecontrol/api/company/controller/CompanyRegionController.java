@@ -29,7 +29,8 @@ public class CompanyRegionController {
 
     @GetMapping
     @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-region','lc-company-region-read')")
-    @Operation(summary = "List all regions", description = "Returns regions for a company's country presence")
+    @Operation(summary = "List all regions",
+            description = "Returns regions for a company's country presence. For lc-company-region and lc-company-region-read roles, results are scoped to the company_region_id values in the JWT.")
     @ApiResponse(responseCode = "200", description = "List of regions")
     public ResponseEntity<List<CompanyRegionResponse>> getAllRegions(
             @PathVariable UUID companyId,
@@ -40,7 +41,8 @@ public class CompanyRegionController {
 
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-region','lc-company-region-read')")
-    @Operation(summary = "Get a region by ID")
+    @Operation(summary = "Get a region by ID",
+            description = "Returns a specific region. Access is verified via verifyCompanyRegionAccess which checks region ownership for scoped roles.")
     @ApiResponse(responseCode = "200", description = "Region found")
     @ApiResponse(responseCode = "404", description = "Region not found")
     public ResponseEntity<CompanyRegionResponse> getRegionById(
