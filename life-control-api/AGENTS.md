@@ -768,17 +768,37 @@ All tables use `UUID` primary keys, `created_at`/`updated_at` timestamps. Soft-d
 
 ## Docker
 
-### Build
+### Build & Deploy (single service, dev)
+
+Desde `life-control-api/`:
 
 ```bash
-# Build JAR locally first
-./gradlew bootJar
+# 1. Compilar JAR (sin tests para velocidad)
+./gradlew bootJar --no-daemon -Pprofile=dev -x test
 
-# Build Docker image
-docker build -t life-control-api:latest .
+# 2. Rebuild imagen Docker (solo este servicio)
+cd ../docker
+docker compose -f docker-compose.yml -f docker-compose.override.yml \
+  --env-file .env.dev build --no-cache lifecontrol-api
 
-# Run
-docker run -p 8082:8082 life-control-api:latest
+# 3. Redeploy contenedor
+docker compose -f docker-compose.yml -f docker-compose.override.yml \
+  --env-file .env.dev up -d lifecontrol-api
+
+# 4. Verificar
+docker compose -f docker-compose.yml -f docker-compose.override.yml \
+  --env-file .env.dev ps lifecontrol-api
+```
+
+Para staging/prod, cambiar `.env.dev` por `.env.staging` o `.env.prod` y omitir `docker-compose.override.yml`.
+
+### Build & Deploy (all services)
+
+```bash
+cd docker
+./scripts/deploy.sh dev build      # compila JARs + Angular
+./scripts/deploy.sh dev build-images  # buildea imágenes Docker
+./scripts/deploy.sh dev restart       # stop + start todos los servicios
 ```
 
 ### Environment Variables
