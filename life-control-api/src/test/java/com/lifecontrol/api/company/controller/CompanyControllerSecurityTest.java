@@ -592,4 +592,124 @@ class CompanyControllerSecurityTest {
             }
         }
     }
+
+    // ─── lc-company-read read-only role ─────────────────────────
+
+    @Nested
+    @DisplayName("lc-company-read role — read-only access")
+    class LcCompanyReadAccess {
+
+        // ─── GET /api/companies ──────────────────────────────
+
+        @Test
+        @WithMockUser(roles = {"lc-company-read"})
+        @DisplayName("GET /api/companies returns 200 OK")
+        void readCanGetCompanies() throws Exception {
+            var response = new CompanyResponse(
+                    UUID.randomUUID(), "1", "Test", 1, "RS",
+                    "XAXX010101000", "555", "e@e.com", true,
+                    LocalDateTime.now(), LocalDateTime.now()
+            );
+            var page = new PageImpl<>(List.of(response), PageRequest.of(0, 12), 1);
+            when(companyService.getAllCompanies(any(), eq(null))).thenReturn(page);
+
+            mockMvc.perform(get("/api/companies"))
+                    .andExpect(status().isOk());
+        }
+
+        // ─── GET /api/companies/{id} ──────────────────────────
+
+        @Test
+        @WithMockUser(roles = {"lc-company-read"})
+        @DisplayName("GET /api/companies/{id} returns 200 OK")
+        void readCanGetCompanyById() throws Exception {
+            var response = new CompanyResponse(
+                    UUID.randomUUID(), "1", "Test", 1, "RS",
+                    "XAXX010101000", "555", "e@e.com", true,
+                    LocalDateTime.now(), LocalDateTime.now()
+            );
+            when(companyService.getCompanyById(any())).thenReturn(response);
+
+            mockMvc.perform(get("/api/companies/{id}", UUID.randomUUID()))
+                    .andExpect(status().isOk());
+        }
+
+        // ─── GET /api/companies/{companyId}/countries ─────────
+
+        @Test
+        @WithMockUser(roles = {"lc-company-read"})
+        @DisplayName("GET /api/companies/{companyId}/countries returns 200 OK")
+        void readCanGetCompanyCountries() throws Exception {
+            var countryResponse = new CompanyCountryResponse(
+                    UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                    "MX", "México", "Mexican market",
+                    LocalDateTime.now(), LocalDateTime.now()
+            );
+            when(companyCountryService.getCountriesByCompanyId(any()))
+                    .thenReturn(List.of(countryResponse));
+
+            mockMvc.perform(get("/api/companies/{companyId}/countries", UUID.randomUUID()))
+                    .andExpect(status().isOk());
+        }
+
+        // ─── POST /api/companies (denied) ────────────────────
+
+        @Test
+        @WithMockUser(roles = {"lc-company-read"})
+        @DisplayName("POST /api/companies returns 403 Forbidden")
+        void readCannotCreateCompany() throws Exception {
+            mockMvc.perform(post("/api/companies")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(buildCompanyRequest())))
+                    .andExpect(status().isForbidden());
+        }
+
+        // ─── PUT /api/companies/{id} (denied) ────────────────
+
+        @Test
+        @WithMockUser(roles = {"lc-company-read"})
+        @DisplayName("PUT /api/companies/{id} returns 403 Forbidden")
+        void readCannotUpdateCompany() throws Exception {
+            mockMvc.perform(put("/api/companies/{id}", UUID.randomUUID())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(buildCompanyRequest())))
+                    .andExpect(status().isForbidden());
+        }
+
+        // ─── DELETE /api/companies/{id} (denied) ─────────────
+
+        @Test
+        @WithMockUser(roles = {"lc-company-read"})
+        @DisplayName("DELETE /api/companies/{id} returns 403 Forbidden")
+        void readCannotDeleteCompany() throws Exception {
+            mockMvc.perform(delete("/api/companies/{id}", UUID.randomUUID()))
+                    .andExpect(status().isForbidden());
+        }
+
+        // ─── PUT /api/companies/{companyId}/countries/{id} (denied)
+
+        @Test
+        @WithMockUser(roles = {"lc-company-read"})
+        @DisplayName("PUT /api/companies/{companyId}/countries/{id} returns 403 Forbidden")
+        void readCannotUpdateCountry() throws Exception {
+            var countryRequest = new CompanyCountryRequest("MX", "México");
+
+            mockMvc.perform(put("/api/companies/{companyId}/countries/{id}",
+                            UUID.randomUUID(), UUID.randomUUID())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(countryRequest)))
+                    .andExpect(status().isForbidden());
+        }
+
+        // ─── DELETE /api/companies/{companyId}/countries/{id} (denied)
+
+        @Test
+        @WithMockUser(roles = {"lc-company-read"})
+        @DisplayName("DELETE /api/companies/{companyId}/countries/{id} returns 403 Forbidden")
+        void readCannotDeleteCountry() throws Exception {
+            mockMvc.perform(delete("/api/companies/{companyId}/countries/{id}",
+                            UUID.randomUUID(), UUID.randomUUID()))
+                    .andExpect(status().isForbidden());
+        }
+    }
 }

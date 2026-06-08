@@ -189,8 +189,8 @@ com.lifecontrol.api/
 
 | Prefix                                          | Access                    | Description                            |
 |-------------------------------------------------|---------------------------|----------------------------------------|
-| `/api/companies`                                | `life-control-admin\|lc-company` | Company CRUD + search (paginated)  |
-| `/api/companies/{id}/countries`                 | `life-control-admin\|lc-company` | Company-country associations       |
+| `/api/companies`                                | `life-control-admin\|lc-company\|lc-company-read` | Company CRUD + search (paginated; `lc-company-read` is read-only)  |
+| `/api/companies/{id}/countries`                 | `life-control-admin\|lc-company\|lc-company-read` | Company-country associations (read-only for `lc-company-read`) |
 | `/api/companies/{id}/countries/{cid}/regions`   | `life-control-admin\|lc-company` | Regions within a company-country   |
 | `/api/companies/{id}/countries/{cid}/regions/{rid}/zones` | life-control-admin\|lc-company | Zones within a region              |
 | `/api/countries`                                | authenticated             | Country catalog CRUD                  |
@@ -206,7 +206,7 @@ Use OpenAPI annotations (`@Tag`, `@Operation`, `@ApiResponse`) on all controller
 @RestController
 @RequestMapping("/api/companies")
 @Tag(name = "Company Management", description = "API for managing companies")
-@PreAuthorize("hasAnyRole('life-control-admin','lc-company')")
+@PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-read')")
 public class CompanyController {
 
     @GetMapping
@@ -474,8 +474,10 @@ Three tiers of access:
 
 | Role                   | Authority                          | Scope                          |
 |------------------------|------------------------------------|--------------------------------|
-| `life-control-admin`   | `ROLE_life-control-admin`          | Full CRUD on companies, activity logs. Shorthand: `lc-admin` |
+| `lc-admin`             | `ROLE_lc-admin`                    | Full CRUD on companies, activity logs (replaces `life-control-admin`) |
 | `lc-company`           | `ROLE_lc-company`                  | Scoped by `company_id` JWT claim, full CRUD on assigned companies |
+| `lc-company-country`   | `ROLE_lc-company-country`          | Scoped by `company_id`, CRUD on company-country associations |
+| `lc-company-read`      | `ROLE_lc-company-read`             | Read-only GET access, scoped by `company_id` JWT claim |
 | `admin`                | `ROLE_admin`                       | Users-admin endpoints (Keycloak admin) |
 
 ### Architecture
@@ -483,7 +485,7 @@ Three tiers of access:
 1. **JWT Decoder** (`JwtDecoderConfig`): Validates signature via JWK Set URI, timestamp only (no issuer validation — allows multi-env Keycloak URIs).
 2. **Role Mapping**: `realm_access.roles` → `ROLE_<name>` authorities via custom `JwtAuthenticationConverter`.
 3. **Company ID Claim**: `company_id` claim (single UUID or comma-separated) parsed by `CurrentUserContext` for scoped access.
-4. **Controller Guards**: `@PreAuthorize("hasAnyRole('life-control-admin','lc-company')")`
+4. **Controller Guards**: `@PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-read')")` on CompanyController. Method-level overrides restrict write endpoints to `lc-admin`/`lc-company` (and `lc-company-country` for country mutations).
 5. **Service-Level Checks**: `currentUserContext.verifyCompanyAccess(id)` in service logic.
 6. **Endpoint-Level Rules**: `SecurityConfig` enforces `ROLE_admin` for `/api/users-admin/**`.
 
@@ -800,8 +802,10 @@ docker run -p 8082:8082 life-control-api:latest
 
 Create these realm roles manually in Keycloak (`life-control-realm`):
 
-- **`life-control-admin`** — Company CRUD, activity log access
-- **`life-control-country`** — Scoped company access (filtered by `company_id` claim)
+- **`lc-admin`** — Full CRUD on companies, activity log access (replaces `life-control-admin`)
+- **`lc-company`** — Scoped company CRUD (filtered by `company_id` JWT claim)
+- **`lc-company-country`** — Scoped company-country CRUD
+- **`lc-company-read`** — Read-only GET access to companies, scoped by `company_id` JWT claim
 - **`admin`** — Users-admin endpoints (role/user management)
 
 ### Company Groups (Auto-Created)

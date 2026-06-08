@@ -31,7 +31,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/companies")
 @Tag(name = "Company Management", description = "API for managing companies")
-@PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country')")
+@PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-read')")
 public class CompanyController {
 
     private final CompanyService companyService;
@@ -57,6 +57,7 @@ public class CompanyController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('lc-admin','lc-company')")
     @Operation(summary = "Create a new company", description = "Creates a new company with the provided details")
     public ResponseEntity<CompanyResponse> createCompany(@Valid @RequestBody CompanyRequest request) {
         CompanyResponse response = companyService.createCompany(request);
@@ -64,6 +65,7 @@ public class CompanyController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-company')")
     @Operation(summary = "Update a company", description = "Updates an existing company with the provided details")
     public ResponseEntity<CompanyResponse> updateCompany(@PathVariable UUID id, @Valid @RequestBody CompanyRequest request) {
         CompanyResponse response = companyService.updateCompany(id, request);
@@ -71,6 +73,7 @@ public class CompanyController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-company')")
     @Operation(summary = "Delete a company", description = "Soft-deletes a company by setting enabled to false")
     public ResponseEntity<Void> deleteCompany(@PathVariable UUID id) {
         companyService.deleteCompany(id);
@@ -96,6 +99,7 @@ public class CompanyController {
     }
 
     @DeleteMapping("/{companyId}/countries/{id}")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country')")
     @Operation(summary = "Remove country from company", description = "Removes a country association from a company")
     public ResponseEntity<Void> removeCompanyCountry(
             @PathVariable UUID companyId,
@@ -105,6 +109,7 @@ public class CompanyController {
     }
 
     @PutMapping("/{companyId}/countries/{id}")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country')")
     @Operation(summary = "Update country assignment", description = "Updates an existing country assignment for a company")
     public ResponseEntity<CompanyCountryResponse> updateCompanyCountry(
             @PathVariable UUID companyId,
