@@ -41,9 +41,13 @@ public class CurrentUserContext {
     private static final String CLAIM_COMPANY_STORE_ID = "company_store_id";
     static final String ROLE_LC_COMPANY = "ROLE_lc-company";
     static final String ROLE_LC_COMPANY_COUNTRY = "ROLE_lc-company-country";
+    static final String ROLE_LC_COMPANY_COUNTRY_READ = "ROLE_lc-company-country-read";
     static final String ROLE_LC_COMPANY_REGION = "ROLE_lc-company-region";
+    static final String ROLE_LC_COMPANY_REGION_READ = "ROLE_lc-company-region-read";
     static final String ROLE_LC_COMPANY_ZONE = "ROLE_lc-company-zone";
+    static final String ROLE_LC_COMPANY_ZONE_READ = "ROLE_lc-company-zone-read";
     static final String ROLE_LC_COMPANY_STORE = "ROLE_lc-company-store";
+    static final String ROLE_LC_COMPANY_STORE_READ = "ROLE_lc-company-store-read";
 
     private Set<UUID> companyIds;
     private Set<UUID> companyCountryIds;
@@ -54,9 +58,13 @@ public class CurrentUserContext {
     private Boolean countryRole;
     private Boolean companyRole;
     private Boolean companyCountryRole;
+    private Boolean companyCountryReadRole;
     private Boolean companyRegionRole;
+    private Boolean companyRegionReadRole;
     private Boolean companyZoneRole;
+    private Boolean companyZoneReadRole;
     private Boolean companyStoreRole;
+    private Boolean companyStoreReadRole;
     private String userId;
     private String username;
 
@@ -201,6 +209,46 @@ public class CurrentUserContext {
     }
 
     /**
+     * Returns {@code true} if the current user has the {@code ROLE_lc-company-country-read} authority.
+     */
+    public boolean hasCompanyCountryReadRole() {
+        if (companyCountryReadRole == null) {
+            companyCountryReadRole = hasAuthority(ROLE_LC_COMPANY_COUNTRY_READ);
+        }
+        return companyCountryReadRole;
+    }
+
+    /**
+     * Returns {@code true} if the current user has the {@code ROLE_lc-company-region-read} authority.
+     */
+    public boolean hasCompanyRegionReadRole() {
+        if (companyRegionReadRole == null) {
+            companyRegionReadRole = hasAuthority(ROLE_LC_COMPANY_REGION_READ);
+        }
+        return companyRegionReadRole;
+    }
+
+    /**
+     * Returns {@code true} if the current user has the {@code ROLE_lc-company-zone-read} authority.
+     */
+    public boolean hasCompanyZoneReadRole() {
+        if (companyZoneReadRole == null) {
+            companyZoneReadRole = hasAuthority(ROLE_LC_COMPANY_ZONE_READ);
+        }
+        return companyZoneReadRole;
+    }
+
+    /**
+     * Returns {@code true} if the current user has the {@code ROLE_lc-company-store-read} authority.
+     */
+    public boolean hasCompanyStoreReadRole() {
+        if (companyStoreReadRole == null) {
+            companyStoreReadRole = hasAuthority(ROLE_LC_COMPANY_STORE_READ);
+        }
+        return companyStoreReadRole;
+    }
+
+    /**
      * Verifies that the current user has access to the given company.
      * Admin users have unrestricted access. Non-admin users must have the
      * company ID in their {@code company_id} claim set.
@@ -219,12 +267,13 @@ public class CurrentUserContext {
     }
 
     /**
-     * Three-tier access check for CompanyCountry records.
+     * Four-tier access check for CompanyCountry records.
      * <ul>
      *   <li>lc-admin: bypasses all checks (returns immediately).</li>
      *   <li>lc-company: delegates to {@link #verifyCompanyAccess(UUID)} for company-level check.</li>
      *   <li>lc-company-country: verifies company access AND that the given
      *       {@code companyCountryId} is present in the {@code company_country_id} JWT claim set.</li>
+     *   <li>lc-company-country-read: same scoping as lc-company-country (read-only).</li>
      * </ul>
      *
      * @param companyId        the company UUID to verify (company-level check)
@@ -239,10 +288,10 @@ public class CurrentUserContext {
             verifyCompanyAccess(companyId);
             return;
         }
-        if (hasCompanyCountryRole()) {
+        if (hasCompanyCountryRole() || hasCompanyCountryReadRole()) {
             verifyCompanyAccess(companyId);
             if (companyCountryId == null || !getCompanyCountryIds().contains(companyCountryId)) {
-                log.warn("Access denied to company-country {} for lc-company-country user", companyCountryId);
+                log.warn("Access denied to company-country {} for country-scoped user", companyCountryId);
                 throw new AccessDeniedException("Access denied to company country: " + companyCountryId);
             }
             return;
@@ -251,7 +300,7 @@ public class CurrentUserContext {
     }
 
     /**
-     * Four-tier access check for CompanyRegion records.
+     * Five-tier access check for CompanyRegion records.
      * <ul>
      *   <li>lc-admin: bypasses all checks (returns immediately).</li>
      *   <li>lc-company: delegates to {@link #verifyCompanyAccess(UUID)} for company-level check.</li>
@@ -260,6 +309,7 @@ public class CurrentUserContext {
      *   <li>lc-company-region: verifies company access AND that the given
      *       {@code companyCountryId} is present in the {@code company_country_id} claim set AND
      *       that the given {@code regionId} is present in the {@code company_region_id} claim set.</li>
+     *   <li>lc-company-region-read: same scoping as lc-company-region (read-only).</li>
      * </ul>
      *
      * @param companyId        the company UUID to verify (company-level check)
@@ -275,22 +325,22 @@ public class CurrentUserContext {
             verifyCompanyAccess(companyId);
             return;
         }
-        if (hasCompanyCountryRole()) {
+        if (hasCompanyCountryRole() || hasCompanyCountryReadRole()) {
             verifyCompanyAccess(companyId);
             if (companyCountryId == null || !getCompanyCountryIds().contains(companyCountryId)) {
-                log.warn("Access denied to company-country {} for lc-company-country user", companyCountryId);
+                log.warn("Access denied to company-country {} for country-scoped user", companyCountryId);
                 throw new AccessDeniedException("Access denied to company country: " + companyCountryId);
             }
             return;
         }
-        if (hasCompanyRegionRole()) {
+        if (hasCompanyRegionRole() || hasCompanyRegionReadRole()) {
             verifyCompanyAccess(companyId);
             if (companyCountryId == null || !getCompanyCountryIds().contains(companyCountryId)) {
-                log.warn("Access denied to company-country {} for lc-company-region user", companyCountryId);
+                log.warn("Access denied to company-country {} for region-scoped user", companyCountryId);
                 throw new AccessDeniedException("Access denied to company country: " + companyCountryId);
             }
             if (regionId != null && !getCompanyRegionIds().contains(regionId)) {
-                log.warn("Access denied to company-region {} for lc-company-region user", regionId);
+                log.warn("Access denied to company-region {} for region-scoped user", regionId);
                 throw new AccessDeniedException("Access denied to company region: " + regionId);
             }
             return;
@@ -299,7 +349,7 @@ public class CurrentUserContext {
     }
 
     /**
-     * Five-tier access check for CompanyZone records.
+     * Six-tier access check for CompanyZone records.
      * <ul>
      *   <li>lc-admin: bypasses all checks (returns immediately).</li>
      *   <li>lc-company: delegates to {@link #verifyCompanyAccess(UUID)} for company-level check.</li>
@@ -310,6 +360,7 @@ public class CurrentUserContext {
      *       that the given {@code regionId} is present in the {@code company_region_id} claim set.</li>
      *   <li>lc-company-zone: verifies company access AND country AND region AND that the given
      *       {@code zoneId} is present in the {@code company_zone_id} claim set.</li>
+     *   <li>lc-company-zone-read: same scoping as lc-company-zone (read-only).</li>
      * </ul>
      *
      * @param companyId        the company UUID to verify (company-level check)
@@ -326,38 +377,38 @@ public class CurrentUserContext {
             verifyCompanyAccess(companyId);
             return;
         }
-        if (hasCompanyCountryRole()) {
+        if (hasCompanyCountryRole() || hasCompanyCountryReadRole()) {
             verifyCompanyAccess(companyId);
             if (companyCountryId == null || !getCompanyCountryIds().contains(companyCountryId)) {
-                log.warn("Access denied to company-country {} for lc-company-country user", companyCountryId);
+                log.warn("Access denied to company-country {} for country-scoped user", companyCountryId);
                 throw new AccessDeniedException("Access denied to company country: " + companyCountryId);
             }
             return;
         }
-        if (hasCompanyRegionRole()) {
+        if (hasCompanyRegionRole() || hasCompanyRegionReadRole()) {
             verifyCompanyAccess(companyId);
             if (companyCountryId == null || !getCompanyCountryIds().contains(companyCountryId)) {
-                log.warn("Access denied to company-country {} for lc-company-region user", companyCountryId);
+                log.warn("Access denied to company-country {} for region-scoped user", companyCountryId);
                 throw new AccessDeniedException("Access denied to company country: " + companyCountryId);
             }
             if (regionId != null && !getCompanyRegionIds().contains(regionId)) {
-                log.warn("Access denied to company-region {} for lc-company-region user", regionId);
+                log.warn("Access denied to company-region {} for region-scoped user", regionId);
                 throw new AccessDeniedException("Access denied to company region: " + regionId);
             }
             return;
         }
-        if (hasCompanyZoneRole()) {
+        if (hasCompanyZoneRole() || hasCompanyZoneReadRole()) {
             verifyCompanyAccess(companyId);
             if (companyCountryId == null || !getCompanyCountryIds().contains(companyCountryId)) {
-                log.warn("Access denied to company-country {} for lc-company-zone user", companyCountryId);
+                log.warn("Access denied to company-country {} for zone-scoped user", companyCountryId);
                 throw new AccessDeniedException("Access denied to company country: " + companyCountryId);
             }
             if (regionId != null && !getCompanyRegionIds().contains(regionId)) {
-                log.warn("Access denied to company-region {} for lc-company-zone user", regionId);
+                log.warn("Access denied to company-region {} for zone-scoped user", regionId);
                 throw new AccessDeniedException("Access denied to company region: " + regionId);
             }
             if (zoneId != null && !getCompanyZoneIds().contains(zoneId)) {
-                log.warn("Access denied to company-zone {} for lc-company-zone user", zoneId);
+                log.warn("Access denied to company-zone {} for zone-scoped user", zoneId);
                 throw new AccessDeniedException("Access denied to company zone: " + zoneId);
             }
             return;
@@ -366,18 +417,16 @@ public class CurrentUserContext {
     }
 
     /**
-     * Six-tier access check for CompanyStore records.
+     * Seven-tier access check for CompanyStore records.
      * <ul>
      *   <li>lc-admin: bypasses all checks (returns immediately).</li>
-     *   <li>lc-company: delegates to {@link #verifyCompanyAccess(UUID)} for company-level check.</li>
-     *   <li>lc-company-country: verifies company access AND that the given
-     *       {@code companyCountryId} is present in the {@code company_country_id} JWT claim set.</li>
-     *   <li>lc-company-region: verifies company access AND country AND that the given
-     *       {@code regionId} is present in the {@code company_region_id} claim set.</li>
-     *   <li>lc-company-zone: verifies company access AND country AND region AND that the given
-     *       {@code zoneId} is present in the {@code company_zone_id} claim set.</li>
      *   <li>lc-company-store: verifies company access AND country AND region AND zone AND that the given
      *       {@code storeId} is present in the {@code company_store_id} claim set.</li>
+     *   <li>lc-company-store-read: same scoping as lc-company-store (read-only).</li>
+     *   <li>lc-company-zone: delegates to {@link #verifyCompanyZoneAccess}.</li>
+     *   <li>lc-company-region: delegates to {@link #verifyCompanyRegionAccess}.</li>
+     *   <li>lc-company-country: delegates to {@link #verifyCompanyCountryAccess}.</li>
+     *   <li>lc-company: delegates to {@link #verifyCompanyAccess}.</li>
      * </ul>
      *
      * @param companyId        the company UUID to verify (company-level check)
@@ -391,35 +440,35 @@ public class CurrentUserContext {
         if (isAdmin()) {
             return;
         }
-        if (hasCompanyStoreRole()) {
+        if (hasCompanyStoreRole() || hasCompanyStoreReadRole()) {
             verifyCompanyAccess(companyId);
             if (companyCountryId == null || !getCompanyCountryIds().contains(companyCountryId)) {
-                log.warn("Access denied to company-country {} for lc-company-store user", companyCountryId);
+                log.warn("Access denied to company-country {} for store-scoped user", companyCountryId);
                 throw new AccessDeniedException("Access denied to company country: " + companyCountryId);
             }
             if (regionId != null && !getCompanyRegionIds().contains(regionId)) {
-                log.warn("Access denied to company-region {} for lc-company-store user", regionId);
+                log.warn("Access denied to company-region {} for store-scoped user", regionId);
                 throw new AccessDeniedException("Access denied to company region: " + regionId);
             }
             if (zoneId != null && !getCompanyZoneIds().contains(zoneId)) {
-                log.warn("Access denied to company-zone {} for lc-company-store user", zoneId);
+                log.warn("Access denied to company-zone {} for store-scoped user", zoneId);
                 throw new AccessDeniedException("Access denied to company zone: " + zoneId);
             }
             if (storeId != null && !getCompanyStoreIds().contains(storeId)) {
-                log.warn("Access denied to company-store {} for lc-company-store user", storeId);
+                log.warn("Access denied to company-store {} for store-scoped user", storeId);
                 throw new AccessDeniedException("Access denied to company store: " + storeId);
             }
             return;
         }
-        if (hasCompanyZoneRole()) {
+        if (hasCompanyZoneRole() || hasCompanyZoneReadRole()) {
             verifyCompanyZoneAccess(companyId, companyCountryId, regionId, zoneId);
             return;
         }
-        if (hasCompanyRegionRole()) {
+        if (hasCompanyRegionRole() || hasCompanyRegionReadRole()) {
             verifyCompanyRegionAccess(companyId, companyCountryId, regionId);
             return;
         }
-        if (hasCompanyCountryRole()) {
+        if (hasCompanyCountryRole() || hasCompanyCountryReadRole()) {
             verifyCompanyCountryAccess(companyId, companyCountryId);
             return;
         }
