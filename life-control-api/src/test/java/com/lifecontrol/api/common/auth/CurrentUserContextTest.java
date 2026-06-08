@@ -108,7 +108,7 @@ class CurrentUserContextTest {
         @DisplayName("should extract single UUID from company_id claim")
         void singleUuid() {
             UUID id = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(id.toString());
+            when(jwt.getClaim("company_id")).thenReturn(id.toString());
 
             Set<UUID> result = currentUserContext.getCompanyIds();
 
@@ -120,7 +120,7 @@ class CurrentUserContextTest {
         void multipleUuids() {
             UUID id1 = UUID.randomUUID();
             UUID id2 = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(id1 + "," + id2);
+            when(jwt.getClaim("company_id")).thenReturn(id1 + "," + id2);
 
             Set<UUID> result = currentUserContext.getCompanyIds();
 
@@ -131,7 +131,7 @@ class CurrentUserContextTest {
         @DisplayName("should deduplicate repeated UUIDs")
         void deduplicates() {
             UUID id = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(id + "," + id);
+            when(jwt.getClaim("company_id")).thenReturn(id + "," + id);
 
             Set<UUID> result = currentUserContext.getCompanyIds();
 
@@ -143,7 +143,7 @@ class CurrentUserContextTest {
         @DisplayName("should handle whitespace-padded UUIDs")
         void whitespacePadded() {
             UUID id = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(" " + id + " , " + id);
+            when(jwt.getClaim("company_id")).thenReturn(" " + id + " , " + id);
 
             Set<UUID> result = currentUserContext.getCompanyIds();
 
@@ -154,7 +154,7 @@ class CurrentUserContextTest {
         @DisplayName("should silently skip malformed UUIDs")
         void malformedUuids() {
             UUID validId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn("not-a-uuid," + validId);
+            when(jwt.getClaim("company_id")).thenReturn("not-a-uuid," + validId);
 
             Set<UUID> result = currentUserContext.getCompanyIds();
 
@@ -164,7 +164,7 @@ class CurrentUserContextTest {
         @Test
         @DisplayName("all-malformed returns empty set")
         void allMalformed() {
-            when(jwt.getClaimAsString("company_id")).thenReturn("not-a-uuid,also-bad");
+            when(jwt.getClaim("company_id")).thenReturn("not-a-uuid,also-bad");
 
             Set<UUID> result = currentUserContext.getCompanyIds();
 
@@ -174,7 +174,7 @@ class CurrentUserContextTest {
         @Test
         @DisplayName("should return empty set when claim is missing")
         void missingClaim() {
-            when(jwt.getClaimAsString("company_id")).thenReturn(null);
+            when(jwt.getClaim("company_id")).thenReturn(null);
 
             Set<UUID> result = currentUserContext.getCompanyIds();
 
@@ -184,7 +184,7 @@ class CurrentUserContextTest {
         @Test
         @DisplayName("should return empty set when claim is blank")
         void blankClaim() {
-            when(jwt.getClaimAsString("company_id")).thenReturn("   ");
+            when(jwt.getClaim("company_id")).thenReturn("   ");
 
             Set<UUID> result = currentUserContext.getCompanyIds();
 
@@ -200,7 +200,7 @@ class CurrentUserContextTest {
         @DisplayName("should extract single UUID from company_region_id claim")
         void singleUuid() {
             UUID id = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_region_id")).thenReturn(id.toString());
+            when(jwt.getClaim("company_region_id")).thenReturn(id.toString());
 
             Set<UUID> result = currentUserContext.getCompanyRegionIds();
 
@@ -212,7 +212,7 @@ class CurrentUserContextTest {
         void multipleUuids() {
             UUID id1 = UUID.randomUUID();
             UUID id2 = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_region_id")).thenReturn(id1 + "," + id2);
+            when(jwt.getClaim("company_region_id")).thenReturn(id1 + "," + id2);
 
             Set<UUID> result = currentUserContext.getCompanyRegionIds();
 
@@ -223,7 +223,7 @@ class CurrentUserContextTest {
         @DisplayName("should deduplicate repeated UUIDs")
         void deduplicates() {
             UUID id = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_region_id")).thenReturn(id + "," + id);
+            when(jwt.getClaim("company_region_id")).thenReturn(id + "," + id);
 
             Set<UUID> result = currentUserContext.getCompanyRegionIds();
 
@@ -235,7 +235,7 @@ class CurrentUserContextTest {
         @DisplayName("should handle whitespace-padded UUIDs")
         void whitespacePadded() {
             UUID id = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_region_id")).thenReturn(" " + id + " , " + id);
+            when(jwt.getClaim("company_region_id")).thenReturn(" " + id + " , " + id);
 
             Set<UUID> result = currentUserContext.getCompanyRegionIds();
 
@@ -246,7 +246,7 @@ class CurrentUserContextTest {
         @DisplayName("should silently skip malformed UUIDs")
         void malformedUuids() {
             UUID validId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_region_id")).thenReturn("not-a-uuid," + validId);
+            when(jwt.getClaim("company_region_id")).thenReturn("not-a-uuid," + validId);
 
             Set<UUID> result = currentUserContext.getCompanyRegionIds();
 
@@ -256,7 +256,7 @@ class CurrentUserContextTest {
         @Test
         @DisplayName("all-malformed returns empty set")
         void allMalformed() {
-            when(jwt.getClaimAsString("company_region_id")).thenReturn("not-a-uuid,also-bad");
+            when(jwt.getClaim("company_region_id")).thenReturn("not-a-uuid,also-bad");
 
             Set<UUID> result = currentUserContext.getCompanyRegionIds();
 
@@ -266,7 +266,7 @@ class CurrentUserContextTest {
         @Test
         @DisplayName("should return empty set when claim is missing")
         void missingClaim() {
-            when(jwt.getClaimAsString("company_region_id")).thenReturn(null);
+            when(jwt.getClaim("company_region_id")).thenReturn(null);
 
             Set<UUID> result = currentUserContext.getCompanyRegionIds();
 
@@ -276,7 +276,7 @@ class CurrentUserContextTest {
         @Test
         @DisplayName("should return empty set when claim is blank")
         void blankClaim() {
-            when(jwt.getClaimAsString("company_region_id")).thenReturn("   ");
+            when(jwt.getClaim("company_region_id")).thenReturn("   ");
 
             Set<UUID> result = currentUserContext.getCompanyRegionIds();
 
@@ -292,7 +292,7 @@ class CurrentUserContextTest {
         @DisplayName("should extract single UUID from company_country_id claim")
         void singleUuid() {
             UUID id = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_country_id")).thenReturn(id.toString());
+            when(jwt.getClaim("company_country_id")).thenReturn(id.toString());
 
             Set<UUID> result = currentUserContext.getCompanyCountryIds();
 
@@ -304,7 +304,7 @@ class CurrentUserContextTest {
         void multipleUuids() {
             UUID id1 = UUID.randomUUID();
             UUID id2 = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_country_id")).thenReturn(id1 + "," + id2);
+            when(jwt.getClaim("company_country_id")).thenReturn(id1 + "," + id2);
 
             Set<UUID> result = currentUserContext.getCompanyCountryIds();
 
@@ -315,7 +315,7 @@ class CurrentUserContextTest {
         @DisplayName("should deduplicate repeated UUIDs")
         void deduplicates() {
             UUID id = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_country_id")).thenReturn(id + "," + id);
+            when(jwt.getClaim("company_country_id")).thenReturn(id + "," + id);
 
             Set<UUID> result = currentUserContext.getCompanyCountryIds();
 
@@ -327,7 +327,7 @@ class CurrentUserContextTest {
         @DisplayName("should handle whitespace-padded UUIDs")
         void whitespacePadded() {
             UUID id = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_country_id")).thenReturn(" " + id + " , " + id);
+            when(jwt.getClaim("company_country_id")).thenReturn(" " + id + " , " + id);
 
             Set<UUID> result = currentUserContext.getCompanyCountryIds();
 
@@ -338,7 +338,7 @@ class CurrentUserContextTest {
         @DisplayName("should silently skip malformed UUIDs")
         void malformedUuids() {
             UUID validId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_country_id")).thenReturn("not-a-uuid," + validId);
+            when(jwt.getClaim("company_country_id")).thenReturn("not-a-uuid," + validId);
 
             Set<UUID> result = currentUserContext.getCompanyCountryIds();
 
@@ -348,7 +348,7 @@ class CurrentUserContextTest {
         @Test
         @DisplayName("all-malformed returns empty set")
         void allMalformed() {
-            when(jwt.getClaimAsString("company_country_id")).thenReturn("not-a-uuid,also-bad");
+            when(jwt.getClaim("company_country_id")).thenReturn("not-a-uuid,also-bad");
 
             Set<UUID> result = currentUserContext.getCompanyCountryIds();
 
@@ -358,7 +358,7 @@ class CurrentUserContextTest {
         @Test
         @DisplayName("should return empty set when claim is missing")
         void missingClaim() {
-            when(jwt.getClaimAsString("company_country_id")).thenReturn(null);
+            when(jwt.getClaim("company_country_id")).thenReturn(null);
 
             Set<UUID> result = currentUserContext.getCompanyCountryIds();
 
@@ -368,7 +368,7 @@ class CurrentUserContextTest {
         @Test
         @DisplayName("should return empty set when claim is blank")
         void blankClaim() {
-            when(jwt.getClaimAsString("company_country_id")).thenReturn("   ");
+            when(jwt.getClaim("company_country_id")).thenReturn("   ");
 
             Set<UUID> result = currentUserContext.getCompanyCountryIds();
 
@@ -384,7 +384,7 @@ class CurrentUserContextTest {
         @DisplayName("should extract single UUID from company_zone_id claim")
         void singleUuid() {
             UUID id = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_zone_id")).thenReturn(id.toString());
+            when(jwt.getClaim("company_zone_id")).thenReturn(id.toString());
 
             Set<UUID> result = currentUserContext.getCompanyZoneIds();
 
@@ -396,7 +396,7 @@ class CurrentUserContextTest {
         void multipleUuids() {
             UUID id1 = UUID.randomUUID();
             UUID id2 = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_zone_id")).thenReturn(id1 + "," + id2);
+            when(jwt.getClaim("company_zone_id")).thenReturn(id1 + "," + id2);
 
             Set<UUID> result = currentUserContext.getCompanyZoneIds();
 
@@ -407,7 +407,7 @@ class CurrentUserContextTest {
         @DisplayName("should deduplicate repeated UUIDs")
         void deduplicates() {
             UUID id = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_zone_id")).thenReturn(id + "," + id);
+            when(jwt.getClaim("company_zone_id")).thenReturn(id + "," + id);
 
             Set<UUID> result = currentUserContext.getCompanyZoneIds();
 
@@ -419,7 +419,7 @@ class CurrentUserContextTest {
         @DisplayName("should handle whitespace-padded UUIDs")
         void whitespacePadded() {
             UUID id = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_zone_id")).thenReturn(" " + id + " , " + id);
+            when(jwt.getClaim("company_zone_id")).thenReturn(" " + id + " , " + id);
 
             Set<UUID> result = currentUserContext.getCompanyZoneIds();
 
@@ -430,7 +430,7 @@ class CurrentUserContextTest {
         @DisplayName("should silently skip malformed UUIDs")
         void malformedUuids() {
             UUID validId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_zone_id")).thenReturn("not-a-uuid," + validId);
+            when(jwt.getClaim("company_zone_id")).thenReturn("not-a-uuid," + validId);
 
             Set<UUID> result = currentUserContext.getCompanyZoneIds();
 
@@ -440,7 +440,7 @@ class CurrentUserContextTest {
         @Test
         @DisplayName("all-malformed returns empty set")
         void allMalformed() {
-            when(jwt.getClaimAsString("company_zone_id")).thenReturn("not-a-uuid,also-bad");
+            when(jwt.getClaim("company_zone_id")).thenReturn("not-a-uuid,also-bad");
 
             Set<UUID> result = currentUserContext.getCompanyZoneIds();
 
@@ -450,7 +450,7 @@ class CurrentUserContextTest {
         @Test
         @DisplayName("should return empty set when claim is missing")
         void missingClaim() {
-            when(jwt.getClaimAsString("company_zone_id")).thenReturn(null);
+            when(jwt.getClaim("company_zone_id")).thenReturn(null);
 
             Set<UUID> result = currentUserContext.getCompanyZoneIds();
 
@@ -460,7 +460,7 @@ class CurrentUserContextTest {
         @Test
         @DisplayName("should return empty set when claim is blank")
         void blankClaim() {
-            when(jwt.getClaimAsString("company_zone_id")).thenReturn("   ");
+            when(jwt.getClaim("company_zone_id")).thenReturn("   ");
 
             Set<UUID> result = currentUserContext.getCompanyZoneIds();
 
@@ -634,7 +634,7 @@ class CurrentUserContextTest {
         void countryRoleCanAccessAssignedCompany() {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_life-control-country"));
             UUID companyId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
 
             currentUserContext.verifyCompanyAccess(companyId);
         }
@@ -645,7 +645,7 @@ class CurrentUserContextTest {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_life-control-country"));
             UUID assignedId = UUID.randomUUID();
             UUID otherId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(assignedId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(assignedId.toString());
 
             org.junit.jupiter.api.Assertions.assertThrows(
                     org.springframework.security.access.AccessDeniedException.class,
@@ -658,7 +658,7 @@ class CurrentUserContextTest {
         void lcCompanyRoleCanAccessAssignedCompany() {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company"));
             UUID companyId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
 
             // Should not throw — lc-company user has matching company_id
             currentUserContext.verifyCompanyAccess(companyId);
@@ -670,7 +670,7 @@ class CurrentUserContextTest {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company"));
             UUID assignedId = UUID.randomUUID();
             UUID otherId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(assignedId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(assignedId.toString());
 
             org.junit.jupiter.api.Assertions.assertThrows(
                     org.springframework.security.access.AccessDeniedException.class,
@@ -702,7 +702,7 @@ class CurrentUserContextTest {
         void lcCompanyCanAccessAssignedCompany() {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company"));
             UUID companyId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
 
             assertDoesNotThrow(() ->
                     currentUserContext.verifyCompanyCountryAccess(companyId, UUID.randomUUID()));
@@ -714,7 +714,7 @@ class CurrentUserContextTest {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company"));
             UUID assignedId = UUID.randomUUID();
             UUID otherId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(assignedId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(assignedId.toString());
 
             assertThrows(AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyCountryAccess(otherId, UUID.randomUUID()));
@@ -726,8 +726,8 @@ class CurrentUserContextTest {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company-country"));
             UUID companyId = UUID.randomUUID();
             UUID countryId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
-            when(jwt.getClaimAsString("company_country_id")).thenReturn(countryId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_country_id")).thenReturn(countryId.toString());
 
             assertDoesNotThrow(() ->
                     currentUserContext.verifyCompanyCountryAccess(companyId, countryId));
@@ -740,8 +740,8 @@ class CurrentUserContextTest {
             UUID companyId = UUID.randomUUID();
             UUID assignedCountryId = UUID.randomUUID();
             UUID otherCountryId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
-            when(jwt.getClaimAsString("company_country_id")).thenReturn(assignedCountryId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_country_id")).thenReturn(assignedCountryId.toString());
 
             assertThrows(AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyCountryAccess(companyId, otherCountryId));
@@ -754,7 +754,7 @@ class CurrentUserContextTest {
             UUID assignedCompanyId = UUID.randomUUID();
             UUID wrongCompanyId = UUID.randomUUID();
             UUID countryId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(assignedCompanyId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(assignedCompanyId.toString());
             // company_country_id claim not needed — verifyCompanyAccess throws first
 
             assertThrows(AccessDeniedException.class,
@@ -766,7 +766,7 @@ class CurrentUserContextTest {
         void countryUserThrowsForNullCompanyCountryId() {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company-country"));
             UUID companyId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
             // company_country_id claim not needed — null check fires before claim parsing
 
             assertThrows(AccessDeniedException.class,
@@ -779,8 +779,8 @@ class CurrentUserContextTest {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company-country"));
             UUID companyId = UUID.randomUUID();
             UUID countryId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
-            when(jwt.getClaimAsString("company_country_id")).thenReturn(null);
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_country_id")).thenReturn(null);
 
             assertThrows(AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyCountryAccess(companyId, countryId));
@@ -824,7 +824,7 @@ class CurrentUserContextTest {
         void lcCompanyCanAccessAssignedCompany() {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company"));
             UUID companyId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
 
             assertDoesNotThrow(() ->
                     currentUserContext.verifyCompanyRegionAccess(companyId, UUID.randomUUID(), UUID.randomUUID()));
@@ -836,7 +836,7 @@ class CurrentUserContextTest {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company"));
             UUID assignedId = UUID.randomUUID();
             UUID otherId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(assignedId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(assignedId.toString());
 
             assertThrows(AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyRegionAccess(otherId, UUID.randomUUID(), UUID.randomUUID()));
@@ -850,8 +850,8 @@ class CurrentUserContextTest {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company-country"));
             UUID companyId = UUID.randomUUID();
             UUID countryId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
-            when(jwt.getClaimAsString("company_country_id")).thenReturn(countryId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_country_id")).thenReturn(countryId.toString());
 
             assertDoesNotThrow(() ->
                     currentUserContext.verifyCompanyRegionAccess(companyId, countryId, UUID.randomUUID()));
@@ -864,8 +864,8 @@ class CurrentUserContextTest {
             UUID companyId = UUID.randomUUID();
             UUID assignedCountryId = UUID.randomUUID();
             UUID otherCountryId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
-            when(jwt.getClaimAsString("company_country_id")).thenReturn(assignedCountryId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_country_id")).thenReturn(assignedCountryId.toString());
 
             assertThrows(AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyRegionAccess(companyId, otherCountryId, UUID.randomUUID()));
@@ -877,7 +877,7 @@ class CurrentUserContextTest {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company-country"));
             UUID assignedCompanyId = UUID.randomUUID();
             UUID wrongCompanyId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(assignedCompanyId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(assignedCompanyId.toString());
 
             assertThrows(AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyRegionAccess(wrongCompanyId, UUID.randomUUID(), UUID.randomUUID()));
@@ -892,9 +892,9 @@ class CurrentUserContextTest {
             UUID companyId = UUID.randomUUID();
             UUID countryId = UUID.randomUUID();
             UUID regionId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
-            when(jwt.getClaimAsString("company_country_id")).thenReturn(countryId.toString());
-            when(jwt.getClaimAsString("company_region_id")).thenReturn(regionId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_country_id")).thenReturn(countryId.toString());
+            when(jwt.getClaim("company_region_id")).thenReturn(regionId.toString());
 
             assertDoesNotThrow(() ->
                     currentUserContext.verifyCompanyRegionAccess(companyId, countryId, regionId));
@@ -908,9 +908,9 @@ class CurrentUserContextTest {
             UUID countryId = UUID.randomUUID();
             UUID assignedRegionId = UUID.randomUUID();
             UUID otherRegionId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
-            when(jwt.getClaimAsString("company_country_id")).thenReturn(countryId.toString());
-            when(jwt.getClaimAsString("company_region_id")).thenReturn(assignedRegionId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_country_id")).thenReturn(countryId.toString());
+            when(jwt.getClaim("company_region_id")).thenReturn(assignedRegionId.toString());
 
             assertThrows(AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyRegionAccess(companyId, countryId, otherRegionId));
@@ -923,8 +923,8 @@ class CurrentUserContextTest {
             UUID companyId = UUID.randomUUID();
             UUID assignedCountryId = UUID.randomUUID();
             UUID otherCountryId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
-            when(jwt.getClaimAsString("company_country_id")).thenReturn(assignedCountryId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_country_id")).thenReturn(assignedCountryId.toString());
 
             assertThrows(AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyRegionAccess(companyId, otherCountryId, UUID.randomUUID()));
@@ -936,7 +936,7 @@ class CurrentUserContextTest {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company-region"));
             UUID assignedCompanyId = UUID.randomUUID();
             UUID wrongCompanyId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(assignedCompanyId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(assignedCompanyId.toString());
 
             assertThrows(AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyRegionAccess(wrongCompanyId, UUID.randomUUID(), UUID.randomUUID()));
@@ -983,7 +983,7 @@ class CurrentUserContextTest {
         void lcCompanyCanAccessAssignedCompany() {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company"));
             UUID companyId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
 
             assertDoesNotThrow(() ->
                     currentUserContext.verifyCompanyZoneAccess(companyId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
@@ -995,7 +995,7 @@ class CurrentUserContextTest {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company"));
             UUID assignedId = UUID.randomUUID();
             UUID otherId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(assignedId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(assignedId.toString());
 
             assertThrows(AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyZoneAccess(otherId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
@@ -1009,8 +1009,8 @@ class CurrentUserContextTest {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company-country"));
             UUID companyId = UUID.randomUUID();
             UUID countryId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
-            when(jwt.getClaimAsString("company_country_id")).thenReturn(countryId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_country_id")).thenReturn(countryId.toString());
 
             assertDoesNotThrow(() ->
                     currentUserContext.verifyCompanyZoneAccess(companyId, countryId, UUID.randomUUID(), UUID.randomUUID()));
@@ -1023,8 +1023,8 @@ class CurrentUserContextTest {
             UUID companyId = UUID.randomUUID();
             UUID assignedCountryId = UUID.randomUUID();
             UUID otherCountryId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
-            when(jwt.getClaimAsString("company_country_id")).thenReturn(assignedCountryId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_country_id")).thenReturn(assignedCountryId.toString());
 
             assertThrows(AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyZoneAccess(companyId, otherCountryId, UUID.randomUUID(), UUID.randomUUID()));
@@ -1039,9 +1039,9 @@ class CurrentUserContextTest {
             UUID companyId = UUID.randomUUID();
             UUID countryId = UUID.randomUUID();
             UUID regionId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
-            when(jwt.getClaimAsString("company_country_id")).thenReturn(countryId.toString());
-            when(jwt.getClaimAsString("company_region_id")).thenReturn(regionId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_country_id")).thenReturn(countryId.toString());
+            when(jwt.getClaim("company_region_id")).thenReturn(regionId.toString());
 
             assertDoesNotThrow(() ->
                     currentUserContext.verifyCompanyZoneAccess(companyId, countryId, regionId, UUID.randomUUID()));
@@ -1055,9 +1055,9 @@ class CurrentUserContextTest {
             UUID countryId = UUID.randomUUID();
             UUID assignedRegionId = UUID.randomUUID();
             UUID otherRegionId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
-            when(jwt.getClaimAsString("company_country_id")).thenReturn(countryId.toString());
-            when(jwt.getClaimAsString("company_region_id")).thenReturn(assignedRegionId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_country_id")).thenReturn(countryId.toString());
+            when(jwt.getClaim("company_region_id")).thenReturn(assignedRegionId.toString());
 
             assertThrows(AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyZoneAccess(companyId, countryId, otherRegionId, UUID.randomUUID()));
@@ -1073,10 +1073,10 @@ class CurrentUserContextTest {
             UUID countryId = UUID.randomUUID();
             UUID regionId = UUID.randomUUID();
             UUID zoneId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
-            when(jwt.getClaimAsString("company_country_id")).thenReturn(countryId.toString());
-            when(jwt.getClaimAsString("company_region_id")).thenReturn(regionId.toString());
-            when(jwt.getClaimAsString("company_zone_id")).thenReturn(zoneId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_country_id")).thenReturn(countryId.toString());
+            when(jwt.getClaim("company_region_id")).thenReturn(regionId.toString());
+            when(jwt.getClaim("company_zone_id")).thenReturn(zoneId.toString());
 
             assertDoesNotThrow(() ->
                     currentUserContext.verifyCompanyZoneAccess(companyId, countryId, regionId, zoneId));
@@ -1091,10 +1091,10 @@ class CurrentUserContextTest {
             UUID regionId = UUID.randomUUID();
             UUID assignedZoneId = UUID.randomUUID();
             UUID otherZoneId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
-            when(jwt.getClaimAsString("company_country_id")).thenReturn(countryId.toString());
-            when(jwt.getClaimAsString("company_region_id")).thenReturn(regionId.toString());
-            when(jwt.getClaimAsString("company_zone_id")).thenReturn(assignedZoneId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_country_id")).thenReturn(countryId.toString());
+            when(jwt.getClaim("company_region_id")).thenReturn(regionId.toString());
+            when(jwt.getClaim("company_zone_id")).thenReturn(assignedZoneId.toString());
 
             assertThrows(AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyZoneAccess(companyId, countryId, regionId, otherZoneId));
@@ -1107,9 +1107,9 @@ class CurrentUserContextTest {
             UUID companyId = UUID.randomUUID();
             UUID countryId = UUID.randomUUID();
             UUID regionId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
-            when(jwt.getClaimAsString("company_country_id")).thenReturn(countryId.toString());
-            when(jwt.getClaimAsString("company_region_id")).thenReturn(regionId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_country_id")).thenReturn(countryId.toString());
+            when(jwt.getClaim("company_region_id")).thenReturn(regionId.toString());
             // company_zone_id claim is not stubbed — it won't be read when zoneId is null
 
             assertDoesNotThrow(() ->
@@ -1137,7 +1137,7 @@ class CurrentUserContextTest {
         @DisplayName("should extract single UUID from company_store_id claim")
         void singleUuid() {
             UUID id = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_store_id")).thenReturn(id.toString());
+            when(jwt.getClaim("company_store_id")).thenReturn(id.toString());
 
             Set<UUID> result = currentUserContext.getCompanyStoreIds();
 
@@ -1149,7 +1149,7 @@ class CurrentUserContextTest {
         void multipleUuids() {
             UUID id1 = UUID.randomUUID();
             UUID id2 = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_store_id")).thenReturn(id1 + "," + id2);
+            when(jwt.getClaim("company_store_id")).thenReturn(id1 + "," + id2);
 
             Set<UUID> result = currentUserContext.getCompanyStoreIds();
 
@@ -1160,7 +1160,7 @@ class CurrentUserContextTest {
         @DisplayName("should deduplicate repeated UUIDs")
         void deduplicates() {
             UUID id = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_store_id")).thenReturn(id + "," + id);
+            when(jwt.getClaim("company_store_id")).thenReturn(id + "," + id);
 
             Set<UUID> result = currentUserContext.getCompanyStoreIds();
 
@@ -1172,7 +1172,7 @@ class CurrentUserContextTest {
         @DisplayName("should handle whitespace-padded UUIDs")
         void whitespacePadded() {
             UUID id = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_store_id")).thenReturn(" " + id + " , " + id);
+            when(jwt.getClaim("company_store_id")).thenReturn(" " + id + " , " + id);
 
             Set<UUID> result = currentUserContext.getCompanyStoreIds();
 
@@ -1183,7 +1183,7 @@ class CurrentUserContextTest {
         @DisplayName("should silently skip malformed UUIDs")
         void malformedUuids() {
             UUID validId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_store_id")).thenReturn("not-a-uuid," + validId);
+            when(jwt.getClaim("company_store_id")).thenReturn("not-a-uuid," + validId);
 
             Set<UUID> result = currentUserContext.getCompanyStoreIds();
 
@@ -1193,7 +1193,7 @@ class CurrentUserContextTest {
         @Test
         @DisplayName("all-malformed returns empty set")
         void allMalformed() {
-            when(jwt.getClaimAsString("company_store_id")).thenReturn("not-a-uuid,also-bad");
+            when(jwt.getClaim("company_store_id")).thenReturn("not-a-uuid,also-bad");
 
             Set<UUID> result = currentUserContext.getCompanyStoreIds();
 
@@ -1203,7 +1203,7 @@ class CurrentUserContextTest {
         @Test
         @DisplayName("should return empty set when claim is missing")
         void missingClaim() {
-            when(jwt.getClaimAsString("company_store_id")).thenReturn(null);
+            when(jwt.getClaim("company_store_id")).thenReturn(null);
 
             Set<UUID> result = currentUserContext.getCompanyStoreIds();
 
@@ -1213,7 +1213,7 @@ class CurrentUserContextTest {
         @Test
         @DisplayName("should return empty set when claim is blank")
         void blankClaim() {
-            when(jwt.getClaimAsString("company_store_id")).thenReturn("   ");
+            when(jwt.getClaim("company_store_id")).thenReturn("   ");
 
             Set<UUID> result = currentUserContext.getCompanyStoreIds();
 
@@ -1249,7 +1249,7 @@ class CurrentUserContextTest {
         void lcCompanyCanAccessAssignedCompany() {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company"));
             UUID companyId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
 
             assertDoesNotThrow(() ->
                     currentUserContext.verifyCompanyStoreAccess(companyId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
@@ -1261,7 +1261,7 @@ class CurrentUserContextTest {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company"));
             UUID assignedId = UUID.randomUUID();
             UUID otherId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(assignedId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(assignedId.toString());
 
             assertThrows(AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyStoreAccess(otherId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
@@ -1275,8 +1275,8 @@ class CurrentUserContextTest {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company-country"));
             UUID companyId = UUID.randomUUID();
             UUID countryId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
-            when(jwt.getClaimAsString("company_country_id")).thenReturn(countryId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_country_id")).thenReturn(countryId.toString());
 
             assertDoesNotThrow(() ->
                     currentUserContext.verifyCompanyStoreAccess(companyId, countryId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
@@ -1289,8 +1289,8 @@ class CurrentUserContextTest {
             UUID companyId = UUID.randomUUID();
             UUID assignedCountryId = UUID.randomUUID();
             UUID otherCountryId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
-            when(jwt.getClaimAsString("company_country_id")).thenReturn(assignedCountryId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_country_id")).thenReturn(assignedCountryId.toString());
 
             assertThrows(AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyStoreAccess(companyId, otherCountryId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
@@ -1305,9 +1305,9 @@ class CurrentUserContextTest {
             UUID companyId = UUID.randomUUID();
             UUID countryId = UUID.randomUUID();
             UUID regionId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
-            when(jwt.getClaimAsString("company_country_id")).thenReturn(countryId.toString());
-            when(jwt.getClaimAsString("company_region_id")).thenReturn(regionId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_country_id")).thenReturn(countryId.toString());
+            when(jwt.getClaim("company_region_id")).thenReturn(regionId.toString());
 
             assertDoesNotThrow(() ->
                     currentUserContext.verifyCompanyStoreAccess(companyId, countryId, regionId, UUID.randomUUID(), UUID.randomUUID()));
@@ -1321,9 +1321,9 @@ class CurrentUserContextTest {
             UUID countryId = UUID.randomUUID();
             UUID assignedRegionId = UUID.randomUUID();
             UUID otherRegionId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
-            when(jwt.getClaimAsString("company_country_id")).thenReturn(countryId.toString());
-            when(jwt.getClaimAsString("company_region_id")).thenReturn(assignedRegionId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_country_id")).thenReturn(countryId.toString());
+            when(jwt.getClaim("company_region_id")).thenReturn(assignedRegionId.toString());
 
             assertThrows(AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyStoreAccess(companyId, countryId, otherRegionId, UUID.randomUUID(), UUID.randomUUID()));
@@ -1339,10 +1339,10 @@ class CurrentUserContextTest {
             UUID countryId = UUID.randomUUID();
             UUID regionId = UUID.randomUUID();
             UUID zoneId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
-            when(jwt.getClaimAsString("company_country_id")).thenReturn(countryId.toString());
-            when(jwt.getClaimAsString("company_region_id")).thenReturn(regionId.toString());
-            when(jwt.getClaimAsString("company_zone_id")).thenReturn(zoneId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_country_id")).thenReturn(countryId.toString());
+            when(jwt.getClaim("company_region_id")).thenReturn(regionId.toString());
+            when(jwt.getClaim("company_zone_id")).thenReturn(zoneId.toString());
 
             assertDoesNotThrow(() ->
                     currentUserContext.verifyCompanyStoreAccess(companyId, countryId, regionId, zoneId, UUID.randomUUID()));
@@ -1357,10 +1357,10 @@ class CurrentUserContextTest {
             UUID regionId = UUID.randomUUID();
             UUID assignedZoneId = UUID.randomUUID();
             UUID otherZoneId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
-            when(jwt.getClaimAsString("company_country_id")).thenReturn(countryId.toString());
-            when(jwt.getClaimAsString("company_region_id")).thenReturn(regionId.toString());
-            when(jwt.getClaimAsString("company_zone_id")).thenReturn(assignedZoneId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_country_id")).thenReturn(countryId.toString());
+            when(jwt.getClaim("company_region_id")).thenReturn(regionId.toString());
+            when(jwt.getClaim("company_zone_id")).thenReturn(assignedZoneId.toString());
 
             assertThrows(AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyStoreAccess(companyId, countryId, regionId, otherZoneId, UUID.randomUUID()));
@@ -1377,11 +1377,11 @@ class CurrentUserContextTest {
             UUID regionId = UUID.randomUUID();
             UUID zoneId = UUID.randomUUID();
             UUID storeId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
-            when(jwt.getClaimAsString("company_country_id")).thenReturn(countryId.toString());
-            when(jwt.getClaimAsString("company_region_id")).thenReturn(regionId.toString());
-            when(jwt.getClaimAsString("company_zone_id")).thenReturn(zoneId.toString());
-            when(jwt.getClaimAsString("company_store_id")).thenReturn(storeId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_country_id")).thenReturn(countryId.toString());
+            when(jwt.getClaim("company_region_id")).thenReturn(regionId.toString());
+            when(jwt.getClaim("company_zone_id")).thenReturn(zoneId.toString());
+            when(jwt.getClaim("company_store_id")).thenReturn(storeId.toString());
 
             assertDoesNotThrow(() ->
                     currentUserContext.verifyCompanyStoreAccess(companyId, countryId, regionId, zoneId, storeId));
@@ -1397,11 +1397,11 @@ class CurrentUserContextTest {
             UUID zoneId = UUID.randomUUID();
             UUID assignedStoreId = UUID.randomUUID();
             UUID otherStoreId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
-            when(jwt.getClaimAsString("company_country_id")).thenReturn(countryId.toString());
-            when(jwt.getClaimAsString("company_region_id")).thenReturn(regionId.toString());
-            when(jwt.getClaimAsString("company_zone_id")).thenReturn(zoneId.toString());
-            when(jwt.getClaimAsString("company_store_id")).thenReturn(assignedStoreId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_country_id")).thenReturn(countryId.toString());
+            when(jwt.getClaim("company_region_id")).thenReturn(regionId.toString());
+            when(jwt.getClaim("company_zone_id")).thenReturn(zoneId.toString());
+            when(jwt.getClaim("company_store_id")).thenReturn(assignedStoreId.toString());
 
             assertThrows(AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyStoreAccess(companyId, countryId, regionId, zoneId, otherStoreId));
@@ -1415,10 +1415,10 @@ class CurrentUserContextTest {
             UUID countryId = UUID.randomUUID();
             UUID regionId = UUID.randomUUID();
             UUID zoneId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
-            when(jwt.getClaimAsString("company_country_id")).thenReturn(countryId.toString());
-            when(jwt.getClaimAsString("company_region_id")).thenReturn(regionId.toString());
-            when(jwt.getClaimAsString("company_zone_id")).thenReturn(zoneId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_country_id")).thenReturn(countryId.toString());
+            when(jwt.getClaim("company_region_id")).thenReturn(regionId.toString());
+            when(jwt.getClaim("company_zone_id")).thenReturn(zoneId.toString());
 
             assertDoesNotThrow(() ->
                     currentUserContext.verifyCompanyStoreAccess(companyId, countryId, regionId, zoneId, null));
@@ -1430,7 +1430,7 @@ class CurrentUserContextTest {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-company-store"));
             UUID assignedCompanyId = UUID.randomUUID();
             UUID otherCompanyId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(assignedCompanyId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(assignedCompanyId.toString());
 
             assertThrows(AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyStoreAccess(otherCompanyId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
@@ -1443,8 +1443,8 @@ class CurrentUserContextTest {
             UUID companyId = UUID.randomUUID();
             UUID assignedCountryId = UUID.randomUUID();
             UUID otherCountryId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
-            when(jwt.getClaimAsString("company_country_id")).thenReturn(assignedCountryId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_country_id")).thenReturn(assignedCountryId.toString());
 
             assertThrows(AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyStoreAccess(companyId, otherCountryId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
@@ -1459,10 +1459,10 @@ class CurrentUserContextTest {
             UUID regionId = UUID.randomUUID();
             UUID assignedZoneId = UUID.randomUUID();
             UUID otherZoneId = UUID.randomUUID();
-            when(jwt.getClaimAsString("company_id")).thenReturn(companyId.toString());
-            when(jwt.getClaimAsString("company_country_id")).thenReturn(countryId.toString());
-            when(jwt.getClaimAsString("company_region_id")).thenReturn(regionId.toString());
-            when(jwt.getClaimAsString("company_zone_id")).thenReturn(assignedZoneId.toString());
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_country_id")).thenReturn(countryId.toString());
+            when(jwt.getClaim("company_region_id")).thenReturn(regionId.toString());
+            when(jwt.getClaim("company_zone_id")).thenReturn(assignedZoneId.toString());
 
             assertThrows(AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyStoreAccess(companyId, countryId, regionId, otherZoneId, UUID.randomUUID()));

@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -35,6 +36,7 @@ public class CurrentUserContext {
 
     private static final Logger log = LoggerFactory.getLogger(CurrentUserContext.class);
 
+    private static final String CLAIM_COMPANY_ID = "company_id";
     private static final String CLAIM_COMPANY_COUNTRY_ID = "company_country_id";
     private static final String CLAIM_COMPANY_REGION_ID = "company_region_id";
     private static final String CLAIM_COMPANY_ZONE_ID = "company_zone_id";
@@ -70,70 +72,70 @@ public class CurrentUserContext {
 
     /**
      * Returns the set of company IDs extracted from the JWT {@code company_id} claim.
-     * The claim may be a single UUID or comma-separated UUIDs.
+     * The claim may be a single UUID, a comma-separated string, or a JSON array.
      * Whitespace is trimmed, malformed UUIDs are silently skipped, and duplicates are removed.
      *
      * @return an immutable set of parsed UUIDs; empty if none found
      */
     public Set<UUID> getCompanyIds() {
         if (companyIds == null) {
-            companyIds = extractCompanyIds();
+            companyIds = extractUuidSetFromClaim(CLAIM_COMPANY_ID);
         }
         return companyIds;
     }
 
     /**
      * Returns the set of company country IDs extracted from the JWT {@code company_country_id} claim.
-     * The claim may be a single UUID or comma-separated UUIDs.
+     * The claim may be a single UUID, a comma-separated string, or a JSON array.
      * Whitespace is trimmed, malformed UUIDs are silently skipped, and duplicates are removed.
      *
      * @return an immutable set of parsed UUIDs; empty if none found
      */
     public Set<UUID> getCompanyCountryIds() {
         if (companyCountryIds == null) {
-            companyCountryIds = extractCompanyCountryIds();
+            companyCountryIds = extractUuidSetFromClaim(CLAIM_COMPANY_COUNTRY_ID);
         }
         return companyCountryIds;
     }
 
     /**
      * Returns the set of company region IDs extracted from the JWT {@code company_region_id} claim.
-     * The claim may be a single UUID or comma-separated UUIDs.
+     * The claim may be a single UUID, a comma-separated string, or a JSON array.
      * Whitespace is trimmed, malformed UUIDs are silently skipped, and duplicates are removed.
      *
      * @return an immutable set of parsed UUIDs; empty if none found
      */
     public Set<UUID> getCompanyRegionIds() {
         if (companyRegionIds == null) {
-            companyRegionIds = extractCompanyRegionIds();
+            companyRegionIds = extractUuidSetFromClaim(CLAIM_COMPANY_REGION_ID);
         }
         return companyRegionIds;
     }
 
     /**
      * Returns the set of company zone IDs extracted from the JWT {@code company_zone_id} claim.
-     * The claim may be a single UUID or comma-separated UUIDs.
+     * The claim may be a single UUID, a comma-separated string, or a JSON array.
      * Whitespace is trimmed, malformed UUIDs are silently skipped, and duplicates are removed.
      *
      * @return an immutable set of parsed UUIDs; empty if none found
      */
     public Set<UUID> getCompanyZoneIds() {
         if (companyZoneIds == null) {
-            companyZoneIds = extractCompanyZoneIds();
+            companyZoneIds = extractUuidSetFromClaim(CLAIM_COMPANY_ZONE_ID);
         }
         return companyZoneIds;
     }
 
     /**
      * Returns the set of company store IDs extracted from the JWT {@code company_store_id} claim.
-     * The claim may be a single UUID or comma-separated UUIDs.
+     * The claim may be a single UUID, a comma-separated string, or a JSON array.
      * Whitespace is trimmed, malformed UUIDs are silently skipped, and duplicates are removed.
      *
      * @return an immutable set of parsed UUIDs; empty if none found
      */
     public Set<UUID> getCompanyStoreIds() {
         if (companyStoreIds == null) {
-            companyStoreIds = extractCompanyStoreIds();
+            companyStoreIds = extractUuidSetFromClaim(CLAIM_COMPANY_STORE_ID);
         }
         return companyStoreIds;
     }
@@ -507,131 +509,50 @@ public class CurrentUserContext {
 
     // ── Private helpers ──────────────────────────────────────
 
-    private Set<UUID> extractCompanyIds() {
+    /**
+     * Extracts a set of UUIDs from a JWT claim that may be a single UUID string,
+     * a comma-separated string, or a JSON array (List).
+     * <p>
+     * Returns an empty immutable set when the claim is absent, blank, or contains
+     * no parseable UUIDs.
+     */
+    private Set<UUID> extractUuidSetFromClaim(String claimName) {
         var authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication == null || !(authentication.getPrincipal() instanceof Jwt jwt)) {
             return Collections.emptySet();
         }
 
-        String companyIdClaim = jwt.getClaimAsString("company_id");
-        if (companyIdClaim == null || companyIdClaim.isBlank()) {
+        var claim = jwt.getClaim(claimName);
+        if (claim == null) {
             return Collections.emptySet();
         }
 
-        Set<UUID> ids = Stream.of(companyIdClaim.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
+        Stream<String> rawValues;
+        if (claim instanceof List<?> list) {
+            // JWT claim is a JSON array — e.g. ["id1", "id2"]
+            rawValues = list.stream()
+                    .map(Object::toString)
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty());
+        } else {
+            // String format: single UUID or comma-separated — e.g. "id1,id2"
+            String claimStr = claim.toString().trim();
+            if (claimStr.isBlank()) {
+                return Collections.emptySet();
+            }
+            rawValues = Stream.of(claimStr.split(","))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty());
+        }
+
+        Set<UUID> ids = rawValues
                 .map(this::tryParseUuid)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toCollection(HashSet::new));
 
         if (ids.isEmpty()) {
-            log.warn("JWT contains company_id claim but no valid UUIDs could be parsed: '{}'",
-                    companyIdClaim);
-        }
-
-        return Collections.unmodifiableSet(ids);
-    }
-
-    private Set<UUID> extractCompanyCountryIds() {
-        var authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || !(authentication.getPrincipal() instanceof Jwt jwt)) {
-            return Collections.emptySet();
-        }
-
-        String claim = jwt.getClaimAsString(CLAIM_COMPANY_COUNTRY_ID);
-        if (claim == null || claim.isBlank()) {
-            return Collections.emptySet();
-        }
-
-        Set<UUID> ids = Stream.of(claim.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .map(this::tryParseUuid)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toCollection(HashSet::new));
-
-        if (ids.isEmpty()) {
-            log.warn("JWT contains company_country_id claim but no valid UUIDs could be parsed: '{}'",
-                    claim);
-        }
-
-        return Collections.unmodifiableSet(ids);
-    }
-
-    private Set<UUID> extractCompanyRegionIds() {
-        var authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || !(authentication.getPrincipal() instanceof Jwt jwt)) {
-            return Collections.emptySet();
-        }
-
-        String claim = jwt.getClaimAsString(CLAIM_COMPANY_REGION_ID);
-        if (claim == null || claim.isBlank()) {
-            return Collections.emptySet();
-        }
-
-        Set<UUID> ids = Stream.of(claim.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .map(this::tryParseUuid)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toCollection(HashSet::new));
-
-        if (ids.isEmpty()) {
-            log.warn("JWT contains company_region_id claim but no valid UUIDs could be parsed: '{}'",
-                    claim);
-        }
-
-        return Collections.unmodifiableSet(ids);
-    }
-
-    private Set<UUID> extractCompanyZoneIds() {
-        var authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || !(authentication.getPrincipal() instanceof Jwt jwt)) {
-            return Collections.emptySet();
-        }
-
-        String claim = jwt.getClaimAsString(CLAIM_COMPANY_ZONE_ID);
-        if (claim == null || claim.isBlank()) {
-            return Collections.emptySet();
-        }
-
-        Set<UUID> ids = Stream.of(claim.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .map(this::tryParseUuid)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toCollection(HashSet::new));
-
-        if (ids.isEmpty()) {
-            log.warn("JWT contains company_zone_id claim but no valid UUIDs could be parsed: '{}'",
-                    claim);
-        }
-
-        return Collections.unmodifiableSet(ids);
-    }
-
-    private Set<UUID> extractCompanyStoreIds() {
-        var authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || !(authentication.getPrincipal() instanceof Jwt jwt)) {
-            return Collections.emptySet();
-        }
-
-        String claim = jwt.getClaimAsString(CLAIM_COMPANY_STORE_ID);
-        if (claim == null || claim.isBlank()) {
-            return Collections.emptySet();
-        }
-
-        Set<UUID> ids = Stream.of(claim.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .map(this::tryParseUuid)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toCollection(HashSet::new));
-
-        if (ids.isEmpty()) {
-            log.warn("JWT contains company_store_id claim but no valid UUIDs could be parsed: '{}'",
-                    claim);
+            log.warn("JWT contains {} claim but no valid UUIDs could be parsed: '{}'",
+                    claimName, claim);
         }
 
         return Collections.unmodifiableSet(ids);
