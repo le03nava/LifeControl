@@ -24,7 +24,6 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/companies/{companyId}/countries")
 @Tag(name = "Company Country Management", description = "API for managing country associations for a company")
-@PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-read')")
 public class CompanyCountryController {
 
     private final CompanyCountryService companyCountryService;
@@ -34,13 +33,14 @@ public class CompanyCountryController {
     }
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-country-read')")
     @Operation(summary = "Get countries by company", description = "Returns all countries associated with a company")
     public ResponseEntity<List<CompanyCountryResponse>> getCompanyCountries(@PathVariable UUID companyId) {
         return ResponseEntity.ok(companyCountryService.getCountriesByCompanyId(companyId));
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('lc-admin','lc-company')")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country')")
     @Operation(summary = "Add country to company", description = "Associates a country with a company")
     public ResponseEntity<CompanyCountryResponse> addCompanyCountry(
             @PathVariable UUID companyId,

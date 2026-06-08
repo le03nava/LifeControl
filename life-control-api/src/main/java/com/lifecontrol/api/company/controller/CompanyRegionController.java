@@ -19,7 +19,6 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/companies/{companyId}/countries/{companyCountryId}/regions")
 @Tag(name = "Company Region Management", description = "API for managing regions within a company's country presence")
-@PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-region','life-control-admin','life-control-country')")
 public class CompanyRegionController {
 
     private final CompanyRegionService companyRegionService;
@@ -29,6 +28,7 @@ public class CompanyRegionController {
     }
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-region','lc-company-region-read')")
     @Operation(summary = "List all regions", description = "Returns regions for a company's country presence")
     @ApiResponse(responseCode = "200", description = "List of regions")
     public ResponseEntity<List<CompanyRegionResponse>> getAllRegions(
@@ -39,6 +39,7 @@ public class CompanyRegionController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-region','lc-company-region-read')")
     @Operation(summary = "Get a region by ID")
     @ApiResponse(responseCode = "200", description = "Region found")
     @ApiResponse(responseCode = "404", description = "Region not found")
@@ -50,6 +51,7 @@ public class CompanyRegionController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-region')")
     @Operation(summary = "Create a new region")
     @ApiResponse(responseCode = "201", description = "Region created")
     @ApiResponse(responseCode = "400", description = "Validation error")
@@ -63,6 +65,7 @@ public class CompanyRegionController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-region')")
     @Operation(summary = "Update a region")
     @ApiResponse(responseCode = "200", description = "Region updated")
     @ApiResponse(responseCode = "400", description = "Validation error")
@@ -77,6 +80,7 @@ public class CompanyRegionController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-region')")
     @Operation(summary = "Soft-delete a region")
     @ApiResponse(responseCode = "204", description = "Region deleted")
     @ApiResponse(responseCode = "404", description = "Region not found")
@@ -89,6 +93,7 @@ public class CompanyRegionController {
     }
 
     @PatchMapping("/{id}")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-region')")
     @Operation(summary = "Re-enable a soft-deleted region")
     @ApiResponse(responseCode = "200", description = "Region re-enabled")
     @ApiResponse(responseCode = "404", description = "Region not found")

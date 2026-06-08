@@ -123,14 +123,22 @@ class CompanyCountryControllerSecurityTest {
         }
 
         @Test
-        @WithMockUser(roles = {"lc-company-read"})
-        @DisplayName("returns 200 OK for lc-company-read")
-        void lcCompanyReadCanGet() throws Exception {
+        @WithMockUser(roles = {"lc-company-country-read"})
+        @DisplayName("returns 200 OK for lc-company-country-read")
+        void lcCompanyCountryReadCanGet() throws Exception {
             when(companyCountryService.getCountriesByCompanyId(companyId))
                     .thenReturn(List.of(buildCountryResponse()));
 
             mockMvc.perform(get(BASE_URL, companyId))
                     .andExpect(status().isOk());
+        }
+
+        @Test
+        @WithMockUser(roles = {"lc-company-read"})
+        @DisplayName("returns 403 Forbidden for lc-company-read (no longer allowed)")
+        void lcCompanyReadGetIsDenied() throws Exception {
+            mockMvc.perform(get(BASE_URL, companyId))
+                    .andExpect(status().isForbidden());
         }
 
         @Test
@@ -184,8 +192,21 @@ class CompanyCountryControllerSecurityTest {
 
         @Test
         @WithMockUser(roles = {"lc-company-country"})
-        @DisplayName("returns 403 Forbidden for lc-company-country")
-        void lcCompanyCountryPostIsDenied() throws Exception {
+        @DisplayName("returns 201 Created for lc-company-country")
+        void lcCompanyCountryCanPost() throws Exception {
+            when(companyCountryService.addCountryToCompany(any(), any()))
+                    .thenReturn(buildCountryResponse());
+
+            mockMvc.perform(post(BASE_URL, companyId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(buildCountryRequest())))
+                    .andExpect(status().isCreated());
+        }
+
+        @Test
+        @WithMockUser(roles = {"lc-company-country-read"})
+        @DisplayName("returns 403 Forbidden for lc-company-country-read")
+        void lcCompanyCountryReadPostIsDenied() throws Exception {
             mockMvc.perform(post(BASE_URL, companyId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(buildCountryRequest())))
@@ -269,6 +290,16 @@ class CompanyCountryControllerSecurityTest {
         }
 
         @Test
+        @WithMockUser(roles = {"lc-company-country-read"})
+        @DisplayName("returns 403 Forbidden for lc-company-country-read")
+        void lcCompanyCountryReadPutIsDenied() throws Exception {
+            mockMvc.perform(put(BASE_URL + "/{id}", companyId, countryRelationId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(buildCountryRequest())))
+                    .andExpect(status().isForbidden());
+        }
+
+        @Test
         @WithMockUser(roles = {"lc-company-read"})
         @DisplayName("returns 403 Forbidden for lc-company-read")
         void lcCompanyReadPutIsDenied() throws Exception {
@@ -327,6 +358,14 @@ class CompanyCountryControllerSecurityTest {
         void lcCompanyCountryCanDelete() throws Exception {
             mockMvc.perform(delete(BASE_URL + "/{id}", companyId, countryRelationId))
                     .andExpect(status().isNoContent());
+        }
+
+        @Test
+        @WithMockUser(roles = {"lc-company-country-read"})
+        @DisplayName("returns 403 Forbidden for lc-company-country-read")
+        void lcCompanyCountryReadDeleteIsDenied() throws Exception {
+            mockMvc.perform(delete(BASE_URL + "/{id}", companyId, countryRelationId))
+                    .andExpect(status().isForbidden());
         }
 
         @Test

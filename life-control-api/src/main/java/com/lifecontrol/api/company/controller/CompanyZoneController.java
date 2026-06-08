@@ -19,7 +19,6 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/companies/{companyId}/countries/{companyCountryId}/regions/{regionId}/zones")
 @Tag(name = "Company Zone Management", description = "API for managing zones within a company's region")
-@PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-region','lc-company-zone','life-control-admin','life-control-country')")
 public class CompanyZoneController {
 
     private final CompanyZoneService companyZoneService;
@@ -29,6 +28,7 @@ public class CompanyZoneController {
     }
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-region','lc-company-zone','lc-company-zone-read')")
     @Operation(summary = "List all zones", description = "Returns zones for a company's region")
     @ApiResponse(responseCode = "200", description = "List of zones")
     public ResponseEntity<List<CompanyZoneResponse>> getAllZones(
@@ -40,6 +40,7 @@ public class CompanyZoneController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-region','lc-company-zone','lc-company-zone-read')")
     @Operation(summary = "Get a zone by ID")
     @ApiResponse(responseCode = "200", description = "Zone found")
     @ApiResponse(responseCode = "404", description = "Zone not found")
@@ -52,6 +53,7 @@ public class CompanyZoneController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-region','lc-company-zone')")
     @Operation(summary = "Create a new zone")
     @ApiResponse(responseCode = "201", description = "Zone created")
     @ApiResponse(responseCode = "400", description = "Validation error")
@@ -66,6 +68,7 @@ public class CompanyZoneController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-region','lc-company-zone')")
     @Operation(summary = "Update a zone")
     @ApiResponse(responseCode = "200", description = "Zone updated")
     @ApiResponse(responseCode = "400", description = "Validation error")
@@ -81,6 +84,7 @@ public class CompanyZoneController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-region','lc-company-zone')")
     @Operation(summary = "Soft-delete a zone")
     @ApiResponse(responseCode = "204", description = "Zone deleted")
     @ApiResponse(responseCode = "404", description = "Zone not found")
@@ -94,6 +98,7 @@ public class CompanyZoneController {
     }
 
     @PatchMapping("/{id}")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-region','lc-company-zone')")
     @Operation(summary = "Re-enable a soft-deleted zone")
     @ApiResponse(responseCode = "200", description = "Zone re-enabled")
     @ApiResponse(responseCode = "404", description = "Zone not found")

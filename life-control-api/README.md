@@ -1,6 +1,6 @@
 # Life Control API
 
-REST API central del sistema LifeControl. Microservicio Spring Boot que maneja la gestión de compañías, países, regiones, zonas, usuarios, roles y auditoría operativa.
+REST API central del sistema LifeControl. Microservicio Spring Boot que maneja la gestión de compañías, países, regiones, zonas, tiendas, usuarios, roles y auditoría operativa.
 
 ---
 
@@ -39,12 +39,13 @@ open http://localhost:8082/swagger-ui.html
 
 | Prefixo                                             | Auth                          | Descripción                              |
 |-----------------------------------------------------|-------------------------------|------------------------------------------|
-| `GET/POST /api/companies`                           | `life-control-admin\|country` | CRUD de compañías (paginado, búsqueda)  |
-| `GET/POST /api/companies/{id}/countries`            | `life-control-admin\|country` | Países asociados a una compañía          |
-| `…/countries/{cid}/regions`                         | `life-control-admin\|country` | Regiones por compañía-país               |
-| `…/regions/{rid}/zones`                             | `life-control-admin\|country` | Zonas por región                         |
+| `GET/POST /api/companies`                           | `lc-admin\|lc-company` (write) / `lc-admin\|lc-company\|lc-company-read` (read) | CRUD de compañías (paginado, búsqueda)  |
+| `GET/POST /api/companies/{id}/countries`            | `lc-admin\|lc-company\|lc-company-country` (write) / `+ lc-company-country-read` (read) | Países asociados a una compañía          |
+| `…/countries/{cid}/regions`                         | `lc-admin\|lc-company\|lc-company-country\|lc-company-region` (write) / `+ lc-company-region-read` (read) | Regiones por compañía-país               |
+| `…/regions/{rid}/zones`                             | `lc-admin\|lc-company\|lc-company-country\|lc-company-region\|lc-company-zone` (write) / `+ lc-company-zone-read` (read) | Zonas por región                         |
+| `…/zones/{zid}/stores`                              | `lc-admin\|lc-company\|lc-company-country\|lc-company-region\|lc-company-zone\|lc-company-store` (write) / `+ lc-company-store-read` (read) | Tiendas por zona                         |
 | `GET/POST /api/countries`                           | autenticado                   | Catálogo de países                       |
-| `GET /api/activity-logs`                            | `life-control-admin`          | Traza de auditoría (filtrable)           |
+| `GET /api/activity-logs`                            | `lc-admin`                    | Traza de auditoría (filtrable)           |
 | `GET/POST /api/users-admin/users`                   | `admin`                       | Usuarios Keycloak (búsqueda, roles)      |
 | `GET/POST /api/users-admin/roles`                   | `admin`                       | Roles Keycloak (realm y client)          |
 | `GET /actuator/health`                              | público                       | Health check                             |
@@ -56,9 +57,18 @@ open http://localhost:8082/swagger-ui.html
 
 | Rol                      | Acceso                                             |
 |--------------------------|----------------------------------------------------|
-| `life-control-admin`     | CRUD completo de compañías, activity logs          |
-| `life-control-country`   | Acceso limitado a compañías asignadas (vía JWT)    |
-| `admin`                  | Endpoints de administración de usuarios y roles    |
+| `lc-admin`               | CRUD completo en compañías, países, regiones, zonas, tiendas y activity logs |
+| `lc-company`             | CRUD en compañías asignadas y jerarquía completa (vía `company_id` JWT) |
+| `lc-company-country`     | CRUD en asociaciones compañía-país                  |
+| `lc-company-country-read`| Solo lectura de asociaciones compañía-país          |
+| `lc-company-region`      | CRUD en regiones                                    |
+| `lc-company-region-read` | Solo lectura de regiones                            |
+| `lc-company-zone`        | CRUD en zonas                                       |
+| `lc-company-zone-read`   | Solo lectura de zonas                               |
+| `lc-company-store`       | CRUD en tiendas                                     |
+| `lc-company-store-read`  | Solo lectura de tiendas                             |
+| `lc-company-read`        | Solo lectura de compañías                           |
+| `admin`                  | Endpoints de administración de usuarios y roles     |
 
 ---
 

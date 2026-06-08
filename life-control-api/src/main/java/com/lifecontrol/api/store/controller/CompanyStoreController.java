@@ -19,7 +19,6 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/companies/{companyId}/countries/{companyCountryId}/regions/{regionId}/zones/{zoneId}/stores")
 @Tag(name = "Company Store Management", description = "API for managing stores within a company's zone")
-@PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-region','lc-company-zone','lc-company-store','life-control-admin','life-control-country')")
 public class CompanyStoreController {
 
     private final CompanyStoreService companyStoreService;
@@ -29,6 +28,7 @@ public class CompanyStoreController {
     }
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-region','lc-company-zone','lc-company-store','lc-company-store-read')")
     @Operation(summary = "List all stores", description = "Returns stores for a company's zone")
     @ApiResponse(responseCode = "200", description = "List of stores")
     public ResponseEntity<List<CompanyStoreResponse>> getAllStores(
@@ -41,6 +41,7 @@ public class CompanyStoreController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-region','lc-company-zone','lc-company-store','lc-company-store-read')")
     @Operation(summary = "Get a store by ID")
     @ApiResponse(responseCode = "200", description = "Store found")
     @ApiResponse(responseCode = "404", description = "Store not found")
@@ -54,6 +55,7 @@ public class CompanyStoreController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-region','lc-company-zone','lc-company-store')")
     @Operation(summary = "Create a new store")
     @ApiResponse(responseCode = "201", description = "Store created")
     @ApiResponse(responseCode = "400", description = "Validation error")
@@ -69,6 +71,7 @@ public class CompanyStoreController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-region','lc-company-zone','lc-company-store')")
     @Operation(summary = "Update a store")
     @ApiResponse(responseCode = "200", description = "Store updated")
     @ApiResponse(responseCode = "400", description = "Validation error")
@@ -85,6 +88,7 @@ public class CompanyStoreController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-region','lc-company-zone','lc-company-store')")
     @Operation(summary = "Soft-delete a store")
     @ApiResponse(responseCode = "204", description = "Store deleted")
     @ApiResponse(responseCode = "404", description = "Store not found")
@@ -99,6 +103,7 @@ public class CompanyStoreController {
     }
 
     @PatchMapping("/{id}")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-region','lc-company-zone','lc-company-store')")
     @Operation(summary = "Re-enable a soft-deleted store")
     @ApiResponse(responseCode = "200", description = "Store re-enabled")
     @ApiResponse(responseCode = "404", description = "Store not found")
