@@ -27,7 +27,6 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/companies")
 @Tag(name = "Company Management", description = "API for managing companies")
-@PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-read')")
 public class CompanyController {
 
     private final CompanyService companyService;
@@ -37,6 +36,7 @@ public class CompanyController {
     }
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-read')")
     @Operation(summary = "Get all companies", description = "Returns a paginated list of companies, optionally filtered by search term")
     public ResponseEntity<Page<CompanyResponse>> getAllCompanies(
             @PageableDefault(size = 12) Pageable pageable,
@@ -45,6 +45,7 @@ public class CompanyController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-read')")
     @Operation(summary = "Get company by ID", description = "Returns a single company by its UUID")
     public ResponseEntity<CompanyResponse> getCompanyById(@PathVariable UUID id) {
         return ResponseEntity.ok(companyService.getCompanyById(id));
