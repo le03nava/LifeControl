@@ -1,22 +1,28 @@
 <div class="companies-admin">
-  <h1 class="dashboard-title">Companies Administration</h1>
-  <p class="dashboard-subtitle">Manage companies, countries, regions, zones, and stores</p>
+  <app-page-header
+    title="Companies Administration"
+    subtitle="Manage companies, countries, regions, zones, and stores"
+    [showActions]="false"
+  />
 
   <div class="dashboard-cards">
-    @for (card of cards(); track card.title) {
-      <mat-card
-        class="dashboard-card"
-        [routerLink]="card.route"
-      >
-        <mat-card-content>
-          <div class="card-icon">
-            <mat-icon [fontIcon]="card.icon" />
-          </div>
-          <h2 class="card-title">{{ card.title }}</h2>
-          <p class="card-description">{{ card.description }}</p>
-          <span class="card-action">Manage {{ card.title }} →</span>
-        </mat-card-content>
-      </mat-card>
+    @for (card of cards(); track card.title; let i = $index) {
+      <div class="card-wrapper" [style.--i]="i">
+        <mat-card
+          class="dashboard-card"
+          appearance="outlined"
+          [routerLink]="card.route"
+        >
+          <mat-card-content>
+            <div class="card-icon">
+              <mat-icon [fontIcon]="card.icon" />
+            </div>
+            <h2 class="card-title">{{ card.title }}</h2>
+            <p class="card-description">{{ card.description }}</p>
+            <span class="card-action">Manage {{ card.title }} →</span>
+          </mat-card-content>
+        </mat-card>
+      </div>
     }
   </div>
 </div>

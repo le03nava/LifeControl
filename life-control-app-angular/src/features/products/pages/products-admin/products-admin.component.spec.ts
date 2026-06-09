@@ -1,5 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter, RouterLink } from '@angular/router';
+import { PageHeader } from '@shared/ui';
 import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
@@ -12,7 +13,7 @@ describe('ProductsAdminComponent', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [ProductsAdminComponent, MatCardModule, MatIconModule, NoopAnimationsModule],
+      imports: [ProductsAdminComponent, PageHeader, MatCardModule, MatIconModule, NoopAnimationsModule],
       providers: [provideRouter([])],
     }).compileComponents();
 
@@ -26,14 +27,14 @@ describe('ProductsAdminComponent', () => {
   });
 
   it('should render dashboard title "Products Administration"', () => {
-    const title = fixture.nativeElement.querySelector('.dashboard-title');
+    const title = fixture.nativeElement.querySelector('.page-title');
     expect(title).toBeTruthy();
     expect(title.textContent.trim()).toBe('Products Administration');
   });
 
-  it('should render 4 dashboard cards', () => {
+  it('should render 5 dashboard cards', () => {
     const cards = fixture.nativeElement.querySelectorAll('.dashboard-card');
-    expect(cards).toHaveLength(4);
+    expect(cards).toHaveLength(5);
   });
 
   it('should have routerLink on the All Products card pointing to /products/list', () => {
@@ -48,7 +49,7 @@ describe('ProductsAdminComponent', () => {
     const activeCards = fixture.debugElement.queryAll(
       By.css('.dashboard-card:not(.card--disabled)'),
     );
-    expect(activeCards).toHaveLength(2);
+    expect(activeCards).toHaveLength(3);
     for (const card of activeCards) {
       expect(card.injector.get(RouterLink)).toBeTruthy();
     }
@@ -80,10 +81,11 @@ describe('ProductsAdminComponent', () => {
     expect(titles).toContain('New Product');
     expect(titles).toContain('Categories');
     expect(titles).toContain('Product Types');
+    expect(titles).toContain('Suppliers');
   });
 
   it('should render the dashboard subtitle', () => {
-    const subtitle = fixture.nativeElement.querySelector('.dashboard-subtitle');
+    const subtitle = fixture.nativeElement.querySelector('.page-subtitle');
     expect(subtitle).toBeTruthy();
     expect(subtitle.textContent.trim()).toBe(
       'Manage products, categories, and product types',
@@ -92,14 +94,15 @@ describe('ProductsAdminComponent', () => {
 
   it('should render active cards with "Manage" call-to-action text', () => {
     const actionElements = fixture.nativeElement.querySelectorAll('.card-action');
-    expect(actionElements).toHaveLength(2);
+    expect(actionElements).toHaveLength(3);
     expect(actionElements[0].textContent.trim()).toContain('Manage All Products');
     expect(actionElements[1].textContent.trim()).toContain('Manage New Product');
+    expect(actionElements[2].textContent.trim()).toContain('Manage Suppliers');
   });
 
   it('should render card icons with correct Material icon names', () => {
     const icons: NodeListOf<Element> = fixture.nativeElement.querySelectorAll('.card-icon mat-icon');
-    expect(icons).toHaveLength(4);
+    expect(icons).toHaveLength(5);
 
     const iconNames = Array.from(icons).map((el: Element) =>
       el.getAttribute('data-mat-icon-name'),
@@ -108,6 +111,7 @@ describe('ProductsAdminComponent', () => {
     expect(iconNames).toContain('add');
     expect(iconNames).toContain('category');
     expect(iconNames).toContain('label');
+    expect(iconNames).toContain('local_shipping');
   });
 
   it('should render 2 "Coming soon" badges (one per disabled card)', () => {

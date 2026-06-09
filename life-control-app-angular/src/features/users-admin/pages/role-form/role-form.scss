@@ -1,5 +1,13 @@
+@use '../../../../shared/styles/variables' as *;
+
+:host {
+  display: block;
+  width: 100%;
+  padding: 0 var(--space-md);
+}
+
 .role-form-page {
-  padding: 2rem;
+  width: 100%;
   max-width: 650px;
   margin: 0 auto;
 }
@@ -7,29 +15,30 @@
 .page-header {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 2rem;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-2xl);
 
   h1 {
     font-size: 1.75rem;
     font-weight: 600;
     margin: 0;
+    color: var(--mat-sys-on-surface);
   }
 }
 
 .role-form {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: var(--space-md);
 }
 
 .composite-checkbox {
-  margin: 0.5rem 0;
+  margin: var(--space-xs) 0;
 }
 
 .form-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 0.75rem;
-  margin-top: 1.5rem;
+  gap: var(--space-sm);
+  margin-top: var(--space-lg);
 }
