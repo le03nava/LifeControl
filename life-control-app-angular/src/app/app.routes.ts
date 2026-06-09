@@ -32,6 +32,13 @@ export const routes: Routes = [
     data: { role: 'admin' },
   },
   {
+    path: 'profile',
+    loadComponent: () =>
+      import('@features/user/profile/user-profile.component').then((m) => m.UserProfileComponent),
+    canActivate: [keycloakRoleGuard],
+    title: 'User Profile',
+  },
+  {
     path: 'unauthorized',
     loadComponent: () => import('@shared/ui/unauthorized').then((m) => m.Unauthorized),
   },

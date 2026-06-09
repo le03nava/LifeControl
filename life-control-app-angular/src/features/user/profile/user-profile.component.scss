@@ -1,0 +1,50 @@
+:host {
+  display: block;
+}
+
+.profile-container {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-xl);
+}
+
+.profile-card {
+  max-width: 600px;
+  width: 100%;
+}
+
+.profile-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--mat-sys-primary-container);
+  color: var(--mat-sys-on-primary-container);
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+}
+
+.profile-info {
+  padding-top: var(--space-md);
+}
+
+.info-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-sm) 0;
+
+  mat-icon {
+    color: var(--mat-sys-secondary);
+  }
+}
+
+.info-label {
+  min-width: 80px;
+  color: var(--mat-sys-on-surface-variant);
+  font-weight: 500;
+}
+
+.info-value {
+  color: var(--mat-sys-on-surface);
+}

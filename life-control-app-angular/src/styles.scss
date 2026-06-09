@@ -46,6 +46,7 @@ $dark-theme: mat.define-theme(
   @include mat.table-theme($light-theme);
   @include mat.tabs-theme($light-theme);
   @include mat.tooltip-theme($light-theme);
+  @include mat.menu-theme($light-theme);
 
   /* Color palette */
   --color-primary: #2563eb;
@@ -153,6 +154,7 @@ $dark-theme: mat.define-theme(
     @include mat.table-color($dark-theme);
     @include mat.tabs-color($dark-theme);
     @include mat.tooltip-color($dark-theme);
+    @include mat.menu-color($dark-theme);
     --color-primary: #3b82f6;
     --color-primary-hover: #2563eb;
     --color-gray-50: #0f172a;
