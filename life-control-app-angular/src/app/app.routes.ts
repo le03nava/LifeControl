@@ -8,10 +8,6 @@ export const routes: Routes = [
     component: Home,
     title: 'Home',
   },
-  {
-    path: 'login',
-    loadComponent: () => import('@features/auth/login').then((m) => m.Login),
-  },
 
   {
     path: 'companies',
@@ -30,6 +26,13 @@ export const routes: Routes = [
     loadChildren: () => import('@features/users-admin/users-admin.routes').then((m) => m.usersAdminRoutes),
     canActivate: [keycloakRoleGuard],
     data: { role: 'admin' },
+  },
+  {
+    path: 'profile',
+    loadComponent: () =>
+      import('@features/user/profile/user-profile.component').then((m) => m.UserProfileComponent),
+    canActivate: [keycloakRoleGuard],
+    title: 'User Profile',
   },
   {
     path: 'unauthorized',

@@ -1,5 +1,6 @@
 import { Component, computed, effect, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { PageHeader } from '@shared/ui';
 import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import Keycloak from 'keycloak-js';
@@ -64,7 +65,7 @@ const STATIC_CARDS: Omit<DashboardCard, 'disabled'>[] = [
 
 @Component({
   standalone: true,
-  imports: [RouterLink, MatCardModule, MatIconModule],
+  imports: [RouterLink, PageHeader, MatCardModule, MatIconModule],
   templateUrl: './companies-admin.component.html',
   styleUrl: './companies-admin.component.scss',
 })

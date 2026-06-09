@@ -27,20 +27,27 @@
         }
       </ul>
 
-      @if (isCompanyRole()) {
-        <div class="nav-company-selector">
-          <app-company-selector />
-        </div>
-      }
-
       <div class="nav-actions">
         @if (authenticated) {
-          <div class="user-menu">
-            <!--<span class="user-name">{{ authService.user()?.name }}</span>-->
-            <button app-button variant="secondary" size="small" (buttonClick)="logout()">
-              Logout
+          <button class="user-menu-trigger" [matMenuTriggerFor]="userMenu">
+            <mat-icon>account_circle</mat-icon>
+            <span class="user-name">{{ userName() }}</span>
+          </button>
+          <mat-menu #userMenu="matMenu">
+            <button mat-menu-item (click)="viewProfile()">
+              <mat-icon>person</mat-icon>
+              <span>View Profile</span>
             </button>
-          </div>
+            <button mat-menu-item (click)="editPreferences()">
+              <mat-icon>settings</mat-icon>
+              <span>Edit Preferences</span>
+            </button>
+            <mat-divider></mat-divider>
+            <button mat-menu-item (click)="logout()">
+              <mat-icon>logout</mat-icon>
+              <span>Logout</span>
+            </button>
+          </mat-menu>
         } @else {
           <button app-button variant="primary" (buttonClick)="login()">Login</button>
         }

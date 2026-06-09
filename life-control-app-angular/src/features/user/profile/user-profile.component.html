@@ -1,0 +1,27 @@
+<div class="profile-container">
+  <mat-card class="profile-card">
+    <mat-card-header>
+      <div mat-card-avatar class="profile-avatar">
+        <mat-icon>account_circle</mat-icon>
+      </div>
+      <mat-card-title>{{ displayName() }}</mat-card-title>
+      <mat-card-subtitle>User Profile</mat-card-subtitle>
+    </mat-card-header>
+
+    <mat-card-content>
+      <div class="profile-info">
+        <div class="info-row">
+          <mat-icon>email</mat-icon>
+          <span class="info-label">Email</span>
+          <span class="info-value">{{ email() }}</span>
+        </div>
+
+        <div class="info-row">
+          <mat-icon>person</mat-icon>
+          <span class="info-label">Username</span>
+          <span class="info-value">{{ username() }}</span>
+        </div>
+      </div>
+    </mat-card-content>
+  </mat-card>
+</div>

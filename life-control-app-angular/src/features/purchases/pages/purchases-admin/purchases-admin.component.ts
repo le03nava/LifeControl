@@ -1,5 +1,6 @@
 import { Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { PageHeader } from '@shared/ui';
 import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 
@@ -13,7 +14,7 @@ interface DashboardCard {
 
 @Component({
   standalone: true,
-  imports: [RouterLink, MatCardModule, MatIconModule],
+  imports: [RouterLink, PageHeader, MatCardModule, MatIconModule],
   templateUrl: './purchases-admin.component.html',
   styleUrl: './purchases-admin.component.scss',
 })

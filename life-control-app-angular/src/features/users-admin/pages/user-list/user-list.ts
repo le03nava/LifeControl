@@ -1,5 +1,6 @@
 import { Component, effect, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
+import { PageHeader } from '@shared/ui';
 import { MatTableModule } from '@angular/material/table';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
@@ -11,6 +12,7 @@ import { UsersAdminService } from '../../services/users-admin.service';
 @Component({
   standalone: true,
   imports: [
+    PageHeader,
     MatTableModule,
     MatIconModule,
     MatButtonModule,

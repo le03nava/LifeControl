@@ -33,6 +33,14 @@ describe('app.routes', () => {
     expect(usersAdminRoute).toBeDefined();
   });
 
+  it('should contain the profile route with lazy loading and auth guard', () => {
+    const profileRoute = routes.find((r) => r.path === 'profile');
+    expect(profileRoute).toBeDefined();
+    expect(profileRoute?.loadComponent).toBeDefined();
+    expect(profileRoute?.canActivate).toBeDefined();
+    expect(profileRoute?.canActivate?.length).toBe(1);
+  });
+
   it('should still contain the wildcard route', () => {
     const wildcardRoute = routes.find((r) => r.path === '**');
     expect(wildcardRoute).toBeDefined();
