@@ -1,9 +1,11 @@
 import { BreakpointObserver, Breakpoints } from '@angular/cdk/layout';
 import { CommonModule } from '@angular/common';
 import { Component, computed, effect, inject, OnInit, signal } from '@angular/core';
+import { MatDividerModule } from '@angular/material/divider';
 import { MatIconModule } from '@angular/material/icon';
-import { RouterModule } from '@angular/router';
-import { Button, Hyperlink, CompanySelector } from '@shared/ui';
+import { MatMenuModule } from '@angular/material/menu';
+import { Router, RouterModule } from '@angular/router';
+import { Button, Hyperlink } from '@shared/ui';
 import { CompanyContextService } from '@shared/data/company-context.service';
 import Keycloak from 'keycloak-js';
 import { KEYCLOAK_EVENT_SIGNAL, KeycloakEventType } from 'keycloak-angular';
@@ -13,12 +15,21 @@ import { KEYCLOAK_EVENT_SIGNAL, KeycloakEventType } from 'keycloak-angular';
  * Features:
  * - Responsive navigation
  * - User authentication state
+ * - User menu dropdown (MatMenu) with profile, preferences, logout
  * - Signal-based reactivity
  * - Breakpoint-aware menu visibility
  */
 @Component({
   selector: 'header[app-header]',
-  imports: [CommonModule, Button, Hyperlink, MatIconModule, RouterModule, CompanySelector],
+  imports: [
+    CommonModule,
+    Button,
+    Hyperlink,
+    MatDividerModule,
+    MatIconModule,
+    MatMenuModule,
+    RouterModule,
+  ],
   templateUrl: `header.html`,
   styleUrl: `header.scss`,
 })
@@ -27,12 +38,16 @@ export class Header implements OnInit {
   private keycloak = inject(Keycloak);
   private keycloakSignal = inject(KEYCLOAK_EVENT_SIGNAL);
   private companyContext = inject(CompanyContextService);
+  private router = inject(Router);
 
   // Signals
   private showMenu = signal(false);
   private isSmallScreen = signal(false);
   isCompanyRole = signal(false);
   isAdmin = signal(false);
+
+  /** User display name from Keycloak token — signal for template reactivity */
+  userName = signal('');
 
   // Computed properties
   isMenuOpen = computed(() => {
@@ -70,7 +85,7 @@ export class Header implements OnInit {
   }
 
   constructor() {
-    // Observar cambios de breakpoint
+    // Observe breakpoint changes
     this.breakpointObserver.observe([Breakpoints.Small, Breakpoints.XSmall]).subscribe((result) => {
       this.isSmallScreen.set(result.matches);
     });
@@ -79,6 +94,7 @@ export class Header implements OnInit {
     const keycloakEvent = this.keycloakSignal();
     if (keycloakEvent?.type === KeycloakEventType.Ready) {
       this.authenticated = this.keycloak.authenticated ?? false;
+      this.updateUserFromToken();
     }
 
     effect(() => {
@@ -96,13 +112,22 @@ export class Header implements OnInit {
           clientRoles.includes('lc-company-zone') ||
           clientRoles.includes('lc-company-store'),
         );
+        this.updateUserFromToken();
       }
       if (event?.type === KeycloakEventType.AuthLogout) {
         this.authenticated = false;
         this.isAdmin.set(false);
         this.isCompanyRole.set(false);
+        this.userName.set('');
       }
     });
+  }
+
+  /** Extract user display name from Keycloak token: name → preferred_username → empty */
+  private updateUserFromToken(): void {
+    const token = this.keycloak.tokenParsed;
+    const name = (token?.['name'] as string) || (token?.['preferred_username'] as string) || '';
+    this.userName.set(name);
   }
 
   toggleMenu(): void {
@@ -115,5 +140,15 @@ export class Header implements OnInit {
 
   logout() {
     this.keycloak.logout();
+  }
+
+  /** Navigate to the user profile page */
+  viewProfile(): void {
+    this.router.navigate(['/profile']);
+  }
+
+  /** Open Keycloak account management UI in a new tab */
+  editPreferences(): void {
+    this.keycloak.accountManagement();
   }
 }

@@ -2,7 +2,7 @@ import { provideLocationMocks } from '@angular/common/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { provideRouter, Router } from '@angular/router';
 import { KEYCLOAK_EVENT_SIGNAL, KeycloakEventType } from 'keycloak-angular';
 import { Header } from './header';
 import Keycloak from 'keycloak-js';
@@ -31,6 +31,7 @@ describe('Header', () => {
     keycloakMock = {
       login: vi.fn(),
       logout: vi.fn(),
+      accountManagement: vi.fn(),
       hasRealmRole: vi.fn().mockReturnValue(false),
       tokenParsed: tokenParsed as Keycloak['tokenParsed'],
       authenticated: clientRoles.length > 0 || Object.keys(extraTokenParsed).length > 0,
@@ -137,40 +138,34 @@ describe('Header', () => {
     });
   });
 
-  // ─── Admin role visibility (client roles) ─────────────────────
+  // ─── Admin role visibility (client roles) — company-selector removed ───
 
   describe('admin role visibility', () => {
-    it('should show Users Admin nav and company-selector for lc-admin role', () => {
-      const { component, fixture } = setup(['lc-admin']);
+    it('should show Users Admin nav for lc-admin role', () => {
+      const { component } = setup(['lc-admin']);
       expect(component.isAdmin()).toBe(true);
       expect(component.isCompanyRole()).toBe(true);
       const items = component.items();
       expect(items.some((i) => i.routeLink === '/users-admin')).toBe(true);
       expect(items.length).toBe(5); // Home + Companies + Products + Purchases + Users Admin
-      const companySelector = fixture.nativeElement.querySelector('app-company-selector');
-      expect(companySelector).toBeTruthy();
     });
 
-    it('should show company-selector but NOT Users Admin for lc-company role', () => {
-      const { component, fixture } = setup(['lc-company']);
+    it('should NOT show Users Admin for lc-company role', () => {
+      const { component } = setup(['lc-company']);
       expect(component.isAdmin()).toBe(false);
       expect(component.isCompanyRole()).toBe(true);
       const items = component.items();
       expect(items.some((i) => i.routeLink === '/users-admin')).toBe(false);
       expect(items.length).toBe(2); // Home + Companies only
-      const companySelector = fixture.nativeElement.querySelector('app-company-selector');
-      expect(companySelector).toBeTruthy();
     });
 
-    it('should hide both Users Admin and company-selector with no client roles', () => {
-      const { component, fixture } = setup([]);
+    it('should hide Users Admin with no client roles', () => {
+      const { component } = setup([]);
       expect(component.isAdmin()).toBe(false);
       expect(component.isCompanyRole()).toBe(false);
       const items = component.items();
       expect(items.some((i) => i.routeLink === '/users-admin')).toBe(false);
       expect(items.length).toBe(1); // Home only
-      const companySelector = fixture.nativeElement.querySelector('app-company-selector');
-      expect(companySelector).toBeFalsy();
     });
   });
 
@@ -246,6 +241,7 @@ describe('Header', () => {
           { provide: Keycloak, useValue: {
             login: vi.fn(),
             logout: vi.fn(),
+            accountManagement: vi.fn(),
             hasRealmRole: vi.fn().mockReturnValue(false),
             tokenParsed: {
               resource_access: { 'life-control-client': { roles: ['lc-company-region'] } },
@@ -272,6 +268,149 @@ describe('Header', () => {
       const items = component.items();
       const companiesItem = items.find((i) => i.routeLink === '/companies');
       expect(companiesItem).toBeUndefined();
+    });
+  });
+
+  // ─── User menu (MatMenu) — NEW ──────────────────────────────────
+
+  describe('user menu — userName signal', () => {
+    it('should display user name from keycloak tokenParsed name', () => {
+      const { component } = setup(['lc-admin'], {
+        name: 'John Doe',
+        preferred_username: 'jdoe',
+        email: 'john@test.com',
+      });
+      expect(component.userName()).toBe('John Doe');
+    });
+
+    it('should fall back to preferred_username when name is missing', () => {
+      const { component } = setup(['lc-company'], {
+        preferred_username: 'jdoe',
+        email: 'john@test.com',
+      });
+      expect(component.userName()).toBe('jdoe');
+    });
+
+    it('should show empty userName when not authenticated', () => {
+      const { component } = setup([]);
+      expect(component.userName()).toBe('');
+    });
+
+    it('should reset userName on logout', () => {
+      const keycloakEventSignal = signal({
+        type: KeycloakEventType.Ready,
+        token: null,
+      });
+
+      TestBed.configureTestingModule({
+        providers: [
+          provideRouter([]),
+          provideLocationMocks(),
+          provideHttpClient(),
+          {
+            provide: Keycloak,
+            useValue: {
+              login: vi.fn(),
+              logout: vi.fn(),
+              accountManagement: vi.fn(),
+              hasRealmRole: vi.fn().mockReturnValue(false),
+              tokenParsed: {
+                name: 'John Doe',
+                preferred_username: 'jdoe',
+                resource_access: {
+                  'life-control-client': { roles: ['lc-admin'] },
+                },
+              },
+              authenticated: true,
+            } as Partial<Keycloak>,
+          },
+          { provide: KEYCLOAK_EVENT_SIGNAL, useValue: keycloakEventSignal },
+        ],
+      });
+
+      const fixture = TestBed.createComponent(Header);
+      const component = fixture.componentInstance;
+      fixture.detectChanges();
+
+      // After Ready event, userName should be set
+      expect(component.userName()).toBe('John Doe');
+
+      // Simulate AuthLogout event
+      keycloakEventSignal.set({ type: KeycloakEventType.AuthLogout, token: null });
+      fixture.detectChanges();
+
+      // After logout, userName should be reset
+      expect(component.userName()).toBe('');
+    });
+  });
+
+  describe('user menu — DOM', () => {
+    it('should show user menu trigger when authenticated', () => {
+      const { fixture } = setup(['lc-admin'], { name: 'John Doe' });
+      const trigger = fixture.nativeElement.querySelector('.user-menu-trigger');
+      expect(trigger).toBeTruthy();
+    });
+
+    it('should show user name in the trigger button', () => {
+      const { fixture } = setup(['lc-admin'], { name: 'John Doe' });
+      expect(fixture.nativeElement.textContent).toContain('John Doe');
+    });
+
+    it('should show Login button when unauthenticated', () => {
+      const { fixture } = setup([]);
+      const loginButton = fixture.nativeElement.querySelector('button[variant="primary"]');
+      expect(loginButton).toBeTruthy();
+      expect(fixture.nativeElement.textContent).toContain('Login');
+    });
+
+    it('should NOT show user menu trigger when unauthenticated', () => {
+      const { fixture } = setup([]);
+      const trigger = fixture.nativeElement.querySelector('.user-menu-trigger');
+      expect(trigger).toBeFalsy();
+    });
+
+    it('should show account_circle icon in menu trigger', () => {
+      const { fixture } = setup(['lc-admin'], { name: 'John Doe' });
+      const icon = fixture.nativeElement.querySelector('.user-menu-trigger mat-icon');
+      expect(icon).toBeTruthy();
+    });
+  });
+
+  describe('user menu — actions', () => {
+    it('viewProfile should navigate to /profile', () => {
+      const { component } = setup(['lc-admin']);
+      const router = TestBed.inject(Router);
+      const navigateSpy = vi.spyOn(router, 'navigate');
+      component.viewProfile();
+      expect(navigateSpy).toHaveBeenCalledWith(['/profile']);
+    });
+
+    it('editPreferences should call keycloak.accountManagement', () => {
+      const { component } = setup(['lc-admin']);
+      component.editPreferences();
+      expect(keycloakMock.accountManagement).toHaveBeenCalled();
+    });
+
+    it('logout should call keycloak.logout', () => {
+      const { component } = setup(['lc-admin']);
+      component.logout();
+      expect(keycloakMock.logout).toHaveBeenCalled();
+    });
+  });
+
+  // ─── Company selector fully removed ────────────────────────────
+
+  describe('company selector removal', () => {
+    it('should NOT render app-company-selector in the header DOM', () => {
+      const { fixture } = setup(['lc-admin']);
+      const companySelector = fixture.nativeElement.querySelector('app-company-selector');
+      expect(companySelector).toBeFalsy();
+    });
+
+    it('should NOT render company-selector even for lc-company role', () => {
+      const { fixture } = setup(['lc-company']);
+      const companySelector = fixture.nativeElement.querySelector('app-company-selector');
+      expect(companySelector).toBeFalsy();
     });
   });
 });
