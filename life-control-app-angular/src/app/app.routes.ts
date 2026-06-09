@@ -8,10 +8,6 @@ export const routes: Routes = [
     component: Home,
     title: 'Home',
   },
-  {
-    path: 'login',
-    loadComponent: () => import('@features/auth/login').then((m) => m.Login),
-  },
 
   {
     path: 'companies',

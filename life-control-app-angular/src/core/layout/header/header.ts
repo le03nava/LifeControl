@@ -57,9 +57,7 @@ export class Header implements OnInit {
   });
 
   items = computed(() => {
-    const menuItems = [
-      { id: '1', routeLink: '/home', textLink: 'Home', icon: 'home' },
-    ];
+    const menuItems: { id: string; routeLink: string; textLink: string; icon: string }[] = [];
 
     if (this.isCompanyRole()) {
       menuItems.push(
