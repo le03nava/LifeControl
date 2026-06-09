@@ -427,21 +427,28 @@ export const routes: Routes = [
 ```
 
 ```typescript
-// Rutas anidadas con roles (companies.routes.ts)
+// Rutas anidadas con client roles (companies.routes.ts)
+const BASE_ROLES = ['lc-admin', 'lc-company', 'lc-company-country'];
+const COMPANY_CRUD_ROLES = ['lc-admin', 'lc-company'];
+const REGION_ROLES = [...BASE_ROLES, 'lc-company-region'];
+const ZONE_ROLES = [...REGION_ROLES, 'lc-company-zone'];
+const STORE_ROLES = [...ZONE_ROLES, 'lc-company-store'];
+const CLIENT_ID = 'life-control-client';
+
 export const companyRoutes: Routes = [
   {
     path: '',
     canActivate: [keycloakRoleGuard],
-    data: { roles: ['life-control-admin', 'life-control-country'] },
+    data: { roles: STORE_ROLES, clientId: CLIENT_ID },
     children: [
       { path: '', loadComponent: () => import('./companies/pages/companies-admin/...') },
-      { path: 'list', loadComponent: () => import('./companies/pages/company-list/company-list') },
-      { path: 'edit/:id', loadComponent: () => import('./companies/pages/company-edit/company-edit') },
-      { path: 'create', loadComponent: () => import('./companies/pages/company-edit/company-edit') },
-      { path: 'countries', loadComponent: () => import('./countries/pages/countries-page/...') },
-      { path: 'regions', loadComponent: () => import('./regions/pages/regions-page/regions-page') },
-      { path: 'regions/create', loadComponent: () => import('./regions/pages/regions-edit/regions-edit') },
-      { path: 'regions/edit/:id', loadComponent: () => import('./regions/pages/regions-edit/regions-edit') },
+      { path: 'list', canActivate: [keycloakRoleGuard], data: { roles: COMPANY_CRUD_ROLES, clientId: CLIENT_ID }, loadComponent: () => import('./companies/pages/company-list/...') },
+      { path: 'create', canActivate: [keycloakRoleGuard], data: { roles: COMPANY_CRUD_ROLES, clientId: CLIENT_ID }, loadComponent: () => import('./companies/pages/company-edit/...') },
+      { path: 'edit/:id', canActivate: [keycloakRoleGuard], data: { roles: COMPANY_CRUD_ROLES, clientId: CLIENT_ID }, loadComponent: () => import('./companies/pages/company-edit/...') },
+      { path: 'countries', canActivate: [keycloakRoleGuard], data: { roles: BASE_ROLES, clientId: CLIENT_ID }, loadComponent: () => import('./countries/pages/countries-page/...') },
+      { path: 'regions', canActivate: [keycloakRoleGuard], data: { roles: REGION_ROLES, clientId: CLIENT_ID }, loadComponent: () => import('./regions/pages/regions-page/...') },
+      { path: 'zones', canActivate: [keycloakRoleGuard], data: { roles: ZONE_ROLES, clientId: CLIENT_ID }, loadComponent: () => import('./zones/pages/zones-page/...') },
+      { path: 'stores', canActivate: [keycloakRoleGuard], data: { roles: STORE_ROLES, clientId: CLIENT_ID }, loadComponent: () => import('./stores/pages/stores-page/...') },
     ],
   },
 ];
@@ -450,17 +457,30 @@ export const companyRoutes: Routes = [
 ### Guard Pattern (Functional)
 
 ```typescript
-// ✅ CORRECTO - Functional guard con soporte de múltiples roles
-export const keycloakRoleGuard: CanActivateFn = async (route) => {
+// ✅ CORRECTO — Dual-mode guard: client roles (con clientId) o realm roles (sin clientId)
+export const keycloakRoleGuard: CanActivateFn = async (route, state) => {
   const keycloak = inject(Keycloak);
-  const requiredRoles = route.data?.['roles'] as string[] | undefined;
-  const requiredRole = route.data?.['role'] as string | undefined;
+  const router = inject(Router);
 
-  // Soporta tanto data.roles (array) como data.role (string)
-  const roles = requiredRoles ?? (requiredRole ? [requiredRole] : []);
+  if (!keycloak.authenticated) {
+    await keycloak.login({ redirectUri: window.location.origin + state.url });
+    return false;
+  }
 
-  if (roles.length === 0) return true;
-  return roles.some(role => keycloak.hasRealmRole(role));
+  const requiredRoles = normalizeRequiredRoles(route.data);
+  if (requiredRoles.length === 0) return true;
+
+  const token = keycloak.tokenParsed;
+  const clientId = route.data['clientId'] as string | undefined;
+
+  // clientId presente → client roles; ausente → realm roles (legacy)
+  const availableRoles: string[] = clientId
+    ? token?.resource_access?.[clientId]?.roles ?? []
+    : token?.realm_access?.roles ?? [];
+
+  const hasRole = requiredRoles.some((role) => availableRoles.includes(role));
+  if (!hasRole) router.navigate(['/unauthorized']);
+  return hasRole;
 };
 
 // ❌ INCORRECTO - Class-based guard
@@ -797,7 +817,126 @@ it('should set serverErrors signal', () => {
 
 ---
 
-## Keycloak
+## Roles y Permisos (RBAC)
+
+La aplicación usa dos tipos de roles de Keycloak, con un **guard dual-mode** (`keycloakRoleGuard`) que los resuelve según la presencia de `clientId` en los datos de ruta.
+
+### Jerarquía de Roles de Cliente (`life-control-client`)
+
+Son los roles que controlan el acceso a la feature **Companies**. Son jerárquicos y acumulativos hacia abajo (los niveles superiores heredan acceso a todo lo inferior, pero no al revés).
+
+```
+lc-admin
+ └─ lc-company
+      └─ lc-company-country
+           └─ lc-company-region
+                └─ lc-company-zone
+                     └─ lc-company-store
+```
+
+### Visibility Rules
+
+Tres capas de control independientes:
+
+| Capa | Archivo | Lógica |
+|------|---------|--------|
+| **Menú lateral** | `header.ts` | `isCompanyRole` signal → `lc-admin \|\| lc-company \|\| lc-company-country \|\| lc-company-region \|\| lc-company-zone \|\| lc-company-store` |
+| **Admin menus** | `header.ts` | `isAdmin` signal → `lc-admin` solamente (Products, Compras, Users Admin) |
+| **Route guard** | `companies.routes.ts` | Roles por ruta con `BASE_ROLES`, `COMPANY_CRUD_ROLES`, `REGION_ROLES`, `ZONE_ROLES`, `STORE_ROLES` |
+| **Dashboard cards** | `companies-admin.component.ts` | `requiredRoles` por cada `STATIC_CARD`; las cards sin acceso se ocultan |
+
+### Matriz de Permisos
+
+| Rol | Menú Companies | Menús Admin | Companies CRUD | Countries | Regions | Zones | Stores |
+|-----|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| `lc-admin` | ✅ | ✅ (Products + Compras + Users Admin) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `lc-company` | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `lc-company-country` | ✅ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| `lc-company-region` | ✅ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ |
+| `lc-company-zone` | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
+| `lc-company-store` | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+
+### Realm Roles (legacy)
+
+Usados por features fuera de Companies (Products, Purchases, Users Admin). No usan `clientId` en los datos de ruta, por lo que el guard resuelve contra `realm_access.roles`.
+
+| Rol | Acceso |
+|-----|--------|
+| `life-control-admin` | Products, Purchases |
+| `life-control-country` | Products |
+| `admin` | Users Admin |
+
+> **Importante:** `lc-admin` es un **rol de cliente** (no realm). `life-control-admin` es un **realm role**. Son distintos.
+
+### Guard Dual-Mode
+
+```typescript
+// Con clientId → resuelve de resource_access[clientId].roles (client roles)
+data: { roles: ['lc-admin', 'lc-company'], clientId: 'life-control-client' }
+
+// Sin clientId → resuelve de realm_access.roles (realm roles, legacy)
+data: { role: 'admin' }
+data: { roles: ['life-control-admin'] }
+```
+
+### Header Menu Control
+
+```typescript
+// header.ts — role-to-signal mapping
+const clientRoles = token?.resource_access?.['life-control-client']?.roles ?? [];
+
+this.isAdmin.set(clientRoles.includes('lc-admin'));
+this.isCompanyRole.set(
+  clientRoles.includes('lc-admin') ||
+  clientRoles.includes('lc-company') ||
+  clientRoles.includes('lc-company-country') ||
+  clientRoles.includes('lc-company-region') ||
+  clientRoles.includes('lc-company-zone') ||
+  clientRoles.includes('lc-company-store'),
+);
+
+// items() computed:
+//   base: [Home]
+//   + isCompanyRole → [Companies]
+//   + isAdmin → [Products, Purchases, Users Admin]
+```
+
+### Companies Route Guards
+
+```typescript
+// companies.routes.ts — constantes de roles
+const BASE_ROLES = ['lc-admin', 'lc-company', 'lc-company-country'];
+const COMPANY_CRUD_ROLES = ['lc-admin', 'lc-company'];
+const REGION_ROLES = [...BASE_ROLES, 'lc-company-region'];
+const ZONE_ROLES = [...REGION_ROLES, 'lc-company-zone'];
+const STORE_ROLES = [...ZONE_ROLES, 'lc-company-store'];
+
+// Aplicación:
+//   /companies (parent)     → STORE_ROLES
+//   /companies/list         → COMPANY_CRUD_ROLES
+//   /companies/create       → COMPANY_CRUD_ROLES
+//   /companies/edit/:id     → COMPANY_CRUD_ROLES
+//   /companies/countries    → BASE_ROLES
+//   /companies/regions      → REGION_ROLES
+//   /companies/zones        → ZONE_ROLES
+//   /companies/stores       → STORE_ROLES
+```
+
+### Dashboard Card Visibility
+
+```typescript
+// companies-admin.component.ts — STATIC_CARDS requiredRoles
+Companies: ['lc-admin', 'lc-company']                           // lc-company-country NO incluido
+Countries: ['lc-admin', 'lc-company', 'lc-company-country']
+Regions:  [...Countries, 'lc-company-region']
+Zones:    [...Regions, 'lc-company-zone']
+Stores:   [...Zones, 'lc-company-store']
+
+// cards computed: filtra .filter(card => !card.disabled)
+// → cards sin acceso NO aparecen (deshabilitadas = ocultas)
+```
+
+### Keycloak Config
 
 | Aspecto              | Detalle                                              |
 |----------------------|------------------------------------------------------|
@@ -806,7 +945,6 @@ it('should set serverErrors signal', () => {
 | Token en requests    | `bearer-token.interceptor.ts` (functional)           |
 | Eventos              | `KEYCLOAK_EVENT_SIGNAL` (signal reactiva)            |
 | Inject               | `inject(Keycloak)` directamente                      |
-| Roles en guards      | `keycloak.hasRealmRole('life-control-admin')`        |
 | Silent SSO           | `silent-check-sso.html` actualizado para keycloak-js v26 |
 | Login manual         | `keycloak.login()` — no auto-redirect en 401         |
 

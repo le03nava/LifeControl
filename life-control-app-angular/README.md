@@ -79,6 +79,35 @@ Path aliases disponibles: `@app`, `@core`, `@features`, `@shared`.
 
 Para una guía detallada de patrones y convenciones, ver [`AGENTS.md`](./AGENTS.md).
 
+## Roles y Permisos
+
+La aplicación usa dos tipos de roles de Keycloak para control de acceso en frontend:
+
+### Roles de Cliente (`life-control-client`)
+
+Controlan el acceso a la feature **Companies**. Son roles jerárquicos: cada nivel acumula acceso a los subniveles inferiores.
+
+| Rol | Companies CRUD | Countries | Regions | Zones | Stores | Menú lateral |
+|-----|:---:|:---:|:---:|:---:|:---:|--------------|
+| `lc-admin` | ✅ | ✅ | ✅ | ✅ | ✅ | Companies + Products + Compras + Users Admin |
+| `lc-company` | ✅ | ✅ | ✅ | ✅ | ✅ | Companies |
+| `lc-company-country` | ❌ | ✅ | ✅ | ✅ | ✅ | Companies |
+| `lc-company-region` | ❌ | ❌ | ✅ | ✅ | ✅ | Companies |
+| `lc-company-zone` | ❌ | ❌ | ❌ | ✅ | ✅ | Companies |
+| `lc-company-store` | ❌ | ❌ | ❌ | ❌ | ✅ | Companies |
+
+El dashboard **Companies Administration** oculta las cards a las que el usuario no tiene acceso.
+
+### Realm Roles
+
+| Rol | Acceso |
+|-----|--------|
+| `life-control-admin` | Products, Purchases |
+| `life-control-country` | Products |
+| `admin` | Users Admin |
+
+> **Nota:** `lc-admin` es un rol de cliente (no realm). Los roles de realm usan nomenclatura distinta.
+
 ## Entorno
 
 Las URLs de API y Keycloak se configuran en tiempo de ejecución via `window.env` (sin rebuild). Ver `ConfigService` en `src/app/services/config.service.ts`.
