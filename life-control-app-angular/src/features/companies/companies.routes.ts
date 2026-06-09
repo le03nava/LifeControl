@@ -2,6 +2,7 @@ import { Routes } from '@angular/router';
 import { keycloakRoleGuard } from '@core/guards/auth-keycloak-guard';
 
 const BASE_ROLES = ['lc-admin', 'lc-company', 'lc-company-country'];
+const COMPANY_CRUD_ROLES = ['lc-admin', 'lc-company'];
 const REGION_ROLES = [...BASE_ROLES, 'lc-company-region'];
 const ZONE_ROLES = [...REGION_ROLES, 'lc-company-zone'];
 const STORE_ROLES = [...ZONE_ROLES, 'lc-company-store'];
@@ -22,11 +23,11 @@ export const companyRoutes: Routes = [
             (m) => m.CompaniesAdminComponent,
           ),
       },
-      // Companies CRUD — base roles only
+      // Companies CRUD — lc-company-country excluded
       {
         path: '',
         canActivate: [keycloakRoleGuard],
-        data: { roles: BASE_ROLES, clientId: CLIENT_ID },
+        data: { roles: COMPANY_CRUD_ROLES, clientId: CLIENT_ID },
         children: [
           {
             path: 'list',

@@ -24,7 +24,7 @@ const STATIC_CARDS: Omit<DashboardCard, 'disabled'>[] = [
     icon: 'business',
     description: 'View, create, edit and manage your registered companies.',
     route: '/companies/list',
-    requiredRoles: ['lc-admin', 'lc-company', 'lc-company-country'],
+    requiredRoles: ['lc-admin', 'lc-company'],
   },
   {
     title: 'Countries',
@@ -89,10 +89,12 @@ export class CompaniesAdminComponent {
   readonly cards = computed<DashboardCard[]>(() => {
     const roles = this.userRoles();
 
-    return STATIC_CARDS.map((card) => ({
-      ...card,
-      disabled: card.requiredRoles.length > 0 && !card.requiredRoles.some((r) => roles.includes(r)),
-    }));
+    return STATIC_CARDS
+      .map((card) => ({
+        ...card,
+        disabled: card.requiredRoles.length > 0 && !card.requiredRoles.some((r) => roles.includes(r)),
+      }))
+      .filter((card) => !card.disabled);
   });
 
   constructor() {

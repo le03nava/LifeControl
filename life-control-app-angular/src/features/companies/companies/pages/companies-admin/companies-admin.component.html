@@ -6,8 +6,7 @@
     @for (card of cards(); track card.title) {
       <mat-card
         class="dashboard-card"
-        [class.card--disabled]="card.disabled"
-        [routerLink]="!card.disabled ? card.route : null"
+        [routerLink]="card.route"
       >
         <mat-card-content>
           <div class="card-icon">
@@ -15,11 +14,7 @@
           </div>
           <h2 class="card-title">{{ card.title }}</h2>
           <p class="card-description">{{ card.description }}</p>
-          @if (!card.disabled) {
-            <span class="card-action">Manage {{ card.title }} →</span>
-          } @else {
-            <span class="card-badge--coming-soon">Coming soon</span>
-          }
+          <span class="card-action">Manage {{ card.title }} →</span>
         </mat-card-content>
       </mat-card>
     }
