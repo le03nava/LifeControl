@@ -1,0 +1,17 @@
+:host {
+  display: block;
+}
+
+.full-width {
+  width: 100%;
+}
+
+.customer-option-name {
+  font-weight: 500;
+}
+
+.customer-option-email {
+  margin-left: 0.5rem;
+  color: var(--mat-sys-on-surface-variant, #666);
+  font-size: 0.875rem;
+}

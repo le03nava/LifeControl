@@ -1,0 +1,129 @@
+<div class="detail-table">
+  <!-- Existing line items -->
+  @if (items().length > 0) {
+    <table mat-table [dataSource]="items()">
+      <!-- Product Variant -->
+      <ng-container matColumnDef="productVariantName">
+        <th mat-header-cell *matHeaderCellDef>Variant</th>
+        <td mat-cell *matCellDef="let row">{{ row.productVariantName }}</td>
+      </ng-container>
+
+      <!-- Quantity (editable in Draft) -->
+      <ng-container matColumnDef="quantity">
+        <th mat-header-cell *matHeaderCellDef>Qty</th>
+        <td mat-cell *matCellDef="let row; let i = index">
+          @if (isDraft()) {
+            <input
+              matInput
+              type="number"
+              min="1"
+              [value]="row.quantity"
+              (input)="onQuantityChange(i, +($any($event.target).value))"
+              class="inline-input"
+            />
+          } @else {
+            {{ row.quantity }}
+          }
+        </td>
+      </ng-container>
+
+      <!-- List Price (editable in Draft) -->
+      <ng-container matColumnDef="listPrice">
+        <th mat-header-cell *matHeaderCellDef>Unit Price</th>
+        <td mat-cell *matCellDef="let row; let i = index">
+          @if (isDraft()) {
+            <input
+              matInput
+              type="number"
+              min="0"
+              step="0.01"
+              [value]="row.listPrice"
+              (input)="onListPriceChange(i, +($any($event.target).value))"
+              class="inline-input"
+            />
+          } @else {
+            {{ row.listPrice | currency }}
+          }
+        </td>
+      </ng-container>
+
+      <!-- Discount (editable in Draft) -->
+      <ng-container matColumnDef="discountApplied">
+        <th mat-header-cell *matHeaderCellDef>Discount</th>
+        <td mat-cell *matCellDef="let row; let i = index">
+          @if (isDraft()) {
+            <input
+              matInput
+              type="number"
+              min="0"
+              step="0.01"
+              [value]="row.discountApplied"
+              (input)="onDiscountChange(i, +($any($event.target).value))"
+              class="inline-input"
+            />
+          } @else {
+            {{ row.discountApplied | currency }}
+          }
+        </td>
+      </ng-container>
+
+      <!-- Subtotal (read-only, computed) -->
+      <ng-container matColumnDef="subtotal">
+        <th mat-header-cell *matHeaderCellDef>Subtotal</th>
+        <td mat-cell *matCellDef="let row">
+          {{ rowSubtotal(row) | currency }}
+        </td>
+      </ng-container>
+
+      <!-- Actions -->
+      <ng-container matColumnDef="actions">
+        <th mat-header-cell *matHeaderCellDef></th>
+        <td mat-cell *matCellDef="let row; let i = index">
+          <button
+            mat-icon-button
+            color="warn"
+            (click)="removeItem(i)"
+            [disabled]="!isDraft()"
+            [matTooltip]="
+              isDraft()
+                ? 'Remove item'
+                : 'Items cannot be modified in this status'
+            "
+            [attr.aria-label]="'Remove ' + row.productVariantName"
+          >
+            <mat-icon>delete</mat-icon>
+          </button>
+        </td>
+      </ng-container>
+
+      <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+      <tr mat-row *matRowDef="let row; columns: displayedColumns"></tr>
+    </table>
+
+    <!-- Total -->
+    <div class="line-items-total">
+      <span class="total-label">Total:</span>
+      <span class="total-value">{{ lineItemsTotal() | currency }}</span>
+    </div>
+  } @else {
+    <div class="no-line-items">
+      <mat-icon fontIcon="receipt_long" />
+      <p>No line items. Add products using the selector below.</p>
+    </div>
+  }
+
+  <!-- Add line item: ProductVariantSelector integration point -->
+  @if (isDraft()) {
+    <div class="add-line-item">
+      <div class="add-line-item-title">
+        <mat-icon fontIcon="add_circle_outline" />
+        <span>Add Product</span>
+      </div>
+      <div class="add-line-item-hint">
+        Use the product variant selector to search and add items.
+      </div>
+      <!-- ProductVariantSelector will be wired in the page component -->
+      <ng-content select="[variant-selector]"></ng-content>
+    </div>
+  }
+</div>

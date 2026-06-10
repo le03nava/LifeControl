@@ -1,0 +1,29 @@
+<mat-form-field appearance="outline" subscriptSizing="dynamic" class="full-width">
+  <mat-label>Customer</mat-label>
+  <input
+    matInput
+    type="text"
+    [value]="searchQuery()"
+    (input)="onSearchChange(($any($event.target).value))"
+    [matAutocomplete]="customerAuto"
+    placeholder="Search by name or email"
+  />
+  <mat-autocomplete
+    #customerAuto="matAutocomplete"
+    (optionSelected)="onCustomerSelect($event.option.value)"
+  >
+    @for (c of filteredCustomers(); track c.id) {
+      <mat-option [value]="c">
+        <span class="customer-option-name">{{ c.name }}</span>
+        @if (c.email) {
+          <span class="customer-option-email">({{ c.email }})</span>
+        }
+      </mat-option>
+    }
+    @if (filteredCustomers().length === 0 && searchQuery().length >= 2) {
+      <mat-option disabled>
+        No customers found for "{{ searchQuery() }}"
+      </mat-option>
+    }
+  </mat-autocomplete>
+</mat-form-field>

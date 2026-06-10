@@ -1,0 +1,42 @@
+<div class="status-transition">
+  <!-- Current status chip -->
+  <div class="current-status">
+    <mat-chip
+      [style.background-color]="statusColors[currentStatusName()] || '#9e9e9e'"
+      [style.color]="'#fff'"
+      disableRipple
+    >
+      {{ currentStatusName() }}
+    </mat-chip>
+  </div>
+
+  <!-- Transition dropdown -->
+  @if (statusFetchFailed()) {
+    <p class="status-error">Could not load status transitions.</p>
+  } @else if (isTerminal()) {
+    <p class="status-terminal">
+      <mat-icon fontIcon="lock" inline />
+      This status is terminal and does not allow changes.
+    </p>
+  } @else if (validTransitions().length > 0) {
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>Change Status</mat-label>
+      <mat-select
+        [disabled]="changing()"
+        (selectionChange)="onStatusChange($event.value)"
+        placeholder="Select new status"
+      >
+        @for (t of validTransitions(); track t.id) {
+          <mat-option [value]="t.id">
+            {{ t.label }}
+          </mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+    @if (changing()) {
+      <span class="changing-indicator">Updating status...</span>
+    }
+  } @else {
+    <p class="status-loading">Loading transitions...</p>
+  }
+</div>

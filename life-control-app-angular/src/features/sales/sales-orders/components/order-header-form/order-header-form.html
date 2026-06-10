@@ -1,0 +1,154 @@
+<!-- Status + Order Number display (edit mode) -->
+@if (loadedOrder(); as order) {
+  <div class="status-section">
+    @if (order.orderNumber) {
+      <span class="order-number">
+        <strong>Order:</strong> {{ order.orderNumber }}
+      </span>
+    }
+    <mat-chip
+      [style.background-color]="statusColor[order.statusName] || '#9e9e9e'"
+      [style.color]="'#fff'"
+      disableRipple
+    >
+      {{ statusLabel[order.statusName] || order.statusName }}
+    </mat-chip>
+  </div>
+}
+
+<mat-card appearance="outlined" class="form-card">
+  <mat-card-header>
+    <mat-card-title>Order Data</mat-card-title>
+  </mat-card-header>
+  <mat-card-content>
+    <ng-container [formGroup]="headerForm()">
+    <div class="form-grid">
+      <!-- Customer -->
+      <mat-form-field appearance="outline" subscriptSizing="dynamic">
+        <mat-label>Customer</mat-label>
+        <mat-select formControlName="customerId">
+          <mat-option value="cust-1" disabled>Use Customer Search</mat-option>
+        </mat-select>
+        @if (fieldError('customerId'); as err) {
+          <mat-error>{{ err }}</mat-error>
+        }
+        @if (serverFieldError('customerId'); as err) {
+          <mat-error>{{ err }}</mat-error>
+        }
+      </mat-form-field>
+
+      <!-- Company (cascade start) -->
+      <mat-form-field appearance="outline" subscriptSizing="dynamic">
+        <mat-label>Company</mat-label>
+        <mat-select
+          [value]="selectedCompanyId()"
+          (selectionChange)="onCompanyChange($event.value)"
+        >
+          @for (c of companies(); track c.id) {
+            <mat-option [value]="c.id">{{ c.name }}</mat-option>
+          }
+        </mat-select>
+      </mat-form-field>
+
+      <!-- Country -->
+      @if (countries().length > 0) {
+        <mat-form-field appearance="outline" subscriptSizing="dynamic">
+          <mat-label>Country</mat-label>
+          <mat-select
+            [value]="selectedCountryId()"
+            (selectionChange)="onCountryChange($event.value)"
+          >
+            @for (c of countries(); track c.id) {
+              <mat-option [value]="c.id">{{ c.name }}</mat-option>
+            }
+          </mat-select>
+        </mat-form-field>
+      }
+
+      <!-- Region -->
+      @if (regions().length > 0) {
+        <mat-form-field appearance="outline" subscriptSizing="dynamic">
+          <mat-label>Region</mat-label>
+          <mat-select
+            [value]="selectedRegionId()"
+            (selectionChange)="onRegionChange($event.value)"
+          >
+            @for (r of regions(); track r.id) {
+              <mat-option [value]="r.id">{{ r.name }}</mat-option>
+            }
+          </mat-select>
+        </mat-form-field>
+      }
+
+      <!-- Zone -->
+      @if (zones().length > 0) {
+        <mat-form-field appearance="outline" subscriptSizing="dynamic">
+          <mat-label>Zone</mat-label>
+          <mat-select
+            [value]="selectedZoneId()"
+            (selectionChange)="onZoneChange($event.value)"
+          >
+            @for (z of zones(); track z.id) {
+              <mat-option [value]="z.id">{{ z.name }}</mat-option>
+            }
+          </mat-select>
+        </mat-form-field>
+      }
+
+      <!-- Store -->
+      @if (stores().length > 0) {
+        <mat-form-field appearance="outline" subscriptSizing="dynamic">
+          <mat-label>Store</mat-label>
+          <mat-select formControlName="companyStoreId">
+            @for (s of stores(); track s.id) {
+              <mat-option [value]="s.id">{{ s.name }}</mat-option>
+            }
+          </mat-select>
+          @if (fieldError('companyStoreId'); as err) {
+            <mat-error>{{ err }}</mat-error>
+          }
+          @if (serverFieldError('companyStoreId'); as err) {
+            <mat-error>{{ err }}</mat-error>
+          }
+        </mat-form-field>
+      }
+
+      <!-- Shift -->
+      <mat-form-field appearance="outline" subscriptSizing="dynamic">
+        <mat-label>Shift</mat-label>
+        <mat-select formControlName="shiftId">
+          @for (s of openShifts(); track s.id) {
+            <mat-option [value]="s.id">
+              {{ s.companyStoreName || 'Shift' }} — {{ s.openedAt | date:'short' }}
+            </mat-option>
+          }
+        </mat-select>
+        @if (fieldError('shiftId'); as err) {
+          <mat-error>{{ err }}</mat-error>
+        }
+        @if (serverFieldError('shiftId'); as err) {
+          <mat-error>{{ err }}</mat-error>
+        }
+      </mat-form-field>
+
+      <!-- Comments (full width) -->
+      <mat-form-field
+        appearance="outline"
+        subscriptSizing="dynamic"
+        class="full-width"
+      >
+        <mat-label>Comments</mat-label>
+        <textarea
+          matInput
+          formControlName="comments"
+          rows="3"
+          placeholder="Additional notes..."
+        ></textarea>
+        @if (serverFieldError('comments'); as err) {
+          <mat-error>{{ err }}</mat-error>
+        }
+      </mat-form-field>
+    </div>
+    </ng-container>
+  </mat-card-content>
+</mat-card>
