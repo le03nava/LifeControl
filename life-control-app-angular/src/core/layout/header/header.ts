@@ -45,6 +45,7 @@ export class Header implements OnInit {
   private isSmallScreen = signal(false);
   isCompanyRole = signal(false);
   isAdmin = signal(false);
+  isSalesRole = signal(false);
 
   /** User display name from Keycloak token — signal for template reactivity */
   userName = signal('');
@@ -62,6 +63,12 @@ export class Header implements OnInit {
     if (this.isCompanyRole()) {
       menuItems.push(
         { id: '2', routeLink: '/companies', textLink: 'Companies', icon: 'business' },
+      );
+    }
+
+    if (this.isSalesRole()) {
+      menuItems.push(
+        { id: '6', routeLink: '/sales', textLink: 'Sales', icon: 'point_of_sale' },
       );
     }
 
@@ -101,6 +108,7 @@ export class Header implements OnInit {
         this.authenticated = this.keycloak.authenticated ?? false;
         const token = this.keycloak.tokenParsed;
         const clientRoles: string[] = token?.resource_access?.['life-control-client']?.roles ?? [];
+        const apiClientRoles: string[] = token?.resource_access?.['life-control-api']?.roles ?? [];
         this.isAdmin.set(clientRoles.includes('lc-admin'));
         this.isCompanyRole.set(
           clientRoles.includes('lc-admin') ||
@@ -110,12 +118,14 @@ export class Header implements OnInit {
           clientRoles.includes('lc-company-zone') ||
           clientRoles.includes('lc-company-store'),
         );
+        this.isSalesRole.set(apiClientRoles.includes('lc-sales'));
         this.updateUserFromToken();
       }
       if (event?.type === KeycloakEventType.AuthLogout) {
         this.authenticated = false;
         this.isAdmin.set(false);
         this.isCompanyRole.set(false);
+        this.isSalesRole.set(false);
         this.userName.set('');
       }
     });

@@ -45,4 +45,10 @@ describe('app.routes', () => {
     const wildcardRoute = routes.find((r) => r.path === '**');
     expect(wildcardRoute).toBeDefined();
   });
+
+  it('should contain the sales route with lazy loading', () => {
+    const salesRoute = routes.find((r) => r.path === 'sales');
+    expect(salesRoute).toBeDefined();
+    expect(salesRoute?.loadChildren).toBeDefined();
+  });
 });
