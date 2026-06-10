@@ -108,6 +108,10 @@ public class Routes {
         .route(RequestPredicates.path("/api/status-types/**"), HandlerFunctions.http("http://lifecontrol-dev-lifecontrol-api:8082"))
         .route(RequestPredicates.path("/api/statuses/**"), HandlerFunctions.http("http://lifecontrol-dev-lifecontrol-api:8082"))
         .route(RequestPredicates.path("/api/measure-units/**"), HandlerFunctions.http("http://lifecontrol-dev-lifecontrol-api:8082"))
+        .route(RequestPredicates.path("/api/customers/**"), HandlerFunctions.http("http://lifecontrol-dev-lifecontrol-api:8082"))
+        .route(RequestPredicates.path("/api/promotions/**"), HandlerFunctions.http("http://lifecontrol-dev-lifecontrol-api:8082"))
+        .route(RequestPredicates.path("/api/shifts/**"), HandlerFunctions.http("http://lifecontrol-dev-lifecontrol-api:8082"))
+        .route(RequestPredicates.path("/api/sales-orders/**"), HandlerFunctions.http("http://lifecontrol-dev-lifecontrol-api:8082"))
         .filter(CircuitBreakerFilterFunctions.circuitBreaker("lifeControlApiCircuitBreaker",
             URI.create("forward:/fallbackRoute")))
         .build();
