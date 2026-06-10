@@ -1,0 +1,80 @@
+<div class="sales-order-edit-page">
+  <app-page-header
+    [title]="
+      isEditMode()
+        ? 'Edit Sales Order'
+        : 'New Sales Order'
+    "
+    [subtitle]="
+      isEditMode()
+        ? 'Modify sales order details'
+        : 'Fill in the details to create a new sales order'
+    "
+  >
+    <button mat-stroked-button routerLink="/sales/orders">
+      <mat-icon fontIcon="arrow_back" /> Back
+    </button>
+  </app-page-header>
+
+  <!-- General Error -->
+  @if (generalError(); as errorMessage) {
+    <div class="error-banner" role="alert">
+      <mat-icon fontIcon="error" />
+      <span>{{ errorMessage }}</span>
+    </div>
+  }
+
+  <!-- Status Transition (edit mode only) -->
+  @if (loadedOrder(); as order) {
+    <app-status-transition
+      [order]="order"
+      (statusChanged)="onStatusChanged($event)"
+    />
+  }
+
+  <form [formGroup]="headerForm()" (ngSubmit)="onSave()" novalidate>
+    <!-- Header Form (customer, store cascade, shift, comments) -->
+    <app-order-header-form
+      [headerForm]="headerForm()"
+      [isEditMode]="isEditMode()"
+      [isDraft]="isDraft()"
+      [loadedOrder]="loadedOrder()"
+      [serverErrors]="serverErrors()"
+      [initialStore]="initialStore()"
+    />
+
+    <!-- Line Items Table -->
+    <app-sales-order-item-table
+      [items]="lineItems()"
+      [isDraft]="isDraft()"
+      (itemsChanged)="onItemsChanged($event)"
+    />
+
+    <!-- Action Buttons -->
+    <div class="form-actions">
+      <button
+        mat-stroked-button
+        type="button"
+        (click)="onCancel()"
+        [disabled]="saving()"
+        aria-label="Cancel"
+      >
+        Cancel
+      </button>
+      <button
+        mat-flat-button
+        color="primary"
+        type="submit"
+        [disabled]="saving() || headerForm().invalid"
+        aria-label="Save order"
+      >
+        @if (saving()) {
+          <mat-icon fontIcon="hourglass_empty" />
+        } @else {
+          <mat-icon fontIcon="save" />
+        }
+        {{ saving() ? 'Saving...' : (isEditMode() ? 'Update Order' : 'Create Order') }}
+      </button>
+    </div>
+  </form>
+</div>

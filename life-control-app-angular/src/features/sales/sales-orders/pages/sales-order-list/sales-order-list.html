@@ -1,0 +1,179 @@
+<div class="sales-order-list-page">
+  <app-page-header title="Sales Orders" subtitle="Manage sales orders">
+    <button mat-flat-button color="primary" (click)="createOrder()">
+      <mat-icon fontIcon="add" /> New Order
+    </button>
+  </app-page-header>
+
+  <!-- Search Filter -->
+  <div class="filters-section">
+    <mat-form-field appearance="outline" class="search-field" subscriptSizing="dynamic">
+      <mat-icon matPrefix>search</mat-icon>
+      <input
+        matInput
+        type="text"
+        [value]="searchQuery()"
+        (input)="searchQuery.set($any($event.target).value)"
+        placeholder="Search by order number or customer..."
+      />
+      @if (searchQuery()) {
+        <button matSuffix mat-icon-button aria-label="Clear search" (click)="clearSearch()" type="button">
+          <mat-icon>close</mat-icon>
+        </button>
+      }
+    </mat-form-field>
+  </div>
+
+  <!-- Error State -->
+  @if (error(); as err) {
+    <div class="error-state">
+      <mat-icon fontIcon="error" />
+      <p>{{ err }}</p>
+      <button mat-stroked-button (click)="onRetry()">Retry</button>
+    </div>
+  }
+
+  <!-- Table Section -->
+  <div class="table-section">
+    <!-- Loading Skeleton -->
+    @if (loading()) {
+      <div class="loading-skeleton">
+        @for (_ of [1, 2, 3, 4, 5]; track $index) {
+          <div class="skeleton-row" [style.--i]="$index">
+            <div class="skeleton-cell order-number"></div>
+            <div class="skeleton-cell customer"></div>
+            <div class="skeleton-cell status-badge"></div>
+            <div class="skeleton-cell amount"></div>
+            <div class="skeleton-cell date"></div>
+            <div class="skeleton-cell actions"></div>
+          </div>
+        }
+      </div>
+    } @else {
+      @let page = orders();
+      @if (page && page.content.length > 0) {
+        <mat-card appearance="outlined" class="table-card">
+          <mat-card-content>
+            <table mat-table [dataSource]="page.content">
+              <!-- Order Number -->
+              <ng-container matColumnDef="orderNumber">
+                <th mat-header-cell *matHeaderCellDef>Order Number</th>
+                <td mat-cell *matCellDef="let row">{{ row.orderNumber }}</td>
+              </ng-container>
+
+              <!-- Customer Name -->
+              <ng-container matColumnDef="customerName">
+                <th mat-header-cell *matHeaderCellDef>Customer</th>
+                <td mat-cell *matCellDef="let row">{{ row.customerName }}</td>
+              </ng-container>
+
+              <!-- Status Chip -->
+              <ng-container matColumnDef="status">
+                <th mat-header-cell *matHeaderCellDef>Status</th>
+                <td mat-cell *matCellDef="let row">
+                  <mat-chip
+                    [style.background-color]="statusColor[row.statusName] || '#9e9e9e'"
+                    [style.color]="'#fff'"
+                    class="status-chip"
+                    disableRipple
+                  >
+                    {{ row.statusName }}
+                  </mat-chip>
+                </td>
+              </ng-container>
+
+              <!-- Total Amount -->
+              <ng-container matColumnDef="totalAmount">
+                <th mat-header-cell *matHeaderCellDef>Total</th>
+                <td mat-cell *matCellDef="let row">{{ row.totalAmount | currency }}</td>
+              </ng-container>
+
+              <!-- Order Date -->
+              <ng-container matColumnDef="orderDate">
+                <th mat-header-cell *matHeaderCellDef>Order Date</th>
+                <td mat-cell *matCellDef="let row">{{ row.orderDate | date: 'dd/MM/yyyy' }}</td>
+              </ng-container>
+
+              <!-- Actions -->
+              <ng-container matColumnDef="actions">
+                <th mat-header-cell *matHeaderCellDef>Actions</th>
+                <td mat-cell *matCellDef="let row">
+                  <button mat-icon-button color="primary" (click)="editOrder(row.id)" matTooltip="Edit order">
+                    <mat-icon>edit</mat-icon>
+                  </button>
+                </td>
+              </ng-container>
+
+              <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+              <tr mat-row *matRowDef="let row; columns: displayedColumns"></tr>
+            </table>
+          </mat-card-content>
+        </mat-card>
+      } @else {
+        <!-- Empty State -->
+        <div class="empty-state">
+          <div class="empty-illustration">
+            <svg viewBox="0 0 200 200" class="empty-svg">
+              <defs>
+                <linearGradient id="soGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" style="stop-color:#2563eb;stop-opacity:0.1" />
+                  <stop offset="100%" style="stop-color:#06b6d4;stop-opacity:0.1" />
+                </linearGradient>
+              </defs>
+              <circle cx="100" cy="100" r="80" fill="url(#soGrad)" />
+              <g transform="translate(50, 55)">
+                <rect x="0" y="0" width="100" height="80" rx="4" fill="none" stroke="var(--mat-sys-outline, #cbd5e1)" stroke-width="2" />
+                <rect x="5" y="5" width="90" height="8" rx="2" fill="var(--mat-sys-primary, #2563eb)" opacity="0.3" />
+                <rect x="5" y="18" width="60" height="5" rx="2" fill="var(--mat-sys-on-surface-variant, #94a3b8)" opacity="0.3" />
+                <rect x="5" y="28" width="80" height="5" rx="2" fill="var(--mat-sys-on-surface-variant, #94a3b8)" opacity="0.3" />
+                <rect x="5" y="38" width="50" height="5" rx="2" fill="var(--mat-sys-on-surface-variant, #94a3b8)" opacity="0.3" />
+                <rect x="5" y="48" width="70" height="5" rx="2" fill="var(--mat-sys-on-surface-variant, #94a3b8)" opacity="0.3" />
+                <rect x="5" y="58" width="40" height="5" rx="2" fill="var(--mat-sys-on-surface-variant, #94a3b8)" opacity="0.3" />
+                <line x1="5" y1="68" x2="95" y2="68" stroke="var(--mat-sys-outline, #cbd5e1)" stroke-width="1" opacity="0.3" />
+                <rect x="5" y="73" width="25" height="6" rx="2" fill="var(--mat-sys-secondary, #64748b)" opacity="0.3" />
+                <rect x="60" y="73" width="25" height="6" rx="2" fill="var(--mat-sys-error, #ef4444)" opacity="0.3" />
+              </g>
+              <g transform="translate(85, 140)">
+                <circle cx="0" cy="0" r="15" fill="var(--mat-sys-surface-container, #ffffff)" stroke="var(--mat-sys-outline, #cbd5e1)" stroke-width="2" />
+                <path d="M-5,-5 L5,5 M-5,5 L5,-5" stroke="var(--mat-sys-on-surface-variant, #94a3b8)" stroke-width="2" stroke-linecap="round" />
+              </g>
+            </svg>
+          </div>
+          <h3 class="empty-title">
+            @if (searchQuery()) {
+              No orders found
+            } @else {
+              No sales orders registered
+            }
+          </h3>
+          @if (searchQuery()) {
+            <p class="empty-subtitle">
+              Try a different search term
+            </p>
+          } @else {
+            <p class="empty-subtitle">
+              Click "New Order" to create the first one
+            </p>
+          }
+        </div>
+      }
+    }
+  </div>
+
+  <!-- Paginator -->
+  @let page = orders();
+  @if (page && page.totalPages > 1) {
+    <div class="pagination-section">
+      <mat-paginator
+        [length]="page.totalElements"
+        [pageSize]="pageSize()"
+        [pageIndex]="pageIndex()"
+        [pageSizeOptions]="[6, 12, 24, 48]"
+        (page)="onPageChange($event)"
+        showFirstLastButtons
+        aria-label="Sales orders pagination"
+      >
+      </mat-paginator>
+    </div>
+  }
+</div>
