@@ -339,3 +339,20 @@ CREATE INDEX IF NOT EXISTS idx_pod_order ON purchase_order_details(purchase_orde
 CREATE INDEX IF NOT EXISTS idx_pod_product ON purchase_order_details(product_id);
 CREATE INDEX IF NOT EXISTS idx_pod_status ON purchase_order_details(status_id);
 CREATE INDEX IF NOT EXISTS idx_pod_enabled ON purchase_order_details(enabled);
+
+-- ============================================
+-- User Preferences Table
+-- ============================================
+CREATE TABLE IF NOT EXISTS user_preferences (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    keycloak_user_id VARCHAR(36) NOT NULL UNIQUE,
+    company_country_id UUID REFERENCES company_countries(id),
+    company_id UUID REFERENCES companies(id),
+    company_region_id UUID REFERENCES company_regions(id),
+    company_zone_id UUID REFERENCES company_zones(id),
+    company_store_id UUID REFERENCES company_stores(id),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_up_keycloak_user ON user_preferences(keycloak_user_id);

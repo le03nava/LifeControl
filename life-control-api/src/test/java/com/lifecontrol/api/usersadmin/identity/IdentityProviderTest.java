@@ -5,6 +5,7 @@ import com.lifecontrol.api.usersadmin.dto.RoleRequest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.keycloak.representations.idm.UserRepresentation;
 
 import java.lang.reflect.Method;
 import java.util.Arrays;
@@ -19,6 +20,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class IdentityProviderTest {
 
     private static final Set<String> EXPECTED_METHODS = Set.of(
+            "createUser",
+            "deleteUser",
             "listRealmRoles",
             "createRealmRole",
             "getRealmRole",
@@ -36,7 +39,9 @@ class IdentityProviderTest {
             "deleteUserAttribute",
             "createGroup",
             "searchUsers",
-            "companyGroupExists"
+            "companyGroupExists",
+            "findGroupIdByName",
+            "deleteClientRole"
     );
 
     @Nested
@@ -92,6 +97,20 @@ class IdentityProviderTest {
         void companyGroupExistsSignature() throws Exception {
             var method = IdentityProvider.class.getMethod("companyGroupExists", String.class);
             assertThat(method.getReturnType()).isEqualTo(boolean.class);
+        }
+
+        @Test
+        @DisplayName("createUser should accept UserRepresentation and return String")
+        void createUserSignature() throws Exception {
+            var method = IdentityProvider.class.getMethod("createUser", UserRepresentation.class);
+            assertThat(method.getReturnType()).isEqualTo(String.class);
+        }
+
+        @Test
+        @DisplayName("deleteUser should accept String userId and return void")
+        void deleteUserSignature() throws Exception {
+            var method = IdentityProvider.class.getMethod("deleteUser", String.class);
+            assertThat(method.getReturnType()).isEqualTo(void.class);
         }
     }
 }

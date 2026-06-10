@@ -1,14 +1,25 @@
 package com.lifecontrol.api.usersadmin.service;
 
+import com.lifecontrol.api.usersadmin.dto.CreateUserRequest;
+import com.lifecontrol.api.usersadmin.dto.CreateUserResponse;
 import com.lifecontrol.api.usersadmin.dto.PageResponse;
 import com.lifecontrol.api.usersadmin.dto.RoleRequest;
 import com.lifecontrol.api.usersadmin.identity.IdentityProvider;
+import com.lifecontrol.api.usersadmin.identity.IdentityProviderException;
 import com.lifecontrol.api.usersadmin.identity.RoleDto;
 import com.lifecontrol.api.usersadmin.identity.RoleScope;
 import com.lifecontrol.api.usersadmin.identity.UserSearchDto;
+import com.lifecontrol.api.usersadmin.model.UserPreferences;
+import com.lifecontrol.api.usersadmin.repository.UserPreferencesRepository;
+import org.keycloak.representations.idm.CredentialRepresentation;
+import org.keycloak.representations.idm.UserRepresentation;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.security.SecureRandom;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 
@@ -20,10 +31,62 @@ import java.util.Map;
 @Service
 public class UsersAdminService {
 
-    private final IdentityProvider identityProvider;
+    private static final Logger logger = LoggerFactory.getLogger(UsersAdminService.class);
 
-    public UsersAdminService(IdentityProvider identityProvider) {
+    private final IdentityProvider identityProvider;
+    private final UserPreferencesRepository userPreferencesRepository;
+
+    public UsersAdminService(IdentityProvider identityProvider,
+                             UserPreferencesRepository userPreferencesRepository) {
         this.identityProvider = identityProvider;
+        this.userPreferencesRepository = userPreferencesRepository;
+    }
+
+    // ---------------------------------------------------------------
+    // User Creation
+    // ---------------------------------------------------------------
+
+    @Transactional
+    public CreateUserResponse createUser(CreateUserRequest request) {
+        var userRep = new UserRepresentation();
+        userRep.setUsername(request.username());
+        userRep.setEmail(request.email());
+        userRep.setFirstName(request.firstName());
+        userRep.setLastName(request.lastName());
+        userRep.setEnabled(request.enabled());
+
+        var randomBytes = new byte[16];
+        new SecureRandom().nextBytes(randomBytes);
+        var password = Base64.getEncoder().encodeToString(randomBytes);
+
+        var credential = new CredentialRepresentation();
+        credential.setType(CredentialRepresentation.PASSWORD);
+        credential.setValue(password);
+        credential.setTemporary(false);
+        userRep.setCredentials(List.of(credential));
+
+        String keycloakUserId = null;
+        try {
+            keycloakUserId = identityProvider.createUser(userRep);
+
+            var prefs = UserPreferences.builder()
+                    .keycloakUserId(keycloakUserId)
+                    .build();
+            userPreferencesRepository.save(prefs);
+
+            return new CreateUserResponse(keycloakUserId);
+        } catch (IdentityProviderException e) {
+            throw e;
+        } catch (Exception e) {
+            if (keycloakUserId != null) {
+                try {
+                    identityProvider.deleteUser(keycloakUserId);
+                } catch (Exception ex) {
+                    logger.error("Compensation failed: Keycloak user {} not deleted", keycloakUserId, ex);
+                }
+            }
+            throw e;
+        }
     }
 
     // ---------------------------------------------------------------

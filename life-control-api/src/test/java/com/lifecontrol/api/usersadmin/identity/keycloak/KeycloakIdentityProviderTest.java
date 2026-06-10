@@ -1,5 +1,9 @@
 package com.lifecontrol.api.usersadmin.identity.keycloak;
 
+import com.lifecontrol.api.usersadmin.identity.IdentityProviderConflictException;
+import com.lifecontrol.api.usersadmin.identity.IdentityProviderConnectionException;
+import jakarta.ws.rs.ClientErrorException;
+import jakarta.ws.rs.ProcessingException;
 import jakarta.ws.rs.core.Response;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -10,18 +14,24 @@ import org.keycloak.admin.client.Keycloak;
 import org.keycloak.admin.client.resource.GroupResource;
 import org.keycloak.admin.client.resource.GroupsResource;
 import org.keycloak.admin.client.resource.RealmResource;
+import org.keycloak.admin.client.resource.UsersResource;
+import org.keycloak.representations.idm.CredentialRepresentation;
 import org.keycloak.representations.idm.GroupRepresentation;
+import org.keycloak.representations.idm.UserRepresentation;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -37,6 +47,8 @@ class KeycloakIdentityProviderTest {
     private GroupsResource groupsResource;
     @Mock
     private GroupResource groupResource;
+    @Mock
+    private UsersResource usersResource;
 
     private KeycloakAdminProperties properties;
     private KeycloakIdentityProvider provider;
@@ -176,4 +188,60 @@ class KeycloakIdentityProviderTest {
         }
     }
 
+    @Nested
+    @DisplayName("createUser")
+    class CreateUserTests {
+
+        private static final String USER_ID = "user-id-extracted-from-location";
+
+        private UserRepresentation buildUser() {
+            var user = new UserRepresentation();
+            user.setUsername("jdoe");
+            user.setEmail("jdoe@example.com");
+            user.setFirstName("John");
+            user.setLastName("Doe");
+            user.setEnabled(true);
+            return user;
+        }
+
+        @Test
+        @DisplayName("should extract user ID from Location header on 201")
+        void shouldExtractUserIdFromLocationHeader() {
+            when(realmResource.users()).thenReturn(usersResource);
+            var response = mock(Response.class);
+            when(response.getStatus()).thenReturn(201);
+            when(response.getLocation()).thenReturn(
+                    URI.create("http://keycloak:8080/admin/realms/life-control-realm/users/" + USER_ID));
+            when(usersResource.create(any(UserRepresentation.class))).thenReturn(response);
+
+            var result = provider.createUser(buildUser());
+
+            assertThat(result).isEqualTo(USER_ID);
+        }
+
+        @Test
+        @DisplayName("should map 409 to IdentityProviderConflictException")
+        void shouldMap409ToConflictException() {
+            when(realmResource.users()).thenReturn(usersResource);
+            var e409 = new ClientErrorException(
+                    "Conflict", jakarta.ws.rs.core.Response.Status.CONFLICT.getStatusCode());
+            when(usersResource.create(any(UserRepresentation.class))).thenThrow(e409);
+
+            assertThatThrownBy(() -> provider.createUser(buildUser()))
+                    .isInstanceOf(IdentityProviderConflictException.class)
+                    .hasMessageContaining("User already exists");
+        }
+
+        @Test
+        @DisplayName("should map ProcessingException to IdentityProviderConnectionException")
+        void shouldMapProcessingExceptionToConnectionException() {
+            when(realmResource.users()).thenReturn(usersResource);
+            when(usersResource.create(any(UserRepresentation.class)))
+                    .thenThrow(new ProcessingException("Connection refused"));
+
+            assertThatThrownBy(() -> provider.createUser(buildUser()))
+                    .isInstanceOf(IdentityProviderConnectionException.class)
+                    .hasMessageContaining("Failed to create user");
+        }
+    }
 }

@@ -1,16 +1,22 @@
 package com.lifecontrol.api.usersadmin.service;
 
+import com.lifecontrol.api.usersadmin.dto.CreateUserRequest;
+import com.lifecontrol.api.usersadmin.dto.CreateUserResponse;
 import com.lifecontrol.api.usersadmin.dto.PageResponse;
 import com.lifecontrol.api.usersadmin.dto.RoleRequest;
 import com.lifecontrol.api.usersadmin.identity.IdentityProvider;
+import com.lifecontrol.api.usersadmin.identity.IdentityProviderConflictException;
 import com.lifecontrol.api.usersadmin.identity.RoleDto;
 import com.lifecontrol.api.usersadmin.identity.RoleScope;
 import com.lifecontrol.api.usersadmin.identity.UserSearchDto;
+import com.lifecontrol.api.usersadmin.model.UserPreferences;
+import com.lifecontrol.api.usersadmin.repository.UserPreferencesRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -19,10 +25,12 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -32,6 +40,9 @@ class UsersAdminServiceTest {
 
     @Mock
     private IdentityProvider identityProvider;
+
+    @Mock
+    private UserPreferencesRepository userPreferencesRepository;
 
     @InjectMocks
     private UsersAdminService service;
@@ -289,6 +300,71 @@ class UsersAdminServiceTest {
             assertThat(result.content()).isEmpty();
             assertThat(result.total()).isEqualTo(0);
             verify(identityProvider).searchUsers("", 0, 20);
+        }
+    }
+
+    // ─── User Creation ─────────────────────────────────────────
+
+    @Nested
+    @DisplayName("User Creation")
+    class UserCreationTests {
+
+        private static final String KEYCLOAK_USER_ID = "kc-user-id-123";
+
+        private CreateUserRequest createRequest() {
+            return new CreateUserRequest("jdoe", "jdoe@example.com", "John", "Doe", true);
+        }
+
+        @Test
+        @DisplayName("should create Keycloak user, save preferences, and return keycloakUserId")
+        void createUser_happyPath() {
+            when(identityProvider.createUser(any())).thenReturn(KEYCLOAK_USER_ID);
+
+            var result = service.createUser(createRequest());
+
+            assertThat(result).isNotNull();
+            assertThat(result.keycloakUserId()).isEqualTo(KEYCLOAK_USER_ID);
+            verify(identityProvider).createUser(any());
+            verify(userPreferencesRepository).save(any());
+        }
+
+        @Test
+        @DisplayName("should attempt compensation when preferences save fails")
+        void createUser_preferencesSaveFails_triggersCompensation() {
+            when(identityProvider.createUser(any())).thenReturn(KEYCLOAK_USER_ID);
+            when(userPreferencesRepository.save(any())).thenThrow(new RuntimeException("DB error"));
+
+            assertThatThrownBy(() -> service.createUser(createRequest()))
+                    .isInstanceOf(RuntimeException.class)
+                    .hasMessageContaining("DB error");
+
+            verify(identityProvider).deleteUser(KEYCLOAK_USER_ID);
+        }
+
+        @Test
+        @DisplayName("should propagate IdentityProviderConflictException without compensation")
+        void createUser_conflictException_propagatesWithoutCompensation() {
+            var conflict = new IdentityProviderConflictException("User already exists: jdoe");
+            when(identityProvider.createUser(any())).thenThrow(conflict);
+
+            assertThatThrownBy(() -> service.createUser(createRequest()))
+                    .isInstanceOf(IdentityProviderConflictException.class)
+                    .hasMessage("User already exists: jdoe");
+
+            verify(identityProvider, never()).deleteUser(anyString());
+        }
+
+        @Test
+        @DisplayName("should pass enabled=false to IdentityProvider when request.enabled is false")
+        void createUser_enabledFalse_passesToIdentityProvider() {
+            var request = new CreateUserRequest("jdoe", "jdoe@example.com", "John", "Doe", false);
+            when(identityProvider.createUser(any())).thenReturn(KEYCLOAK_USER_ID);
+
+            service.createUser(request);
+
+            var captor = ArgumentCaptor.forClass(org.keycloak.representations.idm.UserRepresentation.class);
+            verify(identityProvider).createUser(captor.capture());
+            assertThat(captor.getValue().isEnabled()).isFalse();
         }
     }
 }

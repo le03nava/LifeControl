@@ -2,6 +2,7 @@ package com.lifecontrol.api.usersadmin.identity;
 
 import com.lifecontrol.api.usersadmin.dto.PageResponse;
 import com.lifecontrol.api.usersadmin.dto.RoleRequest;
+import org.keycloak.representations.idm.UserRepresentation;
 
 import java.util.List;
 import java.util.Map;
@@ -12,6 +13,23 @@ import java.util.Optional;
  * attributes, search). Decouples the domain from any specific IdP implementation.
  */
 public interface IdentityProvider {
+
+    // --- User Lifecycle ---
+
+    /**
+     * Creates a user in the identity provider.
+     *
+     * @param user the user representation to create
+     * @return the newly created user's ID
+     */
+    String createUser(UserRepresentation user);
+
+    /**
+     * Deletes a user from the identity provider.
+     *
+     * @param userId the identity provider user ID
+     */
+    void deleteUser(String userId);
 
     // --- Realm Role CRUD ---
 

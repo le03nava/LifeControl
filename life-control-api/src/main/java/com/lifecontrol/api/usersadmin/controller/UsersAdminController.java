@@ -1,6 +1,8 @@
 package com.lifecontrol.api.usersadmin.controller;
 
 import com.lifecontrol.api.usersadmin.dto.AttributeValueRequest;
+import com.lifecontrol.api.usersadmin.dto.CreateUserRequest;
+import com.lifecontrol.api.usersadmin.dto.CreateUserResponse;
 import com.lifecontrol.api.usersadmin.dto.PageResponse;
 import com.lifecontrol.api.usersadmin.dto.UserAssignmentRequest;
 import com.lifecontrol.api.usersadmin.identity.RoleDto;
@@ -9,6 +11,7 @@ import com.lifecontrol.api.usersadmin.identity.UserSearchDto;
 import com.lifecontrol.api.usersadmin.service.UsersAdminService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -35,6 +38,23 @@ public class UsersAdminController {
 
     public UsersAdminController(UsersAdminService service) {
         this.service = service;
+    }
+
+    // ---------------------------------------------------------------
+    // User Creation
+    // ---------------------------------------------------------------
+
+    @PostMapping
+    @Operation(summary = "Create user", description = "Creates a Keycloak user and initializes user preferences")
+    @ApiResponse(responseCode = "201", description = "User created")
+    @ApiResponse(responseCode = "400", description = "Validation error")
+    @ApiResponse(responseCode = "403", description = "Insufficient permissions")
+    @ApiResponse(responseCode = "409", description = "User already exists")
+    @ApiResponse(responseCode = "503", description = "Identity provider unavailable")
+    public ResponseEntity<CreateUserResponse> createUser(
+            @Valid @RequestBody CreateUserRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(service.createUser(request));
     }
 
     // ---------------------------------------------------------------
