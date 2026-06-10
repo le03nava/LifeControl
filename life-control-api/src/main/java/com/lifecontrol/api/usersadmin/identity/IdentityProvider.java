@@ -31,6 +31,14 @@ public interface IdentityProvider {
      */
     void deleteUser(String userId);
 
+    /**
+     * Updates a user's representation in the identity provider.
+     *
+     * @param userId the identity provider user ID
+     * @param user   the updated user representation
+     */
+    void updateUser(String userId, UserRepresentation user);
+
     // --- Realm Role CRUD ---
 
     List<RoleDto> listRealmRoles();
