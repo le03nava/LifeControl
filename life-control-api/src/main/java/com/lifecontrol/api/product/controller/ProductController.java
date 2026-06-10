@@ -2,7 +2,10 @@ package com.lifecontrol.api.product.controller;
 
 import com.lifecontrol.api.product.dto.ProductRequest;
 import com.lifecontrol.api.product.dto.ProductResponse;
+import com.lifecontrol.api.product.dto.ProductVariantRequest;
+import com.lifecontrol.api.product.dto.ProductVariantResponse;
 import com.lifecontrol.api.product.service.ProductService;
+import com.lifecontrol.api.product.service.ProductVariantService;
 import com.lifecontrol.api.product.supplier.dto.ProductSupplierRequest;
 import com.lifecontrol.api.product.supplier.dto.ProductSupplierResponse;
 import com.lifecontrol.api.product.supplier.dto.SupplierProductResponse;
@@ -28,10 +31,14 @@ public class ProductController {
 
     private final ProductService productService;
     private final ProductSupplierService productSupplierService;
+    private final ProductVariantService productVariantService;
 
-    public ProductController(ProductService productService, ProductSupplierService productSupplierService) {
+    public ProductController(ProductService productService,
+                             ProductSupplierService productSupplierService,
+                             ProductVariantService productVariantService) {
         this.productService = productService;
         this.productSupplierService = productSupplierService;
+        this.productVariantService = productVariantService;
     }
 
     @GetMapping
@@ -116,6 +123,56 @@ public class ProductController {
             @PathVariable UUID productId,
             @PathVariable UUID id) {
         productSupplierService.removeSupplierFromProduct(productId, id);
+        return ResponseEntity.noContent().build();
+    }
+
+    // --- ProductVariant nested endpoints ---
+
+    @GetMapping("/{productId}/variants")
+    @PreAuthorize("hasRole('lc-sales')")
+    @Operation(summary = "List variants for a product", description = "Returns a paginated list of variants for a given product")
+    public ResponseEntity<Page<ProductVariantResponse>> listVariants(
+            @PathVariable UUID productId,
+            @PageableDefault(size = 12) Pageable pageable) {
+        return ResponseEntity.ok(productVariantService.listVariants(productId, pageable));
+    }
+
+    @PostMapping("/{productId}/variants")
+    @PreAuthorize("hasRole('lc-sales')")
+    @Operation(summary = "Create variant for a product", description = "Creates a new product variant for the specified product")
+    public ResponseEntity<ProductVariantResponse> createVariant(
+            @PathVariable UUID productId,
+            @Valid @RequestBody ProductVariantRequest request) {
+        var response = productVariantService.createVariant(productId, request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @GetMapping("/{productId}/variants/{variantId}")
+    @PreAuthorize("hasRole('lc-sales')")
+    @Operation(summary = "Get variant by ID", description = "Returns a single product variant by its UUID, scoped to a product")
+    public ResponseEntity<ProductVariantResponse> getVariant(
+            @PathVariable UUID productId,
+            @PathVariable UUID variantId) {
+        return ResponseEntity.ok(productVariantService.getVariant(productId, variantId));
+    }
+
+    @PutMapping("/{productId}/variants/{variantId}")
+    @PreAuthorize("hasRole('lc-sales')")
+    @Operation(summary = "Update variant", description = "Updates an existing product variant")
+    public ResponseEntity<ProductVariantResponse> updateVariant(
+            @PathVariable UUID productId,
+            @PathVariable UUID variantId,
+            @Valid @RequestBody ProductVariantRequest request) {
+        return ResponseEntity.ok(productVariantService.updateVariant(productId, variantId, request));
+    }
+
+    @DeleteMapping("/{productId}/variants/{variantId}")
+    @PreAuthorize("hasRole('lc-sales')")
+    @Operation(summary = "Delete variant", description = "Soft-deletes a product variant by setting enabled to false")
+    public ResponseEntity<Void> deleteVariant(
+            @PathVariable UUID productId,
+            @PathVariable UUID variantId) {
+        productVariantService.deleteVariant(productId, variantId);
         return ResponseEntity.noContent().build();
     }
 }
