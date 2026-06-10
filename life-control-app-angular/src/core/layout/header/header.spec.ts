@@ -385,10 +385,12 @@ describe('Header', () => {
       expect(navigateSpy).toHaveBeenCalledWith(['/profile']);
     });
 
-    it('editPreferences should call keycloak.accountManagement', () => {
+    it('editPreferences should navigate to /profile?edit=true', () => {
       const { component } = setup(['lc-admin']);
+      const router = TestBed.inject(Router);
+      const navigateSpy = vi.spyOn(router, 'navigate');
       component.editPreferences();
-      expect(keycloakMock.accountManagement).toHaveBeenCalled();
+      expect(navigateSpy).toHaveBeenCalledWith(['/profile'], { queryParams: { edit: true } });
     });
 
     it('logout should call keycloak.logout', () => {

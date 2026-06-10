@@ -145,8 +145,8 @@ export class Header implements OnInit {
     this.router.navigate(['/profile']);
   }
 
-  /** Open Keycloak account management UI in a new tab */
+  /** Navigate to profile edit page */
   editPreferences(): void {
-    this.keycloak.accountManagement();
+    this.router.navigate(['/profile'], { queryParams: { edit: true } });
   }
 }

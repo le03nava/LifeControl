@@ -1,27 +1,274 @@
-<div class="profile-container">
-  <mat-card class="profile-card">
-    <mat-card-header>
-      <div mat-card-avatar class="profile-avatar">
-        <mat-icon>account_circle</mat-icon>
-      </div>
-      <mat-card-title>{{ displayName() }}</mat-card-title>
-      <mat-card-subtitle>User Profile</mat-card-subtitle>
-    </mat-card-header>
+@if (loading()) {
+  <div class="profile-loading">
+    <mat-spinner diameter="40" />
+    <p>Loading profile…</p>
+  </div>
+} @else if (error() && !profile()) {
+  <div class="profile-error">
+    <mat-icon color="warn">error</mat-icon>
+    <p>{{ error() }}</p>
+  </div>
+} @else {
+  @if (!isEditMode()) {
+    <!-- ═══════════════════ VIEW MODE ═══════════════════ -->
+    <div class="profile-container">
+      <mat-card class="profile-card">
+        <mat-card-header>
+          <div mat-card-avatar class="profile-avatar">
+            <mat-icon>account_circle</mat-icon>
+          </div>
+          <mat-card-title>{{ profile()?.firstName }} {{ profile()?.lastName }}</mat-card-title>
+          <mat-card-subtitle>User Profile</mat-card-subtitle>
+        </mat-card-header>
 
-    <mat-card-content>
-      <div class="profile-info">
-        <div class="info-row">
-          <mat-icon>email</mat-icon>
-          <span class="info-label">Email</span>
-          <span class="info-value">{{ email() }}</span>
-        </div>
+        <mat-card-content>
+          <div class="profile-info">
+            <div class="info-row">
+              <mat-icon>email</mat-icon>
+              <span class="info-label">Email</span>
+              <span class="info-value">{{ profile()?.email || 'Not available' }}</span>
+            </div>
 
-        <div class="info-row">
-          <mat-icon>person</mat-icon>
-          <span class="info-label">Username</span>
-          <span class="info-value">{{ username() }}</span>
-        </div>
-      </div>
-    </mat-card-content>
-  </mat-card>
-</div>
+            <div class="info-row">
+              <mat-icon>person</mat-icon>
+              <span class="info-label">Username</span>
+              <span class="info-value">{{ profile()?.username || 'Not available' }}</span>
+            </div>
+
+            @if (profile()?.companyId) {
+              <div class="info-row">
+                <mat-icon>business</mat-icon>
+                <span class="info-label">Location</span>
+                <span class="info-value">
+                  @if (profile()?.companyStoreId) {
+                    Store assigned
+                  } @else if (profile()?.companyZoneId) {
+                    Zone assigned
+                  } @else if (profile()?.companyRegionId) {
+                    Region assigned
+                  } @else if (profile()?.companyCountryId) {
+                    Country assigned
+                  } @else if (profile()?.companyId) {
+                    Company assigned
+                  }
+                </span>
+              </div>
+            }
+          </div>
+
+          <div class="profile-actions">
+            <button
+              mat-stroked-button
+              color="primary"
+              [routerLink]="['/profile']"
+              [queryParams]="{ edit: true }"
+            >
+              <mat-icon>edit</mat-icon>
+              Edit Profile
+            </button>
+          </div>
+        </mat-card-content>
+      </mat-card>
+    </div>
+  } @else {
+    <!-- ═══════════════════ EDIT MODE ═══════════════════ -->
+    <div class="profile-container edit-mode">
+      <mat-card class="profile-card">
+        <mat-card-header>
+          <div mat-card-avatar class="profile-avatar">
+            <mat-icon>account_circle</mat-icon>
+          </div>
+          <mat-card-title>Edit Profile</mat-card-title>
+          <mat-card-subtitle>Update your personal information and location preferences</mat-card-subtitle>
+        </mat-card-header>
+
+        <mat-card-content>
+          <form [formGroup]="form()" class="profile-form">
+            @if (saveSuccess()) {
+              <div class="success-banner">
+                <mat-icon>check_circle</mat-icon>
+                <span>Profile updated successfully!</span>
+              </div>
+            }
+
+            <!-- Basic Information -->
+            <section class="form-section">
+              <h3 class="section-title">Basic Information</h3>
+              <div class="form-row">
+                <mat-form-field appearance="outline" class="form-field">
+                  <mat-label>First Name</mat-label>
+                  <input matInput formControlName="firstName" placeholder="First name" />
+                  @if (form().get('firstName')?.hasError('required') && form().get('firstName')?.touched) {
+                    <mat-error>First name is required</mat-error>
+                  }
+                </mat-form-field>
+
+                <mat-form-field appearance="outline" class="form-field">
+                  <mat-label>Last Name</mat-label>
+                  <input matInput formControlName="lastName" placeholder="Last name" />
+                  @if (form().get('lastName')?.hasError('required') && form().get('lastName')?.touched) {
+                    <mat-error>Last name is required</mat-error>
+                  }
+                </mat-form-field>
+              </div>
+
+              <mat-form-field appearance="outline" class="form-field form-field--full">
+                <mat-label>Email</mat-label>
+                <input matInput formControlName="email" placeholder="Email" type="email" />
+                @if (form().get('email')?.hasError('required') && form().get('email')?.touched) {
+                  <mat-error>Email is required</mat-error>
+                }
+                @if (form().get('email')?.hasError('email') && form().get('email')?.touched) {
+                  <mat-error>Enter a valid email address</mat-error>
+                }
+              </mat-form-field>
+            </section>
+
+            <!-- Location Preferences -->
+            <section class="form-section">
+              <h3 class="section-title">Location Preferences</h3>
+              <p class="section-description">
+                Select your location hierarchy. Each selection filters the available options for the next level.
+              </p>
+
+              <!-- Company -->
+              <mat-form-field appearance="outline" class="form-field form-field--full">
+                <mat-label>Company</mat-label>
+                <mat-select
+                  [value]="form().get('companyId')?.value"
+                  (selectionChange)="onCompanyChange($event.value)"
+                >
+                  @if (loadingCompanies()) {
+                    <mat-option disabled>Loading…</mat-option>
+                  } @else {
+                    @for (company of companies(); track company.id) {
+                      <mat-option [value]="company.id">
+                        {{ company.companyName }}
+                      </mat-option>
+                    }
+                  }
+                </mat-select>
+              </mat-form-field>
+
+              <!-- Country -->
+              <mat-form-field appearance="outline" class="form-field form-field--full">
+                <mat-label>Country</mat-label>
+                <mat-select
+                  [value]="form().get('companyCountryId')?.value"
+                  (selectionChange)="onCountryChange($event.value)"
+                  [disabled]="!form().get('companyId')?.value"
+                >
+                  @if (loadingCountries()) {
+                    <mat-option disabled>Loading…</mat-option>
+                  } @else {
+                    <mat-option [value]="null">— None —</mat-option>
+                    @for (country of companyCountries(); track country.id) {
+                      <mat-option [value]="country.id">
+                        {{ country.countryName }}
+                      </mat-option>
+                    }
+                  }
+                </mat-select>
+              </mat-form-field>
+
+              <!-- Region -->
+              <mat-form-field appearance="outline" class="form-field form-field--full">
+                <mat-label>Region</mat-label>
+                <mat-select
+                  [value]="form().get('companyRegionId')?.value"
+                  (selectionChange)="onRegionChange($event.value)"
+                  [disabled]="!form().get('companyCountryId')?.value"
+                >
+                  @if (loadingRegions()) {
+                    <mat-option disabled>Loading…</mat-option>
+                  } @else {
+                    <mat-option [value]="null">— None —</mat-option>
+                    @for (region of regions(); track region.id) {
+                      <mat-option [value]="region.id">
+                        {{ region.regionName }}
+                      </mat-option>
+                    }
+                  }
+                </mat-select>
+              </mat-form-field>
+
+              <!-- Zone -->
+              <mat-form-field appearance="outline" class="form-field form-field--full">
+                <mat-label>Zone</mat-label>
+                <mat-select
+                  [value]="form().get('companyZoneId')?.value"
+                  (selectionChange)="onZoneChange($event.value)"
+                  [disabled]="!form().get('companyRegionId')?.value"
+                >
+                  @if (loadingZones()) {
+                    <mat-option disabled>Loading…</mat-option>
+                  } @else {
+                    <mat-option [value]="null">— None —</mat-option>
+                    @for (zone of zones(); track zone.id) {
+                      <mat-option [value]="zone.id">
+                        {{ zone.zoneName }}
+                      </mat-option>
+                    }
+                  }
+                </mat-select>
+              </mat-form-field>
+
+              <!-- Store -->
+              <mat-form-field appearance="outline" class="form-field form-field--full">
+                <mat-label>Store</mat-label>
+                <mat-select
+                  [value]="form().get('companyStoreId')?.value"
+                  (selectionChange)="onStoreChange($event.value)"
+                  [disabled]="!form().get('companyZoneId')?.value"
+                >
+                  @if (loadingStores()) {
+                    <mat-option disabled>Loading…</mat-option>
+                  } @else {
+                    <mat-option [value]="null">— None —</mat-option>
+                    @for (store of stores(); track store.id) {
+                      <mat-option [value]="store.id">
+                        {{ store.storeName }}
+                      </mat-option>
+                    }
+                  }
+                </mat-select>
+              </mat-form-field>
+            </section>
+
+            <!-- Error banner -->
+            @if (error()) {
+              <div class="error-banner">
+                <mat-icon>error</mat-icon>
+                <span>{{ error() }}</span>
+              </div>
+            }
+
+            <!-- Actions -->
+            <div class="form-actions">
+              <button
+                mat-stroked-button
+                type="button"
+                (click)="cancel()"
+                [disabled]="saving()"
+              >
+                Cancel
+              </button>
+              <button
+                mat-flat-button
+                color="primary"
+                type="button"
+                (click)="save()"
+                [disabled]="saving()"
+              >
+                @if (saving()) {
+                  <mat-spinner diameter="20" />
+                }
+                Save Changes
+              </button>
+            </div>
+          </form>
+        </mat-card-content>
+      </mat-card>
+    </div>
+  }
+}
