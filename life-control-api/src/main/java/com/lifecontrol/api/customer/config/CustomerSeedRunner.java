@@ -7,7 +7,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
 
@@ -32,21 +31,24 @@ public class CustomerSeedRunner implements ApplicationRunner {
     }
 
     @Override
-    @Transactional
     public void run(ApplicationArguments args) {
         if (customerRepository.existsById(CLIENTE_GENERAL_ID)) {
             log.debug("Cliente General already exists, skipping seed");
             return;
         }
 
-        var customer = Customer.builder()
-                .id(CLIENTE_GENERAL_ID)
-                .name(CLIENTE_GENERAL_NAME)
-                .salesChannel(CLIENTE_GENERAL_CHANNEL)
-                .enabled(true)
-                .build();
+        try {
+            var customer = Customer.builder()
+                    .id(CLIENTE_GENERAL_ID)
+                    .name(CLIENTE_GENERAL_NAME)
+                    .salesChannel(CLIENTE_GENERAL_CHANNEL)
+                    .enabled(true)
+                    .build();
 
-        customerRepository.save(customer);
-        log.info("Seeded Cliente General with id={}", CLIENTE_GENERAL_ID);
+            customerRepository.saveAndFlush(customer);
+            log.info("Seeded Cliente General with id={}", CLIENTE_GENERAL_ID);
+        } catch (Exception e) {
+            log.warn("Cliente General already exists (race condition or pre-existing), skipping seed: {}", e.getMessage());
+        }
     }
 }
