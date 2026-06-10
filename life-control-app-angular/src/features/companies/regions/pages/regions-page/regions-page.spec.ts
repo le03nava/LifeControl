@@ -457,8 +457,11 @@ describe('RegionsPage', () => {
 
       const headerRow = fixture.nativeElement.querySelector('app-page-header');
       expect(headerRow).toBeTruthy();
-      expect(headerRow.textContent).toContain('Mostrar deshabilitadas');
       expect(headerRow.textContent).toContain('Nueva Región');
+
+      const toggle = fixture.nativeElement.querySelector('.filter-toggle');
+      expect(toggle).toBeTruthy();
+      expect(toggle.textContent).toContain('Mostrar deshabilitadas');
     });
 
     it('should render an app-regions-card for each enabled region', () => {

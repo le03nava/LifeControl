@@ -1,6 +1,8 @@
+import { provideHttpClient } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { ProductSupplierList } from './product-supplier-list';
+import { ProductService } from '../../data/product.service';
 import { ProductSupplierService } from '../../data/product-supplier.service';
 import { ProductSupplier } from '../../models/product-supplier.models';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -58,7 +60,9 @@ describe('ProductSupplierList', () => {
     TestBed.configureTestingModule({
       imports: [ProductSupplierList, NoopAnimationsModule],
       providers: [
+        provideHttpClient(),
         { provide: ProductSupplierService, useValue: serviceMock },
+        { provide: ProductService, useValue: { getProductById: vi.fn().mockReturnValue(of(null)) } },
         { provide: Router, useValue: routerMock },
         { provide: MatDialog, useValue: dialogMock },
         {

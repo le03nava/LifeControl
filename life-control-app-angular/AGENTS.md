@@ -407,19 +407,32 @@ export class CompaniesTable {
 ### Route Pattern (Lazy Loading + Guards Funcionales)
 
 ```typescript
-// Rutas raíz (app.routes.ts)
+// Rutas raíz (app.routes.ts) — login se maneja via Keycloak directo, no hay ruta
 export const routes: Routes = [
   { path: '', component: Home, title: 'Home' },
-  { path: 'login', loadComponent: () => import('@features/auth/login').then(m => m.Login) },
   {
     path: 'companies',
     loadChildren: () => import('@features/companies/companies.routes').then(m => m.companyRoutes),
+  },
+  {
+    path: 'products',
+    loadChildren: () => import('@features/products/products.routes').then(m => m.productRoutes),
+  },
+  {
+    path: 'purchases',
+    loadChildren: () => import('@features/purchases/purchases.routes').then(m => m.purchasesRoutes),
   },
   {
     path: 'users-admin',
     loadChildren: () => import('@features/users-admin/users-admin.routes').then(m => m.usersAdminRoutes),
     canActivate: [keycloakRoleGuard],
     data: { role: 'admin' },
+  },
+  {
+    path: 'profile',
+    loadComponent: () => import('@features/user/profile/user-profile.component').then(m => m.UserProfileComponent),
+    canActivate: [keycloakRoleGuard],
+    title: 'User Profile',
   },
   { path: 'unauthorized', loadComponent: () => import('@shared/ui/unauthorized').then(m => m.Unauthorized) },
   { path: '**', loadComponent: () => import('@shared/ui/not-found').then(m => m.NotFound) },
@@ -896,7 +909,7 @@ this.isCompanyRole.set(
 );
 
 // items() computed:
-//   base: [Home]
+//   base: []  (Home se renderiza directo en el template, no via items())
 //   + isCompanyRole → [Companies]
 //   + isAdmin → [Products, Purchases, Users Admin]
 ```

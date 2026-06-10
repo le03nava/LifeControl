@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { provideRouter, ActivatedRoute, Router } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
 import { provideLocationMocks } from '@angular/common/testing';
 import { signal } from '@angular/core';
@@ -148,6 +148,15 @@ describe('UserProfileComponent', () => {
         provideRouter([]),
         provideLocationMocks(),
         provideHttpClient(),
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            snapshot: {
+              paramMap: { get: () => null },
+              queryParamMap: { get: (key: string) => queryParams[key] ?? null },
+            },
+          },
+        },
         { provide: ProfileService, useValue: profileServiceMock },
         { provide: CompanyService, useValue: companyServiceMock },
         { provide: CompanyCountryService, useValue: companyCountryServiceMock },
@@ -293,9 +302,12 @@ describe('UserProfileComponent', () => {
     });
 
     it('should disable country select when no company selected', () => {
-      const { component } = setup({ edit: 'true' });
-      const countryControl = component.form().get('companyCountryId');
-      expect(countryControl?.enabled).toBe(false);
+      const { fixture } = setup({ edit: 'true' });
+      // The second mat-select (country) should have mat-select-disabled class
+      // when companyId is null because the template uses [disabled]="!form().get('companyId')?.value"
+      const countrySelect = fixture.nativeElement.querySelectorAll('.mat-mdc-select')[1];
+      expect(countrySelect).toBeTruthy();
+      expect(countrySelect.classList.contains('mat-mdc-select-disabled')).toBe(true);
     });
 
     it('should show company options from CompanyService', () => {
@@ -340,12 +352,10 @@ describe('UserProfileComponent', () => {
       expect(profileServiceMock.updateProfile).toHaveBeenCalled();
     });
 
-    it('should navigate to /profile after successful save', async () => {
-      // Using dynamic import for Router to avoid circular setup issues
-      const { Router } = await import('@angular/router');
+    it('should navigate to /profile after successful save', () => {
+      const { component } = setup({ edit: 'true' });
       const router = TestBed.inject(Router);
       const navigateSpy = vi.spyOn(router, 'navigate');
-      const { component } = setup({ edit: 'true' });
       component.save();
       expect(navigateSpy).toHaveBeenCalledWith(['/profile']);
     });
@@ -378,6 +388,8 @@ describe('UserProfileComponent', () => {
 
   describe('error state', () => {
     it('should show error when profile load fails', () => {
+      TestBed.resetTestingModule();
+
       const profileServiceMock = {
         getProfile: vi.fn().mockReturnValue(
           throwError(() => new Error('Load failed')),
@@ -391,6 +403,15 @@ describe('UserProfileComponent', () => {
           provideRouter([]),
           provideLocationMocks(),
           provideHttpClient(),
+          {
+            provide: ActivatedRoute,
+            useValue: {
+              snapshot: {
+                paramMap: { get: () => null },
+                queryParamMap: { get: () => null },
+              },
+            },
+          },
           { provide: ProfileService, useValue: profileServiceMock },
           {
             provide: CompanyService,

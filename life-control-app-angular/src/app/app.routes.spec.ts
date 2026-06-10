@@ -11,9 +11,9 @@ describe('app.routes', () => {
     expect(homeRoute).toBeDefined();
   });
 
-  it('should still contain the login route', () => {
+  it('should NOT contain a login route (login is handled by Keycloak directly)', () => {
     const loginRoute = routes.find((r) => r.path === 'login');
-    expect(loginRoute).toBeDefined();
+    expect(loginRoute).toBeUndefined();
   });
 
   it('should still contain the companies route', () => {

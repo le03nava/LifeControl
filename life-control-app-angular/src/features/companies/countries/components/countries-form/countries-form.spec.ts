@@ -1,6 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { signal } from '@angular/core';
+import { of } from 'rxjs';
 import { CountriesForm } from './countries-form';
 import { Company } from '../../../companies/models/company.models';
 import { CompanyCountry, Country, CountrySaveEvent } from '../../models/country.models';
@@ -40,7 +41,7 @@ describe('CountriesForm', () => {
   beforeEach(async () => {
     countryServiceMock = {
       countries: signal(mockCatalogCountries).asReadonly(),
-      getCountries: vi.fn(),
+      getCountries: vi.fn().mockReturnValue(of([])),
     };
 
     await TestBed.configureTestingModule({
