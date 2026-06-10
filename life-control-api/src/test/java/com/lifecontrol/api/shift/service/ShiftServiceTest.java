@@ -4,6 +4,7 @@ import com.lifecontrol.api.shift.dto.ShiftRequest;
 import com.lifecontrol.api.shift.dto.ShiftResponse;
 import com.lifecontrol.api.shift.exception.ShiftAlreadyOpenException;
 import com.lifecontrol.api.shift.exception.ShiftNotFoundException;
+import com.lifecontrol.api.shift.exception.ShiftNotOpenException;
 import com.lifecontrol.api.shift.model.Shift;
 import com.lifecontrol.api.shift.repository.ShiftRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -391,8 +392,8 @@ class ShiftServiceTest {
             when(shiftRepository.findById(shiftId)).thenReturn(Optional.of(closedShift));
 
             assertThatThrownBy(() -> shiftService.closeShift(shiftId))
-                    .isInstanceOf(IllegalStateException.class)
-                    .hasMessageContaining("Shift is not open");
+                    .isInstanceOf(ShiftNotOpenException.class)
+                    .hasMessageContaining("is not open");
 
             verify(shiftRepository, never()).save(any(Shift.class));
         }

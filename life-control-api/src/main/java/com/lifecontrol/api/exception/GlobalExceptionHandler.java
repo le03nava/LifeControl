@@ -14,6 +14,7 @@ import com.lifecontrol.api.country.exception.CountryNotFoundException;
 import com.lifecontrol.api.country.exception.DuplicateCountryException;
 import com.lifecontrol.api.product.exception.DuplicateProductException;
 import com.lifecontrol.api.product.exception.ProductNotFoundException;
+import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
 import com.lifecontrol.api.product.supplier.exception.DuplicateProductSupplierException;
 import com.lifecontrol.api.product.supplier.exception.ProductSupplierNotFoundException;
 import com.lifecontrol.api.supplier.exception.DuplicateSupplierException;
@@ -33,6 +34,14 @@ import com.lifecontrol.api.purchaseorder.exception.PurchaseOrderNotFoundExceptio
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderConflictException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderConnectionException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderNotFoundException;
+import com.lifecontrol.api.customer.exception.CustomerNotFoundException;
+import com.lifecontrol.api.promotion.exception.PromotionNotFoundException;
+import com.lifecontrol.api.shift.exception.ShiftAlreadyOpenException;
+import com.lifecontrol.api.shift.exception.ShiftNotFoundException;
+import com.lifecontrol.api.shift.exception.ShiftNotOpenException;
+import com.lifecontrol.api.salesorder.exception.SalesOrderAlreadyFinalizedException;
+import com.lifecontrol.api.salesorder.exception.SalesOrderItemNotFoundException;
+import com.lifecontrol.api.salesorder.exception.SalesOrderNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -124,6 +133,18 @@ public class GlobalExceptionHandler {
                 getCorrelationId()
         );
         return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
+    }
+
+    @ExceptionHandler(ProductVariantNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleProductVariantNotFound(ProductVariantNotFoundException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.NOT_FOUND.value(),
+                ex.getMessage(),
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
+        );
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
     }
 
     @ExceptionHandler(ProductSupplierNotFoundException.class)
@@ -449,6 +470,102 @@ public class GlobalExceptionHandler {
                 getCorrelationId()
         );
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(error);
+    }
+
+    @ExceptionHandler(CustomerNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleCustomerNotFound(CustomerNotFoundException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.NOT_FOUND.value(),
+                ex.getMessage(),
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
+        );
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    }
+
+    @ExceptionHandler(PromotionNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handlePromotionNotFound(PromotionNotFoundException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.NOT_FOUND.value(),
+                ex.getMessage(),
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
+        );
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    }
+
+    @ExceptionHandler(ShiftNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleShiftNotFound(ShiftNotFoundException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.NOT_FOUND.value(),
+                ex.getMessage(),
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
+        );
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    }
+
+    @ExceptionHandler(ShiftAlreadyOpenException.class)
+    public ResponseEntity<ErrorResponse> handleShiftAlreadyOpen(ShiftAlreadyOpenException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.CONFLICT.value(),
+                ex.getMessage(),
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
+        );
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
+    }
+
+    @ExceptionHandler(ShiftNotOpenException.class)
+    public ResponseEntity<ErrorResponse> handleShiftNotOpen(ShiftNotOpenException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.CONFLICT.value(),
+                ex.getMessage(),
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
+        );
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
+    }
+
+    @ExceptionHandler(SalesOrderNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleSalesOrderNotFound(SalesOrderNotFoundException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.NOT_FOUND.value(),
+                ex.getMessage(),
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
+        );
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    }
+
+    @ExceptionHandler(SalesOrderItemNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleSalesOrderItemNotFound(SalesOrderItemNotFoundException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.NOT_FOUND.value(),
+                ex.getMessage(),
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
+        );
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    }
+
+    @ExceptionHandler(SalesOrderAlreadyFinalizedException.class)
+    public ResponseEntity<ErrorResponse> handleSalesOrderAlreadyFinalized(SalesOrderAlreadyFinalizedException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.CONFLICT.value(),
+                ex.getMessage(),
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
+        );
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
