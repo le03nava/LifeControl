@@ -89,6 +89,18 @@ public class KeycloakIdentityProvider implements IdentityProvider {
         }
     }
 
+    @Override
+    public void updateUser(String userId, UserRepresentation user) {
+        try {
+            keycloak.realm(realm()).users().get(userId).update(user);
+        } catch (NotFoundException e) {
+            throw new IdentityProviderNotFoundException("User not found: " + userId, e);
+        } catch (ProcessingException e) {
+            throw new IdentityProviderConnectionException(
+                    "Failed to update user: " + userId, e);
+        }
+    }
+
     // ---------------------------------------------------------------
     // Realm Role CRUD
     // ---------------------------------------------------------------
