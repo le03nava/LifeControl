@@ -356,3 +356,140 @@ CREATE TABLE IF NOT EXISTS user_preferences (
 );
 
 CREATE INDEX IF NOT EXISTS idx_up_keycloak_user ON user_preferences(keycloak_user_id);
+
+-- ============================================
+-- Customers Table
+-- ============================================
+CREATE TABLE IF NOT EXISTS customers (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255),
+    phone VARCHAR(50),
+    rfc VARCHAR(13),
+    sales_channel VARCHAR(50) NOT NULL,
+    enabled BOOLEAN DEFAULT true NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name);
+CREATE INDEX IF NOT EXISTS idx_customers_sales_channel ON customers(sales_channel);
+CREATE INDEX IF NOT EXISTS idx_customers_enabled ON customers(enabled);
+
+-- ============================================
+-- Product Variants Table
+-- ============================================
+CREATE TABLE IF NOT EXISTS product_variants (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    product_id UUID NOT NULL REFERENCES products(id),
+    company_store_id UUID NOT NULL REFERENCES company_stores(id),
+    bar_code VARCHAR(100),
+    sku VARCHAR(50),
+    variant_name VARCHAR(255),
+    list_price DECIMAL(12,2),
+    cost_price DECIMAL(12,2),
+    stock DECIMAL(12,2) DEFAULT 0,
+    enabled BOOLEAN DEFAULT true NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_product_variants_bar_code ON product_variants(bar_code);
+CREATE INDEX IF NOT EXISTS idx_product_variants_product ON product_variants(product_id);
+CREATE INDEX IF NOT EXISTS idx_product_variants_store ON product_variants(company_store_id);
+CREATE INDEX IF NOT EXISTS idx_product_variants_sku ON product_variants(sku);
+CREATE INDEX IF NOT EXISTS idx_product_variants_enabled ON product_variants(enabled);
+
+-- ============================================
+-- Promotions Table
+-- ============================================
+CREATE TABLE IF NOT EXISTS promotions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    promotion_name VARCHAR(255) NOT NULL,
+    discount_type VARCHAR(50) NOT NULL,
+    discount_value DECIMAL(12,2) NOT NULL,
+    coupon_code VARCHAR(50),
+    start_date TIMESTAMP,
+    end_date TIMESTAMP,
+    sales_channel VARCHAR(50),
+    minimum_purchase_amount DECIMAL(12,2),
+    enabled BOOLEAN DEFAULT true NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_promotions_coupon_code ON promotions(coupon_code);
+CREATE INDEX IF NOT EXISTS idx_promotions_name ON promotions(promotion_name);
+CREATE INDEX IF NOT EXISTS idx_promotions_dates ON promotions(start_date, end_date);
+CREATE INDEX IF NOT EXISTS idx_promotions_sales_channel ON promotions(sales_channel);
+CREATE INDEX IF NOT EXISTS idx_promotions_enabled ON promotions(enabled);
+
+-- ============================================
+-- Shifts Table
+-- ============================================
+CREATE TABLE IF NOT EXISTS shifts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_store_id UUID NOT NULL REFERENCES company_stores(id),
+    user_id VARCHAR(255),
+    opened_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    closed_at TIMESTAMP,
+    status VARCHAR(50) NOT NULL,
+    enabled BOOLEAN DEFAULT true NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_shifts_store ON shifts(company_store_id);
+CREATE INDEX IF NOT EXISTS idx_shifts_status ON shifts(status);
+CREATE INDEX IF NOT EXISTS idx_shifts_opened_at ON shifts(opened_at);
+CREATE INDEX IF NOT EXISTS idx_shifts_enabled ON shifts(enabled);
+
+-- ============================================
+-- Sales Orders Table
+-- ============================================
+CREATE TABLE IF NOT EXISTS sales_orders (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    order_number VARCHAR(30) NOT NULL UNIQUE,
+    customer_id UUID NOT NULL REFERENCES customers(id),
+    company_store_id UUID NOT NULL REFERENCES company_stores(id),
+    shift_id UUID REFERENCES shifts(id),
+    user_id VARCHAR(255),
+    order_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    status_id UUID NOT NULL REFERENCES statuses(id),
+    total_amount DECIMAL(12,2),
+    enabled BOOLEAN DEFAULT true NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_so_order_number ON sales_orders(order_number);
+CREATE INDEX IF NOT EXISTS idx_so_customer ON sales_orders(customer_id);
+CREATE INDEX IF NOT EXISTS idx_so_store ON sales_orders(company_store_id);
+CREATE INDEX IF NOT EXISTS idx_so_shift ON sales_orders(shift_id);
+CREATE INDEX IF NOT EXISTS idx_so_status ON sales_orders(status_id);
+CREATE INDEX IF NOT EXISTS idx_so_enabled ON sales_orders(enabled);
+CREATE INDEX IF NOT EXISTS idx_so_order_date ON sales_orders(order_date);
+
+-- ============================================
+-- Sales Order Items Table
+-- ============================================
+CREATE TABLE IF NOT EXISTS sales_order_items (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    sales_order_id UUID NOT NULL REFERENCES sales_orders(id),
+    product_variant_id UUID NOT NULL REFERENCES product_variants(id),
+    quantity DECIMAL(12,2) NOT NULL,
+    list_price DECIMAL(12,2) NOT NULL,
+    discount_applied DECIMAL(12,2) DEFAULT 0,
+    final_price DECIMAL(12,2) NOT NULL,
+    promotion_id UUID REFERENCES promotions(id),
+    status_id UUID NOT NULL REFERENCES statuses(id),
+    enabled BOOLEAN DEFAULT true NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_soi_order ON sales_order_items(sales_order_id);
+CREATE INDEX IF NOT EXISTS idx_soi_variant ON sales_order_items(product_variant_id);
+CREATE INDEX IF NOT EXISTS idx_soi_promotion ON sales_order_items(promotion_id);
+CREATE INDEX IF NOT EXISTS idx_soi_status ON sales_order_items(status_id);
+CREATE INDEX IF NOT EXISTS idx_soi_enabled ON sales_order_items(enabled);
