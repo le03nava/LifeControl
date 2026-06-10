@@ -46,6 +46,50 @@ public class KeycloakIdentityProvider implements IdentityProvider {
     }
 
     // ---------------------------------------------------------------
+    // User Lifecycle
+    // ---------------------------------------------------------------
+
+    @Override
+    public String createUser(UserRepresentation user) {
+        try (var response = keycloak.realm(realm()).users().create(user)) {
+            if (response.getStatus() == 201) {
+                var location = response.getLocation();
+                if (location == null) {
+                    throw new IdentityProviderConnectionException(
+                            "Missing Location header creating user: " + user.getUsername());
+                }
+                var path = location.getPath();
+                return path.substring(path.lastIndexOf('/') + 1);
+            }
+            throw new IdentityProviderConnectionException(
+                    "Unexpected response creating user: " + response.getStatus());
+        } catch (ClientErrorException e) {
+            if (e.getResponse().getStatus() == 409) {
+                throw new IdentityProviderConflictException(
+                        "User already exists: " + user.getUsername(), e);
+            }
+            throw new IdentityProviderConnectionException(
+                    "Failed to create user: " + user.getUsername(), e);
+        } catch (ProcessingException e) {
+            throw new IdentityProviderConnectionException(
+                    "Failed to create user: " + user.getUsername(), e);
+        }
+    }
+
+    @Override
+    public void deleteUser(String userId) {
+        try {
+            var response = keycloak.realm(realm()).users().delete(userId);
+            response.close();
+        } catch (NotFoundException e) {
+            throw new IdentityProviderNotFoundException("User not found: " + userId, e);
+        } catch (ProcessingException e) {
+            throw new IdentityProviderConnectionException(
+                    "Failed to delete user: " + userId, e);
+        }
+    }
+
+    // ---------------------------------------------------------------
     // Realm Role CRUD
     // ---------------------------------------------------------------
 

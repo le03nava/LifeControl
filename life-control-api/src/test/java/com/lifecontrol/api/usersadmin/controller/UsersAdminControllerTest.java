@@ -3,8 +3,12 @@ package com.lifecontrol.api.usersadmin.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifecontrol.api.exception.GlobalExceptionHandler;
 import com.lifecontrol.api.usersadmin.dto.AttributeValueRequest;
+import com.lifecontrol.api.usersadmin.dto.CreateUserRequest;
+import com.lifecontrol.api.usersadmin.dto.CreateUserResponse;
 import com.lifecontrol.api.usersadmin.dto.PageResponse;
 import com.lifecontrol.api.usersadmin.dto.UserAssignmentRequest;
+import com.lifecontrol.api.usersadmin.identity.IdentityProviderConflictException;
+import com.lifecontrol.api.usersadmin.identity.IdentityProviderConnectionException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderNotFoundException;
 import com.lifecontrol.api.usersadmin.identity.RoleDto;
 import com.lifecontrol.api.usersadmin.identity.RoleScope;
@@ -99,6 +103,110 @@ class UsersAdminControllerTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content").isEmpty())
                     .andExpect(jsonPath("$.total").value(0));
+        }
+    }
+
+    // ─── User Creation ─────────────────────────────────────────
+
+    @Nested
+    @DisplayName("User Creation endpoints")
+    class UserCreationTests {
+
+        @Test
+        @DisplayName("POST /api/users-admin/users with valid payload returns 201")
+        void createUser_validPayload_returns201() throws Exception {
+            var request = new CreateUserRequest("jdoe", "jdoe@example.com", "John", "Doe", true);
+            when(service.createUser(request)).thenReturn(new CreateUserResponse("kc-user-id-123"));
+
+            mockMvc.perform(post("/api/users-admin/users")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.keycloakUserId").value("kc-user-id-123"));
+        }
+
+        @Test
+        @DisplayName("POST /api/users-admin/users missing username returns 400")
+        void createUser_missingUsername_returns400() throws Exception {
+            mockMvc.perform(post("/api/users-admin/users")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"email": "test@example.com"}
+                                    """))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.status").value(400));
+        }
+
+        @Test
+        @DisplayName("POST /api/users-admin/users with invalid email returns 400")
+        void createUser_invalidEmail_returns400() throws Exception {
+            mockMvc.perform(post("/api/users-admin/users")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"username": "jdoe", "email": "not-an-email"}
+                                    """))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.status").value(400));
+        }
+
+        @Test
+        @DisplayName("POST /api/users-admin/users duplicate username returns 409")
+        void createUser_duplicateUsername_returns409() throws Exception {
+            var request = new CreateUserRequest("jdoe", "jdoe@example.com", "John", "Doe", true);
+            when(service.createUser(request))
+                    .thenThrow(new IdentityProviderConflictException("User already exists: jdoe"));
+
+            mockMvc.perform(post("/api/users-admin/users")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.status").value(409));
+        }
+
+        @Test
+        @DisplayName("POST /api/users-admin/users with enabled=false returns 201")
+        void createUser_enabledFalse_returns201() throws Exception {
+            when(service.createUser(any())).thenReturn(new CreateUserResponse("kc-user-id-123"));
+
+            mockMvc.perform(post("/api/users-admin/users")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"username": "jdoe", "email": "jdoe@example.com", "enabled": false}
+                                    """))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.keycloakUserId").value("kc-user-id-123"));
+        }
+
+        @Test
+        @DisplayName("POST /api/users-admin/users with username longer than 255 chars returns 400")
+        void createUser_usernameTooLong_returns400() throws Exception {
+            var longUsername = "a".repeat(256);
+            var json = String.format("""
+                    {"username": "%s", "email": "test@example.com"}
+                    """, longUsername);
+
+            mockMvc.perform(post("/api/users-admin/users")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.status").value(400))
+                    .andExpect(jsonPath("$.message").value("Validation failed"))
+                    .andExpect(jsonPath("$.errors.username").exists());
+        }
+
+        @Test
+        @DisplayName("POST /api/users-admin/users when Keycloak unavailable returns 503")
+        void createUser_keycloakUnavailable_returns503() throws Exception {
+            var request = new CreateUserRequest("jdoe", "jdoe@example.com", "John", "Doe", true);
+            when(service.createUser(request))
+                    .thenThrow(new IdentityProviderConnectionException("Connection refused"));
+
+            mockMvc.perform(post("/api/users-admin/users")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isServiceUnavailable())
+                    .andExpect(jsonPath("$.status").value(503))
+                    .andExpect(jsonPath("$.message").value("Identity provider temporarily unavailable"));
         }
     }
 
