@@ -24,18 +24,30 @@
     <ng-container [formGroup]="headerForm()">
     <div class="form-grid">
       <!-- Customer -->
-      <mat-form-field appearance="outline" subscriptSizing="dynamic">
-        <mat-label>Customer</mat-label>
-        <mat-select formControlName="customerId">
-          <mat-option value="cust-1" disabled>Use Customer Search</mat-option>
-        </mat-select>
-        @if (fieldError('customerId'); as err) {
-          <mat-error>{{ err }}</mat-error>
-        }
-        @if (serverFieldError('customerId'); as err) {
-          <mat-error>{{ err }}</mat-error>
-        }
-      </mat-form-field>
+      @if (isDraft()) {
+        <div class="customer-field-wrapper">
+          <app-customer-selector
+            (customerSelected)="onCustomerSelected($event)"
+          />
+        </div>
+      } @else if (selectedCustomerName()) {
+        <div class="customer-field-wrapper">
+          <div class="readonly-customer">
+            <span class="readonly-label">Customer</span>
+            <span class="readonly-value">{{ selectedCustomerName() }}</span>
+          </div>
+        </div>
+      }
+      @if (fieldError('customerId'); as err) {
+        <div class="customer-error">
+          <span class="field-error">{{ err }}</span>
+        </div>
+      }
+      @if (serverFieldError('customerId'); as err) {
+        <div class="customer-error">
+          <span class="field-error">{{ err }}</span>
+        </div>
+      }
 
       <!-- Company (cascade start) -->
       <mat-form-field appearance="outline" subscriptSizing="dynamic">

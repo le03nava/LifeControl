@@ -65,6 +65,9 @@ export class SalesOrderEdit implements OnInit {
   readonly generalError = signal<string | null>(null);
   readonly saving = signal(false);
 
+  // ─── Loading state for initial GET (edit mode) ───────────
+  readonly loading = signal(false);
+
   // ─── Loaded order data (edit mode) ─────────────────────
   readonly loadedOrder = signal<SalesOrder | null>(null);
   readonly isDraft = computed(
@@ -98,16 +101,20 @@ export class SalesOrderEdit implements OnInit {
   // ══════════════════════════════════════════════════════════
 
   private loadOrder(id: string): void {
+    this.loading.set(true);
+    this.generalError.set(null);
     this.salesOrderService
       .getSalesOrder(id)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (order) => {
           this.loadedOrder.set(order);
+          this.loading.set(false);
           this.populateForm(order);
           this.populateLineItems(order.items);
         },
         error: (err: HttpErrorResponse) => {
+          this.loading.set(false);
           this.generalError.set(
             err.status === 404
               ? 'Order not found.'

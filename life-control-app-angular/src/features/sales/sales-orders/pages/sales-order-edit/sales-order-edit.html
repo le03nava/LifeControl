@@ -24,15 +24,42 @@
     </div>
   }
 
-  <!-- Status Transition (edit mode only) -->
-  @if (loadedOrder(); as order) {
-    <app-status-transition
-      [order]="order"
-      (statusChanged)="onStatusChanged($event)"
-    />
+  <!-- Loading Skeleton (edit mode — initial GET) -->
+  @if (isEditMode() && loading() && !loadedOrder()) {
+    <div class="loading-skeleton" data-testid="edit-loading-skeleton">
+      <div class="skeleton-form">
+        @for (_ of [1, 2, 3, 4]; track $index) {
+          <div class="skeleton-field">
+            <div class="skeleton-label"></div>
+            <div class="skeleton-input"></div>
+          </div>
+        }
+      </div>
+      <div class="skeleton-section">
+        <div class="skeleton-section-header"></div>
+        @for (_ of [1, 2, 3]; track $index) {
+          <div class="skeleton-table-row">
+            <div class="skeleton-cell product"></div>
+            <div class="skeleton-cell qty"></div>
+            <div class="skeleton-cell price"></div>
+            <div class="skeleton-cell discount"></div>
+          </div>
+        }
+      </div>
+    </div>
   }
 
-  <form [formGroup]="headerForm()" (ngSubmit)="onSave()" novalidate>
+  <!-- Content (shown after loading or in create mode) -->
+  @if (!isEditMode() || !loading()) {
+    <!-- Status Transition (edit mode only) -->
+    @if (loadedOrder(); as order) {
+      <app-status-transition
+        [order]="order"
+        (statusChanged)="onStatusChanged($event)"
+      />
+    }
+
+    <form [formGroup]="headerForm()" (ngSubmit)="onSave()" novalidate>
     <!-- Header Form (customer, store cascade, shift, comments) -->
     <app-order-header-form
       [headerForm]="headerForm()"
@@ -77,4 +104,5 @@
       </button>
     </div>
   </form>
+  }
 </div>

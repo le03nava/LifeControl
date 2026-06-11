@@ -3,6 +3,7 @@ import {
   Component,
   computed,
   DestroyRef,
+  effect,
   inject,
   input,
   OnInit,
@@ -16,9 +17,10 @@ import {
   ReactiveFormsModule,
 } from '@angular/forms';
 import { ConfigService } from '@app/services/config.service';
+import { CustomerSelector } from '../customer-selector/customer-selector';
 import { SO_STATUS_COLORS, SO_STATUS_LABELS } from '../../data/status-config';
 import type { SalesOrderHeaderControl } from '../../models/sales-order-control.models';
-import type { SalesOrder, OpenShiftOption } from '../../models/sales-order.models';
+import type { SalesOrder, OpenShiftOption, CustomerOption } from '../../models/sales-order.models';
 import { DatePipe } from '@angular/common';
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -51,6 +53,7 @@ interface DropdownOption {
     MatInputModule,
     MatSelectModule,
     MatChipsModule,
+    CustomerSelector,
   ],
   templateUrl: './order-header-form.html',
   styleUrl: './order-header-form.scss',
@@ -103,6 +106,20 @@ export class OrderHeaderForm implements OnInit {
 
   // ─── Shift selector ────────────────────────────────────
   readonly openShifts = signal<OpenShiftOption[]>([]);
+
+  // ─── Customer selector ──────────────────────────────────
+  /** Tracks the display name of the currently selected customer. */
+  readonly selectedCustomerName = signal<string | null>(null);
+
+  constructor() {
+    // Sync selectedCustomerName with loadedOrder in edit mode
+    effect(() => {
+      const order = this.loadedOrder();
+      if (order?.customerName) {
+        this.selectedCustomerName.set(order.customerName);
+      }
+    });
+  }
 
   ngOnInit(): void {
     this.loadDropdowns();
@@ -264,6 +281,12 @@ export class OrderHeaderForm implements OnInit {
   // ══════════════════════════════════════════════════════════
   // FORM HELPERS
   // ══════════════════════════════════════════════════════════
+
+  /** Called when the user selects a customer from the autocomplete dropdown. */
+  onCustomerSelected(customer: CustomerOption): void {
+    this.headerForm().controls.customerId.setValue(customer.id);
+    this.selectedCustomerName.set(customer.name);
+  }
 
   fieldError(field: keyof SalesOrderHeaderControl): string | null {
     const control = this.headerForm().controls[field];

@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { provideRouter, Router, ActivatedRoute } from '@angular/router';
-import { of, throwError } from 'rxjs';
+import { of, Subject, throwError } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
 import { SalesOrderEdit } from './sales-order-edit';
 import { SalesOrderService } from '../../data/sales-order.service';
@@ -519,6 +519,93 @@ describe('SalesOrderEdit', () => {
       component.onSave();
 
       expect(component.generalError()).toContain('concurrently modified');
+    });
+  });
+
+  // ══════════════════════════════════════════════════════════
+  // LOADING STATE
+  // ══════════════════════════════════════════════════════════
+
+  describe('loading state', () => {
+    it('should set loading to true while fetching order in edit mode', async () => {
+      const orderSubject = new Subject<SalesOrder>();
+
+      const mocks = baseMocks();
+      mocks.getSalesOrder = vi.fn().mockReturnValue(orderSubject.asObservable());
+
+      await TestBed.configureTestingModule({
+        imports: [
+          SalesOrderEdit,
+          NoopAnimationsModule,
+          HttpClientTestingModule,
+        ],
+        providers: [
+          ...baseProviders('so-1'),
+          { provide: SalesOrderService, useValue: mocks },
+        ],
+      }).compileComponents();
+
+      const f = TestBed.createComponent(SalesOrderEdit);
+      const comp = f.componentInstance;
+      f.detectChanges();
+
+      // While the request is in flight, loading should be true
+      expect(comp.loading()).toBe(true);
+
+      // Complete the request
+      orderSubject.next(mockOrder);
+      orderSubject.complete();
+      f.detectChanges();
+
+      // After the request completes, loading should be false
+      expect(comp.loading()).toBe(false);
+    });
+
+    it('should set loading to false after request errors', async () => {
+      const orderSubject = new Subject<SalesOrder>();
+
+      const mocks = baseMocks();
+      mocks.getSalesOrder = vi.fn().mockReturnValue(orderSubject.asObservable());
+
+      await TestBed.configureTestingModule({
+        imports: [
+          SalesOrderEdit,
+          NoopAnimationsModule,
+          HttpClientTestingModule,
+        ],
+        providers: [
+          ...baseProviders('so-1'),
+          { provide: SalesOrderService, useValue: mocks },
+        ],
+      }).compileComponents();
+
+      const f = TestBed.createComponent(SalesOrderEdit);
+      const comp = f.componentInstance;
+      f.detectChanges();
+
+      expect(comp.loading()).toBe(true);
+
+      orderSubject.error(new HttpErrorResponse({ status: 404 }));
+      f.detectChanges();
+
+      expect(comp.loading()).toBe(false);
+    });
+
+    it('should NOT be loading in create mode', async () => {
+      await TestBed.configureTestingModule({
+        imports: [
+          SalesOrderEdit,
+          NoopAnimationsModule,
+          HttpClientTestingModule,
+        ],
+        providers: baseProviders(null),
+      }).compileComponents();
+
+      const f = TestBed.createComponent(SalesOrderEdit);
+      const comp = f.componentInstance;
+      f.detectChanges();
+
+      expect(comp.loading()).toBe(false);
     });
   });
 });

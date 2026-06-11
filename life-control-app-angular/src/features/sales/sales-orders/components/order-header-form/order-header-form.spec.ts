@@ -4,7 +4,7 @@ import {
   HttpClientTestingModule,
   HttpTestingController,
 } from '@angular/common/http/testing';
-import { CUSTOM_ELEMENTS_SCHEMA } from '@angular/core';
+import { CUSTOM_ELEMENTS_SCHEMA, Component, output } from '@angular/core';
 import {
   FormControl,
   FormGroup,
@@ -13,7 +13,7 @@ import {
 } from '@angular/forms';
 import { OrderHeaderForm } from './order-header-form';
 import { ConfigService } from '@app/services/config.service';
-import type { SalesOrder } from '../../models/sales-order.models';
+import type { SalesOrder, CustomerOption } from '../../models/sales-order.models';
 import type { SalesOrderHeaderControl } from '../../models/sales-order-control.models';
 
 const TEST_API = 'http://test/api';
@@ -209,6 +209,47 @@ describe('OrderHeaderForm', () => {
       const { comp } = createFixture({ serverErrors: { customerId: 'Customer required' } });
 
       expect(comp.serverFieldError('customerId')).toBe('Customer required');
+    });
+  });
+
+  describe('customer selector integration', () => {
+    it('should update form customerId when onCustomerSelected is called', () => {
+      const { comp } = createFixture();
+
+      const customer: CustomerOption = {
+        id: 'cust-abc',
+        name: 'Acme Corp',
+        email: 'acme@example.com',
+      };
+      comp.onCustomerSelected(customer);
+
+      expect(comp.headerForm().controls.customerId.value).toBe('cust-abc');
+    });
+
+    it('should set selectedCustomerName when customer is selected', () => {
+      const { comp } = createFixture();
+
+      const customer: CustomerOption = {
+        id: 'cust-xyz',
+        name: 'Beta LLC',
+      };
+      comp.onCustomerSelected(customer);
+
+      expect(comp.selectedCustomerName()).toBe('Beta LLC');
+    });
+
+    it('should update selectedCustomerName on subsequent selections', () => {
+      const { comp } = createFixture();
+
+      const first: CustomerOption = { id: 'c1', name: 'First' };
+      comp.onCustomerSelected(first);
+      expect(comp.selectedCustomerName()).toBe('First');
+      expect(comp.headerForm().controls.customerId.value).toBe('c1');
+
+      const second: CustomerOption = { id: 'c2', name: 'Second' };
+      comp.onCustomerSelected(second);
+      expect(comp.selectedCustomerName()).toBe('Second');
+      expect(comp.headerForm().controls.customerId.value).toBe('c2');
     });
   });
 });
