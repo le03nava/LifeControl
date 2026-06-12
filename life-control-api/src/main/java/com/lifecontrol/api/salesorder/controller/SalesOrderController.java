@@ -45,7 +45,7 @@ public class SalesOrderController {
     // ─── Sales Order CRUD ────────────────────────────────────────────────
 
     @GetMapping
-    @PreAuthorize("hasRole('lc-sales')")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
     @Operation(summary = "Get all sales orders", description = "Returns a paginated list, optionally filtered by search term on order number")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Paginated list of sales orders")
@@ -57,7 +57,7 @@ public class SalesOrderController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasRole('lc-sales')")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
     @Operation(summary = "Get sales order by ID", description = "Returns a single sales order with its items")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Sales order found"),
@@ -68,8 +68,8 @@ public class SalesOrderController {
     }
 
     @PostMapping
-    @PreAuthorize("hasRole('lc-sales')")
-    @Operation(summary = "Create a sales order", description = "Creates a new sales order with Borrador status. Items can be added via the nested endpoint.")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @Operation(summary = "Create a sales order", description = "Creates a new sales order with Draft status. Items can be added via the nested endpoint.")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "Sales order created"),
         @ApiResponse(responseCode = "400", description = "Validation error"),
@@ -82,8 +82,8 @@ public class SalesOrderController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('lc-sales')")
-    @Operation(summary = "Update a sales order", description = "Updates an existing sales order header")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @Operation(summary = "Update a sales order", description = "Updates an existing sales order header. Optionally accepts an inline items array to atomically add, update, or delete line items.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Sales order updated"),
         @ApiResponse(responseCode = "400", description = "Validation error"),
@@ -96,7 +96,7 @@ public class SalesOrderController {
     }
 
     @PatchMapping("/{id}/enable")
-    @PreAuthorize("hasRole('lc-sales')")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
     @Operation(summary = "Re-enable a sales order", description = "Re-enables a soft-deleted sales order")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Sales order re-enabled"),
@@ -107,8 +107,8 @@ public class SalesOrderController {
     }
 
     @PatchMapping("/{id}/status")
-    @PreAuthorize("hasRole('lc-sales')")
-    @Operation(summary = "Update sales order status", description = "Updates the status of a sales order. Validates status type and allowed transitions (Borrador → Enviada → Cerrada/Cancelada).")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @Operation(summary = "Update sales order status", description = "Updates the status of a sales order. Validates status type and allowed transitions (Draft → Pending → Completed/Cancelled).")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Status updated"),
         @ApiResponse(responseCode = "400", description = "Wrong status type"),
@@ -122,7 +122,7 @@ public class SalesOrderController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('lc-sales')")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
     @Operation(summary = "Delete a sales order", description = "Soft-deletes a sales order and all its items")
     @ApiResponses({
         @ApiResponse(responseCode = "204", description = "Sales order deleted"),
@@ -136,7 +136,7 @@ public class SalesOrderController {
     // ─── Item Nested Endpoints ────────────────────────────────────────
 
     @GetMapping("/{id}/items")
-    @PreAuthorize("hasRole('lc-sales')")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
     @Operation(summary = "Get sales order items", description = "Returns all items for a sales order")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "List of items"),
@@ -147,13 +147,13 @@ public class SalesOrderController {
     }
 
     @PostMapping("/{id}/items")
-    @PreAuthorize("hasRole('lc-sales')")
-    @Operation(summary = "Add an item to a sales order", description = "Adds a line item. finalPrice = listPrice - discountApplied. Only allowed when order is in Borrador status.")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @Operation(summary = "Add an item to a sales order", description = "Adds a line item. finalPrice = listPrice - discountApplied. Only allowed when order is in Draft status.")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "Item created"),
         @ApiResponse(responseCode = "400", description = "Validation error"),
         @ApiResponse(responseCode = "404", description = "Sales order or product variant not found"),
-        @ApiResponse(responseCode = "409", description = "Sales order is not in Borrador status")
+        @ApiResponse(responseCode = "409", description = "Sales order is not in Draft status")
     })
     public ResponseEntity<SalesOrderItemResponse> addItem(
             @PathVariable UUID id,
@@ -163,13 +163,13 @@ public class SalesOrderController {
     }
 
     @PutMapping("/{id}/items/{itemId}")
-    @PreAuthorize("hasRole('lc-sales')")
-    @Operation(summary = "Update an item", description = "Updates a sales order item. Only allowed when order is in Borrador status.")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @Operation(summary = "Update an item", description = "Updates a sales order item. Only allowed when order is in Draft status.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Item updated"),
         @ApiResponse(responseCode = "400", description = "Validation error"),
         @ApiResponse(responseCode = "404", description = "Sales order or item not found"),
-        @ApiResponse(responseCode = "409", description = "Sales order is not in Borrador status")
+        @ApiResponse(responseCode = "409", description = "Sales order is not in Draft status")
     })
     public ResponseEntity<SalesOrderItemResponse> updateItem(
             @PathVariable UUID id,
@@ -179,12 +179,12 @@ public class SalesOrderController {
     }
 
     @DeleteMapping("/{id}/items/{itemId}")
-    @PreAuthorize("hasRole('lc-sales')")
-    @Operation(summary = "Delete an item", description = "Soft-deletes a sales order item. Only allowed when order is in Borrador status.")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @Operation(summary = "Delete an item", description = "Soft-deletes a sales order item. Only allowed when order is in Draft status.")
     @ApiResponses({
         @ApiResponse(responseCode = "204", description = "Item deleted"),
         @ApiResponse(responseCode = "404", description = "Sales order or item not found"),
-        @ApiResponse(responseCode = "409", description = "Sales order is not in Borrador status")
+        @ApiResponse(responseCode = "409", description = "Sales order is not in Draft status")
     })
     public ResponseEntity<Void> deleteItem(
             @PathVariable UUID id,
@@ -194,8 +194,8 @@ public class SalesOrderController {
     }
 
     @PatchMapping("/{id}/items/{itemId}/status")
-    @PreAuthorize("hasRole('lc-sales')")
-    @Operation(summary = "Update item status", description = "Updates the status of a sales order item. Validates status type and allowed transitions (Pendiente → Agregado/Cancelado).")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @Operation(summary = "Update item status", description = "Updates the status of a sales order item. Validates status type and allowed transitions (Pending → Added/Cancelled).")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Item status updated"),
         @ApiResponse(responseCode = "400", description = "Wrong status type"),

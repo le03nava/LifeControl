@@ -47,6 +47,8 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -126,49 +128,49 @@ class SalesOrderServiceTest {
 
         borradorStatus = Status.builder()
                 .id(UUID.randomUUID())
-                .statusName("Borrador")
+                .statusName("Draft")
                 .statusType(salesOrderType)
                 .enabled(true)
                 .build();
 
         enviadaStatus = Status.builder()
                 .id(UUID.randomUUID())
-                .statusName("Enviada")
+                .statusName("Pending")
                 .statusType(salesOrderType)
                 .enabled(true)
                 .build();
 
         canceladaStatus = Status.builder()
                 .id(UUID.randomUUID())
-                .statusName("Cancelada")
+                .statusName("Cancelled")
                 .statusType(salesOrderType)
                 .enabled(true)
                 .build();
 
         cerradaStatus = Status.builder()
                 .id(UUID.randomUUID())
-                .statusName("Cerrada")
+                .statusName("Completed")
                 .statusType(salesOrderType)
                 .enabled(true)
                 .build();
 
         pendienteItemStatus = Status.builder()
                 .id(UUID.randomUUID())
-                .statusName("Pendiente")
+                .statusName("Pending")
                 .statusType(salesOrderItemType)
                 .enabled(true)
                 .build();
 
         agregadoItemStatus = Status.builder()
                 .id(UUID.randomUUID())
-                .statusName("Agregado")
+                .statusName("Added")
                 .statusType(salesOrderItemType)
                 .enabled(true)
                 .build();
 
         canceladoItemStatus = Status.builder()
                 .id(UUID.randomUUID())
-                .statusName("Cancelado")
+                .statusName("Cancelled")
                 .statusType(salesOrderItemType)
                 .enabled(true)
                 .build();
@@ -194,7 +196,8 @@ class SalesOrderServiceTest {
                 customerId,
                 companyStoreId,
                 shiftId,
-                "user123"
+                "user123",
+                null
         );
 
         testItem = SalesOrderItem.builder()
@@ -212,6 +215,7 @@ class SalesOrderServiceTest {
                 .build();
 
         testItemRequest = new SalesOrderItemRequest(
+                null,
                 variantId,
                 new BigDecimal("2.00"),
                 new BigDecimal("100.00"),
@@ -244,7 +248,7 @@ class SalesOrderServiceTest {
             assertThat(result.getContent()).hasSize(1);
             assertThat(result.getContent().get(0).id()).isEqualTo(orderId);
             assertThat(result.getContent().get(0).orderNumber()).isEqualTo("SO-20260610-00001");
-            assertThat(result.getContent().get(0).statusName()).isEqualTo("Borrador");
+            assertThat(result.getContent().get(0).statusName()).isEqualTo("Draft");
             assertThat(result.getContent().get(0).totalAmount()).isEqualByComparingTo(BigDecimal.ZERO);
             assertThat(result.getContent().get(0).enabled()).isTrue();
             assertThat(result.getTotalElements()).isEqualTo(1);
@@ -308,7 +312,7 @@ class SalesOrderServiceTest {
             assertThat(result.orderNumber()).isEqualTo("SO-20260610-00001");
             assertThat(result.customerId()).isEqualTo(customerId);
             assertThat(result.companyStoreId()).isEqualTo(companyStoreId);
-            assertThat(result.statusName()).isEqualTo("Borrador");
+            assertThat(result.statusName()).isEqualTo("Draft");
             assertThat(result.enabled()).isTrue();
         }
 
@@ -331,12 +335,12 @@ class SalesOrderServiceTest {
     class CreateSalesOrderTests {
 
         @Test
-        @DisplayName("should create sales order with Borrador status and auto-generated order number")
+        @DisplayName("should create sales order with Draft status and auto-generated order number")
         void createSalesOrder_Success() {
             when(customerRepository.existsById(customerId)).thenReturn(true);
             when(companyStoreRepository.existsById(companyStoreId)).thenReturn(true);
             when(shiftRepository.existsById(shiftId)).thenReturn(true);
-            when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER", "Borrador"))
+            when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER", "Draft"))
                     .thenReturn(Optional.of(borradorStatus));
             when(salesOrderRepository.findTopByOrderNumberStartingWithOrderByOrderNumberDesc(any()))
                     .thenReturn(Optional.empty());
@@ -350,7 +354,7 @@ class SalesOrderServiceTest {
             assertThat(result.id()).isEqualTo(orderId);
             assertThat(result.orderNumber()).startsWith("SO-");
             assertThat(result.orderNumber()).containsPattern("SO-\\d{8}-\\d{5}");
-            assertThat(result.statusName()).isEqualTo("Borrador");
+            assertThat(result.statusName()).isEqualTo("Draft");
             assertThat(result.totalAmount()).isEqualByComparingTo(BigDecimal.ZERO);
             assertThat(result.enabled()).isTrue();
             verify(salesOrderRepository).save(any(SalesOrder.class));
@@ -526,8 +530,8 @@ class SalesOrderServiceTest {
     class UpdateSalesOrderStatusTests {
 
         @Test
-        @DisplayName("should transition Borrador → Enviada successfully")
-        void updateStatus_BorradorToEnviada_Success() {
+        @DisplayName("should transition Draft → Pending successfully")
+        void updateStatus_DraftToPending_Success() {
             var statusRequest = new UpdateSalesOrderStatusRequest(enviadaStatus.getId());
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
@@ -557,13 +561,13 @@ class SalesOrderServiceTest {
             SalesOrderResponse result = salesOrderService.updateSalesOrderStatus(orderId, statusRequest);
 
             assertThat(result).isNotNull();
-            assertThat(result.statusName()).isEqualTo("Enviada");
+            assertThat(result.statusName()).isEqualTo("Pending");
             verify(salesOrderRepository).save(any(SalesOrder.class));
         }
 
         @Test
-        @DisplayName("should transition Borrador → Cancelada successfully")
-        void updateStatus_BorradorToCancelada_Success() {
+        @DisplayName("should transition Draft → Cancelled successfully")
+        void updateStatus_DraftToCancelled_Success() {
             var statusRequest = new UpdateSalesOrderStatusRequest(canceladaStatus.getId());
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
@@ -592,12 +596,12 @@ class SalesOrderServiceTest {
             SalesOrderResponse result = salesOrderService.updateSalesOrderStatus(orderId, statusRequest);
 
             assertThat(result).isNotNull();
-            assertThat(result.statusName()).isEqualTo("Cancelada");
+            assertThat(result.statusName()).isEqualTo("Cancelled");
         }
 
         @Test
-        @DisplayName("should throw InvalidStatusTransitionException on Borrador → Cerrada")
-        void updateStatus_BorradorToCerrada_ThrowsInvalidTransition() {
+        @DisplayName("should throw InvalidStatusTransitionException on Draft → Completed")
+        void updateStatus_DraftToCompleted_ThrowsInvalidTransition() {
             var statusRequest = new UpdateSalesOrderStatusRequest(cerradaStatus.getId());
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
@@ -607,8 +611,8 @@ class SalesOrderServiceTest {
             assertThatThrownBy(() -> salesOrderService.updateSalesOrderStatus(orderId, statusRequest))
                     .isInstanceOf(InvalidStatusTransitionException.class)
                     .hasMessageContaining("inválida")
-                    .hasMessageContaining("Borrador")
-                    .hasMessageContaining("Cerrada");
+                    .hasMessageContaining("Draft")
+                    .hasMessageContaining("Completed");
 
             verify(salesOrderRepository, never()).save(any(SalesOrder.class));
         }
@@ -619,7 +623,7 @@ class SalesOrderServiceTest {
             // status with SALES_ORDER_ITEM type instead of SALES_ORDER
             var wrongTypeStatus = Status.builder()
                     .id(UUID.randomUUID())
-                    .statusName("Enviada")
+                    .statusName("Pending")
                     .statusType(salesOrderItemType)
                     .enabled(true)
                     .build();
@@ -670,7 +674,7 @@ class SalesOrderServiceTest {
             assertThat(result.get(0).id()).isEqualTo(itemId);
             assertThat(result.get(0).quantity()).isEqualByComparingTo(new BigDecimal("2.00"));
             assertThat(result.get(0).finalPrice()).isEqualByComparingTo(new BigDecimal("90.00"));
-            assertThat(result.get(0).statusName()).isEqualTo("Pendiente");
+            assertThat(result.get(0).statusName()).isEqualTo("Pending");
         }
 
         @Test
@@ -697,7 +701,7 @@ class SalesOrderServiceTest {
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
             when(productVariantRepository.existsById(variantId)).thenReturn(true);
-            when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Pendiente"))
+            when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Pending"))
                     .thenReturn(Optional.of(pendienteItemStatus));
             when(itemRepository.save(any(SalesOrderItem.class))).thenReturn(testItem);
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of(testItem));
@@ -710,9 +714,9 @@ class SalesOrderServiceTest {
             assertThat(result.finalPrice()).isEqualByComparingTo(new BigDecimal("90.00"));
             assertThat(result.listPrice()).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(result.discountApplied()).isEqualByComparingTo(new BigDecimal("10.00"));
-            assertThat(result.statusName()).isEqualTo("Pendiente");
+            assertThat(result.statusName()).isEqualTo("Pending");
             verify(itemRepository).save(any(SalesOrderItem.class));
-            // Verify totalAmount was recalculated (findById called in loadAndValidateBorradorSO + recalculateTotalAmount)
+            // Verify totalAmount was recalculated (findById called in loadAndValidateDraftSO + recalculateTotalAmount)
             verify(salesOrderRepository, times(2)).findById(orderId);
         }
 
@@ -722,7 +726,7 @@ class SalesOrderServiceTest {
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
             when(productVariantRepository.existsById(variantId)).thenReturn(true);
-            when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Pendiente"))
+            when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Pending"))
                     .thenReturn(Optional.of(pendienteItemStatus));
             when(itemRepository.save(any(SalesOrderItem.class))).thenReturn(testItem);
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of(testItem));
@@ -735,8 +739,8 @@ class SalesOrderServiceTest {
         }
 
         @Test
-        @DisplayName("should throw SalesOrderAlreadyFinalizedException when order not in Borrador")
-        void addSalesOrderItem_NotBorrador_ThrowsException() {
+        @DisplayName("should throw SalesOrderAlreadyFinalizedException when order not in Draft")
+        void addSalesOrderItem_NotDraft_ThrowsException() {
             var cerradaOrder = SalesOrder.builder()
                     .id(orderId)
                     .orderNumber(testOrder.getOrderNumber())
@@ -755,7 +759,7 @@ class SalesOrderServiceTest {
 
             assertThatThrownBy(() -> salesOrderService.addSalesOrderItem(orderId, testItemRequest))
                     .isInstanceOf(SalesOrderAlreadyFinalizedException.class)
-                    .hasMessageContaining("already Cerrada")
+                    .hasMessageContaining("already Completed")
                     .hasMessageContaining("cannot be modified");
 
             verify(itemRepository, never()).save(any(SalesOrderItem.class));
@@ -828,8 +832,8 @@ class SalesOrderServiceTest {
         }
 
         @Test
-        @DisplayName("should throw SalesOrderAlreadyFinalizedException when order not in Borrador")
-        void updateSalesOrderItem_NotBorrador_ThrowsException() {
+        @DisplayName("should throw SalesOrderAlreadyFinalizedException when order not in Draft")
+        void updateSalesOrderItem_NotDraft_ThrowsException() {
             var enviadaOrder = SalesOrder.builder()
                     .id(orderId)
                     .orderNumber(testOrder.getOrderNumber())
@@ -848,7 +852,7 @@ class SalesOrderServiceTest {
 
             assertThatThrownBy(() -> salesOrderService.updateSalesOrderItem(orderId, itemId, testItemRequest))
                     .isInstanceOf(SalesOrderAlreadyFinalizedException.class)
-                    .hasMessageContaining("already Enviada")
+                    .hasMessageContaining("already Pending")
                     .hasMessageContaining("cannot be modified");
 
             verify(itemRepository, never()).save(any(SalesOrderItem.class));
@@ -898,8 +902,8 @@ class SalesOrderServiceTest {
     class UpdateSalesOrderItemStatusTests {
 
         @Test
-        @DisplayName("should transition Pendiente → Agregado successfully")
-        void updateItemStatus_PendienteToAgregado_Success() {
+        @DisplayName("should transition Pending → Added successfully")
+        void updateItemStatus_PendingToAdded_Success() {
             var statusRequest = new UpdateSalesOrderStatusRequest(agregadoItemStatus.getId());
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
@@ -927,13 +931,13 @@ class SalesOrderServiceTest {
 
             assertThat(result).isNotNull();
             assertThat(result.id()).isEqualTo(itemId);
-            assertThat(result.statusName()).isEqualTo("Agregado");
+            assertThat(result.statusName()).isEqualTo("Added");
             verify(itemRepository).save(any(SalesOrderItem.class));
         }
 
         @Test
-        @DisplayName("should transition Pendiente → Cancelado successfully")
-        void updateItemStatus_PendienteToCancelado_Success() {
+        @DisplayName("should transition Pending → Cancelled successfully")
+        void updateItemStatus_PendingToCancelled_Success() {
             var statusRequest = new UpdateSalesOrderStatusRequest(canceladoItemStatus.getId());
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
@@ -960,16 +964,16 @@ class SalesOrderServiceTest {
                     orderId, itemId, statusRequest);
 
             assertThat(result).isNotNull();
-            assertThat(result.statusName()).isEqualTo("Cancelado");
+            assertThat(result.statusName()).isEqualTo("Cancelled");
         }
 
         @Test
-        @DisplayName("should throw InvalidStatusTransitionException on Pendiente → Cerrada")
-        void updateItemStatus_PendienteToCerrada_ThrowsInvalidTransition() {
-            // Must be SALES_ORDER_ITEM type to pass type validation, but "Cerrada" is not in allowed transitions
+        @DisplayName("should throw InvalidStatusTransitionException on Pending → Completed")
+        void updateItemStatus_PendingToCompleted_ThrowsInvalidTransition() {
+            // Must be SALES_ORDER_ITEM type to pass type validation, but "Completed" is not in allowed transitions
             var invalidTransitionStatus = Status.builder()
                     .id(UUID.randomUUID())
-                    .statusName("Cerrada")
+                    .statusName("Completed")
                     .statusType(salesOrderItemType)
                     .enabled(true)
                     .build();
@@ -984,10 +988,177 @@ class SalesOrderServiceTest {
             assertThatThrownBy(() -> salesOrderService.updateSalesOrderItemStatus(orderId, itemId, statusRequest))
                     .isInstanceOf(InvalidStatusTransitionException.class)
                     .hasMessageContaining("inválida")
-                    .hasMessageContaining("Pendiente")
-                    .hasMessageContaining("Cerrada");
+                    .hasMessageContaining("Pending")
+                    .hasMessageContaining("Completed");
 
             verify(itemRepository, never()).save(any(SalesOrderItem.class));
         }
     }
+
+    // ─────────────────────────────────────────────
+    // updateSalesOrder — inline items diff
+    // ─────────────────────────────────────────────
+    @Nested
+    @DisplayName("updateSalesOrder - inline items diff")
+    class UpdateSalesOrderInlineItemsTests {
+
+        @Test
+        @DisplayName("should soft-delete items present in DB but absent from request")
+        void updateSalesOrder_SoftDeletesMissingItems() {
+            var existingItem1 = SalesOrderItem.builder()
+                    .id(UUID.randomUUID()).salesOrderId(orderId).productVariantId(variantId)
+                    .quantity(BigDecimal.ONE).listPrice(BigDecimal.TEN).finalPrice(BigDecimal.TEN)
+                    .statusId(pendienteItemStatus.getId()).enabled(true).build();
+            var existingItem2 = SalesOrderItem.builder()
+                    .id(UUID.randomUUID()).salesOrderId(orderId).productVariantId(UUID.randomUUID())
+                    .quantity(BigDecimal.ONE).listPrice(BigDecimal.TEN).finalPrice(BigDecimal.TEN)
+                    .statusId(pendienteItemStatus.getId()).enabled(true).build();
+            var existingItem3 = SalesOrderItem.builder()
+                    .id(UUID.randomUUID()).salesOrderId(orderId).productVariantId(UUID.randomUUID())
+                    .quantity(BigDecimal.ONE).listPrice(BigDecimal.TEN).finalPrice(BigDecimal.TEN)
+                    .statusId(pendienteItemStatus.getId()).enabled(true).build();
+
+            var reqItem1 = new SalesOrderItemRequest(
+                    existingItem1.getId(), existingItem1.getProductVariantId(),
+                    BigDecimal.ONE, BigDecimal.TEN, BigDecimal.ZERO, null);
+            var reqItem2 = new SalesOrderItemRequest(
+                    existingItem2.getId(), existingItem2.getProductVariantId(),
+                    BigDecimal.ONE, BigDecimal.TEN, BigDecimal.ZERO, null);
+            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123",
+                    List.of(reqItem1, reqItem2));
+
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(customerRepository.existsById(customerId)).thenReturn(true);
+            when(companyStoreRepository.existsById(companyStoreId)).thenReturn(true);
+            when(shiftRepository.existsById(shiftId)).thenReturn(true);
+            when(salesOrderRepository.save(any(SalesOrder.class))).thenReturn(testOrder);
+            when(itemRepository.findBySalesOrderId(orderId))
+                    .thenReturn(List.of(existingItem1, existingItem2, existingItem3));
+            when(itemRepository.findById(existingItem1.getId())).thenReturn(Optional.of(existingItem1));
+            when(itemRepository.findById(existingItem2.getId())).thenReturn(Optional.of(existingItem2));
+            when(itemRepository.save(any(SalesOrderItem.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
+            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
+            when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Pending"))
+                    .thenReturn(Optional.of(pendienteItemStatus));
+
+            salesOrderService.updateSalesOrder(orderId, request);
+
+            verify(itemRepository).save(argThat(item ->
+                    item.getId().equals(existingItem3.getId()) && !item.getEnabled()));
+        }
+
+        @Test
+        @DisplayName("should update changed fields on existing items with matching IDs")
+        void updateSalesOrder_UpdatesChangedItems() {
+            var newQty = new BigDecimal("5.00");
+            var newPrice = new BigDecimal("200.00");
+            var newDiscount = new BigDecimal("20.00");
+
+            var reqItem = new SalesOrderItemRequest(
+                    testItem.getId(), testItem.getProductVariantId(),
+                    newQty, newPrice, newDiscount, null);
+            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123",
+                    List.of(reqItem));
+
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(customerRepository.existsById(customerId)).thenReturn(true);
+            when(companyStoreRepository.existsById(companyStoreId)).thenReturn(true);
+            when(shiftRepository.existsById(shiftId)).thenReturn(true);
+            when(salesOrderRepository.save(any(SalesOrder.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(testItem));
+            when(itemRepository.findById(testItem.getId())).thenReturn(Optional.of(testItem));
+            when(itemRepository.save(any(SalesOrderItem.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of(testItem));
+            when(statusRepository.findById(any())).thenReturn(Optional.of(borradorStatus));
+            when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Pending"))
+                    .thenReturn(Optional.of(pendienteItemStatus));
+
+            salesOrderService.updateSalesOrder(orderId, request);
+
+            verify(itemRepository).save(argThat(item ->
+                    item.getId().equals(testItem.getId())
+                            && item.getQuantity().compareTo(newQty) == 0
+                            && item.getListPrice().compareTo(newPrice) == 0
+                            && item.getDiscountApplied().compareTo(newDiscount) == 0
+                            && item.getEnabled()));
+        }
+
+        @Test
+        @DisplayName("should insert new items when request items have null id")
+        void updateSalesOrder_InsertsNewItems() {
+            UUID newVariantId = UUID.randomUUID();
+            var reqItem = new SalesOrderItemRequest(
+                    null, newVariantId,
+                    new BigDecimal("3.00"), new BigDecimal("50.00"), BigDecimal.ZERO, null);
+            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123",
+                    List.of(reqItem));
+
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(customerRepository.existsById(customerId)).thenReturn(true);
+            when(companyStoreRepository.existsById(companyStoreId)).thenReturn(true);
+            when(shiftRepository.existsById(shiftId)).thenReturn(true);
+            when(salesOrderRepository.save(any(SalesOrder.class))).thenReturn(testOrder);
+            when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of());
+            when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Pending"))
+                    .thenReturn(Optional.of(pendienteItemStatus));
+            when(itemRepository.save(any(SalesOrderItem.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
+            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
+
+            salesOrderService.updateSalesOrder(orderId, request);
+
+            verify(itemRepository).save(argThat(item ->
+                    item.getId() == null
+                            && item.getSalesOrderId().equals(orderId)
+                            && item.getProductVariantId().equals(newVariantId)
+                            && item.getQuantity().compareTo(new BigDecimal("3.00")) == 0));
+        }
+
+        @Test
+        @DisplayName("should skip item diff when items list is null")
+        void updateSalesOrder_NullItemsSkipsDiff() {
+            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", null);
+
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(customerRepository.existsById(customerId)).thenReturn(true);
+            when(companyStoreRepository.existsById(companyStoreId)).thenReturn(true);
+            when(shiftRepository.existsById(shiftId)).thenReturn(true);
+            when(salesOrderRepository.save(any(SalesOrder.class))).thenReturn(testOrder);
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
+            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
+
+            salesOrderService.updateSalesOrder(orderId, request);
+
+            verify(itemRepository, never()).findBySalesOrderId(any());
+            verify(itemRepository, never()).save(any(SalesOrderItem.class));
+        }
+
+        @Test
+        @DisplayName("should recalculate total amount after item changes")
+        void updateSalesOrder_RecalculatesTotalAfterItemChanges() {
+            var reqItem = new SalesOrderItemRequest(
+                    null, variantId,
+                    BigDecimal.ONE, new BigDecimal("100.00"), BigDecimal.ZERO, null);
+            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123",
+                    List.of(reqItem));
+
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(customerRepository.existsById(customerId)).thenReturn(true);
+            when(companyStoreRepository.existsById(companyStoreId)).thenReturn(true);
+            when(shiftRepository.existsById(shiftId)).thenReturn(true);
+            when(salesOrderRepository.save(any(SalesOrder.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of());
+            when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Pending"))
+                    .thenReturn(Optional.of(pendienteItemStatus));
+            when(itemRepository.save(any(SalesOrderItem.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
+            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
+
+            salesOrderService.updateSalesOrder(orderId, request);
+
+            verify(salesOrderRepository, atLeast(2)).save(any(SalesOrder.class));
+        }
+    }
+
 }

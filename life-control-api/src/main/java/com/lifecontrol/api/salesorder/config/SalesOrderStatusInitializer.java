@@ -4,6 +4,8 @@ import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.status.model.StatusType;
 import com.lifecontrol.api.status.repository.StatusRepository;
 import com.lifecontrol.api.status.repository.StatusTypeRepository;
+import java.util.Map;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
@@ -18,17 +20,29 @@ public class SalesOrderStatusInitializer implements ApplicationRunner {
 
     private record SeedStatus(String name, int order) {}
 
+    private static final Map<String, String> MIGRATIONS = Map.of(
+        // Sales order statuses
+        "Borrador", "Draft",
+        "Enviada", "Pending",
+        "Cerrada", "Completed",
+        "Cancelada", "Cancelled",
+        // Sales order item statuses
+        "Pendiente", "Pending",
+        "Agregado", "Added",
+        "Cancelado", "Cancelled"
+    );
+
     private static final SeedStatus[] SALES_ORDER_STATUSES = {
-        new SeedStatus("Borrador", 1),
-        new SeedStatus("Enviada", 2),
-        new SeedStatus("Cerrada", 3),
-        new SeedStatus("Cancelada", 4)
+        new SeedStatus("Draft", 1),
+        new SeedStatus("Pending", 2),
+        new SeedStatus("Completed", 3),
+        new SeedStatus("Cancelled", 4)
     };
 
     private static final SeedStatus[] SALES_ORDER_ITEM_STATUSES = {
-        new SeedStatus("Pendiente", 1),
-        new SeedStatus("Agregado", 2),
-        new SeedStatus("Cancelado", 3)
+        new SeedStatus("Pending", 1),
+        new SeedStatus("Added", 2),
+        new SeedStatus("Cancelled", 3)
     };
 
     private final StatusTypeRepository statusTypeRepository;
@@ -58,6 +72,22 @@ public class SalesOrderStatusInitializer implements ApplicationRunner {
                     log.debug("Seeded status type: {}", typeName);
                     return saved;
                 });
+
+        for (var entry : MIGRATIONS.entrySet()) {
+            var oldName = entry.getKey();
+            var newName = entry.getValue();
+            var oldStatus = statusRepository.findByTypeNameAndStatusName(typeName, oldName);
+            if (oldStatus.isPresent()) {
+                if (!statusRepository.existsByStatusNameIgnoreCaseAndStatusTypeId(newName, statusType.getId())) {
+                    var status = oldStatus.get();
+                    status.setStatusName(newName);
+                    statusRepository.save(status);
+                    log.info("Migrated status name: '{}' → '{}' ({})", oldName, newName, typeName);
+                } else {
+                    log.warn("Cannot migrate '{}' → '{}' ({}) — new name already exists; old status left as-is", oldName, newName, typeName);
+                }
+            }
+        }
 
         for (var seed : statuses) {
             if (!statusRepository.existsByStatusNameIgnoreCaseAndStatusTypeId(seed.name(), statusType.getId())) {

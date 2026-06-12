@@ -42,10 +42,12 @@ export interface SalesOrderRequest {
   companyStoreId: string;
   shiftId?: string;
   userId?: string;
+  items?: SalesOrderItemRequest[];
 }
 
 /** Request body for creating or updating a Sales Order line item. */
 export interface SalesOrderItemRequest {
+  id?: string;
   productVariantId: string;
   quantity: number;
   listPrice: number;

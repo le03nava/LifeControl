@@ -49,24 +49,24 @@ public class PurchaseOrderService {
     private static final Logger logger = LoggerFactory.getLogger(PurchaseOrderService.class);
 
     private static final Map<String, Set<String>> PO_TRANSITIONS = Map.ofEntries(
-            Map.entry("Draft", Set.of("Sent", "Rechazada")),
-            Map.entry("Sent", Set.of("Accepted", "Rechazada")),
-            Map.entry("Accepted", Set.of("In Transit", "Rechazada")),
-            Map.entry("In Transit", Set.of("Received", "Rechazada")),
-            Map.entry("Received", Set.of("Facturada", "Rechazada")),
-            Map.entry("Facturada", Set.of("Cerrada", "Rechazada")),
-            Map.entry("Cerrada", Set.of()),
-            Map.entry("Rechazada", Set.of())
+            Map.entry("Draft", Set.of("Sent", "Rejected")),
+            Map.entry("Sent", Set.of("Accepted", "Rejected")),
+            Map.entry("Accepted", Set.of("In Transit", "Rejected")),
+            Map.entry("In Transit", Set.of("Received", "Rejected")),
+            Map.entry("Received", Set.of("Billed", "Rejected")),
+            Map.entry("Billed", Set.of("Closed", "Rejected")),
+            Map.entry("Closed", Set.of()),
+            Map.entry("Rejected", Set.of())
     );
 
     private static final Map<String, Set<String>> DETAIL_TRANSITIONS = Map.ofEntries(
-            Map.entry("Pending", Set.of("In Process", "Cancelada")),
-            Map.entry("In Process", Set.of("In Transit", "Rejected", "Cancelada")),
-            Map.entry("In Transit", Set.of("Partial Received", "Rejected", "Cancelada")),
+            Map.entry("Pending", Set.of("In Process", "Cancelled")),
+            Map.entry("In Process", Set.of("In Transit", "Rejected", "Cancelled")),
+            Map.entry("In Transit", Set.of("Partial Received", "Rejected", "Cancelled")),
             Map.entry("Partial Received", Set.of("Received", "Rejected")),
             Map.entry("Received", Set.of()),
             Map.entry("Rejected", Set.of()),
-            Map.entry("Cancelada", Set.of())
+            Map.entry("Cancelled", Set.of())
     );
 
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd");

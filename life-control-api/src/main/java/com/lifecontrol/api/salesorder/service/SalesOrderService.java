@@ -37,8 +37,10 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 public class SalesOrderService {
@@ -46,16 +48,16 @@ public class SalesOrderService {
     private static final Logger logger = LoggerFactory.getLogger(SalesOrderService.class);
 
     private static final Map<String, Set<String>> SO_TRANSITIONS = Map.ofEntries(
-            Map.entry("Borrador", Set.of("Enviada", "Cancelada")),
-            Map.entry("Enviada", Set.of("Cerrada", "Cancelada")),
-            Map.entry("Cerrada", Set.of()),
-            Map.entry("Cancelada", Set.of())
+            Map.entry("Draft", Set.of("Pending", "Cancelled")),
+            Map.entry("Pending", Set.of("Completed", "Cancelled")),
+            Map.entry("Completed", Set.of()),
+            Map.entry("Cancelled", Set.of())
     );
 
     private static final Map<String, Set<String>> SO_ITEM_TRANSITIONS = Map.ofEntries(
-            Map.entry("Pendiente", Set.of("Agregado", "Cancelado")),
-            Map.entry("Agregado", Set.of()),
-            Map.entry("Cancelado", Set.of())
+            Map.entry("Pending", Set.of("Added", "Cancelled")),
+            Map.entry("Added", Set.of()),
+            Map.entry("Cancelled", Set.of())
     );
 
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd");
@@ -116,9 +118,9 @@ public class SalesOrderService {
             validateShiftExists(request.shiftId());
         }
 
-        var status = statusRepository.findByTypeNameAndStatusName("SALES_ORDER", "Borrador")
+        var status = statusRepository.findByTypeNameAndStatusName("SALES_ORDER", "Draft")
                 .orElseThrow(() -> new StatusNotFoundException(
-                        "Default status 'Borrador' not found for SALES_ORDER type"));
+                        "Default status 'Draft' not found for SALES_ORDER type"));
 
         var orderNumber = generateOrderNumber();
 
@@ -159,6 +161,69 @@ public class SalesOrderService {
         so.setUserId(request.userId());
 
         var updated = salesOrderRepository.save(so);
+
+        // Item diff: add/update/delete inline items atomically
+        if (request.items() != null && !request.items().isEmpty()) {
+            var existingItems = itemRepository.findBySalesOrderId(id);
+            var requestIds = request.items().stream()
+                    .map(SalesOrderItemRequest::id)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toSet());
+
+            // DELETE: items in DB but not in request → soft-delete
+            for (var existing : existingItems) {
+                if (!requestIds.contains(existing.getId())) {
+                    existing.setEnabled(false);
+                    itemRepository.save(existing);
+                }
+            }
+
+            // UPDATE (existing) or INSERT (new)
+            var defaultItemStatus = statusRepository
+                    .findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Pending")
+                    .orElseThrow(() -> new StatusNotFoundException(
+                            "Default status 'Pending' not found for SALES_ORDER_ITEM type"));
+
+            for (var reqItem : request.items()) {
+                if (reqItem.id() != null) {
+                    // UPDATE: find by id, update fields, re-enable
+                    var item = itemRepository.findById(reqItem.id())
+                            .orElseThrow(() -> new SalesOrderItemNotFoundException(reqItem.id()));
+                    item.setProductVariantId(reqItem.productVariantId());
+                    item.setQuantity(reqItem.quantity());
+                    item.setListPrice(reqItem.listPrice());
+                    var discount = reqItem.discountApplied() != null ? reqItem.discountApplied() : BigDecimal.ZERO;
+                    item.setDiscountApplied(discount);
+                    item.setFinalPrice(reqItem.listPrice().subtract(discount));
+                    item.setPromotionId(reqItem.promotionId());
+                    item.setEnabled(true);
+                    itemRepository.save(item);
+                } else {
+                    // INSERT: new item with default "Pending" status
+                    var discount = reqItem.discountApplied() != null ? reqItem.discountApplied() : BigDecimal.ZERO;
+                    var newItem = SalesOrderItem.builder()
+                            .salesOrderId(id)
+                            .productVariantId(reqItem.productVariantId())
+                            .quantity(reqItem.quantity())
+                            .listPrice(reqItem.listPrice())
+                            .discountApplied(discount)
+                            .finalPrice(reqItem.listPrice().subtract(discount))
+                            .promotionId(reqItem.promotionId())
+                            .statusId(defaultItemStatus.getId())
+                            .enabled(true)
+                            .build();
+                    itemRepository.save(newItem);
+                }
+            }
+
+            // Recalculate order total after item mutations
+            recalculateTotalAmount(id);
+
+            // Reload to include updated items in response
+            updated = salesOrderRepository.findById(id)
+                    .orElseThrow(() -> new SalesOrderNotFoundException(id));
+        }
+
         return toResponse(updated);
     }
 
@@ -230,13 +295,13 @@ public class SalesOrderService {
     public SalesOrderItemResponse addSalesOrderItem(UUID salesOrderId, SalesOrderItemRequest request) {
         logger.info("Adding item to sales order: soId={}", salesOrderId);
 
-        var so = loadAndValidateBorradorSO(salesOrderId);
+        var so = loadAndValidateDraftSO(salesOrderId);
         validateProductVariantExists(request.productVariantId());
 
         var defaultItemStatus = statusRepository
-                .findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Pendiente")
+                .findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Pending")
                 .orElseThrow(() -> new StatusNotFoundException(
-                        "Default status 'Pendiente' not found for SALES_ORDER_ITEM type"));
+                        "Default status 'Pending' not found for SALES_ORDER_ITEM type"));
 
         var discountApplied = request.discountApplied() != null ? request.discountApplied() : BigDecimal.ZERO;
         var finalPrice = request.listPrice().subtract(discountApplied);
@@ -267,7 +332,7 @@ public class SalesOrderService {
                                                         SalesOrderItemRequest request) {
         logger.info("Updating item: soId={}, itemId={}", salesOrderId, itemId);
 
-        loadAndValidateBorradorSO(salesOrderId);
+        loadAndValidateDraftSO(salesOrderId);
 
         var item = itemRepository.findById(itemId)
                 .orElseThrow(() -> new SalesOrderItemNotFoundException(itemId));
@@ -300,7 +365,7 @@ public class SalesOrderService {
     public void deleteSalesOrderItem(UUID salesOrderId, UUID itemId) {
         logger.info("Soft-deleting item: soId={}, itemId={}", salesOrderId, itemId);
 
-        loadAndValidateBorradorSO(salesOrderId);
+        loadAndValidateDraftSO(salesOrderId);
 
         var item = itemRepository.findById(itemId)
                 .orElseThrow(() -> new SalesOrderItemNotFoundException(itemId));
@@ -347,14 +412,14 @@ public class SalesOrderService {
 
     // ─── FK Validation Helpers ──────────────────────────────────────────
 
-    private SalesOrder loadAndValidateBorradorSO(UUID id) {
+    private SalesOrder loadAndValidateDraftSO(UUID id) {
         var so = salesOrderRepository.findById(id)
                 .orElseThrow(() -> new SalesOrderNotFoundException(id));
 
         var status = statusRepository.findById(so.getStatusId())
                 .orElseThrow(() -> new StatusNotFoundException(so.getStatusId()));
 
-        if (!"Borrador".equals(status.getStatusName())) {
+        if (!"Draft".equals(status.getStatusName())) {
             throw new SalesOrderAlreadyFinalizedException(id, status.getStatusName());
         }
         return so;

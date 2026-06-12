@@ -24,9 +24,9 @@ public class PurchaseOrderStatusInitializer implements ApplicationRunner {
         new SeedStatus("Accepted", 3),
         new SeedStatus("In Transit", 4),
         new SeedStatus("Received", 5),
-        new SeedStatus("Facturada", 6),
-        new SeedStatus("Cerrada", 7),
-        new SeedStatus("Rechazada", 8)
+        new SeedStatus("Billed", 6),
+        new SeedStatus("Closed", 7),
+        new SeedStatus("Rejected", 8)
     };
 
     private static final SeedStatus[] PURCHASE_ORDER_DETAIL_STATUSES = {
@@ -36,7 +36,7 @@ public class PurchaseOrderStatusInitializer implements ApplicationRunner {
         new SeedStatus("Partial Received", 4),
         new SeedStatus("Received", 5),
         new SeedStatus("Rejected", 6),
-        new SeedStatus("Cancelada", 7)
+        new SeedStatus("Cancelled", 7)
     };
 
     private final StatusTypeRepository statusTypeRepository;

@@ -6,9 +6,11 @@ import { of, Subject, throwError } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
 import { SalesOrderEdit } from './sales-order-edit';
 import { SalesOrderService } from '../../data/sales-order.service';
+import { ProfileService } from '@features/user/profile/data/profile.service';
 import { NotificationService } from '@shared/data/notification';
 import { ConfigService } from '@app/services/config.service';
-import type { SalesOrder, SalesOrderItem, Page } from '../../models/sales-order.models';
+import type { SalesOrder, SalesOrderItem } from '../../models/sales-order.models';
+import type { ProfileResponse } from '@features/user/profile/data/profile.models';
 
 const TEST_API = 'http://test/api';
 
@@ -47,15 +49,17 @@ const mockOrder: SalesOrder = {
   items: [mockItem],
 };
 
-const emptyPage: Page<unknown> = {
-  content: [],
-  totalElements: 0,
-  totalPages: 0,
-  size: 1000,
-  number: 0,
-  first: true,
-  last: true,
-  empty: true,
+const mockProfile: ProfileResponse = {
+  keycloakUserId: 'user-1',
+  username: 'juan',
+  email: 'juan@test.com',
+  firstName: 'Juan',
+  lastName: 'Pérez',
+  companyCountryId: null,
+  companyId: null,
+  companyRegionId: null,
+  companyZoneId: null,
+  companyStoreId: 'store-1',
 };
 
 function createActivatedRoute(params: { id?: string }) {
@@ -110,6 +114,13 @@ describe('SalesOrderEdit', () => {
       useValue: baseMocks(),
     },
     {
+      provide: ProfileService,
+      useValue: {
+        getProfile: vi.fn().mockReturnValue(of(mockProfile)),
+        updateProfile: vi.fn(),
+      },
+    },
+    {
       provide: NotificationService,
       useValue: {
         showSuccess: vi.fn(),
@@ -156,11 +167,12 @@ describe('SalesOrderEdit', () => {
       expect(component.isEditMode()).toBe(false);
     });
 
-    it('should have an empty form initially', () => {
+    it('should have empty customerId and shiftId, with store pre-set from profile', () => {
       const form = component.headerForm();
       expect(form.controls.customerId.value).toBe('');
-      expect(form.controls.companyStoreId.value).toBe('');
       expect(form.controls.shiftId.value).toBe('');
+      // Store comes from user profile preferences
+      expect(form.controls.companyStoreId.value).toBe('store-1');
     });
 
     it('should initially have empty line items', () => {
@@ -340,6 +352,15 @@ describe('SalesOrderEdit', () => {
         companyStoreId: 'store-1',
         shiftId: 'shift-1',
         userId: undefined,
+        items: [
+          {
+            id: 'item-1',
+            productVariantId: 'pv-1',
+            quantity: 5,
+            listPrice: 100,
+            discountApplied: 0,
+          },
+        ],
       });
     });
 
@@ -447,11 +468,8 @@ describe('SalesOrderEdit', () => {
       expect(component.lineItems()).toEqual(newItems);
     });
 
-    it('should compute initialStore from loadedOrder', () => {
-      expect(component.initialStore()).toEqual({
-        id: 'store-1',
-        name: 'Tienda Centro',
-      });
+    it('should compute displayStoreName from loadedOrder', () => {
+      expect(component.displayStoreName()).toBe('Tienda Centro');
     });
   });
 
@@ -519,6 +537,233 @@ describe('SalesOrderEdit', () => {
       component.onSave();
 
       expect(component.generalError()).toContain('concurrently modified');
+    });
+  });
+
+  // ══════════════════════════════════════════════════════════
+  // VARIANT SELECTION
+  // ══════════════════════════════════════════════════════════
+
+  describe('variant selection', () => {
+    beforeEach(async () => {
+      await TestBed.configureTestingModule({
+        imports: [
+          SalesOrderEdit,
+          NoopAnimationsModule,
+          HttpClientTestingModule,
+        ],
+        providers: baseProviders('so-1'),
+      }).compileComponents();
+
+      fixture = TestBed.createComponent(SalesOrderEdit);
+      component = fixture.componentInstance;
+      salesOrderService = TestBed.inject(
+        SalesOrderService,
+      ) as unknown as typeof salesOrderService;
+
+      fixture.detectChanges();
+    });
+
+    it('should add a new row to lineItems when onVariantSelected is called with a valid variant', () => {
+      const variant = {
+        id: 'pv-new',
+        productId: 'prod-1',
+        variantName: 'Widget Blue - Medium',
+        barCode: 'BAR-001',
+        sku: 'SKU-WBM',
+        listPrice: 75,
+        stock: 100,
+        enabled: true,
+      };
+
+      expect(component.lineItems()).toHaveLength(1); // pre-populated from mockOrder
+
+      component.onVariantSelected(variant);
+
+      const items = component.lineItems();
+      expect(items).toHaveLength(2);
+      // New item should be first (prepended)
+      const newItem = items[0];
+      expect(newItem.productVariantId).toBe('pv-new');
+      expect(newItem.productVariantName).toBe('Widget Blue - Medium');
+      expect(newItem.quantity).toBe(1);
+      expect(newItem.listPrice).toBe(75);
+      expect(newItem.discountApplied).toBe(0);
+      expect(newItem.id).toBeUndefined();
+    });
+
+    it('should add a row with quantity=1 and zero discount regardless of variant data', () => {
+      const variant = {
+        id: 'pv-cheap',
+        productId: 'prod-2',
+        variantName: 'Budget Item',
+        listPrice: 5,
+        stock: 10,
+        enabled: true,
+      };
+
+      component.lineItems.set([]);
+      component.onVariantSelected(variant);
+
+      const items = component.lineItems();
+      expect(items).toHaveLength(1);
+      expect(items[0].quantity).toBe(1);
+      expect(items[0].discountApplied).toBe(0);
+      expect(items[0].listPrice).toBe(5);
+    });
+  });
+
+  // ══════════════════════════════════════════════════════════
+  // INLINE ITEMS ON SAVE
+  // ══════════════════════════════════════════════════════════
+
+  describe('inline items on save', () => {
+    describe('edit mode', () => {
+      beforeEach(async () => {
+        await TestBed.configureTestingModule({
+          imports: [
+            SalesOrderEdit,
+            NoopAnimationsModule,
+            HttpClientTestingModule,
+          ],
+          providers: baseProviders('so-1'),
+        }).compileComponents();
+
+        fixture = TestBed.createComponent(SalesOrderEdit);
+        component = fixture.componentInstance;
+        salesOrderService = TestBed.inject(
+          SalesOrderService,
+        ) as unknown as typeof salesOrderService;
+        router = TestBed.inject(Router);
+        vi.spyOn(router, 'navigate');
+
+        fixture.detectChanges();
+      });
+
+      it('should include items array in update request body', () => {
+        component.onSave();
+
+        expect(salesOrderService.update).toHaveBeenCalledWith('so-1', {
+          customerId: 'cust-1',
+          companyStoreId: 'store-1',
+          shiftId: 'shift-1',
+          userId: undefined,
+          items: [
+            {
+              id: 'item-1',
+              productVariantId: 'pv-1',
+              quantity: 5,
+              listPrice: 100,
+              discountApplied: 0,
+            },
+          ],
+        });
+      });
+
+      it('should include newly added items without an id field', () => {
+        // Add a new unsaved item (no id)
+        component.lineItems.update((rows) => [
+          ...rows,
+          {
+            productVariantId: 'pv-new',
+            productVariantName: 'New Item',
+            quantity: 3,
+            listPrice: 50,
+            discountApplied: 5,
+          },
+        ]);
+
+        component.onSave();
+
+        expect(salesOrderService.update).toHaveBeenCalledWith('so-1', {
+          customerId: 'cust-1',
+          companyStoreId: 'store-1',
+          shiftId: 'shift-1',
+          userId: undefined,
+          items: [
+            {
+              id: 'item-1',
+              productVariantId: 'pv-1',
+              quantity: 5,
+              listPrice: 100,
+              discountApplied: 0,
+            },
+            {
+              productVariantId: 'pv-new',
+              quantity: 3,
+              listPrice: 50,
+              discountApplied: 5,
+            },
+          ],
+        });
+      });
+
+      it('should handle server error on update with items', () => {
+        const apiError = {
+          status: 400,
+          message: 'Validation failed',
+          errors: { 'items[0].quantity': 'Must be positive' },
+        };
+        salesOrderService.update = vi.fn().mockReturnValue(
+          throwError(
+            () =>
+              new HttpErrorResponse({
+                error: apiError,
+                status: 400,
+                statusText: 'Bad Request',
+              }),
+          ),
+        );
+
+        component.onSave();
+
+        expect(component.serverErrors()).toEqual({
+          'items[0].quantity': 'Must be positive',
+        });
+        expect(component.saving()).toBe(false);
+      });
+    });
+
+    describe('create mode', () => {
+      beforeEach(async () => {
+        await TestBed.configureTestingModule({
+          imports: [
+            SalesOrderEdit,
+            NoopAnimationsModule,
+            HttpClientTestingModule,
+          ],
+          providers: baseProviders(null),
+        }).compileComponents();
+
+        fixture = TestBed.createComponent(SalesOrderEdit);
+        component = fixture.componentInstance;
+        salesOrderService = TestBed.inject(
+          SalesOrderService,
+        ) as unknown as typeof salesOrderService;
+        router = TestBed.inject(Router);
+        vi.spyOn(router, 'navigate');
+
+        fixture.detectChanges();
+      });
+
+      it('should exclude items from create request body', () => {
+        const form = component.headerForm();
+        form.controls.customerId.setValue('cust-1');
+        form.controls.companyStoreId.setValue('store-1');
+        form.controls.shiftId.setValue('shift-1');
+
+        component.onSave();
+
+        expect(salesOrderService.create).toHaveBeenCalledWith({
+          customerId: 'cust-1',
+          companyStoreId: 'store-1',
+          shiftId: 'shift-1',
+          userId: undefined,
+        });
+        // Verify items is NOT in the call
+        const callArgs = salesOrderService.create.mock.calls[0][0];
+        expect(callArgs).not.toHaveProperty('items');
+      });
     });
   });
 

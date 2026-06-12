@@ -7,7 +7,7 @@ import {
   OnInit,
   signal,
 } from '@angular/core';
-import { HttpErrorResponse } from '@angular/common/http';
+import { HttpErrorResponse, HttpClient } from '@angular/common/http';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
@@ -17,12 +17,16 @@ import {
   ReactiveFormsModule,
 } from '@angular/forms';
 import { SalesOrderService } from '../../data/sales-order.service';
+import { ProfileService } from '@features/user/profile/data/profile.service';
+import { ConfigService } from '@app/services/config.service';
 import { ApiError } from '@shared/models';
 import { PageHeader } from '@shared/ui';
 import { OrderHeaderForm } from '../../components/order-header-form/order-header-form';
 import { SalesOrderItemTable, type ItemTableRow } from '../../components/sales-order-item-table/sales-order-item-table';
 import { StatusTransition } from '../../components/status-transition/status-transition';
+import { ProductVariantSelector } from '../../components/product-variant-selector/product-variant-selector';
 import type { SalesOrder, SalesOrderRequest } from '../../models/sales-order.models';
+import type { ProductVariantOption } from '../../models/sales-order.models';
 import type { SalesOrderHeaderControl } from '../../models/sales-order-control.models';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
@@ -37,6 +41,7 @@ import { MatIconModule } from '@angular/material/icon';
     OrderHeaderForm,
     SalesOrderItemTable,
     StatusTransition,
+    ProductVariantSelector,
     MatButtonModule,
     MatIconModule,
   ],
@@ -49,6 +54,9 @@ export class SalesOrderEdit implements OnInit {
   private router = inject(Router);
   private fb = inject(NonNullableFormBuilder);
   private salesOrderService = inject(SalesOrderService);
+  private profileService = inject(ProfileService);
+  private http = inject(HttpClient);
+  private configService = inject(ConfigService);
   private destroyRef = inject(DestroyRef);
 
   // ─── Route data ────────────────────────────────────────
@@ -65,6 +73,9 @@ export class SalesOrderEdit implements OnInit {
   readonly generalError = signal<string | null>(null);
   readonly saving = signal(false);
 
+  // ─── Store from user preferences ────────────────────────
+  readonly userStoreName = signal<string | null>(null);
+
   // ─── Loading state for initial GET (edit mode) ───────────
   readonly loading = signal(false);
 
@@ -73,17 +84,16 @@ export class SalesOrderEdit implements OnInit {
   readonly isDraft = computed(
     () => {
       const order = this.loadedOrder();
-      // In create mode (no loaded order), the new order will be Draft by default
       if (!order) return true;
       return order.statusName === 'Draft';
     },
   );
 
-  /** Store info passed down to `OrderHeaderForm` for edit mode. */
-  readonly initialStore = computed(() => {
+  /** Store name to display in the header (from profile in create mode, from loaded order in edit mode). */
+  readonly displayStoreName = computed(() => {
     const order = this.loadedOrder();
-    if (!order || !order.companyStoreName) return null;
-    return { id: order.companyStoreId, name: order.companyStoreName };
+    if (order?.companyStoreName) return order.companyStoreName;
+    return this.userStoreName();
   });
 
   // ─── Line items ────────────────────────────────────────
@@ -93,12 +103,63 @@ export class SalesOrderEdit implements OnInit {
     const id = this.orderId();
     if (id) {
       this.loadOrder(id);
+    } else {
+      this.loadUserStore();
     }
   }
 
   // ══════════════════════════════════════════════════════════
   // DATA LOADING
   // ══════════════════════════════════════════════════════════
+
+  /** Load the user's preferred store from their profile (create mode only). */
+  private loadUserStore(): void {
+    this.profileService
+      .getProfile()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (profile) => {
+          if (profile.companyStoreId) {
+            this.headerForm().patchValue({
+              companyStoreId: profile.companyStoreId,
+            });
+            // Fetch store name via separate HTTP call using cascade IDs from profile
+            this.fetchStoreName(
+              profile.companyId,
+              profile.companyCountryId,
+              profile.companyRegionId,
+              profile.companyZoneId,
+              profile.companyStoreId,
+            );
+          }
+        },
+        error: () => {
+          // Non-critical: form will be valid without a pre-set store
+        },
+      });
+  }
+
+  private fetchStoreName(
+    companyId: string | null,
+    companyCountryId: string | null,
+    regionId: string | null,
+    zoneId: string | null,
+    storeId: string,
+  ): void {
+    if (!companyId || !companyCountryId || !regionId || !zoneId) {
+      return;
+    }
+    const url = `${this.configService.apiUrl}/companies/${companyId}/countries/${companyCountryId}/regions/${regionId}/zones/${zoneId}/stores/${storeId}`;
+    this.http
+      .get<{ storeName: string }>(url)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (store) => this.userStoreName.set(store.storeName),
+        error: () => {
+          // Store name not critical — leave as null
+        },
+      });
+  }
 
   private loadOrder(id: string): void {
     this.loading.set(true);
@@ -149,6 +210,18 @@ export class SalesOrderEdit implements OnInit {
   // CHILD EVENT HANDLERS
   // ══════════════════════════════════════════════════════════
 
+  /** Called by `<app-product-variant-selector>` when a variant is selected. */
+  onVariantSelected(variant: ProductVariantOption): void {
+    const newRow: ItemTableRow = {
+      productVariantId: variant.id,
+      productVariantName: variant.variantName,
+      quantity: 1,
+      listPrice: variant.listPrice,
+      discountApplied: 0,
+    };
+    this.lineItems.update((rows) => [newRow, ...rows]);
+  }
+
   /** Called by `<app-sales-order-item-table>` when items are added or removed. */
   onItemsChanged(updated: ItemTableRow[]): void {
     this.lineItems.set(updated);
@@ -183,6 +256,13 @@ export class SalesOrderEdit implements OnInit {
       customerId: formValue.customerId || undefined,
       companyStoreId: formValue.companyStoreId,
       shiftId: formValue.shiftId || undefined,
+      items: this.lineItems().map((row) => ({
+        ...(row.id && { id: row.id }),
+        productVariantId: row.productVariantId,
+        quantity: row.quantity,
+        listPrice: row.listPrice,
+        discountApplied: row.discountApplied,
+      })),
     };
 
     if (this.isEditMode()) {
@@ -198,7 +278,8 @@ export class SalesOrderEdit implements OnInit {
         },
       });
     } else {
-      this.salesOrderService.create(request).subscribe({
+      const { items, ...headerOnly } = request;
+      this.salesOrderService.create(headerOnly).subscribe({
         next: (created) => {
           this.saving.set(false);
           this.router.navigate(['/sales/orders', created.id]);
@@ -240,24 +321,10 @@ export class SalesOrderEdit implements OnInit {
   private createForm(): FormGroup<SalesOrderHeaderControl> {
     return this.fb.group({
       customerId: this.fb.control('', Validators.required),
-      companyStoreId: this.fb.control('', Validators.required),
-      shiftId: this.fb.control('', Validators.required),
+      companyStoreId: this.fb.control(''),
+      shiftId: this.fb.control(''),
       comments: this.fb.control<string | null>(null),
     });
-  }
-
-  fieldError(field: keyof SalesOrderHeaderControl): string | null {
-    const control = this.headerForm().controls[field];
-    if (control && control.invalid && control.touched) {
-      if (control.hasError('required')) {
-        return 'This field is required.';
-      }
-    }
-    return null;
-  }
-
-  serverFieldError(field: string): string | null {
-    return this.serverErrors()[field] ?? null;
   }
 
   onCancel(): void {

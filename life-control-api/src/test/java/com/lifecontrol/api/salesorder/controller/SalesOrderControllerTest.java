@@ -94,7 +94,7 @@ class SalesOrderControllerTest {
                 new BigDecimal("90.00"),
                 null,
                 UUID.randomUUID(),
-                "Pendiente",
+                "Pending",
                 now,
                 now
         );
@@ -108,7 +108,7 @@ class SalesOrderControllerTest {
                 "user123",
                 now,
                 testStatusId,
-                "Borrador",
+                "Draft",
                 BigDecimal.ZERO,
                 true,
                 now,
@@ -120,10 +120,12 @@ class SalesOrderControllerTest {
                 UUID.fromString("00000000-0000-0000-0000-000000000001"),
                 UUID.randomUUID(),
                 UUID.randomUUID(),
-                "user123"
+                "user123",
+                null
         );
 
         testItemRequest = new SalesOrderItemRequest(
+                null,
                 UUID.randomUUID(),
                 new BigDecimal("2.00"),
                 new BigDecimal("100.00"),
@@ -157,7 +159,7 @@ class SalesOrderControllerTest {
                     .andExpect(jsonPath("$.content").isArray())
                     .andExpect(jsonPath("$.content[0].id").value(testOrderId.toString()))
                     .andExpect(jsonPath("$.content[0].orderNumber").value("SO-20260610-00001"))
-                    .andExpect(jsonPath("$.content[0].statusName").value("Borrador"))
+                    .andExpect(jsonPath("$.content[0].statusName").value("Draft"))
                     .andExpect(jsonPath("$.content[0].totalAmount").value(0))
                     .andExpect(jsonPath("$.content[0].enabled").value(true))
                     .andExpect(jsonPath("$.totalElements").value(1))
@@ -221,7 +223,7 @@ class SalesOrderControllerTest {
                     "user123",
                     testOrderResponse.orderDate(),
                     testStatusId,
-                    "Borrador",
+                    "Draft",
                     new BigDecimal("180.00"),
                     true,
                     testOrderResponse.createdAt(),
@@ -235,13 +237,13 @@ class SalesOrderControllerTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.id").value(testOrderId.toString()))
                     .andExpect(jsonPath("$.orderNumber").value("SO-20260610-00001"))
-                    .andExpect(jsonPath("$.statusName").value("Borrador"))
+                    .andExpect(jsonPath("$.statusName").value("Draft"))
                     .andExpect(jsonPath("$.totalAmount").value(180.00))
                     .andExpect(jsonPath("$.items").isArray())
                     .andExpect(jsonPath("$.items.length()").value(1))
                     .andExpect(jsonPath("$.items[0].id").value(testItemId.toString()))
                     .andExpect(jsonPath("$.items[0].finalPrice").value(90.00))
-                    .andExpect(jsonPath("$.items[0].statusName").value("Pendiente"));
+                    .andExpect(jsonPath("$.items[0].statusName").value("Pending"));
         }
 
         @Test
@@ -277,7 +279,7 @@ class SalesOrderControllerTest {
                     .andExpect(status().isCreated())
                     .andExpect(jsonPath("$.id").value(testOrderId.toString()))
                     .andExpect(jsonPath("$.orderNumber").value("SO-20260610-00001"))
-                    .andExpect(jsonPath("$.statusName").value("Borrador"))
+                    .andExpect(jsonPath("$.statusName").value("Draft"))
                     .andExpect(jsonPath("$.totalAmount").value(0))
                     .andExpect(jsonPath("$.enabled").value(true));
         }
@@ -285,7 +287,7 @@ class SalesOrderControllerTest {
         @Test
         @DisplayName("should return 400 when required companyStoreId is missing")
         void createSalesOrder_MissingRequiredFields_Returns400() throws Exception {
-            var invalidRequest = new SalesOrderRequest(null, null, null, null);
+            var invalidRequest = new SalesOrderRequest(null, null, null, null, null);
 
             mockMvc.perform(post("/api/sales-orders")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -332,7 +334,7 @@ class SalesOrderControllerTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.id").value(testOrderId.toString()))
                     .andExpect(jsonPath("$.orderNumber").value("SO-20260610-00001"))
-                    .andExpect(jsonPath("$.statusName").value("Borrador"));
+                    .andExpect(jsonPath("$.statusName").value("Draft"));
         }
 
         @Test
@@ -389,7 +391,7 @@ class SalesOrderControllerTest {
                     "user123",
                     testOrderResponse.orderDate(),
                     testStatusId,
-                    "Enviada",
+                    "Pending",
                     BigDecimal.ZERO,
                     true,
                     testOrderResponse.createdAt(),
@@ -405,21 +407,21 @@ class SalesOrderControllerTest {
                             .content(objectMapper.writeValueAsString(testStatusRequest)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.id").value(testOrderId.toString()))
-                    .andExpect(jsonPath("$.statusName").value("Enviada"));
+                    .andExpect(jsonPath("$.statusName").value("Pending"));
         }
 
         @Test
         @DisplayName("should return 409 on invalid status transition")
         void updateStatus_InvalidTransition_Returns409() throws Exception {
             when(salesOrderService.updateSalesOrderStatus(eq(testOrderId), any(UpdateSalesOrderStatusRequest.class)))
-                    .thenThrow(new InvalidStatusTransitionException("Cerrada", "Borrador"));
+                    .thenThrow(new InvalidStatusTransitionException("Completed", "Draft"));
 
             mockMvc.perform(patch("/api/sales-orders/{id}/status", testOrderId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(testStatusRequest)))
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.status").value(409))
-                    .andExpect(jsonPath("$.message").value("Transición de estado inválida: Cerrada → Borrador"))
+                    .andExpect(jsonPath("$.message").value("Transición de estado inválida: Completed → Draft"))
                     .andExpect(jsonPath("$.timestamp").exists());
         }
     }
@@ -474,7 +476,7 @@ class SalesOrderControllerTest {
                     .andExpect(jsonPath("$[0].id").value(testItemId.toString()))
                     .andExpect(jsonPath("$[0].finalPrice").value(90.00))
                     .andExpect(jsonPath("$[0].quantity").value(2.00))
-                    .andExpect(jsonPath("$[0].statusName").value("Pendiente"));
+                    .andExpect(jsonPath("$[0].statusName").value("Pending"));
         }
 
         @Test
@@ -511,13 +513,13 @@ class SalesOrderControllerTest {
                     .andExpect(jsonPath("$.id").value(testItemId.toString()))
                     .andExpect(jsonPath("$.finalPrice").value(90.00))
                     .andExpect(jsonPath("$.quantity").value(2.00))
-                    .andExpect(jsonPath("$.statusName").value("Pendiente"));
+                    .andExpect(jsonPath("$.statusName").value("Pending"));
         }
 
         @Test
         @DisplayName("should return 400 when required fields are missing")
         void addItem_MissingRequiredFields_Returns400() throws Exception {
-            var invalidRequest = new SalesOrderItemRequest(null, null, null, null, null);
+            var invalidRequest = new SalesOrderItemRequest(null, null, null, null, null, null);
 
             mockMvc.perform(post("/api/sales-orders/{id}/items", testOrderId)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -547,10 +549,10 @@ class SalesOrderControllerTest {
         }
 
         @Test
-        @DisplayName("should return 409 when sales order is not in Borrador status")
-        void addItem_NotBorrador_Returns409() throws Exception {
+        @DisplayName("should return 409 when sales order is not in Draft status")
+        void addItem_NotDraft_Returns409() throws Exception {
             when(salesOrderService.addSalesOrderItem(eq(testOrderId), any(SalesOrderItemRequest.class)))
-                    .thenThrow(new SalesOrderAlreadyFinalizedException(testOrderId, "Enviada"));
+                    .thenThrow(new SalesOrderAlreadyFinalizedException(testOrderId, "Pending"));
 
             mockMvc.perform(post("/api/sales-orders/{id}/items", testOrderId)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -558,7 +560,7 @@ class SalesOrderControllerTest {
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.status").value(409))
                     .andExpect(jsonPath("$.message").value(
-                            "Sales order " + testOrderId + " is already Enviada and cannot be modified"))
+                            "Sales order " + testOrderId + " is already Pending and cannot be modified"))
                     .andExpect(jsonPath("$.timestamp").exists());
         }
     }
@@ -583,7 +585,7 @@ class SalesOrderControllerTest {
                     new BigDecimal("100.00"),
                     null,
                     testItemResponse.statusId(),
-                    "Pendiente",
+                    "Pending",
                     testItemResponse.createdAt(),
                     LocalDateTime.now()
             );
@@ -667,7 +669,7 @@ class SalesOrderControllerTest {
                     testItemResponse.finalPrice(),
                     null,
                     UUID.randomUUID(),
-                    "Agregado",
+                    "Added",
                     testItemResponse.createdAt(),
                     LocalDateTime.now()
             );
@@ -681,7 +683,7 @@ class SalesOrderControllerTest {
                             .content(objectMapper.writeValueAsString(testStatusRequest)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.id").value(testItemId.toString()))
-                    .andExpect(jsonPath("$.statusName").value("Agregado"));
+                    .andExpect(jsonPath("$.statusName").value("Added"));
         }
 
         @Test
@@ -689,14 +691,14 @@ class SalesOrderControllerTest {
         void updateItemStatus_InvalidTransition_Returns409() throws Exception {
             when(salesOrderService.updateSalesOrderItemStatus(
                     eq(testOrderId), eq(testItemId), any(UpdateSalesOrderStatusRequest.class)))
-                    .thenThrow(new InvalidStatusTransitionException("Cancelado", "Pendiente"));
+                    .thenThrow(new InvalidStatusTransitionException("Cancelled", "Pending"));
 
             mockMvc.perform(patch("/api/sales-orders/{id}/items/{itemId}/status", testOrderId, testItemId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(testStatusRequest)))
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.status").value(409))
-                    .andExpect(jsonPath("$.message").value("Transición de estado inválida: Cancelado → Pendiente"))
+                    .andExpect(jsonPath("$.message").value("Transición de estado inválida: Cancelled → Pending"))
                     .andExpect(jsonPath("$.timestamp").exists());
         }
     }

@@ -60,14 +60,14 @@
     }
 
     <form [formGroup]="headerForm()" (ngSubmit)="onSave()" novalidate>
-    <!-- Header Form (customer, store cascade, shift, comments) -->
+    <!-- Header Form (customer, store read-only, shift, comments) -->
     <app-order-header-form
       [headerForm]="headerForm()"
       [isEditMode]="isEditMode()"
       [isDraft]="isDraft()"
       [loadedOrder]="loadedOrder()"
       [serverErrors]="serverErrors()"
-      [initialStore]="initialStore()"
+      [storeName]="displayStoreName()"
     />
 
     <!-- Line Items Table -->
@@ -75,7 +75,12 @@
       [items]="lineItems()"
       [isDraft]="isDraft()"
       (itemsChanged)="onItemsChanged($event)"
-    />
+    >
+      <app-product-variant-selector
+        variant-selector
+        (variantSelected)="onVariantSelected($event)"
+      />
+    </app-sales-order-item-table>
 
     <!-- Action Buttons -->
     <div class="form-actions">
