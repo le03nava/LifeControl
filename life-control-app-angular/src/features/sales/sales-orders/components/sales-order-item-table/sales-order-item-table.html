@@ -18,7 +18,7 @@
               type="number"
               min="1"
               [value]="row.quantity"
-              [disabled]="isSaving() !== null"
+              [disabled]="isSaving() === i || isSaving() !== null"
               (input)="onQuantityChange(i, +($any($event.target).value))"
               class="inline-input"
             />
@@ -39,7 +39,7 @@
               min="0"
               step="0.01"
               [value]="row.listPrice"
-              [disabled]="isSaving() !== null"
+              [disabled]="isSaving() === i || isSaving() !== null"
               (input)="onListPriceChange(i, +($any($event.target).value))"
               class="inline-input"
             />
@@ -60,7 +60,7 @@
               min="0"
               step="0.01"
               [value]="row.discountApplied"
-              [disabled]="isSaving() !== null"
+              [disabled]="isSaving() === i || isSaving() !== null"
               (input)="onDiscountChange(i, +($any($event.target).value))"
               class="inline-input"
             />
@@ -86,7 +86,7 @@
             mat-icon-button
             color="warn"
             (click)="removeItem(i)"
-            [disabled]="!isDraft() || isSaving() !== null"
+            [disabled]="!isDraft() || isSaving() === i || isSaving() !== null"
             [matTooltip]="
               isDraft()
                 ? 'Remove item'
