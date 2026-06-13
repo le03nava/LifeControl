@@ -115,4 +115,13 @@
     </div>
   }
 
+  <!-- Content projection: variant selector (from parent) -->
+  <div class="add-line-item">
+    <div class="add-line-item-title">
+      <mat-icon fontIcon="add" />
+      <span>Add Product</span>
+    </div>
+    <ng-content select="[variant-selector]" />
+  </div>
+
 </div>
