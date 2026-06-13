@@ -25,8 +25,9 @@ import { OrderHeaderForm } from '../../components/order-header-form/order-header
 import { SalesOrderItemTable, type ItemTableRow } from '../../components/sales-order-item-table/sales-order-item-table';
 import { StatusTransition } from '../../components/status-transition/status-transition';
 import { ProductVariantSelector } from '../../components/product-variant-selector/product-variant-selector';
-import type { SalesOrder, SalesOrderRequest } from '../../models/sales-order.models';
+import type { SalesOrder, SalesOrderRequest, SalesOrderItemRequest } from '../../models/sales-order.models';
 import type { ProductVariantOption } from '../../models/sales-order.models';
+import { NotificationService } from '@shared/data/notification';
 import type { SalesOrderHeaderControl } from '../../models/sales-order-control.models';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
@@ -57,6 +58,7 @@ export class SalesOrderEdit implements OnInit {
   private profileService = inject(ProfileService);
   private http = inject(HttpClient);
   private configService = inject(ConfigService);
+  private notificationService = inject(NotificationService);
   private destroyRef = inject(DestroyRef);
 
   // ─── Route data ────────────────────────────────────────
@@ -72,6 +74,7 @@ export class SalesOrderEdit implements OnInit {
   readonly serverErrors = signal<Record<string, string>>({});
   readonly generalError = signal<string | null>(null);
   readonly saving = signal(false);
+  readonly savingIndex = signal<number | null>(null);
 
   // ─── Store from user preferences ────────────────────────
   readonly userStoreName = signal<string | null>(null);
@@ -212,19 +215,179 @@ export class SalesOrderEdit implements OnInit {
 
   /** Called by `<app-product-variant-selector>` when a variant is selected. */
   onVariantSelected(variant: ProductVariantOption): void {
-    const newRow: ItemTableRow = {
+    const orderId = this.orderId();
+    if (!orderId) return;
+
+    this.savingIndex.set(this.lineItems().length);
+
+    const request: SalesOrderItemRequest = {
       productVariantId: variant.id,
-      productVariantName: variant.variantName,
       quantity: 1,
       listPrice: variant.listPrice,
       discountApplied: 0,
     };
-    this.lineItems.update((rows) => [newRow, ...rows]);
+
+    this.salesOrderService.addItem(orderId, request).subscribe({
+      next: (created) => {
+        this.lineItems.update((rows) => [...rows, this.toItemTableRow(created)]);
+        this.savingIndex.set(null);
+      },
+      error: (err: HttpErrorResponse) => {
+        this.savingIndex.set(null);
+        this.handleItemError(err);
+      },
+    });
   }
 
-  /** Called by `<app-sales-order-item-table>` when items are added or removed. */
-  onItemsChanged(updated: ItemTableRow[]): void {
-    this.lineItems.set(updated);
+  /** Called by `<app-sales-order-item-table>` when a row's remove button is clicked. */
+  onItemRemoved(index: number): void {
+    const row = this.lineItems()[index];
+    const orderId = this.orderId();
+    if (!row.id || !orderId) return;
+
+    this.savingIndex.set(index);
+
+    this.salesOrderService.deleteItem(orderId, row.id).subscribe({
+      next: () => {
+        this.lineItems.update((items) => items.filter((_, i) => i !== index));
+        this.savingIndex.set(null);
+      },
+      error: (err: HttpErrorResponse) => {
+        this.savingIndex.set(null);
+        this.handleItemError(err);
+      },
+    });
+  }
+
+  /** Called by `<app-sales-order-item-table>` when quantity is changed on a row. */
+  onQuantityChanged(data: { index: number; value: number }): void {
+    const row = this.lineItems()[data.index];
+    const orderId = this.orderId();
+    if (!row.id || !orderId) return;
+    const previousValue = row.quantity;
+
+    this.savingIndex.set(data.index);
+
+    const request: SalesOrderItemRequest = {
+      productVariantId: row.productVariantId,
+      quantity: data.value,
+      listPrice: row.listPrice,
+      discountApplied: row.discountApplied,
+    };
+
+    this.salesOrderService.updateItem(orderId, row.id, request).subscribe({
+      next: (updated) => {
+        this.lineItems.update((items) =>
+          items.map((item, i) =>
+            i === data.index
+              ? {
+                  ...item,
+                  quantity: updated.quantity,
+                  listPrice: updated.listPrice,
+                  discountApplied: updated.discountApplied,
+                }
+              : item,
+          ),
+        );
+        this.savingIndex.set(null);
+      },
+      error: () => {
+        this.lineItems.update((items) =>
+          items.map((item, i) =>
+            i === data.index ? { ...item, quantity: previousValue } : item,
+          ),
+        );
+        this.savingIndex.set(null);
+      },
+    });
+  }
+
+  /** Called by `<app-sales-order-item-table>` when list price is changed on a row. */
+  onListPriceChanged(data: { index: number; value: number }): void {
+    const row = this.lineItems()[data.index];
+    const orderId = this.orderId();
+    if (!row.id || !orderId) return;
+    const previousValue = row.listPrice;
+
+    this.savingIndex.set(data.index);
+
+    const request: SalesOrderItemRequest = {
+      productVariantId: row.productVariantId,
+      quantity: row.quantity,
+      listPrice: data.value,
+      discountApplied: row.discountApplied,
+    };
+
+    this.salesOrderService.updateItem(orderId, row.id, request).subscribe({
+      next: (updated) => {
+        this.lineItems.update((items) =>
+          items.map((item, i) =>
+            i === data.index
+              ? {
+                  ...item,
+                  listPrice: updated.listPrice,
+                  quantity: updated.quantity,
+                  discountApplied: updated.discountApplied,
+                }
+              : item,
+          ),
+        );
+        this.savingIndex.set(null);
+      },
+      error: () => {
+        this.lineItems.update((items) =>
+          items.map((item, i) =>
+            i === data.index ? { ...item, listPrice: previousValue } : item,
+          ),
+        );
+        this.savingIndex.set(null);
+      },
+    });
+  }
+
+  /** Called by `<app-sales-order-item-table>` when discount is changed on a row. */
+  onDiscountChanged(data: { index: number; value: number }): void {
+    const row = this.lineItems()[data.index];
+    const orderId = this.orderId();
+    if (!row.id || !orderId) return;
+    const previousValue = row.discountApplied;
+
+    this.savingIndex.set(data.index);
+
+    const request: SalesOrderItemRequest = {
+      productVariantId: row.productVariantId,
+      quantity: row.quantity,
+      listPrice: row.listPrice,
+      discountApplied: data.value,
+    };
+
+    this.salesOrderService.updateItem(orderId, row.id, request).subscribe({
+      next: (updated) => {
+        this.lineItems.update((items) =>
+          items.map((item, i) =>
+            i === data.index
+              ? {
+                  ...item,
+                  discountApplied: updated.discountApplied,
+                  quantity: updated.quantity,
+                  listPrice: updated.listPrice,
+                }
+              : item,
+          ),
+        );
+        this.savingIndex.set(null);
+      },
+      error: () => {
+        this.lineItems.update((items) =>
+          items.map((item, i) =>
+            i === data.index
+              ? { ...item, discountApplied: previousValue }
+              : item,
+          ),
+        );
+        this.savingIndex.set(null);
+      },
+    });
   }
 
   /** Called by `<app-status-transition>` after a successful PATCH. */
@@ -256,13 +419,6 @@ export class SalesOrderEdit implements OnInit {
       customerId: formValue.customerId || undefined,
       companyStoreId: formValue.companyStoreId,
       shiftId: formValue.shiftId || undefined,
-      items: this.lineItems().map((row) => ({
-        ...(row.id && { id: row.id }),
-        productVariantId: row.productVariantId,
-        quantity: row.quantity,
-        listPrice: row.listPrice,
-        discountApplied: row.discountApplied,
-      })),
     };
 
     if (this.isEditMode()) {
@@ -311,6 +467,36 @@ export class SalesOrderEdit implements OnInit {
       this.serverErrors.set({});
       this.generalError.set('Unexpected error. Please try again later.');
     }
+  }
+
+  private handleItemError(err: HttpErrorResponse): void {
+    if (err.status === 409) {
+      this.generalError.set('Insufficient stock for the requested quantity.');
+    } else {
+      const message =
+        err.error?.message || 'An error occurred while updating the item.';
+      this.notificationService.showError(message);
+      this.generalError.set(message);
+    }
+  }
+
+  /** Convert a `SalesOrderItem` from the server into an `ItemTableRow`. */
+  private toItemTableRow(item: {
+    id: string;
+    productVariantId: string;
+    productVariantName?: string;
+    quantity: number;
+    listPrice: number;
+    discountApplied: number;
+  }): ItemTableRow {
+    return {
+      id: item.id,
+      productVariantId: item.productVariantId,
+      productVariantName: item.productVariantName ?? '',
+      quantity: item.quantity,
+      listPrice: item.listPrice,
+      discountApplied: item.discountApplied,
+    };
   }
 
   // ══════════════════════════════════════════════════════════
