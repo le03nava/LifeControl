@@ -70,17 +70,23 @@
       [storeName]="displayStoreName()"
     />
 
-    <!-- Line Items Table -->
-    <app-sales-order-item-table
-      [items]="lineItems()"
-      [isDraft]="isDraft()"
-      (itemsChanged)="onItemsChanged($event)"
-    >
-      <app-product-variant-selector
-        variant-selector
-        (variantSelected)="onVariantSelected($event)"
-      />
-    </app-sales-order-item-table>
+    <!-- Line Items Table (edit mode only — items require an existing order) -->
+    @if (isEditMode()) {
+      <app-sales-order-item-table
+        [items]="lineItems()"
+        [isDraft]="isDraft()"
+        [isSaving]="savingIndex()"
+        (itemRemoved)="onItemRemoved($event)"
+        (quantityChanged)="onQuantityChanged($event)"
+        (listPriceChanged)="onListPriceChanged($event)"
+        (discountChanged)="onDiscountChanged($event)"
+      >
+        <app-product-variant-selector
+          variant-selector
+          (variantSelected)="onVariantSelected($event)"
+        />
+      </app-sales-order-item-table>
+    }
 
     <!-- Action Buttons -->
     <div class="form-actions">

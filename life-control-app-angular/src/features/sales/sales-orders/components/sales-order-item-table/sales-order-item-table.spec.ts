@@ -2,7 +2,6 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { CUSTOM_ELEMENTS_SCHEMA } from '@angular/core';
 import { SalesOrderItemTable, type ItemTableRow } from './sales-order-item-table';
-import type { ProductVariantOption } from '../../models/sales-order.models';
 
 function createItem(overrides: Partial<ItemTableRow> = {}): ItemTableRow {
   return {
@@ -14,15 +13,6 @@ function createItem(overrides: Partial<ItemTableRow> = {}): ItemTableRow {
     ...overrides,
   };
 }
-
-const mockVariant: ProductVariantOption = {
-  id: 'v2',
-  productId: 'p1',
-  variantName: 'Mouse Wireless Black',
-  listPrice: 50.0,
-  stock: 20,
-  enabled: true,
-};
 
 describe('SalesOrderItemTable', () => {
   beforeEach(async () => {
@@ -36,6 +26,7 @@ describe('SalesOrderItemTable', () => {
     overrides?: {
       items?: ItemTableRow[];
       isDraft?: boolean;
+      isSaving?: number | null;
     },
   ): { fixture: ComponentFixture<SalesOrderItemTable>; comp: SalesOrderItemTable } {
     const fixture = TestBed.createComponent(SalesOrderItemTable);
@@ -43,6 +34,7 @@ describe('SalesOrderItemTable', () => {
 
     fixture.componentRef.setInput('items', overrides?.items ?? []);
     fixture.componentRef.setInput('isDraft', overrides?.isDraft ?? true);
+    fixture.componentRef.setInput('isSaving', overrides?.isSaving ?? null);
     fixture.detectChanges();
 
     return { fixture, comp };
@@ -104,38 +96,37 @@ describe('SalesOrderItemTable', () => {
     });
   });
 
-  describe('item removal', () => {
-    it('should emit itemsChanged when item removed (isDraft)', () => {
+  describe('itemRemoved output', () => {
+    it('should emit itemRemoved with index when item removed (isDraft)', () => {
       const { fixture, comp } = createFixture({
         items: [createItem(), createItem({ productVariantId: 'v2' })],
         isDraft: true,
       });
 
-      let emitted: ItemTableRow[] = [];
-      comp.itemsChanged.subscribe((items: ItemTableRow[]) => {
-        emitted = items;
+      let emittedIndex: number | undefined;
+      comp.itemRemoved.subscribe((index: number) => {
+        emittedIndex = index;
       });
 
       comp.removeItem(0);
       fixture.detectChanges();
 
-      expect(emitted.length).toBe(1);
-      expect(emitted[0].productVariantId).toBe('v2');
+      expect(emittedIndex).toBe(0);
     });
 
-    it('should NOT remove item when NOT in Draft', () => {
+    it('should NOT emit itemRemoved when NOT in Draft', () => {
       const { comp } = createFixture({
         items: [createItem(), createItem({ productVariantId: 'v2' })],
         isDraft: false,
       });
 
-      let emitted: ItemTableRow[] | null = null;
-      comp.itemsChanged.subscribe((items: ItemTableRow[]) => {
-        emitted = items;
+      let emittedIndex: number | undefined;
+      comp.itemRemoved.subscribe((index: number) => {
+        emittedIndex = index;
       });
 
       comp.removeItem(0);
-      expect(emitted).toBeNull();
+      expect(emittedIndex).toBeUndefined();
     });
 
     it('should allow removing last item in Draft', () => {
@@ -144,124 +135,175 @@ describe('SalesOrderItemTable', () => {
         isDraft: true,
       });
 
-      let emitted: ItemTableRow[] = [];
-      comp.itemsChanged.subscribe((items: ItemTableRow[]) => {
-        emitted = items;
+      let emittedIndex: number | undefined;
+      comp.itemRemoved.subscribe((index: number) => {
+        emittedIndex = index;
       });
 
       comp.removeItem(0);
-      expect(emitted.length).toBe(0);
+      expect(emittedIndex).toBe(0);
     });
   });
 
-  describe('item addition', () => {
-    it('should add item from variant and emit', () => {
-      const { fixture, comp } = createFixture({
-        items: [createItem()],
-        isDraft: true,
-      });
-
-      let emitted: ItemTableRow[] = [];
-      comp.itemsChanged.subscribe((items: ItemTableRow[]) => {
-        emitted = items;
-      });
-
-      comp.onVariantSelected(mockVariant);
-      fixture.detectChanges();
-
-      expect(emitted.length).toBe(2);
-      expect(emitted[1].productVariantId).toBe('v2');
-      expect(emitted[1].productVariantName).toBe('Mouse Wireless Black');
-      expect(emitted[1].listPrice).toBe(50.0);
-      expect(emitted[1].quantity).toBe(1);
-      expect(emitted[1].discountApplied).toBe(0);
-    });
-
-    it('should NOT add item when NOT in Draft', () => {
-      const { fixture, comp } = createFixture({
-        items: [createItem()],
-        isDraft: false,
-      });
-
-      let emitted: ItemTableRow[] | null = null;
-      comp.itemsChanged.subscribe((items: ItemTableRow[]) => {
-        emitted = items;
-      });
-
-      comp.onVariantSelected(mockVariant);
-      fixture.detectChanges();
-
-      expect(emitted).toBeNull();
-    });
-  });
-
-  describe('quantity updates', () => {
-    it('should update quantity and emit', () => {
+  describe('quantityChanged output', () => {
+    it('should emit quantityChanged with index and value when Draft', () => {
       const { fixture, comp } = createFixture({
         items: [createItem({ quantity: 2 })],
         isDraft: true,
       });
 
-      let emitted: ItemTableRow[] = [];
-      comp.itemsChanged.subscribe((items: ItemTableRow[]) => {
-        emitted = items;
+      let emitted: { index: number; value: number } | undefined;
+      comp.quantityChanged.subscribe((data) => {
+        emitted = data;
       });
 
       comp.onQuantityChange(0, 5);
       fixture.detectChanges();
 
-      expect(emitted[0].quantity).toBe(5);
+      expect(emitted).toEqual({ index: 0, value: 5 });
     });
 
-    it('should NOT update quantity when NOT Draft', () => {
+    it('should default to 1 when value is falsy', () => {
+      const { fixture, comp } = createFixture({
+        items: [createItem({ quantity: 2 })],
+        isDraft: true,
+      });
+
+      let emitted: { index: number; value: number } | undefined;
+      comp.quantityChanged.subscribe((data) => {
+        emitted = data;
+      });
+
+      comp.onQuantityChange(0, 0);
+      fixture.detectChanges();
+
+      expect(emitted).toEqual({ index: 0, value: 1 });
+    });
+
+    it('should NOT emit quantityChanged when NOT Draft', () => {
       const { comp } = createFixture({
         items: [createItem({ quantity: 2 })],
         isDraft: false,
       });
 
-      let emitted: ItemTableRow[] | null = null;
-      comp.itemsChanged.subscribe((items: ItemTableRow[]) => {
-        emitted = items;
+      let emitted: { index: number; value: number } | undefined;
+      comp.quantityChanged.subscribe((data) => {
+        emitted = data;
       });
 
       comp.onQuantityChange(0, 5);
-      expect(emitted).toBeNull();
+      expect(emitted).toBeUndefined();
     });
   });
 
-  describe('price and discount updates', () => {
-    it('should update list price and emit', () => {
+  describe('listPriceChanged output', () => {
+    it('should emit listPriceChanged with index and value', () => {
       const { fixture, comp } = createFixture({
         items: [createItem({ listPrice: 100 })],
         isDraft: true,
       });
 
-      let emitted: ItemTableRow[] = [];
-      comp.itemsChanged.subscribe((items: ItemTableRow[]) => {
-        emitted = items;
+      let emitted: { index: number; value: number } | undefined;
+      comp.listPriceChanged.subscribe((data) => {
+        emitted = data;
       });
 
       comp.onListPriceChange(0, 150);
       fixture.detectChanges();
 
-      expect(emitted[0].listPrice).toBe(150);
+      expect(emitted).toEqual({ index: 0, value: 150 });
     });
 
-    it('should update discount and emit', () => {
+    it('should default to 0 when value is falsy', () => {
+      const { fixture, comp } = createFixture({
+        items: [createItem({ listPrice: 100 })],
+        isDraft: true,
+      });
+
+      let emitted: { index: number; value: number } | undefined;
+      comp.listPriceChanged.subscribe((data) => {
+        emitted = data;
+      });
+
+      // Simulate NaN from invalid input (would become 0)
+      comp.onListPriceChange(1, Number.NaN);
+      fixture.detectChanges();
+
+      // NaN || 0 = 0
+      expect(emitted).toEqual({ index: 1, value: 0 });
+    });
+  });
+
+  describe('discountChanged output', () => {
+    it('should emit discountChanged with index and value', () => {
       const { fixture, comp } = createFixture({
         items: [createItem({ discountApplied: 0 })],
         isDraft: true,
       });
 
-      let emitted: ItemTableRow[] = [];
-      comp.itemsChanged.subscribe((items: ItemTableRow[]) => {
-        emitted = items;
+      let emitted: { index: number; value: number } | undefined;
+      comp.discountChanged.subscribe((data) => {
+        emitted = data;
       });
 
       comp.onDiscountChange(0, 10);
       fixture.detectChanges();
 
-      expect(emitted[0].discountApplied).toBe(10);
+      expect(emitted).toEqual({ index: 0, value: 10 });
+    });
+  });
+
+  describe('isSaving input', () => {
+    it('should disable inputs when isSaving is non-null', () => {
+      const { fixture } = createFixture({
+        items: [createItem()],
+        isDraft: true,
+        isSaving: 0,
+      });
+
+      const quantityInput: HTMLInputElement | null =
+        fixture.nativeElement.querySelector('input[type="number"]');
+      expect(quantityInput).toBeTruthy();
+      expect(quantityInput!.disabled).toBe(true);
+    });
+
+    it('should enable inputs when isSaving is null', () => {
+      const { fixture } = createFixture({
+        items: [createItem()],
+        isDraft: true,
+        isSaving: null,
+      });
+
+      const quantityInput: HTMLInputElement | null =
+        fixture.nativeElement.querySelector('input[type="number"]');
+      expect(quantityInput).toBeTruthy();
+      expect(quantityInput!.disabled).toBe(false);
+    });
+
+    it('should disable remove button when isSaving is non-null', () => {
+      const { fixture } = createFixture({
+        items: [createItem()],
+        isDraft: true,
+        isSaving: 1,
+      });
+
+      const removeButton: HTMLButtonElement | null =
+        fixture.nativeElement.querySelector('button[color="warn"]');
+      expect(removeButton).toBeTruthy();
+      expect(removeButton!.disabled).toBe(true);
+    });
+
+    it('should enable remove button when isSaving is null and isDraft is true', () => {
+      const { fixture } = createFixture({
+        items: [createItem()],
+        isDraft: true,
+        isSaving: null,
+      });
+
+      const removeButton: HTMLButtonElement | null =
+        fixture.nativeElement.querySelector('button[color="warn"]');
+      expect(removeButton).toBeTruthy();
+      expect(removeButton!.disabled).toBe(false);
     });
   });
 });

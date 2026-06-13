@@ -183,7 +183,7 @@ describe('SalesOrderEdit', () => {
       expect(component.isDraft()).toBe(true);
     });
 
-    it('should call service.create with form data on valid save', () => {
+    it('should call service.create with header fields only (no items)', () => {
       const form = component.headerForm();
       form.controls.customerId.setValue('cust-1');
       form.controls.companyStoreId.setValue('store-1');
@@ -196,7 +196,6 @@ describe('SalesOrderEdit', () => {
         customerId: 'cust-1',
         companyStoreId: 'store-1',
         shiftId: 'shift-1',
-        userId: undefined,
       });
     });
 
@@ -344,23 +343,13 @@ describe('SalesOrderEdit', () => {
       expect(component.isDraft()).toBe(false);
     });
 
-    it('should call service.update with form data on save', () => {
+    it('should call service.update with header-only data on save (no items)', () => {
       component.onSave();
 
       expect(salesOrderService.update).toHaveBeenCalledWith('so-1', {
         customerId: 'cust-1',
         companyStoreId: 'store-1',
         shiftId: 'shift-1',
-        userId: undefined,
-        items: [
-          {
-            id: 'item-1',
-            productVariantId: 'pv-1',
-            quantity: 5,
-            listPrice: 100,
-            discountApplied: 0,
-          },
-        ],
       });
     });
 
@@ -451,21 +440,6 @@ describe('SalesOrderEdit', () => {
       ) as unknown as typeof salesOrderService;
 
       fixture.detectChanges();
-    });
-
-    it('should update lineItems when onItemsChanged called', () => {
-      const newItems = [
-        {
-          id: 'item-2',
-          productVariantId: 'pv-2',
-          productVariantName: 'Widget Blue - Small',
-          quantity: 3,
-          listPrice: 50,
-          discountApplied: 0,
-        },
-      ];
-      component.onItemsChanged(newItems);
-      expect(component.lineItems()).toEqual(newItems);
     });
 
     it('should compute displayStoreName from loadedOrder', () => {
@@ -564,17 +538,47 @@ describe('SalesOrderEdit', () => {
       fixture.detectChanges();
     });
 
-    it('should add a new row to lineItems when onVariantSelected is called with a valid variant', () => {
-      const variant = {
-        id: 'pv-new',
-        productId: 'prod-1',
-        variantName: 'Widget Blue - Medium',
-        barCode: 'BAR-001',
-        sku: 'SKU-WBM',
-        listPrice: 75,
-        stock: 100,
-        enabled: true,
+    function createServerItem(variantId: string, variantName: string, price: number): SalesOrderItem {
+      return {
+        id: `item-${variantId}`,
+        salesOrderId: 'so-1',
+        productVariantId: variantId,
+        productVariantName: variantName,
+        quantity: 1,
+        listPrice: price,
+        discountApplied: 0,
+        finalPrice: price,
+        promotionId: undefined,
+        statusId: 'st-draft',
+        statusName: 'Draft',
+        createdAt: '2026-06-01T11:00:00Z',
+        updatedAt: '2026-06-01T11:00:00Z',
       };
+    }
+
+    function makeVariant(id: string, name: string, price: number) {
+      return { id, productId: 'prod-1', variantName: name, barCode: 'BAR', sku: 'SKU', listPrice: price, stock: 100, enabled: true };
+    }
+
+    it('should call addItem with correct payload when a variant is selected', () => {
+      const variant = makeVariant('pv-new', 'Widget Blue - Medium', 75);
+      const serverItem = createServerItem('pv-new', 'Widget Blue - Medium', 75);
+      salesOrderService.addItem = vi.fn().mockReturnValue(of(serverItem));
+
+      component.onVariantSelected(variant);
+
+      expect(salesOrderService.addItem).toHaveBeenCalledWith('so-1', {
+        productVariantId: 'pv-new',
+        quantity: 1,
+        listPrice: 75,
+        discountApplied: 0,
+      });
+    });
+
+    it('should append server response to lineItems on successful add', () => {
+      const variant = makeVariant('pv-new', 'Widget Blue - Medium', 75);
+      const serverItem = createServerItem('pv-new', 'Widget Blue - Medium', 75);
+      salesOrderService.addItem = vi.fn().mockReturnValue(of(serverItem));
 
       expect(component.lineItems()).toHaveLength(1); // pre-populated from mockOrder
 
@@ -582,34 +586,263 @@ describe('SalesOrderEdit', () => {
 
       const items = component.lineItems();
       expect(items).toHaveLength(2);
-      // New item should be first (prepended)
-      const newItem = items[0];
+      const newItem = items[1]; // appended, not prepended
       expect(newItem.productVariantId).toBe('pv-new');
-      expect(newItem.productVariantName).toBe('Widget Blue - Medium');
       expect(newItem.quantity).toBe(1);
       expect(newItem.listPrice).toBe(75);
-      expect(newItem.discountApplied).toBe(0);
-      expect(newItem.id).toBeUndefined();
+      expect(newItem.id).toBe('item-pv-new');
     });
 
-    it('should add a row with quantity=1 and zero discount regardless of variant data', () => {
-      const variant = {
-        id: 'pv-cheap',
-        productId: 'prod-2',
-        variantName: 'Budget Item',
-        listPrice: 5,
-        stock: 10,
-        enabled: true,
-      };
+    it('should set savingIndex during addItem and clear on completion', () => {
+      const addSubject = new Subject<SalesOrderItem>();
+      salesOrderService.addItem = vi.fn().mockReturnValue(addSubject.asObservable());
+      const variant = makeVariant('pv-new', 'Test', 50);
 
-      component.lineItems.set([]);
+      expect(component.savingIndex()).toBeNull();
+
       component.onVariantSelected(variant);
 
-      const items = component.lineItems();
-      expect(items).toHaveLength(1);
-      expect(items[0].quantity).toBe(1);
-      expect(items[0].discountApplied).toBe(0);
-      expect(items[0].listPrice).toBe(5);
+      // In-flight: savingIndex should be set to the index of the new row
+      expect(component.savingIndex()).toBe(1);
+
+      // Complete the request
+      const serverItem = createServerItem('pv-new', 'Test', 50);
+      addSubject.next(serverItem);
+      addSubject.complete();
+
+      expect(component.savingIndex()).toBeNull();
+      expect(component.lineItems()).toHaveLength(2);
+    });
+
+    it('should show error and not add item on 409 InsufficientStock', () => {
+      const variant = makeVariant('pv-new', 'Test', 50);
+      const httpError = new HttpErrorResponse({
+        error: { message: 'Insufficient stock' },
+        status: 409,
+        statusText: 'Conflict',
+      });
+      salesOrderService.addItem = vi.fn().mockReturnValue(throwError(() => httpError));
+
+      component.onVariantSelected(variant);
+
+      expect(component.savingIndex()).toBeNull();
+      expect(component.generalError()).toContain('Insufficient stock');
+      expect(component.lineItems()).toHaveLength(1); // item NOT added
+    });
+  });
+
+  // ══════════════════════════════════════════════════════════
+  // ITEM OPERATIONS (deleteItem, updateItem)
+  // ══════════════════════════════════════════════════════════
+
+  describe('item operations', () => {
+    beforeEach(async () => {
+      await TestBed.configureTestingModule({
+        imports: [
+          SalesOrderEdit,
+          NoopAnimationsModule,
+          HttpClientTestingModule,
+        ],
+        providers: baseProviders('so-1'),
+      }).compileComponents();
+
+      fixture = TestBed.createComponent(SalesOrderEdit);
+      component = fixture.componentInstance;
+      salesOrderService = TestBed.inject(
+        SalesOrderService,
+      ) as unknown as typeof salesOrderService;
+
+      fixture.detectChanges();
+    });
+
+    describe('onItemRemoved', () => {
+      it('should call deleteItem with correct orderId and itemId', () => {
+        salesOrderService.deleteItem = vi.fn().mockReturnValue(of(void 0));
+
+        expect(component.lineItems()).toHaveLength(1);
+
+        component.onItemRemoved(0);
+
+        expect(salesOrderService.deleteItem).toHaveBeenCalledWith('so-1', 'item-1');
+      });
+
+      it('should remove the item from lineItems on successful delete', () => {
+        salesOrderService.deleteItem = vi.fn().mockReturnValue(of(void 0));
+
+        component.onItemRemoved(0);
+
+        expect(component.lineItems()).toEqual([]);
+      });
+
+      it('should handle deleteItem error without removing the item', () => {
+        const httpError = new HttpErrorResponse({
+          error: { message: 'Cannot delete item' },
+          status: 400,
+          statusText: 'Bad Request',
+        });
+        salesOrderService.deleteItem = vi.fn().mockReturnValue(throwError(() => httpError));
+
+        component.onItemRemoved(0);
+
+        // Item should remain in the list
+        expect(component.lineItems()).toHaveLength(1);
+      });
+    });
+
+    describe('onQuantityChanged', () => {
+      it('should call updateItem with correct payload', () => {
+        const updatedItem: SalesOrderItem = {
+          ...mockItem,
+          quantity: 10,
+          finalPrice: 1000,
+        };
+        salesOrderService.updateItem = vi.fn().mockReturnValue(of(updatedItem));
+
+        component.onQuantityChanged({ index: 0, value: 10 });
+
+        expect(salesOrderService.updateItem).toHaveBeenCalledWith('so-1', 'item-1', {
+          productVariantId: 'pv-1',
+          quantity: 10,
+          listPrice: 100,
+          discountApplied: 0,
+        });
+      });
+
+      it('should update lineItems with server response on success', () => {
+        const updatedItem: SalesOrderItem = {
+          ...mockItem,
+          quantity: 10,
+          finalPrice: 1000,
+        };
+        salesOrderService.updateItem = vi.fn().mockReturnValue(of(updatedItem));
+
+        component.onQuantityChanged({ index: 0, value: 10 });
+
+        const items = component.lineItems();
+        expect(items[0].quantity).toBe(10);
+        expect(items[0].listPrice).toBe(100);
+        expect(items[0].discountApplied).toBe(0);
+      });
+
+      it('should revert quantity on error', () => {
+        salesOrderService.updateItem = vi.fn().mockReturnValue(
+          throwError(() => new HttpErrorResponse({ status: 400 })),
+        );
+
+        component.onQuantityChanged({ index: 0, value: 10 });
+
+        // Should revert to previous value (5 from mockOrder)
+        const items = component.lineItems();
+        expect(items[0].quantity).toBe(5);
+      });
+    });
+
+    describe('onListPriceChanged', () => {
+      it('should call updateItem with new list price', () => {
+        const updatedItem: SalesOrderItem = {
+          ...mockItem,
+          listPrice: 120,
+          finalPrice: 600,
+        };
+        salesOrderService.updateItem = vi.fn().mockReturnValue(of(updatedItem));
+
+        component.onListPriceChanged({ index: 0, value: 120 });
+
+        expect(salesOrderService.updateItem).toHaveBeenCalledWith('so-1', 'item-1', {
+          productVariantId: 'pv-1',
+          quantity: 5,
+          listPrice: 120,
+          discountApplied: 0,
+        });
+      });
+
+      it('should revert listPrice on error', () => {
+        salesOrderService.updateItem = vi.fn().mockReturnValue(
+          throwError(() => new HttpErrorResponse({ status: 400 })),
+        );
+
+        component.onListPriceChanged({ index: 0, value: 120 });
+
+        expect(component.lineItems()[0].listPrice).toBe(100);
+      });
+    });
+
+    describe('onDiscountChanged', () => {
+      it('should call updateItem with new discount', () => {
+        const updatedItem: SalesOrderItem = {
+          ...mockItem,
+          discountApplied: 10,
+          finalPrice: 490,
+        };
+        salesOrderService.updateItem = vi.fn().mockReturnValue(of(updatedItem));
+
+        component.onDiscountChanged({ index: 0, value: 10 });
+
+        expect(salesOrderService.updateItem).toHaveBeenCalledWith('so-1', 'item-1', {
+          productVariantId: 'pv-1',
+          quantity: 5,
+          listPrice: 100,
+          discountApplied: 10,
+        });
+      });
+
+      it('should update lineItems with server response on success', () => {
+        const updatedItem: SalesOrderItem = {
+          ...mockItem,
+          discountApplied: 10,
+          finalPrice: 490,
+        };
+        salesOrderService.updateItem = vi.fn().mockReturnValue(of(updatedItem));
+
+        component.onDiscountChanged({ index: 0, value: 10 });
+
+        expect(component.lineItems()[0].discountApplied).toBe(10);
+      });
+
+      it('should revert discount on error', () => {
+        salesOrderService.updateItem = vi.fn().mockReturnValue(
+          throwError(() => new HttpErrorResponse({ status: 400 })),
+        );
+
+        component.onDiscountChanged({ index: 0, value: 10 });
+
+        expect(component.lineItems()[0].discountApplied).toBe(0);
+      });
+    });
+
+    describe('savingIndex for item operations', () => {
+      it('should set savingIndex during deleteItem and clear on success', () => {
+        const deleteSubject = new Subject<void>();
+        salesOrderService.deleteItem = vi.fn().mockReturnValue(deleteSubject.asObservable());
+
+        expect(component.savingIndex()).toBeNull();
+
+        component.onItemRemoved(0);
+
+        // In-flight
+        expect(component.savingIndex()).toBe(0);
+
+        // Complete
+        deleteSubject.next();
+        deleteSubject.complete();
+
+        expect(component.savingIndex()).toBeNull();
+      });
+
+      it('should set savingIndex during updateItem and clear on success', () => {
+        const updateSubject = new Subject<SalesOrderItem>();
+        salesOrderService.updateItem = vi.fn().mockReturnValue(updateSubject.asObservable());
+
+        expect(component.savingIndex()).toBeNull();
+        component.onQuantityChanged({ index: 0, value: 10 });
+
+        expect(component.savingIndex()).toBe(0);
+
+        updateSubject.next({ ...mockItem, quantity: 10, finalPrice: 1000 });
+        updateSubject.complete();
+
+        expect(component.savingIndex()).toBeNull();
+      });
     });
   });
 
@@ -640,28 +873,18 @@ describe('SalesOrderEdit', () => {
         fixture.detectChanges();
       });
 
-      it('should include items array in update request body', () => {
+      it('should save header only without items in edit mode', () => {
         component.onSave();
 
         expect(salesOrderService.update).toHaveBeenCalledWith('so-1', {
           customerId: 'cust-1',
           companyStoreId: 'store-1',
           shiftId: 'shift-1',
-          userId: undefined,
-          items: [
-            {
-              id: 'item-1',
-              productVariantId: 'pv-1',
-              quantity: 5,
-              listPrice: 100,
-              discountApplied: 0,
-            },
-          ],
         });
       });
 
-      it('should include newly added items without an id field', () => {
-        // Add a new unsaved item (no id)
+      it('should save header only even when unsaved items exist locally', () => {
+        // Items are added via individual API calls and not sent on save
         component.lineItems.update((rows) => [
           ...rows,
           {
@@ -679,22 +902,6 @@ describe('SalesOrderEdit', () => {
           customerId: 'cust-1',
           companyStoreId: 'store-1',
           shiftId: 'shift-1',
-          userId: undefined,
-          items: [
-            {
-              id: 'item-1',
-              productVariantId: 'pv-1',
-              quantity: 5,
-              listPrice: 100,
-              discountApplied: 0,
-            },
-            {
-              productVariantId: 'pv-new',
-              quantity: 3,
-              listPrice: 50,
-              discountApplied: 5,
-            },
-          ],
         });
       });
 
@@ -746,7 +953,7 @@ describe('SalesOrderEdit', () => {
         fixture.detectChanges();
       });
 
-      it('should include items in create request body', () => {
+      it('should save header-only in create mode (no items)', () => {
         const form = component.headerForm();
         form.controls.customerId.setValue('cust-1');
         form.controls.companyStoreId.setValue('store-1');
@@ -758,7 +965,6 @@ describe('SalesOrderEdit', () => {
           customerId: 'cust-1',
           companyStoreId: 'store-1',
           shiftId: 'shift-1',
-          items: [],
         });
       });
     });
