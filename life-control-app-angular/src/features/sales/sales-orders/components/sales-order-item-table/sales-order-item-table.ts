@@ -75,6 +75,13 @@ export class SalesOrderItemTable {
   /** Emits the row index and new value when discount is changed. */
   readonly discountChanged = output<{ index: number; value: number }>();
 
+  /**
+   * @deprecated Temporary backward-compat bridge for the parent page.
+   * Will be removed in PR #2 when parent wires granular outputs directly.
+   * Emits the full items array after any mutation.
+   */
+  readonly itemsChanged = output<ItemTableRow[]>();
+
   // ─── Computed ──────────────────────────────────────────
   readonly displayedColumns: string[] = [
     'productVariantName',
@@ -96,22 +103,39 @@ export class SalesOrderItemTable {
 
   removeItem(index: number): void {
     if (!this.isDraft()) return;
+    const updated = this.items().filter((_, i) => i !== index);
     this.itemRemoved.emit(index);
+    this.itemsChanged.emit(updated);
   }
 
   onQuantityChange(index: number, value: number): void {
     if (!this.isDraft()) return;
-    this.quantityChanged.emit({ index, value: value || 1 });
+    const newValue = value || 1;
+    const updated = this.items().map((item, i) =>
+      i === index ? { ...item, quantity: newValue } : item,
+    );
+    this.quantityChanged.emit({ index, value: newValue });
+    this.itemsChanged.emit(updated);
   }
 
   onListPriceChange(index: number, value: number): void {
     if (!this.isDraft()) return;
-    this.listPriceChanged.emit({ index, value: value || 0 });
+    const newValue = value || 0;
+    const updated = this.items().map((item, i) =>
+      i === index ? { ...item, listPrice: newValue } : item,
+    );
+    this.listPriceChanged.emit({ index, value: newValue });
+    this.itemsChanged.emit(updated);
   }
 
   onDiscountChange(index: number, value: number): void {
     if (!this.isDraft()) return;
-    this.discountChanged.emit({ index, value: value || 0 });
+    const newValue = value || 0;
+    const updated = this.items().map((item, i) =>
+      i === index ? { ...item, discountApplied: newValue } : item,
+    );
+    this.discountChanged.emit({ index, value: newValue });
+    this.itemsChanged.emit(updated);
   }
 
   /** Subtotal per row: (quantity × listPrice) − discountApplied. */

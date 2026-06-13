@@ -114,6 +114,24 @@ describe('SalesOrderItemTable', () => {
       expect(emittedIndex).toBe(0);
     });
 
+    it('should emit backward-compat itemsChanged when item removed', () => {
+      const { fixture, comp } = createFixture({
+        items: [createItem(), createItem({ productVariantId: 'v2' })],
+        isDraft: true,
+      });
+
+      let emitted: ItemTableRow[] = [];
+      comp.itemsChanged.subscribe((items: ItemTableRow[]) => {
+        emitted = items;
+      });
+
+      comp.removeItem(0);
+      fixture.detectChanges();
+
+      expect(emitted.length).toBe(1);
+      expect(emitted[0].productVariantId).toBe('v2');
+    });
+
     it('should NOT emit itemRemoved when NOT in Draft', () => {
       const { comp } = createFixture({
         items: [createItem(), createItem({ productVariantId: 'v2' })],
@@ -161,6 +179,23 @@ describe('SalesOrderItemTable', () => {
       fixture.detectChanges();
 
       expect(emitted).toEqual({ index: 0, value: 5 });
+    });
+
+    it('should emit backward-compat itemsChanged with updated quantity', () => {
+      const { fixture, comp } = createFixture({
+        items: [createItem({ quantity: 2 })],
+        isDraft: true,
+      });
+
+      let emitted: ItemTableRow[] = [];
+      comp.itemsChanged.subscribe((items: ItemTableRow[]) => {
+        emitted = items;
+      });
+
+      comp.onQuantityChange(0, 5);
+      fixture.detectChanges();
+
+      expect(emitted[0].quantity).toBe(5);
     });
 
     it('should default to 1 when value is falsy', () => {
@@ -214,6 +249,23 @@ describe('SalesOrderItemTable', () => {
       expect(emitted).toEqual({ index: 0, value: 150 });
     });
 
+    it('should emit backward-compat itemsChanged with updated list price', () => {
+      const { fixture, comp } = createFixture({
+        items: [createItem({ listPrice: 100 })],
+        isDraft: true,
+      });
+
+      let emitted: ItemTableRow[] = [];
+      comp.itemsChanged.subscribe((items: ItemTableRow[]) => {
+        emitted = items;
+      });
+
+      comp.onListPriceChange(0, 150);
+      fixture.detectChanges();
+
+      expect(emitted[0].listPrice).toBe(150);
+    });
+
     it('should default to 0 when value is falsy', () => {
       const { fixture, comp } = createFixture({
         items: [createItem({ listPrice: 100 })],
@@ -250,6 +302,23 @@ describe('SalesOrderItemTable', () => {
       fixture.detectChanges();
 
       expect(emitted).toEqual({ index: 0, value: 10 });
+    });
+
+    it('should emit backward-compat itemsChanged with updated discount', () => {
+      const { fixture, comp } = createFixture({
+        items: [createItem({ discountApplied: 0 })],
+        isDraft: true,
+      });
+
+      let emitted: ItemTableRow[] = [];
+      comp.itemsChanged.subscribe((items: ItemTableRow[]) => {
+        emitted = items;
+      });
+
+      comp.onDiscountChange(0, 10);
+      fixture.detectChanges();
+
+      expect(emitted[0].discountApplied).toBe(10);
     });
   });
 
