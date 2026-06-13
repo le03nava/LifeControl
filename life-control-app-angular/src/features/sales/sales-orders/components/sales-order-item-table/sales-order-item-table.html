@@ -18,6 +18,7 @@
               type="number"
               min="1"
               [value]="row.quantity"
+              [disabled]="isSaving() !== null"
               (input)="onQuantityChange(i, +($any($event.target).value))"
               class="inline-input"
             />
@@ -38,6 +39,7 @@
               min="0"
               step="0.01"
               [value]="row.listPrice"
+              [disabled]="isSaving() !== null"
               (input)="onListPriceChange(i, +($any($event.target).value))"
               class="inline-input"
             />
@@ -58,6 +60,7 @@
               min="0"
               step="0.01"
               [value]="row.discountApplied"
+              [disabled]="isSaving() !== null"
               (input)="onDiscountChange(i, +($any($event.target).value))"
               class="inline-input"
             />
@@ -83,7 +86,7 @@
             mat-icon-button
             color="warn"
             (click)="removeItem(i)"
-            [disabled]="!isDraft()"
+            [disabled]="!isDraft() || isSaving() !== null"
             [matTooltip]="
               isDraft()
                 ? 'Remove item'
@@ -112,18 +115,4 @@
     </div>
   }
 
-  <!-- Add line item: ProductVariantSelector integration point -->
-  @if (isDraft()) {
-    <div class="add-line-item">
-      <div class="add-line-item-title">
-        <mat-icon fontIcon="add_circle_outline" />
-        <span>Add Product</span>
-      </div>
-      <div class="add-line-item-hint">
-        Use the product variant selector to search and add items.
-      </div>
-      <!-- ProductVariantSelector will be wired in the page component -->
-      <ng-content select="[variant-selector]"></ng-content>
-    </div>
-  }
 </div>

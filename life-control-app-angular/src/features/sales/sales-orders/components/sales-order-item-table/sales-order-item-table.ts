@@ -12,7 +12,6 @@ import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
-import type { ProductVariantOption } from '../../models/sales-order.models';
 
 /**
  * Simplified row type for the sales order item table.
@@ -32,8 +31,10 @@ export interface ItemTableRow {
  * Standalone line-items table component for sales orders.
  *
  * Displays product variant name, quantity, unit price, discount, and subtotal
- * columns. Includes a ProductVariantSelector for adding rows and per-row
- * quantity/price/discount editing with guards based on `isDraft`.
+ * columns. Emits granular per-row mutation events (`itemRemoved`,
+ * `quantityChanged`, `listPriceChanged`, `discountChanged`) that the parent
+ * component orchestrates into API calls. Editing is gated by `isDraft`, and
+ * controls are disabled while the parent's `isSaving` signal is non-null.
  */
 @Component({
   selector: 'app-sales-order-item-table',
@@ -58,8 +59,21 @@ export class SalesOrderItemTable {
   /** Whether the parent order is in Draft status (mutation guard). */
   readonly isDraft = input<boolean>(false);
 
-  /** Emits the full updated items array after any add, edit, or remove. */
-  readonly itemsChanged = output<ItemTableRow[]>();
+  /** Index of the row currently being saved by the parent, or null if idle.
+   *  Controls are disabled while any save operation is in progress. */
+  readonly isSaving = input<number | null>(null);
+
+  /** Emits the index when a row's remove button is clicked. */
+  readonly itemRemoved = output<number>();
+
+  /** Emits the row index and new value when quantity is changed. */
+  readonly quantityChanged = output<{ index: number; value: number }>();
+
+  /** Emits the row index and new value when list price is changed. */
+  readonly listPriceChanged = output<{ index: number; value: number }>();
+
+  /** Emits the row index and new value when discount is changed. */
+  readonly discountChanged = output<{ index: number; value: number }>();
 
   // ─── Computed ──────────────────────────────────────────
   readonly displayedColumns: string[] = [
@@ -80,49 +94,24 @@ export class SalesOrderItemTable {
 
   // ─── Mutations ─────────────────────────────────────────
 
-  /** Called by ProductVariantSelector when a variant is selected. */
-  onVariantSelected(variant: ProductVariantOption): void {
-    if (!this.isDraft()) return;
-
-    const newRow: ItemTableRow = {
-      productVariantId: variant.id,
-      productVariantName: variant.variantName,
-      quantity: 1,
-      listPrice: variant.listPrice,
-      discountApplied: 0,
-    };
-
-    this.itemsChanged.emit([...this.items(), newRow]);
-  }
-
   removeItem(index: number): void {
     if (!this.isDraft()) return;
-    const updated = this.items().filter((_, i) => i !== index);
-    this.itemsChanged.emit(updated);
+    this.itemRemoved.emit(index);
   }
 
   onQuantityChange(index: number, value: number): void {
     if (!this.isDraft()) return;
-    const updated = this.items().map((item, i) =>
-      i === index ? { ...item, quantity: value || 1 } : item,
-    );
-    this.itemsChanged.emit(updated);
+    this.quantityChanged.emit({ index, value: value || 1 });
   }
 
   onListPriceChange(index: number, value: number): void {
     if (!this.isDraft()) return;
-    const updated = this.items().map((item, i) =>
-      i === index ? { ...item, listPrice: value || 0 } : item,
-    );
-    this.itemsChanged.emit(updated);
+    this.listPriceChanged.emit({ index, value: value || 0 });
   }
 
   onDiscountChange(index: number, value: number): void {
     if (!this.isDraft()) return;
-    const updated = this.items().map((item, i) =>
-      i === index ? { ...item, discountApplied: value || 0 } : item,
-    );
-    this.itemsChanged.emit(updated);
+    this.discountChanged.emit({ index, value: value || 0 });
   }
 
   /** Subtotal per row: (quantity × listPrice) − discountApplied. */
