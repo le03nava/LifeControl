@@ -39,6 +39,7 @@ import com.lifecontrol.api.promotion.exception.PromotionNotFoundException;
 import com.lifecontrol.api.shift.exception.ShiftAlreadyOpenException;
 import com.lifecontrol.api.shift.exception.ShiftNotFoundException;
 import com.lifecontrol.api.shift.exception.ShiftNotOpenException;
+import com.lifecontrol.api.salesorder.exception.InsufficientStockException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderAlreadyFinalizedException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderItemNotFoundException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderNotFoundException;
@@ -558,6 +559,18 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(SalesOrderAlreadyFinalizedException.class)
     public ResponseEntity<ErrorResponse> handleSalesOrderAlreadyFinalized(SalesOrderAlreadyFinalizedException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.CONFLICT.value(),
+                ex.getMessage(),
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
+        );
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
+    }
+
+    @ExceptionHandler(InsufficientStockException.class)
+    public ResponseEntity<ErrorResponse> handleInsufficientStock(InsufficientStockException ex) {
         ErrorResponse error = new ErrorResponse(
                 HttpStatus.CONFLICT.value(),
                 ex.getMessage(),

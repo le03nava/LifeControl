@@ -746,7 +746,7 @@ describe('SalesOrderEdit', () => {
         fixture.detectChanges();
       });
 
-      it('should exclude items from create request body', () => {
+      it('should include items in create request body', () => {
         const form = component.headerForm();
         form.controls.customerId.setValue('cust-1');
         form.controls.companyStoreId.setValue('store-1');
@@ -758,11 +758,8 @@ describe('SalesOrderEdit', () => {
           customerId: 'cust-1',
           companyStoreId: 'store-1',
           shiftId: 'shift-1',
-          userId: undefined,
+          items: [],
         });
-        // Verify items is NOT in the call
-        const callArgs = salesOrderService.create.mock.calls[0][0];
-        expect(callArgs).not.toHaveProperty('items');
       });
     });
   });

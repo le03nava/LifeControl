@@ -3,6 +3,7 @@ package com.lifecontrol.api.salesorder.service;
 import com.lifecontrol.api.customer.exception.CustomerNotFoundException;
 import com.lifecontrol.api.customer.repository.CustomerRepository;
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
+import com.lifecontrol.api.product.model.ProductVariant;
 import com.lifecontrol.api.product.repository.ProductVariantRepository;
 import com.lifecontrol.api.purchaseorder.exception.InvalidStatusTransitionException;
 import com.lifecontrol.api.salesorder.dto.SalesOrderItemRequest;
@@ -10,6 +11,7 @@ import com.lifecontrol.api.salesorder.dto.SalesOrderItemResponse;
 import com.lifecontrol.api.salesorder.dto.SalesOrderRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderResponse;
 import com.lifecontrol.api.salesorder.dto.UpdateSalesOrderStatusRequest;
+import com.lifecontrol.api.salesorder.exception.InsufficientStockException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderAlreadyFinalizedException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderItemNotFoundException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderNotFoundException;
@@ -36,6 +38,9 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -139,6 +144,37 @@ public class SalesOrderService {
         var saved = salesOrderRepository.save(so);
         logger.info("Sales order created: id={}, orderNumber={}", saved.getId(), saved.getOrderNumber());
 
+        // Save items and deduct stock inline
+        if (request.items() != null && !request.items().isEmpty()) {
+            applyStockChanges(request.items(), Map.of(), Set.of(), Map.of());
+
+            var defaultItemStatus = statusRepository
+                    .findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Pending")
+                    .orElseThrow(() -> new StatusNotFoundException(
+                            "Default status 'Pending' not found for SALES_ORDER_ITEM type"));
+
+            for (var reqItem : request.items()) {
+                var discount = reqItem.discountApplied() != null ? reqItem.discountApplied() : BigDecimal.ZERO;
+                var newItem = SalesOrderItem.builder()
+                        .salesOrderId(saved.getId())
+                        .productVariantId(reqItem.productVariantId())
+                        .quantity(reqItem.quantity())
+                        .listPrice(reqItem.listPrice())
+                        .discountApplied(discount)
+                        .finalPrice(reqItem.listPrice().subtract(discount))
+                        .promotionId(reqItem.promotionId())
+                        .statusId(defaultItemStatus.getId())
+                        .enabled(true)
+                        .build();
+                itemRepository.save(newItem);
+            }
+
+            recalculateTotalAmount(saved.getId());
+            var orderIdForReload = saved.getId();
+            saved = salesOrderRepository.findById(orderIdForReload)
+                    .orElseThrow(() -> new SalesOrderNotFoundException(orderIdForReload));
+        }
+
         return toResponse(saved);
     }
 
@@ -165,10 +201,30 @@ public class SalesOrderService {
         // Item diff: add/update/delete inline items atomically
         if (request.items() != null && !request.items().isEmpty()) {
             var existingItems = itemRepository.findBySalesOrderId(id);
+
+            // Build maps for stock change computation BEFORE any item mutations
+            var oldQuantities = new HashMap<UUID, BigDecimal>();
+            var itemIdToVariantId = new HashMap<UUID, UUID>();
+            for (var existing : existingItems) {
+                oldQuantities.put(existing.getId(), existing.getQuantity());
+                itemIdToVariantId.put(existing.getId(), existing.getProductVariantId());
+            }
+
             var requestIds = request.items().stream()
                     .map(SalesOrderItemRequest::id)
                     .filter(Objects::nonNull)
                     .collect(Collectors.toSet());
+
+            // Collect items being deleted (in DB but not in request)
+            var deletedItemIds = new HashSet<UUID>();
+            for (var existing : existingItems) {
+                if (!requestIds.contains(existing.getId())) {
+                    deletedItemIds.add(existing.getId());
+                }
+            }
+
+            // Apply stock changes BEFORE saving any item mutations
+            applyStockChanges(request.items(), oldQuantities, deletedItemIds, itemIdToVariantId);
 
             // DELETE: items in DB but not in request → soft-delete
             for (var existing : existingItems) {
@@ -240,6 +296,31 @@ public class SalesOrderService {
         var newStatus = validateStatusExistsAndType(request.statusId(), "SALES_ORDER");
         validateSOTransition(currentStatus, newStatus);
 
+        // Restore stock when transitioning to Cancelled
+        if ("Cancelled".equals(newStatus.getStatusName())) {
+            var allItems = itemRepository.findBySalesOrderId(id);
+
+            // Group items by variantId and sort to prevent deadlocks
+            var itemsByVariant = new HashMap<UUID, List<SalesOrderItem>>();
+            for (var item : allItems) {
+                itemsByVariant.computeIfAbsent(item.getProductVariantId(), k -> new java.util.ArrayList<>())
+                        .add(item);
+            }
+
+            var sortedVariantIds = itemsByVariant.keySet().stream().sorted().toList();
+            for (var variantId : sortedVariantIds) {
+                var variant = productVariantRepository.findByIdForUpdate(variantId)
+                        .orElseThrow(() -> new ProductVariantNotFoundException(variantId));
+
+                var totalQty = itemsByVariant.get(variantId).stream()
+                        .map(SalesOrderItem::getQuantity)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+                variant.setStock(variant.getStock().add(totalQty));
+                productVariantRepository.save(variant);
+            }
+        }
+
         so.setStatusId(newStatus.getId());
         var updated = salesOrderRepository.save(so);
 
@@ -253,11 +334,34 @@ public class SalesOrderService {
         var so = salesOrderRepository.findById(id)
                 .orElseThrow(() -> new SalesOrderNotFoundException(id));
 
+        // Restore stock for all items BEFORE soft-deleting
+        var items = itemRepository.findBySalesOrderId(id);
+        if (!items.isEmpty()) {
+            // Group items by variantId and sort to prevent deadlocks
+            var itemsByVariant = new HashMap<UUID, List<SalesOrderItem>>();
+            for (var item : items) {
+                itemsByVariant.computeIfAbsent(item.getProductVariantId(), k -> new java.util.ArrayList<>())
+                        .add(item);
+            }
+
+            var sortedVariantIds = itemsByVariant.keySet().stream().sorted().toList();
+            for (var variantId : sortedVariantIds) {
+                var variant = productVariantRepository.findByIdForUpdate(variantId)
+                        .orElseThrow(() -> new ProductVariantNotFoundException(variantId));
+
+                var totalQty = itemsByVariant.get(variantId).stream()
+                        .map(SalesOrderItem::getQuantity)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+                variant.setStock(variant.getStock().add(totalQty));
+                productVariantRepository.save(variant);
+            }
+        }
+
         so.setEnabled(false);
         salesOrderRepository.save(so);
 
         // Soft-delete all items
-        var items = itemRepository.findBySalesOrderId(id);
         for (var item : items) {
             item.setEnabled(false);
             itemRepository.save(item);
@@ -321,6 +425,9 @@ public class SalesOrderService {
         var saved = itemRepository.save(item);
         logger.info("Item added: id={}, soId={}", saved.getId(), salesOrderId);
 
+        // Deduct stock for the new item
+        applyStockChanges(List.of(request), Map.of(), Set.of(), Map.of());
+
         // Recalculate order total
         recalculateTotalAmount(salesOrderId);
 
@@ -342,6 +449,28 @@ public class SalesOrderService {
         }
 
         validateProductVariantExists(request.productVariantId());
+
+        // Compute quantity diff and adjust stock BEFORE saving
+        var oldQty = item.getQuantity();
+        var newQty = request.quantity();
+        var diff = newQty.subtract(oldQty);
+
+        if (diff.compareTo(BigDecimal.ZERO) != 0) {
+            var variant = productVariantRepository.findByIdForUpdate(request.productVariantId())
+                    .orElseThrow(() -> new ProductVariantNotFoundException(request.productVariantId()));
+
+            if (diff.compareTo(BigDecimal.ZERO) > 0) {
+                // Quantity increase — deduct additional stock
+                if (variant.getStock().compareTo(diff) < 0) {
+                    throw new InsufficientStockException(variant.getId(), diff, variant.getStock());
+                }
+                variant.setStock(variant.getStock().subtract(diff));
+            } else {
+                // Quantity decrease — restore stock
+                variant.setStock(variant.getStock().add(diff.negate()));
+            }
+            productVariantRepository.save(variant);
+        }
 
         var discountApplied = request.discountApplied() != null ? request.discountApplied() : BigDecimal.ZERO;
         var finalPrice = request.listPrice().subtract(discountApplied);
@@ -373,6 +502,12 @@ public class SalesOrderService {
         if (!item.getSalesOrderId().equals(salesOrderId)) {
             throw new SalesOrderItemNotFoundException(itemId);
         }
+
+        // Restore stock BEFORE soft-deleting the item
+        var variant = productVariantRepository.findByIdForUpdate(item.getProductVariantId())
+                .orElseThrow(() -> new ProductVariantNotFoundException(item.getProductVariantId()));
+        variant.setStock(variant.getStock().add(item.getQuantity()));
+        productVariantRepository.save(variant);
 
         item.setEnabled(false);
         itemRepository.save(item);
@@ -506,6 +641,92 @@ public class SalesOrderService {
         }
 
         return prefix + String.format("%05d", nextSeq);
+    }
+
+    // ─── Stock Deduction ───────────────────────────────────────────────
+
+    /**
+     * Applies stock mutations for a set of items atomically within the caller's transaction.
+     * Acquires pessimistic write locks on all affected variants, sorted by ID to prevent deadlocks.
+     *
+     * @param newItems            items from the request (with variantId + quantity)
+     * @param oldQuantities       map of existing item ID → quantity (empty for create/add)
+     * @param deletedItemIds      set of item IDs being deleted (restore full quantity)
+     * @param itemIdToVariantId   map of deleted item ID → variant ID (empty for create/add)
+     */
+    private void applyStockChanges(
+            List<SalesOrderItemRequest> newItems,
+            Map<UUID, BigDecimal> oldQuantities,
+            Set<UUID> deletedItemIds,
+            Map<UUID, UUID> itemIdToVariantId) {
+
+        // 1. Collect distinct variant IDs from new items and deleted items
+        var variantIds = new HashSet<UUID>();
+        for (var item : newItems) {
+            variantIds.add(item.productVariantId());
+        }
+        for (var deletedId : deletedItemIds) {
+            var vid = itemIdToVariantId.get(deletedId);
+            if (vid != null) {
+                variantIds.add(vid);
+            }
+        }
+
+        if (variantIds.isEmpty()) {
+            return;
+        }
+
+        // 2. Sort to prevent deadlocks
+        var sortedIds = variantIds.stream().sorted().toList();
+
+        // 3. Acquire pessimistic write locks in sorted order
+        var lockedVariants = new HashMap<UUID, ProductVariant>();
+        for (var vid : sortedIds) {
+            var variant = productVariantRepository.findByIdForUpdate(vid)
+                    .orElseThrow(() -> new ProductVariantNotFoundException(vid));
+            lockedVariants.put(vid, variant);
+        }
+
+        // 4. Compute net stock delta per variant
+        var stockDelta = new HashMap<UUID, BigDecimal>();
+        for (var item : newItems) {
+            var vid = item.productVariantId();
+            var newQty = item.quantity();
+            var oldQty = item.id() != null ? oldQuantities.getOrDefault(item.id(), BigDecimal.ZERO) : BigDecimal.ZERO;
+            var delta = newQty.subtract(oldQty); // positive = deduct, negative = restore
+            stockDelta.merge(vid, delta, BigDecimal::add);
+        }
+
+        // 5. Add restoration for deleted items
+        for (var deletedId : deletedItemIds) {
+            var vid = itemIdToVariantId.get(deletedId);
+            if (vid != null) {
+                var deletedQty = oldQuantities.getOrDefault(deletedId, BigDecimal.ZERO);
+                // Deletion restores stock → negative delta (restore)
+                stockDelta.merge(vid, deletedQty.negate(), BigDecimal::add);
+            }
+        }
+
+        // 6. Validate and apply
+        for (var entry : stockDelta.entrySet()) {
+            var vid = entry.getKey();
+            var delta = entry.getValue();
+            var variant = lockedVariants.get(vid);
+
+            if (delta.compareTo(BigDecimal.ZERO) > 0) {
+                // Deduction needed — validate sufficient stock
+                if (variant.getStock().compareTo(delta) < 0) {
+                    throw new InsufficientStockException(vid, delta, variant.getStock());
+                }
+                variant.setStock(variant.getStock().subtract(delta));
+                productVariantRepository.save(variant);
+            } else if (delta.compareTo(BigDecimal.ZERO) < 0) {
+                // Restoration (delta is negative)
+                variant.setStock(variant.getStock().add(delta.negate()));
+                productVariantRepository.save(variant);
+            }
+            // delta == 0: no change, skip save
+        }
     }
 
     // ─── Total Amount Recalculation ────────────────────────────────────

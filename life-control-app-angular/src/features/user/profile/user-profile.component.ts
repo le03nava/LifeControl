@@ -214,7 +214,12 @@ export class UserProfileComponent implements OnInit {
 
           // If a company is already selected, load its countries
           if (profile.companyId) {
-            this.loadCountries(profile.companyId, profile.companyCountryId ?? undefined);
+            this.loadCountries(
+              profile.companyId,
+              profile.companyCountryId ?? undefined,
+              profile.companyRegionId ?? undefined,
+              profile.companyZoneId ?? undefined,
+            );
           }
         },
         error: () => this.loadingCompanies.set(false),
@@ -230,6 +235,8 @@ export class UserProfileComponent implements OnInit {
   private loadCountries(
     companyId: string,
     targetCountryId?: string,
+    targetRegionId?: string,
+    targetZoneId?: string,
   ): void {
     this.loadingCountries.set(true);
     this.companyCountryService
@@ -242,7 +249,7 @@ export class UserProfileComponent implements OnInit {
 
           // Cascade: if a country is already selected, load its regions
           if (targetCountryId) {
-            this.loadRegions(companyId, targetCountryId);
+            this.loadRegions(companyId, targetCountryId, targetRegionId, targetZoneId);
           }
         },
         error: () => this.loadingCountries.set(false),
@@ -257,6 +264,7 @@ export class UserProfileComponent implements OnInit {
     companyId: string,
     countryId: string,
     targetRegionId?: string,
+    targetZoneId?: string,
   ): void {
     this.loadingRegions.set(true);
     this.companyRegionService
@@ -269,7 +277,7 @@ export class UserProfileComponent implements OnInit {
 
           // Cascade: if a region is already selected, load its zones
           if (targetRegionId) {
-            this.loadZones(companyId, countryId, targetRegionId);
+            this.loadZones(companyId, countryId, targetRegionId, targetZoneId);
           }
         },
         error: () => this.loadingRegions.set(false),

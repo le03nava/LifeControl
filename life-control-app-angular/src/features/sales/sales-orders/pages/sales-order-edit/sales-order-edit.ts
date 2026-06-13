@@ -278,8 +278,7 @@ export class SalesOrderEdit implements OnInit {
         },
       });
     } else {
-      const { items, ...headerOnly } = request;
-      this.salesOrderService.create(headerOnly).subscribe({
+      this.salesOrderService.create(request).subscribe({
         next: (created) => {
           this.saving.set(false);
           this.router.navigate(['/sales/orders', created.id]);

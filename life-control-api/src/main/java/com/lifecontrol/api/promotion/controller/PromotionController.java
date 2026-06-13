@@ -40,7 +40,7 @@ public class PromotionController {
     }
 
     @GetMapping
-    @PreAuthorize("hasRole('lc-sales')")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
     @Operation(summary = "Get all promotions", description = "Returns a paginated list of promotions")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Paginated list of promotions")
@@ -51,7 +51,7 @@ public class PromotionController {
     }
 
     @GetMapping("/active")
-    @PreAuthorize("hasRole('lc-sales')")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
     @Operation(summary = "Get active promotions", description = "Returns promotions currently active for the given sales channel")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "List of active promotions")
@@ -62,7 +62,7 @@ public class PromotionController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasRole('lc-sales')")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
     @Operation(summary = "Get promotion by ID", description = "Returns a single promotion")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Promotion found"),
@@ -73,7 +73,7 @@ public class PromotionController {
     }
 
     @PostMapping
-    @PreAuthorize("hasRole('lc-sales')")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
     @Operation(summary = "Create a promotion", description = "Creates a new promotion")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "Promotion created"),
@@ -86,7 +86,7 @@ public class PromotionController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('lc-sales')")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
     @Operation(summary = "Update a promotion", description = "Updates an existing promotion")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Promotion updated"),
@@ -99,7 +99,7 @@ public class PromotionController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('lc-sales')")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
     @Operation(summary = "Delete a promotion", description = "Soft-deletes a promotion")
     @ApiResponses({
         @ApiResponse(responseCode = "204", description = "Promotion deleted"),
@@ -111,7 +111,7 @@ public class PromotionController {
     }
 
     @PatchMapping("/{id}/enable")
-    @PreAuthorize("hasRole('lc-sales')")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
     @Operation(summary = "Re-enable a promotion", description = "Re-enables a soft-deleted promotion")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Promotion re-enabled"),

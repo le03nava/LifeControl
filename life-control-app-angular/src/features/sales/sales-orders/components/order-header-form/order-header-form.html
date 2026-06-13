@@ -49,81 +49,11 @@
         </div>
       }
 
-      <!-- Company (cascade start) -->
-      <mat-form-field appearance="outline" subscriptSizing="dynamic">
-        <mat-label>Company</mat-label>
-        <mat-select
-          [value]="selectedCompanyId()"
-          (selectionChange)="onCompanyChange($event.value)"
-        >
-          @for (c of companies(); track c.id) {
-            <mat-option [value]="c.id">{{ c.name }}</mat-option>
-          }
-        </mat-select>
-      </mat-form-field>
-
-      <!-- Country -->
-      @if (countries().length > 0) {
-        <mat-form-field appearance="outline" subscriptSizing="dynamic">
-          <mat-label>Country</mat-label>
-          <mat-select
-            [value]="selectedCountryId()"
-            (selectionChange)="onCountryChange($event.value)"
-          >
-            @for (c of countries(); track c.id) {
-              <mat-option [value]="c.id">{{ c.name }}</mat-option>
-            }
-          </mat-select>
-        </mat-form-field>
-      }
-
-      <!-- Region -->
-      @if (regions().length > 0) {
-        <mat-form-field appearance="outline" subscriptSizing="dynamic">
-          <mat-label>Region</mat-label>
-          <mat-select
-            [value]="selectedRegionId()"
-            (selectionChange)="onRegionChange($event.value)"
-          >
-            @for (r of regions(); track r.id) {
-              <mat-option [value]="r.id">{{ r.name }}</mat-option>
-            }
-          </mat-select>
-        </mat-form-field>
-      }
-
-      <!-- Zone -->
-      @if (zones().length > 0) {
-        <mat-form-field appearance="outline" subscriptSizing="dynamic">
-          <mat-label>Zone</mat-label>
-          <mat-select
-            [value]="selectedZoneId()"
-            (selectionChange)="onZoneChange($event.value)"
-          >
-            @for (z of zones(); track z.id) {
-              <mat-option [value]="z.id">{{ z.name }}</mat-option>
-            }
-          </mat-select>
-        </mat-form-field>
-      }
-
-      <!-- Store -->
-      @if (stores().length > 0) {
-        <mat-form-field appearance="outline" subscriptSizing="dynamic">
-          <mat-label>Store</mat-label>
-          <mat-select formControlName="companyStoreId">
-            @for (s of stores(); track s.id) {
-              <mat-option [value]="s.id">{{ s.name }}</mat-option>
-            }
-          </mat-select>
-          @if (fieldError('companyStoreId'); as err) {
-            <mat-error>{{ err }}</mat-error>
-          }
-          @if (serverFieldError('companyStoreId'); as err) {
-            <mat-error>{{ err }}</mat-error>
-          }
-        </mat-form-field>
-      }
+      <!-- Store (read-only, from user preferences) -->
+      <div class="readonly-store">
+        <span class="readonly-label">Store</span>
+        <span class="readonly-value">{{ storeName() || 'Not assigned' }}</span>
+      </div>
 
       <!-- Shift -->
       <mat-form-field appearance="outline" subscriptSizing="dynamic">

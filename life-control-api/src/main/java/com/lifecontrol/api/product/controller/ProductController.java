@@ -129,7 +129,7 @@ public class ProductController {
     // --- ProductVariant nested endpoints ---
 
     @GetMapping("/{productId}/variants")
-    @PreAuthorize("hasRole('lc-sales')")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
     @Operation(summary = "List variants for a product", description = "Returns a paginated list of variants for a given product")
     public ResponseEntity<Page<ProductVariantResponse>> listVariants(
             @PathVariable UUID productId,
@@ -138,7 +138,7 @@ public class ProductController {
     }
 
     @PostMapping("/{productId}/variants")
-    @PreAuthorize("hasRole('lc-sales')")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
     @Operation(summary = "Create variant for a product", description = "Creates a new product variant for the specified product")
     public ResponseEntity<ProductVariantResponse> createVariant(
             @PathVariable UUID productId,
@@ -148,7 +148,7 @@ public class ProductController {
     }
 
     @GetMapping("/{productId}/variants/{variantId}")
-    @PreAuthorize("hasRole('lc-sales')")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
     @Operation(summary = "Get variant by ID", description = "Returns a single product variant by its UUID, scoped to a product")
     public ResponseEntity<ProductVariantResponse> getVariant(
             @PathVariable UUID productId,
@@ -157,7 +157,7 @@ public class ProductController {
     }
 
     @PutMapping("/{productId}/variants/{variantId}")
-    @PreAuthorize("hasRole('lc-sales')")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
     @Operation(summary = "Update variant", description = "Updates an existing product variant")
     public ResponseEntity<ProductVariantResponse> updateVariant(
             @PathVariable UUID productId,
@@ -167,7 +167,7 @@ public class ProductController {
     }
 
     @DeleteMapping("/{productId}/variants/{variantId}")
-    @PreAuthorize("hasRole('lc-sales')")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
     @Operation(summary = "Delete variant", description = "Soft-deletes a product variant by setting enabled to false")
     public ResponseEntity<Void> deleteVariant(
             @PathVariable UUID productId,

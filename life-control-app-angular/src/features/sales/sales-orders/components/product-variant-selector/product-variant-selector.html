@@ -41,6 +41,7 @@
         <mat-option [value]="v">
           <span>{{ v.variantName }}</span>
           <span class="variant-price"> — {{ v.listPrice | currency }}</span>
+          <span class="variant-stock"> (Stock: {{ v.stock }})</span>
         </mat-option>
       }
       @if (variants().length === 0) {

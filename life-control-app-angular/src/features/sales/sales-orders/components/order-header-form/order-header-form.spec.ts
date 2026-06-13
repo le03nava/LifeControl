@@ -4,7 +4,7 @@ import {
   HttpClientTestingModule,
   HttpTestingController,
 } from '@angular/common/http/testing';
-import { CUSTOM_ELEMENTS_SCHEMA, Component, output } from '@angular/core';
+import { CUSTOM_ELEMENTS_SCHEMA } from '@angular/core';
 import {
   FormControl,
   FormGroup,
@@ -44,19 +44,12 @@ function createSalesOrder(overrides: Partial<SalesOrder> = {}): SalesOrder {
 function createHeaderForm(): FormGroup<SalesOrderHeaderControl> {
   return new FormGroup({
     customerId: new FormControl('', { validators: Validators.required, nonNullable: true }),
-    companyStoreId: new FormControl('', { validators: Validators.required, nonNullable: true }),
-    shiftId: new FormControl('', { validators: Validators.required, nonNullable: true }),
+    companyStoreId: new FormControl('', { nonNullable: true }),
+    shiftId: new FormControl('', { nonNullable: true }),
     comments: new FormControl<string | null>(null),
   }) as FormGroup<SalesOrderHeaderControl>;
 }
 
-const mockCompaniesPage = {
-  content: [{ id: 'comp-1', companyName: 'Test Company', companyKey: 'test-co' }],
-  totalElements: 1, totalPages: 1, size: 1000, number: 0, first: true, last: true, empty: false,
-};
-
-const mockCountries = [{ id: 'ctry-1', countryName: 'Mexico' }];
-const mockRegions = [{ id: 'reg-1', regionName: 'Central' }];
 const mockShifts = [
   { id: 'shift-1', companyStoreId: 'store-1', companyStoreName: 'Main Store',
     userId: 'user-1', openedAt: '2026-01-01T08:00:00Z', status: 'Open' },
@@ -88,7 +81,7 @@ describe('OrderHeaderForm', () => {
 
   /** Creates fixture with required input and flushes init requests. */
   function createFixture(
-    overrides?: { isEditMode?: boolean; isDraft?: boolean; loadedOrder?: SalesOrder | null; serverErrors?: Record<string, string> },
+    overrides?: { isEditMode?: boolean; isDraft?: boolean; loadedOrder?: SalesOrder | null; serverErrors?: Record<string, string>; storeName?: string | null },
   ): { fixture: ComponentFixture<OrderHeaderForm>; comp: OrderHeaderForm } {
     const fixture = TestBed.createComponent(OrderHeaderForm);
     const comp = fixture.componentInstance;
@@ -106,11 +99,12 @@ describe('OrderHeaderForm', () => {
     if (overrides?.serverErrors !== undefined) {
       fixture.componentRef.setInput('serverErrors', overrides.serverErrors);
     }
+    if (overrides?.storeName !== undefined) {
+      fixture.componentRef.setInput('storeName', overrides.storeName);
+    }
 
     fixture.detectChanges();
 
-    // Flush init: companies
-    httpMock.expectOne((r) => r.url === `${TEST_API}/companies`).flush(mockCompaniesPage);
     // Flush init: shifts
     httpMock.expectOne((r) => r.url === `${TEST_API}/shifts/open`).flush(mockShifts);
     fixture.detectChanges();
@@ -124,61 +118,9 @@ describe('OrderHeaderForm', () => {
       expect(comp).toBeTruthy();
     });
 
-    it('should load companies on init', () => {
-      const { comp } = createFixture();
-      expect(comp.companies().length).toBe(1);
-    });
-
     it('should load open shifts on init', () => {
       const { comp } = createFixture();
       expect(comp.openShifts().length).toBe(1);
-    });
-  });
-
-  describe('cascade', () => {
-    it('should load countries when company selected', () => {
-      const { fixture, comp } = createFixture();
-
-      comp.onCompanyChange('comp-1');
-      fixture.detectChanges();
-
-      httpMock.expectOne(
-        (r) => r.url === `${TEST_API}/companies/comp-1/countries`,
-      ).flush(mockCountries);
-      fixture.detectChanges();
-
-      expect(comp.countries().length).toBe(1);
-    });
-
-    it('should load regions when country selected', () => {
-      const { fixture, comp } = createFixture();
-
-      comp.onCompanyChange('comp-1');
-      fixture.detectChanges();
-      httpMock.expectOne((r) => r.url.includes('/countries')).flush(mockCountries);
-      fixture.detectChanges();
-
-      comp.onCountryChange('ctry-1');
-      fixture.detectChanges();
-      httpMock.expectOne((r) => r.url.includes('/regions')).flush(mockRegions);
-      fixture.detectChanges();
-
-      expect(comp.regions().length).toBe(1);
-    });
-
-    it('should clear downstream on company change', () => {
-      const { fixture, comp } = createFixture();
-
-      comp.onCompanyChange('comp-1');
-      fixture.detectChanges();
-      httpMock.expectOne((r) => r.url.includes('/countries')).flush(mockCountries);
-      fixture.detectChanges();
-
-      comp.onCompanyChange('');
-      fixture.detectChanges();
-
-      expect(comp.countries().length).toBe(0);
-      expect(comp.stores().length).toBe(0);
     });
   });
 
@@ -191,6 +133,18 @@ describe('OrderHeaderForm', () => {
 
       expect(fixture.nativeElement.textContent).toContain('SO-00001');
       expect(fixture.nativeElement.textContent).toContain('Draft');
+    });
+  });
+
+  describe('store display', () => {
+    it('should show store name when provided', () => {
+      const { fixture } = createFixture({ storeName: 'Tienda Centro' });
+      expect(fixture.nativeElement.textContent).toContain('Tienda Centro');
+    });
+
+    it('should show "Not assigned" when storeName is null', () => {
+      const { fixture } = createFixture({ storeName: null });
+      expect(fixture.nativeElement.textContent).toContain('Not assigned');
     });
   });
 

@@ -8,6 +8,7 @@ import com.lifecontrol.api.salesorder.dto.SalesOrderItemResponse;
 import com.lifecontrol.api.salesorder.dto.SalesOrderRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderResponse;
 import com.lifecontrol.api.salesorder.dto.UpdateSalesOrderStatusRequest;
+import com.lifecontrol.api.salesorder.exception.InsufficientStockException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderAlreadyFinalizedException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderItemNotFoundException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderNotFoundException;
@@ -561,6 +562,27 @@ class SalesOrderControllerTest {
                     .andExpect(jsonPath("$.status").value(409))
                     .andExpect(jsonPath("$.message").value(
                             "Sales order " + testOrderId + " is already Pending and cannot be modified"))
+                    .andExpect(jsonPath("$.timestamp").exists());
+        }
+
+        @Test
+        @DisplayName("should return 409 when product variant has insufficient stock")
+        void addItem_InsufficientStock_Returns409() throws Exception {
+            var variantId = UUID.randomUUID();
+            var requested = new BigDecimal("5.00");
+            var available = new BigDecimal("3.00");
+
+            when(salesOrderService.addSalesOrderItem(eq(testOrderId), any(SalesOrderItemRequest.class)))
+                    .thenThrow(new InsufficientStockException(variantId, requested, available));
+
+            mockMvc.perform(post("/api/sales-orders/{id}/items", testOrderId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(testItemRequest)))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.status").value(409))
+                    .andExpect(jsonPath("$.message").value(
+                            "Insufficient stock for variant %s: requested 5.00, available 3.00"
+                                    .formatted(variantId)))
                     .andExpect(jsonPath("$.timestamp").exists());
         }
     }

@@ -31,7 +31,7 @@ public class ShiftController {
     }
 
     @GetMapping
-    @PreAuthorize("hasRole('lc-sales')")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
     @Operation(summary = "Get all shifts", description = "Returns a paginated list of shifts")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Paginated list of shifts")
@@ -42,7 +42,7 @@ public class ShiftController {
     }
 
     @GetMapping("/open")
-    @PreAuthorize("hasRole('lc-sales')")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
     @Operation(summary = "Get open shifts", description = "Returns all currently open shifts")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "List of open shifts")
@@ -52,7 +52,7 @@ public class ShiftController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasRole('lc-sales')")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
     @Operation(summary = "Get shift by ID", description = "Returns a single shift")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Shift found"),
@@ -63,7 +63,7 @@ public class ShiftController {
     }
 
     @PostMapping("/open")
-    @PreAuthorize("hasRole('lc-sales')")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
     @Operation(summary = "Open a new shift", description = "Opens a new shift for a store. A store can only have one open shift at a time.")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "Shift opened"),
@@ -76,7 +76,7 @@ public class ShiftController {
     }
 
     @PostMapping("/{id}/close")
-    @PreAuthorize("hasRole('lc-sales')")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
     @Operation(summary = "Close a shift", description = "Closes an open shift by setting closedAt and changing status to CERRADO")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Shift closed"),
@@ -88,7 +88,7 @@ public class ShiftController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('lc-sales')")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
     @Operation(summary = "Update a shift", description = "Updates an existing shift")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Shift updated"),
@@ -101,7 +101,7 @@ public class ShiftController {
     }
 
     @PatchMapping("/{id}/enable")
-    @PreAuthorize("hasRole('lc-sales')")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
     @Operation(summary = "Re-enable a shift", description = "Re-enables a soft-deleted shift")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Shift re-enabled"),
@@ -112,7 +112,7 @@ public class ShiftController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('lc-sales')")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
     @Operation(summary = "Delete a shift", description = "Soft-deletes a shift")
     @ApiResponses({
         @ApiResponse(responseCode = "204", description = "Shift deleted"),

@@ -108,7 +108,6 @@ export class Header implements OnInit {
         this.authenticated = this.keycloak.authenticated ?? false;
         const token = this.keycloak.tokenParsed;
         const clientRoles: string[] = token?.resource_access?.['life-control-client']?.roles ?? [];
-        const apiClientRoles: string[] = token?.resource_access?.['life-control-api']?.roles ?? [];
         this.isAdmin.set(clientRoles.includes('lc-admin'));
         this.isCompanyRole.set(
           clientRoles.includes('lc-admin') ||
@@ -118,7 +117,7 @@ export class Header implements OnInit {
           clientRoles.includes('lc-company-zone') ||
           clientRoles.includes('lc-company-store'),
         );
-        this.isSalesRole.set(apiClientRoles.includes('lc-sales'));
+        this.isSalesRole.set(clientRoles.includes('lc-sales') || clientRoles.includes('lc-admin'));
         this.updateUserFromToken();
       }
       if (event?.type === KeycloakEventType.AuthLogout) {
