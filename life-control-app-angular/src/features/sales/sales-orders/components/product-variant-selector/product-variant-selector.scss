@@ -6,22 +6,22 @@
   width: 100%;
 }
 
-.product-option-name {
+.variant-display-name {
   font-weight: 500;
 }
 
-.product-option-sku {
+.variant-display-product {
   margin-left: 0.5rem;
   color: var(--mat-sys-on-surface-variant, #666);
   font-size: 0.875rem;
 }
 
-.variant-price {
+.variant-display-price {
   color: var(--mat-sys-on-surface-variant, #666);
   font-size: 0.875rem;
 }
 
-.variant-stock {
+.variant-display-stock {
   color: var(--mat-sys-on-surface-variant, #666);
   font-size: 0.875rem;
 }

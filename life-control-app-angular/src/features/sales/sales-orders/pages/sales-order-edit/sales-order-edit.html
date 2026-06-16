@@ -78,6 +78,7 @@
       >
         <app-product-variant-selector
           variant-selector
+          [storeId]="loadedOrder()?.companyStoreId ?? null"
           (variantSelected)="onVariantSelected($event)"
         />
       </app-sales-order-item-table>

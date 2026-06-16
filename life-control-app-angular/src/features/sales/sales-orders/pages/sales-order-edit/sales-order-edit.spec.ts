@@ -547,27 +547,6 @@ describe('SalesOrderEdit', () => {
       expect(component.generalError()).toContain('Unexpected error');
     });
 
-    it('should disable the submit button when creating is true', () => {
-      component.creating.set(true);
-      fixture.detectChanges();
-
-      const submitButton = fixture.nativeElement.querySelector(
-        'button[type="submit"]',
-      ) as HTMLButtonElement;
-      expect(submitButton.disabled).toBe(true);
-      expect(submitButton.textContent).toContain('Creating...');
-    });
-
-    it('should disable the cancel button when creating is true', () => {
-      component.creating.set(true);
-      fixture.detectChanges();
-
-      const cancelButton = fixture.nativeElement.querySelector(
-        'button[aria-label="Cancel"]',
-      ) as HTMLButtonElement;
-      expect(cancelButton.disabled).toBe(true);
-    });
-
     it('should show spinner element when creating is true', () => {
       component.creating.set(true);
       fixture.detectChanges();
@@ -752,17 +731,19 @@ describe('SalesOrderEdit', () => {
       fixture.detectChanges();
     });
 
-    it('should compute displayStoreName from loadedOrder', () => {
-      expect(component.displayStoreName()).toBe('Tienda Centro');
+    it('should compute displayStoreName from userStoreName', () => {
+      expect(component.displayStoreName()).toBeNull();
+      component.userStoreName.set('My Store');
+      expect(component.displayStoreName()).toBe('My Store');
     });
   });
 
   // ══════════════════════════════════════════════════════════
-  // ONCANCEL
+  // CANCEL / BACK
   // ══════════════════════════════════════════════════════════
 
-  describe('onCancel', () => {
-    it('should navigate back to order list', async () => {
+  describe('cancel navigation', () => {
+    it('should have a Back button linking to order list', async () => {
       await TestBed.configureTestingModule({
         imports: [
           SalesOrderEdit,
@@ -773,12 +754,13 @@ describe('SalesOrderEdit', () => {
       }).compileComponents();
 
       const f = TestBed.createComponent(SalesOrderEdit);
-      const comp = f.componentInstance;
-      const r = TestBed.inject(Router);
-      vi.spyOn(r, 'navigate');
+      f.detectChanges();
 
-      comp.onCancel();
-      expect(r.navigate).toHaveBeenCalledWith(['/sales/orders']);
+      const backBtn = f.nativeElement.querySelector(
+        'button[routerLink="/sales/orders"]',
+      );
+      expect(backBtn).toBeTruthy();
+      expect(backBtn.textContent).toContain('Back');
     });
   });
 
@@ -867,7 +849,7 @@ describe('SalesOrderEdit', () => {
     }
 
     function makeVariant(id: string, name: string, price: number) {
-      return { id, productId: 'prod-1', variantName: name, barCode: 'BAR', sku: 'SKU', listPrice: price, stock: 100, enabled: true };
+      return { id, productId: 'prod-1', variantName: name, barCode: 'BAR', sku: 'SKU', listPrice: price, stock: 100, enabled: true, productName: 'Test Product' };
     }
 
     it('should call addItem with correct payload when a variant is selected', () => {
@@ -889,6 +871,10 @@ describe('SalesOrderEdit', () => {
       const variant = makeVariant('pv-new', 'Widget Blue - Medium', 75);
       const serverItem = createServerItem('pv-new', 'Widget Blue - Medium', 75);
       salesOrderService.addItem = vi.fn().mockReturnValue(of(serverItem));
+      // loadOrder() is called after addItem succeeds — return an updated order
+      salesOrderService.getSalesOrder = vi.fn().mockReturnValue(
+        of({ ...mockOrder, items: [...mockOrder.items, serverItem] }),
+      );
 
       expect(component.lineItems()).toHaveLength(1); // pre-populated from mockOrder
 
@@ -906,6 +892,10 @@ describe('SalesOrderEdit', () => {
     it('should set savingIndex during addItem and clear on completion', () => {
       const addSubject = new Subject<SalesOrderItem>();
       salesOrderService.addItem = vi.fn().mockReturnValue(addSubject.asObservable());
+      const serverItem = createServerItem('pv-new', 'Test', 50);
+      salesOrderService.getSalesOrder = vi.fn().mockReturnValue(
+        of({ ...mockOrder, items: [...mockOrder.items, serverItem] }),
+      );
       const variant = makeVariant('pv-new', 'Test', 50);
 
       expect(component.savingIndex()).toBeNull();
@@ -916,7 +906,6 @@ describe('SalesOrderEdit', () => {
       expect(component.savingIndex()).toBe(1);
 
       // Complete the request
-      const serverItem = createServerItem('pv-new', 'Test', 50);
       addSubject.next(serverItem);
       addSubject.complete();
 

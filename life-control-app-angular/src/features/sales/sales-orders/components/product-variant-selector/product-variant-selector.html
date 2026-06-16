@@ -1,52 +1,30 @@
-<!-- Step 1: Product search autocomplete -->
+<!-- Single-step variant search autocomplete -->
 <mat-form-field appearance="outline" subscriptSizing="dynamic" class="full-width">
-  <mat-label>Product</mat-label>
+  <mat-label>Search product / scan barcode</mat-label>
   <input
     matInput
     type="text"
-    [value]="productSearchQuery()"
-    (input)="onProductSearch(($any($event.target).value))"
-    [matAutocomplete]="productAuto"
-    placeholder="Search by name or SKU"
+    [value]="searchQuery()"
+    (input)="onSearchChange(($any($event.target).value))"
+    [matAutocomplete]="variantAuto"
+    placeholder="Barcode, SKU, or name"
   />
   <mat-autocomplete
-    #productAuto="matAutocomplete"
-    (optionSelected)="onProductSelect($event.option.value)"
+    #variantAuto="matAutocomplete"
+    (optionSelected)="onVariantSelect($event.option.value)"
   >
-    @for (p of filteredProducts(); track p.id) {
-      <mat-option [value]="p">
-        <span class="product-option-name">{{ p.name }}</span>
-        @if (p.sku) {
-          <span class="product-option-sku">({{ p.sku }})</span>
-        }
+    @for (v of filteredVariants(); track v.id) {
+      <mat-option [value]="v">
+        <span class="variant-display-name">{{ v.variantName }}</span>
+        <span class="variant-display-product">({{ v.productName }})</span>
+        <span class="variant-display-price"> — {{ v.listPrice | currency }}</span>
+        <span class="variant-display-stock">(Stock: {{ v.stock }})</span>
       </mat-option>
     }
-    @if (filteredProducts().length === 0 && productSearchQuery().length >= 2) {
+    @if (filteredVariants().length === 0 && searchQuery().length >= 2) {
       <mat-option disabled>
-        No products found for "{{ productSearchQuery() }}"
+        No products found for "{{ searchQuery() }}"
       </mat-option>
     }
   </mat-autocomplete>
 </mat-form-field>
-
-<!-- Step 2: Variant dropdown (shows after product selected) -->
-@if (selectedProduct()) {
-  <mat-form-field appearance="outline" subscriptSizing="dynamic" class="full-width">
-    <mat-label>Variant — {{ selectedProduct()?.name }}</mat-label>
-    <mat-select
-      (selectionChange)="onVariantSelect($event.value)"
-      placeholder="Select a variant"
-    >
-      @for (v of variants(); track v.id) {
-        <mat-option [value]="v">
-          <span>{{ v.variantName }}</span>
-          <span class="variant-price"> — {{ v.listPrice | currency }}</span>
-          <span class="variant-stock"> (Stock: {{ v.stock }})</span>
-        </mat-option>
-      }
-      @if (variants().length === 0) {
-        <mat-option disabled>No variants available</mat-option>
-      }
-    </mat-select>
-  </mat-form-field>
-}
