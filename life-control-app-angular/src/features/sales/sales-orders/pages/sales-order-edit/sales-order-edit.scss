@@ -11,6 +11,43 @@
   margin: 0 auto;
 }
 
+// ─── Page Header (custom) ──────────────────────────────────
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+
+  .header-content {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    flex-wrap: wrap;
+  }
+
+  .page-title {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 500;
+    line-height: 1.3;
+  }
+
+  .header-status-chip {
+    font-size: 0.8rem;
+    padding: 0 0.75rem;
+  }
+
+  .header-actions {
+    display: flex;
+    gap: var(--space-sm);
+  }
+}
+
+// ─── Error Banner ──────────────────────────────────────────
+
 .error-banner {
   display: flex;
   align-items: center;

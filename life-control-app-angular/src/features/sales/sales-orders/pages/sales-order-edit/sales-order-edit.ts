@@ -22,17 +22,17 @@ import { SalesOrderService } from '../../data/sales-order.service';
 import { ProfileService } from '@features/user/profile/data/profile.service';
 import { ConfigService } from '@app/services/config.service';
 import { ApiError } from '@shared/models';
-import { PageHeader } from '@shared/ui';
-import { OrderHeaderForm } from '../../components/order-header-form/order-header-form';
 import { SalesOrderItemTable, type ItemTableRow } from '../../components/sales-order-item-table/sales-order-item-table';
-import { StatusTransition } from '../../components/status-transition/status-transition';
 import { ProductVariantSelector } from '../../components/product-variant-selector/product-variant-selector';
 import type { SalesOrder, SalesOrderRequest, SalesOrderItemRequest, PaymentMethodOption, CustomerOption, Page } from '../../models/sales-order.models';
 import type { ProductVariantOption } from '../../models/sales-order.models';
 import { NotificationService } from '@shared/data/notification';
 import type { SalesOrderHeaderControl } from '../../models/sales-order-control.models';
+import { SO_STATUS_COLORS, SO_STATUS_LABELS } from '../../data/status-config';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
+import { MatTooltipModule } from '@angular/material/tooltip';
+import { MatChipsModule } from '@angular/material/chips';
 
 @Component({
   selector: 'app-sales-order-edit',
@@ -40,13 +40,12 @@ import { MatIconModule } from '@angular/material/icon';
   imports: [
     RouterLink,
     ReactiveFormsModule,
-    PageHeader,
-    OrderHeaderForm,
     SalesOrderItemTable,
-    StatusTransition,
     ProductVariantSelector,
     MatButtonModule,
     MatIconModule,
+    MatTooltipModule,
+    MatChipsModule,
   ],
   templateUrl: './sales-order-edit.html',
   styleUrl: './sales-order-edit.scss',
@@ -94,12 +93,25 @@ export class SalesOrderEdit implements OnInit {
     },
   );
 
-  /** Store name to display in the header (from profile in create mode, from loaded order in edit mode). */
-  readonly displayStoreName = computed(() => {
+  /** Store name fetched from the stores API using profile cascade IDs. */
+  readonly displayStoreName = computed(() => this.userStoreName());
+
+  /** Header title: [StoreName] - OrderNumber/No Order. */
+  readonly pageTitle = computed(() => {
     const order = this.loadedOrder();
-    if (order?.companyStoreName) return order.companyStoreName;
-    return this.userStoreName();
+    const parts: string[] = [];
+
+    const store = this.displayStoreName();
+    if (store) parts.push(store);
+
+    parts.push(order?.orderNumber ?? (this.creating() ? 'Creating...' : 'No Order'));
+
+    return parts.join(' - ');
   });
+
+  // ─── Status display ────────────────────────────────────
+  readonly statusColors = SO_STATUS_COLORS;
+  readonly statusLabels = SO_STATUS_LABELS;
 
   /** Whether the order is Pending (eligible for charge). */
   readonly isPending = computed(
@@ -119,6 +131,14 @@ export class SalesOrderEdit implements OnInit {
   private readonly _storeReady = signal(false);
   private readonly _customerReady = signal(false);
 
+  // ─── Profile cascade IDs for store name lookup ────────────
+  private readonly _profileCascade = signal<{
+    companyId: string | null;
+    companyCountryId: string | null;
+    companyRegionId: string | null;
+    companyZoneId: string | null;
+  } | null>(null);
+
   // ─── Line items ────────────────────────────────────────
   readonly lineItems = signal<ItemTableRow[]>([]);
 
@@ -133,15 +153,31 @@ export class SalesOrderEdit implements OnInit {
         this.autoCreateOrder();
       }
     });
+
+    // In edit mode: when both profile cascade and order are loaded, fetch store name
+    effect(() => {
+      const cascade = this._profileCascade();
+      const order = this.loadedOrder();
+      if (cascade && order?.companyStoreId && this.isEditMode() && !this.userStoreName()) {
+        this.fetchStoreName(
+          cascade.companyId,
+          cascade.companyCountryId,
+          cascade.companyRegionId,
+          cascade.companyZoneId,
+          order.companyStoreId,
+        );
+      }
+    });
   }
 
   ngOnInit(): void {
     const id = this.orderId();
     if (id) {
       this.loadOrder(id);
+      this.loadProfile();
       this.loadPaymentMethods();
     } else {
-      this.loadUserStore();
+      this.loadProfile();
       this.loadDefaultCustomer();
       this.loadPaymentMethods();
     }
@@ -151,31 +187,41 @@ export class SalesOrderEdit implements OnInit {
   // DATA LOADING
   // ══════════════════════════════════════════════════════════
 
-  /** Load the user's preferred store from their profile (create mode only). */
-  private loadUserStore(): void {
+  /** Load the user's profile to get cascade IDs and store info. */
+  private loadProfile(): void {
     this.profileService
       .getProfile()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (profile) => {
-          if (profile.companyStoreId) {
-            this.headerForm().patchValue({
-              companyStoreId: profile.companyStoreId,
-            });
-            // Fetch store name via separate HTTP call using cascade IDs from profile
-            this.fetchStoreName(
-              profile.companyId,
-              profile.companyCountryId,
-              profile.companyRegionId,
-              profile.companyZoneId,
-              profile.companyStoreId,
-            );
+          this._profileCascade.set({
+            companyId: profile.companyId,
+            companyCountryId: profile.companyCountryId,
+            companyRegionId: profile.companyRegionId,
+            companyZoneId: profile.companyZoneId,
+          });
+
+          if (!this.isEditMode()) {
+            // Create mode: patch form and fetch store name with profile's store
+            if (profile.companyStoreId) {
+              this.headerForm().patchValue({
+                companyStoreId: profile.companyStoreId,
+              });
+              this.fetchStoreName(
+                profile.companyId,
+                profile.companyCountryId,
+                profile.companyRegionId,
+                profile.companyZoneId,
+                profile.companyStoreId,
+              );
+            }
+            this._storeReady.set(true);
           }
-          this._storeReady.set(true);
         },
         error: () => {
-          // Non-critical: form will be valid without a pre-set store
-          this._storeReady.set(true);
+          if (!this.isEditMode()) {
+            this._storeReady.set(true);
+          }
         },
       });
   }
@@ -531,14 +577,6 @@ export class SalesOrderEdit implements OnInit {
     });
   }
 
-  /** Called by `<app-status-transition>` after a successful PATCH. */
-  onStatusChanged(statusId: string): void {
-    const id = this.orderId();
-    if (id) {
-      this.loadOrder(id);
-    }
-  }
-
   /** Called by a payment-method button to charge the current Pending sales order. */
   onCharge(paymentMethodId: string): void {
     const id = this.orderId();
@@ -682,7 +720,4 @@ export class SalesOrderEdit implements OnInit {
     });
   }
 
-  onCancel(): void {
-    this.router.navigate(['/sales/orders']);
-  }
 }

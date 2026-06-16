@@ -1,4 +1,13 @@
 <div class="detail-table">
+  <!-- Add Product (always on top) -->
+  <div class="add-line-item">
+    <div class="add-line-item-title">
+      <mat-icon fontIcon="add" />
+      <span>Add Product</span>
+    </div>
+    <ng-content select="[variant-selector]" />
+  </div>
+
   <!-- Existing line items -->
   @if (items().length > 0) {
     <table mat-table [dataSource]="items()">
@@ -103,11 +112,6 @@
       <tr mat-row *matRowDef="let row; columns: displayedColumns"></tr>
     </table>
 
-    <!-- Total -->
-    <div class="line-items-total">
-      <span class="total-label">Total:</span>
-      <span class="total-value">{{ lineItemsTotal() | currency }}</span>
-    </div>
   } @else {
     <div class="no-line-items">
       <mat-icon fontIcon="receipt_long" />
@@ -115,13 +119,16 @@
     </div>
   }
 
-  <!-- Content projection: variant selector (from parent) -->
-  <div class="add-line-item">
-    <div class="add-line-item-title">
-      <mat-icon fontIcon="add" />
-      <span>Add Product</span>
+  <!-- Summary (always visible) -->
+  <div class="line-items-summary">
+    <div class="summary-row">
+      <span class="summary-label">Items:</span>
+      <span class="summary-value">{{ items().length }}</span>
     </div>
-    <ng-content select="[variant-selector]" />
+    <div class="summary-row summary-row--total">
+      <span class="summary-label">Total:</span>
+      <span class="summary-value">{{ lineItemsTotal() | currency }}</span>
+    </div>
   </div>
 
 </div>

@@ -1,20 +1,24 @@
 <div class="sales-order-edit-page">
-  <app-page-header
-    [title]="
-      isEditMode()
-        ? 'Edit Sales Order'
-        : 'New Sales Order'
-    "
-    [subtitle]="
-      isEditMode()
-        ? 'Modify sales order details'
-        : 'Fill in the details to create a new sales order'
-    "
-  >
-    <button mat-stroked-button routerLink="/sales/orders">
-      <mat-icon fontIcon="arrow_back" /> Back
-    </button>
-  </app-page-header>
+  <header class="page-header">
+    <div class="header-content">
+      <h1 class="page-title">{{ pageTitle() }}</h1>
+      @if (loadedOrder(); as order) {
+        <mat-chip
+          class="header-status-chip"
+          [style.background-color]="statusColors[order.statusName] || '#9e9e9e'"
+          [style.color]="'#fff'"
+          disableRipple
+        >
+          {{ statusLabels[order.statusName] || order.statusName }}
+        </mat-chip>
+      }
+    </div>
+    <div class="header-actions">
+      <button mat-stroked-button routerLink="/sales/orders">
+        <mat-icon fontIcon="arrow_back" /> Back
+      </button>
+    </div>
+  </header>
 
   <!-- Creating Spinner (auto-creation in progress) -->
   @if (creating()) {
@@ -59,25 +63,7 @@
 
   <!-- Content (shown after loading or in create mode) -->
   @if (!isEditMode() || !loading()) {
-    <!-- Status Transition (edit mode only) -->
-    @if (loadedOrder(); as order) {
-      <app-status-transition
-        [order]="order"
-        (statusChanged)="onStatusChanged($event)"
-      />
-    }
-
     <form [formGroup]="headerForm()" (ngSubmit)="onSave()" novalidate>
-    <!-- Header Form (customer, store read-only, shift, comments) -->
-    <app-order-header-form
-      [headerForm]="headerForm()"
-      [isEditMode]="isEditMode()"
-      [isDraft]="isDraft()"
-      [loadedOrder]="loadedOrder()"
-      [serverErrors]="serverErrors()"
-      [storeName]="displayStoreName()"
-      [initialCustomer]="defaultCustomer()"
-    />
 
     <!-- Line Items Table (edit mode only — items require an existing order) -->
     @if (isEditMode()) {
@@ -97,35 +83,8 @@
       </app-sales-order-item-table>
     }
 
-    <!-- Action Buttons -->
-    <div class="form-actions">
-      <button
-        mat-stroked-button
-        type="button"
-        (click)="onCancel()"
-        [disabled]="saving() || creating()"
-        aria-label="Cancel"
-      >
-        Cancel
-      </button>
-      <button
-        mat-flat-button
-        color="primary"
-        type="submit"
-        [disabled]="saving() || creating() || headerForm().invalid"
-        aria-label="Save order"
-      >
-        @if (saving() || creating()) {
-          <mat-icon fontIcon="hourglass_empty" />
-        } @else {
-          <mat-icon fontIcon="save" />
-        }
-        {{ saving() ? 'Saving...' : (creating() ? 'Creating...' : (isEditMode() ? 'Update Order' : 'Create Order')) }}
-      </button>
-    </div>
-
-    <!-- Cobrar / Charge (edit mode + Pending status only) -->
-    @if (isEditMode() && isPending()) {
+    <!-- Cobrar / Charge (edit mode only) -->
+    @if (isEditMode()) {
       <div class="charge-section">
         <span class="charge-label">Cobrar con:</span>
         <div class="payment-buttons">
@@ -133,7 +92,12 @@
             <button
               mat-flat-button
               color="primary"
-              [disabled]="charging()"
+              [disabled]="charging() || lineItems().length === 0"
+              [matTooltip]="
+                lineItems().length === 0
+                  ? 'Add at least one product before charging'
+                  : 'Charge with ' + pm.paymentMethodName
+              "
               (click)="onCharge(pm.id)"
               [attr.aria-label]="'Charge with ' + pm.paymentMethodName"
             >

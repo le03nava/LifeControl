@@ -33,23 +33,35 @@ table {
   }
 }
 
-.line-items-total {
+.line-items-summary {
   display: flex;
   justify-content: flex-end;
   align-items: center;
-  gap: 1rem;
-  padding: 1rem;
-  font-size: 1.125rem;
+  gap: var(--space-lg);
+  padding: var(--space-md) var(--space-lg);
   border-top: 2px solid var(--mat-sys-outline-variant, #ccc);
   margin-top: 0.5rem;
 }
 
-.total-label {
-  font-weight: 600;
+.summary-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
 }
 
-.total-value {
+.summary-label {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--mat-sys-on-surface-variant, #666);
+}
+
+.summary-value {
   font-weight: 700;
+  font-size: 1rem;
+}
+
+.summary-row--total .summary-value {
+  font-size: 1.125rem;
   color: var(--mat-sys-primary, #1976d2);
 }
 
