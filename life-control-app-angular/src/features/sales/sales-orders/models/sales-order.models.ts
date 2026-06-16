@@ -98,6 +98,8 @@ export interface ProductVariantOption {
   listPrice: number;
   stock: number;
   enabled: boolean;
+  /** Product name from the joined Product table (returned by search endpoint). */
+  productName: string;
 }
 
 /** Subset of shift data returned by /api/shifts/open. */
