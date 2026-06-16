@@ -42,6 +42,7 @@ import com.lifecontrol.api.shift.exception.ShiftNotOpenException;
 import com.lifecontrol.api.salesorder.exception.InsufficientStockException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderAlreadyFinalizedException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderItemNotFoundException;
+import com.lifecontrol.api.salesorder.exception.InvalidSalesOrderChargeException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -579,6 +580,18 @@ public class GlobalExceptionHandler {
                 getCorrelationId()
         );
         return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
+    }
+
+    @ExceptionHandler(InvalidSalesOrderChargeException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidSalesOrderCharge(InvalidSalesOrderChargeException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.BAD_REQUEST.value(),
+                ex.getMessage(),
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
+        );
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

@@ -39,6 +39,9 @@ public class SalesOrder extends Auditable {
     @Column(name = "total_amount", precision = 12, scale = 2)
     private BigDecimal totalAmount;
 
+    @Column(name = "payment_method_id")
+    private UUID paymentMethodId;
+
     @Column(name = "enabled", nullable = false)
     private Boolean enabled = true;
 
@@ -82,6 +85,10 @@ public class SalesOrder extends Auditable {
         return totalAmount;
     }
 
+    public UUID getPaymentMethodId() {
+        return paymentMethodId;
+    }
+
     public Boolean getEnabled() {
         return enabled;
     }
@@ -121,6 +128,10 @@ public class SalesOrder extends Auditable {
 
     public void setTotalAmount(BigDecimal totalAmount) {
         this.totalAmount = totalAmount;
+    }
+
+    public void setPaymentMethodId(UUID paymentMethodId) {
+        this.paymentMethodId = paymentMethodId;
     }
 
     public void setEnabled(Boolean enabled) {
@@ -177,6 +188,11 @@ public class SalesOrder extends Auditable {
 
         public Builder totalAmount(BigDecimal totalAmount) {
             order.totalAmount = totalAmount;
+            return this;
+        }
+
+        public Builder paymentMethodId(UUID paymentMethodId) {
+            order.paymentMethodId = paymentMethodId;
             return this;
         }
 

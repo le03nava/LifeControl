@@ -59,6 +59,40 @@
       />
     }
 
+    <!-- Cobrar / Charge (edit mode + Pending status only) -->
+    @if (isEditMode() && isPending()) {
+      <div class="charge-section">
+        <mat-form-field appearance="outline" subscriptSizing="dynamic">
+          <mat-label>Payment Method</mat-label>
+          <mat-select
+            [value]="selectedPaymentMethodId()"
+            (valueChange)="selectedPaymentMethodId.set($event)"
+            [disabled]="charging()"
+          >
+            @for (pm of paymentMethods(); track pm.id) {
+              <mat-option [value]="pm.id">
+                {{ pm.paymentMethodName }}
+              </mat-option>
+            }
+          </mat-select>
+        </mat-form-field>
+        <button
+          mat-flat-button
+          color="primary"
+          [disabled]="charging() || !selectedPaymentMethodId()"
+          (click)="onCharge()"
+          aria-label="Charge sales order"
+        >
+          @if (charging()) {
+            <mat-icon fontIcon="hourglass_empty" />
+          } @else {
+            <mat-icon fontIcon="payments" />
+          }
+          {{ charging() ? 'Charging...' : 'Cobrar' }}
+        </button>
+      </div>
+    }
+
     <form [formGroup]="headerForm()" (ngSubmit)="onSave()" novalidate>
     <!-- Header Form (customer, store read-only, shift, comments) -->
     <app-order-header-form
@@ -68,6 +102,7 @@
       [loadedOrder]="loadedOrder()"
       [serverErrors]="serverErrors()"
       [storeName]="displayStoreName()"
+      [initialCustomer]="defaultCustomer()"
     />
 
     <!-- Line Items Table (edit mode only — items require an existing order) -->

@@ -457,6 +457,7 @@ CREATE TABLE IF NOT EXISTS sales_orders (
     order_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     status_id UUID NOT NULL REFERENCES statuses(id),
     total_amount DECIMAL(12,2),
+    payment_method_id UUID REFERENCES payment_methods(id),
     enabled BOOLEAN DEFAULT true NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -493,3 +494,11 @@ CREATE INDEX IF NOT EXISTS idx_soi_variant ON sales_order_items(product_variant_
 CREATE INDEX IF NOT EXISTS idx_soi_promotion ON sales_order_items(promotion_id);
 CREATE INDEX IF NOT EXISTS idx_soi_status ON sales_order_items(status_id);
 CREATE INDEX IF NOT EXISTS idx_soi_enabled ON sales_order_items(enabled);
+
+-- ============================================
+-- Migration: Add payment_method_id to sales_orders
+-- ============================================
+ALTER TABLE sales_orders
+  ADD COLUMN IF NOT EXISTS payment_method_id UUID REFERENCES payment_methods(id);
+
+CREATE INDEX IF NOT EXISTS idx_so_payment_method ON sales_orders(payment_method_id);

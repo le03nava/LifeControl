@@ -27,6 +27,7 @@
       @if (isDraft()) {
         <div class="customer-field-wrapper">
           <app-customer-selector
+            [initialCustomer]="initialCustomer()"
             (customerSelected)="onCustomerSelected($event)"
           />
         </div>

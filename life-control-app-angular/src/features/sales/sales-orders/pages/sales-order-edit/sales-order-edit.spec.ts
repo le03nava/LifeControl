@@ -89,6 +89,7 @@ describe('SalesOrderEdit', () => {
     updateItem: ReturnType<typeof vi.fn>;
     deleteItem: ReturnType<typeof vi.fn>;
     updateItemStatus: ReturnType<typeof vi.fn>;
+    chargeSalesOrder: ReturnType<typeof vi.fn>;
   };
   let router: Router;
 
@@ -104,6 +105,7 @@ describe('SalesOrderEdit', () => {
     updateItem: vi.fn(),
     deleteItem: vi.fn(),
     updateItemStatus: vi.fn(),
+    chargeSalesOrder: vi.fn(),
   });
 
   const baseProviders = (routeId: string | null) => [
@@ -1054,6 +1056,108 @@ describe('SalesOrderEdit', () => {
       f.detectChanges();
 
       expect(comp.loading()).toBe(false);
+    });
+  });
+
+  // ══════════════════════════════════════════════════════════
+  // CHARGE / COBRAR
+  // ══════════════════════════════════════════════════════════
+
+  describe('charge / cobrar', () => {
+    beforeEach(async () => {
+      await TestBed.configureTestingModule({
+        imports: [
+          SalesOrderEdit,
+          NoopAnimationsModule,
+          HttpClientTestingModule,
+        ],
+        providers: baseProviders('so-1'),
+      }).compileComponents();
+
+      fixture = TestBed.createComponent(SalesOrderEdit);
+      component = fixture.componentInstance;
+      salesOrderService = TestBed.inject(
+        SalesOrderService,
+      ) as unknown as typeof salesOrderService;
+
+      fixture.detectChanges();
+    });
+
+    it('should have isPending = false when statusName is Draft', () => {
+      expect(component.isPending()).toBe(false);
+    });
+
+    it('should have isPending = true when statusName is Pending', () => {
+      component.loadedOrder.set({ ...mockOrder, statusName: 'Pending' });
+      expect(component.isPending()).toBe(true);
+    });
+
+    it('should call chargeSalesOrder with correct id and paymentMethodId on onCharge', () => {
+      // Set up as Pending order
+      component.loadedOrder.set({ ...mockOrder, statusName: 'Pending' });
+      component.selectedPaymentMethodId.set('pm-1');
+      salesOrderService.chargeSalesOrder = vi.fn().mockReturnValue(of({ ...mockOrder, statusName: 'Completed' }));
+
+      component.onCharge();
+
+      expect(salesOrderService.chargeSalesOrder).toHaveBeenCalledWith('so-1', 'pm-1');
+    });
+
+    it('should set charging signal during charge and clear on success', () => {
+      const chargeSubject = new Subject<SalesOrder>();
+      component.loadedOrder.set({ ...mockOrder, statusName: 'Pending' });
+      component.selectedPaymentMethodId.set('pm-1');
+      salesOrderService.chargeSalesOrder = vi.fn().mockReturnValue(chargeSubject.asObservable());
+
+      expect(component.charging()).toBe(false);
+
+      component.onCharge();
+
+      expect(component.charging()).toBe(true);
+
+      chargeSubject.next({ ...mockOrder, statusName: 'Completed' });
+      chargeSubject.complete();
+
+      expect(component.charging()).toBe(false);
+    });
+
+    it('should reload order on successful charge', () => {
+      component.loadedOrder.set({ ...mockOrder, statusName: 'Pending' });
+      component.selectedPaymentMethodId.set('pm-1');
+      salesOrderService.chargeSalesOrder = vi.fn().mockReturnValue(of({ ...mockOrder, statusName: 'Completed' }));
+      // Reset the mock so we can verify it's called again
+      salesOrderService.getSalesOrder = vi.fn().mockReturnValue(of({ ...mockOrder, statusName: 'Completed' }));
+
+      component.onCharge();
+
+      expect(salesOrderService.getSalesOrder).toHaveBeenCalledWith('so-1');
+    });
+
+    it('should show error notification on charge failure', () => {
+      const notificationService = TestBed.inject(NotificationService);
+      component.loadedOrder.set({ ...mockOrder, statusName: 'Pending' });
+      component.selectedPaymentMethodId.set('pm-1');
+      salesOrderService.chargeSalesOrder = vi.fn().mockReturnValue(
+        throwError(() => new HttpErrorResponse({
+          error: { message: 'Order is not Pending' },
+          status: 400,
+          statusText: 'Bad Request',
+        })),
+      );
+
+      component.onCharge();
+
+      expect(notificationService.showError).toHaveBeenCalled();
+    });
+
+    it('should not call chargeSalesOrder when no payment method selected', () => {
+      component.loadedOrder.set({ ...mockOrder, statusName: 'Pending' });
+      component.selectedPaymentMethodId.set('');
+      salesOrderService.chargeSalesOrder = vi.fn();
+
+      component.onCharge();
+
+      expect(salesOrderService.chargeSalesOrder).not.toHaveBeenCalled();
     });
   });
 });

@@ -13,6 +13,7 @@ export interface SalesOrder {
   statusId: string;
   statusName: string;
   totalAmount: number;
+  paymentMethodId?: string;
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
@@ -107,4 +108,15 @@ export interface OpenShiftOption {
   userId?: string;
   openedAt: string;
   status: string;
+}
+
+/** Request body for charging a sales order. */
+export interface ChargeSalesOrderRequest {
+  paymentMethodId: string;
+}
+
+/** Payment method option for the charge selector. */
+export interface PaymentMethodOption {
+  id: string;
+  paymentMethodName: string;
 }

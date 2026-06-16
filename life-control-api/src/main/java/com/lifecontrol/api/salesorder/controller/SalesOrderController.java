@@ -1,5 +1,6 @@
 package com.lifecontrol.api.salesorder.controller;
 
+import com.lifecontrol.api.salesorder.dto.ChargeSalesOrderRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderItemRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderItemResponse;
 import com.lifecontrol.api.salesorder.dto.SalesOrderRequest;
@@ -121,6 +122,20 @@ public class SalesOrderController {
         return ResponseEntity.ok(salesOrderService.updateSalesOrderStatus(id, request));
     }
 
+    @PatchMapping("/{id}/charge")
+    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @Operation(summary = "Charge a sales order", description = "Atomically transitions a Pending order to Completed, all non-Cancelled items to Added, and records the payment method. Validates that the order is in Pending status and the payment method exists.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Sales order charged successfully"),
+        @ApiResponse(responseCode = "400", description = "Order is not in Pending status"),
+        @ApiResponse(responseCode = "404", description = "Sales order or payment method not found")
+    })
+    public ResponseEntity<SalesOrderResponse> chargeSalesOrder(
+            @PathVariable UUID id,
+            @Valid @RequestBody ChargeSalesOrderRequest request) {
+        return ResponseEntity.ok(salesOrderService.chargeSalesOrder(id, request));
+    }
+
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
     @Operation(summary = "Delete a sales order", description = "Soft-deletes a sales order and all its items")
@@ -148,7 +163,7 @@ public class SalesOrderController {
 
     @PostMapping("/{id}/items")
     @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
-    @Operation(summary = "Add an item to a sales order", description = "Adds a line item. finalPrice = listPrice - discountApplied. Only allowed when order is in Draft status.")
+    @Operation(summary = "Add an item to a sales order", description = "Adds a line item. finalPrice = listPrice - discountApplied. Only allowed when order is in Draft status. Auto-transitions the order from Draft to Pending when the first item is added.")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "Item created"),
         @ApiResponse(responseCode = "400", description = "Validation error"),

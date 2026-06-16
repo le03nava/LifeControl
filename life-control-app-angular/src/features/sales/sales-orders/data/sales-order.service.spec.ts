@@ -458,6 +458,50 @@ describe('SalesOrderService', () => {
     });
   });
 
+  describe('chargeSalesOrder', () => {
+    it('should PATCH to charge endpoint with paymentMethodId', async () => {
+      const charged: SalesOrder = {
+        ...mockOrder,
+        statusId: 'st-completed',
+        statusName: 'Completed',
+        paymentMethodId: 'pm-1',
+      };
+
+      const promise = firstValueFrom(
+        service.chargeSalesOrder('so-1', 'pm-1'),
+      );
+
+      const req = httpMock.expectOne(
+        `${TEST_API}/sales-orders/so-1/charge`,
+      );
+      expect(req.request.method).toBe('PATCH');
+      expect(req.request.body).toEqual({ paymentMethodId: 'pm-1' });
+      req.flush(charged);
+
+      const result = await promise;
+      expect(result.statusName).toBe('Completed');
+      expect(result.paymentMethodId).toBe('pm-1');
+    });
+
+    it('should propagate 400 error when order is not Pending', async () => {
+      const promise = firstValueFrom(
+        service.chargeSalesOrder('so-1', 'pm-1'),
+      );
+
+      const req = httpMock.expectOne(
+        `${TEST_API}/sales-orders/so-1/charge`,
+      );
+      req.flush(
+        { message: 'Cannot charge sales order' },
+        { status: 400, statusText: 'Bad Request' },
+      );
+
+      await expect(promise).rejects.toEqual(
+        expect.objectContaining({ status: 400 }),
+      );
+    });
+  });
+
   describe('updateItemStatus', () => {
     it('should PATCH the item status', async () => {
       const updatedItem: SalesOrderItem = {

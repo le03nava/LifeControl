@@ -8,6 +8,7 @@ import type {
   SalesOrderRequest,
   SalesOrderItemRequest,
   UpdateSalesOrderStatusRequest,
+  ChargeSalesOrderRequest,
   Page,
 } from '../models/sales-order.models';
 
@@ -60,6 +61,11 @@ export class SalesOrderService {
   /** Enable a previously disabled sales order. */
   enable(id: string): Observable<SalesOrder> {
     return this.http.patch<SalesOrder>(`${this.baseUrl}/${id}/enable`, null);
+  }
+
+  /** Charge a sales order (Pending → Completed + items → Added, with payment method). */
+  chargeSalesOrder(id: string, paymentMethodId: string): Observable<SalesOrder> {
+    return this.http.patch<SalesOrder>(`${this.baseUrl}/${id}/charge`, { paymentMethodId } satisfies ChargeSalesOrderRequest);
   }
 
   /** Soft-delete (disable) a sales order. */

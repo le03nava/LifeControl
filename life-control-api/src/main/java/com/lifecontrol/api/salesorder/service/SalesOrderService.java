@@ -5,12 +5,16 @@ import com.lifecontrol.api.customer.repository.CustomerRepository;
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
 import com.lifecontrol.api.product.model.ProductVariant;
 import com.lifecontrol.api.product.repository.ProductVariantRepository;
+import com.lifecontrol.api.paymentmethod.exception.PaymentMethodNotFoundException;
+import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
 import com.lifecontrol.api.purchaseorder.exception.InvalidStatusTransitionException;
+import com.lifecontrol.api.salesorder.dto.ChargeSalesOrderRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderItemRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderItemResponse;
 import com.lifecontrol.api.salesorder.dto.SalesOrderRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderResponse;
 import com.lifecontrol.api.salesorder.dto.UpdateSalesOrderStatusRequest;
+import com.lifecontrol.api.salesorder.exception.InvalidSalesOrderChargeException;
 import com.lifecontrol.api.salesorder.exception.InsufficientStockException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderAlreadyFinalizedException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderItemNotFoundException;
@@ -74,6 +78,7 @@ public class SalesOrderService {
     private final ShiftRepository shiftRepository;
     private final ProductVariantRepository productVariantRepository;
     private final StatusRepository statusRepository;
+    private final PaymentMethodRepository paymentMethodRepository;
 
     public SalesOrderService(SalesOrderRepository salesOrderRepository,
                               SalesOrderItemRepository itemRepository,
@@ -81,7 +86,8 @@ public class SalesOrderService {
                               CompanyStoreRepository companyStoreRepository,
                               ShiftRepository shiftRepository,
                               ProductVariantRepository productVariantRepository,
-                              StatusRepository statusRepository) {
+                              StatusRepository statusRepository,
+                              PaymentMethodRepository paymentMethodRepository) {
         this.salesOrderRepository = salesOrderRepository;
         this.itemRepository = itemRepository;
         this.customerRepository = customerRepository;
@@ -89,6 +95,7 @@ public class SalesOrderService {
         this.shiftRepository = shiftRepository;
         this.productVariantRepository = productVariantRepository;
         this.statusRepository = statusRepository;
+        this.paymentMethodRepository = paymentMethodRepository;
     }
 
     // ─── Sales Order CRUD ────────────────────────────────────────────────
@@ -284,6 +291,63 @@ public class SalesOrderService {
     }
 
     @Transactional
+    public SalesOrderResponse chargeSalesOrder(UUID id, ChargeSalesOrderRequest request) {
+        logger.info("Charging sales order: id={}", id);
+
+        var so = salesOrderRepository.findById(id)
+                .orElseThrow(() -> new SalesOrderNotFoundException(id));
+
+        var currentStatus = statusRepository.findById(so.getStatusId())
+                .orElseThrow(() -> new StatusNotFoundException(so.getStatusId()));
+
+        // Validate order is Pending
+        if (!"Pending".equals(currentStatus.getStatusName())) {
+            throw new InvalidSalesOrderChargeException(id, currentStatus.getStatusName());
+        }
+
+        // Validate payment method exists
+        if (!paymentMethodRepository.existsById(request.paymentMethodId())) {
+            throw new PaymentMethodNotFoundException(request.paymentMethodId());
+        }
+
+        // Look up target statuses
+        var completedStatus = statusRepository
+                .findByTypeNameAndStatusName("SALES_ORDER", "Completed")
+                .orElseThrow(() -> new StatusNotFoundException("Completed status not found for SALES_ORDER"));
+
+        var addedStatus = statusRepository
+                .findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Added")
+                .orElseThrow(() -> new StatusNotFoundException("Added status not found for SALES_ORDER_ITEM"));
+
+        // Set payment method on the order
+        so.setPaymentMethodId(request.paymentMethodId());
+
+        // Transition header to Completed
+        so.setStatusId(completedStatus.getId());
+        salesOrderRepository.save(so);
+
+        // Transition non-Cancelled items to Added
+        var items = itemRepository.findBySalesOrderId(id);
+        for (var item : items) {
+            if (item.getEnabled()) {
+                var itemStatus = statusRepository.findById(item.getStatusId())
+                        .orElseThrow(() -> new StatusNotFoundException(item.getStatusId()));
+                if (!"Cancelled".equals(itemStatus.getStatusName())) {
+                    item.setStatusId(addedStatus.getId());
+                    itemRepository.save(item);
+                }
+            }
+        }
+
+        logger.info("Sales order charged successfully: id={}", id);
+
+        // Reload to include updated items in response
+        var updated = salesOrderRepository.findById(id)
+                .orElseThrow(() -> new SalesOrderNotFoundException(id));
+        return toResponse(updated);
+    }
+
+    @Transactional
     public SalesOrderResponse updateSalesOrderStatus(UUID id, UpdateSalesOrderStatusRequest request) {
         logger.info("Updating sales order status: id={}", id);
 
@@ -402,6 +466,10 @@ public class SalesOrderService {
         var so = loadAndValidateDraftSO(salesOrderId);
         validateProductVariantExists(request.productVariantId());
 
+        // Check if this will be the first item (triggers Draft → Pending transition)
+        var existingItems = itemRepository.findBySalesOrderIdAndEnabledTrue(salesOrderId);
+        var isFirstItem = existingItems.isEmpty();
+
         var defaultItemStatus = statusRepository
                 .findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Pending")
                 .orElseThrow(() -> new StatusNotFoundException(
@@ -430,6 +498,21 @@ public class SalesOrderService {
 
         // Recalculate order total
         recalculateTotalAmount(salesOrderId);
+
+        // Auto-transition from Draft → Pending when the first item is added
+        if (isFirstItem) {
+            var pendingStatus = statusRepository
+                    .findByTypeNameAndStatusName("SALES_ORDER", "Pending")
+                    .orElseThrow(() -> new StatusNotFoundException(
+                            "Status 'Pending' not found for SALES_ORDER type"));
+            var currentStatus = statusRepository.findById(so.getStatusId())
+                    .orElseThrow(() -> new StatusNotFoundException(so.getStatusId()));
+            validateSOTransition(currentStatus, pendingStatus);
+
+            so.setStatusId(pendingStatus.getId());
+            salesOrderRepository.save(so);
+            logger.info("Order {} auto-transitioned from Draft to Pending", salesOrderId);
+        }
 
         return toItemResponse(saved);
     }
@@ -766,6 +849,7 @@ public class SalesOrderService {
                 so.getStatusId(),
                 statusName,
                 so.getTotalAmount(),
+                so.getPaymentMethodId(),
                 so.getEnabled(),
                 so.getCreatedAt(),
                 so.getUpdatedAt(),

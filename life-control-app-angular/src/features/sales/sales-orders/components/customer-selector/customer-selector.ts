@@ -3,7 +3,9 @@ import {
   Component,
   computed,
   DestroyRef,
+  effect,
   inject,
+  input,
   output,
   signal,
 } from '@angular/core';
@@ -39,6 +41,9 @@ export class CustomerSelector {
   private http = inject(HttpClient);
   private destroyRef = inject(DestroyRef);
 
+  /** Optional customer to pre-select on init (e.g. PUBLICO EN GENERAL). */
+  readonly initialCustomer = input<CustomerOption | null>(null);
+
   /** Emits the selected customer when an option is chosen. */
   readonly customerSelected = output<CustomerOption>();
 
@@ -47,6 +52,16 @@ export class CustomerSelector {
 
   /** Customers fetched from the API matching the search query. */
   readonly filteredCustomers = computed(() => this._customers());
+
+  constructor() {
+    effect(() => {
+      const customer = this.initialCustomer();
+      if (customer) {
+        this.searchQuery.set(customer.name);
+        this._customers.set([customer]);
+      }
+    });
+  }
 
   // ── Internal state ──────────────────────────────────────
   private readonly _customers = signal<CustomerOption[]>([]);

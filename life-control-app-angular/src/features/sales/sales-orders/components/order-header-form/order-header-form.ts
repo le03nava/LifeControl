@@ -74,6 +74,9 @@ export class OrderHeaderForm implements OnInit {
   /** Store name from user preferences (create mode) or loaded order (edit mode). Displayed as read-only text. */
   readonly storeName = input<string | null>(null);
 
+  /** Optional customer to pre-select (e.g. PUBLICO EN GENERAL in create mode). */
+  readonly initialCustomer = input<CustomerOption | null>(null);
+
   // ─── Status display ────────────────────────────────────
   readonly statusColor = SO_STATUS_COLORS;
   readonly statusLabel = SO_STATUS_LABELS;

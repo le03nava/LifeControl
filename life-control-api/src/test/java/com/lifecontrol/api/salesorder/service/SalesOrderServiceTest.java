@@ -5,13 +5,17 @@ import com.lifecontrol.api.customer.repository.CustomerRepository;
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
 import com.lifecontrol.api.product.model.ProductVariant;
 import com.lifecontrol.api.product.repository.ProductVariantRepository;
+import com.lifecontrol.api.paymentmethod.exception.PaymentMethodNotFoundException;
+import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
 import com.lifecontrol.api.purchaseorder.exception.InvalidStatusTransitionException;
+import com.lifecontrol.api.salesorder.dto.ChargeSalesOrderRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderItemRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderItemResponse;
 import com.lifecontrol.api.salesorder.dto.SalesOrderRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderResponse;
 import com.lifecontrol.api.salesorder.dto.UpdateSalesOrderStatusRequest;
 import com.lifecontrol.api.salesorder.exception.InsufficientStockException;
+import com.lifecontrol.api.salesorder.exception.InvalidSalesOrderChargeException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderAlreadyFinalizedException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderItemNotFoundException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderNotFoundException;
@@ -80,6 +84,9 @@ class SalesOrderServiceTest {
 
     @Mock
     private StatusRepository statusRepository;
+
+    @Mock
+    private PaymentMethodRepository paymentMethodRepository;
 
     @InjectMocks
     private SalesOrderService salesOrderService;
@@ -1166,6 +1173,258 @@ class SalesOrderServiceTest {
                     .hasMessageContaining("Completed");
 
             verify(itemRepository, never()).save(any(SalesOrderItem.class));
+        }
+    }
+
+    // ─────────────────────────────────────────────
+    // chargeSalesOrder
+    // ─────────────────────────────────────────────
+    @Nested
+    @DisplayName("chargeSalesOrder")
+    class ChargeSalesOrderTests {
+
+        @Test
+        @DisplayName("should charge Pending order successfully")
+        void chargeSalesOrder_Success() {
+            var paymentMethodId = UUID.randomUUID();
+            var request = new ChargeSalesOrderRequest(paymentMethodId);
+
+            // Create a Pending order
+            var pendingOrder = SalesOrder.builder()
+                    .id(orderId)
+                    .orderNumber("SO-20260610-00001")
+                    .customerId(customerId)
+                    .companyStoreId(companyStoreId)
+                    .shiftId(shiftId)
+                    .userId("user123")
+                    .orderDate(testOrder.getOrderDate())
+                    .statusId(enviadaStatus.getId())
+                    .totalAmount(BigDecimal.ZERO)
+                    .enabled(true)
+                    .createdAt(testOrder.getCreatedAt())
+                    .updatedAt(testOrder.getUpdatedAt())
+                    .build();
+
+            // Items: 2 enabled Pending items
+            var item1 = SalesOrderItem.builder()
+                    .id(UUID.randomUUID())
+                    .salesOrderId(orderId)
+                    .productVariantId(variantId)
+                    .quantity(new BigDecimal("2.00"))
+                    .listPrice(new BigDecimal("100.00"))
+                    .discountApplied(BigDecimal.ZERO)
+                    .finalPrice(new BigDecimal("100.00"))
+                    .statusId(pendienteItemStatus.getId())
+                    .enabled(true)
+                    .build();
+            var item2 = SalesOrderItem.builder()
+                    .id(UUID.randomUUID())
+                    .salesOrderId(orderId)
+                    .productVariantId(variantId)
+                    .quantity(new BigDecimal("3.00"))
+                    .listPrice(new BigDecimal("50.00"))
+                    .discountApplied(BigDecimal.ZERO)
+                    .finalPrice(new BigDecimal("50.00"))
+                    .statusId(pendienteItemStatus.getId())
+                    .enabled(true)
+                    .build();
+
+            // Reloaded order after save (Completed status + payment method)
+            var savedOrder = SalesOrder.builder()
+                    .id(orderId)
+                    .orderNumber("SO-20260610-00001")
+                    .customerId(customerId)
+                    .companyStoreId(companyStoreId)
+                    .shiftId(shiftId)
+                    .userId("user123")
+                    .orderDate(testOrder.getOrderDate())
+                    .statusId(cerradaStatus.getId())
+                    .totalAmount(BigDecimal.ZERO)
+                    .paymentMethodId(paymentMethodId)
+                    .enabled(true)
+                    .createdAt(testOrder.getCreatedAt())
+                    .updatedAt(testOrder.getUpdatedAt())
+                    .build();
+
+            when(salesOrderRepository.findById(orderId))
+                    .thenReturn(Optional.of(pendingOrder))
+                    .thenReturn(Optional.of(savedOrder));
+            when(statusRepository.findById(enviadaStatus.getId())).thenReturn(Optional.of(enviadaStatus));
+            when(paymentMethodRepository.existsById(paymentMethodId)).thenReturn(true);
+            when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER", "Completed"))
+                    .thenReturn(Optional.of(cerradaStatus));
+            when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Added"))
+                    .thenReturn(Optional.of(agregadoItemStatus));
+            when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(item1, item2));
+            // Item status lookups (Pending → check not Cancelled)
+            when(statusRepository.findById(pendienteItemStatus.getId()))
+                    .thenReturn(Optional.of(pendienteItemStatus));
+            // toResponse mocks
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
+            when(statusRepository.findById(cerradaStatus.getId())).thenReturn(Optional.of(cerradaStatus));
+
+            SalesOrderResponse result = salesOrderService.chargeSalesOrder(orderId, request);
+
+            assertThat(result).isNotNull();
+            assertThat(result.statusName()).isEqualTo("Completed");
+            // Verify header saved with Completed status + payment method
+            verify(salesOrderRepository).save(argThat(so ->
+                    so.getStatusId().equals(cerradaStatus.getId())
+                            && paymentMethodId.equals(so.getPaymentMethodId())));
+            // Verify both items saved with Added status
+            verify(itemRepository, times(2)).save(argThat(item ->
+                    agregadoItemStatus.getId().equals(((SalesOrderItem) item).getStatusId())));
+        }
+
+        @Test
+        @DisplayName("should throw InvalidSalesOrderChargeException when order not in Pending")
+        void chargeSalesOrder_NotPending_ThrowsException() {
+            var paymentMethodId = UUID.randomUUID();
+            var request = new ChargeSalesOrderRequest(paymentMethodId);
+
+            // testOrder is Draft by default
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
+
+            assertThatThrownBy(() -> salesOrderService.chargeSalesOrder(orderId, request))
+                    .isInstanceOf(InvalidSalesOrderChargeException.class)
+                    .hasMessageContaining(orderId.toString())
+                    .hasMessageContaining("Draft");
+
+            verify(salesOrderRepository, never()).save(any(SalesOrder.class));
+            verify(itemRepository, never()).save(any(SalesOrderItem.class));
+        }
+
+        @Test
+        @DisplayName("should throw PaymentMethodNotFoundException when payment method does not exist")
+        void chargeSalesOrder_InvalidPaymentMethod_ThrowsException() {
+            var paymentMethodId = UUID.randomUUID();
+            var request = new ChargeSalesOrderRequest(paymentMethodId);
+
+            var pendingOrder = SalesOrder.builder()
+                    .id(orderId)
+                    .orderNumber("SO-20260610-00001")
+                    .customerId(customerId)
+                    .companyStoreId(companyStoreId)
+                    .shiftId(shiftId)
+                    .userId("user123")
+                    .orderDate(testOrder.getOrderDate())
+                    .statusId(enviadaStatus.getId())
+                    .totalAmount(BigDecimal.ZERO)
+                    .enabled(true)
+                    .build();
+
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(pendingOrder));
+            when(statusRepository.findById(enviadaStatus.getId())).thenReturn(Optional.of(enviadaStatus));
+            when(paymentMethodRepository.existsById(paymentMethodId)).thenReturn(false);
+
+            assertThatThrownBy(() -> salesOrderService.chargeSalesOrder(orderId, request))
+                    .isInstanceOf(PaymentMethodNotFoundException.class)
+                    .hasMessageContaining(paymentMethodId.toString());
+
+            verify(salesOrderRepository, never()).save(any(SalesOrder.class));
+            verify(itemRepository, never()).save(any(SalesOrderItem.class));
+        }
+
+        @Test
+        @DisplayName("should leave Cancelled items untouched while transitioning Pending items to Added")
+        void chargeSalesOrder_MixedItems_OnlyTransitionsNonCancelled() {
+            var paymentMethodId = UUID.randomUUID();
+            var request = new ChargeSalesOrderRequest(paymentMethodId);
+
+            var pendingOrder = SalesOrder.builder()
+                    .id(orderId)
+                    .orderNumber("SO-20260610-00001")
+                    .customerId(customerId)
+                    .companyStoreId(companyStoreId)
+                    .shiftId(shiftId)
+                    .userId("user123")
+                    .orderDate(testOrder.getOrderDate())
+                    .statusId(enviadaStatus.getId())
+                    .totalAmount(BigDecimal.ZERO)
+                    .enabled(true)
+                    .build();
+
+            // 3 items: Pending, Pending, Cancelled
+            var itemPending1 = SalesOrderItem.builder()
+                    .id(UUID.randomUUID())
+                    .salesOrderId(orderId)
+                    .productVariantId(variantId)
+                    .quantity(BigDecimal.ONE)
+                    .listPrice(BigDecimal.TEN)
+                    .finalPrice(BigDecimal.TEN)
+                    .statusId(pendienteItemStatus.getId())
+                    .enabled(true)
+                    .build();
+            var itemPending2 = SalesOrderItem.builder()
+                    .id(UUID.randomUUID())
+                    .salesOrderId(orderId)
+                    .productVariantId(variantId)
+                    .quantity(BigDecimal.ONE)
+                    .listPrice(BigDecimal.TEN)
+                    .finalPrice(BigDecimal.TEN)
+                    .statusId(pendienteItemStatus.getId())
+                    .enabled(true)
+                    .build();
+            var itemCancelled = SalesOrderItem.builder()
+                    .id(UUID.randomUUID())
+                    .salesOrderId(orderId)
+                    .productVariantId(variantId)
+                    .quantity(BigDecimal.ONE)
+                    .listPrice(BigDecimal.TEN)
+                    .finalPrice(BigDecimal.TEN)
+                    .statusId(canceladoItemStatus.getId())
+                    .enabled(true)
+                    .build();
+
+            var savedOrder = SalesOrder.builder()
+                    .id(orderId)
+                    .orderNumber("SO-20260610-00001")
+                    .customerId(customerId)
+                    .companyStoreId(companyStoreId)
+                    .shiftId(shiftId)
+                    .userId("user123")
+                    .orderDate(testOrder.getOrderDate())
+                    .statusId(cerradaStatus.getId())
+                    .totalAmount(BigDecimal.ZERO)
+                    .paymentMethodId(paymentMethodId)
+                    .enabled(true)
+                    .createdAt(testOrder.getCreatedAt())
+                    .updatedAt(testOrder.getUpdatedAt())
+                    .build();
+
+            when(salesOrderRepository.findById(orderId))
+                    .thenReturn(Optional.of(pendingOrder))
+                    .thenReturn(Optional.of(savedOrder));
+            when(statusRepository.findById(enviadaStatus.getId())).thenReturn(Optional.of(enviadaStatus));
+            when(paymentMethodRepository.existsById(paymentMethodId)).thenReturn(true);
+            when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER", "Completed"))
+                    .thenReturn(Optional.of(cerradaStatus));
+            when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Added"))
+                    .thenReturn(Optional.of(agregadoItemStatus));
+            when(itemRepository.findBySalesOrderId(orderId))
+                    .thenReturn(List.of(itemPending1, itemPending2, itemCancelled));
+            // Item status lookups: Pending (twice), Cancelled (once)
+            when(statusRepository.findById(pendienteItemStatus.getId()))
+                    .thenReturn(Optional.of(pendienteItemStatus));
+            when(statusRepository.findById(canceladoItemStatus.getId()))
+                    .thenReturn(Optional.of(canceladoItemStatus));
+            // toResponse mocks
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
+            when(statusRepository.findById(cerradaStatus.getId())).thenReturn(Optional.of(cerradaStatus));
+
+            SalesOrderResponse result = salesOrderService.chargeSalesOrder(orderId, request);
+
+            assertThat(result).isNotNull();
+            assertThat(result.statusName()).isEqualTo("Completed");
+            // Only 2 items saved (the Pending ones → Added), Cancelled stays untouched
+            verify(itemRepository, times(2)).save(any(SalesOrderItem.class));
+            verify(itemRepository).save(argThat(item ->
+                    item.getId().equals(itemPending1.getId())
+                            && agregadoItemStatus.getId().equals(item.getStatusId())));
+            verify(itemRepository).save(argThat(item ->
+                    item.getId().equals(itemPending2.getId())
+                            && agregadoItemStatus.getId().equals(item.getStatusId())));
         }
     }
 

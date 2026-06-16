@@ -26,7 +26,7 @@ export const salesRoutes: Routes = [
     path: '',
     canActivate: [salesGuard],
     children: [
-      { path: '', redirectTo: 'orders', pathMatch: 'full' },
+      { path: '', loadComponent: () => import('./pages/sales-admin/sales-admin.component') },
       {
         path: 'orders',
         loadComponent: () =>

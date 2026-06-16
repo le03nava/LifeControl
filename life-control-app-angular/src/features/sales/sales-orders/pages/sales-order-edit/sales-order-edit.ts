@@ -25,12 +25,15 @@ import { OrderHeaderForm } from '../../components/order-header-form/order-header
 import { SalesOrderItemTable, type ItemTableRow } from '../../components/sales-order-item-table/sales-order-item-table';
 import { StatusTransition } from '../../components/status-transition/status-transition';
 import { ProductVariantSelector } from '../../components/product-variant-selector/product-variant-selector';
-import type { SalesOrder, SalesOrderRequest, SalesOrderItemRequest } from '../../models/sales-order.models';
+import type { SalesOrder, SalesOrderRequest, SalesOrderItemRequest, PaymentMethodOption, CustomerOption, Page } from '../../models/sales-order.models';
 import type { ProductVariantOption } from '../../models/sales-order.models';
 import { NotificationService } from '@shared/data/notification';
 import type { SalesOrderHeaderControl } from '../../models/sales-order-control.models';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
+import { MatSelectModule } from '@angular/material/select';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { FormsModule } from '@angular/forms';
 
 @Component({
   selector: 'app-sales-order-edit',
@@ -45,6 +48,9 @@ import { MatIconModule } from '@angular/material/icon';
     ProductVariantSelector,
     MatButtonModule,
     MatIconModule,
+    MatSelectModule,
+    MatFormFieldModule,
+    FormsModule,
   ],
   templateUrl: './sales-order-edit.html',
   styleUrl: './sales-order-edit.scss',
@@ -99,15 +105,35 @@ export class SalesOrderEdit implements OnInit {
     return this.userStoreName();
   });
 
+  /** Whether the order is Pending (eligible for charge). */
+  readonly isPending = computed(
+    () => {
+      const order = this.loadedOrder();
+      if (!order) return false;
+      return order.statusName === 'Pending';
+    },
+  );
+
+  // ─── Default customer (create mode) ─────────────────────
+  readonly defaultCustomer = signal<CustomerOption | null>(null);
+
   // ─── Line items ────────────────────────────────────────
   readonly lineItems = signal<ItemTableRow[]>([]);
+
+  // ─── Charge / Cobrar ─────────────────────────────────────
+  readonly paymentMethods = signal<PaymentMethodOption[]>([]);
+  readonly selectedPaymentMethodId = signal<string>('');
+  readonly charging = signal(false);
 
   ngOnInit(): void {
     const id = this.orderId();
     if (id) {
       this.loadOrder(id);
+      this.loadPaymentMethods();
     } else {
       this.loadUserStore();
+      this.loadDefaultCustomer();
+      this.loadPaymentMethods();
     }
   }
 
@@ -160,6 +186,49 @@ export class SalesOrderEdit implements OnInit {
         next: (store) => this.userStoreName.set(store.storeName),
         error: () => {
           // Store name not critical — leave as null
+        },
+      });
+  }
+
+  /** Load the default customer "PUBLICO EN GENERAL" in create mode. */
+  private loadDefaultCustomer(): void {
+    this.http
+      .get<Page<CustomerOption>>(`${this.configService.apiUrl}/customers`, {
+        params: { search: 'PUBLICO EN GENERAL', page: '0', size: '5' },
+      })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (page) => {
+          const pub = page.content.find((c) => c.name === 'PUBLICO EN GENERAL');
+          if (pub) {
+            this.headerForm().controls.customerId.setValue(pub.id);
+            this.defaultCustomer.set(pub);
+          }
+        },
+        error: () => {
+          // Non-critical — customer field will be empty for manual selection
+        },
+      });
+  }
+
+  /** Load available payment methods for the Cobrar charge. */
+  private loadPaymentMethods(): void {
+    this.http
+      .get<PaymentMethodOption[]>(`${this.configService.apiUrl}/payment-methods`)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (methods) => {
+          this.paymentMethods.set(methods);
+          // Pre-select "Efectivo" as default payment method
+          const efectivo = methods.find((pm) =>
+            pm.paymentMethodName.toLowerCase().includes('efectivo'),
+          );
+          if (efectivo) {
+            this.selectedPaymentMethodId.set(efectivo.id);
+          }
+        },
+        error: () => {
+          // Payment methods are non-critical — Cobrar button will be disabled
         },
       });
   }
@@ -231,6 +300,8 @@ export class SalesOrderEdit implements OnInit {
       next: (created) => {
         this.lineItems.update((rows) => [...rows, this.toItemTableRow(created)]);
         this.savingIndex.set(null);
+        // Reload order to pick up status changes (e.g. Draft → Pending on first item)
+        this.loadOrder(orderId);
       },
       error: (err: HttpErrorResponse) => {
         this.savingIndex.set(null);
@@ -398,6 +469,38 @@ export class SalesOrderEdit implements OnInit {
     }
   }
 
+  /** Called by the Cobrar button to charge the current Pending sales order. */
+  onCharge(): void {
+    const id = this.orderId();
+    const paymentMethodId = this.selectedPaymentMethodId();
+    if (!id || !paymentMethodId) return;
+
+    this.charging.set(true);
+    this.generalError.set(null);
+
+    this.salesOrderService
+      .chargeSalesOrder(id, paymentMethodId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.charging.set(false);
+          this.notificationService.showSuccess('Sales order charged successfully.');
+          this.loadOrder(id);
+        },
+        error: (err: HttpErrorResponse) => {
+          this.charging.set(false);
+          const message =
+            err.error?.message ||
+            (err.status === 400
+              ? 'Order is not in Pending status.'
+              : err.status === 404
+                ? 'Sales order or payment method not found.'
+                : 'Error charging the sales order.');
+          this.notificationService.showError(message);
+        },
+      });
+  }
+
   // ══════════════════════════════════════════════════════════
   // SAVE
   // ══════════════════════════════════════════════════════════
@@ -470,14 +573,12 @@ export class SalesOrderEdit implements OnInit {
   }
 
   private handleItemError(err: HttpErrorResponse): void {
-    if (err.status === 409) {
-      this.generalError.set('Insufficient stock for the requested quantity.');
-    } else {
-      const message =
-        err.error?.message || 'An error occurred while updating the item.';
-      this.notificationService.showError(message);
-      this.generalError.set(message);
-    }
+    const message =
+      err.error?.message || (err.status === 409
+        ? 'Insufficient stock for the requested quantity.'
+        : 'An error occurred while updating the item.');
+    this.notificationService.showError(message);
+    this.generalError.set(message);
   }
 
   /** Convert a `SalesOrderItem` from the server into an `ItemTableRow`. */

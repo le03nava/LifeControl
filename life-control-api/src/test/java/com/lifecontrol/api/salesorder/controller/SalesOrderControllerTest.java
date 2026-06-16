@@ -3,11 +3,14 @@ package com.lifecontrol.api.salesorder.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifecontrol.api.exception.GlobalExceptionHandler;
 import com.lifecontrol.api.purchaseorder.exception.InvalidStatusTransitionException;
+import com.lifecontrol.api.salesorder.dto.ChargeSalesOrderRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderItemRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderItemResponse;
 import com.lifecontrol.api.salesorder.dto.SalesOrderRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderResponse;
 import com.lifecontrol.api.salesorder.dto.UpdateSalesOrderStatusRequest;
+import com.lifecontrol.api.salesorder.exception.InvalidSalesOrderChargeException;
+import com.lifecontrol.api.paymentmethod.exception.PaymentMethodNotFoundException;
 import com.lifecontrol.api.salesorder.exception.InsufficientStockException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderAlreadyFinalizedException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderItemNotFoundException;
@@ -111,6 +114,7 @@ class SalesOrderControllerTest {
                 testStatusId,
                 "Draft",
                 BigDecimal.ZERO,
+                null,
                 true,
                 now,
                 now,
@@ -226,6 +230,7 @@ class SalesOrderControllerTest {
                     testStatusId,
                     "Draft",
                     new BigDecimal("180.00"),
+                    null,
                     true,
                     testOrderResponse.createdAt(),
                     testOrderResponse.updatedAt(),
@@ -394,6 +399,7 @@ class SalesOrderControllerTest {
                     testStatusId,
                     "Pending",
                     BigDecimal.ZERO,
+                    null,
                     true,
                     testOrderResponse.createdAt(),
                     testOrderResponse.updatedAt(),
@@ -423,6 +429,87 @@ class SalesOrderControllerTest {
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.status").value(409))
                     .andExpect(jsonPath("$.message").value("Transición de estado inválida: Completed → Draft"))
+                    .andExpect(jsonPath("$.timestamp").exists());
+        }
+    }
+
+    // ─────────────────────────────────────────────
+    // PATCH /api/sales-orders/{id}/charge
+    // ─────────────────────────────────────────────
+    @Nested
+    @DisplayName("PATCH /{id}/charge")
+    class ChargeSalesOrderTests {
+
+        private ChargeSalesOrderRequest chargeRequest;
+        private UUID paymentMethodId;
+
+        @BeforeEach
+        void setUpCharge() {
+            paymentMethodId = UUID.randomUUID();
+            chargeRequest = new ChargeSalesOrderRequest(paymentMethodId);
+        }
+
+        @Test
+        @DisplayName("should return 200 when charge is successful")
+        void chargeSalesOrder_Success_Returns200() throws Exception {
+            var chargedResponse = new SalesOrderResponse(
+                    testOrderId,
+                    "SO-20260610-00001",
+                    testOrderResponse.customerId(),
+                    testOrderResponse.companyStoreId(),
+                    testOrderResponse.shiftId(),
+                    "user123",
+                    testOrderResponse.orderDate(),
+                    testStatusId,
+                    "Completed",
+                    BigDecimal.ZERO,
+                    paymentMethodId,
+                    true,
+                    testOrderResponse.createdAt(),
+                    testOrderResponse.updatedAt(),
+                    List.of()
+            );
+
+            when(salesOrderService.chargeSalesOrder(eq(testOrderId), any(ChargeSalesOrderRequest.class)))
+                    .thenReturn(chargedResponse);
+
+            mockMvc.perform(patch("/api/sales-orders/{id}/charge", testOrderId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(chargeRequest)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.id").value(testOrderId.toString()))
+                    .andExpect(jsonPath("$.statusName").value("Completed"))
+                    .andExpect(jsonPath("$.paymentMethodId").value(paymentMethodId.toString()));
+        }
+
+        @Test
+        @DisplayName("should return 400 when order is not in Pending status")
+        void chargeSalesOrder_NotPending_Returns400() throws Exception {
+            when(salesOrderService.chargeSalesOrder(eq(testOrderId), any(ChargeSalesOrderRequest.class)))
+                    .thenThrow(new InvalidSalesOrderChargeException(testOrderId, "Draft"));
+
+            mockMvc.perform(patch("/api/sales-orders/{id}/charge", testOrderId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(chargeRequest)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.status").value(400))
+                    .andExpect(jsonPath("$.message")
+                            .value("Cannot charge sales order " + testOrderId + ": current status is Draft, expected Pending"))
+                    .andExpect(jsonPath("$.timestamp").exists());
+        }
+
+        @Test
+        @DisplayName("should return 404 when payment method is not found")
+        void chargeSalesOrder_InvalidPaymentMethod_Returns404() throws Exception {
+            when(salesOrderService.chargeSalesOrder(eq(testOrderId), any(ChargeSalesOrderRequest.class)))
+                    .thenThrow(new PaymentMethodNotFoundException(paymentMethodId));
+
+            mockMvc.perform(patch("/api/sales-orders/{id}/charge", testOrderId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(chargeRequest)))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.status").value(404))
+                    .andExpect(jsonPath("$.message").value("Payment method not found with id: " + paymentMethodId))
                     .andExpect(jsonPath("$.timestamp").exists());
         }
     }

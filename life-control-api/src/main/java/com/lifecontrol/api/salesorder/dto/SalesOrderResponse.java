@@ -16,6 +16,7 @@ public record SalesOrderResponse(
         UUID statusId,
         String statusName,
         BigDecimal totalAmount,
+        UUID paymentMethodId,
         Boolean enabled,
         LocalDateTime createdAt,
         LocalDateTime updatedAt,
