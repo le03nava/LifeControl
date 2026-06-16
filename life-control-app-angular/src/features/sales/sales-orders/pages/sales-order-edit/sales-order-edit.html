@@ -16,6 +16,14 @@
     </button>
   </app-page-header>
 
+  <!-- Creating Spinner (auto-creation in progress) -->
+  @if (creating()) {
+    <div class="creating-spinner" data-testid="creating-spinner">
+      <mat-icon fontIcon="hourglass_empty" />
+      <span>Creating order...</span>
+    </div>
+  }
+
   <!-- General Error -->
   @if (generalError(); as errorMessage) {
     <div class="error-banner" role="alert">
@@ -59,40 +67,6 @@
       />
     }
 
-    <!-- Cobrar / Charge (edit mode + Pending status only) -->
-    @if (isEditMode() && isPending()) {
-      <div class="charge-section">
-        <mat-form-field appearance="outline" subscriptSizing="dynamic">
-          <mat-label>Payment Method</mat-label>
-          <mat-select
-            [value]="selectedPaymentMethodId()"
-            (valueChange)="selectedPaymentMethodId.set($event)"
-            [disabled]="charging()"
-          >
-            @for (pm of paymentMethods(); track pm.id) {
-              <mat-option [value]="pm.id">
-                {{ pm.paymentMethodName }}
-              </mat-option>
-            }
-          </mat-select>
-        </mat-form-field>
-        <button
-          mat-flat-button
-          color="primary"
-          [disabled]="charging() || !selectedPaymentMethodId()"
-          (click)="onCharge()"
-          aria-label="Charge sales order"
-        >
-          @if (charging()) {
-            <mat-icon fontIcon="hourglass_empty" />
-          } @else {
-            <mat-icon fontIcon="payments" />
-          }
-          {{ charging() ? 'Charging...' : 'Cobrar' }}
-        </button>
-      </div>
-    }
-
     <form [formGroup]="headerForm()" (ngSubmit)="onSave()" novalidate>
     <!-- Header Form (customer, store read-only, shift, comments) -->
     <app-order-header-form
@@ -129,7 +103,7 @@
         mat-stroked-button
         type="button"
         (click)="onCancel()"
-        [disabled]="saving()"
+        [disabled]="saving() || creating()"
         aria-label="Cancel"
       >
         Cancel
@@ -138,17 +112,42 @@
         mat-flat-button
         color="primary"
         type="submit"
-        [disabled]="saving() || headerForm().invalid"
+        [disabled]="saving() || creating() || headerForm().invalid"
         aria-label="Save order"
       >
-        @if (saving()) {
+        @if (saving() || creating()) {
           <mat-icon fontIcon="hourglass_empty" />
         } @else {
           <mat-icon fontIcon="save" />
         }
-        {{ saving() ? 'Saving...' : (isEditMode() ? 'Update Order' : 'Create Order') }}
+        {{ saving() ? 'Saving...' : (creating() ? 'Creating...' : (isEditMode() ? 'Update Order' : 'Create Order')) }}
       </button>
     </div>
+
+    <!-- Cobrar / Charge (edit mode + Pending status only) -->
+    @if (isEditMode() && isPending()) {
+      <div class="charge-section">
+        <span class="charge-label">Cobrar con:</span>
+        <div class="payment-buttons">
+          @for (pm of paymentMethods(); track pm.id) {
+            <button
+              mat-flat-button
+              color="primary"
+              [disabled]="charging()"
+              (click)="onCharge(pm.id)"
+              [attr.aria-label]="'Charge with ' + pm.paymentMethodName"
+            >
+              @if (charging()) {
+                <mat-icon fontIcon="hourglass_empty" />
+              } @else {
+                <mat-icon fontIcon="payments" />
+              }
+              {{ pm.paymentMethodName }}
+            </button>
+          }
+        </div>
+      </div>
+    }
   </form>
   }
 </div>

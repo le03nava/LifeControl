@@ -27,6 +27,36 @@
   }
 }
 
+// ─── Charge Section ──────────────────────────────────────
+
+.charge-section {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  margin-bottom: var(--space-lg);
+  background: var(--mat-sys-surface-container-lowest, #fff);
+  border: 1px solid var(--mat-sys-outline-variant, #e2e8f0);
+  border-radius: var(--radius-md);
+
+  .charge-label {
+    font-weight: 600;
+    font-size: 0.95rem;
+    white-space: nowrap;
+    color: var(--mat-sys-on-surface, #1e293b);
+  }
+
+  .payment-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+
+    button {
+      min-width: 120px;
+    }
+  }
+}
+
 // ─── Form Actions ──────────────────────────────────────
 
 .form-actions {

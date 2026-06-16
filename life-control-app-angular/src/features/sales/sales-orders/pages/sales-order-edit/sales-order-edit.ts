@@ -3,6 +3,7 @@ import {
   Component,
   computed,
   DestroyRef,
+  effect,
   inject,
   OnInit,
   signal,
@@ -32,9 +33,6 @@ import { NotificationService } from '@shared/data/notification';
 import type { SalesOrderHeaderControl } from '../../models/sales-order-control.models';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
-import { MatSelectModule } from '@angular/material/select';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { FormsModule } from '@angular/forms';
 
 @Component({
   selector: 'app-sales-order-edit',
@@ -49,9 +47,6 @@ import { FormsModule } from '@angular/forms';
     ProductVariantSelector,
     MatButtonModule,
     MatIconModule,
-    MatSelectModule,
-    MatFormFieldModule,
-    FormsModule,
   ],
   templateUrl: './sales-order-edit.html',
   styleUrl: './sales-order-edit.scss',
@@ -119,13 +114,26 @@ export class SalesOrderEdit implements OnInit {
   readonly defaultCustomer = signal<CustomerOption | null>(null);
   private readonly DEFAULT_CUSTOMER_ID = '00000000-0000-0000-0000-000000000001';
 
+  // ─── Auto-creation on init (create mode) ─────────────────
+  readonly creating = signal(false);
+  private readonly _storeReady = signal(false);
+  private readonly _customerReady = signal(false);
+
   // ─── Line items ────────────────────────────────────────
   readonly lineItems = signal<ItemTableRow[]>([]);
 
   // ─── Charge / Cobrar ─────────────────────────────────────
   readonly paymentMethods = signal<PaymentMethodOption[]>([]);
-  readonly selectedPaymentMethodId = signal<string>('');
   readonly charging = signal(false);
+
+  constructor() {
+    // When both store and customer data are ready, auto-create the order
+    effect(() => {
+      if (this._storeReady() && this._customerReady()) {
+        this.autoCreateOrder();
+      }
+    });
+  }
 
   ngOnInit(): void {
     const id = this.orderId();
@@ -163,9 +171,11 @@ export class SalesOrderEdit implements OnInit {
               profile.companyStoreId,
             );
           }
+          this._storeReady.set(true);
         },
         error: () => {
           // Non-critical: form will be valid without a pre-set store
+          this._storeReady.set(true);
         },
       });
   }
@@ -232,9 +242,48 @@ export class SalesOrderEdit implements OnInit {
         next: (customer) => {
           this.headerForm().controls.customerId.setValue(customer.id);
           this.defaultCustomer.set(customer);
+          this._customerReady.set(true);
         },
         error: () => {
           // Non-critical — customer field will be empty for manual selection
+          this._customerReady.set(true);
+        },
+      });
+  }
+
+  /** Auto-create the sales order when both store and customer data are ready. */
+  private autoCreateOrder(): void {
+    if (this.isEditMode()) return;
+
+    this.creating.set(true);
+
+    const form = this.headerForm();
+    const formValue = form.getRawValue();
+
+    const request: SalesOrderRequest = {
+      customerId: formValue.customerId || undefined,
+      companyStoreId: formValue.companyStoreId,
+      shiftId: formValue.shiftId || undefined,
+    };
+
+    this.salesOrderService
+      .create(request)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (created) => {
+          this.creating.set(false);
+          this.router.navigate(['/sales/orders', created.id]);
+        },
+        error: (err: HttpErrorResponse) => {
+          this.creating.set(false);
+          const apiError = err.error as ApiError | undefined;
+          if (apiError?.message) {
+            this.generalError.set(apiError.message);
+          } else {
+            this.generalError.set(
+              'Unexpected error during auto-creation. Please try again.',
+            );
+          }
         },
       });
   }
@@ -247,16 +296,9 @@ export class SalesOrderEdit implements OnInit {
       .subscribe({
         next: (methods) => {
           this.paymentMethods.set(methods);
-          // Pre-select "Efectivo" as default payment method
-          const efectivo = methods.find((pm) =>
-            pm.paymentMethodName.toLowerCase().includes('efectivo'),
-          );
-          if (efectivo) {
-            this.selectedPaymentMethodId.set(efectivo.id);
-          }
         },
         error: () => {
-          // Payment methods are non-critical — Cobrar button will be disabled
+          // Payment methods are non-critical — Cobrar buttons won't appear
         },
       });
   }
@@ -497,11 +539,10 @@ export class SalesOrderEdit implements OnInit {
     }
   }
 
-  /** Called by the Cobrar button to charge the current Pending sales order. */
-  onCharge(): void {
+  /** Called by a payment-method button to charge the current Pending sales order. */
+  onCharge(paymentMethodId: string): void {
     const id = this.orderId();
-    const paymentMethodId = this.selectedPaymentMethodId();
-    if (!id || !paymentMethodId) return;
+    if (!id) return;
 
     this.charging.set(true);
     this.generalError.set(null);

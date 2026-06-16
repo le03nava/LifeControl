@@ -284,6 +284,7 @@ describe('SalesOrderEdit', () => {
     it('should call UUID endpoint first when loading default customer', () => {
       const httpTesting = TestBed.inject(HttpTestingController);
 
+      // UUID request should be pending after detectChanges
       const uuidReq = httpTesting.expectOne(
         (req) =>
           req.url ===
@@ -306,6 +307,7 @@ describe('SalesOrderEdit', () => {
     it('should fall back to name search on 404 from UUID endpoint', () => {
       const httpTesting = TestBed.inject(HttpTestingController);
 
+      // UUID request fails with 404
       const uuidReq = httpTesting.expectOne(
         (req) =>
           req.url ===
@@ -316,6 +318,7 @@ describe('SalesOrderEdit', () => {
         statusText: 'Not Found',
       });
 
+      // Fallback search request should fire
       const fallbackReq = httpTesting.expectOne(
         (req) =>
           req.url === `${TEST_API}/customers` &&
@@ -347,6 +350,7 @@ describe('SalesOrderEdit', () => {
     it('should leave customer empty when both UUID and fallback fail', () => {
       const httpTesting = TestBed.inject(HttpTestingController);
 
+      // UUID 404
       const uuidReq = httpTesting.expectOne(
         (req) =>
           req.url ===
@@ -357,6 +361,7 @@ describe('SalesOrderEdit', () => {
         statusText: 'Not Found',
       });
 
+      // Fallback also fails
       const fallbackReq = httpTesting.expectOne(
         (req) =>
           req.url === `${TEST_API}/customers` &&
@@ -374,6 +379,7 @@ describe('SalesOrderEdit', () => {
     it('should leave customer empty when fallback returns no match', () => {
       const httpTesting = TestBed.inject(HttpTestingController);
 
+      // UUID 404
       const uuidReq = httpTesting.expectOne(
         (req) =>
           req.url ===
@@ -384,6 +390,7 @@ describe('SalesOrderEdit', () => {
         statusText: 'Not Found',
       });
 
+      // Fallback returns page with no matching customer
       const fallbackReq = httpTesting.expectOne(
         (req) =>
           req.url === `${TEST_API}/customers` &&
@@ -402,6 +409,182 @@ describe('SalesOrderEdit', () => {
 
       expect(component.headerForm().controls.customerId.value).toBe('');
       expect(component.defaultCustomer()).toBeNull();
+    });
+
+    // ── Auto-creation on init ──
+
+    it('should auto-create order when both store and customer are ready, then navigate to edit', async () => {
+      const httpTesting = TestBed.inject(HttpTestingController);
+
+      const uuidReq = httpTesting.expectOne(
+        (req) =>
+          req.url ===
+          `${TEST_API}/customers/00000000-0000-0000-0000-000000000001`,
+      );
+
+      const customer: CustomerOption = {
+        id: '00000000-0000-0000-0000-000000000001',
+        name: 'PUBLICO EN GENERAL',
+      };
+
+      expect(component.creating()).toBe(false);
+
+      // Flush UUID — triggers _customerReady(true), which fires the effect
+      uuidReq.flush(customer);
+
+      // Let zone stabilize so the effect microtask runs
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      // Auto-creation completed (mock create returns of(mockOrder) synchronously)
+      expect(component.creating()).toBe(false);
+      expect(router.navigate).toHaveBeenCalledWith(['/sales/orders', 'so-1']);
+    });
+
+    it('should keep creating=true while create request is in-flight', async () => {
+      const createSubject = new Subject<SalesOrder>();
+      salesOrderService.create = vi.fn().mockReturnValue(createSubject.asObservable());
+
+      const httpTesting = TestBed.inject(HttpTestingController);
+
+      const uuidReq = httpTesting.expectOne(
+        (req) =>
+          req.url ===
+          `${TEST_API}/customers/00000000-0000-0000-0000-000000000001`,
+      );
+
+      const customer: CustomerOption = {
+        id: '00000000-0000-0000-0000-000000000001',
+        name: 'PUBLICO EN GENERAL',
+      };
+
+      uuidReq.flush(customer);
+
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      // Create is still in-flight (Subject hasn't emitted)
+      expect(component.creating()).toBe(true);
+
+      // Complete the creation
+      const created: SalesOrder = { ...mockOrder, id: 'so-auto' };
+      createSubject.next(created);
+      createSubject.complete();
+      fixture.detectChanges();
+
+      expect(component.creating()).toBe(false);
+      expect(router.navigate).toHaveBeenCalledWith(['/sales/orders', 'so-auto']);
+    });
+
+    it('should set generalError and clear creating when auto-create fails with 4xx', async () => {
+      const apiError = {
+        status: 400,
+        message: 'Validation failed',
+      };
+      salesOrderService.create = vi.fn().mockReturnValue(
+        throwError(
+          () =>
+            new HttpErrorResponse({
+              error: apiError,
+              status: 400,
+              statusText: 'Bad Request',
+            }),
+        ),
+      );
+
+      const httpTesting = TestBed.inject(HttpTestingController);
+
+      const uuidReq = httpTesting.expectOne(
+        (req) =>
+          req.url ===
+          `${TEST_API}/customers/00000000-0000-0000-0000-000000000001`,
+      );
+
+      const customer: CustomerOption = {
+        id: '00000000-0000-0000-0000-000000000001',
+        name: 'PUBLICO EN GENERAL',
+      };
+
+      uuidReq.flush(customer);
+
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(component.creating()).toBe(false);
+      expect(component.generalError()).toBe('Validation failed');
+    });
+
+    it('should set generalError and clear creating when auto-create fails with network error', async () => {
+      salesOrderService.create = vi.fn().mockReturnValue(
+        throwError(
+          () =>
+            new HttpErrorResponse({
+              status: 0,
+              statusText: 'Unknown Error',
+            }),
+        ),
+      );
+
+      const httpTesting = TestBed.inject(HttpTestingController);
+
+      const uuidReq = httpTesting.expectOne(
+        (req) =>
+          req.url ===
+          `${TEST_API}/customers/00000000-0000-0000-0000-000000000001`,
+      );
+
+      const customer: CustomerOption = {
+        id: '00000000-0000-0000-0000-000000000001',
+        name: 'PUBLICO EN GENERAL',
+      };
+
+      uuidReq.flush(customer);
+
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(component.creating()).toBe(false);
+      expect(component.generalError()).toContain('Unexpected error');
+    });
+
+    it('should disable the submit button when creating is true', () => {
+      component.creating.set(true);
+      fixture.detectChanges();
+
+      const submitButton = fixture.nativeElement.querySelector(
+        'button[type="submit"]',
+      ) as HTMLButtonElement;
+      expect(submitButton.disabled).toBe(true);
+      expect(submitButton.textContent).toContain('Creating...');
+    });
+
+    it('should disable the cancel button when creating is true', () => {
+      component.creating.set(true);
+      fixture.detectChanges();
+
+      const cancelButton = fixture.nativeElement.querySelector(
+        'button[aria-label="Cancel"]',
+      ) as HTMLButtonElement;
+      expect(cancelButton.disabled).toBe(true);
+    });
+
+    it('should show spinner element when creating is true', () => {
+      component.creating.set(true);
+      fixture.detectChanges();
+
+      const spinner = fixture.nativeElement.querySelector(
+        '[data-testid="creating-spinner"]',
+      );
+      expect(spinner).toBeTruthy();
+      expect(spinner.textContent).toContain('Creating order...');
+    });
+
+    it('should not auto-create in edit mode', () => {
+      // Edit mode tests use baseProviders('so-1') — _storeReady and _customerReady
+      // never become true, so auto-creation should NOT fire
+      expect(salesOrderService.create).not.toHaveBeenCalledWith(
+        expect.objectContaining({ companyStoreId: expect.any(String) }),
+      );
     });
   });
 
@@ -1220,10 +1403,9 @@ describe('SalesOrderEdit', () => {
     it('should call chargeSalesOrder with correct id and paymentMethodId on onCharge', () => {
       // Set up as Pending order
       component.loadedOrder.set({ ...mockOrder, statusName: 'Pending' });
-      component.selectedPaymentMethodId.set('pm-1');
       salesOrderService.chargeSalesOrder = vi.fn().mockReturnValue(of({ ...mockOrder, statusName: 'Completed' }));
 
-      component.onCharge();
+      component.onCharge('pm-1');
 
       expect(salesOrderService.chargeSalesOrder).toHaveBeenCalledWith('so-1', 'pm-1');
     });
@@ -1231,12 +1413,11 @@ describe('SalesOrderEdit', () => {
     it('should set charging signal during charge and clear on success', () => {
       const chargeSubject = new Subject<SalesOrder>();
       component.loadedOrder.set({ ...mockOrder, statusName: 'Pending' });
-      component.selectedPaymentMethodId.set('pm-1');
       salesOrderService.chargeSalesOrder = vi.fn().mockReturnValue(chargeSubject.asObservable());
 
       expect(component.charging()).toBe(false);
 
-      component.onCharge();
+      component.onCharge('pm-1');
 
       expect(component.charging()).toBe(true);
 
@@ -1248,12 +1429,11 @@ describe('SalesOrderEdit', () => {
 
     it('should reload order on successful charge', () => {
       component.loadedOrder.set({ ...mockOrder, statusName: 'Pending' });
-      component.selectedPaymentMethodId.set('pm-1');
       salesOrderService.chargeSalesOrder = vi.fn().mockReturnValue(of({ ...mockOrder, statusName: 'Completed' }));
       // Reset the mock so we can verify it's called again
       salesOrderService.getSalesOrder = vi.fn().mockReturnValue(of({ ...mockOrder, statusName: 'Completed' }));
 
-      component.onCharge();
+      component.onCharge('pm-1');
 
       expect(salesOrderService.getSalesOrder).toHaveBeenCalledWith('so-1');
     });
@@ -1261,7 +1441,6 @@ describe('SalesOrderEdit', () => {
     it('should show error notification on charge failure', () => {
       const notificationService = TestBed.inject(NotificationService);
       component.loadedOrder.set({ ...mockOrder, statusName: 'Pending' });
-      component.selectedPaymentMethodId.set('pm-1');
       salesOrderService.chargeSalesOrder = vi.fn().mockReturnValue(
         throwError(() => new HttpErrorResponse({
           error: { message: 'Order is not Pending' },
@@ -1270,19 +1449,18 @@ describe('SalesOrderEdit', () => {
         })),
       );
 
-      component.onCharge();
+      component.onCharge('pm-1');
 
       expect(notificationService.showError).toHaveBeenCalled();
     });
 
-    it('should not call chargeSalesOrder when no payment method selected', () => {
+    it('should pass paymentMethodId to chargeSalesOrder', () => {
       component.loadedOrder.set({ ...mockOrder, statusName: 'Pending' });
-      component.selectedPaymentMethodId.set('');
-      salesOrderService.chargeSalesOrder = vi.fn();
+      salesOrderService.chargeSalesOrder = vi.fn().mockReturnValue(of({ ...mockOrder, statusName: 'Completed' }));
 
-      component.onCharge();
+      component.onCharge('pm-2');
 
-      expect(salesOrderService.chargeSalesOrder).not.toHaveBeenCalled();
+      expect(salesOrderService.chargeSalesOrder).toHaveBeenCalledWith('so-1', 'pm-2');
     });
   });
 });
