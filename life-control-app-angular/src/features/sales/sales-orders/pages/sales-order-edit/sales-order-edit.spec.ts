@@ -1,6 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
-import { HttpClientTestingModule } from '@angular/common/http/testing';
+import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 import { provideRouter, Router, ActivatedRoute } from '@angular/router';
 import { of, Subject, throwError } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
@@ -9,7 +9,7 @@ import { SalesOrderService } from '../../data/sales-order.service';
 import { ProfileService } from '@features/user/profile/data/profile.service';
 import { NotificationService } from '@shared/data/notification';
 import { ConfigService } from '@app/services/config.service';
-import type { SalesOrder, SalesOrderItem } from '../../models/sales-order.models';
+import type { SalesOrder, SalesOrderItem, CustomerOption, Page } from '../../models/sales-order.models';
 import type { ProfileResponse } from '@features/user/profile/data/profile.models';
 
 const TEST_API = 'http://test/api';
@@ -277,6 +277,131 @@ describe('SalesOrderEdit', () => {
       component.onSave();
 
       expect(component.generalError()).toContain('Unexpected error');
+    });
+
+    // ── Customer pre-selection (UUID-first + fallback) ──
+
+    it('should call UUID endpoint first when loading default customer', () => {
+      const httpTesting = TestBed.inject(HttpTestingController);
+
+      const uuidReq = httpTesting.expectOne(
+        (req) =>
+          req.url ===
+          `${TEST_API}/customers/00000000-0000-0000-0000-000000000001`,
+      );
+      expect(uuidReq.request.method).toBe('GET');
+
+      const customer: CustomerOption = {
+        id: '00000000-0000-0000-0000-000000000001',
+        name: 'PUBLICO EN GENERAL',
+      };
+      uuidReq.flush(customer);
+
+      expect(component.headerForm().controls.customerId.value).toBe(
+        '00000000-0000-0000-0000-000000000001',
+      );
+      expect(component.defaultCustomer()).toEqual(customer);
+    });
+
+    it('should fall back to name search on 404 from UUID endpoint', () => {
+      const httpTesting = TestBed.inject(HttpTestingController);
+
+      const uuidReq = httpTesting.expectOne(
+        (req) =>
+          req.url ===
+          `${TEST_API}/customers/00000000-0000-0000-0000-000000000001`,
+      );
+      uuidReq.flush('Not Found', {
+        status: 404,
+        statusText: 'Not Found',
+      });
+
+      const fallbackReq = httpTesting.expectOne(
+        (req) =>
+          req.url === `${TEST_API}/customers` &&
+          req.params.get('search') === 'PUBLICO EN GENERAL',
+      );
+      expect(fallbackReq.request.method).toBe('GET');
+
+      const customer: CustomerOption = {
+        id: 'fallback-id',
+        name: 'PUBLICO EN GENERAL',
+      };
+      fallbackReq.flush({
+        content: [customer],
+        totalElements: 1,
+        totalPages: 1,
+        size: 5,
+        number: 0,
+        first: true,
+        last: true,
+        empty: false,
+      } satisfies Page<CustomerOption>);
+
+      expect(component.headerForm().controls.customerId.value).toBe(
+        'fallback-id',
+      );
+      expect(component.defaultCustomer()).toEqual(customer);
+    });
+
+    it('should leave customer empty when both UUID and fallback fail', () => {
+      const httpTesting = TestBed.inject(HttpTestingController);
+
+      const uuidReq = httpTesting.expectOne(
+        (req) =>
+          req.url ===
+          `${TEST_API}/customers/00000000-0000-0000-0000-000000000001`,
+      );
+      uuidReq.flush('Not Found', {
+        status: 404,
+        statusText: 'Not Found',
+      });
+
+      const fallbackReq = httpTesting.expectOne(
+        (req) =>
+          req.url === `${TEST_API}/customers` &&
+          req.params.get('search') === 'PUBLICO EN GENERAL',
+      );
+      fallbackReq.flush('Server Error', {
+        status: 500,
+        statusText: 'Server Error',
+      });
+
+      expect(component.headerForm().controls.customerId.value).toBe('');
+      expect(component.defaultCustomer()).toBeNull();
+    });
+
+    it('should leave customer empty when fallback returns no match', () => {
+      const httpTesting = TestBed.inject(HttpTestingController);
+
+      const uuidReq = httpTesting.expectOne(
+        (req) =>
+          req.url ===
+          `${TEST_API}/customers/00000000-0000-0000-0000-000000000001`,
+      );
+      uuidReq.flush('Not Found', {
+        status: 404,
+        statusText: 'Not Found',
+      });
+
+      const fallbackReq = httpTesting.expectOne(
+        (req) =>
+          req.url === `${TEST_API}/customers` &&
+          req.params.get('search') === 'PUBLICO EN GENERAL',
+      );
+      fallbackReq.flush({
+        content: [{ id: 'other-id', name: 'Otro Cliente' }],
+        totalElements: 0,
+        totalPages: 0,
+        size: 5,
+        number: 0,
+        first: true,
+        last: true,
+        empty: true,
+      } satisfies Page<CustomerOption>);
+
+      expect(component.headerForm().controls.customerId.value).toBe('');
+      expect(component.defaultCustomer()).toBeNull();
     });
   });
 

@@ -10,6 +10,7 @@ import {
 import { HttpErrorResponse, HttpClient } from '@angular/common/http';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { catchError, map, throwError } from 'rxjs';
 import {
   NonNullableFormBuilder,
   FormGroup,
@@ -116,6 +117,7 @@ export class SalesOrderEdit implements OnInit {
 
   // ─── Default customer (create mode) ─────────────────────
   readonly defaultCustomer = signal<CustomerOption | null>(null);
+  private readonly DEFAULT_CUSTOMER_ID = '00000000-0000-0000-0000-000000000001';
 
   // ─── Line items ────────────────────────────────────────
   readonly lineItems = signal<ItemTableRow[]>([]);
@@ -190,20 +192,46 @@ export class SalesOrderEdit implements OnInit {
       });
   }
 
-  /** Load the default customer "PUBLICO EN GENERAL" in create mode. */
+  /** Load default customer: try UUID lookup first, fall back to name search. */
   private loadDefaultCustomer(): void {
     this.http
-      .get<Page<CustomerOption>>(`${this.configService.apiUrl}/customers`, {
-        params: { search: 'PUBLICO EN GENERAL', page: '0', size: '5' },
-      })
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (page) => {
-          const pub = page.content.find((c) => c.name === 'PUBLICO EN GENERAL');
-          if (pub) {
-            this.headerForm().controls.customerId.setValue(pub.id);
-            this.defaultCustomer.set(pub);
+      .get<CustomerOption>(
+        `${this.configService.apiUrl}/customers/${this.DEFAULT_CUSTOMER_ID}`,
+      )
+      .pipe(
+        catchError((err: HttpErrorResponse) => {
+          if (err.status === 404 || err.status === 0) {
+            return this.http
+              .get<Page<CustomerOption>>(
+                `${this.configService.apiUrl}/customers`,
+                {
+                  params: {
+                    search: 'PUBLICO EN GENERAL',
+                    page: '0',
+                    size: '5',
+                  },
+                },
+              )
+              .pipe(
+                map((page) => {
+                  const found = page.content.find(
+                    (c) => c.name === 'PUBLICO EN GENERAL',
+                  );
+                  if (found) return found;
+                  throw new Error(
+                    'Default customer not found in fallback search',
+                  );
+                }),
+              );
           }
+          return throwError(() => err);
+        }),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe({
+        next: (customer) => {
+          this.headerForm().controls.customerId.setValue(customer.id);
+          this.defaultCustomer.set(customer);
         },
         error: () => {
           // Non-critical — customer field will be empty for manual selection
