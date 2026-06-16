@@ -23,16 +23,16 @@ export default class SalesAdminComponent {
     {
       title: 'Ventas',
       icon: 'point_of_sale',
-      description: 'Gestionar órdenes de venta',
-      route: '/sales/orders',
+      description: 'Crear nueva orden de venta',
+      route: '/sales/orders/new',
       disabled: false,
     },
     {
       title: 'Reportes',
       icon: 'bar_chart',
-      description: 'Ver reportes de ventas',
-      route: null,
-      disabled: true,
+      description: 'Ver y gestionar órdenes de venta',
+      route: '/sales/orders',
+      disabled: false,
     },
     {
       title: 'Dashboard',
