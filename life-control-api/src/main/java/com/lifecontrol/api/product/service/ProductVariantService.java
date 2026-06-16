@@ -2,6 +2,7 @@ package com.lifecontrol.api.product.service;
 
 import com.lifecontrol.api.product.dto.ProductVariantRequest;
 import com.lifecontrol.api.product.dto.ProductVariantResponse;
+import com.lifecontrol.api.product.dto.ProductVariantSearchResponse;
 import com.lifecontrol.api.product.exception.ProductNotFoundException;
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
 import com.lifecontrol.api.product.model.ProductVariant;
@@ -112,6 +113,16 @@ public class ProductVariantService {
         variant.setEnabled(false);
         productVariantRepository.save(variant);
         logger.info("Product variant soft-deleted: id={}", variantId);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<ProductVariantSearchResponse> searchVariants(String query, UUID storeId, Pageable pageable) {
+        if (query == null || query.isBlank()) {
+            return Page.empty(pageable);
+        }
+
+        var trimmed = query.trim();
+        return productVariantRepository.searchByQuery(trimmed, storeId, pageable);
     }
 
     // ─── Private Helpers ──────────────────────────────────────────────────
