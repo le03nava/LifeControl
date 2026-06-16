@@ -2,6 +2,7 @@ package com.lifecontrol.api.product.service;
 
 import com.lifecontrol.api.product.dto.ProductVariantRequest;
 import com.lifecontrol.api.product.dto.ProductVariantResponse;
+import com.lifecontrol.api.product.dto.ProductVariantSearchResponse;
 import com.lifecontrol.api.product.exception.ProductNotFoundException;
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
 import com.lifecontrol.api.product.model.ProductVariant;
@@ -388,6 +389,138 @@ class ProductVariantServiceTest {
                     .hasMessageContaining("Product variant not found with id");
 
             verify(productVariantRepository, never()).save(any());
+        }
+    }
+
+    // ─────────────────────────────────────────────
+    // searchVariants
+    // ─────────────────────────────────────────────
+    @Nested
+    @DisplayName("searchVariants")
+    class SearchVariantsTests {
+
+        @Test
+        @DisplayName("should return variants matching exact barcode query")
+        void searchVariants_ExactBarcode() {
+            var query = "7501234567890";
+            var storeId = UUID.randomUUID();
+            var pageable = PageRequest.of(0, 20);
+            var searchResponse = new ProductVariantSearchResponse(
+                    variantId, productId, companyStoreId, "7501234567890", "SKU-VAR-001",
+                    "Talla M", new BigDecimal("199.99"), new BigDecimal("120.00"),
+                    new BigDecimal("50.00"), true, "Producto Test", "PROD-001",
+                    testVariant.getCreatedAt(), testVariant.getUpdatedAt()
+            );
+            var expectedPage = new PageImpl<>(List.of(searchResponse), pageable, 1);
+
+            when(productVariantRepository.searchByQuery(query, storeId, pageable))
+                    .thenReturn(expectedPage);
+
+            var result = productVariantService.searchVariants(query, storeId, pageable);
+
+            assertThat(result).isNotNull();
+            assertThat(result.getContent()).hasSize(1);
+            var item = result.getContent().get(0);
+            assertThat(item.id()).isEqualTo(variantId);
+            assertThat(item.barCode()).isEqualTo("7501234567890");
+            assertThat(item.sku()).isEqualTo("SKU-VAR-001");
+            assertThat(item.productName()).isEqualTo("Producto Test");
+            assertThat(item.productSku()).isEqualTo("PROD-001");
+            assertThat(item.variantName()).isEqualTo("Talla M");
+            verify(productVariantRepository).searchByQuery(query, storeId, pageable);
+        }
+
+        @Test
+        @DisplayName("should return variants matching LIKE fallback on partial query")
+        void searchVariants_LikeFallback() {
+            var query = "talla";
+            var storeId = UUID.randomUUID();
+            var pageable = PageRequest.of(0, 20);
+            var searchResponse = new ProductVariantSearchResponse(
+                    variantId, productId, companyStoreId, "7501234567890", "SKU-VAR-001",
+                    "Talla M", new BigDecimal("199.99"), new BigDecimal("120.00"),
+                    new BigDecimal("50.00"), true, "Producto Test", "PROD-001",
+                    testVariant.getCreatedAt(), testVariant.getUpdatedAt()
+            );
+            var expectedPage = new PageImpl<>(List.of(searchResponse), pageable, 1);
+
+            when(productVariantRepository.searchByQuery(query, storeId, pageable))
+                    .thenReturn(expectedPage);
+
+            var result = productVariantService.searchVariants(query, storeId, pageable);
+
+            assertThat(result).isNotNull();
+            assertThat(result.getContent()).hasSize(1);
+            assertThat(result.getContent().get(0).variantName()).isEqualTo("Talla M");
+            assertThat(result.getContent().get(0).productName()).isEqualTo("Producto Test");
+        }
+
+        @Test
+        @DisplayName("should return empty page when no variants match in the given store")
+        void searchVariants_CrossStoreExclusion() {
+            var query = "7501234567890";
+            var otherStoreId = UUID.randomUUID();
+            var pageable = PageRequest.of(0, 20);
+            var expectedPage = new PageImpl<ProductVariantSearchResponse>(List.of(), pageable, 0);
+
+            when(productVariantRepository.searchByQuery(query, otherStoreId, pageable))
+                    .thenReturn(expectedPage);
+
+            var result = productVariantService.searchVariants(query, otherStoreId, pageable);
+
+            assertThat(result).isNotNull();
+            assertThat(result.getContent()).isEmpty();
+            assertThat(result.getTotalElements()).isZero();
+        }
+
+        @Test
+        @DisplayName("should return empty page when query is null")
+        void searchVariants_NullQuery_ReturnsEmpty() {
+            var storeId = UUID.randomUUID();
+            var pageable = PageRequest.of(0, 20);
+
+            var result = productVariantService.searchVariants(null, storeId, pageable);
+
+            assertThat(result).isNotNull();
+            assertThat(result.getContent()).isEmpty();
+            verify(productVariantRepository, never()).searchByQuery(any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("should return empty page when query is blank")
+        void searchVariants_BlankQuery_ReturnsEmpty() {
+            var storeId = UUID.randomUUID();
+            var pageable = PageRequest.of(0, 20);
+
+            var result = productVariantService.searchVariants("   ", storeId, pageable);
+
+            assertThat(result).isNotNull();
+            assertThat(result.getContent()).isEmpty();
+            verify(productVariantRepository, never()).searchByQuery(any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("should pass pageable through to repository")
+        void searchVariants_Pagination() {
+            var query = "test";
+            var storeId = UUID.randomUUID();
+            var pageable = PageRequest.of(1, 5);
+            var searchResponse = new ProductVariantSearchResponse(
+                    variantId, productId, companyStoreId, "7501234567890", "SKU-VAR-001",
+                    "Talla M", new BigDecimal("199.99"), new BigDecimal("120.00"),
+                    new BigDecimal("50.00"), true, "Producto Test", "PROD-001",
+                    testVariant.getCreatedAt(), testVariant.getUpdatedAt()
+            );
+            var expectedPage = new PageImpl<>(List.of(searchResponse), pageable, 1);
+
+            when(productVariantRepository.searchByQuery(query, storeId, pageable))
+                    .thenReturn(expectedPage);
+
+            var result = productVariantService.searchVariants(query, storeId, pageable);
+
+            assertThat(result.getNumber()).isEqualTo(1);
+            assertThat(result.getSize()).isEqualTo(5);
+            verify(productVariantRepository).searchByQuery(query, storeId, pageable);
         }
     }
 }
