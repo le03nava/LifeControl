@@ -1,10 +1,12 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
+import { By } from '@angular/platform-browser';
 import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 import { provideRouter, Router, ActivatedRoute } from '@angular/router';
 import { of, Subject, throwError } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
 import { SalesOrderEdit } from './sales-order-edit';
+import { ProductVariantSelector } from '../../components/product-variant-selector/product-variant-selector';
 import { SalesOrderService } from '../../data/sales-order.service';
 import { ProfileService } from '@features/user/profile/data/profile.service';
 import { NotificationService } from '@shared/data/notification';
@@ -1353,6 +1355,67 @@ describe('SalesOrderEdit', () => {
       f.detectChanges();
 
       expect(comp.loading()).toBe(false);
+    });
+  });
+
+  // ══════════════════════════════════════════════════════════
+  // SCAN MODE
+  // ══════════════════════════════════════════════════════════
+
+  describe('scan mode', () => {
+    beforeEach(async () => {
+      await TestBed.configureTestingModule({
+        imports: [
+          SalesOrderEdit,
+          NoopAnimationsModule,
+          HttpClientTestingModule,
+        ],
+        providers: baseProviders('so-1'),
+      }).compileComponents();
+
+      fixture = TestBed.createComponent(SalesOrderEdit);
+      component = fixture.componentInstance;
+      salesOrderService = TestBed.inject(
+        SalesOrderService,
+      ) as unknown as typeof salesOrderService;
+
+      fixture.detectChanges();
+    });
+
+    it('should default to true on creation', () => {
+      expect(component.scanMode()).toBe(true);
+    });
+
+    it('should switch to false on toggleScanMode()', () => {
+      component.toggleScanMode();
+      expect(component.scanMode()).toBe(false);
+    });
+
+    it('should switch back to true on second toggle', () => {
+      component.toggleScanMode();
+      component.toggleScanMode();
+      expect(component.scanMode()).toBe(true);
+    });
+
+    it('should reset to true on re-navigation (new component instance)', () => {
+      const f = TestBed.createComponent(SalesOrderEdit);
+      const comp = f.componentInstance;
+      f.detectChanges();
+      expect(comp.scanMode()).toBe(true);
+    });
+
+    it('should pass scanMode input to ProductVariantSelector', () => {
+      const selectorEl = fixture.debugElement.query(
+        By.directive(ProductVariantSelector),
+      );
+      expect(selectorEl).toBeTruthy();
+      const selector = selectorEl.componentInstance as ProductVariantSelector;
+
+      expect(selector.scanMode()).toBe(true);
+
+      component.toggleScanMode();
+      fixture.detectChanges();
+      expect(selector.scanMode()).toBe(false);
     });
   });
 

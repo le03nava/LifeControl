@@ -1,13 +1,20 @@
 <!-- Single-step variant search autocomplete -->
 <mat-form-field appearance="outline" subscriptSizing="dynamic" class="full-width">
-  <mat-label>Search product / scan barcode</mat-label>
+  <mat-label>
+    @if (scanMode()) {
+      Scan barcode
+    } @else {
+      Search product
+    }
+  </mat-label>
   <input
     matInput
     type="text"
     [value]="searchQuery()"
     (input)="onSearchChange(($any($event.target).value))"
+    (keydown.enter)="onSearchEnter($event)"
     [matAutocomplete]="variantAuto"
-    placeholder="Barcode, SKU, or name"
+    [placeholder]="scanMode() ? 'Barcode, SKU, or scan' : 'Barcode, SKU, or name'"
   />
   <mat-autocomplete
     #variantAuto="matAutocomplete"

@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  ViewChild,
   computed,
   DestroyRef,
   effect,
@@ -16,7 +17,10 @@ import { map } from 'rxjs/operators';
 import { ConfigService } from '@app/services/config.service';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
-import { MatAutocompleteModule } from '@angular/material/autocomplete';
+import {
+  MatAutocompleteModule,
+  MatAutocompleteTrigger,
+} from '@angular/material/autocomplete';
 import type {
   ProductVariantOption,
   Page,
@@ -53,6 +57,13 @@ export class ProductVariantSelector {
   /** Store ID to scope the search to the current order's store. */
   readonly storeId = input<string | null>(null);
 
+  /** Scan mode toggle. When true, Enter triggers an immediate barcode lookup. */
+  readonly scanMode = input(true);
+
+  /** Reference to the autocomplete trigger for programmatic panel opening. */
+  @ViewChild(MatAutocompleteTrigger)
+  private autocompleteTrigger?: MatAutocompleteTrigger;
+
   /** Emits when the user picks a variant. */
   readonly variantSelected = output<ProductVariantOption>();
 
@@ -72,7 +83,9 @@ export class ProductVariantSelector {
 
   constructor() {
     // Debounce: wait 300 ms after the user stops typing before searching.
+    // Skipped in scan mode — Enter triggers the HTTP call directly.
     effect((onCleanup) => {
+      if (this.scanMode()) return;
       const query = this.searchQuery();
       const timer = setTimeout(() => this._debouncedSearch.set(query), 300);
       onCleanup(() => clearTimeout(timer));
@@ -116,5 +129,49 @@ export class ProductVariantSelector {
     // Clear the input and results so the user can scan the next barcode.
     this.searchQuery.set('');
     this._variants.set([]);
+  }
+
+  /**
+   * Enter key handler for scan mode.
+   * Fires a direct GET request (no debounce) and either auto-adds
+   * on a unique match with stock, or opens the autocomplete panel
+   * for manual selection when results are ambiguous.
+   */
+  onSearchEnter(event: Event): void {
+    event.preventDefault();
+    if (!this.scanMode()) return;
+
+    const query = this.searchQuery().trim();
+    const storeId = this.storeId();
+    if (!query || !storeId) return;
+
+    const params = { q: query, storeId, page: '0', size: '20' };
+    this.http
+      .get<Page<ProductVariantOption>>(
+        `${this.configService.apiUrl}/product-variants/search`,
+        { params },
+      )
+      .pipe(
+        map((page) => page.content),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe({
+        next: (variants) => {
+          if (variants.length === 1 && variants[0].stock > 0) {
+            // Unique match with stock → auto-add
+            this.variantSelected.emit(variants[0]);
+            this.searchQuery.set('');
+            this._variants.set([]);
+          } else {
+            // 0, >1, or zero stock → show in autocomplete for manual selection
+            this._variants.set(variants);
+            this.autocompleteTrigger?.openPanel();
+          }
+        },
+        error: () => {
+          this._variants.set([]);
+          this.autocompleteTrigger?.openPanel();
+        },
+      });
   }
 }

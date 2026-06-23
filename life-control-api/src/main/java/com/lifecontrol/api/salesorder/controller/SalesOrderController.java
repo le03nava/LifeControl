@@ -109,7 +109,7 @@ public class SalesOrderController {
 
     @PatchMapping("/{id}/status")
     @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
-    @Operation(summary = "Update sales order status", description = "Updates the status of a sales order. Validates status type and allowed transitions (Draft → Pending → Completed/Cancelled).")
+    @Operation(summary = "Update sales order status", description = "Updates the status of a sales order. Validates status type and allowed transitions (Draft → Active → Pending → Completed/Cancelled).")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Status updated"),
         @ApiResponse(responseCode = "400", description = "Wrong status type"),
@@ -124,10 +124,10 @@ public class SalesOrderController {
 
     @PatchMapping("/{id}/charge")
     @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
-    @Operation(summary = "Charge a sales order", description = "Atomically transitions a Pending order to Completed, all non-Cancelled items to Added, and records the payment method. Validates that the order is in Pending status and the payment method exists.")
+    @Operation(summary = "Charge a sales order", description = "Transitions an Active or Pending order to Completed, all non-Cancelled items to Added, and records the payment method. Active orders auto-promote to Pending first.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Sales order charged successfully"),
-        @ApiResponse(responseCode = "400", description = "Order is not in Pending status"),
+        @ApiResponse(responseCode = "400", description = "Order is not in Pending or Active status"),
         @ApiResponse(responseCode = "404", description = "Sales order or payment method not found")
     })
     public ResponseEntity<SalesOrderResponse> chargeSalesOrder(
@@ -163,12 +163,12 @@ public class SalesOrderController {
 
     @PostMapping("/{id}/items")
     @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
-    @Operation(summary = "Add an item to a sales order", description = "Adds a line item. finalPrice = listPrice - discountApplied. Only allowed when order is in Draft status. Auto-transitions the order from Draft to Pending when the first item is added.")
+    @Operation(summary = "Add an item to a sales order", description = "Adds a line item. finalPrice = listPrice - discountApplied. Auto-transitions Draft → Active on first item. Allowed in Draft and Active status.")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "Item created"),
         @ApiResponse(responseCode = "400", description = "Validation error"),
         @ApiResponse(responseCode = "404", description = "Sales order or product variant not found"),
-        @ApiResponse(responseCode = "409", description = "Sales order is not in Draft status")
+        @ApiResponse(responseCode = "409", description = "Sales order is not in Draft or Active status")
     })
     public ResponseEntity<SalesOrderItemResponse> addItem(
             @PathVariable UUID id,
@@ -179,12 +179,12 @@ public class SalesOrderController {
 
     @PutMapping("/{id}/items/{itemId}")
     @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
-    @Operation(summary = "Update an item", description = "Updates a sales order item. Only allowed when order is in Draft status.")
+    @Operation(summary = "Update an item", description = "Updates a sales order item. Only allowed when order is in Draft or Active status.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Item updated"),
         @ApiResponse(responseCode = "400", description = "Validation error"),
         @ApiResponse(responseCode = "404", description = "Sales order or item not found"),
-        @ApiResponse(responseCode = "409", description = "Sales order is not in Draft status")
+        @ApiResponse(responseCode = "409", description = "Sales order is not in Draft or Active status")
     })
     public ResponseEntity<SalesOrderItemResponse> updateItem(
             @PathVariable UUID id,
@@ -195,11 +195,11 @@ public class SalesOrderController {
 
     @DeleteMapping("/{id}/items/{itemId}")
     @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
-    @Operation(summary = "Delete an item", description = "Soft-deletes a sales order item. Only allowed when order is in Draft status.")
+    @Operation(summary = "Delete an item", description = "Soft-deletes a sales order item. Only allowed when order is in Draft or Active status.")
     @ApiResponses({
         @ApiResponse(responseCode = "204", description = "Item deleted"),
         @ApiResponse(responseCode = "404", description = "Sales order or item not found"),
-        @ApiResponse(responseCode = "409", description = "Sales order is not in Draft status")
+        @ApiResponse(responseCode = "409", description = "Sales order is not in Draft or Active status")
     })
     public ResponseEntity<Void> deleteItem(
             @PathVariable UUID id,

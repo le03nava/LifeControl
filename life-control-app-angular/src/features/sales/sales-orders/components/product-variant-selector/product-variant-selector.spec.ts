@@ -51,6 +51,8 @@ describe('ProductVariantSelector', () => {
     fixture = TestBed.createComponent(ProductVariantSelector);
     component = fixture.componentInstance;
     fixture.componentRef.setInput('storeId', TEST_STORE);
+    // Existing tests expect search-mode behavior (debounce, no auto-add).
+    fixture.componentRef.setInput('scanMode', false);
     fixture.detectChanges();
   });
 
@@ -304,5 +306,185 @@ describe('ProductVariantSelector', () => {
 
       expect(component.filteredVariants().length).toBe(0);
     }, 10000);
+  });
+
+  describe('scan mode', () => {
+    beforeEach(() => {
+      // Reset to scan mode (default) for these tests.
+      fixture.componentRef.setInput('scanMode', true);
+      fixture.detectChanges();
+    });
+
+    it('should have scanMode default to true', () => {
+      expect(component.scanMode()).toBe(true);
+    });
+
+    it('should skip debounce when scanMode is true', async () => {
+      component.onSearchChange('lap');
+      fixture.detectChanges();
+
+      await waitFor(DEBOUNCE_WAIT);
+      fixture.detectChanges();
+
+      // No debounce-triggered HTTP call in scan mode.
+      httpMock.expectNone(`${TEST_API}/product-variants/search`);
+    }, 10000);
+
+    it('should ignore Enter with empty input', () => {
+      // searchQuery is empty by default; Enter should not fire any HTTP call.
+      component.onSearchEnter(new KeyboardEvent('keydown', { key: 'Enter' }));
+      httpMock.expectNone(`${TEST_API}/product-variants/search`);
+    });
+
+    it('should ignore Enter with whitespace-only input', () => {
+      component.onSearchChange('   ');
+      fixture.detectChanges();
+
+      component.onSearchEnter(new KeyboardEvent('keydown', { key: 'Enter' }));
+      httpMock.expectNone(`${TEST_API}/product-variants/search`);
+    });
+
+    it('should auto-add variant on unique match with stock', () => {
+      component.onSearchChange('BAR-001');
+      fixture.detectChanges();
+
+      component.onSearchEnter(new KeyboardEvent('keydown', { key: 'Enter' }));
+
+      const req = httpMock.expectOne(
+        (r) =>
+          r.url === `${TEST_API}/product-variants/search` &&
+          r.params.get('q') === 'BAR-001' &&
+          r.params.get('storeId') === TEST_STORE,
+      );
+      expect(req.request.method).toBe('GET');
+
+      const variant: ProductVariantOption = {
+        id: 'v1',
+        productId: 'p1',
+        variantName: 'Laptop Pro 16GB',
+        barCode: 'BAR-001',
+        sku: 'LP-001-16',
+        listPrice: 1200,
+        stock: 10,
+        enabled: true,
+        productName: 'Laptop Pro',
+      };
+
+      let emitted: ProductVariantOption | null = null;
+      const sub = component.variantSelected.subscribe((v) => (emitted = v));
+
+      req.flush(searchResponse([variant]));
+
+      expect(emitted).not.toBeNull();
+      expect(emitted!.id).toBe('v1');
+      expect(component.searchQuery()).toBe('');
+      expect(component.filteredVariants().length).toBe(0);
+
+      sub.unsubscribe();
+    });
+
+    it('should open autocomplete when unique match has stock=0', () => {
+      component.onSearchChange('BAR-001');
+      fixture.detectChanges();
+
+      component.onSearchEnter(new KeyboardEvent('keydown', { key: 'Enter' }));
+
+      const req = httpMock.expectOne(
+        (r) => r.url === `${TEST_API}/product-variants/search`,
+      );
+
+      const variant: ProductVariantOption = {
+        id: 'v1',
+        productId: 'p1',
+        variantName: 'Laptop Pro 16GB',
+        barCode: 'BAR-001',
+        sku: 'LP-001-16',
+        listPrice: 1200,
+        stock: 0,
+        enabled: true,
+        productName: 'Laptop Pro',
+      };
+
+      let emitted = false;
+      const sub = component.variantSelected.subscribe(() => (emitted = true));
+
+      req.flush(searchResponse([variant]));
+
+      expect(emitted).toBe(false);
+      expect(component.filteredVariants().length).toBe(1);
+      expect(component.filteredVariants()[0].id).toBe('v1');
+      expect(component.filteredVariants()[0].stock).toBe(0);
+
+      sub.unsubscribe();
+    });
+
+    it('should open autocomplete on multiple matches', () => {
+      component.onSearchChange('van');
+      fixture.detectChanges();
+
+      component.onSearchEnter(new KeyboardEvent('keydown', { key: 'Enter' }));
+
+      const req = httpMock.expectOne(
+        (r) => r.url === `${TEST_API}/product-variants/search`,
+      );
+
+      const results: ProductVariantOption[] = [
+        {
+          id: 'v1',
+          productId: 'p1',
+          variantName: 'Vanilla 1L',
+          barCode: 'BAR-011',
+          sku: 'VAN-001',
+          listPrice: 80,
+          stock: 20,
+          enabled: true,
+          productName: 'Ice Cream',
+        },
+        {
+          id: 'v2',
+          productId: 'p1',
+          variantName: 'Vanilla 2L',
+          barCode: 'BAR-012',
+          sku: 'VAN-002',
+          listPrice: 140,
+          stock: 15,
+          enabled: true,
+          productName: 'Ice Cream',
+        },
+      ];
+
+      let emitted = false;
+      const sub = component.variantSelected.subscribe(() => (emitted = true));
+
+      req.flush(searchResponse(results));
+
+      expect(emitted).toBe(false);
+      expect(component.filteredVariants().length).toBe(2);
+
+      sub.unsubscribe();
+    });
+
+    it('should show no products found on zero matches', () => {
+      component.onSearchChange('UNKNOWN');
+      fixture.detectChanges();
+
+      component.onSearchEnter(new KeyboardEvent('keydown', { key: 'Enter' }));
+
+      const req = httpMock.expectOne(
+        (r) => r.url === `${TEST_API}/product-variants/search`,
+      );
+
+      let emitted = false;
+      const sub = component.variantSelected.subscribe(() => (emitted = true));
+
+      req.flush(searchResponse([]));
+
+      expect(emitted).toBe(false);
+      expect(component.filteredVariants().length).toBe(0);
+      // searchQuery still has the scanned value so template shows "No products found"
+      expect(component.searchQuery()).toBe('UNKNOWN');
+
+      sub.unsubscribe();
+    });
   });
 });

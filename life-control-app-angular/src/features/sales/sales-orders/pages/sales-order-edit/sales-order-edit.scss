@@ -43,6 +43,12 @@
   .header-actions {
     display: flex;
     gap: var(--space-sm);
+
+    .scan-toggle-btn {
+      mat-icon {
+        margin-right: var(--space-xs);
+      }
+    }
   }
 }
 

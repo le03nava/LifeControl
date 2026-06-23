@@ -382,7 +382,7 @@ class SalesOrderControllerTest {
     // PATCH /api/sales-orders/{id}/status
     // ─────────────────────────────────────────────
     @Nested
-    @DisplayName("PATCH /api/sales-orders/{id}/status")
+    @DisplayName("PATCH /api/sales-orders/{id}/status (Draft → Active → Pending → Completed/Cancelled)")
     class UpdateSalesOrderStatusTests {
 
         @Test
@@ -437,7 +437,7 @@ class SalesOrderControllerTest {
     // PATCH /api/sales-orders/{id}/charge
     // ─────────────────────────────────────────────
     @Nested
-    @DisplayName("PATCH /{id}/charge")
+    @DisplayName("PATCH /{id}/charge (Active auto-promotes to Pending)")
     class ChargeSalesOrderTests {
 
         private ChargeSalesOrderRequest chargeRequest;
@@ -483,8 +483,41 @@ class SalesOrderControllerTest {
         }
 
         @Test
-        @DisplayName("should return 400 when order is not in Pending status")
-        void chargeSalesOrder_NotPending_Returns400() throws Exception {
+        @DisplayName("should return 200 when charging an Active order (auto-promotes to Pending)")
+        void chargeSalesOrder_ActiveOrder_Returns200() throws Exception {
+            var chargedResponse = new SalesOrderResponse(
+                    testOrderId,
+                    "SO-20260610-00001",
+                    testOrderResponse.customerId(),
+                    testOrderResponse.companyStoreId(),
+                    testOrderResponse.shiftId(),
+                    "user123",
+                    testOrderResponse.orderDate(),
+                    testStatusId,
+                    "Completed",
+                    BigDecimal.ZERO,
+                    paymentMethodId,
+                    true,
+                    testOrderResponse.createdAt(),
+                    testOrderResponse.updatedAt(),
+                    List.of()
+            );
+
+            when(salesOrderService.chargeSalesOrder(eq(testOrderId), any(ChargeSalesOrderRequest.class)))
+                    .thenReturn(chargedResponse);
+
+            mockMvc.perform(patch("/api/sales-orders/{id}/charge", testOrderId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(chargeRequest)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.id").value(testOrderId.toString()))
+                    .andExpect(jsonPath("$.statusName").value("Completed"))
+                    .andExpect(jsonPath("$.paymentMethodId").value(paymentMethodId.toString()));
+        }
+
+        @Test
+        @DisplayName("should return 400 when order is not in Pending or Active status")
+        void chargeSalesOrder_NotPendingOrActive_Returns400() throws Exception {
             when(salesOrderService.chargeSalesOrder(eq(testOrderId), any(ChargeSalesOrderRequest.class)))
                     .thenThrow(new InvalidSalesOrderChargeException(testOrderId, "Draft"));
 
@@ -585,7 +618,7 @@ class SalesOrderControllerTest {
     // POST /api/sales-orders/{id}/items
     // ─────────────────────────────────────────────
     @Nested
-    @DisplayName("POST /api/sales-orders/{id}/items")
+    @DisplayName("POST /api/sales-orders/{id}/items (allowed in Draft and Active)")
     class AddSalesOrderItemTests {
 
         @Test
@@ -637,10 +670,10 @@ class SalesOrderControllerTest {
         }
 
         @Test
-        @DisplayName("should return 409 when sales order is not in Draft status")
-        void addItem_NotDraft_Returns409() throws Exception {
+        @DisplayName("should return 409 when sales order is not in Draft or Active status")
+        void addItem_NotDraftOrActive_Returns409() throws Exception {
             when(salesOrderService.addSalesOrderItem(eq(testOrderId), any(SalesOrderItemRequest.class)))
-                    .thenThrow(new SalesOrderAlreadyFinalizedException(testOrderId, "Pending"));
+                    .thenThrow(new SalesOrderAlreadyFinalizedException(testOrderId, "Completed"));
 
             mockMvc.perform(post("/api/sales-orders/{id}/items", testOrderId)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -648,7 +681,7 @@ class SalesOrderControllerTest {
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.status").value(409))
                     .andExpect(jsonPath("$.message").value(
-                            "Sales order " + testOrderId + " is already Pending and cannot be modified"))
+                            "Sales order " + testOrderId + " is already Completed and cannot be modified"))
                     .andExpect(jsonPath("$.timestamp").exists());
         }
 
@@ -678,7 +711,7 @@ class SalesOrderControllerTest {
     // PUT /api/sales-orders/{id}/items/{itemId}
     // ─────────────────────────────────────────────
     @Nested
-    @DisplayName("PUT /api/sales-orders/{id}/items/{itemId}")
+    @DisplayName("PUT /api/sales-orders/{id}/items/{itemId} (allowed in Draft and Active)")
     class UpdateSalesOrderItemTests {
 
         @Test
@@ -731,7 +764,7 @@ class SalesOrderControllerTest {
     // DELETE /api/sales-orders/{id}/items/{itemId}
     // ─────────────────────────────────────────────
     @Nested
-    @DisplayName("DELETE /api/sales-orders/{id}/items/{itemId}")
+    @DisplayName("DELETE /api/sales-orders/{id}/items/{itemId} (allowed in Draft and Active)")
     class DeleteSalesOrderItemTests {
 
         @Test

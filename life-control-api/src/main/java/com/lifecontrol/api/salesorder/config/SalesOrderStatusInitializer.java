@@ -34,9 +34,10 @@ public class SalesOrderStatusInitializer implements ApplicationRunner {
 
     private static final SeedStatus[] SALES_ORDER_STATUSES = {
         new SeedStatus("Draft", 1),
-        new SeedStatus("Pending", 2),
-        new SeedStatus("Completed", 3),
-        new SeedStatus("Cancelled", 4)
+        new SeedStatus("Active", 2),
+        new SeedStatus("Pending", 3),
+        new SeedStatus("Completed", 4),
+        new SeedStatus("Cancelled", 5)
     };
 
     private static final SeedStatus[] SALES_ORDER_ITEM_STATUSES = {

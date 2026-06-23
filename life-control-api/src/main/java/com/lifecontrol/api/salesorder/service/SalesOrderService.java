@@ -57,7 +57,8 @@ public class SalesOrderService {
     private static final Logger logger = LoggerFactory.getLogger(SalesOrderService.class);
 
     private static final Map<String, Set<String>> SO_TRANSITIONS = Map.ofEntries(
-            Map.entry("Draft", Set.of("Pending", "Cancelled")),
+            Map.entry("Draft", Set.of("Active", "Cancelled")),
+            Map.entry("Active", Set.of("Pending", "Cancelled")),
             Map.entry("Pending", Set.of("Completed", "Cancelled")),
             Map.entry("Completed", Set.of()),
             Map.entry("Cancelled", Set.of())
@@ -297,13 +298,8 @@ public class SalesOrderService {
         var so = salesOrderRepository.findById(id)
                 .orElseThrow(() -> new SalesOrderNotFoundException(id));
 
-        var currentStatus = statusRepository.findById(so.getStatusId())
-                .orElseThrow(() -> new StatusNotFoundException(so.getStatusId()));
-
-        // Validate order is Pending
-        if (!"Pending".equals(currentStatus.getStatusName())) {
-            throw new InvalidSalesOrderChargeException(id, currentStatus.getStatusName());
-        }
+        // Ensure order is Pending (auto-promotes Active → Pending)
+        ensureOrderIsPending(so);
 
         // Validate payment method exists
         if (!paymentMethodRepository.existsById(request.paymentMethodId())) {
@@ -345,6 +341,31 @@ public class SalesOrderService {
         var updated = salesOrderRepository.findById(id)
                 .orElseThrow(() -> new SalesOrderNotFoundException(id));
         return toResponse(updated);
+    }
+
+    /**
+     * Ensures the sales order is in Pending status before charging.
+     * If the order is Active, it auto-promotes to Pending.
+     * If the order is already Pending, this is a no-op.
+     * Any other status throws InvalidSalesOrderChargeException.
+     */
+    private void ensureOrderIsPending(SalesOrder so) {
+        var currentStatus = statusRepository.findById(so.getStatusId())
+                .orElseThrow(() -> new StatusNotFoundException(so.getStatusId()));
+        var name = currentStatus.getStatusName();
+        if ("Pending".equals(name)) return;
+        if ("Active".equals(name)) {
+            var pendingStatus = statusRepository
+                    .findByTypeNameAndStatusName("SALES_ORDER", "Pending")
+                    .orElseThrow(() -> new StatusNotFoundException("Status 'Pending' not found for SALES_ORDER type"));
+            var pendingStatusId = pendingStatus.getId();
+            validateSOTransition(currentStatus, pendingStatus);
+            so.setStatusId(pendingStatusId);
+            salesOrderRepository.save(so);
+            logger.info("Order {} auto-promoted Active→Pending for charge", so.getId());
+            return;
+        }
+        throw new InvalidSalesOrderChargeException(so.getId(), name);
     }
 
     @Transactional
@@ -463,7 +484,7 @@ public class SalesOrderService {
     public SalesOrderItemResponse addSalesOrderItem(UUID salesOrderId, SalesOrderItemRequest request) {
         logger.info("Adding item to sales order: soId={}", salesOrderId);
 
-        var so = loadAndValidateDraftSO(salesOrderId);
+        var so = loadAndValidateModifiableSO(salesOrderId);
         validateProductVariantExists(request.productVariantId());
 
         // Check if this will be the first item (triggers Draft → Pending transition)
@@ -499,19 +520,19 @@ public class SalesOrderService {
         // Recalculate order total
         recalculateTotalAmount(salesOrderId);
 
-        // Auto-transition from Draft → Pending when the first item is added
+        // Auto-transition from Draft → Active when the first item is added
         if (isFirstItem) {
-            var pendingStatus = statusRepository
-                    .findByTypeNameAndStatusName("SALES_ORDER", "Pending")
+            var activeStatus = statusRepository
+                    .findByTypeNameAndStatusName("SALES_ORDER", "Active")
                     .orElseThrow(() -> new StatusNotFoundException(
-                            "Status 'Pending' not found for SALES_ORDER type"));
+                            "Status 'Active' not found for SALES_ORDER type"));
             var currentStatus = statusRepository.findById(so.getStatusId())
                     .orElseThrow(() -> new StatusNotFoundException(so.getStatusId()));
-            validateSOTransition(currentStatus, pendingStatus);
+            validateSOTransition(currentStatus, activeStatus);
 
-            so.setStatusId(pendingStatus.getId());
+            so.setStatusId(activeStatus.getId());
             salesOrderRepository.save(so);
-            logger.info("Order {} auto-transitioned from Draft to Pending", salesOrderId);
+            logger.info("Order {} auto-transitioned from Draft to Active", salesOrderId);
         }
 
         return toItemResponse(saved);
@@ -522,7 +543,7 @@ public class SalesOrderService {
                                                         SalesOrderItemRequest request) {
         logger.info("Updating item: soId={}, itemId={}", salesOrderId, itemId);
 
-        loadAndValidateDraftSO(salesOrderId);
+        loadAndValidateModifiableSO(salesOrderId);
 
         var item = itemRepository.findById(itemId)
                 .orElseThrow(() -> new SalesOrderItemNotFoundException(itemId));
@@ -577,7 +598,7 @@ public class SalesOrderService {
     public void deleteSalesOrderItem(UUID salesOrderId, UUID itemId) {
         logger.info("Soft-deleting item: soId={}, itemId={}", salesOrderId, itemId);
 
-        loadAndValidateDraftSO(salesOrderId);
+        loadAndValidateModifiableSO(salesOrderId);
 
         var item = itemRepository.findById(itemId)
                 .orElseThrow(() -> new SalesOrderItemNotFoundException(itemId));
@@ -630,15 +651,16 @@ public class SalesOrderService {
 
     // ─── FK Validation Helpers ──────────────────────────────────────────
 
-    private SalesOrder loadAndValidateDraftSO(UUID id) {
+    private SalesOrder loadAndValidateModifiableSO(UUID id) {
         var so = salesOrderRepository.findById(id)
                 .orElseThrow(() -> new SalesOrderNotFoundException(id));
 
         var status = statusRepository.findById(so.getStatusId())
                 .orElseThrow(() -> new StatusNotFoundException(so.getStatusId()));
 
-        if (!"Draft".equals(status.getStatusName())) {
-            throw new SalesOrderAlreadyFinalizedException(id, status.getStatusName());
+        var name = status.getStatusName();
+        if (!"Draft".equals(name) && !"Active".equals(name)) {
+            throw new SalesOrderAlreadyFinalizedException(id, name);
         }
         return so;
     }

@@ -142,6 +142,13 @@ export class SalesOrderEdit implements OnInit {
   // ─── Line items ────────────────────────────────────────
   readonly lineItems = signal<ItemTableRow[]>([]);
 
+  // ─── Scan / Search mode toggle ──────────────────────────
+  readonly scanMode = signal(true);
+
+  toggleScanMode(): void {
+    this.scanMode.update(v => !v);
+  }
+
   // ─── Charge / Cobrar ─────────────────────────────────────
   readonly paymentMethods = signal<PaymentMethodOption[]>([]);
   readonly charging = signal(false);

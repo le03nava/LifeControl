@@ -11,10 +11,13 @@ import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.company.repository.CompanyZoneRepository;
 import com.lifecontrol.api.country.model.Country;
 import com.lifecontrol.api.country.repository.CountryRepository;
+import com.lifecontrol.api.paymentmethod.model.PaymentMethod;
+import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
 import com.lifecontrol.api.customer.model.Customer;
 import com.lifecontrol.api.customer.repository.CustomerRepository;
 import com.lifecontrol.api.product.model.ProductVariant;
 import com.lifecontrol.api.product.repository.ProductVariantRepository;
+import com.lifecontrol.api.salesorder.dto.ChargeSalesOrderRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderItemRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderRequest;
 import com.lifecontrol.api.salesorder.dto.UpdateSalesOrderStatusRequest;
@@ -88,6 +91,9 @@ class SalesOrderIntegrationTest {
     private CustomerRepository customerRepository;
 
     @Autowired
+    private PaymentMethodRepository paymentMethodRepository;
+
+    @Autowired
     private CompanyStoreRepository companyStoreRepository;
 
     @Autowired
@@ -112,6 +118,7 @@ class SalesOrderIntegrationTest {
     private UUID companyStoreId;
     private UUID shiftId;
     private UUID draftStatusId;
+    private UUID activeStatusId;
     private UUID pendingStatusId;
     private UUID completedStatusId;
     private UUID cancelledStatusId;
@@ -142,6 +149,7 @@ class SalesOrderIntegrationTest {
     private void seedReferenceData() {
         // Load status IDs (seeded by SalesOrderStatusInitializer)
         draftStatusId = statusRepository.findByTypeNameAndStatusName("SALES_ORDER", "Draft").orElseThrow().getId();
+        activeStatusId = statusRepository.findByTypeNameAndStatusName("SALES_ORDER", "Active").orElseThrow().getId();
         pendingStatusId = statusRepository.findByTypeNameAndStatusName("SALES_ORDER", "Pending").orElseThrow().getId();
         completedStatusId = statusRepository.findByTypeNameAndStatusName("SALES_ORDER", "Completed").orElseThrow().getId();
         cancelledStatusId = statusRepository.findByTypeNameAndStatusName("SALES_ORDER", "Cancelled").orElseThrow().getId();
@@ -600,7 +608,16 @@ class SalesOrderIntegrationTest {
             var v = productVariantRepository.findById(variant.getId()).orElseThrow();
             assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("94.00"));
 
-            // Transition Draft → Pending
+            // Transition Draft → Active
+            var activeReq = new UpdateSalesOrderStatusRequest(activeStatusId);
+            mockMvc.perform(patch("/api/sales-orders/{id}/status", orderId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(activeReq))
+                            .with(jwt().authorities(ROLE_LC_SALES)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.statusName").value("Active"));
+
+            // Transition Active → Pending
             var pendingReq = new UpdateSalesOrderStatusRequest(pendingStatusId);
             mockMvc.perform(patch("/api/sales-orders/{id}/status", orderId)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -748,6 +765,116 @@ class SalesOrderIntegrationTest {
             // Verify variant B stock UNCHANGED
             var vb = productVariantRepository.findById(variantB.getId()).orElseThrow();
             assertThat(vb.getStock()).isEqualByComparingTo(new BigDecimal("2.00"));
+        }
+    }
+
+    // ─── Full flow: Draft → add item (→ Active) → add another item → charge (→ Pending → Completed)
+
+    @Nested
+    @DisplayName("Full flow: Draft → Active → Pending → Completed via charge")
+    class FullFlowChargeIntegrationTests {
+
+        @Test
+        @DisplayName("should create Draft, add items, and charge end-to-end")
+        void fullFlow_DraftToActiveToCharge() throws Exception {
+            var variant = createTestVariant(new BigDecimal("100.00"));
+
+            // Step 1: Create empty Draft order
+            var createRequest = new SalesOrderRequest(
+                    customerId, companyStoreId, shiftId, "user123", null);
+
+            var createResult = mockMvc.perform(post("/api/sales-orders")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(createRequest))
+                            .with(jwt().authorities(ROLE_LC_SALES)))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.statusName").value("Draft"))
+                    .andExpect(jsonPath("$.items").isEmpty())
+                    .andReturn();
+
+            var orderId = objectMapper.readTree(createResult.getResponse().getContentAsString())
+                    .get("id").asText();
+
+            // Step 2: Add first item → auto-transitions Draft → Active
+            var firstItem = new SalesOrderItemRequest(
+                    null, variant.getId(),
+                    new BigDecimal("3.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
+
+            mockMvc.perform(post("/api/sales-orders/{id}/items", orderId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(firstItem))
+                            .with(jwt().authorities(ROLE_LC_SALES)))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.id").exists())
+                    .andExpect(jsonPath("$.quantity").value(3.00));
+
+            // Verify order is now Active (status updated in DB)
+            var orderAfterFirstItem = salesOrderRepository.findById(UUID.fromString(orderId)).orElseThrow();
+            var statusAfterFirstItem = statusRepository.findById(orderAfterFirstItem.getStatusId()).orElseThrow();
+            assertThat(statusAfterFirstItem.getStatusName()).isEqualTo("Active");
+
+            // Verify stock deducted: 100 - 3 = 97
+            var v = productVariantRepository.findById(variant.getId()).orElseThrow();
+            assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("97.00"));
+
+            // Step 3: Add second item → stays Active
+            var secondItem = new SalesOrderItemRequest(
+                    null, variant.getId(),
+                    new BigDecimal("2.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
+
+            mockMvc.perform(post("/api/sales-orders/{id}/items", orderId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(secondItem))
+                            .with(jwt().authorities(ROLE_LC_SALES)))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.id").exists())
+                    .andExpect(jsonPath("$.quantity").value(2.00));
+
+            // Verify order is still Active (not re-transitioned)
+            var orderAfterSecondItem = salesOrderRepository.findById(UUID.fromString(orderId)).orElseThrow();
+            var statusAfterSecondItem = statusRepository.findById(orderAfterSecondItem.getStatusId()).orElseThrow();
+            assertThat(statusAfterSecondItem.getStatusName()).isEqualTo("Active");
+
+            // Verify stock deducted: 97 - 2 = 95
+            v = productVariantRepository.findById(variant.getId()).orElseThrow();
+            assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("95.00"));
+
+            // Step 4: Charge → auto-promotes Active → Pending → Completed
+            var paymentMethod = PaymentMethod.builder()
+                    .paymentMethodName("Efectivo-" + UUID.randomUUID())
+                    .paymentMethodShortName("EFECTIVO")
+                    .enabled(true)
+                    .build();
+            paymentMethod = paymentMethodRepository.save(paymentMethod);
+            var paymentMethodId = paymentMethod.getId();
+            var chargeRequest = new ChargeSalesOrderRequest(paymentMethodId);
+
+            mockMvc.perform(patch("/api/sales-orders/{id}/charge", orderId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(chargeRequest))
+                            .with(jwt().authorities(ROLE_LC_SALES)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.statusName").value("Completed"))
+                    .andExpect(jsonPath("$.paymentMethodId").value(paymentMethodId.toString()));
+
+            // Verify final order status is Completed
+            var finalOrder = salesOrderRepository.findById(UUID.fromString(orderId)).orElseThrow();
+            var finalStatus = statusRepository.findById(finalOrder.getStatusId()).orElseThrow();
+            assertThat(finalStatus.getStatusName()).isEqualTo("Completed");
+            assertThat(finalOrder.getPaymentMethodId()).isEqualTo(paymentMethodId);
+
+            // Verify stock unchanged after charge (no restoration on Complete)
+            v = productVariantRepository.findById(variant.getId()).orElseThrow();
+            assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("95.00"));
+
+            // Verify items transitioned to Added
+            var items = itemRepository.findBySalesOrderId(UUID.fromString(orderId));
+            for (var item : items) {
+                if (item.getEnabled()) {
+                    var itemStatus = statusRepository.findById(item.getStatusId()).orElseThrow();
+                    assertThat(itemStatus.getStatusName()).isEqualTo("Added");
+                }
+            }
         }
     }
 }

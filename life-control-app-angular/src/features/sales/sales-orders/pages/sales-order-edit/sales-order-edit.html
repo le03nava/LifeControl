@@ -14,6 +14,17 @@
       }
     </div>
     <div class="header-actions">
+      @if (isEditMode()) {
+        <button
+          mat-stroked-button
+          class="scan-toggle-btn"
+          (click)="toggleScanMode()"
+          [attr.aria-label]="scanMode() ? 'Switch to search mode' : 'Switch to scan mode'"
+        >
+          <mat-icon fontIcon="qr_code_scanner" />
+          {{ scanMode() ? 'Scan mode' : 'Search mode' }}
+        </button>
+      }
       <button mat-stroked-button routerLink="/sales/orders">
         <mat-icon fontIcon="arrow_back" /> Back
       </button>
@@ -79,6 +90,7 @@
         <app-product-variant-selector
           variant-selector
           [storeId]="loadedOrder()?.companyStoreId ?? null"
+          [scanMode]="scanMode()"
           (variantSelected)="onVariantSelected($event)"
         />
       </app-sales-order-item-table>
