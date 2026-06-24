@@ -1,12 +1,17 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { FormControl, FormGroup, Validators } from '@angular/forms';
+import { signal } from '@angular/core';
+import { of } from 'rxjs';
 import { CompaniesForm } from './companies-form';
 import { Company, CompanyControl } from '../../models/company.models';
+import { CountryService } from '../../../../countries/data/country.service';
+import { Country } from '../../../countries/models/country.models';
 
 describe('CompaniesForm', () => {
   let component: CompaniesForm;
   let fixture: ComponentFixture<CompaniesForm>;
+  let countryServiceMock: Partial<CountryService>;
 
   function createFormGroup(): FormGroup<CompanyControl> {
     return new FormGroup<CompanyControl>({
@@ -31,8 +36,18 @@ describe('CompaniesForm', () => {
   }
 
   beforeEach(async () => {
+    countryServiceMock = {
+      countries: signal<Country[]>([]).asReadonly(),
+      loading: signal(false).asReadonly(),
+      error: signal<string | null>(null).asReadonly(),
+      getCountries: vi.fn().mockReturnValue(of([])),
+    };
+
     await TestBed.configureTestingModule({
       imports: [CompaniesForm, NoopAnimationsModule],
+      providers: [
+        { provide: CountryService, useValue: countryServiceMock },
+      ],
     }).compileComponents();
 
     fixture = TestBed.createComponent(CompaniesForm);

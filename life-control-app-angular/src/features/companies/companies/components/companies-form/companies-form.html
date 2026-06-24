@@ -135,8 +135,11 @@
 
     <mat-form-field appearance="outline">
       <mat-label>País</mat-label>
-      <mat-select formControlName="countryId">
+      <mat-select formControlName="countryId" [compareWith]="compareCountryById">
         <mat-option [value]="''">— Seleccionar país —</mat-option>
+        @for (country of countriesCatalog(); track country.id) {
+          <mat-option [value]="country.id">{{ country.countryName }}</mat-option>
+        }
       </mat-select>
       @if (getErrorMessage(formGroup().controls.countryId); as msg) {
         <mat-error>{{ msg }}</mat-error>

@@ -1,10 +1,13 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
+import { signal } from '@angular/core';
 import { CompanyEdit } from './company-edit';
 import { Company } from '@features/companies/companies/models/company.models';
 import { CompanyService } from '@features/companies/companies/data/company.service';
 import { CompanyContextService } from '@shared/data/company-context.service';
 import { CompanyCountryService } from '@features/companies/countries/data';
+import { CountryService } from '@features/countries/data/country.service';
+import { Country } from '@features/companies/countries/models/country.models';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ReactiveFormsModule } from '@angular/forms';
 import { of, throwError } from 'rxjs';
@@ -95,6 +98,15 @@ describe('CompanyEdit', () => {
             assignedCountries: vi.fn().mockReturnValue([]),
             loading: vi.fn().mockReturnValue(false),
             error: vi.fn().mockReturnValue(null),
+          },
+        },
+        {
+          provide: CountryService,
+          useValue: {
+            countries: signal<Country[]>([]).asReadonly(),
+            loading: signal(false).asReadonly(),
+            error: signal<string | null>(null).asReadonly(),
+            getCountries: vi.fn().mockReturnValue(of([])),
           },
         },
         { provide: Router, useValue: routerMock },

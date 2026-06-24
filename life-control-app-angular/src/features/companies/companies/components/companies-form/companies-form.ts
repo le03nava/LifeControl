@@ -2,8 +2,10 @@ import {
   Component,
   computed,
   effect,
+  inject,
   input,
   output,
+  signal,
 } from '@angular/core';
 import {
   AbstractControl,
@@ -18,6 +20,8 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatIconModule } from '@angular/material/icon';
+import { CountryService } from '../../../../countries/data/country.service';
+import { Country } from '../../../countries/models/country.models';
 
 @Component({
   selector: 'app-companies-form',
@@ -27,6 +31,8 @@ import { MatIconModule } from '@angular/material/icon';
   styleUrl: './companies-form.scss',
 })
 export class CompaniesForm {
+  private countryService = inject(CountryService);
+
   formGroup = input.required<FormGroup<CompanyControl>>();
   serverErrors = input<Record<string, string>>({});
   saveCompany = output<Company>();
@@ -36,6 +42,15 @@ export class CompaniesForm {
     { value: 1, label: 'Persona Física' },
     { value: 2, label: 'Persona Moral' },
   ];
+
+  // ─── Country catalog for address country selector ────────────
+  private _countriesCatalog = signal<Country[]>([]);
+  readonly countriesCatalog = this._countriesCatalog.asReadonly();
+
+  // ─── Helpers for mat-select compareWith ──────────────────────
+  protected compareCountryById = (optionId: string | null, selectedId: string | null): boolean => {
+    return optionId === selectedId;
+  };
 
   protected readonly rfcErrorMessages: Record<string, (error: any) => string> = {
     pattern: () => 'El RFC debe tener 12-13 caracteres alfanuméricos.',
@@ -82,6 +97,12 @@ export class CompaniesForm {
   readonly isEditMode = computed(() => !!this.formGroup()?.controls.id.value);
 
   constructor() {
+    // --- Load country catalog for address country selector ---
+    this.countryService.getCountries().subscribe({
+      next: (countries) => this._countriesCatalog.set(countries),
+      error: () => this._countriesCatalog.set([]),
+    });
+
     effect((onCleanup) => {
       const serverErrors = this.serverErrors();
       const fg = this.formGroup();
