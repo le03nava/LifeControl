@@ -14,5 +14,13 @@ public record CompanyResponse(
     String email,
     Boolean enabled,
     LocalDateTime createdAt,
-    LocalDateTime updatedAt
+    LocalDateTime updatedAt,
+    String street,
+    String streetNumber,
+    String internalNumber,
+    String neighborhood,
+    String zipCode,
+    String city,
+    String state,
+    UUID countryId
 ) {}
