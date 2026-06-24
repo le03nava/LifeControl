@@ -95,4 +95,55 @@ describe('CompanyModels — Country Types', () => {
     // countries is optional — company without it should still be valid
     expect(company.companyName).toBe('Other Corp');
   });
+
+  it('should allow Company with optional address fields', () => {
+    const company: Company = {
+      id: '3',
+      companyKey: '3',
+      companyName: 'Addr Corp',
+      tipoPersonaId: 1,
+      razonSocial: 'Addr Corp SA',
+      rfc: 'XAXX010101002',
+      email: 'addr@test.com',
+      phone: '555-0003',
+      street: 'Av. Reforma',
+      streetNumber: '222',
+      internalNumber: 'A-101',
+      neighborhood: 'Juárez',
+      zipCode: '06600',
+      city: 'CDMX',
+      state: 'CDMX',
+      countryId: 'MX',
+      enabled: true,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
+    };
+    expect(company.street).toBe('Av. Reforma');
+    expect(company.streetNumber).toBe('222');
+    expect(company.internalNumber).toBe('A-101');
+    expect(company.neighborhood).toBe('Juárez');
+    expect(company.zipCode).toBe('06600');
+    expect(company.city).toBe('CDMX');
+    expect(company.state).toBe('CDMX');
+    expect(company.countryId).toBe('MX');
+  });
+
+  it('should allow Company without address fields', () => {
+    const company: Company = {
+      id: '4',
+      companyKey: '4',
+      companyName: 'No Addr Corp',
+      tipoPersonaId: 2,
+      razonSocial: 'No Addr Corp SA',
+      rfc: 'XAXX010101003',
+      email: 'noaddr@test.com',
+      phone: '555-0004',
+      enabled: true,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
+    };
+    expect(company.street).toBeUndefined();
+    expect(company.city).toBeUndefined();
+    expect(company.countryId).toBeUndefined();
+  });
 });

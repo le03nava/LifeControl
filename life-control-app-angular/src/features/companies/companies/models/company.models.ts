@@ -12,7 +12,14 @@ export interface Company {
   rfc: string;
   email: string;
   phone: string;
-  address?: string;
+  street?: string;
+  streetNumber?: string;
+  internalNumber?: string;
+  neighborhood?: string;
+  zipCode?: string;
+  city?: string;
+  state?: string;
+  countryId?: string;
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
@@ -39,6 +46,13 @@ export interface CompanyControl {
   rfc: FormControl<string>;
   email: FormControl<string>;
   phone: FormControl<string>;
-  address: FormControl<string>;
+  street: FormControl<string | null>;
+  streetNumber: FormControl<string | null>;
+  internalNumber: FormControl<string | null>;
+  neighborhood: FormControl<string | null>;
+  zipCode: FormControl<string | null>;
+  city: FormControl<string | null>;
+  state: FormControl<string | null>;
+  countryId: FormControl<string | null>;
   enabled: FormControl<boolean>;
 }

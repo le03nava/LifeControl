@@ -9,6 +9,7 @@ import { CompanyCountryService } from '@features/companies/countries/data';
 import {
   NonNullableFormBuilder,
   FormGroup,
+  FormControl,
   Validators,
   ReactiveFormsModule,
 } from '@angular/forms';
@@ -64,7 +65,14 @@ export class CompanyEdit implements OnInit {
             rfc: this.fb.control(company.rfc, [Validators.required, Validators.pattern(/^[A-Za-z0-9]{12,13}$/)]),
             email: this.fb.control(company.email, Validators.email),
             phone: this.fb.control(company.phone, Validators.pattern(/^(\+52\d{10}|\d{10})$/)),
-            address: this.fb.control(company.address || ''),
+            street: new FormControl<string | null>(company.street ?? null, { nonNullable: false }),
+            streetNumber: new FormControl<string | null>(company.streetNumber ?? null, { nonNullable: false }),
+            internalNumber: new FormControl<string | null>(company.internalNumber ?? null, { nonNullable: false }),
+            neighborhood: new FormControl<string | null>(company.neighborhood ?? null, { nonNullable: false }),
+            zipCode: new FormControl<string | null>(company.zipCode ?? null, { nonNullable: false }),
+            city: new FormControl<string | null>(company.city ?? null, { nonNullable: false }),
+            state: new FormControl<string | null>(company.state ?? null, { nonNullable: false }),
+            countryId: new FormControl<string | null>(company.countryId ?? null, { nonNullable: false }),
             enabled: this.fb.control(company.enabled),
           })
         );
@@ -85,7 +93,14 @@ export class CompanyEdit implements OnInit {
       rfc: this.fb.control('', [Validators.required, Validators.pattern(/^[A-Za-z0-9]{12,13}$/)]),
       email: this.fb.control('', Validators.email),
       phone: this.fb.control('', Validators.pattern(/^(\+52\d{10}|\d{10})$/)),
-      address: this.fb.control(''),
+      street: new FormControl<string | null>(null, { nonNullable: false }),
+      streetNumber: new FormControl<string | null>(null, { nonNullable: false }),
+      internalNumber: new FormControl<string | null>(null, { nonNullable: false }),
+      neighborhood: new FormControl<string | null>(null, { nonNullable: false }),
+      zipCode: new FormControl<string | null>(null, { nonNullable: false }),
+      city: new FormControl<string | null>(null, { nonNullable: false }),
+      state: new FormControl<string | null>(null, { nonNullable: false }),
+      countryId: new FormControl<string | null>(null, { nonNullable: false }),
       enabled: this.fb.control(true),
     });
   }

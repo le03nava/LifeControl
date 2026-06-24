@@ -7,6 +7,17 @@
 // - Touch targets WCAG
 @use '../../../../../shared/styles/form-layout' as *;
 
+// Address section heading — spans full grid width
+.address-heading {
+  grid-column: 1 / -1;
+  margin: var(--space-sm) 0 0 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--mat-sys-on-surface-variant);
+  border-bottom: 1px solid var(--mat-sys-outline-variant);
+  padding-bottom: var(--space-xs);
+}
+
 // Toggle container — places the mat-slide-toggle in the form grid
 .toggle-container {
   grid-column: 1 / -1;
