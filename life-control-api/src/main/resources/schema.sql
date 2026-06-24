@@ -502,3 +502,18 @@ ALTER TABLE sales_orders
   ADD COLUMN IF NOT EXISTS payment_method_id UUID REFERENCES payment_methods(id);
 
 CREATE INDEX IF NOT EXISTS idx_so_payment_method ON sales_orders(payment_method_id);
+
+-- ============================================
+-- Migration: Add address columns to companies
+-- ============================================
+ALTER TABLE companies
+  ADD COLUMN IF NOT EXISTS street VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS street_number VARCHAR(20),
+  ADD COLUMN IF NOT EXISTS internal_number VARCHAR(20),
+  ADD COLUMN IF NOT EXISTS neighborhood VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS zip_code VARCHAR(20),
+  ADD COLUMN IF NOT EXISTS city VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS state VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS country_id UUID REFERENCES countries(id);
+
+CREATE INDEX IF NOT EXISTS idx_companies_country_id ON companies(country_id);

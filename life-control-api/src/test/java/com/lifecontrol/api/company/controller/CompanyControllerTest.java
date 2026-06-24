@@ -80,7 +80,8 @@ class CompanyControllerTest {
                 "test@company.com",
                 true,
                 now,
-                now
+                now,
+                null, null, null, null, null, null, null, null
         );
 
         testCompanyRequest = new CompanyRequest(
@@ -91,7 +92,8 @@ class CompanyControllerTest {
                 "XAXX010101000",
                 "+9876543210",
                 "updated@company.com",
-                false
+                false,
+                null, null, null, null, null, null, null, null
         );
     }
 
@@ -238,7 +240,8 @@ class CompanyControllerTest {
                     "XAXX010101000",
                     null,
                     null,
-                    null
+                    null,
+                    null, null, null, null, null, null, null, null
             );
 
             // Act & Assert

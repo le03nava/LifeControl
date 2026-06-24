@@ -90,6 +90,14 @@ public class CompanyService {
                 .phone(request.phone())
                 .email(request.email())
                 .enabled(request.enabled() != null ? request.enabled() : true)
+                .street(request.street())
+                .streetNumber(request.streetNumber())
+                .internalNumber(request.internalNumber())
+                .neighborhood(request.neighborhood())
+                .zipCode(request.zipCode())
+                .city(request.city())
+                .state(request.state())
+                .countryId(request.countryId())
                 .build();
 
         Company saved = companyRepository.save(company);
@@ -122,6 +130,14 @@ public class CompanyService {
         company.setPhone(request.phone());
         company.setEmail(request.email());
         company.setEnabled(request.enabled() != null ? request.enabled() : true);
+        company.setStreet(request.street());
+        company.setStreetNumber(request.streetNumber());
+        company.setInternalNumber(request.internalNumber());
+        company.setNeighborhood(request.neighborhood());
+        company.setZipCode(request.zipCode());
+        company.setCity(request.city());
+        company.setState(request.state());
+        company.setCountryId(request.countryId());
 
         Company updated = companyRepository.save(company);
 
@@ -154,7 +170,15 @@ public class CompanyService {
                 company.getEmail(),
                 company.getEnabled(),
                 company.getCreatedAt(),
-                company.getUpdatedAt()
+                company.getUpdatedAt(),
+                company.getStreet(),
+                company.getStreetNumber(),
+                company.getInternalNumber(),
+                company.getNeighborhood(),
+                company.getZipCode(),
+                company.getCity(),
+                company.getState(),
+                company.getCountryId()
         );
     }
 }

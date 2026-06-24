@@ -78,7 +78,8 @@ class CompanyControllerSecurityTest {
     private CompanyRequest buildCompanyRequest() {
         return new CompanyRequest(
                 "1", "Test Company", 1, "Razon Social",
-                "XAXX010101000", "+1234567890", "test@company.com", true
+                "XAXX010101000", "+1234567890", "test@company.com", true,
+                null, null, null, null, null, null, null, null
         );
     }
 
@@ -95,7 +96,8 @@ class CompanyControllerSecurityTest {
             var response = new CompanyResponse(
                     UUID.randomUUID(), "1", "Test", 1, "RS",
                     "XAXX010101000", "555", "e@e.com", true,
-                    LocalDateTime.now(), LocalDateTime.now()
+                    LocalDateTime.now(), LocalDateTime.now(),
+                    null, null, null, null, null, null, null, null
             );
             var page = new PageImpl<>(List.of(response), PageRequest.of(0, 12), 1);
             when(companyService.getAllCompanies(any(), eq(null))).thenReturn(page);
@@ -127,7 +129,8 @@ class CompanyControllerSecurityTest {
             var response = new CompanyResponse(
                     UUID.randomUUID(), "1", "Test", 1, "RS",
                     "XAXX010101000", "555", "e@e.com", true,
-                    LocalDateTime.now(), LocalDateTime.now()
+                    LocalDateTime.now(), LocalDateTime.now(),
+                    null, null, null, null, null, null, null, null
             );
             var page = new PageImpl<>(List.of(response), PageRequest.of(0, 12), 1);
             when(companyService.getAllCompanies(any(), eq(null))).thenReturn(page);
@@ -150,7 +153,8 @@ class CompanyControllerSecurityTest {
             var response = new CompanyResponse(
                     UUID.randomUUID(), "1", "Test", 1, "RS",
                     "XAXX010101000", "555", "e@e.com", true,
-                    LocalDateTime.now(), LocalDateTime.now()
+                    LocalDateTime.now(), LocalDateTime.now(),
+                    null, null, null, null, null, null, null, null
             );
             when(companyService.getCompanyById(any())).thenReturn(response);
 
@@ -165,7 +169,8 @@ class CompanyControllerSecurityTest {
             var response = new CompanyResponse(
                     UUID.randomUUID(), "1", "Test", 1, "RS",
                     "XAXX010101000", "555", "e@e.com", true,
-                    LocalDateTime.now(), LocalDateTime.now()
+                    LocalDateTime.now(), LocalDateTime.now(),
+                    null, null, null, null, null, null, null, null
             );
             when(companyService.getCompanyById(any())).thenReturn(response);
 
@@ -195,7 +200,8 @@ class CompanyControllerSecurityTest {
             var response = new CompanyResponse(
                     UUID.randomUUID(), "1", "Test", 1, "RS",
                     "XAXX010101000", "555", "e@e.com", true,
-                    LocalDateTime.now(), LocalDateTime.now()
+                    LocalDateTime.now(), LocalDateTime.now(),
+                    null, null, null, null, null, null, null, null
             );
             when(companyService.createCompany(any())).thenReturn(response);
 
@@ -232,7 +238,8 @@ class CompanyControllerSecurityTest {
             var response = new CompanyResponse(
                     UUID.randomUUID(), "1", "Test", 1, "RS",
                     "XAXX010101000", "555", "e@e.com", true,
-                    LocalDateTime.now(), LocalDateTime.now()
+                    LocalDateTime.now(), LocalDateTime.now(),
+                    null, null, null, null, null, null, null, null
             );
             when(companyService.createCompany(any())).thenReturn(response);
 
@@ -256,7 +263,8 @@ class CompanyControllerSecurityTest {
             var response = new CompanyResponse(
                     UUID.randomUUID(), "1", "Test", 1, "RS",
                     "XAXX010101000", "555", "e@e.com", true,
-                    LocalDateTime.now(), LocalDateTime.now()
+                    LocalDateTime.now(), LocalDateTime.now(),
+                    null, null, null, null, null, null, null, null
             );
             when(companyService.updateCompany(any(), any())).thenReturn(response);
 
@@ -273,7 +281,8 @@ class CompanyControllerSecurityTest {
             var response = new CompanyResponse(
                     UUID.randomUUID(), "1", "Test", 1, "RS",
                     "XAXX010101000", "555", "e@e.com", true,
-                    LocalDateTime.now(), LocalDateTime.now()
+                    LocalDateTime.now(), LocalDateTime.now(),
+                    null, null, null, null, null, null, null, null
             );
             when(companyService.updateCompany(any(), any())).thenReturn(response);
 
@@ -341,7 +350,8 @@ class CompanyControllerSecurityTest {
             var response = new CompanyResponse(
                     UUID.randomUUID(), "1", "Test", 1, "RS",
                     "XAXX010101000", "555", "e@e.com", true,
-                    LocalDateTime.now(), LocalDateTime.now()
+                    LocalDateTime.now(), LocalDateTime.now(),
+                    null, null, null, null, null, null, null, null
             );
             var page = new PageImpl<>(List.of(response), PageRequest.of(0, 12), 1);
             when(companyService.getAllCompanies(any(), eq(null))).thenReturn(page);
@@ -359,7 +369,8 @@ class CompanyControllerSecurityTest {
             var response = new CompanyResponse(
                     UUID.randomUUID(), "1", "Test", 1, "RS",
                     "XAXX010101000", "555", "e@e.com", true,
-                    LocalDateTime.now(), LocalDateTime.now()
+                    LocalDateTime.now(), LocalDateTime.now(),
+                    null, null, null, null, null, null, null, null
             );
             when(companyService.getCompanyById(any())).thenReturn(response);
 

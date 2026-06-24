@@ -7,6 +7,8 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
+import java.util.UUID;
+
 public record CompanyRequest(
     @NotBlank(message = "companyKey es requerido")
     @Size(max = 50, message = "companyKey no puede exceder 50 caracteres")
@@ -34,7 +36,30 @@ public record CompanyRequest(
     @Size(max = 100, message = "email no puede exceder 100 caracteres")
     String email,
 
-    Boolean enabled
+    Boolean enabled,
+
+    @Size(max = 255, message = "street no puede exceder 255 caracteres")
+    String street,
+
+    @Size(max = 20, message = "streetNumber no puede exceder 20 caracteres")
+    String streetNumber,
+
+    @Size(max = 20, message = "internalNumber no puede exceder 20 caracteres")
+    String internalNumber,
+
+    @Size(max = 255, message = "neighborhood no puede exceder 255 caracteres")
+    String neighborhood,
+
+    @Size(max = 10, message = "zipCode no puede exceder 10 caracteres")
+    String zipCode,
+
+    @Size(max = 255, message = "city no puede exceder 255 caracteres")
+    String city,
+
+    @Size(max = 255, message = "state no puede exceder 255 caracteres")
+    String state,
+
+    UUID countryId
 ) {
     public CompanyRequest {
         if (enabled == null) {
