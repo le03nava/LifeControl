@@ -49,6 +49,31 @@ describe('CompanyEdit', () => {
     };
   }
 
+  function createCompanyWithAddress(overrides: Partial<Company> = {}): Company {
+    return {
+      id: 'existing-id',
+      companyKey: 'KEY01',
+      companyName: 'Test Corp',
+      tipoPersonaId: 1,
+      razonSocial: 'Test Corp SA',
+      rfc: 'XAXX010101000',
+      email: 'corp@test.com',
+      phone: '555-0001',
+      street: 'Av. Reforma',
+      streetNumber: '222',
+      internalNumber: 'A-101',
+      neighborhood: 'Juárez',
+      zipCode: '06600',
+      city: 'CDMX',
+      state: 'CDMX',
+      countryId: 'MX',
+      enabled: true,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
+      ...overrides,
+    };
+  }
+
   beforeEach(async () => {
     companyServiceMock = {
       createCompany: vi.fn(),
@@ -150,4 +175,72 @@ describe('CompanyEdit', () => {
     });
   });
 
+  describe('address fields', () => {
+    it('should load company and populate form with address fields', () => {
+      const company = createCompanyWithAddress();
+      companyServiceMock.getCompanyById = vi.fn().mockReturnValue(of(company));
+
+      (component as any).loadCompany(company.id);
+      fixture.detectChanges();
+
+      expect(component.companyForm().controls.street.value).toBe('Av. Reforma');
+      expect(component.companyForm().controls.streetNumber.value).toBe('222');
+      expect(component.companyForm().controls.internalNumber.value).toBe('A-101');
+      expect(component.companyForm().controls.neighborhood.value).toBe('Juárez');
+      expect(component.companyForm().controls.zipCode.value).toBe('06600');
+      expect(component.companyForm().controls.city.value).toBe('CDMX');
+      expect(component.companyForm().controls.state.value).toBe('CDMX');
+      expect(component.companyForm().controls.countryId.value).toBe('MX');
+    });
+
+    it('should load company and populate address fields as null when empty', () => {
+      const company = createCompanyWithAddress({
+        street: undefined,
+        streetNumber: undefined,
+        city: undefined,
+        state: undefined,
+        countryId: undefined,
+      });
+      companyServiceMock.getCompanyById = vi.fn().mockReturnValue(of(company));
+
+      (component as any).loadCompany(company.id);
+      fixture.detectChanges();
+
+      expect(component.companyForm().controls.street.value).toBeNull();
+      expect(component.companyForm().controls.city.value).toBeNull();
+      expect(component.companyForm().controls.countryId.value).toBeNull();
+    });
+
+    it('should include address fields when saving company with address', () => {
+      const companyData = createCompanyWithAddress({ id: '' });
+      let captured: Company | undefined;
+      companyServiceMock.createCompany = vi.fn().mockImplementation((data: Company) => {
+        captured = data;
+        return of({ ...data, id: 'new-id' });
+      });
+
+      component.onSaveCompany(companyData);
+
+      expect(captured).toBeDefined();
+      expect(captured!.street).toBe('Av. Reforma');
+      expect(captured!.streetNumber).toBe('222');
+      expect(captured!.city).toBe('CDMX');
+      expect(captured!.countryId).toBe('MX');
+    });
+
+    it('should update company with address fields', () => {
+      const companyData = createCompanyWithAddress({ id: 'existing-id' });
+      let captured: Company | undefined;
+      companyServiceMock.updateCompany = vi.fn().mockImplementation((id: string, data: Company) => {
+        captured = data;
+        return of(data);
+      });
+
+      component.onSaveCompany(companyData);
+
+      expect(captured).toBeDefined();
+      expect(captured!.street).toBe('Av. Reforma');
+      expect(captured!.city).toBe('CDMX');
+    });
+  });
 });

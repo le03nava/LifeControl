@@ -121,10 +121,26 @@ export class CompaniesForm {
     if (this.formGroup().valid) {
       const raw = this.formGroup().getRawValue();
       const companyData: Company = {
-        ...raw,
+        id: raw.id,
         companyKey: raw.companyKey ?? '',
+        companyName: raw.companyName,
+        tipoPersonaId: raw.tipoPersonaId,
+        razonSocial: raw.razonSocial,
+        rfc: raw.rfc,
+        email: raw.email,
+        phone: raw.phone,
+        enabled: raw.enabled,
         createdAt: '',
         updatedAt: '',
+        // Address fields — only include non-null/non-empty values
+        ...(raw.street?.trim() ? { street: raw.street.trim() } : {}),
+        ...(raw.streetNumber?.trim() ? { streetNumber: raw.streetNumber.trim() } : {}),
+        ...(raw.internalNumber?.trim() ? { internalNumber: raw.internalNumber.trim() } : {}),
+        ...(raw.neighborhood?.trim() ? { neighborhood: raw.neighborhood.trim() } : {}),
+        ...(raw.zipCode?.trim() ? { zipCode: raw.zipCode.trim() } : {}),
+        ...(raw.city?.trim() ? { city: raw.city.trim() } : {}),
+        ...(raw.state?.trim() ? { state: raw.state.trim() } : {}),
+        ...(raw.countryId?.trim() ? { countryId: raw.countryId.trim() } : {}),
       };
       this.saveCompany.emit(companyData);
     }

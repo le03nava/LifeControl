@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { FormControl, FormGroup, Validators } from '@angular/forms';
 import { CompaniesForm } from './companies-form';
-import { CompanyControl } from '../../models/company.models';
+import { Company, CompanyControl } from '../../models/company.models';
 
 describe('CompaniesForm', () => {
   let component: CompaniesForm;
@@ -18,7 +18,14 @@ describe('CompaniesForm', () => {
       rfc: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.pattern(/^[A-ZÑ&]{3,4}\d{6}[A-Z\d]{3}$/)] }),
       email: new FormControl('', { nonNullable: true, validators: [Validators.email] }),
       phone: new FormControl('', { nonNullable: true, validators: [Validators.pattern(/^\+?\d{10,13}$/)] }),
-      address: new FormControl('', { nonNullable: true }),
+      street: new FormControl<string | null>(null, { nonNullable: false }),
+      streetNumber: new FormControl<string | null>(null, { nonNullable: false }),
+      internalNumber: new FormControl<string | null>(null, { nonNullable: false }),
+      neighborhood: new FormControl<string | null>(null, { nonNullable: false }),
+      zipCode: new FormControl<string | null>(null, { nonNullable: false }),
+      city: new FormControl<string | null>(null, { nonNullable: false }),
+      state: new FormControl<string | null>(null, { nonNullable: false }),
+      countryId: new FormControl<string | null>(null, { nonNullable: false }),
       enabled: new FormControl<boolean>(true, { nonNullable: true }),
     });
   }
@@ -81,13 +88,27 @@ describe('CompaniesForm', () => {
     expect(matIcons[1].textContent).toContain('phone');
   });
 
-  it('should leave address field unchanged (no mat-error)', () => {
-    const addressField = fixture.nativeElement.querySelector('[formControlName="address"]');
-    expect(addressField).toBeTruthy();
+  it('should render address section heading', () => {
+    const heading = fixture.nativeElement.querySelector('.address-heading');
+    expect(heading).toBeTruthy();
+    expect(heading.textContent).toContain('Dirección');
+  });
 
-    const addressForm = addressField.closest('mat-form-field');
-    const addressError = addressForm?.querySelector('mat-error');
-    expect(addressError).toBeNull();
+  it('should render all 8 address fields', () => {
+    const addressFields = ['street', 'streetNumber', 'internalNumber', 'neighborhood', 'zipCode', 'city', 'state', 'countryId'];
+    for (const field of addressFields) {
+      const el = fixture.nativeElement.querySelector(`[formControlName="${field}"]`);
+      expect(el).toBeTruthy();
+    }
+  });
+
+  it('should keep address fields optional (no required indicator)', () => {
+    const addressFields = ['street', 'streetNumber', 'internalNumber', 'neighborhood', 'zipCode', 'city', 'state', 'countryId'];
+    for (const field of addressFields) {
+      const control = component.formGroup().get(field);
+      control?.markAsTouched();
+      expect(control?.errors?.['required']).toBeUndefined();
+    }
   });
 
   describe('serverErrors', () => {
@@ -139,6 +160,60 @@ describe('CompaniesForm', () => {
 
       // Pattern validator should still fire (AB is too short)
       expect(rfcControl.errors?.['pattern']).toBeDefined();
+    });
+  });
+
+  describe('onSave — address emission', () => {
+    function fillRequiredFields(): void {
+      const fields = component.formGroup().controls;
+      fields.companyKey.setValue('KEY01');
+      fields.companyName.setValue('Test Corp');
+      fields.razonSocial.setValue('Test Corp SA');
+      fields.rfc.setValue('XAXX010101000');
+      fields.email.setValue('test@test.com');
+      fields.phone.setValue('5551234567');
+    }
+
+    it('should emit Company with address fields when filled', () => {
+      fillRequiredFields();
+      const fields = component.formGroup().controls;
+      fields.street.setValue('Av. Reforma');
+      fields.streetNumber.setValue('222');
+      fields.internalNumber.setValue('A-101');
+      fields.neighborhood.setValue('Juárez');
+      fields.zipCode.setValue('06600');
+      fields.city.setValue('CDMX');
+      fields.state.setValue('CDMX');
+      fields.countryId.setValue('MX');
+
+      let emitted: Company | undefined;
+      component.saveCompany.subscribe((c: Company) => { emitted = c; });
+
+      component.onSave();
+
+      expect(emitted).toBeDefined();
+      expect(emitted!.street).toBe('Av. Reforma');
+      expect(emitted!.streetNumber).toBe('222');
+      expect(emitted!.internalNumber).toBe('A-101');
+      expect(emitted!.neighborhood).toBe('Juárez');
+      expect(emitted!.zipCode).toBe('06600');
+      expect(emitted!.city).toBe('CDMX');
+      expect(emitted!.state).toBe('CDMX');
+      expect(emitted!.countryId).toBe('MX');
+    });
+
+    it('should emit Company without address fields when empty', () => {
+      fillRequiredFields();
+
+      let emitted: Company | undefined;
+      component.saveCompany.subscribe((c: Company) => { emitted = c; });
+
+      component.onSave();
+
+      expect(emitted).toBeDefined();
+      expect(emitted!.street).toBeUndefined();
+      expect(emitted!.city).toBeUndefined();
+      expect(emitted!.countryId).toBeUndefined();
     });
   });
 });
