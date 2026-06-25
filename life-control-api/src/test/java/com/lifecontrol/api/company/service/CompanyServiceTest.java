@@ -1,5 +1,8 @@
 package com.lifecontrol.api.company.service;
 
+import com.lifecontrol.api.common.address.dto.AddressRequest;
+import com.lifecontrol.api.common.address.dto.AddressResponse;
+import com.lifecontrol.api.common.address.model.Address;
 import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.company.dto.CompanyRequest;
 import com.lifecontrol.api.company.dto.CompanyResponse;
@@ -8,6 +11,8 @@ import com.lifecontrol.api.company.exception.CompanyNotFoundException;
 import com.lifecontrol.api.company.exception.DuplicateCompanyException;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.repository.CompanyRepository;
+import com.lifecontrol.api.country.model.Country;
+import com.lifecontrol.api.country.repository.CountryRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -55,12 +60,16 @@ class CompanyServiceTest {
     @Mock
     private CurrentUserContext currentUserContext;
 
+    @Mock
+    private CountryRepository countryRepository;
+
     @InjectMocks
     private CompanyService companyService;
 
     private Company testCompany;
     private CompanyRequest testCompanyRequest;
     private CompanyRequest testCompanyRequestWithAddress;
+    private Address testAddress;
     private UUID testCompanyId;
     private UUID testCountryId;
 
@@ -69,6 +78,17 @@ class CompanyServiceTest {
         lenient().when(currentUserContext.isAdmin()).thenReturn(true);
         testCompanyId = UUID.randomUUID();
         testCountryId = UUID.randomUUID();
+
+        testAddress = Address.builder()
+                .street("Main St")
+                .streetNumber("123")
+                .internalNumber("A")
+                .neighborhood("Downtown")
+                .zipCode("12345")
+                .city("Mexico City")
+                .state("CDMX")
+                .enabled(true)
+                .build();
 
         testCompany = Company.builder()
                 .id(testCompanyId)
@@ -101,7 +121,7 @@ class CompanyServiceTest {
                 "+1234567890",
                 "test@company.com",
                 true,
-                null, null, null, null, null, null, null, null
+                null
         );
 
         testCompanyRequestWithAddress = new CompanyRequest(
@@ -113,14 +133,16 @@ class CompanyServiceTest {
                 "+9876543210",
                 "addr@company.com",
                 true,
-                "Av. Reforma",
-                "456",
-                "B",
-                "Juarez",
-                "67890",
-                "Guadalajara",
-                "Jalisco",
-                testCountryId
+                new AddressRequest(
+                        "Av. Reforma",
+                        "456",
+                        "B",
+                        "Juarez",
+                        "67890",
+                        "Guadalajara",
+                        "Jalisco",
+                        testCountryId
+                )
         );
     }
 
@@ -301,9 +323,11 @@ class CompanyServiceTest {
             assertThat(result).isNotNull();
             assertThat(result.companyKey()).isEqualTo(testCompany.getCompanyKey());
             assertThat(result.companyName()).isEqualTo(testCompany.getCompanyName());
-            assertThat(result.street()).isEqualTo("Main St");
-            assertThat(result.city()).isEqualTo("Mexico City");
-            assertThat(result.countryId()).isEqualTo(testCountryId);
+            // Legacy inline fallback: no Address entity, reads from inline columns
+            assertThat(result.address()).isNotNull();
+            assertThat(result.address().street()).isEqualTo("Main St");
+            assertThat(result.address().city()).isEqualTo("Mexico City");
+            assertThat(result.address().countryId()).isEqualTo(testCountryId);
         }
 
         @Test
@@ -324,7 +348,7 @@ class CompanyServiceTest {
     class UpdateCompanyTests {
 
         @Test
-        @DisplayName("updateCompany - should update company successfully")
+        @DisplayName("updateCompany - should update company successfully without changing address")
         void updateCompany_Success() {
             // Arrange
             CompanyRequest updateRequest = new CompanyRequest(
@@ -336,7 +360,7 @@ class CompanyServiceTest {
                     "+9876543210",
                     "updated@company.com",
                     false,
-                    null, null, null, null, null, null, null, null
+                    null
             );
 
             when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
@@ -353,9 +377,11 @@ class CompanyServiceTest {
             assertThat(result.razonSocial()).isEqualTo("Nueva Razon Social SA de CV");
             assertThat(result.email()).isEqualTo("updated@company.com");
             assertThat(result.enabled()).isFalse();
-            // Address fields should remain unchanged (null in request)
-            assertThat(result.street()).isNull();
-            assertThat(result.countryId()).isNull();
+            // Address should remain unchanged (null in request = leave as-is)
+            // testCompany has inline address data, so fallback returns it
+            assertThat(result.address()).isNotNull();
+            assertThat(result.address().street()).isEqualTo("Main St");
+            assertThat(result.address().countryId()).isEqualTo(testCountryId);
             verify(companyRepository).save(any(Company.class));
         }
 
@@ -372,18 +398,28 @@ class CompanyServiceTest {
                     null,
                     null,
                     null,
-                    "Calle Nueva",
-                    "999",
-                    "1",
-                    "Col Nueva",
-                    "54321",
-                    "Monterrey",
-                    "Nuevo Leon",
-                    testCountryId
+                    new AddressRequest(
+                            "Calle Nueva",
+                            "999",
+                            "1",
+                            "Col Nueva",
+                            "54321",
+                            "Monterrey",
+                            "Nuevo Leon",
+                            testCountryId
+                    )
             );
+
+            var country = Country.builder()
+                    .id(testCountryId)
+                    .countryCode("MX")
+                    .countryName("Mexico")
+                    .enabled(true)
+                    .build();
 
             when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
             when(companyRepository.existsByRfcAndIdNot(any(), eq(testCompanyId))).thenReturn(false);
+            when(countryRepository.findById(testCountryId)).thenReturn(Optional.of(country));
             when(companyRepository.save(any(Company.class))).thenAnswer(inv -> inv.getArgument(0));
 
             // Act
@@ -391,14 +427,15 @@ class CompanyServiceTest {
 
             // Assert
             assertThat(result).isNotNull();
-            assertThat(result.street()).isEqualTo("Calle Nueva");
-            assertThat(result.streetNumber()).isEqualTo("999");
-            assertThat(result.internalNumber()).isEqualTo("1");
-            assertThat(result.neighborhood()).isEqualTo("Col Nueva");
-            assertThat(result.zipCode()).isEqualTo("54321");
-            assertThat(result.city()).isEqualTo("Monterrey");
-            assertThat(result.state()).isEqualTo("Nuevo Leon");
-            assertThat(result.countryId()).isEqualTo(testCountryId);
+            assertThat(result.address()).isNotNull();
+            assertThat(result.address().street()).isEqualTo("Calle Nueva");
+            assertThat(result.address().streetNumber()).isEqualTo("999");
+            assertThat(result.address().internalNumber()).isEqualTo("1");
+            assertThat(result.address().neighborhood()).isEqualTo("Col Nueva");
+            assertThat(result.address().zipCode()).isEqualTo("54321");
+            assertThat(result.address().city()).isEqualTo("Monterrey");
+            assertThat(result.address().state()).isEqualTo("Nuevo Leon");
+            assertThat(result.address().countryId()).isEqualTo(testCountryId);
             verify(companyRepository).save(any(Company.class));
         }
 
@@ -428,7 +465,7 @@ class CompanyServiceTest {
                     null,
                     null,
                     null,
-                    null, null, null, null, null, null, null, null
+                    null
             );
 
             when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
@@ -453,7 +490,7 @@ class CompanyServiceTest {
                     null,
                     null,
                     null,
-                    null, null, null, null, null, null, null, null
+                    null
             );
 
             when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
@@ -483,7 +520,7 @@ class CompanyServiceTest {
                     null,
                     null,
                     null,
-                    null, null, null, null, null, null, null, null
+                    null
             );
 
             when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
@@ -574,45 +611,45 @@ class CompanyServiceTest {
         @DisplayName("should map address fields when creating company with address")
         void shouldMapAddressFields() {
             // Arrange
-            var companyWithAddress = Company.builder()
-                    .id(UUID.randomUUID())
-                    .companyKey("2")
-                    .companyName("Company With Address")
-                    .tipoPersonaId(1)
-                    .razonSocial("Addr S.A. de CV")
-                    .rfc("XAXX010101001")
-                    .phone("+9876543210")
-                    .email("addr@company.com")
-                    .enabled(true)
-                    .street("Av. Reforma")
-                    .streetNumber("456")
-                    .internalNumber("B")
-                    .neighborhood("Juarez")
-                    .zipCode("67890")
-                    .city("Guadalajara")
-                    .state("Jalisco")
-                    .countryId(testCountryId)
-                    .createdAt(LocalDateTime.now())
-                    .updatedAt(LocalDateTime.now())
-                    .build();
+            var requestWithAddress = new CompanyRequest(
+                    "2",
+                    "Company With Address",
+                    1,
+                    "Addr S.A. de CV",
+                    "XAXX010101001",
+                    "+9876543210",
+                    "addr@company.com",
+                    true,
+                    new AddressRequest(
+                            "Av. Reforma",
+                            "456",
+                            "B",
+                            "Juarez",
+                            "67890",
+                            "Guadalajara",
+                            "Jalisco",
+                            null
+                    )
+            );
 
             when(companyRepository.existsByCompanyKey(any())).thenReturn(false);
             when(companyRepository.existsByRfc(any())).thenReturn(false);
-            when(companyRepository.save(any(Company.class))).thenReturn(companyWithAddress);
+            when(companyRepository.save(any(Company.class))).thenAnswer(inv -> inv.getArgument(0));
 
             // Act
-            CompanyResponse result = companyService.createCompany(testCompanyRequestWithAddress);
+            CompanyResponse result = companyService.createCompany(requestWithAddress);
 
             // Assert
             assertThat(result).isNotNull();
-            assertThat(result.street()).isEqualTo("Av. Reforma");
-            assertThat(result.streetNumber()).isEqualTo("456");
-            assertThat(result.internalNumber()).isEqualTo("B");
-            assertThat(result.neighborhood()).isEqualTo("Juarez");
-            assertThat(result.zipCode()).isEqualTo("67890");
-            assertThat(result.city()).isEqualTo("Guadalajara");
-            assertThat(result.state()).isEqualTo("Jalisco");
-            assertThat(result.countryId()).isEqualTo(testCountryId);
+            assertThat(result.address()).isNotNull();
+            assertThat(result.address().street()).isEqualTo("Av. Reforma");
+            assertThat(result.address().streetNumber()).isEqualTo("456");
+            assertThat(result.address().internalNumber()).isEqualTo("B");
+            assertThat(result.address().neighborhood()).isEqualTo("Juarez");
+            assertThat(result.address().zipCode()).isEqualTo("67890");
+            assertThat(result.address().city()).isEqualTo("Guadalajara");
+            assertThat(result.address().state()).isEqualTo("Jalisco");
+            assertThat(result.address().countryId()).isNull();
         }
 
         @Test
@@ -642,7 +679,7 @@ class CompanyServiceTest {
                     "+1111111111",
                     "noaddr@company.com",
                     true,
-                    null, null, null, null, null, null, null, null
+                    null
             );
 
             when(companyRepository.existsByCompanyKey(any())).thenReturn(false);
@@ -654,14 +691,7 @@ class CompanyServiceTest {
 
             // Assert
             assertThat(result).isNotNull();
-            assertThat(result.street()).isNull();
-            assertThat(result.streetNumber()).isNull();
-            assertThat(result.internalNumber()).isNull();
-            assertThat(result.neighborhood()).isNull();
-            assertThat(result.zipCode()).isNull();
-            assertThat(result.city()).isNull();
-            assertThat(result.state()).isNull();
-            assertThat(result.countryId()).isNull();
+            assertThat(result.address()).isNull();
         }
     }
 }

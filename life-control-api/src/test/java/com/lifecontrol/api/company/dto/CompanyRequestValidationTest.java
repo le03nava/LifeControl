@@ -1,5 +1,6 @@
 package com.lifecontrol.api.company.dto;
 
+import com.lifecontrol.api.common.address.dto.AddressRequest;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
@@ -38,7 +39,7 @@ class CompanyRequestValidationTest {
             var request = new CompanyRequest(
                     "1", "Test Company", 1, "Test S.A.",
                     "GOML850101XXX", "555-1234", "test@test.com", true,
-                    null, null, null, null, null, null, null, null
+                    null
             );
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
             assertThat(violations).isEmpty();
@@ -50,7 +51,7 @@ class CompanyRequestValidationTest {
             var request = new CompanyRequest(
                     "1", "Test Company", 2, "Test S.A.",
                     "ABC850101XXX", "555-1234", "test@test.com", true,
-                    null, null, null, null, null, null, null, null
+                    null
             );
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
             assertThat(violations).isEmpty();
@@ -62,7 +63,7 @@ class CompanyRequestValidationTest {
             var request = new CompanyRequest(
                     "1", "Test Company", 1, "Test S.A.",
                     "INVALID123", "555-1234", "test@test.com", true,
-                    null, null, null, null, null, null, null, null
+                    null
             );
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
@@ -76,7 +77,7 @@ class CompanyRequestValidationTest {
             var request = new CompanyRequest(
                     "1", "Test Company", 1, "Test S.A.",
                     "", "555-1234", "test@test.com", true,
-                    null, null, null, null, null, null, null, null
+                    null
             );
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
@@ -96,7 +97,7 @@ class CompanyRequestValidationTest {
             var request = new CompanyRequest(
                     "1", "Test Company", tipoPersonaId, "Test S.A.",
                     "GOML850101XXX", "555-1234", "test@test.com", true,
-                    null, null, null, null, null, null, null, null
+                    null
             );
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
             assertThat(violations).isEmpty();
@@ -108,7 +109,7 @@ class CompanyRequestValidationTest {
             var request = new CompanyRequest(
                     "1", "Test Company", 0, "Test S.A.",
                     "GOML850101XXX", "555-1234", "test@test.com", true,
-                    null, null, null, null, null, null, null, null
+                    null
             );
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
@@ -122,7 +123,7 @@ class CompanyRequestValidationTest {
             var request = new CompanyRequest(
                     "1", "Test Company", 7, "Test S.A.",
                     "GOML850101XXX", "555-1234", "test@test.com", true,
-                    null, null, null, null, null, null, null, null
+                    null
             );
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
@@ -136,7 +137,7 @@ class CompanyRequestValidationTest {
             var request = new CompanyRequest(
                     "1", "Test Company", -1, "Test S.A.",
                     "GOML850101XXX", "555-1234", "test@test.com", true,
-                    null, null, null, null, null, null, null, null
+                    null
             );
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
@@ -155,7 +156,7 @@ class CompanyRequestValidationTest {
             var request = new CompanyRequest(
                     "1", "", 1, "Test S.A.",
                     "GOML850101XXX", "555-1234", "test@test.com", true,
-                    null, null, null, null, null, null, null, null
+                    null
             );
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
@@ -169,7 +170,7 @@ class CompanyRequestValidationTest {
         var request = new CompanyRequest(
                 null, "Test Company", 1, "Test S.A.",
                 "GOML850101XXX", "555-1234", "test@test.com", true,
-                null, null, null, null, null, null, null, null
+                null
         );
         Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
         assertThat(violations).isNotEmpty();
@@ -183,7 +184,7 @@ class CompanyRequestValidationTest {
             var request = new CompanyRequest(
                     "1", "Test Company", 1, "Test S.A.",
                     "GOML850101XXX", "555-1234", "not-an-email", true,
-                    null, null, null, null, null, null, null, null
+                    null
             );
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
@@ -193,83 +194,16 @@ class CompanyRequestValidationTest {
     }
 
     @Nested
-    @DisplayName("Address field validation")
+    @DisplayName("Address field validation — delegated to AddressRequest")
     class AddressFieldValidationTests {
 
         @Test
-        @DisplayName("should pass validation when address fields are null")
-        void nullAddressFields_NoViolations() {
+        @DisplayName("should pass validation when address is null")
+        void nullAddress_NoViolations() {
             var request = new CompanyRequest(
                     "1", "Test Company", 1, "Test S.A.",
                     "GOML850101XXX", "555-1234", "test@test.com", true,
-                    null, null, null, null, null, null, null, null
-            );
-            Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
-            assertThat(violations).isEmpty();
-        }
-
-        @Test
-        @DisplayName("should pass validation when address fields have valid values")
-        void validAddressFields_NoViolations() {
-            var request = new CompanyRequest(
-                    "1", "Test Company", 1, "Test S.A.",
-                    "GOML850101XXX", "555-1234", "test@test.com", true,
-                    "Calle Principal", "123", "A", "Centro",
-                    "12345", "Ciudad de Mexico", "CDMX", UUID.randomUUID()
-            );
-            Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
-            assertThat(violations).isEmpty();
-        }
-
-        @Test
-        @DisplayName("should fail validation when street exceeds 255 characters")
-        void streetTooLong_HasViolation() {
-            var request = new CompanyRequest(
-                    "1", "Test Company", 1, "Test S.A.",
-                    "GOML850101XXX", "555-1234", "test@test.com", true,
-                    "A".repeat(256), null, null, null, null, null, null, null
-            );
-            Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
-            assertThat(violations).isNotEmpty();
-            assertThat(violations)
-                    .anyMatch(v -> v.getPropertyPath().toString().equals("street"));
-        }
-
-        @Test
-        @DisplayName("should fail validation when streetNumber exceeds 20 characters")
-        void streetNumberTooLong_HasViolation() {
-            var request = new CompanyRequest(
-                    "1", "Test Company", 1, "Test S.A.",
-                    "GOML850101XXX", "555-1234", "test@test.com", true,
-                    null, "B".repeat(21), null, null, null, null, null, null
-            );
-            Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
-            assertThat(violations).isNotEmpty();
-            assertThat(violations)
-                    .anyMatch(v -> v.getPropertyPath().toString().equals("streetNumber"));
-        }
-
-        @Test
-        @DisplayName("should fail validation when zipCode exceeds 10 characters")
-        void zipCodeTooLong_HasViolation() {
-            var request = new CompanyRequest(
-                    "1", "Test Company", 1, "Test S.A.",
-                    "GOML850101XXX", "555-1234", "test@test.com", true,
-                    null, null, null, null, "12345678901", null, null, null
-            );
-            Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
-            assertThat(violations).isNotEmpty();
-            assertThat(violations)
-                    .anyMatch(v -> v.getPropertyPath().toString().equals("zipCode"));
-        }
-
-        @Test
-        @DisplayName("should pass validation when countryId is null")
-        void nullCountryId_NoViolations() {
-            var request = new CompanyRequest(
-                    "1", "Test Company", 1, "Test S.A.",
-                    "GOML850101XXX", "555-1234", "test@test.com", true,
-                    "Street", "123", null, "Colonia", "12345", "City", "State", null
+                    null
             );
             Set<ConstraintViolation<CompanyRequest>> violations = validator.validate(request);
             assertThat(violations).isEmpty();

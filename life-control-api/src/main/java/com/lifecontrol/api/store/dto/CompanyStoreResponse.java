@@ -1,5 +1,7 @@
 package com.lifecontrol.api.store.dto;
 
+import com.lifecontrol.api.common.address.dto.AddressResponse;
+
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -12,16 +14,7 @@ public record CompanyStoreResponse(
     String storeName,
     String email,
     String phoneNumber,
-    // Address fields (flattened)
-    UUID addressId,
-    String street,
-    String streetNumber,
-    String internalNumber,
-    String neighborhood,
-    String zipCode,
-    String city,
-    String state,
-    UUID countryId,
+    AddressResponse address,
     Boolean enabled,
     LocalDateTime createdAt,
     LocalDateTime updatedAt
