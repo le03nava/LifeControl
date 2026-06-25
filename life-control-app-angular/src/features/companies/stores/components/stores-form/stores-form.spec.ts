@@ -47,14 +47,16 @@ describe('StoresForm', () => {
     storeName: 'Tienda Central',
     email: 'central@store.com',
     phoneNumber: '+525512345678',
-    street: 'Av. Reforma',
-    streetNumber: '222',
-    internalNumber: 'A-101',
-    neighborhood: 'Juárez',
-    zipCode: '06600',
-    city: 'CDMX',
-    state: 'CDMX',
-    countryId: 'MX',
+    address: {
+      street: 'Av. Reforma',
+      streetNumber: '222',
+      internalNumber: 'A-101',
+      neighborhood: 'Juárez',
+      zipCode: '06600',
+      city: 'CDMX',
+      state: 'CDMX',
+      countryId: 'MX',
+    },
     enabled: true,
     createdAt: '',
     updatedAt: '',
@@ -85,7 +87,7 @@ describe('StoresForm', () => {
 
     it('should render company, country, region, zone, and address country selectors', () => {
       const selects = fixture.nativeElement.querySelectorAll('mat-select');
-      expect(selects.length).toBe(5);
+      expect(selects.length).toBe(4);
     });
 
     it('should render storeName field', () => {
@@ -100,12 +102,9 @@ describe('StoresForm', () => {
       expect(phoneInput).toBeTruthy();
     });
 
-    it('should render address fields', () => {
-      const fields = ['street', 'streetNumber', 'internalNumber', 'neighborhood', 'zipCode', 'city', 'state', 'countryId'];
-      for (const field of fields) {
-        const el = fixture.nativeElement.querySelector(`[formControlName="${field}"]`);
-        expect(el).toBeTruthy();
-      }
+    it('should render address-form component', () => {
+      const addressForm = fixture.nativeElement.querySelector('app-address-form');
+      expect(addressForm).toBeTruthy();
     });
 
     it('should render slide-toggle for enabled', () => {
@@ -258,8 +257,8 @@ describe('StoresForm', () => {
       expect(component.formGroup.controls.storeName.value).toBe('Tienda Central');
       expect(component.formGroup.controls.email.value).toBe('central@store.com');
       expect(component.formGroup.controls.phoneNumber.value).toBe('+525512345678');
-      expect(component.formGroup.controls.street.value).toBe('Av. Reforma');
-      expect(component.formGroup.controls.streetNumber.value).toBe('222');
+      expect(component.formGroup.controls.address.get('street')?.value).toBe('Av. Reforma');
+      expect(component.formGroup.controls.address.get('streetNumber')?.value).toBe('222');
       expect(component.formGroup.controls.enabled.value).toBe(true);
     });
 
@@ -365,10 +364,12 @@ describe('StoresForm', () => {
         storeName: 'Mi Tienda',
         email: 'tienda@store.com',
         phoneNumber: '+525511223344',
-        street: 'Calle Principal',
-        streetNumber: '123',
-        city: 'Monterrey',
-        state: 'NL',
+        address: {
+          street: 'Calle Principal',
+          streetNumber: '123',
+          city: 'Monterrey',
+          state: 'NL',
+        },
       });
 
       let emitted: StoreSaveEvent | undefined;
