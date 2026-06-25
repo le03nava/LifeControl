@@ -80,7 +80,7 @@ class CompanyStoreControllerSecurityTest {
         return new CompanyStoreResponse(
                 storeId, companyId, companyCountryId, regionId, zoneId,
                 "Tienda Test", "tienda@test.com", "555-0001",
-                null, null, null, null, null, null, null, null, null,
+                null,
                 true, LocalDateTime.now(), LocalDateTime.now()
         );
     }
@@ -317,8 +317,7 @@ class CompanyStoreControllerSecurityTest {
         @WithMockUser(roles = {"life-control-admin"})
         @DisplayName("returns 201 Created for admin")
         void adminCanCreateStore() throws Exception {
-            var request = new CreateCompanyStoreRequest("Nueva Tienda", "nueva@test.com", "555-0002",
-                    null, null, null, null, null, null, null, null);
+            var request = new CreateCompanyStoreRequest("Nueva Tienda", "nueva@test.com", "555-0002", null);
             when(companyStoreService.createStore(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId), any(CreateCompanyStoreRequest.class)))
                     .thenReturn(buildStoreResponse());
 
@@ -332,8 +331,7 @@ class CompanyStoreControllerSecurityTest {
         @WithMockUser(roles = {"life-control-country"})
         @DisplayName("returns 201 Created for country-role")
         void countryRoleCanCreateStore() throws Exception {
-            var request = new CreateCompanyStoreRequest("Nueva Tienda", "nueva@test.com", "555-0002",
-                    null, null, null, null, null, null, null, null);
+            var request = new CreateCompanyStoreRequest("Nueva Tienda", "nueva@test.com", "555-0002", null);
             when(companyStoreService.createStore(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId), any(CreateCompanyStoreRequest.class)))
                     .thenReturn(buildStoreResponse());
 
@@ -347,8 +345,7 @@ class CompanyStoreControllerSecurityTest {
         @WithMockUser
         @DisplayName("returns 403 for user with no roles")
         void userWithNoRolesGetsForbidden() throws Exception {
-            var request = new CreateCompanyStoreRequest("Nueva Tienda", "nueva@test.com", "555-0002",
-                    null, null, null, null, null, null, null, null);
+            var request = new CreateCompanyStoreRequest("Nueva Tienda", "nueva@test.com", "555-0002", null);
             mockMvc.perform(post(BASE_URL, companyId, companyCountryId, regionId, zoneId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request)))
@@ -359,8 +356,7 @@ class CompanyStoreControllerSecurityTest {
         @WithMockUser(roles = {"other-role"})
         @DisplayName("returns 403 for user with wrong role")
         void userWithWrongRoleGetsForbidden() throws Exception {
-            var request = new CreateCompanyStoreRequest("Nueva Tienda", "nueva@test.com", "555-0002",
-                    null, null, null, null, null, null, null, null);
+            var request = new CreateCompanyStoreRequest("Nueva Tienda", "nueva@test.com", "555-0002", null);
             mockMvc.perform(post(BASE_URL, companyId, companyCountryId, regionId, zoneId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request)))
@@ -371,8 +367,7 @@ class CompanyStoreControllerSecurityTest {
         @WithMockUser(roles = {"lc-admin"})
         @DisplayName("returns 201 Created for lc-admin")
         void lcAdminCanCreateStore() throws Exception {
-            var request = new CreateCompanyStoreRequest("Nueva Tienda", "nueva@test.com", "555-0002",
-                    null, null, null, null, null, null, null, null);
+            var request = new CreateCompanyStoreRequest("Nueva Tienda", "nueva@test.com", "555-0002", null);
             when(companyStoreService.createStore(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId), any(CreateCompanyStoreRequest.class)))
                     .thenReturn(buildStoreResponse());
 
@@ -386,8 +381,7 @@ class CompanyStoreControllerSecurityTest {
         @WithMockUser(roles = {"lc-company"})
         @DisplayName("returns 201 Created for lc-company")
         void lcCompanyCanCreateStore() throws Exception {
-            var request = new CreateCompanyStoreRequest("Nueva Tienda", "nueva@test.com", "555-0002",
-                    null, null, null, null, null, null, null, null);
+            var request = new CreateCompanyStoreRequest("Nueva Tienda", "nueva@test.com", "555-0002", null);
             when(companyStoreService.createStore(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId), any(CreateCompanyStoreRequest.class)))
                     .thenReturn(buildStoreResponse());
 
@@ -401,8 +395,7 @@ class CompanyStoreControllerSecurityTest {
         @WithMockUser(roles = {"lc-company-country"})
         @DisplayName("returns 201 Created for lc-company-country")
         void lcCompanyCountryCanCreateStore() throws Exception {
-            var request = new CreateCompanyStoreRequest("Nueva Tienda", "nueva@test.com", "555-0002",
-                    null, null, null, null, null, null, null, null);
+            var request = new CreateCompanyStoreRequest("Nueva Tienda", "nueva@test.com", "555-0002", null);
             when(companyStoreService.createStore(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId), any(CreateCompanyStoreRequest.class)))
                     .thenReturn(buildStoreResponse());
 
@@ -416,8 +409,7 @@ class CompanyStoreControllerSecurityTest {
         @WithMockUser(roles = {"lc-company-region"})
         @DisplayName("returns 201 Created for lc-company-region")
         void lcCompanyRegionCanCreateStore() throws Exception {
-            var request = new CreateCompanyStoreRequest("Nueva Tienda", "nueva@test.com", "555-0002",
-                    null, null, null, null, null, null, null, null);
+            var request = new CreateCompanyStoreRequest("Nueva Tienda", "nueva@test.com", "555-0002", null);
             when(companyStoreService.createStore(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId), any(CreateCompanyStoreRequest.class)))
                     .thenReturn(buildStoreResponse());
 
@@ -431,8 +423,7 @@ class CompanyStoreControllerSecurityTest {
         @WithMockUser(roles = {"lc-company-zone"})
         @DisplayName("returns 201 Created for lc-company-zone")
         void lcCompanyZoneCanCreateStore() throws Exception {
-            var request = new CreateCompanyStoreRequest("Nueva Tienda", "nueva@test.com", "555-0002",
-                    null, null, null, null, null, null, null, null);
+            var request = new CreateCompanyStoreRequest("Nueva Tienda", "nueva@test.com", "555-0002", null);
             when(companyStoreService.createStore(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId), any(CreateCompanyStoreRequest.class)))
                     .thenReturn(buildStoreResponse());
 
@@ -446,8 +437,7 @@ class CompanyStoreControllerSecurityTest {
         @WithMockUser(roles = {"lc-company-store"})
         @DisplayName("returns 403 for lc-company-store (create denied at service level)")
         void lcCompanyStoreCreateDenied() throws Exception {
-            var request = new CreateCompanyStoreRequest("Nueva Tienda", "nueva@test.com", "555-0002",
-                    null, null, null, null, null, null, null, null);
+            var request = new CreateCompanyStoreRequest("Nueva Tienda", "nueva@test.com", "555-0002", null);
             when(companyStoreService.createStore(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId), any(CreateCompanyStoreRequest.class)))
                     .thenThrow(new AccessDeniedException("Store-scoped users cannot create stores"));
 
@@ -468,8 +458,7 @@ class CompanyStoreControllerSecurityTest {
         @WithMockUser(roles = {"life-control-admin"})
         @DisplayName("returns 200 OK for admin")
         void adminCanUpdateStore() throws Exception {
-            var request = new UpdateCompanyStoreRequest("Tienda Updated", "updated@test.com", "555-0003",
-                    null, null, null, null, null, null, null, null);
+            var request = new UpdateCompanyStoreRequest("Tienda Updated", "updated@test.com", "555-0003", null);
             when(companyStoreService.updateStore(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId), eq(storeId),
                     any(UpdateCompanyStoreRequest.class)))
                     .thenReturn(buildStoreResponse());
@@ -484,8 +473,7 @@ class CompanyStoreControllerSecurityTest {
         @WithMockUser(roles = {"life-control-country"})
         @DisplayName("returns 200 OK for country-role")
         void countryRoleCanUpdateStore() throws Exception {
-            var request = new UpdateCompanyStoreRequest("Tienda Updated", "updated@test.com", "555-0003",
-                    null, null, null, null, null, null, null, null);
+            var request = new UpdateCompanyStoreRequest("Tienda Updated", "updated@test.com", "555-0003", null);
             when(companyStoreService.updateStore(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId), eq(storeId),
                     any(UpdateCompanyStoreRequest.class)))
                     .thenReturn(buildStoreResponse());
@@ -500,8 +488,7 @@ class CompanyStoreControllerSecurityTest {
         @WithMockUser
         @DisplayName("returns 403 for user with no roles")
         void userWithNoRolesGetsForbidden() throws Exception {
-            var request = new UpdateCompanyStoreRequest("Tienda Updated", "updated@test.com", "555-0003",
-                    null, null, null, null, null, null, null, null);
+            var request = new UpdateCompanyStoreRequest("Tienda Updated", "updated@test.com", "555-0003", null);
             mockMvc.perform(put(BASE_URL + "/{id}", companyId, companyCountryId, regionId, zoneId, storeId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request)))
@@ -512,8 +499,7 @@ class CompanyStoreControllerSecurityTest {
         @WithMockUser(roles = {"other-role"})
         @DisplayName("returns 403 for user with wrong role")
         void userWithWrongRoleGetsForbidden() throws Exception {
-            var request = new UpdateCompanyStoreRequest("Tienda Updated", "updated@test.com", "555-0003",
-                    null, null, null, null, null, null, null, null);
+            var request = new UpdateCompanyStoreRequest("Tienda Updated", "updated@test.com", "555-0003", null);
             mockMvc.perform(put(BASE_URL + "/{id}", companyId, companyCountryId, regionId, zoneId, storeId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request)))
@@ -524,8 +510,7 @@ class CompanyStoreControllerSecurityTest {
         @WithMockUser(roles = {"lc-admin"})
         @DisplayName("returns 200 OK for lc-admin")
         void lcAdminCanUpdateStore() throws Exception {
-            var request = new UpdateCompanyStoreRequest("Tienda Updated", "updated@test.com", "555-0003",
-                    null, null, null, null, null, null, null, null);
+            var request = new UpdateCompanyStoreRequest("Tienda Updated", "updated@test.com", "555-0003", null);
             when(companyStoreService.updateStore(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId), eq(storeId),
                     any(UpdateCompanyStoreRequest.class)))
                     .thenReturn(buildStoreResponse());
@@ -540,8 +525,7 @@ class CompanyStoreControllerSecurityTest {
         @WithMockUser(roles = {"lc-company"})
         @DisplayName("returns 200 OK for lc-company")
         void lcCompanyCanUpdateStore() throws Exception {
-            var request = new UpdateCompanyStoreRequest("Tienda Updated", "updated@test.com", "555-0003",
-                    null, null, null, null, null, null, null, null);
+            var request = new UpdateCompanyStoreRequest("Tienda Updated", "updated@test.com", "555-0003", null);
             when(companyStoreService.updateStore(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId), eq(storeId),
                     any(UpdateCompanyStoreRequest.class)))
                     .thenReturn(buildStoreResponse());
@@ -556,8 +540,7 @@ class CompanyStoreControllerSecurityTest {
         @WithMockUser(roles = {"lc-company-country"})
         @DisplayName("returns 200 OK for lc-company-country")
         void lcCompanyCountryCanUpdateStore() throws Exception {
-            var request = new UpdateCompanyStoreRequest("Tienda Updated", "updated@test.com", "555-0003",
-                    null, null, null, null, null, null, null, null);
+            var request = new UpdateCompanyStoreRequest("Tienda Updated", "updated@test.com", "555-0003", null);
             when(companyStoreService.updateStore(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId), eq(storeId),
                     any(UpdateCompanyStoreRequest.class)))
                     .thenReturn(buildStoreResponse());
@@ -572,8 +555,7 @@ class CompanyStoreControllerSecurityTest {
         @WithMockUser(roles = {"lc-company-region"})
         @DisplayName("returns 200 OK for lc-company-region")
         void lcCompanyRegionCanUpdateStore() throws Exception {
-            var request = new UpdateCompanyStoreRequest("Tienda Updated", "updated@test.com", "555-0003",
-                    null, null, null, null, null, null, null, null);
+            var request = new UpdateCompanyStoreRequest("Tienda Updated", "updated@test.com", "555-0003", null);
             when(companyStoreService.updateStore(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId), eq(storeId),
                     any(UpdateCompanyStoreRequest.class)))
                     .thenReturn(buildStoreResponse());
@@ -588,8 +570,7 @@ class CompanyStoreControllerSecurityTest {
         @WithMockUser(roles = {"lc-company-zone"})
         @DisplayName("returns 200 OK for lc-company-zone")
         void lcCompanyZoneCanUpdateStore() throws Exception {
-            var request = new UpdateCompanyStoreRequest("Tienda Updated", "updated@test.com", "555-0003",
-                    null, null, null, null, null, null, null, null);
+            var request = new UpdateCompanyStoreRequest("Tienda Updated", "updated@test.com", "555-0003", null);
             when(companyStoreService.updateStore(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId), eq(storeId),
                     any(UpdateCompanyStoreRequest.class)))
                     .thenReturn(buildStoreResponse());
@@ -604,8 +585,7 @@ class CompanyStoreControllerSecurityTest {
         @WithMockUser(roles = {"lc-company-store"})
         @DisplayName("returns 200 OK for lc-company-store")
         void lcCompanyStoreCanUpdateStore() throws Exception {
-            var request = new UpdateCompanyStoreRequest("Tienda Updated", "updated@test.com", "555-0003",
-                    null, null, null, null, null, null, null, null);
+            var request = new UpdateCompanyStoreRequest("Tienda Updated", "updated@test.com", "555-0003", null);
             when(companyStoreService.updateStore(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId), eq(storeId),
                     any(UpdateCompanyStoreRequest.class)))
                     .thenReturn(buildStoreResponse());

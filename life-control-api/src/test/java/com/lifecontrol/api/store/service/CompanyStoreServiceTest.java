@@ -1,5 +1,8 @@
 package com.lifecontrol.api.store.service;
 
+import com.lifecontrol.api.common.address.dto.AddressRequest;
+import com.lifecontrol.api.common.address.dto.AddressResponse;
+import com.lifecontrol.api.common.address.model.Address;
 import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.company.exception.CompanyCountryNotFoundException;
 import com.lifecontrol.api.company.exception.CompanyNotFoundException;
@@ -22,7 +25,6 @@ import com.lifecontrol.api.store.event.CompanyStoreCreatedEvent;
 import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.exception.DuplicateCompanyStoreException;
 import com.lifecontrol.api.store.model.CompanyStore;
-import com.lifecontrol.api.store.model.CompanyStoreAddress;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.context.ApplicationEventPublisher;
@@ -83,7 +85,7 @@ class CompanyStoreServiceTest {
     private CompanyRegion testRegion;
     private CompanyZone testZone;
     private CompanyStore testStore;
-    private CompanyStoreAddress testAddress;
+    private Address testAddress;
     private CreateCompanyStoreRequest createWithAddressRequest;
     private CreateCompanyStoreRequest createWithoutAddressRequest;
     private UpdateCompanyStoreRequest updateRequest;
@@ -137,7 +139,7 @@ class CompanyStoreServiceTest {
                 .enabled(true)
                 .build();
 
-        testAddress = CompanyStoreAddress.builder()
+        testAddress = Address.builder()
                 .id(addressId)
                 .street("Calle Principal")
                 .streetNumber("123")
@@ -161,18 +163,17 @@ class CompanyStoreServiceTest {
 
         createWithAddressRequest = new CreateCompanyStoreRequest(
                 "Tienda Nueva", "nueva@example.com", "555-5678",
-                "Otra Calle", "456", "A", "Colonia Nueva", "67890",
-                "Monterrey", "NL", testCountry.getId());
+                new AddressRequest("Otra Calle", "456", "A", "Colonia Nueva", "67890",
+                        "Monterrey", "NL", testCountry.getId()));
 
         createWithoutAddressRequest = new CreateCompanyStoreRequest(
                 "Tienda Nueva", "nueva@example.com", "555-5678",
-                null, null, null, null, null,
-                null, null, null);
+                null);
 
         updateRequest = new UpdateCompanyStoreRequest(
                 "Tienda Actualizada", "actualizada@example.com", "555-9999",
-                "Calle Nueva", "789", null, "Col Nueva", "54321",
-                "Guadalajara", "JAL", testCountry.getId());
+                new AddressRequest("Calle Nueva", "789", null, "Col Nueva", "54321",
+                        "Guadalajara", "JAL", testCountry.getId()));
     }
 
     private void mockZoneResolution() {
@@ -352,6 +353,8 @@ class CompanyStoreServiceTest {
             assertThat(result.companyCountryId()).isEqualTo(companyCountryId);
             assertThat(result.regionId()).isEqualTo(regionId);
             assertThat(result.zoneId()).isEqualTo(zoneId);
+            assertThat(result.address()).isNotNull();
+            assertThat(result.address().street()).isEqualTo("Calle Principal");
         }
 
         @Test
@@ -381,7 +384,7 @@ class CompanyStoreServiceTest {
             when(companyStoreRepository.existsByStoreNameAndCompanyZoneId(
                     createWithAddressRequest.storeName(), zoneId))
                     .thenReturn(false);
-            when(countryRepository.findById(createWithAddressRequest.countryId()))
+            when(countryRepository.findById(createWithAddressRequest.address().countryId()))
                     .thenReturn(Optional.of(testCountry));
             when(companyStoreRepository.save(any(CompanyStore.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -394,15 +397,16 @@ class CompanyStoreServiceTest {
             assertThat(result.storeName()).isEqualTo("Tienda Nueva");
             assertThat(result.email()).isEqualTo("nueva@example.com");
             assertThat(result.phoneNumber()).isEqualTo("555-5678");
-            assertThat(result.street()).isEqualTo("Otra Calle");
-            assertThat(result.streetNumber()).isEqualTo("456");
+            assertThat(result.address()).isNotNull();
+            assertThat(result.address().street()).isEqualTo("Otra Calle");
+            assertThat(result.address().streetNumber()).isEqualTo("456");
             assertThat(result.enabled()).isTrue();
             verify(companyStoreRepository).save(any(CompanyStore.class));
             verify(eventPublisher).publishEvent(any(CompanyStoreCreatedEvent.class));
         }
 
         @Test
-        @DisplayName("should create store without address when address fields are null")
+        @DisplayName("should create store without address when address is null")
         void createStore_WithoutAddress_Success() {
             // Arrange
             mockZoneResolution();
@@ -418,8 +422,7 @@ class CompanyStoreServiceTest {
             // Assert
             assertThat(result).isNotNull();
             assertThat(result.storeName()).isEqualTo("Tienda Nueva");
-            assertThat(result.street()).isNull();
-            assertThat(result.addressId()).isNull();
+            assertThat(result.address()).isNull();
             assertThat(result.enabled()).isTrue();
             verify(companyStoreRepository).save(any(CompanyStore.class));
             verify(eventPublisher).publishEvent(any(CompanyStoreCreatedEvent.class));
@@ -493,7 +496,7 @@ class CompanyStoreServiceTest {
             when(companyStoreRepository.existsByStoreNameAndCompanyZoneIdAndIdNot(
                     updateRequest.storeName(), zoneId, storeId))
                     .thenReturn(false);
-            when(countryRepository.findById(updateRequest.countryId()))
+            when(countryRepository.findById(updateRequest.address().countryId()))
                     .thenReturn(Optional.of(testCountry));
             when(companyStoreRepository.save(any(CompanyStore.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -506,8 +509,9 @@ class CompanyStoreServiceTest {
             assertThat(result.storeName()).isEqualTo("Tienda Actualizada");
             assertThat(result.email()).isEqualTo("actualizada@example.com");
             assertThat(result.phoneNumber()).isEqualTo("555-9999");
-            assertThat(result.street()).isEqualTo("Calle Nueva");
-            assertThat(result.streetNumber()).isEqualTo("789");
+            assertThat(result.address()).isNotNull();
+            assertThat(result.address().street()).isEqualTo("Calle Nueva");
+            assertThat(result.address().streetNumber()).isEqualTo("789");
             verify(companyStoreRepository).save(any(CompanyStore.class));
         }
 
