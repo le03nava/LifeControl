@@ -45,14 +45,14 @@
       <ng-container matColumnDef="city">
         <th mat-header-cell *matHeaderCellDef>Ciudad</th>
         <td mat-cell *matCellDef="let store">
-          <span>{{ store.city || '——' }}</span>
+          <span>{{ store.address?.city || '——' }}</span>
         </td>
       </ng-container>
 
       <ng-container matColumnDef="state">
         <th mat-header-cell *matHeaderCellDef>Estado</th>
         <td mat-cell *matCellDef="let store">
-          <span>{{ store.state || '——' }}</span>
+          <span>{{ store.address?.state || '——' }}</span>
         </td>
       </ng-container>
 

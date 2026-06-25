@@ -1,4 +1,11 @@
-import { ChangeDetectionStrategy, Component, inject, signal, OnInit } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  effect,
+  inject,
+  signal,
+  OnInit,
+} from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { CompanyService } from '../../../companies/data/company.service';
 import { CompanyCountryService } from '../../../countries/data/company-country.service';
@@ -44,6 +51,7 @@ export class StoresEdit implements OnInit {
   regionList = signal<CompanyRegion[]>([]);
 
   serverErrors = signal<Record<string, string>>({});
+  addressServerErrors = signal<Record<string, string>>({});
 
   // ─── Edit mode data ────────────────────────────────────
   storeToEdit = signal<CompanyStore | null>(null);
@@ -53,6 +61,18 @@ export class StoresEdit implements OnInit {
   initialCountryId = signal<string | null>(null);
   initialRegionId = signal<string | null>(null);
   initialZoneId = signal<string | null>(null);
+
+  constructor() {
+    // --- Server error mapping: extract address.* keys and strip prefix ---
+    effect(() => {
+      const allErrors = this.serverErrors();
+      const addrErrors: Record<string, string> = {};
+      Object.entries(allErrors).forEach(([k, v]) => {
+        if (k.startsWith('address.')) addrErrors[k.slice(8)] = v;
+      });
+      this.addressServerErrors.set(addrErrors);
+    });
+  }
 
   ngOnInit(): void {
     const id = this.storeId();
