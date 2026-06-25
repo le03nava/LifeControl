@@ -1,5 +1,6 @@
 package com.lifecontrol.api.supplier.dto;
 
+import com.lifecontrol.api.common.address.dto.AddressRequest;
 import com.lifecontrol.api.validation.ValidRFC;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -24,23 +25,10 @@ public record SupplierRequest(
     @Size(max = 20, message = "phoneNumber no puede exceder 20 caracteres")
     String phoneNumber,
 
-    @Size(max = 255, message = "street no puede exceder 255 caracteres")
-    String street,
+    @Size(max = 20, message = "internalNumber no puede exceder 20 caracteres")
+    String internalNumber,
 
-    @Size(max = 20, message = "streetNumber no puede exceder 20 caracteres")
-    String streetNumber,
-
-    @Size(max = 255, message = "neighborhood no puede exceder 255 caracteres")
-    String neighborhood,
-
-    @Size(max = 20, message = "zipCode no puede exceder 20 caracteres")
-    String zipCode,
-
-    @Size(max = 255, message = "city no puede exceder 255 caracteres")
-    String city,
-
-    @Size(max = 255, message = "state no puede exceder 255 caracteres")
-    String state,
+    AddressRequest address,
 
     Boolean enabled
 ) {
