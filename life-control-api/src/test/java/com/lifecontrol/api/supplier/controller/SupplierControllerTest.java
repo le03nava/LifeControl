@@ -1,6 +1,8 @@
 package com.lifecontrol.api.supplier.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lifecontrol.api.common.address.dto.AddressRequest;
+import com.lifecontrol.api.common.address.dto.AddressResponse;
 import com.lifecontrol.api.exception.GlobalExceptionHandler;
 import com.lifecontrol.api.supplier.dto.SupplierRequest;
 import com.lifecontrol.api.supplier.dto.SupplierResponse;
@@ -57,6 +59,7 @@ class SupplierControllerTest {
     private SupplierResponse testSupplierResponse;
     private SupplierRequest testSupplierRequest;
     private UUID testSupplierId;
+    private UUID testCountryId;
 
     @BeforeEach
     void setUp() {
@@ -68,6 +71,7 @@ class SupplierControllerTest {
         objectMapper.findAndRegisterModules();
 
         testSupplierId = UUID.randomUUID();
+        testCountryId = UUID.randomUUID();
         var now = LocalDateTime.now();
 
         testSupplierResponse = new SupplierResponse(
@@ -77,12 +81,18 @@ class SupplierControllerTest {
                 "XAXX010101000",
                 "test@supplier.com",
                 "+1234567890",
-                "Calle Principal",
-                "123",
-                "Centro",
-                "12345",
-                "Ciudad de Mexico",
-                "CDMX",
+                "INT-001",
+                new AddressResponse(
+                        UUID.randomUUID(),
+                        "Calle Principal",
+                        "123",
+                        null,
+                        "Centro",
+                        "12345",
+                        "Ciudad de Mexico",
+                        "CDMX",
+                        testCountryId
+                ),
                 true,
                 now,
                 now
@@ -94,12 +104,17 @@ class SupplierControllerTest {
                 "XAXX010101000",
                 "test@supplier.com",
                 "+1234567890",
-                "Calle Principal",
-                "123",
-                "Centro",
-                "12345",
-                "Ciudad de Mexico",
-                "CDMX",
+                "INT-001",
+                new AddressRequest(
+                        "Calle Principal",
+                        "123",
+                        null,
+                        "Centro",
+                        "12345",
+                        "Ciudad de Mexico",
+                        "CDMX",
+                        testCountryId
+                ),
                 true
         );
     }
@@ -200,7 +215,9 @@ class SupplierControllerTest {
             mockMvc.perform(get("/api/suppliers/{id}", testSupplierId))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.supplierName").value("Test Supplier"))
-                    .andExpect(jsonPath("$.rfc").value("XAXX010101000"));
+                    .andExpect(jsonPath("$.rfc").value("XAXX010101000"))
+                    .andExpect(jsonPath("$.address.street").value("Calle Principal"))
+                    .andExpect(jsonPath("$.address.city").value("Ciudad de Mexico"));
         }
 
         @Test
@@ -233,7 +250,9 @@ class SupplierControllerTest {
                             .content(objectMapper.writeValueAsString(testSupplierRequest)))
                     .andExpect(status().isCreated())
                     .andExpect(jsonPath("$.supplierName").value("Test Supplier"))
-                    .andExpect(jsonPath("$.rfc").value("XAXX010101000"));
+                    .andExpect(jsonPath("$.rfc").value("XAXX010101000"))
+                    .andExpect(jsonPath("$.internalNumber").value("INT-001"))
+                    .andExpect(jsonPath("$.address.street").value("Calle Principal"));
         }
 
         @Test
@@ -242,7 +261,7 @@ class SupplierControllerTest {
             // Arrange - missing required supplierName
             var invalidRequest = new SupplierRequest(
                     null,  // supplierName is required
-                    null, "ZAXX010101000", null, null, null, null, null, null, null, null,
+                    null, "ZAXX010101000", null, null, null, null,
                     true
             );
 
@@ -286,7 +305,9 @@ class SupplierControllerTest {
                             .content(objectMapper.writeValueAsString(testSupplierRequest)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.supplierName").value("Test Supplier"))
-                    .andExpect(jsonPath("$.rfc").value("XAXX010101000"));
+                    .andExpect(jsonPath("$.rfc").value("XAXX010101000"))
+                    .andExpect(jsonPath("$.internalNumber").value("INT-001"))
+                    .andExpect(jsonPath("$.address.street").value("Calle Principal"));
         }
 
         @Test
@@ -324,7 +345,7 @@ class SupplierControllerTest {
         void updateSupplier_InvalidInput() throws Exception {
             // Arrange - missing required supplierName
             var invalidRequest = new SupplierRequest(
-                    null, null, "ZAXX010101000", null, null, null, null, null, null, null, null,
+                    null, null, "ZAXX010101000", null, null, null, null,
                     true
             );
 
