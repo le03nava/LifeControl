@@ -1,5 +1,8 @@
 package com.lifecontrol.api.store.service;
 
+import com.lifecontrol.api.common.address.dto.AddressRequest;
+import com.lifecontrol.api.common.address.dto.AddressResponse;
+import com.lifecontrol.api.common.address.model.Address;
 import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.company.exception.CompanyCountryNotFoundException;
 import com.lifecontrol.api.company.exception.CompanyNotFoundException;
@@ -11,6 +14,7 @@ import com.lifecontrol.api.company.repository.CompanyRegionRepository;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.company.repository.CompanyZoneRepository;
 import com.lifecontrol.api.country.exception.CountryNotFoundException;
+import com.lifecontrol.api.country.model.Country;
 import com.lifecontrol.api.country.repository.CountryRepository;
 import com.lifecontrol.api.store.dto.CompanyStoreResponse;
 import com.lifecontrol.api.store.dto.CreateCompanyStoreRequest;
@@ -19,7 +23,6 @@ import com.lifecontrol.api.store.event.CompanyStoreCreatedEvent;
 import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.exception.DuplicateCompanyStoreException;
 import com.lifecontrol.api.store.model.CompanyStore;
-import com.lifecontrol.api.store.model.CompanyStoreAddress;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -125,23 +128,7 @@ public class CompanyStoreService {
                     "Store with name '" + request.storeName() + "' already exists in this zone");
         }
 
-        CompanyStoreAddress address = null;
-        if (request.street() != null && !request.street().isBlank()) {
-            var country = countryRepository.findById(request.countryId())
-                    .orElseThrow(() -> new CountryNotFoundException(request.countryId()));
-
-            address = CompanyStoreAddress.builder()
-                    .street(request.street())
-                    .streetNumber(request.streetNumber())
-                    .internalNumber(request.internalNumber())
-                    .neighborhood(request.neighborhood())
-                    .zipCode(request.zipCode())
-                    .city(request.city())
-                    .state(request.state())
-                    .country(country)
-                    .enabled(true)
-                    .build();
-        }
+        var address = request.address() != null ? buildAddress(request.address()) : null;
 
         var store = CompanyStore.builder()
                 .companyZone(zone)
@@ -185,44 +172,15 @@ public class CompanyStoreService {
             store.setPhoneNumber(request.phoneNumber());
         }
 
-        // Handle address
-        var existingAddress = store.getAddress();
-        boolean hasAddressFields = request.street() != null && !request.street().isBlank();
-
-        if (existingAddress != null && hasAddressFields) {
-            // Update existing address
-            existingAddress.setStreet(request.street());
-            existingAddress.setStreetNumber(request.streetNumber());
-            existingAddress.setInternalNumber(request.internalNumber());
-            existingAddress.setNeighborhood(request.neighborhood());
-            existingAddress.setZipCode(request.zipCode());
-            existingAddress.setCity(request.city());
-            existingAddress.setState(request.state());
-
-            var country = countryRepository.findById(request.countryId())
-                    .orElseThrow(() -> new CountryNotFoundException(request.countryId()));
-            existingAddress.setCountry(country);
-
-        } else if (existingAddress == null && hasAddressFields) {
-            // Create new address
-            var country = countryRepository.findById(request.countryId())
-                    .orElseThrow(() -> new CountryNotFoundException(request.countryId()));
-
-            var newAddress = CompanyStoreAddress.builder()
-                    .street(request.street())
-                    .streetNumber(request.streetNumber())
-                    .internalNumber(request.internalNumber())
-                    .neighborhood(request.neighborhood())
-                    .zipCode(request.zipCode())
-                    .city(request.city())
-                    .state(request.state())
-                    .country(country)
-                    .enabled(true)
-                    .build();
-
-            store.setAddress(newAddress);
+        // Handle address (dual-path)
+        if (request.address() != null) {
+            if (store.getAddress() != null) {
+                updateAddress(store.getAddress(), request.address());
+            } else {
+                store.setAddress(buildAddress(request.address()));
+            }
         }
-        // If existingAddress != null && !hasAddressFields → leave address as-is
+        // If request.address() == null → leave address as-is
 
         var saved = companyStoreRepository.save(store);
         logger.info("CompanyStore updated: id={}, name={}", saved.getId(), saved.getStoreName());
@@ -260,7 +218,6 @@ public class CompanyStoreService {
         var zone = store.getCompanyZone();
         var region = zone.getCompanyRegion();
         var companyCountry = region.getCompanyCountry();
-        var address = store.getAddress();
 
         return new CompanyStoreResponse(
                 store.getId(),
@@ -271,18 +228,67 @@ public class CompanyStoreService {
                 store.getStoreName(),
                 store.getEmail(),
                 store.getPhoneNumber(),
-                address != null ? address.getId() : null,
-                address != null ? address.getStreet() : null,
-                address != null ? address.getStreetNumber() : null,
-                address != null ? address.getInternalNumber() : null,
-                address != null ? address.getNeighborhood() : null,
-                address != null ? address.getZipCode() : null,
-                address != null ? address.getCity() : null,
-                address != null ? address.getState() : null,
-                address != null ? address.getCountry().getId() : null,
+                buildAddressResponse(store),
                 store.getEnabled(),
                 store.getCreatedAt(),
                 store.getUpdatedAt()
         );
+    }
+
+    private AddressResponse buildAddressResponse(CompanyStore store) {
+        var address = store.getAddress();
+        if (address != null) {
+            return new AddressResponse(
+                    address.getId(),
+                    address.getStreet(),
+                    address.getStreetNumber(),
+                    address.getInternalNumber(),
+                    address.getNeighborhood(),
+                    address.getZipCode(),
+                    address.getCity(),
+                    address.getState(),
+                    address.getCountry() != null ? address.getCountry().getId() : null
+            );
+        }
+        // Legacy CompanyStoreAddress fallback — for migrated data, check here
+        // For now, return null (address was not migrated)
+        return null;
+    }
+
+    private Address buildAddress(AddressRequest request) {
+        if (request == null) return null;
+        Country country = null;
+        if (request.countryId() != null) {
+            country = countryRepository.findById(request.countryId())
+                    .orElseThrow(() -> new CountryNotFoundException(request.countryId()));
+        }
+        return Address.builder()
+                .street(request.street())
+                .streetNumber(request.streetNumber())
+                .internalNumber(request.internalNumber())
+                .neighborhood(request.neighborhood())
+                .zipCode(request.zipCode())
+                .city(request.city())
+                .state(request.state())
+                .country(country)
+                .enabled(true)
+                .build();
+    }
+
+    private void updateAddress(Address address, AddressRequest request) {
+        address.setStreet(request.street());
+        address.setStreetNumber(request.streetNumber());
+        address.setInternalNumber(request.internalNumber());
+        address.setNeighborhood(request.neighborhood());
+        address.setZipCode(request.zipCode());
+        address.setCity(request.city());
+        address.setState(request.state());
+        if (request.countryId() != null) {
+            Country country = countryRepository.findById(request.countryId())
+                    .orElseThrow(() -> new CountryNotFoundException(request.countryId()));
+            address.setCountry(country);
+        } else {
+            address.setCountry(null);
+        }
     }
 }
