@@ -1,4 +1,5 @@
-import { FormControl } from '@angular/forms';
+import { FormControl, FormGroup } from '@angular/forms';
+import type { AddressValue, AddressRequest, AddressControl } from '@shared/models/address.models';
 
 export interface Supplier {
   id: string;
@@ -7,12 +8,8 @@ export interface Supplier {
   rfc: string;
   email: string;
   phoneNumber: string;
-  street: string;
-  streetNumber: string;
-  neighborhood: string;
-  zipCode: string;
-  city: string;
-  state: string;
+  internalNumber?: string;
+  address?: AddressValue;
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
@@ -35,12 +32,8 @@ export interface SupplierRequest {
   rfc: string;
   email: string;
   phoneNumber: string;
-  street: string;
-  streetNumber: string;
-  neighborhood: string;
-  zipCode: string;
-  city: string;
-  state: string;
+  internalNumber?: string;
+  address?: AddressRequest;
   enabled: boolean;
 }
 
@@ -51,11 +44,7 @@ export interface SupplierControl {
   rfc: FormControl<string>;
   email: FormControl<string>;
   phoneNumber: FormControl<string>;
-  street: FormControl<string>;
-  streetNumber: FormControl<string>;
-  neighborhood: FormControl<string>;
-  zipCode: FormControl<string>;
-  city: FormControl<string>;
-  state: FormControl<string>;
+  internalNumber: FormControl<string | null>;
+  address: FormGroup<AddressControl>;
   enabled: FormControl<boolean>;
 }

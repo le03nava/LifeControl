@@ -23,15 +23,15 @@ export class SuppliersCard {
   readonly statusLabel = computed(() => (this.isActive() ? 'Activo' : 'Inactivo'));
 
   readonly hasAddress = computed(() => {
-    const s = this.supplier();
-    return !!(s.city || s.state);
+    const a = this.supplier().address;
+    return !!(a?.city || a?.state);
   });
 
   readonly addressDisplay = computed(() => {
-    const s = this.supplier();
+    const a = this.supplier().address;
     const parts: string[] = [];
-    if (s.city) parts.push(s.city);
-    if (s.state) parts.push(s.state);
+    if (a?.city) parts.push(a.city);
+    if (a?.state) parts.push(a.state);
     return parts.join(', ');
   });
 

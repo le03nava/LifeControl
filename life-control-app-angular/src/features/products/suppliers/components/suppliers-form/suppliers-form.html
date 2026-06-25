@@ -75,67 +75,26 @@
       }
     </mat-form-field>
 
-    <!-- Address section: street full-width -->
-    <mat-form-field class="full-width" appearance="outline">
-      <mat-label>Calle</mat-label>
-      <mat-icon matPrefix>location_on</mat-icon>
+    <mat-form-field appearance="outline">
+      <mat-label>Número Interior</mat-label>
       <input
         matInput
         type="text"
-        formControlName="street"
-        placeholder="Nombre de la calle"
+        formControlName="internalNumber"
+        placeholder="Número interior (opcional)"
       />
+      @if (getErrorMessage(formGroup().controls.internalNumber); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
     </mat-form-field>
 
-    <mat-form-field appearance="outline">
-      <mat-label>Número Exterior</mat-label>
-      <input
-        matInput
-        type="text"
-        formControlName="streetNumber"
-        placeholder="Ej: 123"
+    <div class="full-width">
+      <app-address-form
+        [addressFormGroup]="formGroup().controls.address"
+        [countries]="countries()"
+        [serverErrors]="addressServerErrors()"
       />
-    </mat-form-field>
-
-    <mat-form-field appearance="outline">
-      <mat-label>Colonia</mat-label>
-      <input
-        matInput
-        type="text"
-        formControlName="neighborhood"
-        placeholder="Nombre de la colonia"
-      />
-    </mat-form-field>
-
-    <mat-form-field appearance="outline">
-      <mat-label>Código Postal</mat-label>
-      <input
-        matInput
-        type="text"
-        formControlName="zipCode"
-        placeholder="Ej: 12345"
-      />
-    </mat-form-field>
-
-    <mat-form-field appearance="outline">
-      <mat-label>Ciudad</mat-label>
-      <input
-        matInput
-        type="text"
-        formControlName="city"
-        placeholder="Ciudad"
-      />
-    </mat-form-field>
-
-    <mat-form-field appearance="outline">
-      <mat-label>Estado</mat-label>
-      <input
-        matInput
-        type="text"
-        formControlName="state"
-        placeholder="Estado"
-      />
-    </mat-form-field>
+    </div>
 
     <div class="toggle-container">
       <mat-slide-toggle formControlName="enabled">Activo</mat-slide-toggle>
