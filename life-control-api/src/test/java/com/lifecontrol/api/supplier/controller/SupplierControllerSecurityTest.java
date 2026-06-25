@@ -1,6 +1,8 @@
 package com.lifecontrol.api.supplier.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lifecontrol.api.common.address.dto.AddressRequest;
+import com.lifecontrol.api.common.address.dto.AddressResponse;
 import com.lifecontrol.api.config.ratelimit.RateLimitProperties;
 import com.lifecontrol.api.supplier.dto.SupplierRequest;
 import com.lifecontrol.api.supplier.dto.SupplierResponse;
@@ -79,7 +81,8 @@ class SupplierControllerSecurityTest {
         return new SupplierRequest(
                 "Test Supplier", "Razon Social", "XAXX010101000",
                 "test@supplier.com", "+1234567890",
-                "Calle", "123", "Centro", "12345", "Ciudad", "Estado",
+                "INT-001",
+                new AddressRequest("Calle", "123", null, "Centro", "12345", "Ciudad", "Estado", null),
                 true
         );
     }
@@ -96,8 +99,8 @@ class SupplierControllerSecurityTest {
         void adminCanGetSuppliers() throws Exception {
             var response = new SupplierResponse(
                     UUID.randomUUID(), "Test", "RS", "XAXX010101000",
-                    "e@e.com", "555", "Calle", "123", "Centro",
-                    "12345", "CdMx", "CDMX", true,
+                    "e@e.com", "555", "INT-001",
+                    new AddressResponse(null, "Calle", "123", null, "Centro", "12345", "CdMx", "CDMX", null), true,
                     LocalDateTime.now(), LocalDateTime.now()
             );
             var page = new PageImpl<>(List.of(response), PageRequest.of(0, 12), 1);
@@ -113,8 +116,8 @@ class SupplierControllerSecurityTest {
         void authenticatedUserCanGetSuppliers() throws Exception {
             var response = new SupplierResponse(
                     UUID.randomUUID(), "Test", "RS", "XAXX010101000",
-                    "e@e.com", "555", "Calle", "123", "Centro",
-                    "12345", "CdMx", "CDMX", true,
+                    "e@e.com", "555", "INT-001",
+                    new AddressResponse(null, "Calle", "123", null, "Centro", "12345", "CdMx", "CDMX", null), true,
                     LocalDateTime.now(), LocalDateTime.now()
             );
             var page = new PageImpl<>(List.of(response), PageRequest.of(0, 12), 1);
@@ -130,8 +133,8 @@ class SupplierControllerSecurityTest {
         void userWithAnyRoleCanGetSuppliers() throws Exception {
             var response = new SupplierResponse(
                     UUID.randomUUID(), "Test", "RS", "XAXX010101000",
-                    "e@e.com", "555", "Calle", "123", "Centro",
-                    "12345", "CdMx", "CDMX", true,
+                    "e@e.com", "555", "INT-001",
+                    new AddressResponse(null, "Calle", "123", null, "Centro", "12345", "CdMx", "CDMX", null), true,
                     LocalDateTime.now(), LocalDateTime.now()
             );
             var page = new PageImpl<>(List.of(response), PageRequest.of(0, 12), 1);
@@ -154,8 +157,8 @@ class SupplierControllerSecurityTest {
         void adminCanCreateSupplier() throws Exception {
             var response = new SupplierResponse(
                     UUID.randomUUID(), "Test", "RS", "XAXX010101000",
-                    "e@e.com", "555", "Calle", "123", "Centro",
-                    "12345", "CdMx", "CDMX", true,
+                    "e@e.com", "555", "INT-001",
+                    new AddressResponse(null, "Calle", "123", null, "Centro", "12345", "CdMx", "CDMX", null), true,
                     LocalDateTime.now(), LocalDateTime.now()
             );
             when(supplierService.createSupplier(any())).thenReturn(response);
@@ -209,8 +212,8 @@ class SupplierControllerSecurityTest {
         void adminCanUpdateSupplier() throws Exception {
             var response = new SupplierResponse(
                     UUID.randomUUID(), "Test", "RS", "XAXX010101000",
-                    "e@e.com", "555", "Calle", "123", "Centro",
-                    "12345", "CdMx", "CDMX", true,
+                    "e@e.com", "555", "INT-001",
+                    new AddressResponse(null, "Calle", "123", null, "Centro", "12345", "CdMx", "CDMX", null), true,
                     LocalDateTime.now(), LocalDateTime.now()
             );
             when(supplierService.updateSupplier(any(), any())).thenReturn(response);

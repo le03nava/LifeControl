@@ -1,6 +1,8 @@
 package com.lifecontrol.api.supplier.model;
 
+import com.lifecontrol.api.common.address.model.Address;
 import com.lifecontrol.api.common.model.Auditable;
+import com.lifecontrol.api.country.model.Country;
 import jakarta.persistence.*;
 
 import java.time.LocalDateTime;
@@ -27,6 +29,17 @@ public class Supplier extends Auditable {
 
     @Column(name = "phone_number")
     private String phoneNumber;
+
+    @Column(name = "internal_number")
+    private String internalNumber;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "country_id")
+    private Country country;
+
+    @OneToOne(cascade = {CascadeType.PERSIST, CascadeType.MERGE}, fetch = FetchType.LAZY)
+    @JoinColumn(name = "address_id")
+    private Address address;
 
     private String street;
 
@@ -71,6 +84,18 @@ public class Supplier extends Auditable {
 
     public String getPhoneNumber() {
         return phoneNumber;
+    }
+
+    public String getInternalNumber() {
+        return internalNumber;
+    }
+
+    public Country getCountry() {
+        return country;
+    }
+
+    public Address getAddress() {
+        return address;
     }
 
     public String getStreet() {
@@ -124,6 +149,18 @@ public class Supplier extends Auditable {
 
     public void setPhoneNumber(String phoneNumber) {
         this.phoneNumber = phoneNumber;
+    }
+
+    public void setInternalNumber(String internalNumber) {
+        this.internalNumber = internalNumber;
+    }
+
+    public void setCountry(Country country) {
+        this.country = country;
+    }
+
+    public void setAddress(Address address) {
+        this.address = address;
     }
 
     public void setStreet(String street) {
@@ -189,6 +226,21 @@ public class Supplier extends Auditable {
 
         public Builder phoneNumber(String phoneNumber) {
             supplier.phoneNumber = phoneNumber;
+            return this;
+        }
+
+        public Builder internalNumber(String internalNumber) {
+            supplier.internalNumber = internalNumber;
+            return this;
+        }
+
+        public Builder country(Country country) {
+            supplier.country = country;
+            return this;
+        }
+
+        public Builder address(Address address) {
+            supplier.address = address;
             return this;
         }
 

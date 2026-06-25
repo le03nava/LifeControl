@@ -1,5 +1,9 @@
 package com.lifecontrol.api.supplier.service;
 
+import com.lifecontrol.api.common.address.dto.AddressRequest;
+import com.lifecontrol.api.common.address.model.Address;
+import com.lifecontrol.api.country.model.Country;
+import com.lifecontrol.api.country.repository.CountryRepository;
 import com.lifecontrol.api.supplier.dto.SupplierRequest;
 import com.lifecontrol.api.supplier.dto.SupplierResponse;
 import com.lifecontrol.api.supplier.exception.DuplicateSupplierException;
@@ -38,16 +42,34 @@ class SupplierServiceTest {
     @Mock
     private SupplierRepository supplierRepository;
 
+    @Mock
+    private CountryRepository countryRepository;
+
     @InjectMocks
     private SupplierService supplierService;
 
     private Supplier testSupplier;
     private SupplierRequest testSupplierRequest;
+    private SupplierRequest testSupplierRequestWithAddress;
+    private Address testAddress;
     private UUID testSupplierId;
+    private UUID testCountryId;
 
     @BeforeEach
     void setUp() {
         testSupplierId = UUID.randomUUID();
+        testCountryId = UUID.randomUUID();
+
+        testAddress = Address.builder()
+                .street("Main St")
+                .streetNumber("123")
+                .internalNumber("A")
+                .neighborhood("Downtown")
+                .zipCode("12345")
+                .city("Mexico City")
+                .state("CDMX")
+                .enabled(true)
+                .build();
 
         testSupplier = Supplier.builder()
                 .id(testSupplierId)
@@ -56,6 +78,7 @@ class SupplierServiceTest {
                 .rfc("XAXX010101000")
                 .email("test@supplier.com")
                 .phoneNumber("+1234567890")
+                .internalNumber("INT-001")
                 .street("Calle Principal")
                 .streetNumber("123")
                 .neighborhood("Centro")
@@ -73,12 +96,28 @@ class SupplierServiceTest {
                 "XAXX010101000",
                 "test@supplier.com",
                 "+1234567890",
-                "Calle Principal",
-                "123",
-                "Centro",
-                "12345",
-                "Ciudad de Mexico",
-                "CDMX",
+                "INT-001",
+                null,
+                true
+        );
+
+        testSupplierRequestWithAddress = new SupplierRequest(
+                "Supplier With Address",
+                "Addr S.A. de CV",
+                "XAXX010101001",
+                "addr@supplier.com",
+                "+9876543210",
+                "INT-002",
+                new AddressRequest(
+                        "Av. Reforma",
+                        "456",
+                        "B",
+                        "Juarez",
+                        "67890",
+                        "Guadalajara",
+                        "Jalisco",
+                        testCountryId
+                ),
                 true
         );
     }
@@ -184,6 +223,11 @@ class SupplierServiceTest {
             assertThat(result).isNotNull();
             assertThat(result.supplierName()).isEqualTo(testSupplier.getSupplierName());
             assertThat(result.rfc()).isEqualTo(testSupplier.getRfc());
+            // Legacy inline fallback: no Address entity, reads from inline columns
+            assertThat(result.address()).isNotNull();
+            assertThat(result.address().street()).isEqualTo("Calle Principal");
+            assertThat(result.address().city()).isEqualTo("Ciudad de Mexico");
+            assertThat(result.internalNumber()).isEqualTo("INT-001");
         }
 
         @Test
@@ -218,6 +262,7 @@ class SupplierServiceTest {
             assertThat(result.supplierName()).isEqualTo(testSupplier.getSupplierName());
             assertThat(result.rfc()).isEqualTo(testSupplier.getRfc());
             assertThat(result.email()).isEqualTo(testSupplier.getEmail());
+            assertThat(result.internalNumber()).isEqualTo("INT-001");
             verify(supplierRepository).existsByRfc(testSupplierRequest.rfc());
             verify(supplierRepository).save(any(Supplier.class));
         }
@@ -245,7 +290,7 @@ class SupplierServiceTest {
                     "Razon Social",
                     "ABCD123456XYZ",
                     "new@supplier.com",
-                    null, null, null, null, null, null, null,
+                    null, null, null,
                     null  // enabled = null
             );
 
@@ -270,6 +315,65 @@ class SupplierServiceTest {
             assertThat(result).isNotNull();
             assertThat(result.enabled()).isTrue();
         }
+
+        @Test
+        @DisplayName("createSupplier - should map address fields when creating with address")
+        void createSupplier_WithAddress() {
+            // Arrange
+            var country = Country.builder()
+                    .id(testCountryId)
+                    .countryCode("MX")
+                    .countryName("Mexico")
+                    .enabled(true)
+                    .build();
+
+            when(supplierRepository.existsByRfc(testSupplierRequestWithAddress.rfc())).thenReturn(false);
+            when(countryRepository.findById(testCountryId)).thenReturn(Optional.of(country));
+            when(supplierRepository.save(any(Supplier.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            // Act
+            SupplierResponse result = supplierService.createSupplier(testSupplierRequestWithAddress);
+
+            // Assert
+            assertThat(result).isNotNull();
+            assertThat(result.address()).isNotNull();
+            assertThat(result.address().street()).isEqualTo("Av. Reforma");
+            assertThat(result.address().streetNumber()).isEqualTo("456");
+            assertThat(result.address().internalNumber()).isEqualTo("B");
+            assertThat(result.address().neighborhood()).isEqualTo("Juarez");
+            assertThat(result.address().zipCode()).isEqualTo("67890");
+            assertThat(result.address().city()).isEqualTo("Guadalajara");
+            assertThat(result.address().state()).isEqualTo("Jalisco");
+            assertThat(result.address().countryId()).isEqualTo(testCountryId);
+            assertThat(result.internalNumber()).isEqualTo("INT-002");
+        }
+
+        @Test
+        @DisplayName("createSupplier - should create supplier without address when not provided")
+        void createSupplier_WithoutAddress() {
+            // Arrange
+            var supplierWithoutAddress = Supplier.builder()
+                    .id(UUID.randomUUID())
+                    .supplierName("No Address Supplier")
+                    .razonSocial("No Addr S.A.")
+                    .rfc("XAXX010101002")
+                    .email("noaddr@supplier.com")
+                    .phoneNumber("+1111111111")
+                    .enabled(true)
+                    .createdAt(LocalDateTime.now())
+                    .updatedAt(LocalDateTime.now())
+                    .build();
+
+            when(supplierRepository.existsByRfc(testSupplierRequest.rfc())).thenReturn(false);
+            when(supplierRepository.save(any(Supplier.class))).thenReturn(supplierWithoutAddress);
+
+            // Act
+            SupplierResponse result = supplierService.createSupplier(testSupplierRequest);
+
+            // Assert
+            assertThat(result).isNotNull();
+            // testSupplierRequest has address=null, so no address should be mapped
+        }
     }
 
     @Nested
@@ -286,12 +390,8 @@ class SupplierServiceTest {
                     "XAXX010101000",
                     "updated@supplier.com",
                     "+9876543210",
-                    "Calle Nueva",
-                    "456",
-                    "Colonia Nueva",
-                    "54321",
-                    "Ciudad Nueva",
-                    "Estado Nuevo",
+                    "INT-003",
+                    null,
                     false
             );
 
@@ -305,7 +405,61 @@ class SupplierServiceTest {
             assertThat(result).isNotNull();
             assertThat(result.supplierName()).isEqualTo("Updated Supplier");
             assertThat(result.email()).isEqualTo("updated@supplier.com");
+            assertThat(result.internalNumber()).isEqualTo("INT-003");
             assertThat(result.enabled()).isFalse();
+            verify(supplierRepository).save(any(Supplier.class));
+        }
+
+        @Test
+        @DisplayName("updateSupplier - should update address fields when address request provided")
+        void updateSupplier_UpdatesAddressFields() {
+            // Arrange
+            var addressUpdateRequest = new SupplierRequest(
+                    "Test Supplier",
+                    "Test Razon Social",
+                    "XAXX010101000",
+                    null,
+                    null,
+                    "INT-004",
+                    new AddressRequest(
+                            "Calle Nueva",
+                            "999",
+                            "1",
+                            "Col Nueva",
+                            "54321",
+                            "Monterrey",
+                            "Nuevo Leon",
+                            testCountryId
+                    ),
+                    null
+            );
+
+            var country = Country.builder()
+                    .id(testCountryId)
+                    .countryCode("MX")
+                    .countryName("Mexico")
+                    .enabled(true)
+                    .build();
+
+            when(supplierRepository.findById(testSupplierId)).thenReturn(Optional.of(testSupplier));
+            when(countryRepository.findById(testCountryId)).thenReturn(Optional.of(country));
+            when(supplierRepository.save(any(Supplier.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            // Act
+            SupplierResponse result = supplierService.updateSupplier(testSupplierId, addressUpdateRequest);
+
+            // Assert
+            assertThat(result).isNotNull();
+            assertThat(result.address()).isNotNull();
+            assertThat(result.address().street()).isEqualTo("Calle Nueva");
+            assertThat(result.address().streetNumber()).isEqualTo("999");
+            assertThat(result.address().internalNumber()).isEqualTo("1");
+            assertThat(result.address().neighborhood()).isEqualTo("Col Nueva");
+            assertThat(result.address().zipCode()).isEqualTo("54321");
+            assertThat(result.address().city()).isEqualTo("Monterrey");
+            assertThat(result.address().state()).isEqualTo("Nuevo Leon");
+            assertThat(result.address().countryId()).isEqualTo(testCountryId);
+            assertThat(result.internalNumber()).isEqualTo("INT-004");
             verify(supplierRepository).save(any(Supplier.class));
         }
 
@@ -330,7 +484,7 @@ class SupplierServiceTest {
                     "Test Supplier",
                     "Test Razon Social",
                     "DIFFERENTRFC123",
-                    null, null, null, null, null, null, null, null,
+                    null, null, null, null,
                     true
             );
 
@@ -352,7 +506,7 @@ class SupplierServiceTest {
                     "Updated Name",
                     "Updated Razon",
                     "XAXX010101000",  // Same RFC as existing
-                    null, null, null, null, null, null, null, null,
+                    null, null, null, null,
                     true
             );
 
