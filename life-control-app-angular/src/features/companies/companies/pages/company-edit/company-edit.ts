@@ -1,11 +1,13 @@
-import { ChangeDetectionStrategy, Component, inject, signal, OnInit } from '@angular/core';
+import { ChangeDetectionStrategy, Component, effect, inject, signal, OnInit } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router } from '@angular/router';
 import { CompanyService } from '@features/companies/companies/data/company.service';
 import { CompanyContextService } from '@shared/data/company-context.service';
 import { ApiError } from '@shared/models';
 import { Company, CompanyControl } from '@features/companies/companies/models/company.models';
-import { CompanyCountryService } from '@features/companies/countries/data';
+import { CountryService } from '@features/countries/data/country.service';
+import { Country } from '@features/companies/countries/models/country.models';
+import type { AddressControl } from '@shared/models/address.models';
 import {
   NonNullableFormBuilder,
   FormGroup,
@@ -29,7 +31,7 @@ export class CompanyEdit implements OnInit {
   private companyContextService = inject(CompanyContextService);
   private fb = inject(NonNullableFormBuilder);
   private router = inject(Router);
-  companyCountryService = inject(CompanyCountryService);
+  private countryService = inject(CountryService);
 
   companyId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
 
@@ -37,7 +39,10 @@ export class CompanyEdit implements OnInit {
 
   isEditMode = signal(false);
   serverErrors = signal<Record<string, string>>({});
+  addressServerErrors = signal<Record<string, string>>({});
   generalError = signal<string | null>(null);
+
+  countries = signal<Country[]>([]);
 
   ngOnInit(): void {
     const id = this.companyId();
@@ -50,6 +55,12 @@ export class CompanyEdit implements OnInit {
         this.companyForm().controls.companyKey.setValue(current.companyKey);
       }
     }
+
+    // Load country catalog for address country selector
+    this.countryService.getCountries().subscribe({
+      next: (countries) => this.countries.set(countries),
+      error: () => this.countries.set([]),
+    });
   }
 
   private loadCompany(id: string): void {
@@ -65,14 +76,16 @@ export class CompanyEdit implements OnInit {
             rfc: this.fb.control(company.rfc, [Validators.required, Validators.pattern(/^[A-Za-z0-9]{12,13}$/)]),
             email: this.fb.control(company.email, Validators.email),
             phone: this.fb.control(company.phone, Validators.pattern(/^(\+52\d{10}|\d{10})$/)),
-            street: new FormControl<string | null>(company.street ?? null, { nonNullable: false }),
-            streetNumber: new FormControl<string | null>(company.streetNumber ?? null, { nonNullable: false }),
-            internalNumber: new FormControl<string | null>(company.internalNumber ?? null, { nonNullable: false }),
-            neighborhood: new FormControl<string | null>(company.neighborhood ?? null, { nonNullable: false }),
-            zipCode: new FormControl<string | null>(company.zipCode ?? null, { nonNullable: false }),
-            city: new FormControl<string | null>(company.city ?? null, { nonNullable: false }),
-            state: new FormControl<string | null>(company.state ?? null, { nonNullable: false }),
-            countryId: new FormControl<string | null>(company.countryId ?? null, { nonNullable: false }),
+            address: new FormGroup<AddressControl>({
+              street: new FormControl<string | null>(company.address?.street ?? null, { nonNullable: false }),
+              streetNumber: new FormControl<string | null>(company.address?.streetNumber ?? null, { nonNullable: false }),
+              internalNumber: new FormControl<string | null>(company.address?.internalNumber ?? null, { nonNullable: false }),
+              neighborhood: new FormControl<string | null>(company.address?.neighborhood ?? null, { nonNullable: false }),
+              zipCode: new FormControl<string | null>(company.address?.zipCode ?? null, { nonNullable: false }),
+              city: new FormControl<string | null>(company.address?.city ?? null, { nonNullable: false }),
+              state: new FormControl<string | null>(company.address?.state ?? null, { nonNullable: false }),
+              countryId: new FormControl<string | null>(company.address?.countryId ?? null, { nonNullable: false }),
+            }),
             enabled: this.fb.control(company.enabled),
           })
         );
@@ -93,22 +106,34 @@ export class CompanyEdit implements OnInit {
       rfc: this.fb.control('', [Validators.required, Validators.pattern(/^[A-Za-z0-9]{12,13}$/)]),
       email: this.fb.control('', Validators.email),
       phone: this.fb.control('', Validators.pattern(/^(\+52\d{10}|\d{10})$/)),
-      street: new FormControl<string | null>(null, { nonNullable: false }),
-      streetNumber: new FormControl<string | null>(null, { nonNullable: false }),
-      internalNumber: new FormControl<string | null>(null, { nonNullable: false }),
-      neighborhood: new FormControl<string | null>(null, { nonNullable: false }),
-      zipCode: new FormControl<string | null>(null, { nonNullable: false }),
-      city: new FormControl<string | null>(null, { nonNullable: false }),
-      state: new FormControl<string | null>(null, { nonNullable: false }),
-      countryId: new FormControl<string | null>(null, { nonNullable: false }),
+      address: new FormGroup<AddressControl>({
+        street: new FormControl<string | null>(null, { nonNullable: false }),
+        streetNumber: new FormControl<string | null>(null, { nonNullable: false }),
+        internalNumber: new FormControl<string | null>(null, { nonNullable: false }),
+        neighborhood: new FormControl<string | null>(null, { nonNullable: false }),
+        zipCode: new FormControl<string | null>(null, { nonNullable: false }),
+        city: new FormControl<string | null>(null, { nonNullable: false }),
+        state: new FormControl<string | null>(null, { nonNullable: false }),
+        countryId: new FormControl<string | null>(null, { nonNullable: false }),
+      }),
       enabled: this.fb.control(true),
     });
   }
 
   onSaveCompany(companyData: Company): void {
     if (companyData.id === '') {
-      const { id, ...createData } = companyData;
-      this.companyService.createCompany(createData as Company).subscribe({
+      const { id, address, ...rest } = companyData;
+      const hasAddress = address && (
+        address.street || address.streetNumber ||
+        address.internalNumber || address.neighborhood ||
+        address.zipCode || address.city ||
+        address.state || address.countryId
+      );
+      const payload = {
+        ...rest,
+        ...(hasAddress ? { address } : {}),
+      };
+      this.companyService.createCompany(payload as unknown as Company).subscribe({
         next: (createdCompany) => {
           this.router.navigate(['/companies/edit', createdCompany.id]);
         },
@@ -117,7 +142,18 @@ export class CompanyEdit implements OnInit {
         },
       });
     } else {
-      this.companyService.updateCompany(companyData.id, companyData).subscribe({
+      const { id, address, ...rest } = companyData;
+      const hasAddress = address && (
+        address.street || address.streetNumber ||
+        address.internalNumber || address.neighborhood ||
+        address.zipCode || address.city ||
+        address.state || address.countryId
+      );
+      const payload = {
+        ...rest,
+        ...(hasAddress ? { address } : {}),
+      };
+      this.companyService.updateCompany(companyData.id, payload as unknown as Company).subscribe({
         next: () => {
           this.router.navigate(['/companies']);
         },
@@ -140,6 +176,20 @@ export class CompanyEdit implements OnInit {
       this.serverErrors.set({});
       this.generalError.set('Error inesperado. Intente de nuevo más tarde.');
     }
+  }
+
+  constructor() {
+    // Server error mapping: extract address.* keys and strip prefix
+    effect(() => {
+      const allErrors = this.serverErrors();
+      const addrErrors: Record<string, string> = {};
+      Object.entries(allErrors).forEach(([key, value]) => {
+        if (key.startsWith('address.')) {
+          addrErrors[key.slice(8)] = value;
+        }
+      });
+      this.addressServerErrors.set(addrErrors);
+    });
   }
 
   cancelForm(): void {

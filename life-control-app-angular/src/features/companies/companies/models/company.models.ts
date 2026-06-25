@@ -1,5 +1,6 @@
-import { FormControl } from '@angular/forms';
+import { FormControl, FormGroup } from '@angular/forms';
 import type { Country, CompanyCountry, CompanyCountryRequest } from '../../countries/models/country.models';
+import type { AddressValue, AddressControl } from '@shared/models/address.models';
 
 export type { Country, CompanyCountry, CompanyCountryRequest };
 
@@ -12,14 +13,7 @@ export interface Company {
   rfc: string;
   email: string;
   phone: string;
-  street?: string;
-  streetNumber?: string;
-  internalNumber?: string;
-  neighborhood?: string;
-  zipCode?: string;
-  city?: string;
-  state?: string;
-  countryId?: string;
+  address?: AddressValue;
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
@@ -46,13 +40,6 @@ export interface CompanyControl {
   rfc: FormControl<string>;
   email: FormControl<string>;
   phone: FormControl<string>;
-  street: FormControl<string | null>;
-  streetNumber: FormControl<string | null>;
-  internalNumber: FormControl<string | null>;
-  neighborhood: FormControl<string | null>;
-  zipCode: FormControl<string | null>;
-  city: FormControl<string | null>;
-  state: FormControl<string | null>;
-  countryId: FormControl<string | null>;
+  address: FormGroup<AddressControl>;
   enabled: FormControl<boolean>;
 }

@@ -5,6 +5,8 @@
 <app-companies-form
   [formGroup]="companyForm()"
   [serverErrors]="serverErrors()"
+  [addressServerErrors]="addressServerErrors()"
+  [countries]="countries()"
   (saveCompany)="onSaveCompany($event)"
   (cancelForm)="cancelForm()"
 />
