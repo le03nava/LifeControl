@@ -1,0 +1,46 @@
+// address-form.scss — Shared address sub-form with responsive grid
+// Matches the _form-layout.scss grid pattern but self-contained
+@use '../../styles/variables' as *;
+
+// Address section heading — spans full grid width
+.address-heading {
+  margin: var(--space-sm) 0 0 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--mat-sys-on-surface-variant);
+  border-bottom: 1px solid var(--mat-sys-outline-variant);
+  padding-bottom: var(--space-xs);
+}
+
+// Responsive grid for address fields (matches _form-layout.scss form grid)
+.address-grid {
+  display: grid;
+  grid-template-columns: 1fr; // xs: 1 columna
+  gap: var(--space-md); // 16px
+
+  @media (min-width: $bp-sm) {
+    grid-template-columns: repeat(2, 1fr); // s: 2 columnas
+    gap: 20px;
+  }
+
+  @media (min-width: $bp-md) {
+    grid-template-columns: repeat(3, 1fr); // m/l: 3 columnas
+    gap: var(--space-lg); // 24px
+  }
+}
+
+// Full-width field — spans all grid columns
+.full-width {
+  grid-column: 1 / -1;
+}
+
+// One-third width field
+.one-third {
+  @media (min-width: $bp-sm) {
+    grid-column: span 1;
+  }
+
+  @media (min-width: $bp-md) {
+    grid-column: span 1;
+  }
+}
