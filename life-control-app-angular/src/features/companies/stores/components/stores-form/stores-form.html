@@ -105,79 +105,11 @@
     </mat-form-field>
 
     <!-- Address section -->
-    <h3 class="address-heading">Dirección</h3>
-
-    <mat-form-field appearance="outline">
-      <mat-label>Calle</mat-label>
-      <input matInput type="text" formControlName="street" placeholder="Calle" />
-      @if (getErrorMessage(formGroup.controls.street); as msg) {
-        <mat-error>{{ msg }}</mat-error>
-      }
-    </mat-form-field>
-
-    <mat-form-field appearance="outline">
-      <mat-label>Número Exterior</mat-label>
-      <input matInput type="text" formControlName="streetNumber" placeholder="N° exterior" />
-      @if (getErrorMessage(formGroup.controls.streetNumber); as msg) {
-        <mat-error>{{ msg }}</mat-error>
-      }
-    </mat-form-field>
-
-    <mat-form-field appearance="outline">
-      <mat-label>Número Interior</mat-label>
-      <input matInput type="text" formControlName="internalNumber" placeholder="N° interior (opcional)" />
-      @if (getErrorMessage(formGroup.controls.internalNumber); as msg) {
-        <mat-error>{{ msg }}</mat-error>
-      }
-    </mat-form-field>
-
-    <mat-form-field appearance="outline">
-      <mat-label>Colonia</mat-label>
-      <input matInput type="text" formControlName="neighborhood" placeholder="Colonia" />
-      @if (getErrorMessage(formGroup.controls.neighborhood); as msg) {
-        <mat-error>{{ msg }}</mat-error>
-      }
-    </mat-form-field>
-
-    <mat-form-field appearance="outline">
-      <mat-label>Código Postal</mat-label>
-      <input matInput type="text" formControlName="zipCode" placeholder="C.P." />
-      @if (getErrorMessage(formGroup.controls.zipCode); as msg) {
-        <mat-error>{{ msg }}</mat-error>
-      }
-    </mat-form-field>
-
-    <mat-form-field appearance="outline">
-      <mat-label>Ciudad</mat-label>
-      <input matInput type="text" formControlName="city" placeholder="Ciudad" />
-      @if (getErrorMessage(formGroup.controls.city); as msg) {
-        <mat-error>{{ msg }}</mat-error>
-      }
-    </mat-form-field>
-
-    <mat-form-field appearance="outline">
-      <mat-label>Estado</mat-label>
-      <input matInput type="text" formControlName="state" placeholder="Estado" />
-      @if (getErrorMessage(formGroup.controls.state); as msg) {
-        <mat-error>{{ msg }}</mat-error>
-      }
-    </mat-form-field>
-
-    <mat-form-field appearance="outline">
-      <mat-label>País</mat-label>
-      <mat-select
-        formControlName="countryId"
-        [compareWith]="compareCountryById"
-      >
-        <mat-option value="">— Seleccionar país —</mat-option>
-        @for (country of countriesCatalog(); track country.id) {
-          <mat-option [value]="country.id">{{ country.countryName }}</mat-option>
-        }
-      </mat-select>
-      @if (getErrorMessage(formGroup.controls.countryId); as msg) {
-        <mat-error>{{ msg }}</mat-error>
-      }
-    </mat-form-field>
+    <app-address-form
+      [addressFormGroup]="formGroup.controls.address"
+      [countries]="countriesCatalog()"
+      [serverErrors]="addressServerErrors()"
+    ></app-address-form>
 
     <div class="toggle-container">
       <mat-slide-toggle formControlName="enabled">Activo</mat-slide-toggle>

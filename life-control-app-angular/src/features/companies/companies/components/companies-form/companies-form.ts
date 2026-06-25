@@ -5,7 +5,6 @@ import {
   inject,
   input,
   output,
-  signal,
 } from '@angular/core';
 import {
   AbstractControl,
@@ -20,21 +19,22 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatIconModule } from '@angular/material/icon';
-import { CountryService } from '../../../../countries/data/country.service';
-import { Country } from '../../../countries/models/country.models';
+import { AddressFormComponent } from '@shared/ui/address-form';
+import { Country } from '@features/companies/countries/models/country.models';
 
 @Component({
   selector: 'app-companies-form',
   standalone: true,
-  imports: [ReactiveFormsModule, MatFormFieldModule, MatInputModule, MatButtonModule, MatSelectModule, MatSlideToggleModule, MatIconModule],
+  imports: [ReactiveFormsModule, MatFormFieldModule, MatInputModule, MatButtonModule, MatSelectModule, MatSlideToggleModule, MatIconModule, AddressFormComponent],
   templateUrl: './companies-form.html',
   styleUrl: './companies-form.scss',
 })
 export class CompaniesForm {
-  private countryService = inject(CountryService);
 
   formGroup = input.required<FormGroup<CompanyControl>>();
   serverErrors = input<Record<string, string>>({});
+  addressServerErrors = input<Record<string, string>>({});
+  countries = input<Country[]>([]);
   saveCompany = output<Company>();
   cancelForm = output<void>();
 
@@ -42,15 +42,6 @@ export class CompaniesForm {
     { value: 1, label: 'Persona Física' },
     { value: 2, label: 'Persona Moral' },
   ];
-
-  // ─── Country catalog for address country selector ────────────
-  private _countriesCatalog = signal<Country[]>([]);
-  readonly countriesCatalog = this._countriesCatalog.asReadonly();
-
-  // ─── Helpers for mat-select compareWith ──────────────────────
-  protected compareCountryById = (optionId: string | null, selectedId: string | null): boolean => {
-    return optionId === selectedId;
-  };
 
   protected readonly rfcErrorMessages: Record<string, (error: any) => string> = {
     pattern: () => 'El RFC debe tener 12-13 caracteres alfanuméricos.',
@@ -97,12 +88,6 @@ export class CompaniesForm {
   readonly isEditMode = computed(() => !!this.formGroup()?.controls.id.value);
 
   constructor() {
-    // --- Load country catalog for address country selector ---
-    this.countryService.getCountries().subscribe({
-      next: (countries) => this._countriesCatalog.set(countries),
-      error: () => this._countriesCatalog.set([]),
-    });
-
     effect((onCleanup) => {
       const serverErrors = this.serverErrors();
       const fg = this.formGroup();
@@ -141,6 +126,12 @@ export class CompaniesForm {
 
     if (this.formGroup().valid) {
       const raw = this.formGroup().getRawValue();
+      const hasAddress = raw.address && (
+        raw.address.street || raw.address.streetNumber ||
+        raw.address.internalNumber || raw.address.neighborhood ||
+        raw.address.zipCode || raw.address.city ||
+        raw.address.state || raw.address.countryId
+      );
       const companyData: Company = {
         id: raw.id,
         companyKey: raw.companyKey ?? '',
@@ -153,15 +144,7 @@ export class CompaniesForm {
         enabled: raw.enabled,
         createdAt: '',
         updatedAt: '',
-        // Address fields — only include non-null/non-empty values
-        ...(raw.street?.trim() ? { street: raw.street.trim() } : {}),
-        ...(raw.streetNumber?.trim() ? { streetNumber: raw.streetNumber.trim() } : {}),
-        ...(raw.internalNumber?.trim() ? { internalNumber: raw.internalNumber.trim() } : {}),
-        ...(raw.neighborhood?.trim() ? { neighborhood: raw.neighborhood.trim() } : {}),
-        ...(raw.zipCode?.trim() ? { zipCode: raw.zipCode.trim() } : {}),
-        ...(raw.city?.trim() ? { city: raw.city.trim() } : {}),
-        ...(raw.state?.trim() ? { state: raw.state.trim() } : {}),
-        ...(raw.countryId?.trim() ? { countryId: raw.countryId.trim() } : {}),
+        ...(hasAddress ? { address: raw.address } : {}),
       };
       this.saveCompany.emit(companyData);
     }
