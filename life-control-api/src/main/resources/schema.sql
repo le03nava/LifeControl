@@ -87,26 +87,6 @@ CREATE TABLE IF NOT EXISTS company_zones (
 CREATE INDEX IF NOT EXISTS idx_cz_region ON company_zones(company_region_id);
 
 -- ============================================
--- Company Store Addresses Table
--- ============================================
-CREATE TABLE IF NOT EXISTS company_store_addresses (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    street VARCHAR(255) NOT NULL,
-    street_number VARCHAR(20) NOT NULL,
-    internal_number VARCHAR(20),
-    neighborhood VARCHAR(255) NOT NULL,
-    zip_code VARCHAR(20) NOT NULL,
-    city VARCHAR(255) NOT NULL,
-    state VARCHAR(255) NOT NULL,
-    country_id UUID NOT NULL REFERENCES countries(id),
-    enabled BOOLEAN DEFAULT true NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS idx_company_store_addresses_country_id ON company_store_addresses(country_id);
-
--- ============================================
 -- Company Stores Table
 -- ============================================
 CREATE TABLE IF NOT EXISTS company_stores (
@@ -115,7 +95,7 @@ CREATE TABLE IF NOT EXISTS company_stores (
     store_name VARCHAR(255) NOT NULL,
     email VARCHAR(255),
     phone_number VARCHAR(50),
-    address_id UUID REFERENCES company_store_addresses(id),
+    address_id UUID,
     enabled BOOLEAN DEFAULT true NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -517,3 +497,63 @@ ALTER TABLE companies
   ADD COLUMN IF NOT EXISTS country_id UUID REFERENCES countries(id);
 
 CREATE INDEX IF NOT EXISTS idx_companies_country_id ON companies(country_id);
+
+-- ============================================
+-- Addresses Table (shared address domain)
+-- ============================================
+CREATE TABLE IF NOT EXISTS addresses (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    street VARCHAR(255),
+    street_number VARCHAR(20),
+    internal_number VARCHAR(20),
+    neighborhood VARCHAR(255),
+    zip_code VARCHAR(20),
+    city VARCHAR(255),
+    state VARCHAR(255),
+    country_id UUID REFERENCES countries(id),
+    enabled BOOLEAN DEFAULT true NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_addresses_country_id ON addresses(country_id);
+
+-- ============================================
+-- Trigger: auto-update updated_at on addresses
+-- ============================================
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+CREATE TRIGGER update_addresses_updated_at
+    BEFORE UPDATE ON addresses
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================
+-- Migration: Add address_id to companies
+-- ============================================
+ALTER TABLE companies
+  ADD COLUMN IF NOT EXISTS address_id UUID REFERENCES addresses(id);
+
+CREATE INDEX IF NOT EXISTS idx_companies_address_id ON companies(address_id);
+
+-- ============================================
+-- Migration: Add address columns to suppliers
+-- ============================================
+ALTER TABLE suppliers
+  ADD COLUMN IF NOT EXISTS internal_number VARCHAR(20),
+  ADD COLUMN IF NOT EXISTS country_id UUID REFERENCES countries(id),
+  ADD COLUMN IF NOT EXISTS address_id UUID REFERENCES addresses(id);
+
+CREATE INDEX IF NOT EXISTS idx_suppliers_country_id ON suppliers(country_id);
+CREATE INDEX IF NOT EXISTS idx_suppliers_address_id ON suppliers(address_id);
+
+-- ============================================
+-- Migration: Drop FK on company_stores.address_id (now application-managed)
+-- ============================================
+ALTER TABLE company_stores DROP CONSTRAINT IF EXISTS fk_company_stores_address;
