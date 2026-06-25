@@ -1,5 +1,6 @@
 package com.lifecontrol.api.store.model;
 
+import com.lifecontrol.api.common.address.model.Address;
 import com.lifecontrol.api.common.model.Auditable;
 import com.lifecontrol.api.company.model.CompanyZone;
 import jakarta.persistence.*;
@@ -29,7 +30,7 @@ public class CompanyStore extends Auditable {
 
     @OneToOne(cascade = {CascadeType.PERSIST, CascadeType.MERGE}, fetch = FetchType.LAZY)
     @JoinColumn(name = "address_id")
-    private CompanyStoreAddress address;
+    private Address address;
 
     @Column(name = "enabled", nullable = false)
     private Boolean enabled = true;
@@ -58,7 +59,7 @@ public class CompanyStore extends Auditable {
         return phoneNumber;
     }
 
-    public CompanyStoreAddress getAddress() {
+    public Address getAddress() {
         return address;
     }
 
@@ -87,7 +88,7 @@ public class CompanyStore extends Auditable {
         this.phoneNumber = phoneNumber;
     }
 
-    public void setAddress(CompanyStoreAddress address) {
+    public void setAddress(Address address) {
         this.address = address;
     }
 
@@ -128,7 +129,7 @@ public class CompanyStore extends Auditable {
             return this;
         }
 
-        public Builder address(CompanyStoreAddress address) {
+        public Builder address(Address address) {
             store.address = address;
             return this;
         }
