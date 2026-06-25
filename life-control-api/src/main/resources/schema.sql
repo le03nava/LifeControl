@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS company_stores (
     store_name VARCHAR(255) NOT NULL,
     email VARCHAR(255),
     phone_number VARCHAR(50),
-    address_id UUID,
+    address_id UUID REFERENCES addresses(id),
     enabled BOOLEAN DEFAULT true NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

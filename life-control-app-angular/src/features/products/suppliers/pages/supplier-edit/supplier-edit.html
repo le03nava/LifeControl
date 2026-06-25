@@ -6,6 +6,8 @@
   [formGroup]="supplierForm()"
   [serverErrors]="serverErrors()"
   [editMode]="isEditMode()"
+  [countries]="countries()"
+  [addressServerErrors]="addressServerErrors()"
   (saveSupplier)="onSaveSupplier($event)"
   (cancelForm)="cancelForm()"
 />

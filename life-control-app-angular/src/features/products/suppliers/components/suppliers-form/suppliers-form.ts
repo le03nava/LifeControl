@@ -1,7 +1,6 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  computed,
   effect,
   input,
   output,
@@ -13,6 +12,8 @@ import {
 } from '@angular/forms';
 import { Subscription } from 'rxjs';
 import { Supplier, SupplierControl } from '../../models/supplier.models';
+import { AddressFormComponent } from '@shared/ui/address-form';
+import { Country } from '@features/companies/countries/models/country.models';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
@@ -29,6 +30,7 @@ import { MatIconModule } from '@angular/material/icon';
     MatButtonModule,
     MatSlideToggleModule,
     MatIconModule,
+    AddressFormComponent,
   ],
   templateUrl: './suppliers-form.html',
   styleUrl: './suppliers-form.scss',
@@ -38,6 +40,8 @@ export class SuppliersForm {
   formGroup = input.required<FormGroup<SupplierControl>>();
   serverErrors = input<Record<string, string>>({});
   editMode = input<boolean>(false);
+  countries = input<Country[]>([]);
+  addressServerErrors = input<Record<string, string>>({});
   saveSupplier = output<Supplier>();
   cancelForm = output<void>();
 
@@ -121,12 +125,8 @@ export class SuppliersForm {
         rfc: raw.rfc,
         email: raw.email,
         phoneNumber: raw.phoneNumber,
-        street: raw.street,
-        streetNumber: raw.streetNumber,
-        neighborhood: raw.neighborhood,
-        zipCode: raw.zipCode,
-        city: raw.city,
-        state: raw.state,
+        internalNumber: raw.internalNumber || undefined,
+        address: raw.address || undefined,
         enabled: raw.enabled ?? true,
         createdAt: '',
         updatedAt: '',
