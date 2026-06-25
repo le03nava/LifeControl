@@ -33,6 +33,10 @@ import {
 import { CompanyZoneService } from '../../../zones/data/company-zone.service';
 import { CountryService } from '../../../../countries/data/country.service';
 import { Country } from '../../../countries/models/country.models';
+import {
+  AddressControl,
+} from '@shared/models/address.models';
+import { AddressFormComponent } from '@shared/ui/address-form';
 
 @Component({
   selector: 'app-stores-form',
@@ -45,6 +49,7 @@ import { Country } from '../../../countries/models/country.models';
     MatSelectModule,
     MatSlideToggleModule,
     MatIconModule,
+    AddressFormComponent,
   ],
   templateUrl: './stores-form.html',
   styleUrl: './stores-form.scss',
@@ -59,6 +64,7 @@ export class StoresForm {
   regions = input<CompanyRegion[]>([]);
   storeToEdit = input<CompanyStore | null>(null);
   serverErrors = input<Record<string, string>>({});
+  addressServerErrors = input<Record<string, string>>({});
   initialCompanyId = input<string | null>(null);
   initialCountryId = input<string | null>(null);
   initialRegionId = input<string | null>(null);
@@ -82,6 +88,10 @@ export class StoresForm {
   private _zones = signal<CompanyZone[]>([]);
   readonly zones = this._zones.asReadonly();
 
+  // ─── Country catalog for address country selector ────────────
+  private _countriesCatalog = signal<Country[]>([]);
+  readonly countriesCatalog = this._countriesCatalog.asReadonly();
+
   // ─── Self-contained FormGroup ───────────────────────────────
   formGroup = new FormGroup<StoreControl>({
     storeName: new FormControl('', {
@@ -95,14 +105,16 @@ export class StoresForm {
     phoneNumber: new FormControl<string | null>(null, {
       nonNullable: false,
     }),
-    street: new FormControl<string | null>(null, { nonNullable: false }),
-    streetNumber: new FormControl<string | null>(null, { nonNullable: false }),
-    internalNumber: new FormControl<string | null>(null, { nonNullable: false }),
-    neighborhood: new FormControl<string | null>(null, { nonNullable: false }),
-    zipCode: new FormControl<string | null>(null, { nonNullable: false }),
-    city: new FormControl<string | null>(null, { nonNullable: false }),
-    state: new FormControl<string | null>(null, { nonNullable: false }),
-    countryId: new FormControl<string | null>(null, { nonNullable: false }),
+    address: new FormGroup<AddressControl>({
+      street: new FormControl<string | null>(null, { nonNullable: false }),
+      streetNumber: new FormControl<string | null>(null, { nonNullable: false }),
+      internalNumber: new FormControl<string | null>(null, { nonNullable: false }),
+      neighborhood: new FormControl<string | null>(null, { nonNullable: false }),
+      zipCode: new FormControl<string | null>(null, { nonNullable: false }),
+      city: new FormControl<string | null>(null, { nonNullable: false }),
+      state: new FormControl<string | null>(null, { nonNullable: false }),
+      countryId: new FormControl<string | null>(null, { nonNullable: false }),
+    }),
     enabled: new FormControl(true, { nonNullable: true }),
   });
 
@@ -149,10 +161,6 @@ export class StoresForm {
     });
   }
 
-  // ─── Country catalog for address country selector ────────────
-  private _countriesCatalog = signal<Country[]>([]);
-  readonly countriesCatalog = this._countriesCatalog.asReadonly();
-
   // ─── Helpers for mat-select compareWith ──────────────────────
   protected compareCompanyCountryById = (option: CompanyCountry | null, selectedId: string | null): boolean => {
     return option?.id === selectedId;
@@ -164,10 +172,6 @@ export class StoresForm {
 
   protected compareZoneById = (option: CompanyZone | null, selectedId: string | null): boolean => {
     return option?.id === selectedId;
-  };
-
-  protected compareCountryById = (optionId: string | null, selectedId: string | null): boolean => {
-    return optionId === selectedId;
   };
 
   // ─── Constructor ────────────────────────────────────────────
@@ -192,14 +196,16 @@ export class StoresForm {
         storeName: store.storeName,
         email: store.email ?? null,
         phoneNumber: store.phoneNumber ?? null,
-        street: store.street ?? null,
-        streetNumber: store.streetNumber ?? null,
-        internalNumber: store.internalNumber ?? null,
-        neighborhood: store.neighborhood ?? null,
-        zipCode: store.zipCode ?? null,
-        city: store.city ?? null,
-        state: store.state ?? null,
-        countryId: store.countryId ?? null,
+        address: {
+          street: store.address?.street ?? null,
+          streetNumber: store.address?.streetNumber ?? null,
+          internalNumber: store.address?.internalNumber ?? null,
+          neighborhood: store.address?.neighborhood ?? null,
+          zipCode: store.address?.zipCode ?? null,
+          city: store.address?.city ?? null,
+          state: store.address?.state ?? null,
+          countryId: store.address?.countryId ?? null,
+        },
         enabled: store.enabled,
       });
     });
@@ -321,6 +327,13 @@ export class StoresForm {
     if (!companyId || !countryId || !regionId || !zoneId) return;
 
     const raw = this.formGroup.getRawValue();
+    const address = raw.address;
+    const hasAddress = address && (
+      address.street || address.streetNumber ||
+      address.internalNumber || address.neighborhood ||
+      address.zipCode || address.city ||
+      address.state || address.countryId
+    );
 
     this.save.emit({
       companyId,
@@ -331,14 +344,7 @@ export class StoresForm {
         storeName: raw.storeName.trim(),
         ...(raw.email?.trim() ? { email: raw.email.trim() } : {}),
         ...(raw.phoneNumber?.trim() ? { phoneNumber: raw.phoneNumber.trim() } : {}),
-        ...(raw.street?.trim() ? { street: raw.street.trim() } : {}),
-        ...(raw.streetNumber?.trim() ? { streetNumber: raw.streetNumber.trim() } : {}),
-        ...(raw.internalNumber?.trim() ? { internalNumber: raw.internalNumber.trim() } : {}),
-        ...(raw.neighborhood?.trim() ? { neighborhood: raw.neighborhood.trim() } : {}),
-        ...(raw.zipCode?.trim() ? { zipCode: raw.zipCode.trim() } : {}),
-        ...(raw.city?.trim() ? { city: raw.city.trim() } : {}),
-        ...(raw.state?.trim() ? { state: raw.state.trim() } : {}),
-        ...(raw.countryId?.trim() ? { countryId: raw.countryId.trim() } : {}),
+        ...(hasAddress ? { address } : {}),
       },
       storeId: this.storeToEdit()?.id,
     });

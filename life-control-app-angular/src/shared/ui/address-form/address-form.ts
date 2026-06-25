@@ -1,58 +1,48 @@
 import {
+  ChangeDetectionStrategy,
   Component,
-  computed,
   effect,
   inject,
   input,
-  output,
 } from '@angular/core';
 import {
   AbstractControl,
   FormGroup,
   ReactiveFormsModule,
 } from '@angular/forms';
-import { Subscription } from 'rxjs';
-import { Company, CompanyControl } from '../../models/company.models';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
-import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatIconModule } from '@angular/material/icon';
-import { AddressFormComponent } from '@shared/ui/address-form';
-import { Country } from '@features/companies/countries/models/country.models';
+import { Subscription } from 'rxjs';
+import { AddressControl } from '../../models/address.models';
+import { Country } from '../../../features/companies/countries/models/country.models';
 
 @Component({
-  selector: 'app-companies-form',
+  selector: 'app-address-form',
   standalone: true,
-  imports: [ReactiveFormsModule, MatFormFieldModule, MatInputModule, MatButtonModule, MatSelectModule, MatSlideToggleModule, MatIconModule, AddressFormComponent],
-  templateUrl: './companies-form.html',
-  styleUrl: './companies-form.scss',
+  imports: [ReactiveFormsModule, MatFormFieldModule, MatInputModule, MatButtonModule, MatSelectModule, MatIconModule],
+  templateUrl: './address-form.html',
+  styleUrl: './address-form.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class CompaniesForm {
+export class AddressFormComponent {
+  /** REQUIRED: parent passes its address sub-FormGroup */
+  addressFormGroup = input.required<FormGroup<AddressControl>>();
 
-  formGroup = input.required<FormGroup<CompanyControl>>();
-  serverErrors = input<Record<string, string>>({});
-  addressServerErrors = input<Record<string, string>>({});
+  /** OPTIONAL: country catalog for the country <mat-select> */
   countries = input<Country[]>([]);
-  saveCompany = output<Company>();
-  cancelForm = output<void>();
 
-  readonly personaTypes = [
-    { value: 1, label: 'Persona Física' },
-    { value: 2, label: 'Persona Moral' },
-  ];
+  /** OPTIONAL: server-side validation errors (already stripped of 'address.' prefix) */
+  serverErrors = input<Record<string, string>>({});
 
-  protected readonly rfcErrorMessages: Record<string, (error: any) => string> = {
-    pattern: () => 'El RFC debe tener 12-13 caracteres alfanuméricos.',
-  };
+  /** OPTIONAL: hide the address section heading */
+  hideHeading = input<boolean>(false);
 
-  protected readonly emailErrorMessages: Record<string, (error: any) => string> = {
-    email: () => 'Ingrese un correo electrónico válido.',
-  };
-
-  protected readonly phoneErrorMessages: Record<string, (error: any) => string> = {
-    pattern: () => 'Ingrese un número de teléfono válido.',
+  // ─── Helpers for mat-select compareWith ──────────────────────
+  protected compareCountryById = (optionId: string | null, selectedId: string | null): boolean => {
+    return optionId === selectedId;
   };
 
   private readonly defaultErrorMessages: Record<string, (error: any) => string> = {
@@ -85,12 +75,10 @@ export class CompaniesForm {
     return 'Campo inválido.';
   }
 
-  readonly isEditMode = computed(() => !!this.formGroup()?.controls.id.value);
-
   constructor() {
     effect((onCleanup) => {
       const serverErrors = this.serverErrors();
-      const fg = this.formGroup();
+      const fg = this.addressFormGroup();
 
       if (!fg || Object.keys(serverErrors).length === 0) return;
 
@@ -111,7 +99,7 @@ export class CompaniesForm {
           });
           subscriptions.push(sub);
         } else {
-          console.warn(`[CompaniesForm] No control found for server error key: "${key}"`);
+          console.warn(`[AddressFormComponent] No control found for server error key: "${key}"`);
         }
       });
 
@@ -119,38 +107,5 @@ export class CompaniesForm {
         subscriptions.forEach(sub => sub.unsubscribe());
       });
     });
-  }
-
-  onSave(): void {
-    this.formGroup().markAllAsTouched();
-
-    if (this.formGroup().valid) {
-      const raw = this.formGroup().getRawValue();
-      const hasAddress = raw.address && (
-        raw.address.street || raw.address.streetNumber ||
-        raw.address.internalNumber || raw.address.neighborhood ||
-        raw.address.zipCode || raw.address.city ||
-        raw.address.state || raw.address.countryId
-      );
-      const companyData: Company = {
-        id: raw.id,
-        companyKey: raw.companyKey ?? '',
-        companyName: raw.companyName,
-        tipoPersonaId: raw.tipoPersonaId,
-        razonSocial: raw.razonSocial,
-        rfc: raw.rfc,
-        email: raw.email,
-        phone: raw.phone,
-        enabled: raw.enabled,
-        createdAt: '',
-        updatedAt: '',
-        ...(hasAddress ? { address: raw.address } : {}),
-      };
-      this.saveCompany.emit(companyData);
-    }
-  }
-
-  onCancel(): void {
-    this.cancelForm.emit();
   }
 }

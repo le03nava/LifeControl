@@ -1,6 +1,8 @@
 package com.lifecontrol.api.store.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lifecontrol.api.common.address.dto.AddressRequest;
+import com.lifecontrol.api.common.address.dto.AddressResponse;
 import com.lifecontrol.api.company.exception.CompanyZoneNotFoundException;
 import com.lifecontrol.api.store.dto.CompanyStoreResponse;
 import com.lifecontrol.api.store.dto.CreateCompanyStoreRequest;
@@ -78,15 +80,17 @@ class CompanyStoreControllerTest {
                 "Tienda Principal",
                 "tienda@example.com",
                 "555-1234",
-                UUID.randomUUID(),
-                "Calle Principal",
-                "123",
-                null,
-                "Centro",
-                "12345",
-                "Ciudad de México",
-                "CDMX",
-                UUID.randomUUID(),
+                new AddressResponse(
+                        UUID.randomUUID(),
+                        "Calle Principal",
+                        "123",
+                        null,
+                        "Centro",
+                        "12345",
+                        "Ciudad de México",
+                        "CDMX",
+                        UUID.randomUUID()
+                ),
                 true,
                 now,
                 now
@@ -110,7 +114,9 @@ class CompanyStoreControllerTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$").isArray())
                     .andExpect(jsonPath("$[0].storeName").value("Tienda Principal"))
-                    .andExpect(jsonPath("$[0].enabled").value(true));
+                    .andExpect(jsonPath("$[0].enabled").value(true))
+                    .andExpect(jsonPath("$[0].address.street").value("Calle Principal"))
+                    .andExpect(jsonPath("$[0].address.city").value("Ciudad de México"));
         }
 
         @Test
@@ -147,7 +153,8 @@ class CompanyStoreControllerTest {
                             testCompanyId, testCompanyCountryId, testRegionId, testZoneId, testStoreId))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.storeName").value("Tienda Principal"))
-                    .andExpect(jsonPath("$.enabled").value(true));
+                    .andExpect(jsonPath("$.enabled").value(true))
+                    .andExpect(jsonPath("$.address.street").value("Calle Principal"));
         }
 
         @Test
@@ -176,8 +183,8 @@ class CompanyStoreControllerTest {
             // Arrange
             var request = new CreateCompanyStoreRequest(
                     "Tienda Nueva", "nueva@example.com", "555-5678",
-                    "Calle", "123", null, "Colonia", "12345",
-                    "Ciudad", "Estado", UUID.randomUUID());
+                    new AddressRequest("Calle", "123", null, "Colonia", "12345",
+                            "Ciudad", "Estado", UUID.randomUUID()));
             when(companyStoreService.createStore(
                     eq(testCompanyId), eq(testCompanyCountryId), eq(testRegionId),
                     eq(testZoneId), any(CreateCompanyStoreRequest.class)))
@@ -189,7 +196,8 @@ class CompanyStoreControllerTest {
                             .content(objectMapper.writeValueAsString(request)))
                     .andExpect(status().isCreated())
                     .andExpect(jsonPath("$.storeName").value("Tienda Principal"))
-                    .andExpect(jsonPath("$.enabled").value(true));
+                    .andExpect(jsonPath("$.enabled").value(true))
+                    .andExpect(jsonPath("$.address.street").value("Calle Principal"));
         }
 
         @Test
@@ -197,9 +205,7 @@ class CompanyStoreControllerTest {
         void createStore_ValidationError() throws Exception {
             // Arrange
             var invalidRequest = new CreateCompanyStoreRequest(
-                    "", "nueva@example.com", "555-5678",
-                    null, null, null, null, null,
-                    null, null, null);
+                    "", "nueva@example.com", "555-5678", null);
 
             // Act & Assert
             mockMvc.perform(post(BASE_URL, testCompanyId, testCompanyCountryId, testRegionId, testZoneId)
@@ -214,9 +220,7 @@ class CompanyStoreControllerTest {
         void createStore_Duplicate() throws Exception {
             // Arrange
             var request = new CreateCompanyStoreRequest(
-                    "Tienda Existente", "dupe@example.com", "555-0000",
-                    null, null, null, null, null,
-                    null, null, null);
+                    "Tienda Existente", "dupe@example.com", "555-0000", null);
             when(companyStoreService.createStore(
                     eq(testCompanyId), eq(testCompanyCountryId), eq(testRegionId),
                     eq(testZoneId), any(CreateCompanyStoreRequest.class)))
@@ -242,14 +246,11 @@ class CompanyStoreControllerTest {
         void updateStore_Success() throws Exception {
             // Arrange
             var request = new UpdateCompanyStoreRequest(
-                    "Tienda Actualizada", "actualizada@example.com", "555-9999",
-                    null, null, null, null, null,
-                    null, null, null);
+                    "Tienda Actualizada", "actualizada@example.com", "555-9999", null);
             var updatedResponse = new CompanyStoreResponse(
                     testStoreId, testCompanyId, testCompanyCountryId, testRegionId, testZoneId,
                     "Tienda Actualizada", "actualizada@example.com", "555-9999",
-                    null, null, null, null, null, null,
-                    null, null, null,
+                    null,
                     true, now, now);
             when(companyStoreService.updateStore(
                     eq(testCompanyId), eq(testCompanyCountryId), eq(testRegionId),
@@ -263,7 +264,8 @@ class CompanyStoreControllerTest {
                             .content(objectMapper.writeValueAsString(request)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.storeName").value("Tienda Actualizada"))
-                    .andExpect(jsonPath("$.enabled").value(true));
+                    .andExpect(jsonPath("$.enabled").value(true))
+                    .andExpect(jsonPath("$.address").doesNotExist());
         }
 
         @Test
@@ -271,9 +273,7 @@ class CompanyStoreControllerTest {
         void updateStore_NotFound() throws Exception {
             // Arrange
             var request = new UpdateCompanyStoreRequest(
-                    "Tienda Actualizada", null, null,
-                    null, null, null, null, null,
-                    null, null, null);
+                    "Tienda Actualizada", null, null, null);
             when(companyStoreService.updateStore(
                     eq(testCompanyId), eq(testCompanyCountryId), eq(testRegionId),
                     eq(testZoneId), eq(testStoreId), any(UpdateCompanyStoreRequest.class)))
@@ -335,8 +335,7 @@ class CompanyStoreControllerTest {
             var enabledResponse = new CompanyStoreResponse(
                     testStoreId, testCompanyId, testCompanyCountryId, testRegionId, testZoneId,
                     "Tienda Principal", "tienda@example.com", "555-1234",
-                    null, null, null, null, null, null,
-                    null, null, null,
+                    null,
                     true, now, now);
             when(companyStoreService.enableStore(
                     testCompanyId, testCompanyCountryId, testRegionId, testZoneId, testStoreId))

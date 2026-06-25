@@ -3,6 +3,7 @@ import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { signal } from '@angular/core';
 import { CompanyEdit } from './company-edit';
 import { Company } from '@features/companies/companies/models/company.models';
+import type { AddressValue } from '@shared/models/address.models';
 import { CompanyService } from '@features/companies/companies/data/company.service';
 import { CompanyContextService } from '@shared/data/company-context.service';
 import { CompanyCountryService } from '@features/companies/countries/data';
@@ -52,6 +53,17 @@ describe('CompanyEdit', () => {
     };
   }
 
+  const defaultAddress: AddressValue = {
+    street: 'Av. Reforma',
+    streetNumber: '222',
+    internalNumber: 'A-101',
+    neighborhood: 'Juárez',
+    zipCode: '06600',
+    city: 'CDMX',
+    state: 'CDMX',
+    countryId: 'MX',
+  };
+
   function createCompanyWithAddress(overrides: Partial<Company> = {}): Company {
     return {
       id: 'existing-id',
@@ -62,14 +74,7 @@ describe('CompanyEdit', () => {
       rfc: 'XAXX010101000',
       email: 'corp@test.com',
       phone: '555-0001',
-      street: 'Av. Reforma',
-      streetNumber: '222',
-      internalNumber: 'A-101',
-      neighborhood: 'Juárez',
-      zipCode: '06600',
-      city: 'CDMX',
-      state: 'CDMX',
-      countryId: 'MX',
+      address: { ...defaultAddress },
       enabled: true,
       createdAt: '2024-01-01',
       updatedAt: '2024-01-01',
@@ -195,32 +200,39 @@ describe('CompanyEdit', () => {
       (component as any).loadCompany(company.id);
       fixture.detectChanges();
 
-      expect(component.companyForm().controls.street.value).toBe('Av. Reforma');
-      expect(component.companyForm().controls.streetNumber.value).toBe('222');
-      expect(component.companyForm().controls.internalNumber.value).toBe('A-101');
-      expect(component.companyForm().controls.neighborhood.value).toBe('Juárez');
-      expect(component.companyForm().controls.zipCode.value).toBe('06600');
-      expect(component.companyForm().controls.city.value).toBe('CDMX');
-      expect(component.companyForm().controls.state.value).toBe('CDMX');
-      expect(component.companyForm().controls.countryId.value).toBe('MX');
+      const addressGroup = component.companyForm().controls.address;
+      expect(addressGroup.get('street')?.value).toBe('Av. Reforma');
+      expect(addressGroup.get('streetNumber')?.value).toBe('222');
+      expect(addressGroup.get('internalNumber')?.value).toBe('A-101');
+      expect(addressGroup.get('neighborhood')?.value).toBe('Juárez');
+      expect(addressGroup.get('zipCode')?.value).toBe('06600');
+      expect(addressGroup.get('city')?.value).toBe('CDMX');
+      expect(addressGroup.get('state')?.value).toBe('CDMX');
+      expect(addressGroup.get('countryId')?.value).toBe('MX');
     });
 
     it('should load company and populate address fields as null when empty', () => {
       const company = createCompanyWithAddress({
-        street: undefined,
-        streetNumber: undefined,
-        city: undefined,
-        state: undefined,
-        countryId: undefined,
+        address: {
+          street: null,
+          streetNumber: null,
+          internalNumber: null,
+          neighborhood: null,
+          zipCode: null,
+          city: null,
+          state: null,
+          countryId: null,
+        },
       });
       companyServiceMock.getCompanyById = vi.fn().mockReturnValue(of(company));
 
       (component as any).loadCompany(company.id);
       fixture.detectChanges();
 
-      expect(component.companyForm().controls.street.value).toBeNull();
-      expect(component.companyForm().controls.city.value).toBeNull();
-      expect(component.companyForm().controls.countryId.value).toBeNull();
+      const addressGroup = component.companyForm().controls.address;
+      expect(addressGroup.get('street')?.value).toBeNull();
+      expect(addressGroup.get('city')?.value).toBeNull();
+      expect(addressGroup.get('countryId')?.value).toBeNull();
     });
 
     it('should include address fields when saving company with address', () => {
@@ -234,10 +246,10 @@ describe('CompanyEdit', () => {
       component.onSaveCompany(companyData);
 
       expect(captured).toBeDefined();
-      expect(captured!.street).toBe('Av. Reforma');
-      expect(captured!.streetNumber).toBe('222');
-      expect(captured!.city).toBe('CDMX');
-      expect(captured!.countryId).toBe('MX');
+      expect(captured!.address?.street).toBe('Av. Reforma');
+      expect(captured!.address?.streetNumber).toBe('222');
+      expect(captured!.address?.city).toBe('CDMX');
+      expect(captured!.address?.countryId).toBe('MX');
     });
 
     it('should update company with address fields', () => {
@@ -251,8 +263,8 @@ describe('CompanyEdit', () => {
       component.onSaveCompany(companyData);
 
       expect(captured).toBeDefined();
-      expect(captured!.street).toBe('Av. Reforma');
-      expect(captured!.city).toBe('CDMX');
+      expect(captured!.address?.street).toBe('Av. Reforma');
+      expect(captured!.address?.city).toBe('CDMX');
     });
   });
 });

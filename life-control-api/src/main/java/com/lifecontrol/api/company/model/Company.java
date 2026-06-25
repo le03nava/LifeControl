@@ -1,5 +1,6 @@
 package com.lifecontrol.api.company.model;
 
+import com.lifecontrol.api.common.address.model.Address;
 import com.lifecontrol.api.common.model.Auditable;
 import jakarta.persistence.*;
 
@@ -59,6 +60,10 @@ public class Company extends Auditable {
 
     @Column(name = "country_id")
     private UUID countryId;
+
+    @OneToOne(cascade = {CascadeType.PERSIST, CascadeType.MERGE}, fetch = FetchType.LAZY)
+    @JoinColumn(name = "address_id")
+    private Address address;
 
     // Default constructor for JPA
     public Company() {}
@@ -132,6 +137,10 @@ public class Company extends Auditable {
         return countryId;
     }
 
+    public Address getAddress() {
+        return address;
+    }
+
     // Setters
     public void setId(UUID id) {
         this.id = id;
@@ -199,6 +208,10 @@ public class Company extends Auditable {
 
     public void setCountryId(UUID countryId) {
         this.countryId = countryId;
+    }
+
+    public void setAddress(Address address) {
+        this.address = address;
     }
 
     // Builder pattern
@@ -291,6 +304,11 @@ public class Company extends Auditable {
 
         public Builder countryId(UUID countryId) {
             company.countryId = countryId;
+            return this;
+        }
+
+        public Builder address(Address address) {
+            company.address = address;
             return this;
         }
 

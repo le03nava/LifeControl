@@ -1,6 +1,7 @@
 package com.lifecontrol.api.company.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lifecontrol.api.common.address.dto.AddressRequest;
 import com.lifecontrol.api.company.dto.CompanyRequest;
 import com.lifecontrol.api.company.dto.CompanyResponse;
 import com.lifecontrol.api.company.exception.CompanyNotFoundException;
@@ -71,7 +72,7 @@ class CompanyControllerTest {
 
         testCompanyResponse = new CompanyResponse(
                 testCompanyId,
- "1",
+                "1",
                 "Test Company",
                 1,
                 "Razon Social Test SA de CV",
@@ -81,7 +82,7 @@ class CompanyControllerTest {
                 true,
                 now,
                 now,
-                null, null, null, null, null, null, null, null
+                null
         );
 
         testCompanyRequest = new CompanyRequest(
@@ -93,7 +94,7 @@ class CompanyControllerTest {
                 "+9876543210",
                 "updated@company.com",
                 false,
-                null, null, null, null, null, null, null, null
+                null
         );
     }
 
@@ -241,7 +242,7 @@ class CompanyControllerTest {
                     null,
                     null,
                     null,
-                    null, null, null, null, null, null, null, null
+                    null
             );
 
             // Act & Assert

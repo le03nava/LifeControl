@@ -1,49 +1,50 @@
-package com.lifecontrol.api.store.model;
+package com.lifecontrol.api.common.address.model;
 
 import com.lifecontrol.api.common.model.Auditable;
 import com.lifecontrol.api.country.model.Country;
 import jakarta.persistence.*;
 
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "company_store_addresses")
-public class CompanyStoreAddress extends Auditable {
+@Table(name = "addresses")
+public class Address extends Auditable {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @Column(name = "street", nullable = false)
+    @Column(name = "street", length = 255)
     private String street;
 
-    @Column(name = "street_number", nullable = false)
+    @Column(name = "street_number", length = 20)
     private String streetNumber;
 
-    @Column(name = "internal_number")
+    @Column(name = "internal_number", length = 20)
     private String internalNumber;
 
-    @Column(name = "neighborhood", nullable = false)
+    @Column(name = "neighborhood", length = 255)
     private String neighborhood;
 
-    @Column(name = "zip_code", nullable = false)
+    @Column(name = "zip_code", length = 20)
     private String zipCode;
 
-    @Column(name = "city", nullable = false)
+    @Column(name = "city", length = 255)
     private String city;
 
-    @Column(name = "state", nullable = false)
+    @Column(name = "state", length = 255)
     private String state;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "country_id", nullable = false)
+    @JoinColumn(name = "country_id")
     private Country country;
 
-    @Column(name = "enabled", nullable = false)
+    @Column(nullable = false)
     private Boolean enabled = true;
 
     // Default constructor for JPA
-    public CompanyStoreAddress() {}
+    public Address() {}
 
     // Getters
     public UUID getId() {
@@ -133,7 +134,7 @@ public class CompanyStoreAddress extends Auditable {
     }
 
     public static class Builder {
-        private final CompanyStoreAddress address = new CompanyStoreAddress();
+        private final Address address = new Address();
 
         public Builder id(UUID id) {
             address.id = id;
@@ -185,7 +186,17 @@ public class CompanyStoreAddress extends Auditable {
             return this;
         }
 
-        public CompanyStoreAddress build() {
+        public Builder createdAt(LocalDateTime createdAt) {
+            address.setCreatedAt(createdAt);
+            return this;
+        }
+
+        public Builder updatedAt(LocalDateTime updatedAt) {
+            address.setUpdatedAt(updatedAt);
+            return this;
+        }
+
+        public Address build() {
             return address;
         }
     }

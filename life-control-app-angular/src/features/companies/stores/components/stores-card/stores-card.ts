@@ -24,13 +24,14 @@ export class StoresCard {
 
   readonly addressSummary = computed(() => {
     const s = this.store();
-    if (!s) return '';
+    if (!s?.address) return '';
+    const addr = s.address;
     const parts: string[] = [];
-    if (s.street) {
-      parts.push(s.streetNumber ? `${s.street} ${s.streetNumber}` : s.street);
+    if (addr.street) {
+      parts.push(addr.streetNumber ? `${addr.street} ${addr.streetNumber}` : addr.street);
     }
-    if (s.city) {
-      parts.push(s.state ? `${s.city}, ${s.state}` : s.city);
+    if (addr.city) {
+      parts.push(addr.state ? `${addr.city}, ${addr.state}` : addr.city);
     }
     return parts.join(' — ');
   });

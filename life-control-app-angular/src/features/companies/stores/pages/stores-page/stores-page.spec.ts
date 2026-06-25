@@ -73,8 +73,10 @@ describe('StoresPage', () => {
     {
       id: 'store-1', companyId: 'company-1', companyCountryId: 'cc-1', regionId: 'reg-1', zoneId: 'zone-1',
       storeName: 'Tienda Central', email: 'central@store.com', phoneNumber: '+525512345678',
-      street: 'Av. Reforma', streetNumber: '222', neighborhood: 'Juárez', zipCode: '06600',
-      city: 'Ciudad de México', state: 'CDMX', countryId: 'MX',
+      address: {
+        street: 'Av. Reforma', streetNumber: '222', neighborhood: 'Juárez', zipCode: '06600',
+        city: 'Ciudad de México', state: 'CDMX', countryId: 'MX',
+      },
       enabled: true, createdAt: '2024-01-01', updatedAt: '2024-01-15',
     },
     {

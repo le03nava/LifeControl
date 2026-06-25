@@ -50,8 +50,10 @@ describe('StoresEdit', () => {
   const mockStore: CompanyStore = {
     id: 'store-1', companyId: 'company-1', companyCountryId: 'cc-1', regionId: 'reg-1', zoneId: 'zone-1',
     storeName: 'Tienda Central', email: 'central@store.com', phoneNumber: '+525512345678',
-    street: 'Av. Reforma', streetNumber: '222', neighborhood: 'Juárez',
-    city: 'CDMX', state: 'CDMX', countryId: 'MX',
+    address: {
+      street: 'Av. Reforma', streetNumber: '222', neighborhood: 'Juárez',
+      city: 'CDMX', state: 'CDMX', countryId: 'MX',
+    },
     enabled: true, createdAt: '', updatedAt: '',
   };
 

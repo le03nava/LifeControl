@@ -1,4 +1,5 @@
-import { FormControl } from '@angular/forms';
+import { FormControl, FormGroup } from '@angular/forms';
+import { AddressControl, AddressRequest, AddressValue } from '@shared/models/address.models';
 
 export interface CompanyStore {
   id: string;
@@ -9,16 +10,7 @@ export interface CompanyStore {
   storeName: string;
   email?: string;
   phoneNumber?: string;
-  // Address (flattened from backend)
-  addressId?: string;
-  street?: string;
-  streetNumber?: string;
-  internalNumber?: string;
-  neighborhood?: string;
-  zipCode?: string;
-  city?: string;
-  state?: string;
-  countryId?: string;
+  address?: AddressValue;
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
@@ -28,14 +20,7 @@ export interface StoreRequest {
   storeName: string;
   email?: string;
   phoneNumber?: string;
-  street?: string;
-  streetNumber?: string;
-  internalNumber?: string;
-  neighborhood?: string;
-  zipCode?: string;
-  city?: string;
-  state?: string;
-  countryId?: string;
+  address?: AddressRequest;
 }
 
 /**
@@ -59,13 +44,6 @@ export interface StoreControl {
   storeName: FormControl<string>;
   email: FormControl<string | null>;
   phoneNumber: FormControl<string | null>;
-  street: FormControl<string | null>;
-  streetNumber: FormControl<string | null>;
-  internalNumber: FormControl<string | null>;
-  neighborhood: FormControl<string | null>;
-  zipCode: FormControl<string | null>;
-  city: FormControl<string | null>;
-  state: FormControl<string | null>;
-  countryId: FormControl<string | null>;
+  address: FormGroup<AddressControl>;
   enabled: FormControl<boolean>;
 }

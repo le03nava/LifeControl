@@ -16,14 +16,16 @@ describe('StoresCard', () => {
     storeName: 'Tienda Central',
     email: 'central@store.com',
     phoneNumber: '+525512345678',
-    street: 'Av. Reforma',
-    streetNumber: '222',
-    internalNumber: 'A-101',
-    neighborhood: 'Juárez',
-    zipCode: '06600',
-    city: 'Ciudad de México',
-    state: 'CDMX',
-    countryId: 'MX',
+    address: {
+      street: 'Av. Reforma',
+      streetNumber: '222',
+      internalNumber: 'A-101',
+      neighborhood: 'Juárez',
+      zipCode: '06600',
+      city: 'Ciudad de México',
+      state: 'CDMX',
+      countryId: 'MX',
+    },
     enabled: true,
     createdAt: '2024-01-01T00:00:00Z',
     updatedAt: '2024-01-15T00:00:00Z',
@@ -124,10 +126,13 @@ describe('StoresCard', () => {
     it('should render address fields when some are missing', () => {
       const partialStore: CompanyStore = {
         ...activeStore,
-        street: 'Calle Principal',
-        streetNumber: '',
-        city: 'Monterrey',
-        state: 'NL',
+        address: {
+          ...activeStore.address!,
+          street: 'Calle Principal',
+          streetNumber: '',
+          city: 'Monterrey',
+          state: 'NL',
+        },
       };
       setStore(partialStore);
 
@@ -208,10 +213,13 @@ describe('StoresCard', () => {
     it('should compute addressSummary showing only available fields', () => {
       const minimalStore: CompanyStore = {
         ...activeStore,
-        street: 'Calle 1',
-        streetNumber: undefined,
-        city: undefined,
-        state: undefined,
+        address: {
+          ...activeStore.address!,
+          street: 'Calle 1',
+          streetNumber: undefined as any,
+          city: undefined as any,
+          state: undefined as any,
+        },
       };
       setStore(minimalStore);
       expect(component.addressSummary()).toBe('Calle 1');

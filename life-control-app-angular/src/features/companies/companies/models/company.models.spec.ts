@@ -106,26 +106,28 @@ describe('CompanyModels — Country Types', () => {
       rfc: 'XAXX010101002',
       email: 'addr@test.com',
       phone: '555-0003',
-      street: 'Av. Reforma',
-      streetNumber: '222',
-      internalNumber: 'A-101',
-      neighborhood: 'Juárez',
-      zipCode: '06600',
-      city: 'CDMX',
-      state: 'CDMX',
-      countryId: 'MX',
+      address: {
+        street: 'Av. Reforma',
+        streetNumber: '222',
+        internalNumber: 'A-101',
+        neighborhood: 'Juárez',
+        zipCode: '06600',
+        city: 'CDMX',
+        state: 'CDMX',
+        countryId: 'MX',
+      },
       enabled: true,
       createdAt: '2024-01-01',
       updatedAt: '2024-01-01',
     };
-    expect(company.street).toBe('Av. Reforma');
-    expect(company.streetNumber).toBe('222');
-    expect(company.internalNumber).toBe('A-101');
-    expect(company.neighborhood).toBe('Juárez');
-    expect(company.zipCode).toBe('06600');
-    expect(company.city).toBe('CDMX');
-    expect(company.state).toBe('CDMX');
-    expect(company.countryId).toBe('MX');
+    expect(company.address?.street).toBe('Av. Reforma');
+    expect(company.address?.streetNumber).toBe('222');
+    expect(company.address?.internalNumber).toBe('A-101');
+    expect(company.address?.neighborhood).toBe('Juárez');
+    expect(company.address?.zipCode).toBe('06600');
+    expect(company.address?.city).toBe('CDMX');
+    expect(company.address?.state).toBe('CDMX');
+    expect(company.address?.countryId).toBe('MX');
   });
 
   it('should allow Company without address fields', () => {
@@ -142,8 +144,6 @@ describe('CompanyModels — Country Types', () => {
       createdAt: '2024-01-01',
       updatedAt: '2024-01-01',
     };
-    expect(company.street).toBeUndefined();
-    expect(company.city).toBeUndefined();
-    expect(company.countryId).toBeUndefined();
+    expect(company.address).toBeUndefined();
   });
 });
