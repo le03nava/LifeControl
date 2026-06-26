@@ -1,0 +1,118 @@
+<mat-card appearance="outlined" class="form-card">
+  <mat-card-header>
+    <mat-card-title>Datos de Empresa</mat-card-title>
+  </mat-card-header>
+  <mat-card-content>
+    <ng-container [formGroup]="headerForm()">
+      <div class="section-content">
+        <div class="cascade-grid">
+          <!-- Company (cascade start) -->
+          <mat-form-field appearance="outline" subscriptSizing="dynamic">
+            <mat-label>Empresa</mat-label>
+            <mat-select
+              [value]="selectedCompanyId()"
+              (selectionChange)="onCompanyChange($event.value)"
+            >
+              @for (c of companies(); track c.id) {
+                <mat-option [value]="c.id">{{ c.name }}</mat-option>
+              }
+            </mat-select>
+          </mat-form-field>
+
+          <!-- Country -->
+          @if (countries().length > 0) {
+            <mat-form-field appearance="outline" subscriptSizing="dynamic">
+              <mat-label>País</mat-label>
+              <mat-select
+                [value]="selectedCountryId()"
+                (selectionChange)="onCountryChange($event.value)"
+              >
+                @for (c of countries(); track c.id) {
+                  <mat-option [value]="c.id">{{ c.name }}</mat-option>
+                }
+              </mat-select>
+            </mat-form-field>
+          }
+
+          <!-- Region -->
+          @if (regions().length > 0) {
+            <mat-form-field appearance="outline" subscriptSizing="dynamic">
+              <mat-label>Región</mat-label>
+              <mat-select
+                [value]="selectedRegionId()"
+                (selectionChange)="onRegionChange($event.value)"
+              >
+                @for (r of regions(); track r.id) {
+                  <mat-option [value]="r.id">{{ r.name }}</mat-option>
+                }
+              </mat-select>
+            </mat-form-field>
+          }
+
+          <!-- Zone -->
+          @if (zones().length > 0) {
+            <mat-form-field appearance="outline" subscriptSizing="dynamic">
+              <mat-label>Zona</mat-label>
+              <mat-select
+                [value]="selectedZoneId()"
+                (selectionChange)="onZoneChange($event.value)"
+              >
+                @for (z of zones(); track z.id) {
+                  <mat-option [value]="z.id">{{ z.name }}</mat-option>
+                }
+              </mat-select>
+            </mat-form-field>
+          }
+
+          <!-- Store -->
+          @if (stores().length > 0) {
+            <mat-form-field appearance="outline" subscriptSizing="dynamic">
+              <mat-label>Tienda</mat-label>
+              <mat-select formControlName="companyStoreId">
+                @for (s of stores(); track s.id) {
+                  <mat-option [value]="s.id">{{ s.name }}</mat-option>
+                }
+              </mat-select>
+              @if (fieldError('companyStoreId'); as err) {
+                <mat-error>{{ err }}</mat-error>
+              }
+              @if (serverFieldError('companyStoreId'); as err) {
+                <mat-error>{{ err }}</mat-error>
+              }
+            </mat-form-field>
+          }
+        </div>
+
+        <!-- Company details card -->
+        @if (companyDetail(); as detail) {
+          <mat-card appearance="outlined" class="detail-card">
+            <mat-card-content class="detail-grid">
+              <div class="detail-item">
+                <span class="detail-label">RFC</span>
+                <span class="detail-value">{{ detail.rfc }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">Dirección</span>
+                <span class="detail-value">{{ detail.address }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">Teléfono</span>
+                <span class="detail-value">{{ detail.phone }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">Email</span>
+                <span class="detail-value">{{ detail.email }}</span>
+              </div>
+            </mat-card-content>
+          </mat-card>
+        } @else if (companyDetailLoading() && selectedCompanyId()) {
+          <mat-card appearance="outlined" class="detail-card">
+            <mat-card-content>
+              <span class="detail-loading">Cargando datos de la empresa...</span>
+            </mat-card-content>
+          </mat-card>
+        }
+      </div>
+    </ng-container>
+  </mat-card-content>
+</mat-card>

@@ -5,6 +5,14 @@ export interface PurchaseOrder {
   supplierName: string;
   companyStoreId: string;
   companyStoreName: string;
+  /** UUID of the parent company for cascade reconstruction (edit mode). */
+  companyId: string | null;
+  /** UUID of the company-country join record for cascade reconstruction. */
+  companyCountryId: string | null;
+  /** UUID of the region for cascade reconstruction. */
+  regionId: string | null;
+  /** UUID of the zone for cascade reconstruction. */
+  zoneId: string | null;
   paymentMethodId: string;
   paymentMethodName: string;
   statusId: string;

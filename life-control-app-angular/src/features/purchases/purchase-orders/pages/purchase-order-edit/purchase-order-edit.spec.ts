@@ -14,6 +14,7 @@ import { CompanyCountryService } from '@features/companies/countries/data/compan
 import { CompanyRegionService } from '@features/companies/regions/data/company-region.service';
 import { CompanyZoneService } from '@features/companies/zones/data/company-zone.service';
 import { CompanyStoreService } from '@features/companies/stores/data/company-store.service';
+import { ProfileService } from '@features/user/profile/data/profile.service';
 import { NotificationService } from '@shared/data/notification';
 import { ConfigService } from '@app/services/config.service';
 import type {
@@ -31,6 +32,10 @@ const mockOrder: PurchaseOrder = {
   supplierName: 'Acme Corp',
   companyStoreId: 'store-1',
   companyStoreName: 'Tienda Centro',
+  companyId: null,
+  companyCountryId: null,
+  regionId: null,
+  zoneId: null,
   paymentMethodId: 'pm-1',
   paymentMethodName: 'Transferencia',
   statusId: 'st-draft',
@@ -148,6 +153,23 @@ describe('PurchaseOrderEdit', () => {
       provide: CompanyStoreService,
       useValue: {
         getStores: vi.fn().mockReturnValue(of([])),
+      },
+    },
+    {
+      provide: ProfileService,
+      useValue: {
+        getProfile: vi.fn().mockReturnValue(of({
+          keycloakUserId: 'user-1',
+          username: 'testuser',
+          email: 'test@example.com',
+          firstName: 'Test',
+          lastName: 'User',
+          companyId: null,
+          companyCountryId: null,
+          companyRegionId: null,
+          companyZoneId: null,
+          companyStoreId: null,
+        })),
       },
     },
     {
@@ -511,13 +533,6 @@ describe('PurchaseOrderEdit', () => {
       expect(request.details).toEqual([
         { productId: 'prod-1', quantity: 20, unitPrice: 150 },
       ]);
-    });
-
-    it('should compute initialStore from loadedOrder', () => {
-      expect(component.initialStore()).toEqual({
-        id: 'store-1',
-        name: 'Tienda Centro',
-      });
     });
   });
 

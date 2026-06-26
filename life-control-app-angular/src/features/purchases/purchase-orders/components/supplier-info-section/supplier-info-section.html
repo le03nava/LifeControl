@@ -1,0 +1,95 @@
+<mat-card appearance="outlined" class="form-card">
+  <mat-card-header>
+    <mat-card-title>Datos de Proveedor</mat-card-title>
+  </mat-card-header>
+  <mat-card-content>
+    <ng-container [formGroup]="headerForm()">
+      <div class="section-content">
+        <div class="form-grid">
+          <!-- Supplier -->
+          <mat-form-field appearance="outline" subscriptSizing="dynamic">
+            <mat-label>Proveedor</mat-label>
+            <mat-select
+              formControlName="supplierId"
+              (selectionChange)="onSupplierChange($event.value)"
+            >
+              @for (s of suppliers(); track s.id) {
+                <mat-option [value]="s.id">{{ s.name }}</mat-option>
+              }
+            </mat-select>
+            @if (fieldError('supplierId'); as err) {
+              <mat-error>{{ err }}</mat-error>
+            }
+            @if (serverFieldError('supplierId'); as err) {
+              <mat-error>{{ err }}</mat-error>
+            }
+          </mat-form-field>
+
+          <!-- Payment Method -->
+          <mat-form-field appearance="outline" subscriptSizing="dynamic">
+            <mat-label>Método de Pago</mat-label>
+            <mat-select formControlName="paymentMethodId">
+              @for (pm of paymentMethods(); track pm.id) {
+                <mat-option [value]="pm.id">{{ pm.name }}</mat-option>
+              }
+            </mat-select>
+            @if (fieldError('paymentMethodId'); as err) {
+              <mat-error>{{ err }}</mat-error>
+            }
+            @if (serverFieldError('paymentMethodId'); as err) {
+              <mat-error>{{ err }}</mat-error>
+            }
+          </mat-form-field>
+
+          <!-- Comments (full width) -->
+          <mat-form-field
+            appearance="outline"
+            subscriptSizing="dynamic"
+            class="full-width"
+          >
+            <mat-label>Comentarios</mat-label>
+            <textarea
+              matInput
+              formControlName="comments"
+              rows="3"
+              placeholder="Notas adicionales..."
+            ></textarea>
+            @if (serverFieldError('comments'); as err) {
+              <mat-error>{{ err }}</mat-error>
+            }
+          </mat-form-field>
+        </div>
+
+        <!-- Supplier details card -->
+        @if (supplierDetail(); as detail) {
+          <mat-card appearance="outlined" class="detail-card">
+            <mat-card-content class="detail-grid">
+              <div class="detail-item">
+                <span class="detail-label">RFC</span>
+                <span class="detail-value">{{ detail.rfc }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">Dirección</span>
+                <span class="detail-value">{{ detail.address }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">Teléfono</span>
+                <span class="detail-value">{{ detail.phone }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">Email</span>
+                <span class="detail-value">{{ detail.email }}</span>
+              </div>
+            </mat-card-content>
+          </mat-card>
+        } @else if (supplierDetailLoading() && selectedSupplierId()) {
+          <mat-card appearance="outlined" class="detail-card">
+            <mat-card-content>
+              <span class="detail-loading">Cargando datos del proveedor...</span>
+            </mat-card-content>
+          </mat-card>
+        }
+      </div>
+    </ng-container>
+  </mat-card-content>
+</mat-card>

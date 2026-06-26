@@ -42,6 +42,12 @@ interface DropdownOption {
 }
 
 /**
+ * @deprecated Use CompanyInfoSection + SupplierInfoSection instead.
+ * This component is no longer imported by the edit page. It remains
+ * available for backward compatibility during transition.
+ */
+
+/**
  * Reusable purchase order header form component.
  *
  * Extracted from `purchase-order-edit.ts` to separate concerns.

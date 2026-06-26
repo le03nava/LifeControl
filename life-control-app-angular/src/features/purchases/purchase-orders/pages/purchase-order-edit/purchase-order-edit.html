@@ -30,13 +30,18 @@
   }
 
   <form [formGroup]="headerForm()" (ngSubmit)="onSave()" novalidate>
-    <!-- Header Form (supplier, store cascade, payment method, comments) -->
-    <app-order-header-form
+    <!-- Company Information (cascade + detail card) -->
+    <app-company-info-section
       [headerForm]="headerForm()"
       [isEditMode]="isEditMode()"
       [loadedOrder]="loadedOrder()"
       [serverErrors]="serverErrors()"
-      [initialStore]="initialStore()"
+    />
+
+    <!-- Supplier Information (supplier + payment method + comments) -->
+    <app-supplier-info-section
+      [headerForm]="headerForm()"
+      [serverErrors]="serverErrors()"
     />
 
     <!-- Line Items Table -->

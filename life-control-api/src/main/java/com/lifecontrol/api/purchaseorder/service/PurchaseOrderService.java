@@ -6,6 +6,10 @@ import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
 import com.lifecontrol.api.product.exception.ProductNotFoundException;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.repository.ProductRepository;
+import com.lifecontrol.api.company.model.Company;
+import com.lifecontrol.api.company.model.CompanyCountry;
+import com.lifecontrol.api.company.model.CompanyRegion;
+import com.lifecontrol.api.company.model.CompanyZone;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderDetailRequest;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderDetailResponse;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderRequest;
@@ -40,6 +44,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -493,6 +498,32 @@ public class PurchaseOrderService {
             detailResponses = List.of();
         }
 
+        var companyId = Optional.ofNullable(po.getCompanyStore())
+                .map(CompanyStore::getCompanyZone)
+                .map(CompanyZone::getCompanyRegion)
+                .map(CompanyRegion::getCompanyCountry)
+                .map(CompanyCountry::getCompany)
+                .map(Company::getId)
+                .orElse(null);
+
+        var companyCountryId = Optional.ofNullable(po.getCompanyStore())
+                .map(CompanyStore::getCompanyZone)
+                .map(CompanyZone::getCompanyRegion)
+                .map(CompanyRegion::getCompanyCountry)
+                .map(CompanyCountry::getId)
+                .orElse(null);
+
+        var regionId = Optional.ofNullable(po.getCompanyStore())
+                .map(CompanyStore::getCompanyZone)
+                .map(CompanyZone::getCompanyRegion)
+                .map(CompanyRegion::getId)
+                .orElse(null);
+
+        var zoneId = Optional.ofNullable(po.getCompanyStore())
+                .map(CompanyStore::getCompanyZone)
+                .map(CompanyZone::getId)
+                .orElse(null);
+
         return new PurchaseOrderResponse(
                 po.getId(),
                 po.getOrderNumber(),
@@ -500,6 +531,10 @@ public class PurchaseOrderService {
                 po.getSupplier().getSupplierName(),
                 po.getCompanyStore().getId(),
                 po.getCompanyStore().getStoreName(),
+                companyId,
+                companyCountryId,
+                regionId,
+                zoneId,
                 po.getPaymentMethod().getId(),
                 po.getPaymentMethod().getPaymentMethodName(),
                 po.getStatus().getId(),

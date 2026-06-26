@@ -26,7 +26,8 @@ import {
   DetailTable,
   type DetailTableRow,
 } from '../../components/detail-table/detail-table';
-import { OrderHeaderForm } from '../../components/order-header-form/order-header-form';
+import { CompanyInfoSection } from '../../components/company-info-section/company-info-section';
+import { SupplierInfoSection } from '../../components/supplier-info-section/supplier-info-section';
 import type {
   PurchaseOrder,
   PurchaseOrderDetail,
@@ -48,7 +49,8 @@ import { ErrorBanner } from '@shared/ui';
     PageHeader,
     StatusSelector,
     DetailTable,
-    OrderHeaderForm,
+    CompanyInfoSection,
+    SupplierInfoSection,
     MatButtonModule,
     MatIconModule,
   ],
@@ -83,13 +85,6 @@ export class PurchaseOrderEdit implements OnInit {
   readonly isDraft = computed(
     () => this.loadedOrder()?.statusName === 'Draft',
   );
-
-  /** Store info passed down to `OrderHeaderForm` for edit mode. */
-  readonly initialStore = computed(() => {
-    const order = this.loadedOrder();
-    if (!order) return null;
-    return { id: order.companyStoreId, name: order.companyStoreName };
-  });
 
   // ─── Line items ────────────────────────────────────────
   readonly lineItems = signal<DetailTableRow[]>([]);

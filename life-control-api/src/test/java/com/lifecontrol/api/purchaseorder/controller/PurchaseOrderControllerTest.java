@@ -54,7 +54,7 @@ class PurchaseOrderControllerTest {
     @Mock private PurchaseOrderService purchaseOrderService;
     @InjectMocks private PurchaseOrderController controller;
 
-    private UUID poId, detailId, supplierId, productId;
+    private UUID poId, detailId, supplierId, productId, companyId, companyCountryId, regionId, zoneId;
     private PurchaseOrderResponse poResponse;
     private PurchaseOrderDetailResponse detailResponse;
 
@@ -71,6 +71,10 @@ class PurchaseOrderControllerTest {
         detailId = UUID.randomUUID();
         supplierId = UUID.randomUUID();
         productId = UUID.randomUUID();
+        companyId = UUID.randomUUID();
+        companyCountryId = UUID.randomUUID();
+        regionId = UUID.randomUUID();
+        zoneId = UUID.randomUUID();
 
         detailResponse = new PurchaseOrderDetailResponse(
                 detailId, poId, productId, "Test Product",
@@ -83,6 +87,7 @@ class PurchaseOrderControllerTest {
                 poId, "PO-20260603-00001",
                 supplierId, "Test Supplier",
                 UUID.randomUUID(), "Test Store",
+                companyId, companyCountryId, regionId, zoneId,
                 UUID.randomUUID(), "Transfer",
                 UUID.randomUUID(), "Draft",
                 "Comments", true,

@@ -12,6 +12,42 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+@NamedEntityGraph(
+    name = "PurchaseOrder.withHierarchy",
+    attributeNodes = {
+        @NamedAttributeNode("supplier"),
+        @NamedAttributeNode(value = "companyStore", subgraph = "store-graph"),
+        @NamedAttributeNode("paymentMethod"),
+        @NamedAttributeNode("status"),
+        @NamedAttributeNode("details")
+    },
+    subgraphs = {
+        @NamedSubgraph(
+            name = "store-graph",
+            attributeNodes = {
+                @NamedAttributeNode(value = "companyZone", subgraph = "zone-graph")
+            }
+        ),
+        @NamedSubgraph(
+            name = "zone-graph",
+            attributeNodes = {
+                @NamedAttributeNode(value = "companyRegion", subgraph = "region-graph")
+            }
+        ),
+        @NamedSubgraph(
+            name = "region-graph",
+            attributeNodes = {
+                @NamedAttributeNode(value = "companyCountry", subgraph = "country-graph")
+            }
+        ),
+        @NamedSubgraph(
+            name = "country-graph",
+            attributeNodes = {
+                @NamedAttributeNode("company")
+            }
+        )
+    }
+)
 @Entity
 @Table(name = "purchase_orders")
 public class PurchaseOrder extends Auditable {

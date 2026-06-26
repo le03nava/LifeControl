@@ -1,5 +1,9 @@
 package com.lifecontrol.api.purchaseorder.service;
 
+import com.lifecontrol.api.company.model.Company;
+import com.lifecontrol.api.company.model.CompanyCountry;
+import com.lifecontrol.api.company.model.CompanyRegion;
+import com.lifecontrol.api.company.model.CompanyZone;
 import com.lifecontrol.api.paymentmethod.exception.PaymentMethodNotFoundException;
 import com.lifecontrol.api.paymentmethod.model.PaymentMethod;
 import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
@@ -71,8 +75,13 @@ class PurchaseOrderServiceTest {
     private PurchaseOrderService service;
 
     private UUID poId, detailId, supplierId, storeId, pmId, productId, statusId, draftStatusId;
+    private UUID companyId, companyCountryId, regionId, zoneId;
     private Supplier supplier;
     private CompanyStore store;
+    private Company company;
+    private CompanyCountry companyCountry;
+    private CompanyRegion companyRegion;
+    private CompanyZone companyZone;
     private PaymentMethod paymentMethod;
     private Product product;
     private Status draftStatus, sentStatus, pendingStatus, inProcessStatus;
@@ -90,16 +99,36 @@ class PurchaseOrderServiceTest {
         productId = UUID.randomUUID();
         draftStatusId = UUID.randomUUID();
         statusId = UUID.randomUUID();
+        companyId = UUID.randomUUID();
+        companyCountryId = UUID.randomUUID();
+        regionId = UUID.randomUUID();
+        zoneId = UUID.randomUUID();
 
         supplier = new Supplier();
         supplier.setId(supplierId);
         supplier.setSupplierName("Test Supplier");
         supplier.setEnabled(true);
 
+        company = new Company();
+        company.setId(companyId);
+
+        companyCountry = new CompanyCountry();
+        companyCountry.setId(companyCountryId);
+        companyCountry.setCompany(company);
+
+        companyRegion = new CompanyRegion();
+        companyRegion.setId(regionId);
+        companyRegion.setCompanyCountry(companyCountry);
+
+        companyZone = new CompanyZone();
+        companyZone.setId(zoneId);
+        companyZone.setCompanyRegion(companyRegion);
+
         store = new CompanyStore();
         store.setId(storeId);
         store.setStoreName("Test Store");
         store.setEnabled(true);
+        store.setCompanyZone(companyZone);
 
         paymentMethod = new PaymentMethod();
         paymentMethod.setId(pmId);
@@ -216,6 +245,10 @@ class PurchaseOrderServiceTest {
             assertThat(result.id()).isEqualTo(poId);
             assertThat(result.supplierName()).isEqualTo("Test Supplier");
             assertThat(result.companyStoreName()).isEqualTo("Test Store");
+            assertThat(result.companyId()).isEqualTo(companyId);
+            assertThat(result.companyCountryId()).isEqualTo(companyCountryId);
+            assertThat(result.regionId()).isEqualTo(regionId);
+            assertThat(result.zoneId()).isEqualTo(zoneId);
         }
 
         @Test
