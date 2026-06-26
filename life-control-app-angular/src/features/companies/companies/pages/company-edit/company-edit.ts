@@ -16,11 +16,12 @@ import {
   ReactiveFormsModule,
 } from '@angular/forms';
 import { CompaniesForm } from '@features/companies/companies/components/companies-form/companies-form';
+import { ErrorBanner } from '@shared/ui';
 
 
 @Component({
   selector: 'app-company-edit',
-  imports: [ReactiveFormsModule, CompaniesForm],
+  imports: [ReactiveFormsModule, ErrorBanner, CompaniesForm],
   templateUrl: './company-edit.html',
   styleUrl: './company-edit.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

@@ -13,11 +13,12 @@ import {
 import { ProductsForm } from '../../components/products-form/products-form';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
+import { ErrorBanner } from '@shared/ui';
 
 
 @Component({
   selector: 'app-product-edit',
-  imports: [ReactiveFormsModule, ProductsForm, MatButtonModule, MatIconModule],
+  imports: [ReactiveFormsModule, ErrorBanner, ProductsForm, MatButtonModule, MatIconModule],
   templateUrl: './product-edit.html',
   styleUrl: './product-edit.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

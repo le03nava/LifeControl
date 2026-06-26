@@ -18,10 +18,7 @@
 
   <!-- General Error -->
   @if (generalError(); as errorMessage) {
-    <div class="error-banner" role="alert">
-      <mat-icon fontIcon="error" />
-      <span>{{ errorMessage }}</span>
-    </div>
+    <app-error-banner [message]="errorMessage" />
   }
 
   <!-- Status Selector (edit mode only) -->
@@ -52,10 +49,7 @@
 
     <!-- Server Errors -->
     @if (generalError()) {
-      <div class="error-banner" role="alert">
-        <mat-icon fontIcon="error" />
-        <span>{{ generalError() }}</span>
-      </div>
+      <app-error-banner [message]="generalError()" />
     }
 
     <!-- Action Buttons -->

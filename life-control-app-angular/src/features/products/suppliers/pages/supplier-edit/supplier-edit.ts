@@ -15,11 +15,12 @@ import {
   ReactiveFormsModule,
 } from '@angular/forms';
 import { SuppliersForm } from '../../components/suppliers-form/suppliers-form';
+import { ErrorBanner } from '@shared/ui';
 
 
 @Component({
   selector: 'app-supplier-edit',
-  imports: [ReactiveFormsModule, SuppliersForm],
+  imports: [ReactiveFormsModule, ErrorBanner, SuppliersForm],
   templateUrl: './supplier-edit.html',
   styleUrl: './supplier-edit.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

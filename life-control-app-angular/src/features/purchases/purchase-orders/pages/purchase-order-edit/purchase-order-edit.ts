@@ -36,6 +36,7 @@ import type {
 import type { PurchaseOrderHeaderControl } from '../../models/purchase-order-control.models';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
+import { ErrorBanner } from '@shared/ui';
 
 @Component({
   selector: 'app-purchase-order-edit',
@@ -43,6 +44,7 @@ import { MatIconModule } from '@angular/material/icon';
   imports: [
     RouterLink,
     ReactiveFormsModule,
+    ErrorBanner,
     PageHeader,
     StatusSelector,
     DetailTable,

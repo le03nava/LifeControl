@@ -5,7 +5,7 @@
 />
 
 @if (generalError(); as errorMessage) {
-  <div class="error-banner" role="alert">{{ errorMessage }}</div>
+  <app-error-banner [message]="errorMessage" />
 }
 
 <app-product-supplier-form

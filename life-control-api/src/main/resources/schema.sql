@@ -519,22 +519,6 @@ CREATE TABLE IF NOT EXISTS addresses (
 CREATE INDEX IF NOT EXISTS idx_addresses_country_id ON addresses(country_id);
 
 -- ============================================
--- Trigger: auto-update updated_at on addresses
--- ============================================
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = CURRENT_TIMESTAMP;
-    RETURN NEW;
-END;
-$$ language 'plpgsql';
-
-CREATE TRIGGER update_addresses_updated_at
-    BEFORE UPDATE ON addresses
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at_column();
-
--- ============================================
 -- Migration: Add address_id to companies
 -- ============================================
 ALTER TABLE companies
@@ -556,4 +540,4 @@ CREATE INDEX IF NOT EXISTS idx_suppliers_address_id ON suppliers(address_id);
 -- ============================================
 -- Migration: Drop FK on company_stores.address_id (now application-managed)
 -- ============================================
-ALTER TABLE company_stores DROP CONSTRAINT IF EXISTS fk_company_stores_address;
+ALTER TABLE company_stores DROP CONSTRAINT IF EXISTS company_stores_address_id_fkey;

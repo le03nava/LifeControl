@@ -2,6 +2,12 @@
 // Matches the _form-layout.scss grid pattern but self-contained
 @use '../../styles/variables' as *;
 
+// Span full width of the parent CSS Grid form
+// (all usages are inside _form-layout.scss grids)
+:host {
+  grid-column: 1 / -1;
+}
+
 // Address section heading — spans full grid width
 .address-heading {
   margin: var(--space-sm) 0 0 0;

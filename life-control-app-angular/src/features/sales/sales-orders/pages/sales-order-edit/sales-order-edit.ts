@@ -33,6 +33,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatChipsModule } from '@angular/material/chips';
+import { ErrorBanner } from '@shared/ui';
 
 @Component({
   selector: 'app-sales-order-edit',
@@ -40,6 +41,7 @@ import { MatChipsModule } from '@angular/material/chips';
   imports: [
     RouterLink,
     ReactiveFormsModule,
+    ErrorBanner,
     SalesOrderItemTable,
     ProductVariantSelector,
     MatButtonModule,

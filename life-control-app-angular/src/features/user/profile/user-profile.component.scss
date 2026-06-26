@@ -139,22 +139,6 @@
   font-weight: 500;
 }
 
-.error-banner {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-sm) var(--space-md);
-  margin-bottom: var(--space-md);
-  background-color: color-mix(
-    in srgb,
-    var(--mat-sys-error) 10%,
-    transparent
-  );
-  color: var(--mat-sys-error);
-  border-radius: var(--radius-md);
-  font-weight: 500;
-}
-
 // ─── Form actions ──────────────────────────────────────────
 
 .form-actions {

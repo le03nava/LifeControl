@@ -237,10 +237,7 @@
 
             <!-- Error banner -->
             @if (error()) {
-              <div class="error-banner">
-                <mat-icon>error</mat-icon>
-                <span>{{ error() }}</span>
-              </div>
+              <app-error-banner [message]="error()" />
             }
 
             <!-- Actions -->

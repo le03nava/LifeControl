@@ -28,12 +28,12 @@ import {
   ProductSupplierRequest,
 } from '../../models/product-supplier.models';
 import { ProductSupplierForm } from '../../components/product-supplier-form/product-supplier-form';
-import { PageHeader } from '@shared/ui';
+import { ErrorBanner, PageHeader } from '@shared/ui';
 
 @Component({
   selector: 'app-product-supplier-edit',
   standalone: true,
-  imports: [ReactiveFormsModule, ProductSupplierForm, PageHeader],
+  imports: [ReactiveFormsModule, ErrorBanner, ProductSupplierForm, PageHeader],
   templateUrl: './product-supplier-edit.html',
   styleUrl: './product-supplier-edit.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

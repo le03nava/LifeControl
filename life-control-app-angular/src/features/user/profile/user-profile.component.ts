@@ -32,6 +32,7 @@ import { CompanyCountryService } from '@features/companies/countries/data/compan
 import { CompanyRegionService } from '@features/companies/regions/data/company-region.service';
 import { CompanyZoneService } from '@features/companies/zones/data/company-zone.service';
 import { CompanyStoreService } from '@features/companies/stores/data/company-store.service';
+import { ErrorBanner } from '@shared/ui';
 
 import type { Company } from '@features/companies/companies/models/company.models';
 import type { CompanyCountry } from '@features/companies/countries/models/country.models';
@@ -46,6 +47,7 @@ import type { CompanyStore } from '@features/companies/stores/models/store.model
     CommonModule,
     ReactiveFormsModule,
     RouterModule,
+    ErrorBanner,
     MatCardModule,
     MatIconModule,
     MatSelectModule,
