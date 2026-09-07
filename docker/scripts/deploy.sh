@@ -20,6 +20,15 @@ print_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 print_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 print_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
+# Check if SKIP_BUILD is set to a truthy value
+is_skip_build() {
+	local value="${SKIP_BUILD:-}"
+	case "${value,,}" in
+	1 | true | yes) return 0 ;;
+	*) return 1 ;;
+	esac
+}
+
 # Use docker compose v2 (docker-compose v1 not available in WSL2)
 DOCKER_COMPOSE="docker compose"
 
@@ -50,7 +59,7 @@ usage() {
 	echo "  prod, production   - Production environment"
 	echo ""
 	echo "Commands:"
-	echo "  start              - Build services, build images, and start containers"
+	echo "  start              - Build services, build images, and start containers (use SKIP_BUILD=true to skip the build)"
 	echo "  build              - Build services (Java + Angular) only (no containers)"
 	echo "  build-images       - Build Docker images only (uses pre-built services)"
 	echo "  up                - Start services without building"
@@ -63,7 +72,7 @@ usage() {
 	echo ""
 	echo "Environment Variables:"
 	echo "  BUILD_PROFILE     - Build profile (dev|staging|prod), default: dev"
-	echo "  SKIP_BUILD       - Set to 'true' to skip build in start"
+	echo "  SKIP_BUILD       - Set to '1', 'true' or 'yes' (case-insensitive) to skip build in start"
 	exit 1
 }
 
@@ -250,8 +259,12 @@ COMMAND=${2:-start}
 case "$COMMAND" in
 start)
 	check_requirements
-	build_services
-	build_images
+	if is_skip_build; then
+		print_warning "SKIP_BUILD=true: skipping build"
+	else
+		build_services
+		build_images
+	fi
 	start_services
 	health_check
 	;;

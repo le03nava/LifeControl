@@ -114,22 +114,19 @@ LifeControl/
 ### 1. Infraestructura (Docker)
 
 ```bash
-# Configurar variables de entorno
-cp docker/.env.dev docker/.env.local
+# Configurar el entorno (variables, directorios de volúmenes)
+./docker/scripts/setup-env.sh dev        # dev | staging | prod
 
-# Levantar servicios base
-cd docker
-docker-compose up -d keycloak redis prometheus grafana loki tempo
+# Construir y levantar servicios
+./docker/scripts/deploy.sh dev start
+
+# Verificar estado
+./docker/scripts/deploy.sh dev status
 ```
 
 ### 2. Base de datos
 
-```bash
-# PostgreSQL para life-control-api
-docker-compose up -d lifecontrol-postgres
-```
-
-La API inicializa el schema automáticamente vía `schema.sql` con `spring.sql.init.mode=always`.
+PostgreSQL (`lifecontrol-postgres`) se levanta junto con el resto de servicios vía `deploy.sh start`. La API inicializa el schema automáticamente vía `schema.sql` con `spring.sql.init.mode=always`.
 
 ### 3. Backend — LifeControl API
 
@@ -161,15 +158,20 @@ http://localhost:8082/swagger-ui.html
 
 ## Servicios Disponibles
 
-| Servicio                    | URL                              |
-|-----------------------------|----------------------------------|
-| Angular App                 | http://localhost:4200            |
-| API Gateway                 | http://localhost:9000            |
-| LifeControl API             | http://localhost:8082            |
-| Swagger UI                  | http://localhost:8082/swagger-ui.html |
-| Keycloak Admin              | http://localhost:8181            |
-| Grafana                     | http://localhost:3000            |
-| Prometheus                  | http://localhost:9090            |
+| Servicio              | dev       | staging   | prod      |
+|-----------------------|-----------|-----------|-----------|
+| API Gateway           | :9000     | :9100     | :9200     |
+| API Gateway Actuator  | :9001     | :9101     | :9201     |
+| Keycloak              | :8181     | :8281     | :8381     |
+| Grafana               | :3000     | :3100     | :3200     |
+| Prometheus            | :9090     | :9190     | :9290     |
+| Loki                  | :3100     | :3200     | :3300     |
+| Tempo                 | :3110     | :3210     | :3310     |
+| Angular App           | :4200     | :4320     | :4420     |
+| LifeControl API       | :8082     | —         | —         |
+| Swagger UI            | :8082/swagger-ui.html | —   | —   |
+
+Los puertos web aplicados por entorno se definen en `docker/.env.<env>`. `LifeControl API` y `Swagger UI` se exponen solo en el desarrollo local vía `./gradlew bootRun`.
 
 ---
 
@@ -224,7 +226,7 @@ cd docker && ./scripts/validate-env.sh
 ./docker/scripts/deploy.sh dev health
 
 # Limpiar
-./docker/scripts/cleanup.sh [docker|local|builds|all]
+./docker/scripts/cleanup.sh [stop|docker|volumes|local|builds|all]
 ```
 
 ---

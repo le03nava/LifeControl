@@ -99,22 +99,25 @@ Script principal de despliegue. Build y start de servicios.
 ### cleanup.sh
 Limpia recursos de Docker y archivos locales.
 ```bash
-./docker/scripts/cleanup.sh [docker|local|builds|all]
+./docker/scripts/cleanup.sh [stop|docker|volumes|local|builds|all|help] [dev|staging|prod]
 
 # Opciones:
-# docker  - Limpia solo contenedores, imágenes, volúmenes de Docker
+# stop    - Detener contenedores (conserva volúmenes, imágenes, redes)
+# docker  - Limpia contenedores, imágenes y redes de Docker (conserva volúmenes)
+# volumes - Limpia SOLO volúmenes de Docker (DESTRUCTIVO - borra todos los datos)
 # local   - Limpia directorios locales (./data, ./volume-data)
 # builds  - Limpia artifacts de build (./api-gateway/build)
 # all     - Limpieza completa (requiere confirmación)
+# help    - Muestra la ayuda
 ```
 
 ### Service URLs
 
-| Environment | API Gateway | Keycloak | Grafana | Prometheus |
-|-------------|-------------|----------|---------|------------|
-| dev         | localhost:9000 | localhost:8181 | localhost:3000 | localhost:9090 |
-| staging     | localhost:9100 | localhost:8281 | localhost:3100 | localhost:9190 |
-| prod        | localhost:9200 | localhost:8381 | localhost:3200 | localhost:9290 |
+| Environment | API Gateway | Actuator | Keycloak | Grafana | Prometheus | Loki | Tempo |
+|-------------|-------------|----------|----------|---------|------------|------|-------|
+| dev         | localhost:9000 | localhost:9001 | localhost:8181 | localhost:3000 | localhost:9090 | localhost:3100 | localhost:3110 |
+| staging     | localhost:9100 | localhost:9101 | localhost:8281 | localhost:3100 | localhost:9190 | localhost:3200 | localhost:3210 |
+| prod        | localhost:9200 | localhost:9201 | localhost:8381 | localhost:3200 | localhost:9290 | localhost:3300 | localhost:3310 |
 
 ---
 
@@ -137,10 +140,22 @@ npm run build
 ```
 
 ### Docker
+
+Flujo canónico vía scripts (ver [Docker Scripts](#docker-scripts) arriba):
+
+```bash
+# Setup de entorno (una vez por entorno)
+./docker/scripts/setup-env.sh dev        # dev | staging | prod
+./docker/scripts/deploy.sh dev start     # Build + start
+./docker/scripts/deploy.sh dev status    # Estado
+```
+
+Equivalente directo con `docker compose` v2 y `--env-file`:
+
 ```bash
 cd docker
-docker-compose up -d
-docker-compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.yml --env-file .env.dev up -d
+docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod up -d
 ```
 
 ---

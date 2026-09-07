@@ -98,21 +98,14 @@ cleanup_volumes() {
 cleanup_local() {
 	print_status "Cleaning up local files..."
 
-	# Remove old data directories
-	if [ -d "./data" ]; then
-		print_warning "Removing ./data directory..."
-		rm -rf ./data
-	fi
-
-	if [ -d "./volume-data" ]; then
-		print_warning "Removing ./volume-data directory..."
-		rm -rf ./volume-data
-	fi
-
-	# Remove old docker directories
-	if [ -d "./docker/keycloak_postgres_data" ]; then
-		rm -rf ./docker/keycloak_postgres_data
-	fi
+	# Remove per-environment volume directories created by setup-env.sh
+	local vol_dir
+	for vol_dir in "$DOCKER_DIR"/volumes-*; do
+		if [ -d "$vol_dir" ]; then
+			print_warning "Removing $vol_dir directory..."
+			rm -rf "$vol_dir"
+		fi
+	done
 
 	print_success "Local cleanup completed"
 }

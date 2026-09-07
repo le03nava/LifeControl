@@ -5,6 +5,33 @@
 
 set -e
 
+# Docker directory
+DOCKER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Environment file
+ENV_FILE="$DOCKER_DIR/.env"
+
+# Environment
+ENV=${1:-dev}
+
+# Normalize environment name -> volume directory suffix
+case "$ENV" in
+dev | development)
+	VOLUMES_DIR="volumes-dev"
+	;;
+staging | stg)
+	VOLUMES_DIR="volumes-staging"
+	;;
+prod | production)
+	VOLUMES_DIR="volumes-prod"
+	;;
+*)
+	echo "Error: invalid environment: $ENV"
+	echo "Usage: $0 [dev|staging|prod]"
+	exit 1
+	;;
+esac
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -21,7 +48,7 @@ print_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 check_env_file() {
 	print_status "Checking environment file..."
-	if [ -f ".env" ]; then
+	if [ -f "$ENV_FILE" ]; then
 		print_success ".env file found"
 		return 0
 	else
@@ -39,11 +66,13 @@ check_required_vars() {
 		"ENVIRONMENT"
 		"KEYCLOAK_POSTGRES_PASSWORD"
 		"KC_ADMIN_PASSWORD"
+		"API_GATEWAY_MANAGEMENT_PORT"
+		"LIFECONTROL_API_MANAGEMENT_PORT"
 	)
 
 	for var in "${REQUIRED_VARS[@]}"; do
-		if grep -q "^${var}=" .env; then
-			VALUE=$(grep "^${var}=" .env | cut -d'=' -f2-)
+		if grep -q "^${var}=" "$ENV_FILE"; then
+			VALUE=$(grep "^${var}=" "$ENV_FILE" | cut -d'=' -f2-)
 			if [ -z "$VALUE" ] || [[ "$VALUE" == *"CHANGEME"* ]]; then
 				print_warning "$var is not set or uses default value"
 			else
@@ -51,7 +80,7 @@ check_required_vars() {
 			fi
 		else
 			print_error "$var is missing"
-			((ERRORS++))
+			ERRORS=$((ERRORS + 1))
 		fi
 	done
 }
@@ -62,7 +91,7 @@ check_docker() {
 		print_success "Docker is running"
 	else
 		print_error "Docker is not running"
-		((ERRORS++))
+		ERRORS=$((ERRORS + 1))
 	fi
 }
 
@@ -72,10 +101,12 @@ check_ports() {
 	PORTS=(
 		"KEYCLOAK_PORT"
 		"API_GATEWAY_PORT"
+		"API_GATEWAY_MANAGEMENT_PORT"
+		"LIFECONTROL_API_MANAGEMENT_PORT"
 	)
 
 	for port_var in "${PORTS[@]}"; do
-		PORT=$(grep "^${port_var}=" .env 2>/dev/null | cut -d'=' -f2-)
+		PORT=$(grep "^${port_var}=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2-)
 		if [ -n "$PORT" ]; then
 			if netstat -tuln 2>/dev/null | grep -q ":$PORT " || ss -tuln 2>/dev/null | grep -q ":$PORT "; then
 				print_warning "$port_var ($PORT) is already in use"
@@ -89,13 +120,13 @@ check_ports() {
 check_secrets() {
 	print_status "Checking secrets..."
 
-	if [ -f ".env.secrets" ]; then
+	if [ -f "$DOCKER_DIR/.env.secrets" ]; then
 		print_success "Secrets file exists"
 
 		# Check for default passwords
-		if grep -q "CHANGEME" .env.secrets; then
+		if grep -q "CHANGEME" "$DOCKER_DIR/.env.secrets"; then
 			print_warning "Secrets file contains CHANGEME values - update them!"
-			((ERRORS++))
+			ERRORS=$((ERRORS + 1))
 		else
 			print_success "Secrets appear to be configured"
 		fi
@@ -105,19 +136,19 @@ check_secrets() {
 }
 
 check_volume_dirs() {
-	print_status "Checking volume directories..."
+	print_status "Checking volume directories for $ENV environment..."
 
-	if [ -d "volumes" ]; then
-		print_success "Volume directory exists"
+	if [ -d "$DOCKER_DIR/$VOLUMES_DIR" ]; then
+		print_success "Volume directory $VOLUMES_DIR exists"
 	else
-		print_warning "Volume directory not found - will be created on first run"
+		print_warning "Volume directory $VOLUMES_DIR not found - will be created on first run"
 	fi
 }
 
 main() {
 	echo ""
 	echo "=========================================="
-	echo "LifeControl - Environment Validation"
+	echo "LifeControl - Environment Validation ($ENV)"
 	echo "=========================================="
 	echo ""
 
