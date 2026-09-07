@@ -31,7 +31,7 @@ services:
       POSTGRES_USER: ${KEYCLOAK_POSTGRES_USER:-keycloak}
       POSTGRES_PASSWORD: ${KEYCLOAK_POSTGRES_PASSWORD}
     volumes:
-      - ./volumes-dev/keycloak-postgres/data:/var/lib/postgresql/data
+      - ${KEYCLOAK_POSTGRES_DATA_PATH:-./volumes-dev/keycloak-postgres/data}:/var/lib/postgresql/data
     networks:
       - default
     deploy:

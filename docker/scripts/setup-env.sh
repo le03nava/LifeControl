@@ -52,6 +52,8 @@ if [ ! -f "$ENV_FILE" ]; then
 	print_error "Environment file $ENV_FILE not found!"
 	print_status "Creating from template..."
 	cp "$DOCKER_DIR/.env.template" "$ENV_FILE"
+	# Adjust volume paths for the target environment (template defaults to volumes-dev)
+	sed -i "s|volumes-dev|$VOLUMES_SUFIJO|g" "$ENV_FILE"
 	print_success "Created $ENV_FILE"
 	print_warning "Please edit $ENV_FILE and fill in the values"
 	exit 1

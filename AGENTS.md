@@ -154,7 +154,7 @@ Equivalente directo con `docker compose` v2 y `--env-file`:
 
 ```bash
 cd docker
-docker compose -f docker-compose.yml --env-file .env.dev up -d
+docker compose -f docker-compose.yml -f docker-compose.override.yml --env-file .env.dev up -d
 docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod up -d
 ```
 
