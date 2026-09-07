@@ -33,21 +33,6 @@ spec:
                 configMapKeyRef:
                   key: MANAGEMENT_ZIPKIN_TRACING_ENDPOINT
                   name: common-config
-            - name: PRODUCT_SERVICE_URL
-              valueFrom:
-                configMapKeyRef:
-                  key: PRODUCT_SERVICE_URL
-                  name: common-config
-            - name: ORDER_SERVICE_URL
-              valueFrom:
-                configMapKeyRef:
-                  key: ORDER_SERVICE_URL
-                  name: common-config
-            - name: INVENTORY_SERVICE_URL
-              valueFrom:
-                configMapKeyRef:
-                  key: INVENTORY_SERVICE_URL
-                  name: common-config
 ---
 apiVersion: v1
 kind: Service
