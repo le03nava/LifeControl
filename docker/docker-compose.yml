@@ -9,15 +9,9 @@ networks:
     driver: bridge
 
 volumes:
-  mongodb_data:
-    driver: local
-  mysql_data:
-    driver: local
   postgres_data:
     driver: local
   lifecontrol_data:
-    driver: local
-  kafka_data:
     driver: local
   prometheus_data:
     driver: local
@@ -31,220 +25,6 @@ volumes:
     driver: local
 
 services:
-  # ============================================
-  # MongoDB - Product Service Database
-  # ============================================
-  mongodb:
-    image: ${MONGO_IMAGE:-mongo:7.0.5}
-    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-mongodb
-    ports:
-      - "${MONGO_PORT:-27017}:27017"
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:-root}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
-      MONGO_INITDB_DATABASE: ${MONGO_DATABASE:-product-service}
-    volumes:
-      - ${MONGO_DATA_PATH:-./volumes-dev/mongodb/data}:/data/db
-    networks:
-      - default
-    deploy:
-      resources:
-        limits:
-          memory: ${MONGO_MEMORY_LIMIT:-512m}
-    healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    restart: unless-stopped
-
-  # ============================================
-  # MySQL - Order Service Database
-  # ============================================
-  mysql:
-    image: ${MYSQL_IMAGE:-mysql:8.3.0}
-    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-mysql
-    ports:
-      - "${MYSQL_PORT:-3307}:3306"
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-order-service}
-      MYSQL_USER: ${MYSQL_USER:-orderuser}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
-    volumes:
-      - ${MYSQL_DATA_PATH:-./volumes-dev/mysql/data}:/var/lib/mysql
-      - ${MYSQL_INIT_PATH:-./volumes-dev/mysql/init}:/docker-entrypoint-initdb.d:ro
-    networks:
-      - default
-    deploy:
-      resources:
-        limits:
-          memory: ${MYSQL_MEMORY_LIMIT:-512m}
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "mysqladmin",
-          "ping",
-          "-h",
-          "localhost",
-          "-u",
-          "root",
-          "-p${MYSQL_ROOT_PASSWORD}",
-        ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    restart: unless-stopped
-
-  # ============================================
-  # Zookeeper - Kafka Dependency
-  # ============================================
-  zookeeper:
-    image: ${ZOOKEEPER_IMAGE:-confluentinc/cp-zookeeper:7.5.0}
-    hostname: zookeeper
-    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-zookeeper
-    ports:
-      - "${ZOOKEEPER_PORT:-2181}:2181"
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-    networks:
-      - default
-    deploy:
-      resources:
-        limits:
-          memory: ${ZOOKEEPER_MEMORY_LIMIT:-256m}
-    healthcheck:
-      test: ["CMD", "nc", "-z", "localhost", "2181"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    restart: unless-stopped
-
-  # ============================================
-  # Kafka - Message Broker
-  # ============================================
-  broker:
-    image: ${KAFKA_IMAGE:-confluentinc/cp-kafka:7.5.0}
-    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-broker
-    ports:
-      - "${KAFKA_PORT:-9092}:9092"
-      - "${KAFKA_INTERNAL_PORT:-29092}:29092"
-    depends_on:
-      zookeeper:
-        condition: service_healthy
-    environment:
-      KAFKA_BROKER_ID: ${KAFKA_BROKER_ID:-1}
-      KAFKA_ZOOKEEPER_CONNECT: ${KAFKA_ZOOKEEPER_CONNECT:-zookeeper:2181}
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: ${KAFKA_LISTENER_SECURITY_PROTOCOL_MAP:-PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT}
-      KAFKA_ADVERTISED_LISTENERS: ${KAFKA_ADVERTISED_LISTENERS:-PLAINTEXT://broker:29092,PLAINTEXT_HOST://localhost:9092}
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: ${KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR:-1}
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: ${KAFKA_TRANSACTION_STATE_LOG_MIN_ISR:-1}
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: ${KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR:-1}
-    volumes:
-      - ${KAFKA_DATA_PATH:-./volumes-dev/kafka/data}:/var/lib/kafka/data
-    networks:
-      - default
-    deploy:
-      resources:
-        limits:
-          memory: ${KAFKA_MEMORY_LIMIT:-1g}
-    healthcheck:
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/9092 && echo ok"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    restart: unless-stopped
-
-  # ============================================
-  # Schema Registry - Kafka Schema Management
-  # ============================================
-  schema-registry:
-    image: ${SCHEMA_REGISTRY_IMAGE:-confluentinc/cp-schema-registry:7.5.0}
-    hostname: schema-registry
-    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-schema-registry
-    depends_on:
-      broker:
-        condition: service_healthy
-    ports:
-      - "${SCHEMA_REGISTRY_PORT:-8085}:8081"
-    environment:
-      SCHEMA_REGISTRY_HOST_NAME: ${SCHEMA_REGISTRY_HOST_NAME:-schema-registry}
-      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: ${SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS:-broker:29092}
-      SCHEMA_REGISTRY_LISTENERS: ${SCHEMA_REGISTRY_LISTENERS:-http://schema-registry:8081}
-    networks:
-      - default
-    deploy:
-      resources:
-        limits:
-          memory: ${SCHEMA_REGISTRY_MEMORY_LIMIT:-512m}
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8081/subjects"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    restart: unless-stopped
-
-  # ============================================
-  # Kafka UI - Kafka Management Interface
-  # ============================================
-  kafka-ui:
-    image: ${KAFKA_UI_IMAGE:-kafbat/kafka-ui:v1.6.0}
-    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-kafka-ui
-    ports:
-      - "${KAFKA_UI_PORT:-8086}:8080"
-    depends_on:
-      broker:
-        condition: service_healthy
-    environment:
-      KAFKA_CLUSTERS_NAME: ${KAFKA_CLUSTERS_NAME:-local}
-      KAFKA_CLUSTERS_BOOTSTRAPSERVERS: ${KAFKA_CLUSTERS_BOOTSTRAPSERVERS:-broker:29092}
-      DYNAMIC_CONFIG_ENABLED: "true"
-    networks:
-      - default
-    deploy:
-      resources:
-        limits:
-          memory: ${KAFKA_UI_MEMORY_LIMIT:-512m}
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    restart: unless-stopped
-
-  # ============================================
-  # PostgreSQL - Product Service Database
-  # ============================================
-  product-postgres:
-    image: ${POSTGRES_IMAGE:-postgres:16.4}
-    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-product-postgres
-    ports:
-      - "${PRODUCT_POSTGRES_PORT:-5434}:5432"
-    environment:
-      POSTGRES_DB: ${PRODUCT_POSTGRES_DB:-product_service}
-      POSTGRES_USER: ${PRODUCT_POSTGRES_USER:-product_user}
-      POSTGRES_PASSWORD: ${PRODUCT_POSTGRES_PASSWORD}
-    volumes:
-      - ${PRODUCT_POSTGRES_DATA_PATH:-./volumes-dev/postgres/product/data}:/var/lib/postgresql/data
-    networks:
-      - default
-    deploy:
-      resources:
-        limits:
-          memory: ${PRODUCT_POSTGRES_MEMORY_LIMIT:-256m}
-    healthcheck:
-      test:
-        ["CMD-SHELL", "pg_isready -U ${PRODUCT_POSTGRES_USER:-product_user}"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    restart: unless-stopped
-
   # ============================================
   # PostgreSQL - Keycloak Database
   # ============================================
@@ -520,10 +300,6 @@ services:
     depends_on:
       keycloak:
         condition: service_healthy
-      mongodb:
-        condition: service_healthy
-      mysql:
-        condition: service_healthy
       lifecontrol-api:
         condition: service_started
     deploy:
@@ -535,54 +311,6 @@ services:
         [
           "CMD-SHELL",
           "wget -qO- http://localhost:${API_GATEWAY_MANAGEMENT_PORT:-9001}/actuator/health || exit 1",
-        ]
-      interval: ${HEALTH_CHECK_INTERVAL:-30s}
-      timeout: ${HEALTH_CHECK_TIMEOUT:-3s}
-      retries: ${HEALTH_CHECK_RETRIES:-3}
-      start_period: ${HEALTH_CHECK_START_PERIOD:-60s}
-    restart: unless-stopped
-
-  # ============================================
-  # Product Service - Product Management API
-  # ============================================
-  product-service:
-    build:
-      context: ../product-service
-      dockerfile: Dockerfile
-      args:
-        BUILD_PROFILE: ${SPRING_PROFILES_ACTIVE:-dev}
-        APP_VERSION: ${APP_VERSION:-0.0.1-SNAPSHOT}
-    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-product-service
-    ports:
-      - "${PRODUCT_SERVICE_PORT:-8080}:${PRODUCT_SERVICE_PORT:-8080}"
-      - "${PRODUCT_SERVICE_MANAGEMENT_PORT:-8081}:${PRODUCT_SERVICE_MANAGEMENT_PORT:-8081}"
-    environment:
-      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-dev}
-      - SERVER_PORT=${PRODUCT_SERVICE_PORT:-8080}
-      - DATABASE_URL=${DATABASE_URL:-jdbc:postgresql://product-postgres:5432/product_service}
-      - DATABASE_USERNAME=${DATABASE_USERNAME:-product_user}
-      - DATABASE_PASSWORD=${DATABASE_PASSWORD}
-      - LOKI_URL=${LOKI_URL:-http://loki:3100/loki/api/v1/push}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - PROMETHEUS_ENABLED=${PROMETHEUS_ENABLED:-true}
-      - TRACING_ENABLED=${TRACING_ENABLED:-true}
-      - TRACING_SAMPLING_PROBABILITY=${TRACING_SAMPLING_PROBABILITY:-0.1}
-      - HEALTH_CHECK_ENABLED=${HEALTH_CHECK_ENABLED:-true}
-      - HEALTH_CHECK_PATH=/actuator/health
-    networks:
-      - default
-    depends_on:
-      product-postgres:
-        condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          memory: ${PRODUCT_SERVICE_MEMORY_LIMIT:-512m}
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "wget -qO- http://localhost:${PRODUCT_SERVICE_PORT:-8080}/actuator/health || exit 1",
         ]
       interval: ${HEALTH_CHECK_INTERVAL:-30s}
       timeout: ${HEALTH_CHECK_TIMEOUT:-3s}

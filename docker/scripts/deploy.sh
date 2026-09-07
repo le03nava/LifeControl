@@ -88,7 +88,7 @@ build_services() {
 	print_status "Building services for $ENV environment (profile: $BUILD_PROFILE)..."
 
 	# Build Java services
-	local java_services=("api-gateway" "product-service" "life-control-api")
+	local java_services=("api-gateway" "life-control-api")
 
 	for service in "${java_services[@]}"; do
 		if [ -f "../$service/gradlew" ]; then
@@ -174,9 +174,6 @@ show_status() {
 		echo -e "${GREEN}Prometheus:${NC}       http://localhost:9090"
 		echo -e "${GREEN}Loki:${NC}            http://localhost:3100"
 		echo -e "${GREEN}Tempo:${NC}           http://localhost:3110"
-		echo -e "${GREEN}Kafka UI:${NC}         http://localhost:8086"
-		echo -e "${GREEN}MongoDB:${NC}         localhost:27017"
-		echo -e "${GREEN}MySQL:${NC}           localhost:3307"
 		;;
 	staging | stg)
 		echo -e "${GREEN}API Gateway:${NC}      http://localhost:9100"

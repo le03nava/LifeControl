@@ -75,8 +75,7 @@ print_success "Docker is running"
 
 # Create volume directories
 print_status "Creating volume directories..."
-mkdir -p docker/${VOLUMES_SUFIJO}/{mongodb/data,mysql/data,postgres/{data,product,lifecontrol},kafka/data,keycloak/realms,prometheus/{data,config},grafana/{data,config},tempo/{data,config},loki/{data,config}}
-mkdir -p docker/${VOLUMES_SUFIJO}/mysql/init
+mkdir -p docker/${VOLUMES_SUFIJO}/{postgres/{data,lifecontrol},keycloak/realms,prometheus/{data,config},grafana/{data,config},tempo/{data,config},loki/{data,config}}
 print_success "Volume directories created"
 
 # Copy selected environment file to .env (in docker dir)
@@ -125,7 +124,6 @@ dev)
 	echo -e "${GREEN}Grafana:${NC}          http://localhost:3000"
 	echo -e "${GREEN}Prometheus:${NC}       http://localhost:9090"
 	echo -e "${GREEN}Loki:${NC}            http://localhost:3100"
-	echo -e "${GREEN}Kafka UI:${NC}         http://localhost:8086"
 	;;
 staging)
 	echo -e "${GREEN}API Gateway:${NC}      http://localhost:9100"

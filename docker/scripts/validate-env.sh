@@ -37,8 +37,6 @@ check_required_vars() {
 	REQUIRED_VARS=(
 		"COMPOSE_PROJECT_NAME"
 		"ENVIRONMENT"
-		"MONGO_ROOT_PASSWORD"
-		"MYSQL_ROOT_PASSWORD"
 		"KEYCLOAK_POSTGRES_PASSWORD"
 		"KC_ADMIN_PASSWORD"
 	)
@@ -72,8 +70,6 @@ check_ports() {
 	print_status "Checking ports..."
 
 	PORTS=(
-		"MONGO_PORT"
-		"MYSQL_PORT"
 		"KEYCLOAK_PORT"
 		"API_GATEWAY_PORT"
 	)

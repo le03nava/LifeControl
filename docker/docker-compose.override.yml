@@ -58,54 +58,9 @@ services:
   # ============================================
   # Development Database Overrides
   # ============================================
-  mongodb:
-    ports:
-      - "27017:27017"
-
-  mysql:
-    ports:
-      - "3307:3306"
-
   keycloak-postgres:
     ports:
       - "5433:5432"
-
-  # ============================================
-  # Development Product Service Overrides
-  # ============================================
-  product-postgres:
-    ports:
-      - "5434:5432"
-
-  product-service:
-    environment:
-      - LOG_LEVEL=DEBUG
-      - TRACING_SAMPLING_PROBABILITY=0.5
-      - ACTUATOR_ENDPOINTS=*
-      - HEALTH_CHECK_INTERVAL=15s
-    ports:
-      - "8080:8080"
-      - "8081:8081"
-
-  # ============================================
-  # Development Kafka Overrides
-  # ============================================
-  zookeeper:
-    ports:
-      - "2181:2181"
-
-  broker:
-    ports:
-      - "9092:9092"
-      - "29092:29092"
-
-  schema-registry:
-    ports:
-      - "8085:8081"
-
-  kafka-ui:
-    ports:
-      - "8086:8080"
 
   # ============================================
   # Development LifeControl API Database Overrides
