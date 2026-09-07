@@ -10,19 +10,12 @@ networks:
 
 volumes:
   postgres_data:
-    driver: local
   lifecontrol_data:
-    driver: local
   prometheus_data:
-    driver: local
   grafana_data:
-    driver: local
   tempo_data:
-    driver: local
   loki_data:
-    driver: local
   redis_data:
-    driver: local
 
 services:
   # ============================================
@@ -91,7 +84,6 @@ services:
   # ============================================
   keycloak:
     image: ${KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak:26.2.1}
-    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-keycloak
     command: ["start-dev", "--import-realm"]
     ports:
       - "${KEYCLOAK_PORT:-8181}:8080"
@@ -275,7 +267,6 @@ services:
       args:
         BUILD_PROFILE: ${SPRING_PROFILES_ACTIVE:-dev}
         APP_VERSION: ${APP_VERSION:-0.0.1-SNAPSHOT}
-    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-api-gateway
     ports:
       - "${API_GATEWAY_PORT:-9000}:${API_GATEWAY_SERVER_PORT:-9000}"
       - "${API_GATEWAY_MANAGEMENT_PORT:-9001}:${API_GATEWAY_MANAGEMENT_PORT:-9001}"
@@ -415,7 +406,6 @@ services:
       context: ../life-control-app-angular
       dockerfile: Dockerfile
     image: ${WEB_APP_IMAGE:-life-control-app-angular:latest}
-    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-life-control-app-angular
     ports:
       - "${WEB_APP_PORT:-4200}:3000"
     environment:

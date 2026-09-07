@@ -9,6 +9,7 @@ services:
   # Development API Gateway Overrides
   # ============================================
   api-gateway:
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-api-gateway
     environment:
       - LOG_LEVEL=DEBUG
       - TRACING_SAMPLING_PROBABILITY=0.5
@@ -24,6 +25,7 @@ services:
   # Development Keycloak Overrides
   # ============================================
   keycloak:
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-keycloak
     command: ["start-dev", "--import-realm"]
     environment:
       - KC_BOOTSTRAP_ADMIN_USERNAME=admin
@@ -73,5 +75,12 @@ services:
   # Development Redis Overrides
   # ============================================
   redis:
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-redis
     ports:
       - "6379:6379"
+
+  # ============================================
+  # Development Web App (Angular) Override
+  # ============================================
+  web-app:
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-life-control-app-angular
