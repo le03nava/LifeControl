@@ -1,6 +1,6 @@
 # LifeControl
 
-Plataforma de gestión integral con backend Spring Boot y frontend Angular. En migración activa de microservicios a un monolito modular.
+Plataforma de gestión integral con backend Spring Boot y frontend Angular, consolidada en un monolito modular.
 
 ---
 
@@ -28,16 +28,9 @@ Plataforma de gestión integral con backend Spring Boot y frontend Angular. En m
                                     │      Redis      │
                                     │    (Caching)    │
                                     └─────────────────┘
-
-  ── Servicios deprecados (a migrar) ──────────────────────
-  ╔══════════════════╤══════════════╤═══════════════════╗
-  ║ Product Service  │ Order        │ Inventory         ║
-  ║ (PostgreSQL)     │ (MySQL+Kafka)│ (MySQL)           ║
-  ╚══════════════════╧══════════════╧═══════════════════╝
-              └── Notification Service (Kafka → email) ──┘
 ```
 
-El proyecto comenzó como una arquitectura de microservicios y está migrando toda la lógica de negocio al monolito modular `life-control-api`. Los servicios deprecados **no reciben nueva funcionalidad**; cualquier cambio debe implementarse directamente en `life-control-api`.
+El proyecto consolidó toda la lógica de negocio en el monolito modular `life-control-api`. Los servicios de la antigua arquitectura de microservicios fueron eliminados.
 
 ---
 
@@ -48,7 +41,6 @@ El proyecto comenzó como una arquitectura de microservicios y está migrando to
 | **Frontend**        | Angular 20.3.0 (SSR), Angular Material, Keycloak Angular |
 | **Backend**         | Spring Boot 3.4.0 (Java 21)                         |
 | **Base de datos**   | PostgreSQL (principal), Redis (caching)              |
-| **Mensajería**      | Apache Kafka (legacy, en migración)                  |
 | **Auth**            | Keycloak 26 (OIDC/OAuth2)                            |
 | **Documentación**   | SpringDoc OpenAPI (Swagger UI)                       |
 | **Container**       | Docker, Docker Compose                                |
@@ -59,25 +51,12 @@ El proyecto comenzó como una arquitectura de microservicios y está migrando to
 
 ## Componentes
 
-### Activos
-
 | Componente          | Directorio              | Stack                            | Rol                        |
 |---------------------|-------------------------|----------------------------------|----------------------------|
-| LifeControl API     | `life-control-api/`     | Spring Boot 3.4 + PostgreSQL     | **Módulo central** — gestión de compañías, países, regiones, zonas, usuarios, roles, auditoría |
+| LifeControl API     | `life-control-api/`     | Spring Boot 3.4 + PostgreSQL     | **Módulo central** — compañías, países, regiones, zonas, usuarios, roles, productos, ventas, compras, auditoría |
 | API Gateway         | `api-gateway/`          | Spring Cloud Gateway             | Proxy, enrutamiento        |
 | Angular App         | `life-control-app-angular/` | Angular 20.3, SSR, Material | Frontend de gestión        |
 | Backstage           | `backstage/`            | Backstage framework              | Developer portal           |
-
-### ⚠️ Deprecados (migrando a life-control-api)
-
-| Componente            | Directorio                  | Funcionalidad                         |
-|-----------------------|-----------------------------|---------------------------------------|
-| Product Service       | `product-service/`          | CRUD de productos (PostgreSQL)        |
-| Order Service         | `order-service/`            | Órdenes (MySQL + Kafka)               |
-| Inventory Service     | `inventory-service/`        | Stock/inventario (MySQL)              |
-| Notification Service  | `notification-service/`     | Emails vía Kafka                      |
-
-> **No desarrollar nueva funcionalidad en los servicios deprecados.** Ver [AGENTS.md](AGENTS.md#servicios-deprecados).
 
 ---
 
@@ -87,8 +66,13 @@ El proyecto comenzó como una arquitectura de microservicios y está migrando to
 LifeControl/
 ├── life-control-api/                   # ◄── MÓDULO CENTRAL (monolito modular)
 │   ├── src/main/java/com/lifecontrol/api/
-│   │   ├── company/                    # Compañías, países asociados, regiones, zonas
+│   │   ├── company/                    # Compañías, países asociados, regiones, zonas, stores
 │   │   ├── country/                    # Catálogo de países
+│   │   ├── product/                    # Productos, variantes, proveedores
+│   │   ├── salesorder/                 # Pedidos de venta
+│   │   ├── purchaseorder/              # Pedidos de compra
+│   │   ├── customer/                   # Clientes
+│   │   ├── supplier/                   # Proveedores
 │   │   ├── usersadmin/                 # Admin Keycloak (usuarios, roles)
 │   │   ├── activity/                   # Traza de auditoría (AOP)
 │   │   ├── common/                     # Base Auditable, CurrentUserContext
@@ -101,11 +85,6 @@ LifeControl/
 ├── life-control-app-angular/           # Angular 20 (SSR + Material)
 │
 ├── api-gateway/                        # Spring Cloud Gateway
-│
-├── product-service/                    # ⚠️ Deprecado
-├── order-service/                      # ⚠️ Deprecado
-├── inventory-service/                  # ⚠️ Deprecado
-├── notification-service/               # ⚠️ Deprecado
 │
 ├── docker/
 │   ├── docker-compose.yml
@@ -266,4 +245,4 @@ MIT License — Ver [LICENSE](LICENSE) para detalles.
 
 ---
 
-> **Nota**: Este proyecto está en migración activa de microservicios a un monolito modular. La documentación puede estar ligeramente detrás del código. Ver [AGENTS.md](AGENTS.md) para el estado más actualizado de cada componente.
+> **Nota**: Ver [AGENTS.md](AGENTS.md) para el estado actualizado de cada componente.

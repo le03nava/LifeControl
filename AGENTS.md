@@ -51,16 +51,12 @@
 
 ## Project Overview
 
-LifeControl es un sistema de gestión que está migrando de una arquitectura de microservicios a un monolito modular en `life-control-api`.
+LifeControl es un sistema de gestión consolidado en un monolito modular `life-control-api`.
 
 | Component | Location | Tech Stack | Estado |
 |-----------|----------|------------|--------|
 | API Gateway | `api-gateway/` | Spring Boot | Activo |
 | Life Control API | `life-control-api/` | Spring Boot, Java 21, PostgreSQL | **Activo** — núcleo del sistema |
-| Order Service | `order-service/` | Spring Boot, MySQL, Kafka | ⚠️ **Deprecado** — migrar a `life-control-api` |
-| Inventory Service | `inventory-service/` | Spring Boot, MySQL | ⚠️ **Deprecado** — migrar a `life-control-api` |
-| Product Service | `product-service/` | Spring Boot, PostgreSQL | ⚠️ **Deprecado** — migrar a `life-control-api` |
-| Notification Service | `notification-service/` | Spring Boot, Kafka | ⚠️ **Deprecado** — migrar a `life-control-api` |
 | Angular App | `life-control-app-angular/` | Angular 20.3.0, SSR + Material | Activo |
 | Backstage | `backstage/` | Backstage framework | Activo |
 
@@ -156,19 +152,6 @@ Follow conventional-commit style: `<type>[scope]: <description>`
 **Types:** `feat`, `fix`, `docs`, `chore`, `perf`, `refactor`, `style`, `test`
 
 ---
-
-## Servicios Deprecados
-
-Los siguientes servicios serán eliminados una vez que su funcionalidad esté migrada a `life-control-api`:
-
-| Servicio | AGENTS.md | Funcionalidad |
-|----------|-----------|---------------|
-| `order-service/` | [AGENTS.md](order-service/AGENTS.md) | Órdenes, Kafka, MySQL |
-| `inventory-service/` | [AGENTS.md](inventory-service/AGENTS.md) | Inventario/stock, MySQL |
-| `product-service/` | [AGENTS.md](product-service/AGENTS.md) | CRUD de productos, PostgreSQL |
-| `notification-service/` | [AGENTS.md](notification-service/AGENTS.md) | Notificaciones email, Kafka |
-
-**No desarrollar nueva funcionalidad en estos servicios.** Cualquier cambio necesario debe implementarse directamente en `life-control-api/`.
 
 ## Component-Specific Guidelines
 
