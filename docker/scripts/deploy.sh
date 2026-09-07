@@ -87,13 +87,17 @@ check_requirements() {
 build_services() {
 	print_status "Building services for $ENV environment (profile: $BUILD_PROFILE)..."
 
+	# Script can be invoked from the repo root or from docker/. Resolve paths
+	# against DOCKER_DIR so builds always find the Gradle wrappers.
+	local repo_root="$DOCKER_DIR/.."
+
 	# Build Java services
 	local java_services=("api-gateway" "life-control-api")
 
 	for service in "${java_services[@]}"; do
-		if [ -f "../$service/gradlew" ]; then
+		if [ -f "$repo_root/$service/gradlew" ]; then
 			print_status "Building $service..."
-			cd "../$service"
+			cd "$repo_root/$service"
 			chmod +x gradlew
 			./gradlew bootJar --no-daemon -Pprofile=$BUILD_PROFILE -x test || print_warning "$service build failed, will try docker build"
 			cd - >/dev/null
@@ -111,9 +115,9 @@ build_services() {
 	esac
 
 	# Build Angular app
-	if [ -f "../life-control-app-angular/package.json" ]; then
+	if [ -f "$repo_root/life-control-app-angular/package.json" ]; then
 		print_status "Building Angular app (config: $ANGULAR_CONFIG)..."
-		cd "../life-control-app-angular"
+		cd "$repo_root/life-control-app-angular"
 		if [ -d "node_modules" ]; then
 			npm run build -- --configuration=$ANGULAR_CONFIG || print_warning "Angular build failed"
 		else
@@ -217,11 +221,17 @@ clean_services() {
 health_check() {
 	print_status "Checking health..."
 
+	# Actuator is exposed on the management port (matches the Docker healthcheck
+	# in docker-compose.yml). The server port is protected by OAuth2 -> 401.
+	local mgmt_port
+	mgmt_port=$(grep -E "^API_GATEWAY_MANAGEMENT_PORT=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2)
+	mgmt_port="${mgmt_port:-9001}"
+
 	MAX_ATTEMPTS=30
 	ATTEMPT=1
 
 	while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
-		if curl -sf http://localhost:9000/actuator/health >/dev/null 2>&1; then
+		if curl -sf "http://localhost:${mgmt_port}/actuator/health" >/dev/null 2>&1; then
 			print_success "API Gateway is healthy!"
 			return 0
 		fi
