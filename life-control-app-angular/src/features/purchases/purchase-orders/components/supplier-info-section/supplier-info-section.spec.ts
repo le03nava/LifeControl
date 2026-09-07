@@ -53,9 +53,9 @@ const mockSuppliersPage = {
 };
 
 const mockPaymentMethods = [
-  { id: 'pm-1', name: 'Transferencia' },
-  { id: 'pm-2', name: 'Cheque' },
-  { id: 'pm-3', name: 'Efectivo' },
+  { id: 'pm-1', paymentMethodName: 'Transferencia', paymentMethodShortName: 'TRANSF', enabled: true },
+  { id: 'pm-2', paymentMethodName: 'Cheque', paymentMethodShortName: 'CHEQ', enabled: true },
+  { id: 'pm-3', paymentMethodName: 'Efectivo', paymentMethodShortName: 'EFECT', enabled: true },
 ];
 
 describe('SupplierInfoSection', () => {

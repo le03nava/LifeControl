@@ -108,10 +108,18 @@ export class SupplierInfoSection implements OnInit {
 
   private loadPaymentMethods(): void {
     this.http
-      .get<PaymentMethod[]>(
+      .get<{ id: string; paymentMethodName: string }[]>(
         `${this.configService.apiUrl}/payment-methods`,
       )
-      .pipe(takeUntilDestroyed(this.destroyRef))
+      .pipe(
+        map((list) =>
+          list.map((pm) => ({
+            id: pm.id,
+            name: pm.paymentMethodName,
+          })),
+        ),
+        takeUntilDestroyed(this.destroyRef),
+      )
       .subscribe({
         next: (list) => this.paymentMethods.set(list),
       });
