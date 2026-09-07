@@ -26,57 +26,6 @@ public class Routes {
   }
 
   @Bean
-  public RouterFunction<ServerResponse> productServiceSwaggerRoute() {
-    return GatewayRouterFunctions.route("product_service_swagger")
-        .route(RequestPredicates.GET("/aggregate/product-service/v3/api-docs"),
-            HandlerFunctions.http("http://lifecontrol-dev-product-service:8080"))
-        .filter(CircuitBreakerFilterFunctions.circuitBreaker("productServiceSwaggerCircuitBreaker",
-            URI.create("forward:/fallbackRoute")))
-        .filter(FilterFunctions.setPath("/api-docs"))
-        .build();
-  }
-
-  @Bean
-  public RouterFunction<ServerResponse> orderServiceRoute() {
-    return GatewayRouterFunctions.route("order_service")
-        .route(RequestPredicates.GET("/api/order"), HandlerFunctions.http("http://lifecontrol-dev-order-service:8081"))
-        .filter(CircuitBreakerFilterFunctions.circuitBreaker("orderServiceCircuitBreaker",
-            URI.create("forward:/fallbackRoute")))
-        .build();
-  }
-
-  @Bean
-  public RouterFunction<ServerResponse> orderServiceSwaggerRoute() {
-    return GatewayRouterFunctions.route("order_service_swagger")
-        .route(RequestPredicates.GET("/aggregate/order-service/v3/api-docs"),
-            HandlerFunctions.http("http://lifecontrol-dev-order-service:8081"))
-        .filter(CircuitBreakerFilterFunctions.circuitBreaker("orderServiceSwaggerCircuitBreaker",
-            URI.create("forward:/fallbackRoute")))
-        .filter(FilterFunctions.setPath("/api-docs"))
-        .build();
-  }
-
-  @Bean
-  public RouterFunction<ServerResponse> inventoryServiceRoute() {
-    return GatewayRouterFunctions.route("inventory_service")
-        .filter(CircuitBreakerFilterFunctions.circuitBreaker("inventoryServiceCircuitBreaker",
-            URI.create("forward:/fallbackRoute")))
-        .route(RequestPredicates.GET("/api/inventory"), HandlerFunctions.http("http://lifecontrol-dev-inventory-service:8082"))
-        .build();
-  }
-
-  @Bean
-  public RouterFunction<ServerResponse> inventoryServiceSwaggerRoute() {
-    return GatewayRouterFunctions.route("inventory_service_swagger")
-        .route(RequestPredicates.GET("/aggregate/inventory-service/v3/api-docs"),
-            HandlerFunctions.http("http://lifecontrol-dev-inventory-service:8082"))
-        .filter(CircuitBreakerFilterFunctions.circuitBreaker("inventoryServiceSwaggerCircuitBreaker",
-            URI.create("forward:/fallbackRoute")))
-        .filter(FilterFunctions.setPath("/api-docs"))
-        .build();
-  }
-
-  @Bean
   public RouterFunction<ServerResponse> companyServiceRoute() {
     return GatewayRouterFunctions.route("company_service")
         .route(RequestPredicates.path("/api/companies/**"), HandlerFunctions.http("http://lifecontrol-dev-lifecontrol-api:8082"))
