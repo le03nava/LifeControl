@@ -3,7 +3,6 @@
 # ============================================
 
 # Network configuration - default bridge network
-# For custom network, use NETWORK_NAME environment variable in each service
 networks:
   default:
     driver: bridge
@@ -31,7 +30,7 @@ services:
       POSTGRES_USER: ${KEYCLOAK_POSTGRES_USER:-keycloak}
       POSTGRES_PASSWORD: ${KEYCLOAK_POSTGRES_PASSWORD}
     volumes:
-      - ${KEYCLOAK_POSTGRES_DATA_PATH:-./volumes-dev/keycloak-postgres/data}:/var/lib/postgresql/data
+      - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/keycloak-postgres/data:/var/lib/postgresql/data
     networks:
       - default
     deploy:
@@ -50,7 +49,7 @@ services:
   # PostgreSQL - LifeControl API Database
   # ============================================
   lifecontrol-postgres:
-    image: ${LIFECONTROL_POSTGRES_IMAGE:-postgres:16.4}
+    image: ${POSTGRES_IMAGE:-postgres:18.1}
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-lifecontrol-postgres
     ports:
       - "${LIFECONTROL_POSTGRES_PORT:-5435}:5432"
@@ -59,7 +58,7 @@ services:
       POSTGRES_USER: ${LIFECONTROL_POSTGRES_USER:-lifecontrol_user}
       POSTGRES_PASSWORD: ${LIFECONTROL_POSTGRES_PASSWORD}
     volumes:
-      - ${LIFECONTROL_POSTGRES_DATA_PATH:-./volumes-dev/postgres/lifecontrol/data}:/var/lib/postgresql/data
+      - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/postgres/lifecontrol/data:/var/lib/postgresql/data
       - ${LIFECONTROL_POSTGRES_INIT_PATH:-./init-scripts}:/docker-entrypoint-initdb.d:ro
     networks:
       - default
@@ -97,7 +96,7 @@ services:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_ADMIN_USERNAME:-admin}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD}
     volumes:
-      - ${KEYCLOAK_REALMS_PATH:-./volumes-dev/keycloak/realms}:/opt/keycloak/data/import:ro
+      - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/keycloak/realms:/opt/keycloak/data/import:ro
     networks:
       - default
     depends_on:
@@ -108,7 +107,7 @@ services:
         limits:
           memory: ${KEYCLOAK_MEMORY_LIMIT:-1g}
     healthcheck:
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/8080 && echo ok"]
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/${KC_HTTP_PORT:-8080} && echo ok"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -125,7 +124,7 @@ services:
     ports:
       - "${LOKI_PORT:-3100}:3100"
     volumes:
-      - ${LOKI_DATA_PATH:-./volumes-dev/loki/data}:/loki/data
+      - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/loki/data:/loki/data
     networks:
       - default
     deploy:
@@ -162,8 +161,8 @@ services:
     ports:
       - "${PROMETHEUS_PORT:-9090}:9090"
     volumes:
-      - ${PROMETHEUS_CONFIG_PATH:-./volumes-dev/prometheus/config}:/etc/prometheus:ro
-      - ${PROMETHEUS_DATA_PATH:-./volumes-dev/prometheus/data}:/prometheus
+      - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/prometheus/config:/etc/prometheus:ro
+      - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/prometheus/data:/prometheus
     networks:
       - default
     deploy:
@@ -197,8 +196,8 @@ services:
       - "${TEMPO_PORT:-3110}:3100" # Tempo
       - "${TEMPO_ZIPKIN_PORT:-9411}:9411" # Zipkin
     volumes:
-      - ${TEMPO_CONFIG_PATH:-./volumes-dev/tempo/config}:/etc/tempo:ro
-      - ${TEMPO_DATA_PATH:-./volumes-dev/tempo/data}:/var/tempo
+      - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/tempo/config:/etc/tempo:ro
+      - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/tempo/data:/var/tempo
     networks:
       - default
     deploy:
@@ -234,8 +233,8 @@ services:
       - GF_AUTH_ANONYMOUS_ORG_ROLE=${GF_AUTH_ANONYMOUS_ORG_ROLE:-Admin}
       - GF_AUTH_DISABLE_LOGIN_FORM=${GF_AUTH_DISABLE_LOGIN_FORM:-true}
     volumes:
-      - ${GRAFANA_CONFIG_PATH:-./volumes-dev/grafana/config}:/etc/grafana/provisioning/datasources:ro
-      - ${GRAFANA_DATA_PATH:-./volumes-dev/grafana/data}:/var/lib/grafana
+      - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/grafana/config:/etc/grafana/provisioning/datasources:ro
+      - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/grafana/data:/var/lib/grafana
     networks:
       - default
     deploy:
@@ -328,7 +327,7 @@ services:
         "allkeys-lru",
       ]
     volumes:
-      - ${REDIS_DATA_PATH:-./volumes-dev/redis/data}:/data
+      - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/redis/data:/data
     networks:
       - default
     deploy:
@@ -356,7 +355,6 @@ services:
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-lifecontrol-api
     ports:
       - "${LIFECONTROL_API_PORT:-8082}:${LIFECONTROL_API_PORT:-8082}"
-      - "${LIFECONTROL_API_MANAGEMENT_PORT:-8083}:${LIFECONTROL_API_MANAGEMENT_PORT:-8083}"
     environment:
       - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-dev}
       - SERVER_PORT=${LIFECONTROL_API_PORT:-8082}

@@ -17,9 +17,6 @@ services:
       - HEALTH_CHECK_INTERVAL=15s
     volumes:
       - ./api-gateway/src/main/resources:/app/resources:ro
-    ports:
-      - "9000:9000"
-      - "9001:9001"
 
   # ============================================
   # Development Keycloak Overrides
@@ -30,8 +27,6 @@ services:
     environment:
       - KC_BOOTSTRAP_ADMIN_USERNAME=admin
       - KC_BOOTSTRAP_ADMIN_PASSWORD=dev_admin_pass
-    ports:
-      - "8181:8080"
 
   # ============================================
   # Development Monitoring Overrides
@@ -41,43 +36,12 @@ services:
       - GF_AUTH_ANONYMOUS_ENABLED=true
       - GF_AUTH_DISABLE_LOGIN_FORM=true
       - GF_SECURITY_ALLOW_EMBEDDING=true
-    ports:
-      - "3000:3000"
-
-  prometheus:
-    ports:
-      - "9090:9090"
-
-  loki:
-    ports:
-      - "3100:3100"
-
-  tempo:
-    ports:
-      - "3110:3100"
-      - "9411:9411"
-
-  # ============================================
-  # Development Database Overrides
-  # ============================================
-  keycloak-postgres:
-    ports:
-      - "5433:5432"
-
-  # ============================================
-  # Development LifeControl API Database Overrides
-  # ============================================
-  lifecontrol-postgres:
-    ports:
-      - "5435:5432"
 
   # ============================================
   # Development Redis Overrides
   # ============================================
   redis:
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-redis
-    ports:
-      - "6379:6379"
 
   # ============================================
   # Development Web App (Angular) Override
