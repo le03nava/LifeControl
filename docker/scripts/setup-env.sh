@@ -17,6 +17,15 @@ print_status "Setting up ${ENV} environment"
 if [ ! -f "$ENV_FILE" ]; then
 	print_status "Environment file $ENV_FILE not found. Creating from template..."
 	cp "$DOCKER_DIR/.env.template" "$ENV_FILE"
+	# Template defaults VOLUMES_ROOT to the dev volume root; point it at this
+	# environment's volume root so non-dev setups never share the dev volumes.
+	# dev/staging keep a repo-relative dir; prod uses an absolute root outside
+	# the repo (see docker-compose.prod.yml and .env.prod).
+	if [ "$ENV" = "prod" ]; then
+		sed -i "s|^VOLUMES_ROOT=.*|VOLUMES_ROOT=/var/lib/lifecontrol/volumes|" "$ENV_FILE"
+	else
+		sed -i "s|^VOLUMES_ROOT=.*|VOLUMES_ROOT=./volumes-${ENV}|" "$ENV_FILE"
+	fi
 	print_success "Created $ENV_FILE"
 	print_warning "Please review $ENV_FILE and fill in any secrets before starting services."
 fi
@@ -34,7 +43,11 @@ print_success "Docker is running"
 print_status "Creating volume directories..."
 VOLUMES_ROOT_VAL=$(get_env_var VOLUMES_ROOT)
 if [ -n "$VOLUMES_ROOT_VAL" ]; then
-	mkdir -p "$DOCKER_DIR/$VOLUMES_ROOT_VAL"/{keycloak-postgres/data,postgres/{data,lifecontrol},redis/data,keycloak/realms,prometheus/{data,config},grafana/{data,config},tempo/{data,config},loki/{data,config}}
+	# Support both relative (dev/staging) and absolute (prod) VOLUMES_ROOT values
+	case "$VOLUMES_ROOT_VAL" in
+		/*) mkdir -p "$VOLUMES_ROOT_VAL"/{keycloak-postgres/data,postgres/{data,lifecontrol},redis/data,keycloak/realms,prometheus/{data,config},grafana/{data,config},tempo/{data,config},loki/{data,config}} ;;
+		*)  mkdir -p "$DOCKER_DIR/$VOLUMES_ROOT_VAL"/{keycloak-postgres/data,postgres/{data,lifecontrol},redis/data,keycloak/realms,prometheus/{data,config},grafana/{data,config},tempo/{data,config},loki/{data,config}} ;;
+	esac
 	print_success "Volume directories created"
 else
 	print_warning "VOLUMES_ROOT not set in $ENV_FILE — volume directories not created. Compose will fail loudly if VOLUMES_ROOT is missing."

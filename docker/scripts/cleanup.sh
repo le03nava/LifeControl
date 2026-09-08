@@ -61,13 +61,29 @@ cleanup_volumes() {
 cleanup_local() {
 	print_status "Cleaning up local files..."
 
-	local vol_dir
-	for vol_dir in "$DOCKER_DIR"/volumes-*; do
-		if [ -d "$vol_dir" ]; then
-			print_warning "Removing $vol_dir directory..."
-			rm -rf "$vol_dir"
+	# Only the CURRENT environment's volume directory may be removed here.
+	# Absolute VOLUMES_ROOT (prod, e.g. /var/lib/lifecontrol/volumes) points OUTSIDE
+	# the repo: never delete prod data locally — it must be cleaned manually or
+	# via a scripted cleanup. Relative roots (dev/staging, ./volumes-<env>) are
+	# scoped to this env only; other envs' volume dirs are never touched.
+	local vol_root
+	vol_root=$(get_env_var VOLUMES_ROOT)
+	if [[ "$vol_root" == /* ]]; then
+		print_warning "VOLUMES_ROOT=$vol_root is absolute (prod) — local data at that path is deliberately NOT cleaned here."
+		print_warning "Clean $vol_root manually or via a scripted cleanup."
+	elif [ -n "$vol_root" ]; then
+		# Relative root (dev/staging): remove only this env's dir, e.g. ./volumes-dev.
+		local vol_dir="${vol_root#./}"
+		local target="$DOCKER_DIR/$vol_dir"
+		if [ -d "$target" ]; then
+			print_warning "Removing $ENV volume directory $target..."
+			rm -rf "$target"
+		else
+			print_status "No local volume directory to remove for $ENV ($target)"
 		fi
-	done
+	else
+		print_warning "VOLUMES_ROOT is not set in $ENV_FILE — no local volume directory removed."
+	fi
 
 	print_success "Local cleanup completed"
 }

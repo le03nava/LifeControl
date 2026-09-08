@@ -153,7 +153,7 @@ show_status() {
 }
 
 show_logs() {
-	SERVICE=${2:-}
+	SERVICE=${1:-}
 	if [ -n "$SERVICE" ]; then
 		$DOCKER_COMPOSE $COMPOSE_FILES --env-file "$ENV_FILE" logs -f "$SERVICE"
 	else
@@ -178,7 +178,10 @@ health_check() {
 
 	local mgmt_port
 	mgmt_port=$(get_env_var API_GATEWAY_MANAGEMENT_PORT)
-	mgmt_port="${mgmt_port:-9001}"
+	if [ -z "$mgmt_port" ]; then
+		print_error "API_GATEWAY_MANAGEMENT_PORT is not set in $ENV_FILE — cannot determine the management port. Set it and re-run the health check."
+		return 1
+	fi
 
 	MAX_ATTEMPTS=30
 	ATTEMPT=1

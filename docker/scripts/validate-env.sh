@@ -107,7 +107,15 @@ check_volume_dirs() {
 
 	local vol_root
 	vol_root=$(get_env_var VOLUMES_ROOT)
-	if [ -n "$vol_root" ] && [ -d "$DOCKER_DIR/$vol_root" ]; then
+	local vol_path=""
+	if [ -n "$vol_root" ]; then
+		# Support both relative (dev/staging) and absolute (prod) VOLUMES_ROOT values
+		case "$vol_root" in
+			/*) vol_path="$vol_root" ;;
+			*)  vol_path="$DOCKER_DIR/$vol_root" ;;
+		esac
+	fi
+	if [ -n "$vol_path" ] && [ -d "$vol_path" ]; then
 		print_success "Volume directory $vol_root exists"
 	else
 		print_warning "Volume directory not found - will be created by setup-env.sh"

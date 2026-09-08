@@ -16,7 +16,7 @@ services:
       - ACTUATOR_ENDPOINTS=*
       - HEALTH_CHECK_INTERVAL=15s
     volumes:
-      - ./api-gateway/src/main/resources:/app/resources:ro
+      - ../api-gateway/src/main/resources:/app/resources:ro
 
   # ============================================
   # Development Keycloak Overrides
