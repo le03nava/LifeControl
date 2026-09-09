@@ -1,6 +1,9 @@
 -- ============================================
--- Seed Data - Countries
+-- V2 — Seed Data: Countries
 -- ============================================
+-- Idempotent: only inserts rows that do not already exist.
+-- ============================================
+
 INSERT INTO countries (id, country_code, country_name, enabled, created_at, updated_at)
 SELECT gen_random_uuid(), 'MX', 'México', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 WHERE NOT EXISTS (SELECT 1 FROM countries WHERE country_code = 'MX');

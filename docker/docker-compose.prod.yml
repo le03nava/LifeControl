@@ -270,7 +270,6 @@ services:
       - ./entrypoints/postgres-entrypoint.sh:/usr/local/bin/lc-postgres-entrypoint.sh:ro
       - ./secrets/lifecontrol_postgres_password:/run/secrets/lifecontrol_postgres_password:ro
       - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/postgres/lifecontrol/data:/var/lib/postgresql
-      - ${LIFECONTROL_POSTGRES_INIT_PATH:-./init-scripts}:/docker-entrypoint-initdb.d:ro
     networks:
       - default
     deploy:
