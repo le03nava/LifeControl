@@ -117,6 +117,13 @@ Todas las contraseñas viajan por archivos `docker/secrets/*` (NO por los `.env.
 - Secretos: `keycloak_postgres_password`, `keycloak_admin_password`, `keycloak_admin_client_secret`, `lifecontrol_postgres_password`, `grafana_admin_password`.
 - `validate-env.sh` valida los secretos en todos los entornos; `deploy.sh start` en prod lo usa como gate.
 
+### keycloak-setup.sh
+Provisión idempotente del realm `life-control-realm`, los clients (`life-control-client` public + `life-control-admin-client` confidential con service account) y los roles (`lc-*` client roles, roles legacy de realm) vía `kcadm.sh` dentro del contenedor. Requiere Keycloak arriba y los secrets de keycloak materializados.
+```bash
+./docker/scripts/keycloak-setup.sh [dev|staging|prod]
+```
+> En dev la password del admin del realm la define `docker/secrets/keycloak_admin_password`; el service account del admin client toma `docker/secrets/keycloak_admin_client_secret`. Tras crear users en el realm hay que asignarles los roles correspondientes (ej. `lc-admin`) para que el frontend muestre los menús.
+
 ### Service URLs
 
 > **Source of truth**: Service URLs are defined by port variables in `docker/.env.<env>` files.
