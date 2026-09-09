@@ -23,6 +23,9 @@ if [ ! -f "$ENV_FILE" ]; then
 	# the repo (see docker-compose.prod.yml and .env.prod).
 	if [ "$ENV" = "prod" ]; then
 		sed -i "s|^VOLUMES_ROOT=.*|VOLUMES_ROOT=/var/lib/lifecontrol/volumes|" "$ENV_FILE"
+		# Prod uses a postgres host port distinct from dev/staging (5435) so a
+		# fresh prod setup never collides with other envs on the same host.
+		sed -i "s|^LIFECONTROL_POSTGRES_PORT=.*|LIFECONTROL_POSTGRES_PORT=5445|" "$ENV_FILE"
 		# Prod passwords come exclusively from docker/secrets/<name> files mounted
 		# at /run/secrets/<name> (see entrypoint wrappers). Strip every password
 		# related line so compose can never interpolate a plaintext value —

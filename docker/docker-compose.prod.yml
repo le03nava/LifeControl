@@ -25,6 +25,7 @@ services:
     image: ${POSTGRES_IMAGE:-postgres:18.1}
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-keycloak-postgres
     entrypoint: ["/usr/local/bin/lc-postgres-entrypoint.sh"]
+    command: ["postgres"]
     ports:
       - "${POSTGRES_PORT:-5453}:5432"
     environment:
@@ -34,7 +35,7 @@ services:
     volumes:
       - ./entrypoints/postgres-entrypoint.sh:/usr/local/bin/lc-postgres-entrypoint.sh:ro
       - ./secrets/keycloak_postgres_password:/run/secrets/keycloak_postgres_password:ro
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql
     networks:
       - default
     deploy:
@@ -46,11 +47,6 @@ services:
         reservations:
           memory: 1g
           cpus: "0.5"
-      restart_policy:
-        condition: on-failure
-        delay: 5s
-        max_attempts: 5
-        window: 180s
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${KEYCLOAK_POSTGRES_USER:-keycloak}"]
       interval: 30s
@@ -100,11 +96,6 @@ services:
         parallelism: 1
         delay: 10s
         failure_action: rollback
-      restart_policy:
-        condition: on-failure
-        delay: 5s
-        max_attempts: 3
-        window: 120s
     healthcheck:
       test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/${KC_HTTP_PORT:-8080} && echo ok"]
       interval: 30s
@@ -247,11 +238,6 @@ services:
         parallelism: 1
         delay: 10s
         failure_action: rollback
-      restart_policy:
-        condition: on-failure
-        delay: 5s
-        max_attempts: 3
-        window: 120s
     healthcheck:
       test:
         [
@@ -271,8 +257,9 @@ services:
     image: ${LIFECONTROL_POSTGRES_IMAGE:-postgres:18.1}
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-lifecontrol-postgres
     entrypoint: ["/usr/local/bin/lc-postgres-entrypoint.sh"]
+    command: ["postgres"]
     ports:
-      - "${LIFECONTROL_POSTGRES_PORT:-5435}:5432"
+      - "${LIFECONTROL_POSTGRES_PORT:-5445}:5432"
     environment:
       POSTGRES_DB: ${LIFECONTROL_POSTGRES_DB:-lifecontrol}
       POSTGRES_USER: ${LIFECONTROL_POSTGRES_USER:-lifecontrol_user}
@@ -280,7 +267,7 @@ services:
     volumes:
       - ./entrypoints/postgres-entrypoint.sh:/usr/local/bin/lc-postgres-entrypoint.sh:ro
       - ./secrets/lifecontrol_postgres_password:/run/secrets/lifecontrol_postgres_password:ro
-      - ${LIFECONTROL_POSTGRES_DATA_PATH:-/var/lib/lifecontrol/volumes/postgres/lifecontrol/data}:/var/lib/postgresql/data
+      - ${LIFECONTROL_POSTGRES_DATA_PATH:-/var/lib/lifecontrol/volumes/postgres/lifecontrol/data}:/var/lib/postgresql
       - ${LIFECONTROL_POSTGRES_INIT_PATH:-/var/lib/lifecontrol/init-scripts}:/docker-entrypoint-initdb.d:ro
     networks:
       - default
@@ -293,11 +280,6 @@ services:
         reservations:
           memory: 256m
           cpus: "0.25"
-      restart_policy:
-        condition: on-failure
-        delay: 5s
-        max_attempts: 5
-        window: 180s
     healthcheck:
       test:
         [
@@ -342,9 +324,4 @@ services:
         parallelism: 1
         delay: 10s
         failure_action: rollback
-      restart_policy:
-        condition: on-failure
-        delay: 5s
-        max_attempts: 3
-        window: 120s
     restart: always
