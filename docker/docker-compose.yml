@@ -7,15 +7,6 @@ networks:
   default:
     driver: bridge
 
-volumes:
-  postgres_data:
-  lifecontrol_data:
-  prometheus_data:
-  grafana_data:
-  tempo_data:
-  loki_data:
-  redis_data:
-
 services:
   # ============================================
   # PostgreSQL - Keycloak Database
@@ -107,7 +98,9 @@ services:
         limits:
           memory: ${KEYCLOAK_MEMORY_LIMIT:-1g}
     healthcheck:
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/${KC_HTTP_PORT:-8080} && echo ok"]
+      # The keycloak image has no wget/curl/nc and /bin/sh is bash, so a raw
+      # /dev/tcp probe (bash builtin) is used here instead of wget.
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/${KC_HTTP_PORT:-8080}'"]
       interval: 30s
       timeout: 10s
       retries: 5

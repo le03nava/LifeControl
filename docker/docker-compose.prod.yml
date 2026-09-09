@@ -77,7 +77,7 @@ services:
       - ./entrypoints/keycloak-entrypoint.sh:/opt/keycloak/kc-entrypoint.sh:ro
       - ./secrets/keycloak_postgres_password:/run/secrets/keycloak_postgres_password:ro
       - ./secrets/keycloak_admin_password:/run/secrets/keycloak_admin_password:ro
-      - ${KEYCLOAK_REALMS_PATH:-/var/lib/lifecontrol/volumes/keycloak/realms}:/opt/keycloak/data/import:ro
+      - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/keycloak/realms:/opt/keycloak/data/import:ro
     networks:
       - default
     depends_on:
@@ -97,7 +97,9 @@ services:
         delay: 10s
         failure_action: rollback
     healthcheck:
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/${KC_HTTP_PORT:-8080} && echo ok"]
+      # The keycloak image has no wget/curl/nc and /bin/sh is bash, so a raw
+      # /dev/tcp probe (bash builtin) is used here instead of wget.
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/${KC_HTTP_PORT:-8080}'"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -136,7 +138,7 @@ services:
     ports:
       - "${PROMETHEUS_PORT:-9290}:9090"
     volumes:
-      - ${PROMETHEUS_CONFIG_PATH:-/var/lib/lifecontrol/volumes/prometheus/config}:/etc/prometheus:ro
+      - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/prometheus/config:/etc/prometheus:ro
       - prometheus_data:/prometheus
     networks:
       - default
@@ -155,7 +157,7 @@ services:
       - "${TEMPO_PORT:-3310}:3100"
       - "${TEMPO_ZIPKIN_PORT:-9611}:9411"
     volumes:
-      - ${TEMPO_CONFIG_PATH:-/var/lib/lifecontrol/volumes/tempo/config}:/etc/tempo:ro
+      - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/tempo/config:/etc/tempo:ro
       - tempo_data:/var/tempo
     networks:
       - default
@@ -180,7 +182,7 @@ services:
     volumes:
       - ./entrypoints/grafana-entrypoint.sh:/usr/local/bin/lc-grafana-entrypoint.sh:ro
       - ./secrets/grafana_admin_password:/run/secrets/grafana_admin_password:ro
-      - ${GRAFANA_CONFIG_PATH:-/var/lib/lifecontrol/volumes/grafana/config}:/etc/grafana/provisioning/datasources:ro
+      - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/grafana/config:/etc/grafana/provisioning/datasources:ro
       - grafana_data:/var/lib/grafana
     networks:
       - default
@@ -267,8 +269,8 @@ services:
     volumes:
       - ./entrypoints/postgres-entrypoint.sh:/usr/local/bin/lc-postgres-entrypoint.sh:ro
       - ./secrets/lifecontrol_postgres_password:/run/secrets/lifecontrol_postgres_password:ro
-      - ${LIFECONTROL_POSTGRES_DATA_PATH:-/var/lib/lifecontrol/volumes/postgres/lifecontrol/data}:/var/lib/postgresql
-      - ${LIFECONTROL_POSTGRES_INIT_PATH:-/var/lib/lifecontrol/init-scripts}:/docker-entrypoint-initdb.d:ro
+      - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/postgres/lifecontrol/data:/var/lib/postgresql
+      - ${LIFECONTROL_POSTGRES_INIT_PATH:-./init-scripts}:/docker-entrypoint-initdb.d:ro
     networks:
       - default
     deploy:
@@ -290,6 +292,19 @@ services:
       timeout: 10s
       retries: 5
       start_period: 90s
+    restart: always
+
+# ============================================
+  # Production LifeControl API - User Management API
+  # ============================================
+  # Prod passwords are excluded from .env.prod (setup-env strips them). The
+  # entrypoint wrapper exports DATABASE_PASSWORD from the same secret the
+  # lifecontrol-postgres container uses, so both sides stay in sync.
+  lifecontrol-api:
+    entrypoint: ["/usr/local/bin/lc-app-entrypoint.sh"]
+    volumes:
+      - ./entrypoints/lifecontrol-app-entrypoint.sh:/usr/local/bin/lc-app-entrypoint.sh:ro
+      - ./secrets/lifecontrol_postgres_password:/run/secrets/lifecontrol_postgres_password:ro
     restart: always
 
 # ============================================

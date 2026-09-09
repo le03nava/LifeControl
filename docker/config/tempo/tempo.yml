@@ -1,0 +1,22 @@
+# ============================================
+# LifeControl - Tempo Configuration
+# ============================================
+# Installed by setup-env.sh into $VOLUMES_ROOT/tempo/config.
+# Receives Zipkin traces (Micrometer Tracing) and OTLP; local trace storage.
+# ============================================
+server:
+  http_listen_port: 3100
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc: {}
+        http: {}
+    zipkin: {}
+
+storage:
+  trace:
+    backend: local
+    local:
+      path: /var/tempo/traces

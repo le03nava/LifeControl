@@ -1,8 +1,11 @@
 # ============================================
 # Docker Compose Override - Development
 # ============================================
-# Automatically loaded when running: docker-compose up
-# Use: docker-compose up (override applied automatically)
+# Automatically loaded for the dev environment (see _common.sh resolve_compose_env).
+# Holds dev-only settings that differ from the base compose. Stable container
+# names for scaled-able services (keycloak/api-gateway/web-app) live HERE, not
+# in base, because prod sets deploy.replicas on them and compose v2 rejects
+# container_name + replicas together.
 
 services:
   # ============================================
@@ -23,25 +26,13 @@ services:
   # ============================================
   keycloak:
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-keycloak
-    command: ["start-dev", "--import-realm"]
-    environment:
-      - KC_BOOTSTRAP_ADMIN_USERNAME=admin
-      - KC_BOOTSTRAP_ADMIN_PASSWORD=dev_admin_pass
 
   # ============================================
-  # Development Monitoring Overrides
+  # Development Grafana Overrides
   # ============================================
   grafana:
     environment:
-      - GF_AUTH_ANONYMOUS_ENABLED=true
-      - GF_AUTH_DISABLE_LOGIN_FORM=true
       - GF_SECURITY_ALLOW_EMBEDDING=true
-
-  # ============================================
-  # Development Redis Overrides
-  # ============================================
-  redis:
-    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-redis
 
   # ============================================
   # Development Web App (Angular) Override

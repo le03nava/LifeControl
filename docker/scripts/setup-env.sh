@@ -28,9 +28,9 @@ if [ ! -f "$ENV_FILE" ]; then
 		sed -i "s|^LIFECONTROL_POSTGRES_PORT=.*|LIFECONTROL_POSTGRES_PORT=5445|" "$ENV_FILE"
 		# Prod passwords come exclusively from docker/secrets/<name> files mounted
 		# at /run/secrets/<name> (see entrypoint wrappers). Strip every password
-		# related line so compose can never interpolate a plaintext value —
-		# the wrapper is the sole password source.
-		sed -i -E "/^[A-Z0-9_]*PASSWORD(_FILE)?=/d; /^KC_[A-Z0-9_]*=/d; /^[A-Z0-9_]*_FILE=/d" "$ENV_FILE"
+		# and client-secret related line so compose can never interpolate a
+		# plaintext value — the wrapper is the sole password source.
+		sed -i -E "/^[A-Z0-9_]*PASSWORD(_FILE)?=/d; /^KC_[A-Z0-9_]*=/d; /^[A-Z0-9_]*_FILE=/d; /^[A-Z0-9_]*CLIENT_SECRET=/d" "$ENV_FILE"
 	else
 		sed -i "s|^VOLUMES_ROOT=.*|VOLUMES_ROOT=./volumes-${ENV}|" "$ENV_FILE"
 	fi
@@ -47,16 +47,58 @@ if ! docker info >/dev/null 2>&1; then
 fi
 print_success "Docker is running"
 
-# Create volume directories from VOLUMES_ROOT
+# Install reference monitoring configs (prometheus/tempo/grafana) into the
+# environment's volume root if absent. Prometheus/Tempo need a config file to
+# start and the grafana config dir is the provisioning/datasources mount.
+# Never overwrites existing user edits.
+install_monitoring_configs() {
+	local vol_path="$1"
+	local src="$DOCKER_DIR/config"
+	local copied=0
+
+	if [ -f "$src/prometheus/prometheus.yml" ] && [ ! -f "$vol_path/prometheus/config/prometheus.yml" ]; then
+		cp "$src/prometheus/prometheus.yml" "$vol_path/prometheus/config/prometheus.yml"
+		copied=$((copied + 1))
+	fi
+	if [ -f "$src/tempo/tempo.yml" ] && [ ! -f "$vol_path/tempo/config/tempo.yml" ]; then
+		cp "$src/tempo/tempo.yml" "$vol_path/tempo/config/tempo.yml"
+		copied=$((copied + 1))
+	fi
+	if [ -f "$src/grafana/datasources.yml" ] && [ ! -f "$vol_path/grafana/config/datasources.yml" ]; then
+		cp "$src/grafana/datasources.yml" "$vol_path/grafana/config/datasources.yml"
+		copied=$((copied + 1))
+	fi
+
+	if [ "$copied" -gt 0 ]; then
+		print_success "Monitoring configs installed ($copied file(s))"
+	else
+		print_status "Monitoring configs already present — not overwritten"
+	fi
+
+	# The grafana container runs as uid 1000:1000; make its data dir writable.
+	if [ -d "$vol_path/grafana/data" ]; then
+		if chown 1000:1000 "$vol_path/grafana/data" 2>/dev/null; then
+			print_success "grafana data dir owner set to 1000:1000"
+		else
+			print_warning "Could not chown '$vol_path/grafana/data' to 1000:1000 — apply manually:"
+			print_warning "  chown 1000:1000 '$vol_path/grafana/data'"
+		fi
+	fi
+}
+
+# Create volume directories from VOLUMES_ROOT and install reference configs
 print_status "Creating volume directories..."
 VOLUMES_ROOT_VAL=$(get_env_var VOLUMES_ROOT)
 if [ -n "$VOLUMES_ROOT_VAL" ]; then
 	# Support both relative (dev/staging) and absolute (prod) VOLUMES_ROOT values
 	case "$VOLUMES_ROOT_VAL" in
-		/*) mkdir -p "$VOLUMES_ROOT_VAL"/{keycloak-postgres/data,postgres/{data,lifecontrol},redis/data,keycloak/realms,prometheus/{data,config},grafana/{data,config},tempo/{data,config},loki/{data,config}} ;;
-		*)  mkdir -p "$DOCKER_DIR/$VOLUMES_ROOT_VAL"/{keycloak-postgres/data,postgres/{data,lifecontrol},redis/data,keycloak/realms,prometheus/{data,config},grafana/{data,config},tempo/{data,config},loki/{data,config}} ;;
+		/*) vol_path="$VOLUMES_ROOT_VAL" ;;
+		*)  vol_path="$DOCKER_DIR/$VOLUMES_ROOT_VAL" ;;
 	esac
+	mkdir -p "$vol_path"/{keycloak-postgres/data,postgres/{data,lifecontrol},redis/data,keycloak/realms,prometheus/{data,config},grafana/{data,config},tempo/{data,config},loki/{data,config}}
 	print_success "Volume directories created"
+
+	install_monitoring_configs "$vol_path"
 else
 	print_warning "VOLUMES_ROOT not set in $ENV_FILE — volume directories not created. Compose will fail loudly if VOLUMES_ROOT is missing."
 fi
