@@ -12,15 +12,10 @@ networks:
 
 volumes:
   postgres_data:
-    external: true
   prometheus_data:
-    external: true
   grafana_data:
-    external: true
   tempo_data:
-    external: true
   loki_data:
-    external: true
 
 services:
   # ============================================
@@ -29,13 +24,16 @@ services:
   keycloak-postgres:
     image: ${POSTGRES_IMAGE:-postgres:18.1}
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-keycloak-postgres
+    entrypoint: ["/usr/local/bin/lc-postgres-entrypoint.sh"]
     ports:
       - "${POSTGRES_PORT:-5453}:5432"
     environment:
       POSTGRES_DB: ${KEYCLOAK_POSTGRES_DB:-keycloak_production}
       POSTGRES_USER: ${KEYCLOAK_POSTGRES_USER:-keycloak}
-      POSTGRES_PASSWORD_FILE: ${KEYCLOAK_POSTGRES_PASSWORD_FILE}
+      LC_SECRET_NAME: keycloak_postgres_password
     volumes:
+      - ./entrypoints/postgres-entrypoint.sh:/usr/local/bin/lc-postgres-entrypoint.sh:ro
+      - ./secrets/keycloak_postgres_password:/run/secrets/keycloak_postgres_password:ro
       - postgres_data:/var/lib/postgresql/data
     networks:
       - default
@@ -66,7 +64,8 @@ services:
   # ============================================
   keycloak:
     image: ${KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak:26.2.1}
-    command: ["start", "--optimized"]
+    entrypoint: ["/opt/keycloak/kc-entrypoint.sh"]
+    command: ["start"]
     ports:
       - "${KEYCLOAK_PORT:-8381}:8080"
       - "${KC_HTTPS_PORT:-8443}:8443"
@@ -74,13 +73,14 @@ services:
       KC_DB: ${KC_DB:-postgres}
       KC_DB_URL: ${KC_DB_URL:-jdbc:postgresql://keycloak-postgres/keycloak_production}
       KC_DB_USERNAME: ${KC_DB_USERNAME:-keycloak}
-      KC_DB_PASSWORD_FILE: ${KC_DB_PASSWORD_FILE}
       KC_HOSTNAME: ${KC_HOSTNAME:-auth.lifecontrol.com}
       KC_HTTP_PORT: ${KC_HTTP_PORT:-8080}
       KC_HTTPS_PORT: ${KC_HTTPS_PORT:-8443}
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_ADMIN_USERNAME:-admin}
-      KC_BOOTSTRAP_ADMIN_PASSWORD_FILE: ${KC_ADMIN_PASSWORD_FILE}
     volumes:
+      - ./entrypoints/keycloak-entrypoint.sh:/opt/keycloak/kc-entrypoint.sh:ro
+      - ./secrets/keycloak_postgres_password:/run/secrets/keycloak_postgres_password:ro
+      - ./secrets/keycloak_admin_password:/run/secrets/keycloak_admin_password:ro
       - ${KEYCLOAK_REALMS_PATH:-/var/lib/lifecontrol/volumes/keycloak/realms}:/opt/keycloak/data/import:ro
     networks:
       - default
@@ -106,7 +106,7 @@ services:
         max_attempts: 3
         window: 120s
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/${KC_HTTP_PORT:-8080} && echo ok"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -178,6 +178,7 @@ services:
   grafana:
     image: ${GRAFANA_IMAGE:-grafana/grafana:10.2.0}
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-grafana
+    entrypoint: ["/usr/local/bin/lc-grafana-entrypoint.sh"]
     ports:
       - "${GRAFANA_PORT:-3200}:3000"
     environment:
@@ -185,14 +186,13 @@ services:
       GF_AUTH_BASIC_ENABLED: ${GF_AUTH_BASIC_ENABLED:-true}
       GF_AUTH_DISABLE_LOGIN_FORM: ${GF_AUTH_DISABLE_LOGIN_FORM:-false}
       GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
     volumes:
+      - ./entrypoints/grafana-entrypoint.sh:/usr/local/bin/lc-grafana-entrypoint.sh:ro
+      - ./secrets/grafana_admin_password:/run/secrets/grafana_admin_password:ro
       - ${GRAFANA_CONFIG_PATH:-/var/lib/lifecontrol/volumes/grafana/config}:/etc/grafana/provisioning/datasources:ro
       - grafana_data:/var/lib/grafana
     networks:
       - default
-    secrets:
-      - grafana_admin_password
     deploy:
       resources:
         limits:
@@ -229,9 +229,6 @@ services:
       - CIRCUIT_BREAKER_FAILURE_THRESHOLD=50
       - TIMEOUT_DURATION=5s
       - RETRY_MAX_ATTEMPTS=3
-    env_file:
-      - .env.prod
-      - .env.secrets
     networks:
       - default
     depends_on:
@@ -258,10 +255,8 @@ services:
     healthcheck:
       test:
         [
-          "CMD",
-          "curl",
-          "-f",
-          "http://localhost:${API_GATEWAY_MANAGEMENT_PORT:-9201}/actuator/health",
+          "CMD-SHELL",
+          "wget -qO- http://localhost:${API_GATEWAY_MANAGEMENT_PORT:-9201}/actuator/health >/dev/null 2>&1 || exit 1",
         ]
       interval: 30s
       timeout: 5s
@@ -273,15 +268,18 @@ services:
   # Production PostgreSQL - LifeControl API
   # ============================================
   lifecontrol-postgres:
-    image: ${LIFECONTROL_POSTGRES_IMAGE:-postgres:16.4}
+    image: ${LIFECONTROL_POSTGRES_IMAGE:-postgres:18.1}
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-lifecontrol-postgres
+    entrypoint: ["/usr/local/bin/lc-postgres-entrypoint.sh"]
     ports:
       - "${LIFECONTROL_POSTGRES_PORT:-5435}:5432"
     environment:
       POSTGRES_DB: ${LIFECONTROL_POSTGRES_DB:-lifecontrol}
       POSTGRES_USER: ${LIFECONTROL_POSTGRES_USER:-lifecontrol_user}
-      POSTGRES_PASSWORD_FILE: ${LIFECONTROL_POSTGRES_PASSWORD_FILE}
+      LC_SECRET_NAME: lifecontrol_postgres_password
     volumes:
+      - ./entrypoints/postgres-entrypoint.sh:/usr/local/bin/lc-postgres-entrypoint.sh:ro
+      - ./secrets/lifecontrol_postgres_password:/run/secrets/lifecontrol_postgres_password:ro
       - ${LIFECONTROL_POSTGRES_DATA_PATH:-/var/lib/lifecontrol/volumes/postgres/lifecontrol/data}:/var/lib/postgresql/data
       - ${LIFECONTROL_POSTGRES_INIT_PATH:-/var/lib/lifecontrol/init-scripts}:/docker-entrypoint-initdb.d:ro
     networks:
@@ -350,10 +348,3 @@ services:
         max_attempts: 3
         window: 120s
     restart: always
-
-# ============================================
-# Docker Secrets - Production
-# ============================================
-secrets:
-  grafana_admin_password:
-    file: ./secrets/grafana_admin_password.txt
