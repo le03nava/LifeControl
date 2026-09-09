@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 # ============================================
 # LifeControl - LifeControl API Entrypoint Wrapper
 # ============================================
@@ -9,11 +9,12 @@
 # Boot app expects, and execs the image entrypoint (java -jar) so signals and
 # pid-1 semantics survive.
 #
+# POSIX sh on purpose: the runtime image is eclipse-temurin alpine (no bash).
 # The Java launch command mirrors life-control-api/Dockerfile ENTRYPOINT.
 # This wrapper contains NO secret content.
 # ============================================
 
-set -euo pipefail
+set -eu
 
 secret_file="/run/secrets/lifecontrol_postgres_password"
 admin_secret_file="/run/secrets/keycloak_admin_client_secret"
