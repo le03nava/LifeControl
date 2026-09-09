@@ -5,55 +5,22 @@
 
 set -e
 
-# Docker directory
-DOCKER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/_common.sh"
 
-# Environment file
-ENV_FILE="$DOCKER_DIR/.env"
-
-# Environment
-ENV=${1:-dev}
-
-# Normalize environment name -> volume directory suffix
-case "$ENV" in
-dev | development)
-	VOLUMES_DIR="volumes-dev"
-	;;
-staging | stg)
-	VOLUMES_DIR="volumes-staging"
-	;;
-prod | production)
-	VOLUMES_DIR="volumes-prod"
-	;;
-*)
-	echo "Error: invalid environment: $ENV"
-	echo "Usage: $0 [dev|staging|prod]"
-	exit 1
-	;;
-esac
-
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+# Resolve env (defaults to dev)
+resolve_compose_env "${1:-dev}"
 
 ERRORS=0
-
-print_status() { echo -e "${BLUE}[INFO]${NC} $1"; }
-print_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
-print_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
-print_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 check_env_file() {
 	print_status "Checking environment file..."
 	if [ -f "$ENV_FILE" ]; then
-		print_success ".env file found"
+		print_success "$ENV_FILE found"
 		return 0
 	else
-		print_error ".env file not found!"
-		print_status "Run: cp .env.template .env"
+		print_error "$ENV_FILE not found!"
+		print_status "Run: ./docker/scripts/setup-env.sh $ENV"
 		return 1
 	fi
 }
@@ -67,7 +34,7 @@ check_required_vars() {
 		"KEYCLOAK_POSTGRES_PASSWORD"
 		"KC_ADMIN_PASSWORD"
 		"API_GATEWAY_MANAGEMENT_PORT"
-		"LIFECONTROL_API_MANAGEMENT_PORT"
+		"LIFECONTROL_API_PORT"
 	)
 
 	for var in "${REQUIRED_VARS[@]}"; do
@@ -102,11 +69,11 @@ check_ports() {
 		"KEYCLOAK_PORT"
 		"API_GATEWAY_PORT"
 		"API_GATEWAY_MANAGEMENT_PORT"
-		"LIFECONTROL_API_MANAGEMENT_PORT"
+		"LIFECONTROL_API_PORT"
 	)
 
 	for port_var in "${PORTS[@]}"; do
-		PORT=$(grep "^${port_var}=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2-)
+		PORT=$(get_env_var "$port_var")
 		if [ -n "$PORT" ]; then
 			if netstat -tuln 2>/dev/null | grep -q ":$PORT " || ss -tuln 2>/dev/null | grep -q ":$PORT "; then
 				print_warning "$port_var ($PORT) is already in use"
@@ -138,10 +105,20 @@ check_secrets() {
 check_volume_dirs() {
 	print_status "Checking volume directories for $ENV environment..."
 
-	if [ -d "$DOCKER_DIR/$VOLUMES_DIR" ]; then
-		print_success "Volume directory $VOLUMES_DIR exists"
+	local vol_root
+	vol_root=$(get_env_var VOLUMES_ROOT)
+	local vol_path=""
+	if [ -n "$vol_root" ]; then
+		# Support both relative (dev/staging) and absolute (prod) VOLUMES_ROOT values
+		case "$vol_root" in
+			/*) vol_path="$vol_root" ;;
+			*)  vol_path="$DOCKER_DIR/$vol_root" ;;
+		esac
+	fi
+	if [ -n "$vol_path" ] && [ -d "$vol_path" ]; then
+		print_success "Volume directory $vol_root exists"
 	else
-		print_warning "Volume directory $VOLUMES_DIR not found - will be created on first run"
+		print_warning "Volume directory not found - will be created by setup-env.sh"
 	fi
 }
 

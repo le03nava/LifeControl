@@ -5,20 +5,14 @@
 
 set -e
 
-# Docker directory
-DOCKER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/_common.sh"
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+# Resolve env (defaults to dev)
+resolve_compose_env "${1:-dev}"
 
-print_status() { echo -e "${BLUE}[INFO]${NC} $1"; }
-print_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
-print_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
-print_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+# Default build profile
+BUILD_PROFILE=${BUILD_PROFILE:-dev}
 
 # Check if SKIP_BUILD is set to a truthy value
 is_skip_build() {
@@ -28,27 +22,6 @@ is_skip_build() {
 	*) return 1 ;;
 	esac
 }
-
-# Use docker compose v2 (docker-compose v1 not available in WSL2)
-DOCKER_COMPOSE="docker compose"
-
-# Default environment
-ENV=${1:-dev}
-BUILD_PROFILE=${BUILD_PROFILE:-dev}
-COMPOSE_FILES="-f $DOCKER_DIR/docker-compose.yml"
-
-# Add override for development
-if [ "$ENV" = "dev" ] || [ "$ENV" = "development" ]; then
-	COMPOSE_FILES="$COMPOSE_FILES -f $DOCKER_DIR/docker-compose.override.yml"
-fi
-
-# Add production compose file
-if [ "$ENV" = "prod" ] || [ "$ENV" = "production" ]; then
-	COMPOSE_FILES="$COMPOSE_FILES -f $DOCKER_DIR/docker-compose.prod.yml"
-fi
-
-# Environment file
-ENV_FILE="$DOCKER_DIR/.env.$ENV"
 
 usage() {
 	echo "Usage: $0 [dev|staging|prod] [start|stop|restart|build|build-images|up|logs|status|clean|health]"
@@ -96,8 +69,6 @@ check_requirements() {
 build_services() {
 	print_status "Building services for $ENV environment (profile: $BUILD_PROFILE)..."
 
-	# Script can be invoked from the repo root or from docker/. Resolve paths
-	# against DOCKER_DIR so builds always find the Gradle wrappers.
 	local repo_root="$DOCKER_DIR/.."
 
 	# Build Java services
@@ -140,19 +111,13 @@ build_services() {
 
 build_images() {
 	print_status "Building Docker images for $ENV environment..."
-
-	# Build Docker images with --no-cache to ensure fresh builds
 	$DOCKER_COMPOSE $COMPOSE_FILES --env-file "$ENV_FILE" build --no-cache
-
 	print_success "Docker images built!"
 }
 
 start_services() {
 	print_status "Starting services for $ENV environment..."
-
-	# Start containers (services should already be built and images should be built)
 	$DOCKER_COMPOSE $COMPOSE_FILES --env-file "$ENV_FILE" up -d
-
 	print_success "Services started!"
 	show_status
 }
@@ -177,37 +142,18 @@ show_status() {
 	echo ""
 	print_status "Service URLs:"
 	echo "=========================================="
-
-	case "$ENV" in
-	dev | development)
-		echo -e "${GREEN}API Gateway:${NC}      http://localhost:9000"
-		echo -e "${GREEN}API Gateway Act:${NC} http://localhost:9001"
-		echo -e "${GREEN}Keycloak:${NC}         http://localhost:8181"
-		echo -e "${GREEN}Grafana:${NC}          http://localhost:3000"
-		echo -e "${GREEN}Prometheus:${NC}       http://localhost:9090"
-		echo -e "${GREEN}Loki:${NC}            http://localhost:3100"
-		echo -e "${GREEN}Tempo:${NC}           http://localhost:3110"
-		;;
-	staging | stg)
-		echo -e "${GREEN}API Gateway:${NC}      http://localhost:9100"
-		echo -e "${GREEN}API Gateway Act:${NC} http://localhost:9101"
-		echo -e "${GREEN}Keycloak:${NC}         http://localhost:8281"
-		echo -e "${GREEN}Grafana:${NC}          http://localhost:3100"
-		echo -e "${GREEN}Prometheus:${NC}       http://localhost:9190"
-		;;
-	prod | production)
-		echo -e "${GREEN}API Gateway:${NC}      http://localhost:9200"
-		echo -e "${GREEN}API Gateway Act:${NC} http://localhost:9201"
-		echo -e "${GREEN}Keycloak:${NC}         http://localhost:8381"
-		echo -e "${GREEN}Grafana:${NC}          http://localhost:3200"
-		echo -e "${GREEN}Prometheus:${NC}       http://localhost:9290"
-		;;
-	esac
+	print_url "API Gateway"         "$(get_env_var API_GATEWAY_PORT)"
+	print_url "API Gateway Act"     "$(get_env_var API_GATEWAY_MANAGEMENT_PORT)"
+	print_url "Keycloak"            "$(get_env_var KEYCLOAK_PORT)"
+	print_url "Grafana"             "$(get_env_var GRAFANA_PORT)"
+	print_url "Prometheus"          "$(get_env_var PROMETHEUS_PORT)"
+	print_url "Loki"                "$(get_env_var LOKI_PORT)"
+	print_url "Tempo"               "$(get_env_var TEMPO_PORT)"
 	echo "=========================================="
 }
 
 show_logs() {
-	SERVICE=${2:-}
+	SERVICE=${1:-}
 	if [ -n "$SERVICE" ]; then
 		$DOCKER_COMPOSE $COMPOSE_FILES --env-file "$ENV_FILE" logs -f "$SERVICE"
 	else
@@ -219,7 +165,7 @@ clean_services() {
 	print_warning "This will remove all volumes and data!"
 	read -p "Are you sure? (yes/no): " -n 1 -r
 	echo
-	if [[ $REPLY =~ ^[Yy][Ee][Ss]$ ]]; then
+	if [[ $REPLY =~ ^[Yy]$ ]]; then
 		$DOCKER_COMPOSE $COMPOSE_FILES --env-file "$ENV_FILE" down -v
 		print_success "Services and volumes cleaned!"
 	else
@@ -230,11 +176,12 @@ clean_services() {
 health_check() {
 	print_status "Checking health..."
 
-	# Actuator is exposed on the management port (matches the Docker healthcheck
-	# in docker-compose.yml). The server port is protected by OAuth2 -> 401.
 	local mgmt_port
-	mgmt_port=$(grep -E "^API_GATEWAY_MANAGEMENT_PORT=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2)
-	mgmt_port="${mgmt_port:-9001}"
+	mgmt_port=$(get_env_var API_GATEWAY_MANAGEMENT_PORT)
+	if [ -z "$mgmt_port" ]; then
+		print_error "API_GATEWAY_MANAGEMENT_PORT is not set in $ENV_FILE — cannot determine the management port. Set it and re-run the health check."
+		return 1
+	fi
 
 	MAX_ATTEMPTS=30
 	ATTEMPT=1

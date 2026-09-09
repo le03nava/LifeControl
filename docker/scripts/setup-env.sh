@@ -5,84 +5,60 @@
 
 set -e
 
-# Docker directory
-DOCKER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/_common.sh"
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+# Resolve env (defaults to dev)
+resolve_compose_env "${1:-dev}"
 
-print_status() { echo -e "${BLUE}[INFO]${NC} $1"; }
-print_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
-print_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
-print_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+print_status "Setting up ${ENV} environment"
 
-# Check environment argument
-ENV=${1:-dev}
-
-# Environment files
-case "$ENV" in
-dev | development)
-	ENV_FILE="$DOCKER_DIR/.env.dev"
-	VOLUMES_SUFIJO="volumes-dev"
-	print_status "Setting up DEVELOPMENT environment"
-	;;
-staging | stg)
-	ENV_FILE="$DOCKER_DIR/.env.staging"
-	VOLUMES_SUFIJO="volumes-staging"
-	print_status "Setting up STAGING environment"
-	;;
-prod | production)
-	ENV_FILE="$DOCKER_DIR/.env.prod"
-	VOLUMES_SUFIJO="volumes-prod"
-	print_status "Setting up PRODUCTION environment"
-	;;
-*)
-	print_error "Invalid environment: $ENV"
-	echo "Usage: $0 [dev|staging|prod]"
-	exit 1
-	;;
-esac
-
-# Check if env file exists
+# Check if env file exists; create from template if missing
 if [ ! -f "$ENV_FILE" ]; then
-	print_error "Environment file $ENV_FILE not found!"
-	print_status "Creating from template..."
+	print_status "Environment file $ENV_FILE not found. Creating from template..."
 	cp "$DOCKER_DIR/.env.template" "$ENV_FILE"
-	# Adjust volume paths for the target environment (template defaults to volumes-dev)
-	sed -i "s|volumes-dev|$VOLUMES_SUFIJO|g" "$ENV_FILE"
+	# Template defaults VOLUMES_ROOT to the dev volume root; point it at this
+	# environment's volume root so non-dev setups never share the dev volumes.
+	# dev/staging keep a repo-relative dir; prod uses an absolute root outside
+	# the repo (see docker-compose.prod.yml and .env.prod).
+	if [ "$ENV" = "prod" ]; then
+		sed -i "s|^VOLUMES_ROOT=.*|VOLUMES_ROOT=/var/lib/lifecontrol/volumes|" "$ENV_FILE"
+	else
+		sed -i "s|^VOLUMES_ROOT=.*|VOLUMES_ROOT=./volumes-${ENV}|" "$ENV_FILE"
+	fi
 	print_success "Created $ENV_FILE"
-	print_warning "Please edit $ENV_FILE and fill in the values"
-	exit 1
+	print_warning "Please review $ENV_FILE and fill in any secrets before starting services."
 fi
 
 print_status "Using environment file: $ENV_FILE"
 
-# Check Docker first (before creating network)
+# Check Docker first
 if ! docker info >/dev/null 2>&1; then
 	print_error "Docker is not running!"
 	exit 1
 fi
 print_success "Docker is running"
 
-# Network is now handled by docker-compose default network
-# No need to create external network anymore
-# The default bridge network will be used automatically
-
-# Create volume directories (brace group left unquoted so it expands)
+# Create volume directories from VOLUMES_ROOT
 print_status "Creating volume directories..."
-mkdir -p "$DOCKER_DIR/$VOLUMES_SUFIJO"/{keycloak-postgres/data,postgres/{data,lifecontrol},redis/data,keycloak/realms,prometheus/{data,config},grafana/{data,config},tempo/{data,config},loki/{data,config}}
-print_success "Volume directories created"
+VOLUMES_ROOT_VAL=$(get_env_var VOLUMES_ROOT)
+if [ -n "$VOLUMES_ROOT_VAL" ]; then
+	# Support both relative (dev/staging) and absolute (prod) VOLUMES_ROOT values
+	case "$VOLUMES_ROOT_VAL" in
+		/*) mkdir -p "$VOLUMES_ROOT_VAL"/{keycloak-postgres/data,postgres/{data,lifecontrol},redis/data,keycloak/realms,prometheus/{data,config},grafana/{data,config},tempo/{data,config},loki/{data,config}} ;;
+		*)  mkdir -p "$DOCKER_DIR/$VOLUMES_ROOT_VAL"/{keycloak-postgres/data,postgres/{data,lifecontrol},redis/data,keycloak/realms,prometheus/{data,config},grafana/{data,config},tempo/{data,config},loki/{data,config}} ;;
+	esac
+	print_success "Volume directories created"
+else
+	print_warning "VOLUMES_ROOT not set in $ENV_FILE — volume directories not created. Compose will fail loudly if VOLUMES_ROOT is missing."
+fi
 
-# Copy selected environment file to .env (in docker dir)
+# Copy selected env file to .env (convenience for manual docker-compose usage)
 cp "$ENV_FILE" "$DOCKER_DIR/.env"
 print_success "Copied $ENV_FILE to $DOCKER_DIR/.env"
 
 # For production, check secrets
-if [ "$ENV" = "prod" ] || [ "$ENV" = "production" ]; then
+if [ "$ENV" = "prod" ]; then
 	print_status "Checking secrets..."
 	if [ ! -f "$DOCKER_DIR/.env.secrets" ]; then
 		print_error "Secrets file $DOCKER_DIR/.env.secrets not found!"
@@ -100,29 +76,14 @@ fi
 print_success "Environment setup completed!"
 print_status "Run './docker/scripts/deploy.sh ${ENV} start' to start services"
 
-# Show service URLs
+# Show service URLs (derived from env vars)
 echo ""
 print_status "Service URLs:"
 echo "=========================================="
-case "$ENV" in
-dev)
-	echo -e "${GREEN}API Gateway:${NC}      http://localhost:9000"
-	echo -e "${GREEN}Keycloak:${NC}         http://localhost:8181"
-	echo -e "${GREEN}Grafana:${NC}          http://localhost:3000"
-	echo -e "${GREEN}Prometheus:${NC}       http://localhost:9090"
-	echo -e "${GREEN}Loki:${NC}            http://localhost:3100"
-	;;
-staging)
-	echo -e "${GREEN}API Gateway:${NC}      http://localhost:9100"
-	echo -e "${GREEN}Keycloak:${NC}         http://localhost:8281"
-	echo -e "${GREEN}Grafana:${NC}          http://localhost:3100"
-	echo -e "${GREEN}Prometheus:${NC}       http://localhost:9190"
-	;;
-prod)
-	echo -e "${GREEN}API Gateway:${NC}      http://localhost:9200"
-	echo -e "${GREEN}Keycloak:${NC}         http://localhost:8381"
-	echo -e "${GREEN}Grafana:${NC}          http://localhost:3200"
-	echo -e "${GREEN}Prometheus:${NC}       http://localhost:9290"
-	;;
-esac
+print_url "API Gateway"    "$(get_env_var API_GATEWAY_PORT)"
+print_url "Keycloak"       "$(get_env_var KEYCLOAK_PORT)"
+print_url "Grafana"        "$(get_env_var GRAFANA_PORT)"
+print_url "Prometheus"     "$(get_env_var PROMETHEUS_PORT)"
+print_url "Loki"           "$(get_env_var LOKI_PORT)"
+print_url "Tempo"          "$(get_env_var TEMPO_PORT)"
 echo "=========================================="

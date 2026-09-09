@@ -113,6 +113,9 @@ Limpia recursos de Docker y archivos locales.
 
 ### Service URLs
 
+> **Source of truth**: Service URLs are defined by port variables in `docker/.env.<env>` files.
+> The scripts derive URLs from these env vars at runtime. The table below is a human-readable reference only.
+
 | Environment | API Gateway | Actuator | Keycloak | Grafana | Prometheus | Loki | Tempo |
 |-------------|-------------|----------|----------|---------|------------|------|-------|
 | dev         | localhost:9000 | localhost:9001 | localhost:8181 | localhost:3000 | localhost:9090 | localhost:3100 | localhost:3110 |

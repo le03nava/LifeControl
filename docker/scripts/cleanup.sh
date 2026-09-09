@@ -5,71 +5,35 @@
 
 set -e
 
-# Docker directory
-DOCKER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
-
-print_status() { echo -e "${BLUE}[INFO]${NC} $1"; }
-print_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
-print_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
-print_error() { echo -e "${RED}[ERROR]${NC} $1"; }
-
-# Use docker compose v2
-DOCKER_COMPOSE="docker compose"
-
-# Default environment
-ENV=${2:-dev}
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/_common.sh"
 
 # Parse option first
 OPTION=${1:-help}
-COMPOSE_FILES="-f $DOCKER_DIR/docker-compose.yml"
-
-# Add override for development
-if [ "$ENV" = "dev" ] || [ "$ENV" = "development" ]; then
-	COMPOSE_FILES="$COMPOSE_FILES -f $DOCKER_DIR/docker-compose.override.yml"
-fi
-
-# Add production compose file
-if [ "$ENV" = "prod" ] || [ "$ENV" = "production" ]; then
-	COMPOSE_FILES="$COMPOSE_FILES -f $DOCKER_DIR/docker-compose.prod.yml"
-fi
-
-# Environment file
-ENV_FILE="$DOCKER_DIR/.env.$ENV"
+# Resolve env (defaults to dev)
+resolve_compose_env "${2:-dev}"
 
 # ============================================
 # Stop containers (without removing)
 # ============================================
 stop_containers() {
 	print_status "Stopping all containers..."
-
 	$DOCKER_COMPOSE $COMPOSE_FILES --env-file "$ENV_FILE" down 2>/dev/null || true
-
 	print_success "All containers stopped"
 }
 
 cleanup_docker() {
 	print_status "Cleaning up Docker resources..."
 
-	# Stop all containers using same compose files and env as deploy.sh
 	print_status "Stopping containers..."
 	$DOCKER_COMPOSE $COMPOSE_FILES --env-file "$ENV_FILE" down --remove-orphans 2>/dev/null || true
 
-	# Remove unused containers
 	print_status "Removing unused containers..."
 	docker container prune -f
 
-	# Remove unused images
 	print_status "Removing unused images..."
 	docker image prune -f -a
 
-	# Remove unused networks
 	print_status "Removing unused networks..."
 	docker network prune -f
 
@@ -79,7 +43,6 @@ cleanup_docker() {
 cleanup_volumes() {
 	print_status "Cleaning up Docker volumes..."
 
-	# ⚠️ WARNING: This will delete ALL data in volumes!
 	print_warning "This will delete ALL data in Docker volumes!"
 	print_warning "Databases will be reset to empty state!"
 
@@ -98,14 +61,29 @@ cleanup_volumes() {
 cleanup_local() {
 	print_status "Cleaning up local files..."
 
-	# Remove per-environment volume directories created by setup-env.sh
-	local vol_dir
-	for vol_dir in "$DOCKER_DIR"/volumes-*; do
-		if [ -d "$vol_dir" ]; then
-			print_warning "Removing $vol_dir directory..."
-			rm -rf "$vol_dir"
+	# Only the CURRENT environment's volume directory may be removed here.
+	# Absolute VOLUMES_ROOT (prod, e.g. /var/lib/lifecontrol/volumes) points OUTSIDE
+	# the repo: never delete prod data locally — it must be cleaned manually or
+	# via a scripted cleanup. Relative roots (dev/staging, ./volumes-<env>) are
+	# scoped to this env only; other envs' volume dirs are never touched.
+	local vol_root
+	vol_root=$(get_env_var VOLUMES_ROOT)
+	if [[ "$vol_root" == /* ]]; then
+		print_warning "VOLUMES_ROOT=$vol_root is absolute (prod) — local data at that path is deliberately NOT cleaned here."
+		print_warning "Clean $vol_root manually or via a scripted cleanup."
+	elif [ -n "$vol_root" ]; then
+		# Relative root (dev/staging): remove only this env's dir, e.g. ./volumes-dev.
+		local vol_dir="${vol_root#./}"
+		local target="$DOCKER_DIR/$vol_dir"
+		if [ -d "$target" ]; then
+			print_warning "Removing $ENV volume directory $target..."
+			rm -rf "$target"
+		else
+			print_status "No local volume directory to remove for $ENV ($target)"
 		fi
-	done
+	else
+		print_warning "VOLUMES_ROOT is not set in $ENV_FILE — no local volume directory removed."
+	fi
 
 	print_success "Local cleanup completed"
 }
@@ -113,13 +91,22 @@ cleanup_local() {
 cleanup_builds() {
 	print_status "Cleaning up build artifacts..."
 
-	# Clean gradle builds
-	if [ -d "./api-gateway/build" ]; then
-		rm -rf ./api-gateway/build
+	local repo_root="$DOCKER_DIR/.."
+
+	# api-gateway
+	if [ -d "$repo_root/api-gateway/build" ]; then
+		rm -rf "$repo_root/api-gateway/build"
+	fi
+	if [ -d "$repo_root/api-gateway/bin" ]; then
+		rm -rf "$repo_root/api-gateway/bin"
 	fi
 
-	if [ -d "./api-gateway/bin" ]; then
-		rm -rf ./api-gateway/bin
+	# life-control-api
+	if [ -d "$repo_root/life-control-api/build" ]; then
+		rm -rf "$repo_root/life-control-api/build"
+	fi
+	if [ -d "$repo_root/life-control-api/bin" ]; then
+		rm -rf "$repo_root/life-control-api/bin"
 	fi
 
 	print_success "Build cleanup completed"
