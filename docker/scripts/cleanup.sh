@@ -18,44 +18,62 @@ resolve_compose_env "${2:-dev}"
 # ============================================
 stop_containers() {
 	print_status "Stopping all containers..."
-	$DOCKER_COMPOSE $COMPOSE_FILES --env-file "$ENV_FILE" down 2>/dev/null || true
+	compose_run down 2>/dev/null || true
 	print_success "All containers stopped"
 }
 
 cleanup_docker() {
-	print_status "Cleaning up Docker resources..."
+	local project_name
+	project_name=$(get_env_var COMPOSE_PROJECT_NAME)
+
+	if [ -z "$project_name" ]; then
+		print_warning "COMPOSE_PROJECT_NAME not set in $ENV_FILE — skipping Docker cleanup to avoid touching other projects."
+		return 1
+	fi
+
+	print_status "Cleaning up Docker resources for project '$project_name'..."
 
 	print_status "Stopping containers..."
-	$DOCKER_COMPOSE $COMPOSE_FILES --env-file "$ENV_FILE" down --remove-orphans 2>/dev/null || true
+	compose_run down --remove-orphans 2>/dev/null || true
 
-	print_status "Removing unused containers..."
-	docker container prune -f
+	print_status "Removing unused $project_name containers..."
+	docker container prune -f --filter "label=com.docker.compose.project=$project_name"
 
-	print_status "Removing unused images..."
-	docker image prune -f -a
+	print_status "Removing unused $project_name images..."
+	docker image prune -f --filter "label=com.docker.compose.project=$project_name"
 
-	print_status "Removing unused networks..."
-	docker network prune -f
+	print_status "Removing unused $project_name networks..."
+	docker network prune -f --filter "label=com.docker.compose.project=$project_name"
 
-	print_success "Docker cleanup completed (volumes preserved)"
+	print_success "Docker cleanup completed (volumes preserved, other projects untouched)"
 }
 
 cleanup_volumes() {
-	print_status "Cleaning up Docker volumes..."
+	local auto="${1:-}"
+	local project_name
+	project_name=$(get_env_var COMPOSE_PROJECT_NAME)
 
-	print_warning "This will delete ALL data in Docker volumes!"
-	print_warning "Databases will be reset to empty state!"
+	if [ "$auto" != "--yes" ]; then
+		print_warning "This will delete ALL data in the '$project_name' Docker volumes!"
+		print_warning "Databases will be reset to empty state!"
 
-	read -p "Are you sure? Type 'yes' to confirm: " -r
-	echo
+		read -p "Are you sure? (y/n): " -n 1 -r
+		echo
 
-	if [ "$REPLY" = "yes" ]; then
-		print_status "Removing all Docker volumes..."
-		docker volume prune -f
-		print_success "Volumes cleanup completed"
-	else
-		print_status "Volumes cleanup cancelled"
+		if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+			print_status "Volumes cleanup cancelled"
+			return
+		fi
 	fi
+
+	if [ -z "$project_name" ]; then
+		print_warning "COMPOSE_PROJECT_NAME not set in $ENV_FILE — cannot scope volume prune, skipping."
+		return 1
+	fi
+
+	print_status "Removing project Docker volumes..."
+	docker volume prune -f --filter "label=com.docker.compose.project=$project_name"
+	print_success "Project volumes cleanup completed"
 }
 
 cleanup_local() {
@@ -113,20 +131,22 @@ cleanup_builds() {
 }
 
 full_cleanup() {
-	print_warning "This will perform a FULL cleanup!"
+	local project_name
+	project_name=$(get_env_var COMPOSE_PROJECT_NAME)
+	print_warning "This will perform a FULL cleanup of project '$project_name'!"
 	print_warning "This includes:"
 	echo "  - All Docker containers (stopped)"
-	echo "  - All Docker images"
-	echo "  - All Docker volumes (DATA LOSS!)"
+	echo "  - All $project_name Docker images"
+	echo "  - All $project_name Docker volumes (DATA LOSS!)"
 	echo "  - All local data directories"
 	echo ""
 
-	read -p "Are you sure? Type 'yes' to confirm: " -r
+	read -p "Are you sure? (y/n): " -n 1 -r
 	echo
 
-	if [ "$REPLY" = "yes" ]; then
+	if [[ $REPLY =~ ^[Yy]$ ]]; then
 		stop_containers
-		cleanup_volumes
+		cleanup_volumes --yes
 		cleanup_local
 		cleanup_builds
 		print_success "Full cleanup completed!"
@@ -143,9 +163,9 @@ show_help() {
 	echo ""
 	echo "Options:"
 	echo "  stop       - Stop all containers (preserves volumes, images, networks)"
-	echo "  docker     - Clean Docker resources (containers, images, networks)"
-	echo "              Preserves volumes!"
-	echo "  volumes    - Clean Docker volumes only (DESTRUCTIVE - deletes all data)"
+	echo "  docker     - Clean Docker resources for this project (containers, images, networks)"
+	echo "              Preserves volumes and other projects"
+	echo "  volumes    - Clean this project's Docker volumes only (DESTRUCTIVE - deletes all data)"
 	echo "  local      - Clean local data directories only"
 	echo "  builds     - Clean build artifacts only"
 	echo "  all        - Full cleanup (stop + docker + volumes + local + builds)"

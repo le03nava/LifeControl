@@ -1,0 +1,24 @@
+# ============================================
+# LifeControl - Prometheus Configuration
+# ============================================
+# Installed by setup-env.sh into $VOLUMES_ROOT/prometheus/config.
+# Scrapes the Spring Boot actuator /prometheus endpoints in-network.
+# ============================================
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: api-gateway
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["api-gateway:9001"]
+
+  - job_name: lifecontrol-api
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["lifecontrol-api:8082"]

@@ -23,7 +23,7 @@ print_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 print_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 # Use docker compose v2 (docker-compose v1 not available in WSL2)
-DOCKER_COMPOSE="docker compose"
+DOCKER_COMPOSE=(docker compose)
 
 # ------------------------------------------
 # Environment normalisation
@@ -56,14 +56,20 @@ resolve_compose_env() {
 
 	ENV="$canonical"
 	ENV_FILE="$DOCKER_DIR/.env.$ENV"
-	COMPOSE_FILES="-f $DOCKER_DIR/docker-compose.yml"
+	COMPOSE_FILES=(-f "$DOCKER_DIR/docker-compose.yml")
 
 	if [ "$ENV" = "dev" ]; then
-		COMPOSE_FILES="$COMPOSE_FILES -f $DOCKER_DIR/docker-compose.override.yml"
+		COMPOSE_FILES+=(-f "$DOCKER_DIR/docker-compose.override.yml")
 	fi
 	if [ "$ENV" = "prod" ]; then
-		COMPOSE_FILES="$COMPOSE_FILES -f $DOCKER_DIR/docker-compose.prod.yml"
+		COMPOSE_FILES+=(-f "$DOCKER_DIR/docker-compose.prod.yml")
 	fi
+}
+
+# Run docker compose with the already-resolved env file and compose files.
+# Usage: compose_run up -d   |   compose_run ps
+compose_run() {
+	"${DOCKER_COMPOSE[@]}" "${COMPOSE_FILES[@]}" --env-file "$ENV_FILE" "$@"
 }
 
 # ------------------------------------------
