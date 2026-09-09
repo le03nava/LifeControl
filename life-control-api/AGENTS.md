@@ -742,23 +742,28 @@ SPRING_PROFILES_ACTIVE=test ./gradlew test
 
 ## Database
 
+### Migrations (Flyway)
+
+The database schema and seed data are managed by **Flyway** — the single source of truth.
+Migrations live in `src/main/resources/db/migration/` and are versioned:
+
+| Migration | Description |
+|-----------|-------------|
+| `V1__baseline_schema.sql` | Full baseline schema (all tables in dependency order) |
+| `V2__seed_countries.sql`  | Seed data: MX/CO/US countries (idempotent) |
+
+Key settings (`application.properties`):
+
+- **DDL**: `spring.jpa.hibernate.ddl-auto=none` (schema managed via Flyway migrations)
+- **SQL init**: `spring.sql.init.mode=never` (`schema.sql` no longer used)
+- **Baseline**: `spring.flyway.baseline-on-migrate=true` + `spring.flyway.baseline-version=1` — existing DBs with data are baselined at v1 (no recreation); only new migrations apply.
+- **Tests**: `spring.flyway.enabled=false` (tests use H2 `create-drop`)
+
+To add a schema change: create a new `V{n}__description.sql` file. Never edit an already-applied migration (Flyway checksums will fail).
+
 ### Schema
 
-Defined in `src/main/resources/schema.sql` — includes:
-
-| Table              | Description                        |
-|--------------------|------------------------------------|
-| `companies`        | Company entities                   |
-| `countries`        | Country catalog                    |
-| `company_countries` | M:N company-country associations  |
-| `company_regions`  | Regions within a company-country   |
-| `company_zones`    | Zones within a region              |
-| `activity_processes` | Reference: audit process types |
-| `activity_events`  | Reference: audit event types       |
-| `activity_logs`    | Immutable audit trail              |
-
-- **Init Mode**: `spring.sql.init.mode=always` (recreates on startup for dev)
-- **DDL**: `spring.jpa.hibernate.ddl-auto=none` (schema managed via SQL files)
+Tables include: `companies`, `countries`, `addresses`, `company_countries`, `company_regions`, `company_zones`, `company_stores`, `suppliers`, `products`, `product_suppliers`, `activity_processes`, `activity_events`, `activity_logs`, `status_types`, `statuses`, `measure_units`, `payment_methods`, `purchase_orders`, `purchase_order_details`, `user_preferences`, `customers`, `product_variants`, `promotions`, `shifts`, `sales_orders`, `sales_order_items`.
 
 ### Key Columns
 

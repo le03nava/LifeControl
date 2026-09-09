@@ -126,7 +126,7 @@ LifeControl/
 
 ### 2. Base de datos
 
-PostgreSQL (`lifecontrol-postgres`) se levanta junto con el resto de servicios vía `deploy.sh start`. La API inicializa el schema automáticamente vía `schema.sql` con `spring.sql.init.mode=always`.
+PostgreSQL (`lifecontrol-postgres`) se levanta junto con el resto de servicios vía `deploy.sh start`. El schema y los datos se gestionan con **Flyway**, la única fuente de verdad de la base de datos. Las migraciones versionadas viven en `life-control-api/src/main/resources/db/migration/` y se aplican automáticamente al arrancar la API. Para DBs ya existentes se usa `baseline-on-migrate` (baseline en v1), por lo que no se recrea nada.
 
 ### 3. Backend — LifeControl API
 
