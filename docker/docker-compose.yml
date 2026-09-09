@@ -30,7 +30,7 @@ services:
       POSTGRES_USER: ${KEYCLOAK_POSTGRES_USER:-keycloak}
       POSTGRES_PASSWORD: ${KEYCLOAK_POSTGRES_PASSWORD}
     volumes:
-      - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/keycloak-postgres/data:/var/lib/postgresql/data
+      - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/keycloak-postgres/data:/var/lib/postgresql
     networks:
       - default
     deploy:
@@ -58,7 +58,7 @@ services:
       POSTGRES_USER: ${LIFECONTROL_POSTGRES_USER:-lifecontrol_user}
       POSTGRES_PASSWORD: ${LIFECONTROL_POSTGRES_PASSWORD}
     volumes:
-      - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/postgres/lifecontrol/data:/var/lib/postgresql/data
+      - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/postgres/lifecontrol/data:/var/lib/postgresql
       - ${LIFECONTROL_POSTGRES_INIT_PATH:-./init-scripts}:/docker-entrypoint-initdb.d:ro
     networks:
       - default

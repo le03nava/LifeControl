@@ -1,0 +1,8 @@
+# Ignore materialized secrets (never commit real credential values).
+# Only the *.template files are tracked. setup-env.sh prod materializes these.
+secrets/*
+!secrets/*.template
+
+# Legacy flat-file secrets store (replaced by docker/secrets/ <name> files)
+.env.secrets
+.env.secrets.*

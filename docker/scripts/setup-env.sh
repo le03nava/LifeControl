@@ -23,6 +23,14 @@ if [ ! -f "$ENV_FILE" ]; then
 	# the repo (see docker-compose.prod.yml and .env.prod).
 	if [ "$ENV" = "prod" ]; then
 		sed -i "s|^VOLUMES_ROOT=.*|VOLUMES_ROOT=/var/lib/lifecontrol/volumes|" "$ENV_FILE"
+		# Prod uses a postgres host port distinct from dev/staging (5435) so a
+		# fresh prod setup never collides with other envs on the same host.
+		sed -i "s|^LIFECONTROL_POSTGRES_PORT=.*|LIFECONTROL_POSTGRES_PORT=5445|" "$ENV_FILE"
+		# Prod passwords come exclusively from docker/secrets/<name> files mounted
+		# at /run/secrets/<name> (see entrypoint wrappers). Strip every password
+		# related line so compose can never interpolate a plaintext value —
+		# the wrapper is the sole password source.
+		sed -i -E "/^[A-Z0-9_]*PASSWORD(_FILE)?=/d; /^KC_[A-Z0-9_]*=/d; /^[A-Z0-9_]*_FILE=/d" "$ENV_FILE"
 	else
 		sed -i "s|^VOLUMES_ROOT=.*|VOLUMES_ROOT=./volumes-${ENV}|" "$ENV_FILE"
 	fi
@@ -57,20 +65,45 @@ fi
 cp "$ENV_FILE" "$DOCKER_DIR/.env"
 print_success "Copied $ENV_FILE to $DOCKER_DIR/.env"
 
-# For production, check secrets
+# For production, materialize docker/secrets/* files from templates
 if [ "$ENV" = "prod" ]; then
-	print_status "Checking secrets..."
-	if [ ! -f "$DOCKER_DIR/.env.secrets" ]; then
-		print_error "Secrets file $DOCKER_DIR/.env.secrets not found!"
-		print_status "Creating template..."
-		cp "$DOCKER_DIR/.env.secrets.template" "$DOCKER_DIR/.env.secrets"
-		print_warning "Please edit $DOCKER_DIR/.env.secrets and fill in the values"
-	else
-		print_success "Secrets file found"
-	fi
+	print_status "Materializing docker/secrets files..."
 
-	# Create secrets directory
+	# Ensure the directory exists (gitignored; only *.template is tracked)
 	mkdir -p "$DOCKER_DIR/secrets"
+
+	SECRETS_DIR="$DOCKER_DIR/secrets"
+	FILES_BLOCKED=0
+
+	for template in "$SECRETS_DIR"/*.template; do
+		[ -e "$template" ] || continue
+		secret_name="$(basename "$template" .template)"
+		secret_file="$SECRETS_DIR/$secret_name"
+
+		if [ -f "$secret_file" ]; then
+			print_success "Secret $secret_name already exists — keeping it"
+			continue
+		fi
+
+		# Strip comment/blank lines so the materialized file holds only the value
+		grep -v '^[[:space:]]*#' "$template" | grep -v '^[[:space:]]*$' > "$secret_file"
+		if [ ! -s "$secret_file" ]; then
+			print_error "Secret template $template produced an empty file — fix the template"
+			exit 1
+		fi
+		if chmod 0444 "$secret_file" 2>/dev/null; then
+			print_success "Created $secret_name (chmod 0444 — container uid 999/1000/472 can all read it)"
+		else
+			FILES_BLOCKED=1
+			print_warning "Could not chmod 0444 $secret_file — run manually: chmod 0444 $secret_file"
+		fi
+	done
+
+	if [ "$FILES_BLOCKED" -eq 1 ]; then
+		print_warning "Some docker/secrets files could not be made world-readable (0444)."
+		print_warning "Containers run as non-root uids — apply manually before deploy:"
+		print_warning "  chmod 0444 $SECRETS_DIR/*"
+	fi
 fi
 
 print_success "Environment setup completed!"
