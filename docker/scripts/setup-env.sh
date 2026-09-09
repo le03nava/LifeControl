@@ -26,14 +26,14 @@ if [ ! -f "$ENV_FILE" ]; then
 		# Prod uses a postgres host port distinct from dev/staging (5435) so a
 		# fresh prod setup never collides with other envs on the same host.
 		sed -i "s|^LIFECONTROL_POSTGRES_PORT=.*|LIFECONTROL_POSTGRES_PORT=5445|" "$ENV_FILE"
-		# Prod passwords come exclusively from docker/secrets/<name> files mounted
-		# at /run/secrets/<name> (see entrypoint wrappers). Strip every password
-		# and client-secret related line so compose can never interpolate a
-		# plaintext value — the wrapper is the sole password source.
-		sed -i -E "/^[A-Z0-9_]*PASSWORD(_FILE)?=/d; /^KC_[A-Z0-9_]*=/d; /^[A-Z0-9_]*_FILE=/d; /^[A-Z0-9_]*CLIENT_SECRET=/d" "$ENV_FILE"
 	else
 		sed -i "s|^VOLUMES_ROOT=.*|VOLUMES_ROOT=./volumes-${ENV}|" "$ENV_FILE"
 	fi
+	# Passwords come exclusively from docker/secrets/<name> files mounted at
+	# /run/secrets/<name> (see entrypoint wrappers) in ALL environments. Strip
+	# every password and client-secret related line so compose can never
+	# interpolate a plaintext value — the wrapper is the sole password source.
+	sed -i -E "/^[A-Z0-9_]*PASSWORD(_FILE)?=/d; /^[A-Z0-9_]*CLIENT_SECRET=/d" "$ENV_FILE"
 	print_success "Created $ENV_FILE"
 	print_warning "Please review $ENV_FILE and fill in any secrets before starting services."
 fi
@@ -107,45 +107,45 @@ fi
 cp "$ENV_FILE" "$DOCKER_DIR/.env"
 print_success "Copied $ENV_FILE to $DOCKER_DIR/.env"
 
-# For production, materialize docker/secrets/* files from templates
-if [ "$ENV" = "prod" ]; then
-	print_status "Materializing docker/secrets files..."
+# Materialize docker/secrets/* files from templates for ALL environments.
+# Passwords in every env come exclusively from these files (entrypoint wrappers
+# read them at /run/secrets/<name>), so secrets must exist in dev/staging too.
+print_status "Materializing docker/secrets files..."
 
-	# Ensure the directory exists (gitignored; only *.template is tracked)
-	mkdir -p "$DOCKER_DIR/secrets"
+# Ensure the directory exists (gitignored; only *.template is tracked)
+mkdir -p "$DOCKER_DIR/secrets"
 
-	SECRETS_DIR="$DOCKER_DIR/secrets"
-	FILES_BLOCKED=0
+SECRETS_DIR="$DOCKER_DIR/secrets"
+FILES_BLOCKED=0
 
-	for template in "$SECRETS_DIR"/*.template; do
-		[ -e "$template" ] || continue
-		secret_name="$(basename "$template" .template)"
-		secret_file="$SECRETS_DIR/$secret_name"
+for template in "$SECRETS_DIR"/*.template; do
+	[ -e "$template" ] || continue
+	secret_name="$(basename "$template" .template)"
+	secret_file="$SECRETS_DIR/$secret_name"
 
-		if [ -f "$secret_file" ]; then
-			print_success "Secret $secret_name already exists — keeping it"
-			continue
-		fi
-
-		# Strip comment/blank lines so the materialized file holds only the value
-		grep -v '^[[:space:]]*#' "$template" | grep -v '^[[:space:]]*$' > "$secret_file"
-		if [ ! -s "$secret_file" ]; then
-			print_error "Secret template $template produced an empty file — fix the template"
-			exit 1
-		fi
-		if chmod 0444 "$secret_file" 2>/dev/null; then
-			print_success "Created $secret_name (chmod 0444 — container uid 999/1000/472 can all read it)"
-		else
-			FILES_BLOCKED=1
-			print_warning "Could not chmod 0444 $secret_file — run manually: chmod 0444 $secret_file"
-		fi
-	done
-
-	if [ "$FILES_BLOCKED" -eq 1 ]; then
-		print_warning "Some docker/secrets files could not be made world-readable (0444)."
-		print_warning "Containers run as non-root uids — apply manually before deploy:"
-		print_warning "  chmod 0444 $SECRETS_DIR/*"
+	if [ -f "$secret_file" ]; then
+		print_success "Secret $secret_name already exists — keeping it"
+		continue
 	fi
+
+	# Strip comment/blank lines so the materialized file holds only the value
+	grep -v '^[[:space:]]*#' "$template" | grep -v '^[[:space:]]*$' > "$secret_file"
+	if [ ! -s "$secret_file" ]; then
+		print_error "Secret template $template produced an empty file — fix the template"
+		exit 1
+	fi
+	if chmod 0444 "$secret_file" 2>/dev/null; then
+		print_success "Created $secret_name (chmod 0444 — container uid 999/1000/472 can all read it)"
+	else
+		FILES_BLOCKED=1
+		print_warning "Could not chmod 0444 $secret_file — run manually: chmod 0444 $secret_file"
+	fi
+done
+
+if [ "$FILES_BLOCKED" -eq 1 ]; then
+	print_warning "Some docker/secrets files could not be made world-readable (0444)."
+	print_warning "Containers run as non-root uids — apply manually before deploy:"
+	print_warning "  chmod 0444 $SECRETS_DIR/*"
 fi
 
 print_success "Environment setup completed!"

@@ -162,11 +162,7 @@ main() {
 	check_required_vars
 	check_docker
 	check_ports
-	if [ "$ENV" = "prod" ]; then
-		check_secret_files
-	else
-		print_status "Skipping docker/secrets check for $ENV (prod only)"
-	fi
+	check_secret_files
 	check_volume_dirs
 
 	echo ""

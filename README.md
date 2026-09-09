@@ -182,12 +182,54 @@ Los puertos web aplicados por entorno se definen en `docker/.env.<env>`. `LifeCo
 | `SERVER_PORT`               | `8082`                                   | Puerto HTTP life-control-api   |
 | `DATABASE_URL`              | `jdbc:postgresql://localhost:5432/lifecontrol` | JDBC URL                |
 | `DATABASE_USERNAME`         | `lifecontrol_user`                        | Usuario DB                     |
-| `DATABASE_PASSWORD`         | _(requerido)_                             | Password DB                    |
+| `DATABASE_PASSWORD`         | _(secreto, ver Secretos)_                 | Password DB                    |
 | `REDIS_HOST`                | `localhost`                               | Host Redis                     |
 | `KEYCLOAK_URI`              | `http://localhost:8080/realms/life-control-realm` | Keycloak realm URL    |
-| `KEYCLOAK_ADMIN_CLIENT_SECRET` | _(requerido)_                          | Client secret admin            |
+| `KEYCLOAK_ADMIN_CLIENT_SECRET` | _(secreto, ver Secretos)_              | Client secret admin            |
 
 Ver [life-control-api/README.md](life-control-api/README.md) para la lista completa.
+
+---
+
+## Secretos
+
+Todas las contraseñas se manejan con el mismo patrón en **dev, staging y prod**: archivos
+materializados en `docker/secrets/` montados read-only en `/run/secrets/<nombre>` dentro del
+contenedor. Ninguna contraseña vive en los `.env.*` (setup-env.sh las elimina al crear el archivo).
+
+### Secretos existentes
+
+| Archivo (`docker/secrets/`)           | Uso                                        | Quién lo lee                                    |
+|---------------------------------------|--------------------------------------------|-------------------------------------------------|
+| `lifecontrol_postgres_password`       | DB principal de la app                     | lifecontrol-postgres + lifecontrol-api          |
+| `keycloak_postgres_password`          | DB de Keycloak                             | keycloak-postgres + keycloak                    |
+| `keycloak_admin_password`             | Admin de Keycloak                          | keycloak (`KC_BOOTSTRAP_ADMIN_PASSWORD`)        |
+| `grafana_admin_password`              | Admin de Grafana                           | grafana (`GF_SECURITY_ADMIN_PASSWORD`)          |
+| `keycloak_admin_client_secret`        | Client secret de `life-control-admin-client` | lifecontrol-api (`KEYCLOAK_ADMIN_CLIENT_SECRET`) |
+
+### Flujo de materialización
+
+1. `./docker/scripts/setup-env.sh <env>` copia cada `docker/secrets/*.template` a
+   `docker/secrets/<nombre>`, quitando comentarios, si el archivo aún no existe, y aplica
+   `chmod 0444` (legible por los uids no-root de los contenedores). Si ya existe, lo conserva.
+2. Editar cada archivo con un valor real (reemplazar `CHANGEME`).
+3. `docker-compose` monta cada secreto read-only y los entrypoint wrappers
+   (`docker/entrypoints/*.sh`) leen el archivo y exportan la env var que la imagen espera.
+4. `./docker/scripts/deploy.sh <env> start` levanta los servicios. En todos los entornos
+   `validate-env.sh` valida que cada secreto exista, no esté vacío, no contenga `CHANGEME`
+   y tenga modo `0444`.
+
+```bash
+# Generar un valor fuerte para un secreto
+openssl rand -base64 32
+```
+
+> **Rotación**: `./docker/scripts/cleanup.sh secrets <env>` regenera los archivos desde los
+> templates (destructivo, pide confirmación). Luego reiniciar: `deploy.sh <env> restart`.
+>
+> **Primera migración**: al pasar de env vars a secretos, los volúmenes de postgres existentes
+> retienen la contraseña anterior. Para que la password nueva se aplique hay que recrear el
+> volumen (pérdida de datos del entorno local) — ver `cleanup.sh volumes`.
 
 ---
 

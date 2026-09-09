@@ -67,7 +67,7 @@ LifeControl es un sistema de gestión consolidado en un monolito modular `life-c
 Scripts en `docker/scripts/`:
 
 ### setup-env.sh
-Configura el entorno de Docker. Crea volúmenes, copia archivos de entorno y valida Docker.
+Configura el entorno de Docker. Crea volúmenes, copia archivos de entorno, materializa `docker/secrets/*` desde los templates y valida Docker. En **todos** los entornos elimina las líneas de contraseñas de los `.env.*` (las contraseñas vienen solo de `docker/secrets/`).
 ```bash
 ./docker/scripts/setup-env.sh [dev|staging|prod]
 ```
@@ -76,7 +76,7 @@ Configura el entorno de Docker. Crea volúmenes, copia archivos de entorno y val
 - **prod**: Environment de producción (puerto 9200)
 
 ### validate-env.sh
-Valida la configuración del entorno (archivo .env, variables requeridas, puertos, Docker).
+Valida la configuración del entorno (archivo .env, variables requeridas, puertos, Docker, `docker/secrets/*` materializados en todos los entornos).
 ```bash
 cd docker && ./scripts/validate-env.sh
 ```
@@ -99,7 +99,7 @@ Script principal de despliegue. Build y start de servicios.
 ### cleanup.sh
 Limpia recursos de Docker y archivos locales.
 ```bash
-./docker/scripts/cleanup.sh [stop|docker|volumes|local|builds|all|help] [dev|staging|prod]
+./docker/scripts/cleanup.sh [stop|docker|volumes|local|builds|secrets|all|help] [dev|staging|prod]
 
 # Opciones:
 # stop    - Detener contenedores (conserva volúmenes, imágenes, redes)
@@ -107,9 +107,15 @@ Limpia recursos de Docker y archivos locales.
 # volumes - Limpia SOLO volúmenes de Docker (DESTRUCTIVO - borra todos los datos)
 # local   - Limpia directorios locales (./data, ./volume-data)
 # builds  - Limpia artifacts de build (./api-gateway/build)
+# secrets - Rota los archivos de docker/secrets/* desde sus templates
 # all     - Limpieza completa (requiere confirmación)
 # help    - Muestra la ayuda
 ```
+
+### Secretos
+Todas las contraseñas viajan por archivos `docker/secrets/*` (NO por los `.env.*`) con el **mismo patrón en dev, staging y prod**: `setup-env.sh` materializa cada `*.template` (strip de comentarios, `chmod 0444`), compose los monta read-only en `/run/secrets/<nombre>`, y los wrappers en `docker/entrypoints/*.sh` leen el archivo y exportan la env var que la imagen espera (`KC_DB_PASSWORD`, `POSTGRES_PASSWORD`, `DATABASE_PASSWORD`, `GF_SECURITY_ADMIN_PASSWORD`, `KEYCLOAK_ADMIN_CLIENT_SECRET`).
+- Secretos: `keycloak_postgres_password`, `keycloak_admin_password`, `keycloak_admin_client_secret`, `lifecontrol_postgres_password`, `grafana_admin_password`.
+- `validate-env.sh` valida los secretos en todos los entornos; `deploy.sh start` en prod lo usa como gate.
 
 ### Service URLs
 

@@ -130,6 +130,53 @@ cleanup_builds() {
 	print_success "Build cleanup completed"
 }
 
+rotate_secrets() {
+	local auto="${1:-}"
+	local secrets_dir="$DOCKER_DIR/secrets"
+	local rotated=0
+
+	if [ ! -d "$secrets_dir" ]; then
+		print_error "$secrets_dir not found — run setup-env.sh first"
+		return 1
+	fi
+
+	if [ "$auto" != "--yes" ]; then
+		print_warning "This will REGENERATE all materialized docker/secrets files from their templates."
+		print_warning "Existing credential values will be overwritten. Running services must be restarted."
+		read -p "Are you sure? (y/n): " -n 1 -r
+		echo
+		if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+			print_status "Secret rotation cancelled"
+			return
+		fi
+	fi
+
+	for template in "$secrets_dir"/*.template; do
+		[ -e "$template" ] || continue
+		secret_name="$(basename "$template" .template)"
+		secret_file="$secrets_dir/$secret_name"
+
+		# Strip comment/blank lines so the file holds only the value
+		grep -v '^[[:space:]]*#' "$template" | grep -v '^[[:space:]]*$' > "$secret_file"
+		if [ ! -s "$secret_file" ]; then
+			print_error "Secret template $template produced an empty file — fix the template"
+			rm -f "$secret_file"
+			continue
+		fi
+		chmod 0444 "$secret_file" 2>/dev/null || true
+		print_success "Rotated $secret_name (edit $secret_file with the new value)"
+		rotated=$((rotated + 1))
+	done
+
+	if [ "$rotated" -eq 0 ]; then
+		print_warning "No secrets rotated — no *.template files found in $secrets_dir"
+	else
+		print_success "Secret rotation completed ($rotated file(s))"
+		print_warning "After rotating secrets, restart services so containers pick up the new values:"
+		print_warning "  ./docker/scripts/deploy.sh $ENV restart"
+	fi
+}
+
 full_cleanup() {
 	local project_name
 	project_name=$(get_env_var COMPOSE_PROJECT_NAME)
@@ -168,6 +215,7 @@ show_help() {
 	echo "  volumes    - Clean this project's Docker volumes only (DESTRUCTIVE - deletes all data)"
 	echo "  local      - Clean local data directories only"
 	echo "  builds     - Clean build artifacts only"
+	echo "  secrets    - Rotate docker/secrets files from their templates (overwrites current values)"
 	echo "  all        - Full cleanup (stop + docker + volumes + local + builds)"
 	echo "  help       - Show this help"
 	echo ""
@@ -180,6 +228,7 @@ show_help() {
 	echo "  $0 stop dev            # Stop all containers"
 	echo "  $0 docker dev          # Clean Docker, keep volumes"
 	echo "  $0 volumes dev         # Delete all volumes (data loss!)"
+	echo "  $0 secrets staging     # Regenerate secret files from templates"
 	echo "  $0 all staging         # Full cleanup, including volumes"
 	echo "  $0 stop prod"
 	echo ""
@@ -202,6 +251,9 @@ local)
 	;;
 builds)
 	cleanup_builds
+	;;
+secrets)
+	rotate_secrets
 	;;
 all | full)
 	full_cleanup

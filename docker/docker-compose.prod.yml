@@ -305,6 +305,7 @@ services:
     volumes:
       - ./entrypoints/lifecontrol-app-entrypoint.sh:/usr/local/bin/lc-app-entrypoint.sh:ro
       - ./secrets/lifecontrol_postgres_password:/run/secrets/lifecontrol_postgres_password:ro
+      - ./secrets/keycloak_admin_client_secret:/run/secrets/keycloak_admin_client_secret:ro
     restart: always
 
 # ============================================
