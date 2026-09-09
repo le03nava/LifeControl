@@ -31,8 +31,6 @@ check_required_vars() {
 	REQUIRED_VARS=(
 		"COMPOSE_PROJECT_NAME"
 		"ENVIRONMENT"
-		"KEYCLOAK_POSTGRES_PASSWORD"
-		"KC_ADMIN_PASSWORD"
 		"API_GATEWAY_MANAGEMENT_PORT"
 		"LIFECONTROL_API_PORT"
 	)
@@ -84,21 +82,52 @@ check_ports() {
 	done
 }
 
-check_secrets() {
-	print_status "Checking secrets..."
+check_secret_files() {
+	print_status "Checking docker/secrets files..."
 
-	if [ -f "$DOCKER_DIR/.env.secrets" ]; then
-		print_success "Secrets file exists"
+	SECRETS_DIR="$DOCKER_DIR/secrets"
 
-		# Check for default passwords
-		if grep -q "CHANGEME" "$DOCKER_DIR/.env.secrets"; then
-			print_warning "Secrets file contains CHANGEME values - update them!"
+	if [ ! -d "$SECRETS_DIR" ]; then
+		print_error "$SECRETS_DIR not found!"
+		print_status "Run: ./docker/scripts/setup-env.sh $ENV"
+		ERRORS=$((ERRORS + 1))
+		return 1
+	fi
+
+	FOUND=0
+	for secret_file in "$SECRETS_DIR"/*; do
+		# Skip tracked templates and dotfiles; only materialized secrets are gated
+		case "$(basename "$secret_file")" in
+			*.template | .gitignore) continue ;;
+		esac
+		FOUND=1
+
+		if [ ! -s "$secret_file" ]; then
+			print_error "$secret_file is missing or empty"
+			ERRORS=$((ERRORS + 1))
+			continue
+		fi
+
+		if grep -q "CHANGEME" "$secret_file"; then
+			print_error "$secret_file still contains CHANGEME — replace with the real value"
 			ERRORS=$((ERRORS + 1))
 		else
-			print_success "Secrets appear to be configured"
+			print_success "$secret_file set"
 		fi
-	else
-		print_warning "Secrets file not found (optional for dev)"
+
+		MODE=$(stat -c '%a' "$secret_file" 2>/dev/null || stat -f '%Lp' "$secret_file" 2>/dev/null || echo "?")
+		if [ "$MODE" != "444" ] && [ "$MODE" != "0444" ]; then
+			print_error "$secret_file mode is $MODE — must be 0444 so container uids (999/1000/472) can read it"
+			ERRORS=$((ERRORS + 1))
+		else
+			print_success "$secret_file mode 0444"
+		fi
+	done
+
+	if [ "$FOUND" -eq 0 ]; then
+		print_error "No secrets materialized in $SECRETS_DIR"
+		print_status "Run: ./docker/scripts/setup-env.sh $ENV"
+		ERRORS=$((ERRORS + 1))
 	fi
 }
 
@@ -133,7 +162,11 @@ main() {
 	check_required_vars
 	check_docker
 	check_ports
-	check_secrets
+	if [ "$ENV" = "prod" ]; then
+		check_secret_files
+	else
+		print_status "Skipping docker/secrets check for $ENV (prod only)"
+	fi
 	check_volume_dirs
 
 	echo ""

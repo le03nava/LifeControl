@@ -116,6 +116,15 @@ build_images() {
 }
 
 start_services() {
+	if [ "$ENV" = "prod" ]; then
+		print_status "Running production validation gate..."
+		if ! "$SCRIPT_DIR/validate-env.sh" prod; then
+			print_error "Validation failed — aborting start. Fix the reported issues and retry."
+			exit 1
+		fi
+		print_success "Production validation passed"
+	fi
+
 	print_status "Starting services for $ENV environment..."
 	$DOCKER_COMPOSE $COMPOSE_FILES --env-file "$ENV_FILE" up -d
 	print_success "Services started!"
