@@ -3,6 +3,7 @@ package com.lifecontrol.api.product.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifecontrol.api.config.ratelimit.RateLimitProperties;
 import com.lifecontrol.api.product.service.ProductService;
+import com.lifecontrol.api.product.service.ProductVariantService;
 import com.lifecontrol.api.product.supplier.dto.ProductSupplierRequest;
 import com.lifecontrol.api.product.supplier.dto.ProductSupplierResponse;
 import com.lifecontrol.api.product.supplier.service.ProductSupplierService;
@@ -73,6 +74,9 @@ class ProductSupplierControllerSecurityTest {
 
     @MockitoBean
     private ProductSupplierService productSupplierService;
+
+    @MockitoBean
+    private ProductVariantService productVariantService;
 
     @MockitoBean
     private RateLimitProperties rateLimitProperties;
