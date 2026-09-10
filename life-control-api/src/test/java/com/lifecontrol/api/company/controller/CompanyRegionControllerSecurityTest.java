@@ -88,17 +88,6 @@ class CompanyRegionControllerSecurityTest {
     class GetRegions {
 
         @Test
-        @WithMockUser(roles = {"life-control-admin"})
-        @DisplayName("returns 200 OK for admin")
-        void adminCanGetRegions() throws Exception {
-            when(companyRegionService.getAllRegions(companyId, companyCountryId, false))
-                    .thenReturn(List.of(buildRegionResponse()));
-
-            mockMvc.perform(get(BASE_URL, companyId, companyCountryId))
-                    .andExpect(status().isOk());
-        }
-
-        @Test
         @WithMockUser(roles = {"lc-admin"})
         @DisplayName("returns 200 OK for lc-admin")
         void lcAdminCanGetRegions() throws Exception {
@@ -143,17 +132,6 @@ class CompanyRegionControllerSecurityTest {
         }
 
         @Test
-        @WithMockUser(roles = {"life-control-country"})
-        @DisplayName("returns 200 OK for legacy life-control-country role")
-        void legacyCountryRoleCanGetRegions() throws Exception {
-            when(companyRegionService.getAllRegions(companyId, companyCountryId, false))
-                    .thenReturn(List.of(buildRegionResponse()));
-
-            mockMvc.perform(get(BASE_URL, companyId, companyCountryId))
-                    .andExpect(status().isOk());
-        }
-
-        @Test
         @WithMockUser
         @DisplayName("returns 403 for user with no roles")
         void userWithNoRolesGetsForbidden() throws Exception {
@@ -175,20 +153,6 @@ class CompanyRegionControllerSecurityTest {
     @Nested
     @DisplayName("POST " + BASE_URL)
     class PostRegions {
-
-        @Test
-        @WithMockUser(roles = {"life-control-admin"})
-        @DisplayName("returns 201 Created for admin")
-        void adminCanCreateRegion() throws Exception {
-            var request = new CreateCompanyRegionRequest("NORTE", "Norte");
-            when(companyRegionService.createRegion(eq(companyId), eq(companyCountryId), any(CreateCompanyRegionRequest.class)))
-                    .thenReturn(buildRegionResponse());
-
-            mockMvc.perform(post(BASE_URL, companyId, companyCountryId)
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(request)))
-                    .andExpect(status().isCreated());
-        }
 
         @Test
         @WithMockUser(roles = {"lc-admin"})
@@ -249,20 +213,6 @@ class CompanyRegionControllerSecurityTest {
         }
 
         @Test
-        @WithMockUser(roles = {"life-control-country"})
-        @DisplayName("returns 201 Created for legacy life-control-country role")
-        void legacyCountryRoleCanCreateRegion() throws Exception {
-            var request = new CreateCompanyRegionRequest("NORTE", "Norte");
-            when(companyRegionService.createRegion(eq(companyId), eq(companyCountryId), any(CreateCompanyRegionRequest.class)))
-                    .thenReturn(buildRegionResponse());
-
-            mockMvc.perform(post(BASE_URL, companyId, companyCountryId)
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(request)))
-                    .andExpect(status().isCreated());
-        }
-
-        @Test
         @WithMockUser
         @DisplayName("returns 403 for user with no roles")
         void userWithNoRolesGetsForbidden() throws Exception {
@@ -292,36 +242,6 @@ class CompanyRegionControllerSecurityTest {
     class PutRegions {
 
         @Test
-        @WithMockUser(roles = {"life-control-admin"})
-        @DisplayName("returns 200 OK for admin")
-        void adminCanUpdateRegion() throws Exception {
-            var request = new UpdateCompanyRegionRequest("NORTE", "Norte Actualizado");
-            when(companyRegionService.updateRegion(eq(companyId), eq(companyCountryId), eq(regionId),
-                    any(UpdateCompanyRegionRequest.class)))
-                    .thenReturn(buildRegionResponse());
-
-            mockMvc.perform(put(BASE_URL + "/{id}", companyId, companyCountryId, regionId)
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(request)))
-                    .andExpect(status().isOk());
-        }
-
-        @Test
-        @WithMockUser(roles = {"life-control-country"})
-        @DisplayName("returns 200 OK for country-role")
-        void countryRoleCanUpdateRegion() throws Exception {
-            var request = new UpdateCompanyRegionRequest("NORTE", "Norte Actualizado");
-            when(companyRegionService.updateRegion(eq(companyId), eq(companyCountryId), eq(regionId),
-                    any(UpdateCompanyRegionRequest.class)))
-                    .thenReturn(buildRegionResponse());
-
-            mockMvc.perform(put(BASE_URL + "/{id}", companyId, companyCountryId, regionId)
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(request)))
-                    .andExpect(status().isOk());
-        }
-
-        @Test
         @WithMockUser
         @DisplayName("returns 403 for user with no roles")
         void userWithNoRolesGetsForbidden() throws Exception {
@@ -349,22 +269,6 @@ class CompanyRegionControllerSecurityTest {
     @Nested
     @DisplayName("DELETE " + BASE_URL + "/{id}")
     class DeleteRegions {
-
-        @Test
-        @WithMockUser(roles = {"life-control-admin"})
-        @DisplayName("returns 204 No Content for admin")
-        void adminCanDeleteRegion() throws Exception {
-            mockMvc.perform(delete(BASE_URL + "/{id}", companyId, companyCountryId, regionId))
-                    .andExpect(status().isNoContent());
-        }
-
-        @Test
-        @WithMockUser(roles = {"life-control-country"})
-        @DisplayName("returns 204 No Content for country-role")
-        void countryRoleCanDeleteRegion() throws Exception {
-            mockMvc.perform(delete(BASE_URL + "/{id}", companyId, companyCountryId, regionId))
-                    .andExpect(status().isNoContent());
-        }
 
         @Test
         @WithMockUser

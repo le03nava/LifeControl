@@ -92,28 +92,6 @@ class CompanyStoreControllerSecurityTest {
     class GetStores {
 
         @Test
-        @WithMockUser(roles = {"life-control-admin"})
-        @DisplayName("returns 200 OK for admin")
-        void adminCanGetStores() throws Exception {
-            when(companyStoreService.getAllStores(companyId, companyCountryId, regionId, zoneId, false))
-                    .thenReturn(List.of(buildStoreResponse()));
-
-            mockMvc.perform(get(BASE_URL, companyId, companyCountryId, regionId, zoneId))
-                    .andExpect(status().isOk());
-        }
-
-        @Test
-        @WithMockUser(roles = {"life-control-country"})
-        @DisplayName("returns 200 OK for country-role")
-        void countryRoleCanGetStores() throws Exception {
-            when(companyStoreService.getAllStores(companyId, companyCountryId, regionId, zoneId, false))
-                    .thenReturn(List.of(buildStoreResponse()));
-
-            mockMvc.perform(get(BASE_URL, companyId, companyCountryId, regionId, zoneId))
-                    .andExpect(status().isOk());
-        }
-
-        @Test
         @WithMockUser
         @DisplayName("returns 403 for user with no roles")
         void userWithNoRolesGetsForbidden() throws Exception {
@@ -203,28 +181,6 @@ class CompanyStoreControllerSecurityTest {
     class GetStoreById {
 
         @Test
-        @WithMockUser(roles = {"life-control-admin"})
-        @DisplayName("returns 200 OK for admin")
-        void adminCanGetStore() throws Exception {
-            when(companyStoreService.getStoreById(companyId, companyCountryId, regionId, zoneId, storeId))
-                    .thenReturn(buildStoreResponse());
-
-            mockMvc.perform(get(BASE_URL + "/{id}", companyId, companyCountryId, regionId, zoneId, storeId))
-                    .andExpect(status().isOk());
-        }
-
-        @Test
-        @WithMockUser(roles = {"life-control-country"})
-        @DisplayName("returns 200 OK for country-role")
-        void countryRoleCanGetStore() throws Exception {
-            when(companyStoreService.getStoreById(companyId, companyCountryId, regionId, zoneId, storeId))
-                    .thenReturn(buildStoreResponse());
-
-            mockMvc.perform(get(BASE_URL + "/{id}", companyId, companyCountryId, regionId, zoneId, storeId))
-                    .andExpect(status().isOk());
-        }
-
-        @Test
         @WithMockUser(roles = {"lc-admin"})
         @DisplayName("returns 200 OK for lc-admin")
         void lcAdminCanGetStore() throws Exception {
@@ -312,34 +268,6 @@ class CompanyStoreControllerSecurityTest {
     @Nested
     @DisplayName("POST " + BASE_URL)
     class PostStores {
-
-        @Test
-        @WithMockUser(roles = {"life-control-admin"})
-        @DisplayName("returns 201 Created for admin")
-        void adminCanCreateStore() throws Exception {
-            var request = new CreateCompanyStoreRequest("Nueva Tienda", "nueva@test.com", "555-0002", null);
-            when(companyStoreService.createStore(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId), any(CreateCompanyStoreRequest.class)))
-                    .thenReturn(buildStoreResponse());
-
-            mockMvc.perform(post(BASE_URL, companyId, companyCountryId, regionId, zoneId)
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(request)))
-                    .andExpect(status().isCreated());
-        }
-
-        @Test
-        @WithMockUser(roles = {"life-control-country"})
-        @DisplayName("returns 201 Created for country-role")
-        void countryRoleCanCreateStore() throws Exception {
-            var request = new CreateCompanyStoreRequest("Nueva Tienda", "nueva@test.com", "555-0002", null);
-            when(companyStoreService.createStore(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId), any(CreateCompanyStoreRequest.class)))
-                    .thenReturn(buildStoreResponse());
-
-            mockMvc.perform(post(BASE_URL, companyId, companyCountryId, regionId, zoneId)
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(request)))
-                    .andExpect(status().isCreated());
-        }
 
         @Test
         @WithMockUser
@@ -453,36 +381,6 @@ class CompanyStoreControllerSecurityTest {
     @Nested
     @DisplayName("PUT " + BASE_URL + "/{id}")
     class PutStores {
-
-        @Test
-        @WithMockUser(roles = {"life-control-admin"})
-        @DisplayName("returns 200 OK for admin")
-        void adminCanUpdateStore() throws Exception {
-            var request = new UpdateCompanyStoreRequest("Tienda Updated", "updated@test.com", "555-0003", null);
-            when(companyStoreService.updateStore(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId), eq(storeId),
-                    any(UpdateCompanyStoreRequest.class)))
-                    .thenReturn(buildStoreResponse());
-
-            mockMvc.perform(put(BASE_URL + "/{id}", companyId, companyCountryId, regionId, zoneId, storeId)
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(request)))
-                    .andExpect(status().isOk());
-        }
-
-        @Test
-        @WithMockUser(roles = {"life-control-country"})
-        @DisplayName("returns 200 OK for country-role")
-        void countryRoleCanUpdateStore() throws Exception {
-            var request = new UpdateCompanyStoreRequest("Tienda Updated", "updated@test.com", "555-0003", null);
-            when(companyStoreService.updateStore(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId), eq(storeId),
-                    any(UpdateCompanyStoreRequest.class)))
-                    .thenReturn(buildStoreResponse());
-
-            mockMvc.perform(put(BASE_URL + "/{id}", companyId, companyCountryId, regionId, zoneId, storeId)
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(request)))
-                    .andExpect(status().isOk());
-        }
 
         @Test
         @WithMockUser
@@ -604,22 +502,6 @@ class CompanyStoreControllerSecurityTest {
     class DeleteStores {
 
         @Test
-        @WithMockUser(roles = {"life-control-admin"})
-        @DisplayName("returns 204 No Content for admin")
-        void adminCanDeleteStore() throws Exception {
-            mockMvc.perform(delete(BASE_URL + "/{id}", companyId, companyCountryId, regionId, zoneId, storeId))
-                    .andExpect(status().isNoContent());
-        }
-
-        @Test
-        @WithMockUser(roles = {"life-control-country"})
-        @DisplayName("returns 204 No Content for country-role")
-        void countryRoleCanDeleteStore() throws Exception {
-            mockMvc.perform(delete(BASE_URL + "/{id}", companyId, companyCountryId, regionId, zoneId, storeId))
-                    .andExpect(status().isNoContent());
-        }
-
-        @Test
         @WithMockUser
         @DisplayName("returns 403 for user with no roles")
         void userWithNoRolesGetsForbidden() throws Exception {
@@ -689,28 +571,6 @@ class CompanyStoreControllerSecurityTest {
     @Nested
     @DisplayName("PATCH " + BASE_URL + "/{id}")
     class PatchStores {
-
-        @Test
-        @WithMockUser(roles = {"life-control-admin"})
-        @DisplayName("returns 200 OK for admin")
-        void adminCanEnableStore() throws Exception {
-            when(companyStoreService.enableStore(companyId, companyCountryId, regionId, zoneId, storeId))
-                    .thenReturn(buildStoreResponse());
-
-            mockMvc.perform(patch(BASE_URL + "/{id}", companyId, companyCountryId, regionId, zoneId, storeId))
-                    .andExpect(status().isOk());
-        }
-
-        @Test
-        @WithMockUser(roles = {"life-control-country"})
-        @DisplayName("returns 200 OK for country-role")
-        void countryRoleCanEnableStore() throws Exception {
-            when(companyStoreService.enableStore(companyId, companyCountryId, regionId, zoneId, storeId))
-                    .thenReturn(buildStoreResponse());
-
-            mockMvc.perform(patch(BASE_URL + "/{id}", companyId, companyCountryId, regionId, zoneId, storeId))
-                    .andExpect(status().isOk());
-        }
 
         @Test
         @WithMockUser
