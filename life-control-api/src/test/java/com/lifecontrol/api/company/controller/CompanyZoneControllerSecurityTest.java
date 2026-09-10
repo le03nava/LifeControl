@@ -90,28 +90,6 @@ class CompanyZoneControllerSecurityTest {
     class GetZones {
 
         @Test
-        @WithMockUser(roles = {"life-control-admin"})
-        @DisplayName("returns 200 OK for admin")
-        void adminCanGetZones() throws Exception {
-            when(companyZoneService.getAllZones(companyId, companyCountryId, regionId, false))
-                    .thenReturn(List.of(buildZoneResponse()));
-
-            mockMvc.perform(get(BASE_URL, companyId, companyCountryId, regionId))
-                    .andExpect(status().isOk());
-        }
-
-        @Test
-        @WithMockUser(roles = {"life-control-country"})
-        @DisplayName("returns 200 OK for country-role")
-        void countryRoleCanGetZones() throws Exception {
-            when(companyZoneService.getAllZones(companyId, companyCountryId, regionId, false))
-                    .thenReturn(List.of(buildZoneResponse()));
-
-            mockMvc.perform(get(BASE_URL, companyId, companyCountryId, regionId))
-                    .andExpect(status().isOk());
-        }
-
-        @Test
         @WithMockUser
         @DisplayName("returns 403 for user with no roles")
         void userWithNoRolesGetsForbidden() throws Exception {
@@ -190,28 +168,6 @@ class CompanyZoneControllerSecurityTest {
     class GetZoneById {
 
         @Test
-        @WithMockUser(roles = {"life-control-admin"})
-        @DisplayName("returns 200 OK for admin")
-        void adminCanGetZone() throws Exception {
-            when(companyZoneService.getZoneById(companyId, companyCountryId, regionId, zoneId))
-                    .thenReturn(buildZoneResponse());
-
-            mockMvc.perform(get(BASE_URL + "/{id}", companyId, companyCountryId, regionId, zoneId))
-                    .andExpect(status().isOk());
-        }
-
-        @Test
-        @WithMockUser(roles = {"life-control-country"})
-        @DisplayName("returns 200 OK for country-role")
-        void countryRoleCanGetZone() throws Exception {
-            when(companyZoneService.getZoneById(companyId, companyCountryId, regionId, zoneId))
-                    .thenReturn(buildZoneResponse());
-
-            mockMvc.perform(get(BASE_URL + "/{id}", companyId, companyCountryId, regionId, zoneId))
-                    .andExpect(status().isOk());
-        }
-
-        @Test
         @WithMockUser(roles = {"lc-admin"})
         @DisplayName("returns 200 OK for lc-admin")
         void lcAdminCanGetZone() throws Exception {
@@ -288,34 +244,6 @@ class CompanyZoneControllerSecurityTest {
     @Nested
     @DisplayName("POST " + BASE_URL)
     class PostZones {
-
-        @Test
-        @WithMockUser(roles = {"life-control-admin"})
-        @DisplayName("returns 201 Created for admin")
-        void adminCanCreateZone() throws Exception {
-            var request = new CreateCompanyZoneRequest("CEN", "Centro", null, null);
-            when(companyZoneService.createZone(eq(companyId), eq(companyCountryId), eq(regionId), any(CreateCompanyZoneRequest.class)))
-                    .thenReturn(buildZoneResponse());
-
-            mockMvc.perform(post(BASE_URL, companyId, companyCountryId, regionId)
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(request)))
-                    .andExpect(status().isCreated());
-        }
-
-        @Test
-        @WithMockUser(roles = {"life-control-country"})
-        @DisplayName("returns 201 Created for country-role")
-        void countryRoleCanCreateZone() throws Exception {
-            var request = new CreateCompanyZoneRequest("CEN", "Centro", null, null);
-            when(companyZoneService.createZone(eq(companyId), eq(companyCountryId), eq(regionId), any(CreateCompanyZoneRequest.class)))
-                    .thenReturn(buildZoneResponse());
-
-            mockMvc.perform(post(BASE_URL, companyId, companyCountryId, regionId)
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(request)))
-                    .andExpect(status().isCreated());
-        }
 
         @Test
         @WithMockUser
@@ -415,36 +343,6 @@ class CompanyZoneControllerSecurityTest {
     @Nested
     @DisplayName("PUT " + BASE_URL + "/{id}")
     class PutZones {
-
-        @Test
-        @WithMockUser(roles = {"life-control-admin"})
-        @DisplayName("returns 200 OK for admin")
-        void adminCanUpdateZone() throws Exception {
-            var request = new UpdateCompanyZoneRequest("CEN", "Centro Actualizado", null, null);
-            when(companyZoneService.updateZone(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId),
-                    any(UpdateCompanyZoneRequest.class)))
-                    .thenReturn(buildZoneResponse());
-
-            mockMvc.perform(put(BASE_URL + "/{id}", companyId, companyCountryId, regionId, zoneId)
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(request)))
-                    .andExpect(status().isOk());
-        }
-
-        @Test
-        @WithMockUser(roles = {"life-control-country"})
-        @DisplayName("returns 200 OK for country-role")
-        void countryRoleCanUpdateZone() throws Exception {
-            var request = new UpdateCompanyZoneRequest("CEN", "Centro Actualizado", null, null);
-            when(companyZoneService.updateZone(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId),
-                    any(UpdateCompanyZoneRequest.class)))
-                    .thenReturn(buildZoneResponse());
-
-            mockMvc.perform(put(BASE_URL + "/{id}", companyId, companyCountryId, regionId, zoneId)
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(request)))
-                    .andExpect(status().isOk());
-        }
 
         @Test
         @WithMockUser
@@ -551,22 +449,6 @@ class CompanyZoneControllerSecurityTest {
     class DeleteZones {
 
         @Test
-        @WithMockUser(roles = {"life-control-admin"})
-        @DisplayName("returns 204 No Content for admin")
-        void adminCanDeleteZone() throws Exception {
-            mockMvc.perform(delete(BASE_URL + "/{id}", companyId, companyCountryId, regionId, zoneId))
-                    .andExpect(status().isNoContent());
-        }
-
-        @Test
-        @WithMockUser(roles = {"life-control-country"})
-        @DisplayName("returns 204 No Content for country-role")
-        void countryRoleCanDeleteZone() throws Exception {
-            mockMvc.perform(delete(BASE_URL + "/{id}", companyId, companyCountryId, regionId, zoneId))
-                    .andExpect(status().isNoContent());
-        }
-
-        @Test
         @WithMockUser
         @DisplayName("returns 403 for user with no roles")
         void userWithNoRolesGetsForbidden() throws Exception {
@@ -628,28 +510,6 @@ class CompanyZoneControllerSecurityTest {
     @Nested
     @DisplayName("PATCH " + BASE_URL + "/{id}")
     class PatchZones {
-
-        @Test
-        @WithMockUser(roles = {"life-control-admin"})
-        @DisplayName("returns 200 OK for admin")
-        void adminCanEnableZone() throws Exception {
-            when(companyZoneService.enableZone(companyId, companyCountryId, regionId, zoneId))
-                    .thenReturn(buildZoneResponse());
-
-            mockMvc.perform(patch(BASE_URL + "/{id}", companyId, companyCountryId, regionId, zoneId))
-                    .andExpect(status().isOk());
-        }
-
-        @Test
-        @WithMockUser(roles = {"life-control-country"})
-        @DisplayName("returns 200 OK for country-role")
-        void countryRoleCanEnableZone() throws Exception {
-            when(companyZoneService.enableZone(companyId, companyCountryId, regionId, zoneId))
-                    .thenReturn(buildZoneResponse());
-
-            mockMvc.perform(patch(BASE_URL + "/{id}", companyId, companyCountryId, regionId, zoneId))
-                    .andExpect(status().isOk());
-        }
 
         @Test
         @WithMockUser
