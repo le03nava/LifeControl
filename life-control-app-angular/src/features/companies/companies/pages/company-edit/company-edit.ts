@@ -1,6 +1,8 @@
-import { ChangeDetectionStrategy, Component, effect, inject, signal, OnInit } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, effect, inject, signal, OnInit } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router } from '@angular/router';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { catchError, of } from 'rxjs';
 import { CompanyService } from '@features/companies/companies/data/company.service';
 import { CompanyContextService } from '@shared/data/company-context.service';
 import { ApiError } from '@shared/models';
@@ -33,6 +35,7 @@ export class CompanyEdit implements OnInit {
   private fb = inject(NonNullableFormBuilder);
   private router = inject(Router);
   private countryService = inject(CountryService);
+  private destroyRef = inject(DestroyRef);
 
   companyId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
 
@@ -43,7 +46,11 @@ export class CompanyEdit implements OnInit {
   addressServerErrors = signal<Record<string, string>>({});
   generalError = signal<string | null>(null);
 
-  countries = signal<Country[]>([]);
+  // Country catalog for address country selector (error → empty, matching previous behavior)
+  countries = toSignal(
+    this.countryService.getCountries().pipe(catchError(() => of([] as Country[]))),
+    { initialValue: [] },
+  );
 
   ngOnInit(): void {
     const id = this.companyId();
@@ -56,16 +63,10 @@ export class CompanyEdit implements OnInit {
         this.companyForm().controls.companyKey.setValue(current.companyKey);
       }
     }
-
-    // Load country catalog for address country selector
-    this.countryService.getCountries().subscribe({
-      next: (countries) => this.countries.set(countries),
-      error: () => this.countries.set([]),
-    });
   }
 
   private loadCompany(id: string): void {
-    this.companyService.getCompanyById(id).subscribe({
+    this.companyService.getCompanyById(id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (company) => {
         this.companyForm.set(
           this.fb.group({
@@ -134,7 +135,7 @@ export class CompanyEdit implements OnInit {
         ...rest,
         ...(hasAddress ? { address } : {}),
       };
-      this.companyService.createCompany(payload as unknown as Company).subscribe({
+      this.companyService.createCompany(payload as unknown as Company).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (createdCompany) => {
           this.router.navigate(['/companies/edit', createdCompany.id]);
         },
@@ -154,7 +155,7 @@ export class CompanyEdit implements OnInit {
         ...rest,
         ...(hasAddress ? { address } : {}),
       };
-      this.companyService.updateCompany(companyData.id, payload as unknown as Company).subscribe({
+      this.companyService.updateCompany(companyData.id, payload as unknown as Company).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: () => {
           this.router.navigate(['/companies']);
         },

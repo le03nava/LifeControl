@@ -1,6 +1,8 @@
-import { ChangeDetectionStrategy, Component, effect, inject, signal, OnInit } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, effect, inject, signal, OnInit } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router } from '@angular/router';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { catchError, of } from 'rxjs';
 import { SupplierService } from '../../data/supplier.service';
 import { ApiError } from '@shared/models';
 import { Supplier, SupplierControl } from '../../models/supplier.models';
@@ -31,6 +33,7 @@ export class SupplierEdit implements OnInit {
   private fb = inject(NonNullableFormBuilder);
   private router = inject(Router);
   private countryService = inject(CountryService);
+  private destroyRef = inject(DestroyRef);
 
   supplierId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
 
@@ -41,7 +44,11 @@ export class SupplierEdit implements OnInit {
   addressServerErrors = signal<Record<string, string>>({});
   generalError = signal<string | null>(null);
 
-  countries = signal<Country[]>([]);
+  // Country catalog for address country selector (error → empty, matching previous behavior)
+  countries = toSignal(
+    this.countryService.getCountries().pipe(catchError(() => of([] as Country[]))),
+    { initialValue: [] },
+  );
 
   ngOnInit(): void {
     const id = this.supplierId();
@@ -49,16 +56,10 @@ export class SupplierEdit implements OnInit {
       this.isEditMode.set(true);
       this.loadSupplier(id);
     }
-
-    // Load country catalog for address country selector
-    this.countryService.getCountries().subscribe({
-      next: (countries) => this.countries.set(countries),
-      error: () => this.countries.set([]),
-    });
   }
 
   private loadSupplier(id: string): void {
-    this.supplierService.getSupplierById(id).subscribe({
+    this.supplierService.getSupplierById(id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (supplier) => {
         this.supplierForm.set(
           this.fb.group({
@@ -125,7 +126,7 @@ export class SupplierEdit implements OnInit {
         ...rest,
         ...(hasAddress ? { address } : {}),
       };
-      this.supplierService.createSupplier(payload as unknown as Supplier).subscribe({
+      this.supplierService.createSupplier(payload as unknown as Supplier).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (createdSupplier) => {
           this.router.navigate(['/products/suppliers/edit', createdSupplier.id]);
         },
@@ -145,7 +146,7 @@ export class SupplierEdit implements OnInit {
         ...rest,
         ...(hasAddress ? { address } : {}),
       };
-      this.supplierService.updateSupplier(supplierData.id, payload as unknown as Supplier).subscribe({
+      this.supplierService.updateSupplier(supplierData.id, payload as unknown as Supplier).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: () => {
           this.router.navigate(['/products/suppliers']);
         },
