@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, inject, OnInit, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { MatTabsModule } from '@angular/material/tabs';
 import { MatTableModule } from '@angular/material/table';
@@ -38,6 +39,7 @@ import { Role, RoleAssignmentRequest, RoleScope } from '../../models/users-admin
 export class UserDetail implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly service = inject(UsersAdminService);
   private readonly notification = inject(NotificationService);
 
@@ -84,7 +86,7 @@ export class UserDetail implements OnInit {
 
   loadRoles(): void {
     this.loadingRoles.set(true);
-    this.service.getUserRoles(this.userId()).subscribe({
+    this.service.getUserRoles(this.userId()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (roles) => {
         this.userRoles.set(roles);
         this.loadingRoles.set(false);
@@ -109,7 +111,7 @@ export class UserDetail implements OnInit {
     this.assigning.set(true);
 
     if (this.assignScope() === 'realm') {
-      this.service.assignRealmRole(this.userId(), request).subscribe({
+      this.service.assignRealmRole(this.userId(), request).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: () => {
           this.notification.showSuccess(`Role "${name}" assigned`);
           this.assignRoleName.set('');
@@ -123,7 +125,7 @@ export class UserDetail implements OnInit {
       });
     } else {
       const clientId = request.clientId!;
-      this.service.assignClientRole(this.userId(), clientId, request).subscribe({
+      this.service.assignClientRole(this.userId(), clientId, request).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: () => {
           this.notification.showSuccess(`Client role "${name}" assigned`);
           this.assignRoleName.set('');
@@ -146,7 +148,7 @@ export class UserDetail implements OnInit {
     if (!confirmed) return;
 
     if (role.scope === 'realm') {
-      this.service.removeRealmRole(this.userId(), role.name).subscribe({
+      this.service.removeRealmRole(this.userId(), role.name).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: () => {
           this.notification.showSuccess(`Role "${role.name}" removed`);
           this.loadRoles();
@@ -156,7 +158,7 @@ export class UserDetail implements OnInit {
         },
       });
     } else if (role.clientId) {
-      this.service.removeClientRole(this.userId(), role.clientId, role.name).subscribe({
+      this.service.removeClientRole(this.userId(), role.clientId, role.name).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: () => {
           this.notification.showSuccess(`Client role "${role.name}" removed`);
           this.loadRoles();
@@ -172,7 +174,7 @@ export class UserDetail implements OnInit {
 
   loadAttributes(): void {
     this.loadingAttributes.set(true);
-    this.service.getUserAttributes(this.userId()).subscribe({
+    this.service.getUserAttributes(this.userId()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (attrs) => {
         this.userAttributes.set(attrs);
         this.loadingAttributes.set(false);
@@ -221,7 +223,7 @@ export class UserDetail implements OnInit {
     }
 
     this.savingAttr.set(true);
-    this.service.updateUserAttribute(this.userId(), key, values).subscribe({
+    this.service.updateUserAttribute(this.userId(), key, values).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => {
         this.notification.showSuccess(`Attribute "${key}" saved`);
         this.attrKey.set('');
@@ -241,7 +243,7 @@ export class UserDetail implements OnInit {
     const confirmed = confirm(`Delete attribute "${key}"?`);
     if (!confirmed) return;
 
-    this.service.deleteUserAttribute(this.userId(), key).subscribe({
+    this.service.deleteUserAttribute(this.userId(), key).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => {
         this.notification.showSuccess(`Attribute "${key}" deleted`);
         this.loadAttributes();

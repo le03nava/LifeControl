@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, effect, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, effect, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
 import { PageHeader } from '@shared/ui';
 import { MatTableModule } from '@angular/material/table';
@@ -35,6 +36,7 @@ import { Role } from '../../models/users-admin.models';
 export class RoleList {
   private readonly service = inject(UsersAdminService);
   private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly notification = inject(NotificationService);
   private readonly dialog = inject(MatDialog);
 
@@ -97,7 +99,7 @@ export class RoleList {
     if (!confirmed) return;
 
     if (scope === 'realm') {
-      this.service.deleteRealmRole(role.name).subscribe({
+      this.service.deleteRealmRole(role.name).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: () => {
           this.notification.showSuccess(`Role "${role.name}" deleted`);
           this.service.loadRealmRoles();
