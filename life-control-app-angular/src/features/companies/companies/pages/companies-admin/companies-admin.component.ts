@@ -1,4 +1,4 @@
-import { Component, computed, effect, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { PageHeader } from '@shared/ui';
 import { MatCardModule } from '@angular/material/card';
@@ -65,6 +65,7 @@ const STATIC_CARDS: Omit<DashboardCard, 'disabled'>[] = [
 
 @Component({
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink, PageHeader, MatCardModule, MatIconModule],
   templateUrl: './companies-admin.component.html',
   styleUrl: './companies-admin.component.scss',

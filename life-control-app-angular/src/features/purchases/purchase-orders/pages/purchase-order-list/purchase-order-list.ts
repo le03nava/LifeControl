@@ -1,4 +1,4 @@
-import { Component, effect, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, effect, inject, signal } from '@angular/core';
 import { rxResource } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
 import { DatePipe } from '@angular/common';
@@ -17,6 +17,7 @@ import { MatCardModule } from '@angular/material/card';
 @Component({
   selector: 'app-purchase-order-list',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     PageHeader,
     DatePipe,

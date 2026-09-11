@@ -1,4 +1,4 @@
-import { Component, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 import { Button } from './button/button';
 
 /**
@@ -11,6 +11,7 @@ import { Button } from './button/button';
  */
 @Component({
   selector: 'app-modal',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [Button],
   template: `
     @if (isOpen()) {

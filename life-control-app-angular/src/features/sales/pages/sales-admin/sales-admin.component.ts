@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { PageHeader } from '@shared/ui';
 import { MatCardModule } from '@angular/material/card';
@@ -14,6 +14,7 @@ interface DashboardCard {
 
 @Component({
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink, PageHeader, MatCardModule, MatIconModule],
   templateUrl: './sales-admin.component.html',
   styleUrl: './sales-admin.component.scss',

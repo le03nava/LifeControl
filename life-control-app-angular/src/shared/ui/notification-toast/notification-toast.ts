@@ -1,10 +1,11 @@
-import { Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { NotificationService } from '@shared/data';
 import { notificationAnimation } from './notification-animation';
 
 @Component({
   selector: 'app-notification-toast',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './notification-toast.html',
   styleUrl: './notification-toast.scss',
   animations: [notificationAnimation],

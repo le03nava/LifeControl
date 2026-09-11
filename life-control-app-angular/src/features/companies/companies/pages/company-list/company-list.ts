@@ -1,4 +1,4 @@
-import { Component, DestroyRef, effect, inject, signal, computed } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, effect, inject, signal, computed } from '@angular/core';
 import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
 import { PageHeader } from '@shared/ui';
@@ -14,6 +14,7 @@ import { DeleteCompanyDialogComponent } from '../../ui/delete-company-dialog/del
 
 @Component({
   selector: 'app-company-list',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink, PageHeader, CompaniesCard, MatIconModule, MatPaginatorModule, MatButtonModule, MatFormFieldModule, MatInputModule],
   templateUrl: './company-list.html',
   styleUrl: './company-list.scss',

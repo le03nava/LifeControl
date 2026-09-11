@@ -1,4 +1,4 @@
-import { Component, effect, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, effect, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { PageHeader } from '@shared/ui';
 import { MatTableModule } from '@angular/material/table';
@@ -16,6 +16,7 @@ import { Role } from '../../models/users-admin.models';
 
 @Component({
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     PageHeader,
     MatTableModule,

@@ -1,4 +1,4 @@
-import { Component, input, output, computed } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input, output, computed } from '@angular/core';
 import { Company } from '../../models/company.models';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
@@ -7,6 +7,7 @@ import { MatCardModule } from '@angular/material/card';
 @Component({
   selector: 'app-companies-card',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [MatButtonModule, MatIconModule, MatCardModule],
   templateUrl: './companies-card.html',
   styleUrl: './companies-card.scss',

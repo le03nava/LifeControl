@@ -1,4 +1,5 @@
 import {
+  ChangeDetectionStrategy,
   Component,
   computed,
   effect,
@@ -33,6 +34,7 @@ const REGION_CODE_PATTERN = /^[a-zA-Z0-9-]+$/;
 @Component({
   selector: 'app-regions-form',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     ReactiveFormsModule,
     MatFormFieldModule,
