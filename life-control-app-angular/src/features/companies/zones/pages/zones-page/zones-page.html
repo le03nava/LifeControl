@@ -21,10 +21,10 @@
       <mat-select
         [value]="selectedCountry()"
         [compareWith]="compareCompanyCountry"
-        [disabled]="companyCountryService.assignedCountries().length === 0"
+        [disabled]="countriesResource.value().length === 0"
         (selectionChange)="onSelectCountry($event.value)"
       >
-        @for (cc of companyCountryService.assignedCountries(); track cc.id) {
+        @for (cc of countriesResource.value(); track cc.id) {
           <mat-option [value]="cc">
             {{ cc.countryName }}
           </mat-option>
@@ -37,10 +37,10 @@
       <mat-select
         [value]="selectedRegion()"
         [compareWith]="compareCompanyRegion"
-        [disabled]="companyRegionService.regions().length === 0"
+        [disabled]="regionsResource.value().length === 0"
         (selectionChange)="onSelectRegion($event.value)"
       >
-        @for (region of companyRegionService.regions(); track region.id) {
+        @for (region of regionsResource.value(); track region.id) {
           <mat-option [value]="region">
             {{ region.regionName }}
           </mat-option>
@@ -59,14 +59,14 @@
 
   @if (selectedRegion()) {
     <div class="zones-grid">
-      @if (companyZoneService.error(); as errorMsg) {
+      @if (zonesError(); as errorMsg) {
         <div class="error-state">
           <mat-icon fontIcon="error" />
           <p>{{ errorMsg }}</p>
         </div>
       }
 
-      @if (companyZoneService.loading()) {
+      @if (zonesResource.isLoading()) {
         <p class="loading-text">Cargando zonas...</p>
       }
 
@@ -81,7 +81,7 @@
             />
           </div>
         }
-      } @else if (!companyZoneService.loading()) {
+      } @else if (!zonesResource.isLoading()) {
         <div class="empty-state">
           <p>No hay zonas registradas para esta región</p>
         </div>

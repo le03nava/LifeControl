@@ -3,7 +3,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { signal } from '@angular/core';
-import { of } from 'rxjs';
+import { NEVER, of } from 'rxjs';
 import { ActivatedRoute, Router } from '@angular/router';
 import { StoresPage } from './stores-page';
 import { CompanyService } from '../../../companies/data/company.service';
@@ -173,6 +173,13 @@ describe('StoresPage', () => {
     fixture.detectChanges();
   });
 
+  // Flush the reactive resource pipeline: trigger CD, await async resolution, re-render.
+  async function settle(): Promise<void> {
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  }
+
   // ─── Basic creation and initial state ────────────────────────
 
   it('should create', () => {
@@ -223,12 +230,14 @@ describe('StoresPage', () => {
   it('should load assigned countries when onCompanyChange is called with valid id', () => {
     const countryService = TestBed.inject(CompanyCountryService) as unknown as MockCompanyCountryService;
     component.onCompanyChange('company-1');
+    fixture.detectChanges();
     expect(countryService.getCountries).toHaveBeenCalledWith('company-1');
   });
 
   it('should NOT load countries when onCompanyChange is called with empty string', () => {
     const countryService = TestBed.inject(CompanyCountryService) as unknown as MockCompanyCountryService;
     component.onCompanyChange('');
+    fixture.detectChanges();
     expect(countryService.getCountries).not.toHaveBeenCalled();
   });
 
@@ -242,6 +251,7 @@ describe('StoresPage', () => {
   it('should load regions for the selected country', () => {
     const regionService = TestBed.inject(CompanyRegionService) as unknown as MockCompanyRegionService;
     component.onSelectCountry(mockAssignedCountries[0]);
+    fixture.detectChanges();
     expect(regionService.getRegions).toHaveBeenCalledWith('company-1', 'cc-1');
   });
 
@@ -269,6 +279,7 @@ describe('StoresPage', () => {
     const zoneService = TestBed.inject(CompanyZoneService) as unknown as MockCompanyZoneService;
     component.onSelectCountry(mockAssignedCountries[0]);
     component.onSelectRegion(mockRegions[0]);
+    fixture.detectChanges();
     expect(zoneService.getZones).toHaveBeenCalledWith('company-1', 'cc-1', 'reg-1');
   });
 
@@ -297,6 +308,7 @@ describe('StoresPage', () => {
     component.onSelectCountry(mockAssignedCountries[0]);
     component.onSelectRegion(mockRegions[0]);
     component.onSelectZone(mockZones[0]);
+    fixture.detectChanges();
 
     expect(storeService.getStores).toHaveBeenCalledWith('company-1', 'cc-1', 'reg-1', 'zone-1', false);
   });
@@ -306,6 +318,7 @@ describe('StoresPage', () => {
     component.onSelectCountry(mockAssignedCountries[0]);
     // No region selected
     component.onSelectZone(mockZones[0]);
+    fixture.detectChanges();
     expect(storeService.getStores).not.toHaveBeenCalled();
   });
 
@@ -342,15 +355,13 @@ describe('StoresPage', () => {
 
   // ─── onCardEditStore ─────────────────────────────────────────
 
-  it('should navigate to edit when onCardEditStore finds the store', () => {
+  it('should navigate to edit when onCardEditStore finds the store', async () => {
     const router = TestBed.inject(Router) as unknown as { navigate: ReturnType<typeof vi.fn> };
 
     component.onSelectCountry(mockAssignedCountries[0]);
     component.onSelectRegion(mockRegions[0]);
     component.onSelectZone(mockZones[0]);
-    const storeService = TestBed.inject(CompanyStoreService) as unknown as MockCompanyStoreService;
-    storeService.getStores('company-1', 'cc-1', 'reg-1', 'zone-1');
-    fixture.detectChanges();
+    await settle();
 
     component.onCardEditStore('store-1');
     expect(router.navigate).toHaveBeenCalledWith(['/companies/stores/edit', 'store-1'], {
@@ -366,27 +377,25 @@ describe('StoresPage', () => {
 
   // ─── onToggleStore ───────────────────────────────────────────
 
-  it('should call removeStore when toggling an enabled store OFF', () => {
+  it('should call removeStore when toggling an enabled store OFF', async () => {
     const storeService = TestBed.inject(CompanyStoreService) as unknown as MockCompanyStoreService;
 
     component.onSelectCountry(mockAssignedCountries[0]);
     component.onSelectRegion(mockRegions[0]);
     component.onSelectZone(mockZones[0]);
-    storeService.getStores('company-1', 'cc-1', 'reg-1', 'zone-1');
-    fixture.detectChanges();
+    await settle();
 
     component.onToggleStore('store-1'); // enabled: true
     expect(storeService.removeStore).toHaveBeenCalledWith('company-1', 'cc-1', 'reg-1', 'zone-1', 'store-1');
   });
 
-  it('should call enableStore when toggling a disabled store ON', () => {
+  it('should call enableStore when toggling a disabled store ON', async () => {
     const storeService = TestBed.inject(CompanyStoreService) as unknown as MockCompanyStoreService;
 
     component.onSelectCountry(mockAssignedCountries[0]);
     component.onSelectRegion(mockRegions[0]);
     component.onSelectZone(mockZones[0]);
-    storeService.getStores('company-1', 'cc-1', 'reg-1', 'zone-1');
-    fixture.detectChanges();
+    await settle();
 
     component.onToggleStore('store-2'); // enabled: false
     expect(storeService.enableStore).toHaveBeenCalledWith('company-1', 'cc-1', 'reg-1', 'zone-1', 'store-2');
@@ -401,25 +410,21 @@ describe('StoresPage', () => {
 
   // ─── filteredStores ────────────────────────────────────────
 
-  it('should show only enabled stores by default', () => {
+  it('should show only enabled stores by default', async () => {
     component.onSelectCountry(mockAssignedCountries[0]);
     component.onSelectRegion(mockRegions[0]);
     component.onSelectZone(mockZones[0]);
-    const storeService = TestBed.inject(CompanyStoreService) as unknown as MockCompanyStoreService;
-    storeService.getStores('company-1', 'cc-1', 'reg-1', 'zone-1');
-    fixture.detectChanges();
+    await settle();
 
     expect(component.filteredStores().length).toBe(1);
     expect(component.filteredStores().every((s) => s.enabled)).toBe(true);
   });
 
-  it('should show all stores when showDisabled is true', () => {
+  it('should show all stores when showDisabled is true', async () => {
     component.onSelectCountry(mockAssignedCountries[0]);
     component.onSelectRegion(mockRegions[0]);
     component.onSelectZone(mockZones[0]);
-    const storeService = TestBed.inject(CompanyStoreService) as unknown as MockCompanyStoreService;
-    storeService.getStores('company-1', 'cc-1', 'reg-1', 'zone-1');
-    fixture.detectChanges();
+    await settle();
 
     component.showDisabled.set(true);
     expect(component.filteredStores().length).toBe(2);
@@ -434,27 +439,23 @@ describe('StoresPage', () => {
       expect(emptyPrompt.textContent).toContain('Seleccioná una empresa');
     });
 
-    it('should render an app-stores-card for each enabled store', () => {
+    it('should render an app-stores-card for each enabled store', async () => {
       component.onCompanyChange('company-1');
       component.onSelectCountry(mockAssignedCountries[0]);
       component.onSelectRegion(mockRegions[0]);
       component.onSelectZone(mockZones[0]);
-      const storeService = TestBed.inject(CompanyStoreService) as unknown as MockCompanyStoreService;
-      storeService.getStores('company-1', 'cc-1', 'reg-1', 'zone-1');
-      fixture.detectChanges();
+      await settle();
 
       const cards = fixture.nativeElement.querySelectorAll('app-stores-card');
       expect(cards.length).toBe(1); // Only enabled stores by default
     });
 
-    it('should render cards for all stores when showDisabled is on', () => {
+    it('should render cards for all stores when showDisabled is on', async () => {
       component.onCompanyChange('company-1');
       component.onSelectCountry(mockAssignedCountries[0]);
       component.onSelectRegion(mockRegions[0]);
       component.onSelectZone(mockZones[0]);
-      const storeService = TestBed.inject(CompanyStoreService) as unknown as MockCompanyStoreService;
-      storeService.getStores('company-1', 'cc-1', 'reg-1', 'zone-1');
-      fixture.detectChanges();
+      await settle();
 
       component.showDisabled.set(true);
       fixture.detectChanges();
@@ -463,15 +464,14 @@ describe('StoresPage', () => {
       expect(cards.length).toBe(2);
     });
 
-    it('should display error message when error is set', () => {
+    it('should display error message when error is set', async () => {
       component.onCompanyChange('company-1');
       component.onSelectCountry(mockAssignedCountries[0]);
       component.onSelectRegion(mockRegions[0]);
       component.onSelectZone(mockZones[0]);
-      const storeService = TestBed.inject(CompanyStoreService) as unknown as MockCompanyStoreService;
-      storeService.getStores('company-1', 'cc-1', 'reg-1', 'zone-1');
-      fixture.detectChanges();
+      await settle();
 
+      const storeService = TestBed.inject(CompanyStoreService) as unknown as MockCompanyStoreService;
       (storeService as any)._error.set('Error al cargar las tiendas');
       fixture.detectChanges();
 
@@ -481,15 +481,13 @@ describe('StoresPage', () => {
     });
 
     it('should display loading text when loading', () => {
+      const storeService = TestBed.inject(CompanyStoreService) as unknown as MockCompanyStoreService;
+      storeService.getStores = vi.fn().mockReturnValue(NEVER);
+
       component.onCompanyChange('company-1');
       component.onSelectCountry(mockAssignedCountries[0]);
       component.onSelectRegion(mockRegions[0]);
       component.onSelectZone(mockZones[0]);
-      const storeService = TestBed.inject(CompanyStoreService) as unknown as MockCompanyStoreService;
-      storeService.getStores('company-1', 'cc-1', 'reg-1', 'zone-1');
-      fixture.detectChanges();
-
-      (storeService as any)._loading.set(true);
       fixture.detectChanges();
 
       const loadingEl = fixture.nativeElement.querySelector('.loading-text');
@@ -497,14 +495,15 @@ describe('StoresPage', () => {
       expect(loadingEl.textContent).toContain('Cargando tiendas');
     });
 
-    it('should show empty message "No stores found for this zone" when no stores and not loading', () => {
+    it('should show empty message "No stores found for this zone" when no stores and not loading', async () => {
+      const storeService = TestBed.inject(CompanyStoreService) as unknown as MockCompanyStoreService;
+      storeService.getStores = vi.fn().mockReturnValue(of([]));
+
       component.onCompanyChange('company-1');
       component.onSelectCountry(mockAssignedCountries[0]);
       component.onSelectRegion(mockRegions[0]);
       component.onSelectZone(mockZones[0]);
-      const storeService = TestBed.inject(CompanyStoreService) as unknown as MockCompanyStoreService;
-      (storeService as any)._stores.set([]);
-      fixture.detectChanges();
+      await settle();
 
       const emptyEl = fixture.nativeElement.querySelector('.empty-state');
       expect(emptyEl).toBeTruthy();
@@ -512,27 +511,25 @@ describe('StoresPage', () => {
     });
 
     it('should NOT show empty message when loading', () => {
+      const storeService = TestBed.inject(CompanyStoreService) as unknown as MockCompanyStoreService;
+      storeService.getStores = vi.fn().mockReturnValue(NEVER);
+
       component.onCompanyChange('company-1');
       component.onSelectCountry(mockAssignedCountries[0]);
       component.onSelectRegion(mockRegions[0]);
       component.onSelectZone(mockZones[0]);
-      const storeService = TestBed.inject(CompanyStoreService) as unknown as MockCompanyStoreService;
-      (storeService as any)._stores.set([]);
-      (storeService as any)._loading.set(true);
       fixture.detectChanges();
 
       const emptyEl = fixture.nativeElement.querySelector('.empty-state');
       expect(emptyEl).toBeNull();
     });
 
-    it('should have stores-grid container', () => {
+    it('should have stores-grid container', async () => {
       component.onCompanyChange('company-1');
       component.onSelectCountry(mockAssignedCountries[0]);
       component.onSelectRegion(mockRegions[0]);
       component.onSelectZone(mockZones[0]);
-      const storeService = TestBed.inject(CompanyStoreService) as unknown as MockCompanyStoreService;
-      storeService.getStores('company-1', 'cc-1', 'reg-1', 'zone-1');
-      fixture.detectChanges();
+      await settle();
 
       const grid = fixture.nativeElement.querySelector('.stores-grid');
       expect(grid).toBeTruthy();

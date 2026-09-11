@@ -1,5 +1,5 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal, OnInit } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
+import { ChangeDetectionStrategy, Component, computed, DestroyRef, effect, inject, signal } from '@angular/core';
+import { rxResource, takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
@@ -7,7 +7,8 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { PageHeader } from '@shared/ui';
-import { map } from 'rxjs/operators';
+import { of } from 'rxjs';
+import { catchError, map } from 'rxjs/operators';
 import { CompanyService } from '../../../companies/data/company.service';
 import { CompanyCountryService } from '../../../countries/data/company-country.service';
 import { CompanyRegionService } from '../../data/company-region.service';
@@ -31,26 +32,57 @@ import { CompanyRegion } from '../../models/region.models';
   templateUrl: './regions-page.html',
   styleUrl: './regions-page.scss',
 })
-export class RegionsPage implements OnInit {
-  private router = inject(Router);
-  private route = inject(ActivatedRoute);
-  private companyService = inject(CompanyService);
-  companyCountryService = inject(CompanyCountryService);
-  companyRegionService = inject(CompanyRegionService);
+export class RegionsPage {
+  private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly companyService = inject(CompanyService);
+  private readonly companyCountryService = inject(CompanyCountryService);
+  private readonly companyRegionService = inject(CompanyRegionService);
 
-  companies = toSignal(
+  readonly companies = toSignal(
     this.companyService.getCompanies(0, 1000).pipe(map((page) => page.content)),
     { initialValue: [] },
   );
 
-  selectedCompanyId = signal<string | null>(null);
-  selectedCountry = signal<CompanyCountry | null>(null);
+  // ─── Selection state (pre-seeded from query params at construction) ───
+  readonly selectedCompanyId = signal<string | null>(
+    this.route.snapshot.queryParamMap.get('companyId'),
+  );
+  readonly selectedCountry = signal<CompanyCountry | null>(null);
+
+  /** `countryId` query param captured once at construction for pre-selection. */
+  private readonly initialCountryId = signal<string | null>(
+    this.route.snapshot.queryParamMap.get('countryId'),
+  );
 
   // ─── Filter state ────────────────────────────────────────────
-  showDisabled = signal(false);
+  readonly showDisabled = signal(false);
 
-  filteredRegions = computed(() => {
-    const all = this.companyRegionService.regions();
+  // ─── Reactive data flow: each level is keyed on the selection above it ───
+  readonly countriesResource = rxResource({
+    params: () => this.selectedCompanyId() || undefined,
+    stream: ({ params: companyId }) =>
+      this.companyCountryService
+        .getCountries(companyId)
+        .pipe(catchError(() => of([] as CompanyCountry[]))),
+    defaultValue: [] as CompanyCountry[],
+  });
+
+  readonly regionsResource = rxResource({
+    params: () => this.selectedCountry() ?? undefined,
+    stream: ({ params: country }) =>
+      this.companyRegionService
+        .getRegions(country.companyId, country.id)
+        .pipe(catchError(() => of([] as CompanyRegion[]))),
+    defaultValue: [] as CompanyRegion[],
+  });
+
+  /** Friendly error message owned by the service (set on load failure). */
+  readonly regionsError = computed(() => this.companyRegionService.error());
+
+  readonly filteredRegions = computed(() => {
+    const all = this.regionsResource.value();
     if (this.showDisabled()) return all;
     return all.filter((r) => r.enabled);
   });
@@ -60,24 +92,20 @@ export class RegionsPage implements OnInit {
     return a?.id === b?.id;
   };
 
-  // ─── Lifecycle ───────────────────────────────────────────────
+  /** Guard so the query-param pre-selection runs exactly once. */
+  private countryPreselected = false;
 
-  ngOnInit(): void {
-    const companyId = this.route.snapshot.queryParamMap.get('companyId');
-    const countryId = this.route.snapshot.queryParamMap.get('countryId');
-
-    if (companyId) {
-      this.selectedCompanyId.set(companyId);
-      this.companyCountryService.getCountries(companyId).subscribe((countries) => {
-        if (countryId) {
-          const cc = countries.find((c) => c.id === countryId);
-          if (cc) {
-            this.selectedCountry.set(cc);
-            this.companyRegionService.getRegions(cc.companyId, cc.id).subscribe();
-          }
-        }
-      });
-    }
+  constructor() {
+    // Pre-select the country from the query param once its countries resolve.
+    effect(() => {
+      const countryId = this.initialCountryId();
+      if (!countryId || this.countryPreselected) return;
+      const country = this.countriesResource.value().find((c) => c.id === countryId);
+      if (country) {
+        this.countryPreselected = true;
+        this.selectedCountry.set(country);
+      }
+    });
   }
 
   // ─── Event handlers ──────────────────────────────────────────
@@ -85,14 +113,10 @@ export class RegionsPage implements OnInit {
   onCompanyChange(companyId: string): void {
     this.selectedCompanyId.set(companyId);
     this.selectedCountry.set(null);
-    if (companyId) {
-      this.companyCountryService.getCountries(companyId).subscribe();
-    }
   }
 
   onSelectCountry(cc: CompanyCountry): void {
     this.selectedCountry.set(cc);
-    this.companyRegionService.getRegions(cc.companyId, cc.id).subscribe();
   }
 
   onCreateRegion(): void {
@@ -111,9 +135,7 @@ export class RegionsPage implements OnInit {
 
   /** Bridge: the card emits a region ID; look up the full region and delegate. */
   onCardEditRegion(regionId: string): void {
-    const region = this.companyRegionService
-      .regions()
-      .find((r) => r.id === regionId);
+    const region = this.regionsResource.value().find((r) => r.id === regionId);
     if (region) {
       this.onEditRegion(region);
     }
@@ -124,7 +146,8 @@ export class RegionsPage implements OnInit {
     if (!cc) return;
     this.companyRegionService
       .removeRegion(cc.companyId, cc.id, regionId)
-      .subscribe();
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.regionsResource.reload());
   }
 
   onEnableRegion(regionId: string): void {
@@ -132,7 +155,8 @@ export class RegionsPage implements OnInit {
     if (!cc) return;
     this.companyRegionService
       .enableRegion(cc.companyId, cc.id, regionId)
-      .subscribe();
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.regionsResource.reload());
   }
 
   /**

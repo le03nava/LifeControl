@@ -3,7 +3,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { signal } from '@angular/core';
-import { of } from 'rxjs';
+import { NEVER, of } from 'rxjs';
 import { ActivatedRoute, Router } from '@angular/router';
 import { RegionsPage } from './regions-page';
 import { CompanyService } from '../../../companies/data/company.service';
@@ -182,6 +182,13 @@ describe('RegionsPage', () => {
     fixture.detectChanges();
   });
 
+  // Flush the reactive resource pipeline: trigger CD, await async resolution, re-render.
+  async function settle(): Promise<void> {
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  }
+
   // ─── Basic creation and initial state ────────────────────────
 
   it('should create', () => {
@@ -230,6 +237,7 @@ describe('RegionsPage', () => {
     ) as unknown as MockCompanyCountryService;
 
     component.onCompanyChange('company-1');
+    fixture.detectChanges();
 
     expect(companyCountryService.getCountries).toHaveBeenCalledWith('company-1');
   });
@@ -240,6 +248,7 @@ describe('RegionsPage', () => {
     ) as unknown as MockCompanyCountryService;
 
     component.onCompanyChange('');
+    fixture.detectChanges();
 
     expect(companyCountryService.getCountries).not.toHaveBeenCalled();
   });
@@ -261,6 +270,7 @@ describe('RegionsPage', () => {
     const mockCC = mockAssignedCountries[0];
 
     component.onSelectCountry(mockCC);
+    fixture.detectChanges();
 
     expect(companyRegionService.getRegions).toHaveBeenCalledWith(
       mockCC.companyId,
@@ -279,6 +289,7 @@ describe('RegionsPage', () => {
     expect(component.selectedCountry()).toBe(firstCC);
 
     component.onSelectCountry(secondCC);
+    fixture.detectChanges();
     expect(component.selectedCountry()).toBe(secondCC);
     expect(companyRegionService.getRegions).toHaveBeenCalledWith(
       secondCC.companyId,
@@ -322,10 +333,11 @@ describe('RegionsPage', () => {
 
   // ─── onCardEditRegion ────────────────────────────────────────
 
-  it('should navigate to edit when onCardEditRegion finds the region', () => {
+  it('should navigate to edit when onCardEditRegion finds the region', async () => {
     const router = TestBed.inject(Router) as unknown as { navigate: ReturnType<typeof vi.fn> };
 
     component.onSelectCountry(mockAssignedCountries[0]);
+    await settle();
     component.onCardEditRegion('r-2');
 
     expect(router.navigate).toHaveBeenCalledWith(['/companies/regions/edit', 'r-2'], {
@@ -429,14 +441,16 @@ describe('RegionsPage', () => {
 
   // ─── filteredRegions ─────────────────────────────────────────
 
-  it('should show only enabled regions by default', () => {
+  it('should show only enabled regions by default', async () => {
     component.onSelectCountry(mockAssignedCountries[0]);
+    await settle();
     expect(component.filteredRegions().length).toBe(2);
     expect(component.filteredRegions().every((r) => r.enabled)).toBe(true);
   });
 
-  it('should show all regions when showDisabled is true', () => {
+  it('should show all regions when showDisabled is true', async () => {
     component.onSelectCountry(mockAssignedCountries[0]);
+    await settle();
     component.showDisabled.set(true);
     expect(component.filteredRegions().length).toBe(3);
   });
@@ -453,7 +467,7 @@ describe('RegionsPage', () => {
     it('should show header with title, toggle, and Nueva Región button when country is selected', async () => {
       component.onCompanyChange('company-1');
       component.onSelectCountry(mockAssignedCountries[0]);
-      fixture.detectChanges();
+      await settle();
 
       const headerRow = fixture.nativeElement.querySelector('app-page-header');
       expect(headerRow).toBeTruthy();
@@ -464,18 +478,19 @@ describe('RegionsPage', () => {
       expect(toggle.textContent).toContain('Mostrar deshabilitadas');
     });
 
-    it('should render an app-regions-card for each enabled region', () => {
+    it('should render an app-regions-card for each enabled region', async () => {
       component.onCompanyChange('company-1');
       component.onSelectCountry(mockAssignedCountries[0]);
-      fixture.detectChanges();
+      await settle();
 
       const cards = fixture.nativeElement.querySelectorAll('app-regions-card');
       expect(cards.length).toBe(2);
     });
 
-    it('should render cards for all regions when showDisabled is on', () => {
+    it('should render cards for all regions when showDisabled is on', async () => {
       component.onCompanyChange('company-1');
       component.onSelectCountry(mockAssignedCountries[0]);
+      await settle();
       component.showDisabled.set(true);
       fixture.detectChanges();
 
@@ -483,10 +498,10 @@ describe('RegionsPage', () => {
       expect(cards.length).toBe(3);
     });
 
-    it('should pass the correct region data to each card', () => {
+    it('should pass the correct region data to each card', async () => {
       component.onCompanyChange('company-1');
       component.onSelectCountry(mockAssignedCountries[0]);
-      fixture.detectChanges();
+      await settle();
 
       const cards = fixture.debugElement.queryAll(By.directive(RegionsCard));
       expect(cards.length).toBe(2);
@@ -494,10 +509,10 @@ describe('RegionsPage', () => {
       expect(cards[1].componentInstance.region()).toEqual(mockRegions[1]);
     });
 
-    it('should have a CSS grid container wrapping the cards', () => {
+    it('should have a CSS grid container wrapping the cards', async () => {
       component.onCompanyChange('company-1');
       component.onSelectCountry(mockAssignedCountries[0]);
-      fixture.detectChanges();
+      await settle();
 
       const grid = fixture.nativeElement.querySelector('.regions-grid');
       expect(grid).toBeTruthy();
@@ -505,9 +520,10 @@ describe('RegionsPage', () => {
       expect(cards.length).toBe(2);
     });
 
-    it('should display error message when error is set', () => {
+    it('should display error message when error is set', async () => {
       component.onCompanyChange('company-1');
       component.onSelectCountry(mockAssignedCountries[0]);
+      await settle();
       const companyRegionService = TestBed.inject(
         CompanyRegionService,
       ) as unknown as MockCompanyRegionService;
@@ -520,12 +536,13 @@ describe('RegionsPage', () => {
     });
 
     it('should display loading text when loading', () => {
-      component.onCompanyChange('company-1');
-      component.onSelectCountry(mockAssignedCountries[0]);
       const companyRegionService = TestBed.inject(
         CompanyRegionService,
       ) as unknown as MockCompanyRegionService;
-      companyRegionService._loading.set(true);
+      companyRegionService.getRegions = vi.fn().mockReturnValue(NEVER);
+
+      component.onCompanyChange('company-1');
+      component.onSelectCountry(mockAssignedCountries[0]);
       fixture.detectChanges();
 
       const loadingEl = fixture.nativeElement.querySelector('.loading-text');
@@ -533,14 +550,15 @@ describe('RegionsPage', () => {
       expect(loadingEl.textContent).toContain('Cargando regiones');
     });
 
-    it('should show empty message when no regions and not loading', () => {
-      component.onCompanyChange('company-1');
-      component.onSelectCountry(mockAssignedCountries[0]);
+    it('should show empty message when no regions and not loading', async () => {
       const companyRegionService = TestBed.inject(
         CompanyRegionService,
       ) as unknown as MockCompanyRegionService;
-      companyRegionService._regions.set([]);
-      fixture.detectChanges();
+      companyRegionService.getRegions = vi.fn().mockReturnValue(of([]));
+
+      component.onCompanyChange('company-1');
+      component.onSelectCountry(mockAssignedCountries[0]);
+      await settle();
 
       const emptyEl = fixture.nativeElement.querySelector('.empty-state');
       expect(emptyEl).toBeTruthy();
@@ -548,13 +566,13 @@ describe('RegionsPage', () => {
     });
 
     it('should NOT show empty message when loading', () => {
-      component.onCompanyChange('company-1');
-      component.onSelectCountry(mockAssignedCountries[0]);
       const companyRegionService = TestBed.inject(
         CompanyRegionService,
       ) as unknown as MockCompanyRegionService;
-      companyRegionService._regions.set([]);
-      companyRegionService._loading.set(true);
+      companyRegionService.getRegions = vi.fn().mockReturnValue(NEVER);
+
+      component.onCompanyChange('company-1');
+      component.onSelectCountry(mockAssignedCountries[0]);
       fixture.detectChanges();
 
       const emptyEl = fixture.nativeElement.querySelector('.empty-state');

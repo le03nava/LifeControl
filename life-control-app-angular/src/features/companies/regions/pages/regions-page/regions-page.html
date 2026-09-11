@@ -21,10 +21,10 @@
       <mat-select
         [value]="selectedCountry()"
         [compareWith]="compareCompanyCountry"
-        [disabled]="companyCountryService.assignedCountries().length === 0"
+        [disabled]="countriesResource.value().length === 0"
         (selectionChange)="onSelectCountry($event.value)"
       >
-        @for (cc of companyCountryService.assignedCountries(); track cc.id) {
+        @for (cc of countriesResource.value(); track cc.id) {
           <mat-option [value]="cc">
             {{ cc.countryName }}
           </mat-option>
@@ -43,14 +43,14 @@
 
   @if (selectedCountry()) {
     <div class="regions-grid">
-      @if (companyRegionService.error(); as errorMsg) {
+      @if (regionsError(); as errorMsg) {
         <div class="error-state">
           <mat-icon fontIcon="error" />
           <p>{{ errorMsg }}</p>
         </div>
       }
 
-      @if (companyRegionService.loading()) {
+      @if (regionsResource.isLoading()) {
         <p class="loading-text">Cargando regiones...</p>
       }
 
@@ -64,7 +64,7 @@
             />
           </div>
         }
-      } @else if (!companyRegionService.loading()) {
+      } @else if (!regionsResource.isLoading()) {
         <div class="empty-state">
           <p>No hay regiones registradas para este país</p>
         </div>
