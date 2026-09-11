@@ -3,7 +3,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { signal } from '@angular/core';
-import { of } from 'rxjs';
+import { NEVER, of } from 'rxjs';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ZonesPage } from './zones-page';
 import { CompanyService } from '../../../companies/data/company.service';
@@ -211,6 +211,13 @@ describe('ZonesPage', () => {
     fixture.detectChanges();
   });
 
+  // Flush the reactive resource pipeline: trigger CD, await async resolution, re-render.
+  async function settle(): Promise<void> {
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  }
+
   // ─── Basic creation and initial state ────────────────────────
 
   it('should create', () => {
@@ -266,6 +273,7 @@ describe('ZonesPage', () => {
     ) as unknown as MockCompanyCountryService;
 
     component.onCompanyChange('company-1');
+    fixture.detectChanges();
 
     expect(companyCountryService.getCountries).toHaveBeenCalledWith('company-1');
   });
@@ -276,6 +284,7 @@ describe('ZonesPage', () => {
     ) as unknown as MockCompanyCountryService;
 
     component.onCompanyChange('');
+    fixture.detectChanges();
 
     expect(companyCountryService.getCountries).not.toHaveBeenCalled();
   });
@@ -297,6 +306,7 @@ describe('ZonesPage', () => {
     const mockCC = mockAssignedCountries[0];
 
     component.onSelectCountry(mockCC);
+    fixture.detectChanges();
 
     expect(companyRegionService.getRegions).toHaveBeenCalledWith(
       mockCC.companyId,
@@ -329,6 +339,7 @@ describe('ZonesPage', () => {
 
     component.onSelectCountry(mockAssignedCountries[0]);
     component.onSelectRegion(mockRegions[0]);
+    fixture.detectChanges();
 
     expect(companyZoneService.getZones).toHaveBeenCalledWith(
       'company-1',
@@ -374,11 +385,12 @@ describe('ZonesPage', () => {
 
   // ─── onCardEditZone ──────────────────────────────────────────
 
-  it('should navigate to edit when onCardEditZone finds the zone', () => {
+  it('should navigate to edit when onCardEditZone finds the zone', async () => {
     const router = TestBed.inject(Router) as unknown as { navigate: ReturnType<typeof vi.fn> };
 
     component.onSelectCountry(mockAssignedCountries[0]);
     component.onSelectRegion(mockRegions[0]);
+    await settle();
     component.onCardEditZone('zone-2');
 
     expect(router.navigate).toHaveBeenCalledWith(['/companies/zones/edit', 'zone-2'], {
@@ -516,16 +528,18 @@ describe('ZonesPage', () => {
 
   // ─── filteredZones ─────────────────────────────────────────
 
-  it('should show only enabled zones by default', () => {
+  it('should show only enabled zones by default', async () => {
     component.onSelectCountry(mockAssignedCountries[0]);
     component.onSelectRegion(mockRegions[0]);
+    await settle();
     expect(component.filteredZones().length).toBe(2);
     expect(component.filteredZones().every((z) => z.enabled)).toBe(true);
   });
 
-  it('should show all zones when showDisabled is true', () => {
+  it('should show all zones when showDisabled is true', async () => {
     component.onSelectCountry(mockAssignedCountries[0]);
     component.onSelectRegion(mockRegions[0]);
+    await settle();
     component.showDisabled.set(true);
     expect(component.filteredZones().length).toBe(3);
   });
@@ -543,27 +557,28 @@ describe('ZonesPage', () => {
       component.onCompanyChange('company-1');
       component.onSelectCountry(mockAssignedCountries[0]);
       component.onSelectRegion(mockRegions[0]);
-      fixture.detectChanges();
+      await settle();
 
       const headerRow = fixture.nativeElement.querySelector('app-page-header');
       expect(headerRow).toBeTruthy();
       expect(headerRow.textContent).toContain('Nueva Zona');
     });
 
-    it('should render an app-zones-card for each enabled zone', () => {
+    it('should render an app-zones-card for each enabled zone', async () => {
       component.onCompanyChange('company-1');
       component.onSelectCountry(mockAssignedCountries[0]);
       component.onSelectRegion(mockRegions[0]);
-      fixture.detectChanges();
+      await settle();
 
       const cards = fixture.nativeElement.querySelectorAll('app-zones-card');
       expect(cards.length).toBe(2);
     });
 
-    it('should render cards for all zones when showDisabled is on', () => {
+    it('should render cards for all zones when showDisabled is on', async () => {
       component.onCompanyChange('company-1');
       component.onSelectCountry(mockAssignedCountries[0]);
       component.onSelectRegion(mockRegions[0]);
+      await settle();
       component.showDisabled.set(true);
       fixture.detectChanges();
 
@@ -571,11 +586,11 @@ describe('ZonesPage', () => {
       expect(cards.length).toBe(3);
     });
 
-    it('should pass the correct zone data to each card', () => {
+    it('should pass the correct zone data to each card', async () => {
       component.onCompanyChange('company-1');
       component.onSelectCountry(mockAssignedCountries[0]);
       component.onSelectRegion(mockRegions[0]);
-      fixture.detectChanges();
+      await settle();
 
       const cards = fixture.debugElement.queryAll(By.directive(ZonesCard));
       expect(cards.length).toBe(2);
@@ -583,11 +598,11 @@ describe('ZonesPage', () => {
       expect(cards[1].componentInstance.zone()).toEqual(mockZones[1]);
     });
 
-    it('should have a CSS grid container wrapping the cards', () => {
+    it('should have a CSS grid container wrapping the cards', async () => {
       component.onCompanyChange('company-1');
       component.onSelectCountry(mockAssignedCountries[0]);
       component.onSelectRegion(mockRegions[0]);
-      fixture.detectChanges();
+      await settle();
 
       const grid = fixture.nativeElement.querySelector('.zones-grid');
       expect(grid).toBeTruthy();
@@ -595,10 +610,11 @@ describe('ZonesPage', () => {
       expect(cards.length).toBe(2);
     });
 
-    it('should display error message when error is set', () => {
+    it('should display error message when error is set', async () => {
       component.onCompanyChange('company-1');
       component.onSelectCountry(mockAssignedCountries[0]);
       component.onSelectRegion(mockRegions[0]);
+      await settle();
       const companyZoneService = TestBed.inject(
         CompanyZoneService,
       ) as unknown as MockCompanyZoneService;
@@ -611,13 +627,14 @@ describe('ZonesPage', () => {
     });
 
     it('should display loading text when loading', () => {
-      component.onCompanyChange('company-1');
-      component.onSelectCountry(mockAssignedCountries[0]);
-      component.onSelectRegion(mockRegions[0]);
       const companyZoneService = TestBed.inject(
         CompanyZoneService,
       ) as unknown as MockCompanyZoneService;
-      companyZoneService._loading.set(true);
+      companyZoneService.getZones = vi.fn().mockReturnValue(NEVER);
+
+      component.onCompanyChange('company-1');
+      component.onSelectCountry(mockAssignedCountries[0]);
+      component.onSelectRegion(mockRegions[0]);
       fixture.detectChanges();
 
       const loadingEl = fixture.nativeElement.querySelector('.loading-text');
@@ -625,15 +642,16 @@ describe('ZonesPage', () => {
       expect(loadingEl.textContent).toContain('Cargando zonas');
     });
 
-    it('should show empty message when no zones and not loading', () => {
-      component.onCompanyChange('company-1');
-      component.onSelectCountry(mockAssignedCountries[0]);
-      component.onSelectRegion(mockRegions[0]);
+    it('should show empty message when no zones and not loading', async () => {
       const companyZoneService = TestBed.inject(
         CompanyZoneService,
       ) as unknown as MockCompanyZoneService;
-      companyZoneService._zones.set([]);
-      fixture.detectChanges();
+      companyZoneService.getZones = vi.fn().mockReturnValue(of([]));
+
+      component.onCompanyChange('company-1');
+      component.onSelectCountry(mockAssignedCountries[0]);
+      component.onSelectRegion(mockRegions[0]);
+      await settle();
 
       const emptyEl = fixture.nativeElement.querySelector('.empty-state');
       expect(emptyEl).toBeTruthy();
@@ -641,14 +659,14 @@ describe('ZonesPage', () => {
     });
 
     it('should NOT show empty message when loading', () => {
-      component.onCompanyChange('company-1');
-      component.onSelectCountry(mockAssignedCountries[0]);
-      component.onSelectRegion(mockRegions[0]);
       const companyZoneService = TestBed.inject(
         CompanyZoneService,
       ) as unknown as MockCompanyZoneService;
-      companyZoneService._zones.set([]);
-      companyZoneService._loading.set(true);
+      companyZoneService.getZones = vi.fn().mockReturnValue(NEVER);
+
+      component.onCompanyChange('company-1');
+      component.onSelectCountry(mockAssignedCountries[0]);
+      component.onSelectRegion(mockRegions[0]);
       fixture.detectChanges();
 
       const emptyEl = fixture.nativeElement.querySelector('.empty-state');

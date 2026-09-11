@@ -168,6 +168,7 @@ export class StatusTransition implements OnInit {
 
     this.salesOrderService
       .updateStatus(id, { statusId: transitionId })
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: () => {
           this.changing.set(false);

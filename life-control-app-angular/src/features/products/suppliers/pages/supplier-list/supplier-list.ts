@@ -89,7 +89,7 @@ export class SupplierList {
     const dialogRef = this.dialog.open(DeleteSupplierDialogComponent, {
       data: { supplierName: supplierInfo.name },
     });
-    dialogRef.afterClosed().subscribe((result: boolean) => {
+    dialogRef.afterClosed().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((result: boolean) => {
       if (result) {
         this.supplierService.deleteSupplier(supplierInfo.id).pipe(
           takeUntilDestroyed(this.destroyRef),

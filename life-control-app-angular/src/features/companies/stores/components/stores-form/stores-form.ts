@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  DestroyRef,
   effect,
   inject,
   input,
@@ -15,7 +16,9 @@ import {
   ReactiveFormsModule,
   Validators,
 } from '@angular/forms';
-import { Subscription } from 'rxjs';
+import { Subscription, of } from 'rxjs';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { catchError } from 'rxjs/operators';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
@@ -57,6 +60,7 @@ import { AddressFormComponent } from '@shared/ui/address-form';
   styleUrl: './stores-form.scss',
 })
 export class StoresForm {
+  private readonly destroyRef = inject(DestroyRef);
   private companyZoneService = inject(CompanyZoneService);
   private countryService = inject(CountryService);
 
@@ -91,8 +95,10 @@ export class StoresForm {
   readonly zones = this._zones.asReadonly();
 
   // ─── Country catalog for address country selector ────────────
-  private _countriesCatalog = signal<Country[]>([]);
-  readonly countriesCatalog = this._countriesCatalog.asReadonly();
+  readonly countriesCatalog = toSignal(
+    this.countryService.getCountries().pipe(catchError(() => of([] as Country[]))),
+    { initialValue: [] as Country[] },
+  );
 
   // ─── Self-contained FormGroup ───────────────────────────────
   formGroup = new FormGroup<StoreControl>({
@@ -157,10 +163,13 @@ export class StoresForm {
     const countryId = this.selectedCompanyCountryId();
     if (!companyId || !countryId) return;
 
-    this.companyZoneService.getZones(companyId, countryId, regionId).subscribe({
-      next: (zones) => this._zones.set(zones),
-      error: () => this._zones.set([]),
-    });
+    this.companyZoneService
+      .getZones(companyId, countryId, regionId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (zones) => this._zones.set(zones),
+        error: () => this._zones.set([]),
+      });
   }
 
   // ─── Helpers for mat-select compareWith ──────────────────────
@@ -178,12 +187,6 @@ export class StoresForm {
 
   // ─── Constructor ────────────────────────────────────────────
   constructor() {
-    // --- Load country catalog for address country selector ---
-    this.countryService.getCountries().subscribe({
-      next: (countries) => this._countriesCatalog.set(countries),
-      error: () => this._countriesCatalog.set([]),
-    });
-
     // --- Edit mode: patch form and pre-select hierarchy ---
     effect(() => {
       const store = this.storeToEdit();

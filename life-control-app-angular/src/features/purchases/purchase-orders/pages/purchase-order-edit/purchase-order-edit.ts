@@ -98,7 +98,7 @@ export class PurchaseOrderEdit implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((supplierId) => {
         if (supplierId) {
-          this.productService.getProductsBySupplier(supplierId).subscribe({
+          this.productService.getProductsBySupplier(supplierId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
             next: (products) =>
               this.supplierProducts.set(
                 products.map((p) => ({
@@ -215,7 +215,7 @@ export class PurchaseOrderEdit implements OnInit {
 
     if (this.isEditMode()) {
       const id = this.orderId()!;
-      this.purchaseOrderService.update(id, request).subscribe({
+      this.purchaseOrderService.update(id, request).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: () => {
           this.saving.set(false);
           this.router.navigate(['/purchases/orders']);
@@ -226,7 +226,7 @@ export class PurchaseOrderEdit implements OnInit {
         },
       });
     } else {
-      this.purchaseOrderService.create(request).subscribe({
+      this.purchaseOrderService.create(request).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (created) => {
           this.saving.set(false);
           this.router.navigate(['/purchases/orders', created.id]);

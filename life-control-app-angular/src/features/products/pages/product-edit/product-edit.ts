@@ -1,6 +1,7 @@
-import { ChangeDetectionStrategy, Component, inject, signal, OnInit } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal, OnInit } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router } from '@angular/router';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ProductService } from '../../data/product.service';
 import { ApiError } from '@shared/models';
 import { Product, ProductControl } from '../../models/product.models';
@@ -28,6 +29,7 @@ export class ProductEdit implements OnInit {
   private productService = inject(ProductService);
   private fb = inject(NonNullableFormBuilder);
   private router = inject(Router);
+  private destroyRef = inject(DestroyRef);
 
   productId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
 
@@ -46,7 +48,7 @@ export class ProductEdit implements OnInit {
   }
 
   private loadProduct(id: string): void {
-    this.productService.getProductById(id).subscribe({
+    this.productService.getProductById(id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (product) => {
         this.productForm.set(
           this.fb.group({
@@ -83,7 +85,7 @@ export class ProductEdit implements OnInit {
   onSaveProduct(productData: Product): void {
     if (productData.id === '') {
       const { id, ...createData } = productData;
-      this.productService.createProduct(createData as Product).subscribe({
+      this.productService.createProduct(createData as Product).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (createdProduct) => {
           this.router.navigate(['/products/edit', createdProduct.id]);
         },
@@ -92,7 +94,7 @@ export class ProductEdit implements OnInit {
         },
       });
     } else {
-      this.productService.updateProduct(productData.id, productData).subscribe({
+      this.productService.updateProduct(productData.id, productData).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: () => {
           this.router.navigate(['/products']);
         },

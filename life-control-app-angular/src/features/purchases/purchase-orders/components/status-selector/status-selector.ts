@@ -161,6 +161,7 @@ export class StatusSelector implements OnInit {
 
     this.purchaseOrderService
       .updateStatus(id, { statusId: transitionId })
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (updated) => {
           this.changing.set(false);

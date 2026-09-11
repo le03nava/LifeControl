@@ -1,5 +1,5 @@
-import { ChangeDetectionStrategy, Component, inject, signal, OnInit } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
+import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal, OnInit } from '@angular/core';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
@@ -29,6 +29,7 @@ import { CountriesCard } from '../../components/countries-card/countries-card';
 export class CountriesPage implements OnInit {
   private router = inject(Router);
   private route = inject(ActivatedRoute);
+  private destroyRef = inject(DestroyRef);
   private companyService = inject(CompanyService);
   companyCountryService = inject(CompanyCountryService);
 
@@ -45,7 +46,9 @@ export class CountriesPage implements OnInit {
     const companyId = this.route.snapshot.queryParamMap.get('companyId');
     if (companyId) {
       this.selectedCompanyId.set(companyId);
-      this.companyCountryService.getCountries(companyId).subscribe();
+      this.companyCountryService.getCountries(companyId)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe();
     }
   }
 
@@ -54,7 +57,9 @@ export class CountriesPage implements OnInit {
   onCompanyChange(companyId: string): void {
     this.selectedCompanyId.set(companyId);
     if (companyId) {
-      this.companyCountryService.getCountries(companyId).subscribe();
+      this.companyCountryService.getCountries(companyId)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe();
     }
   }
 
@@ -83,6 +88,7 @@ export class CountriesPage implements OnInit {
     if (!companyId) return;
     this.companyCountryService
       .removeCountry(companyId, ccId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe();
   }
 }

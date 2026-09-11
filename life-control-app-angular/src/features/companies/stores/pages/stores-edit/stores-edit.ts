@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   effect,
   inject,
   signal,
@@ -18,7 +19,7 @@ import { CompanyRegion } from '../../../regions/models/region.models';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ApiError } from '@shared/models';
 import { map } from 'rxjs/operators';
-import { toSignal } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 
 @Component({
   selector: 'app-stores-edit',
@@ -36,6 +37,7 @@ export class StoresEdit implements OnInit {
   private companyRegionService = inject(CompanyRegionService);
   private companyZoneService = inject(CompanyZoneService);
   private companyStoreService = inject(CompanyStoreService);
+  private destroyRef = inject(DestroyRef);
 
   // ─── Route data ────────────────────────────────────────
   storeId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
@@ -86,7 +88,7 @@ export class StoresEdit implements OnInit {
         this.companyRegionService.getRegions(
           storeFromState.companyId,
           storeFromState.companyCountryId,
-        ).subscribe(regions => this.regionList.set(regions));
+        ).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(regions => this.regionList.set(regions));
       } else {
         // Fallback: redirect to stores list if no state
         this.router.navigate(['/companies/stores']);
@@ -105,10 +107,10 @@ export class StoresEdit implements OnInit {
         this.initialCountryId.set(countryId);
         this.initialRegionId.set(regionId);
         this.initialZoneId.set(zoneId);
-        this.companyCountryService.getCountries(companyId).subscribe();
+        this.companyCountryService.getCountries(companyId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
         if (countryId) {
           this.companyRegionService.getRegions(companyId, countryId)
-            .subscribe(regions => this.regionList.set(regions));
+            .pipe(takeUntilDestroyed(this.destroyRef)).subscribe(regions => this.regionList.set(regions));
         }
       }
     }
@@ -116,14 +118,14 @@ export class StoresEdit implements OnInit {
 
   onSelectedCompanyChange(companyId: string): void {
     if (companyId) {
-      this.companyCountryService.getCountries(companyId).subscribe();
+      this.companyCountryService.getCountries(companyId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
     }
   }
 
   onSelectedCountryChange(cc: any): void {
     if (cc?.companyId && cc?.id) {
       this.companyRegionService.getRegions(cc.companyId, cc.id)
-        .subscribe(regions => this.regionList.set(regions));
+        .pipe(takeUntilDestroyed(this.destroyRef)).subscribe(regions => this.regionList.set(regions));
     }
   }
 
@@ -137,7 +139,7 @@ export class StoresEdit implements OnInit {
       if (!storeId) return;
       this.companyStoreService.updateStore(
         event.companyId, event.countryId, event.regionId, event.zoneId, storeId, event.request,
-      ).subscribe({
+      ).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: () =>
           this.router.navigate(['/companies/stores'], {
             queryParams: { companyId: event.companyId, countryId: event.countryId, regionId: event.regionId, zoneId: event.zoneId },
@@ -147,7 +149,7 @@ export class StoresEdit implements OnInit {
     } else {
       this.companyStoreService.addStore(
         event.companyId, event.countryId, event.regionId, event.zoneId, event.request,
-      ).subscribe({
+      ).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: () =>
           this.router.navigate(['/companies/stores'], {
             queryParams: { companyId: event.companyId, countryId: event.countryId, regionId: event.regionId, zoneId: event.zoneId },

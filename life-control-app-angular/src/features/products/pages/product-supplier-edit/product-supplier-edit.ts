@@ -196,6 +196,7 @@ export class ProductSupplierEdit implements OnInit {
       const psId = this.psId()!;
       this.productSupplierService
         .updateSupplier(productId, psId, data)
+        .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
           next: () =>
             this.router.navigate([
@@ -208,6 +209,7 @@ export class ProductSupplierEdit implements OnInit {
     } else {
       this.productSupplierService
         .addSupplier(productId, data)
+        .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
           next: () =>
             this.router.navigate([

@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, inject, OnInit, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { NonNullableFormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -28,6 +29,7 @@ import { RoleRequest } from '../../models/users-admin.models';
 export class RoleForm implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly service = inject(UsersAdminService);
   private readonly notification = inject(NotificationService);
   private readonly fb = inject(NonNullableFormBuilder);
@@ -52,7 +54,7 @@ export class RoleForm implements OnInit {
   }
 
   private loadRole(name: string): void {
-    this.service.getRealmRole(name).subscribe({
+    this.service.getRealmRole(name).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (role) => {
         this.form.patchValue({
           name: role.name,
@@ -80,7 +82,7 @@ export class RoleForm implements OnInit {
 
     if (this.isEdit()) {
       const name = this.existingName()!;
-      this.service.updateRealmRole(name, request).subscribe({
+      this.service.updateRealmRole(name, request).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: () => {
           this.notification.showSuccess(`Role "${request.name}" updated`);
           this.router.navigate(['../'], { relativeTo: this.route });
@@ -91,7 +93,7 @@ export class RoleForm implements OnInit {
         },
       });
     } else {
-      this.service.createRealmRole(request).subscribe({
+      this.service.createRealmRole(request).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: () => {
           this.notification.showSuccess(`Role "${request.name}" created`);
           this.router.navigate(['../'], { relativeTo: this.route });

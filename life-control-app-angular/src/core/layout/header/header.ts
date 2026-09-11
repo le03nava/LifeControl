@@ -1,6 +1,7 @@
 import { BreakpointObserver, Breakpoints } from '@angular/cdk/layout';
 import { CommonModule } from '@angular/common';
-import { ChangeDetectionStrategy, Component, computed, effect, inject, OnInit, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, DestroyRef, effect, inject, OnInit, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MatDividerModule } from '@angular/material/divider';
 import { MatIconModule } from '@angular/material/icon';
 import { MatMenuModule } from '@angular/material/menu';
@@ -36,6 +37,7 @@ import { KEYCLOAK_EVENT_SIGNAL, KeycloakEventType } from 'keycloak-angular';
 })
 export class Header implements OnInit {
   private breakpointObserver = inject(BreakpointObserver);
+  private destroyRef = inject(DestroyRef);
   private keycloak = inject(Keycloak);
   private keycloakSignal = inject(KEYCLOAK_EVENT_SIGNAL);
   private companyContext = inject(CompanyContextService);
@@ -92,9 +94,12 @@ export class Header implements OnInit {
 
   constructor() {
     // Observe breakpoint changes
-    this.breakpointObserver.observe([Breakpoints.Small, Breakpoints.XSmall]).subscribe((result) => {
-      this.isSmallScreen.set(result.matches);
-    });
+    this.breakpointObserver
+      .observe([Breakpoints.Small, Breakpoints.XSmall])
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((result) => {
+        this.isSmallScreen.set(result.matches);
+      });
 
     // Subscribe to keycloak events
     const keycloakEvent = this.keycloakSignal();
