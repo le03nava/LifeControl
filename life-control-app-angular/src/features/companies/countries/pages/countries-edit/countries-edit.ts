@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, inject, signal, OnInit } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal, OnInit } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { CompanyService } from '../../../companies/data/company.service';
 import { CompanyCountryService } from '../../data/company-country.service';
@@ -8,7 +8,7 @@ import { CompanyCountry, CountrySaveEvent } from '../../models/country.models';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ApiError } from '@shared/models';
 import { map } from 'rxjs/operators';
-import { toSignal } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 
 @Component({
   selector: 'app-countries-edit',
@@ -24,6 +24,7 @@ export class CountriesEdit implements OnInit {
   private companyService = inject(CompanyService);
   private companyCountryService = inject(CompanyCountryService);
   private countryService = inject(CountryService);
+  private destroyRef = inject(DestroyRef);
 
   // ─── Route data ────────────────────────────────────────
   countryId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
@@ -66,7 +67,7 @@ export class CountriesEdit implements OnInit {
 
     if (!id && companyId) {
       this.initialCompanyId.set(companyId);
-      this.companyCountryService.getCountries(companyId).subscribe();
+      this.companyCountryService.getCountries(companyId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
     }
   }
 
@@ -76,6 +77,7 @@ export class CountriesEdit implements OnInit {
       if (!ccId) return;
       this.companyCountryService
         .updateCountry(event.companyId, ccId, event.request)
+        .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
           next: () =>
             this.router.navigate(['/companies/countries'], {
@@ -86,6 +88,7 @@ export class CountriesEdit implements OnInit {
     } else {
       this.companyCountryService
         .addCountry(event.companyId, event.request)
+        .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
           next: () =>
             this.router.navigate(['/companies/countries'], {

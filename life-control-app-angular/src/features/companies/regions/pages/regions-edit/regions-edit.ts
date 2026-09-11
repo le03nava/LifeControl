@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, inject, signal, OnInit } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal, OnInit } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { CompanyService } from '../../../companies/data/company.service';
 import { CompanyCountryService } from '../../../countries/data/company-country.service';
@@ -8,7 +8,7 @@ import { CompanyRegion, CompanyRegionRequest, RegionSaveEvent } from '../../mode
 import { HttpErrorResponse } from '@angular/common/http';
 import { ApiError } from '@shared/models';
 import { map } from 'rxjs/operators';
-import { toSignal } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 
 @Component({
   selector: 'app-regions-edit',
@@ -24,6 +24,7 @@ export class RegionsEdit implements OnInit {
   private companyService = inject(CompanyService);
   private companyCountryService = inject(CompanyCountryService);
   private companyRegionService = inject(CompanyRegionService);
+  private destroyRef = inject(DestroyRef);
 
   // ─── Route data ────────────────────────────────────────
   regionId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
@@ -68,13 +69,13 @@ export class RegionsEdit implements OnInit {
     if (!id && companyId) {
       this.initialCompanyId.set(companyId);
       this.initialCountryId.set(countryId);
-      this.companyCountryService.getCountries(companyId).subscribe();
+      this.companyCountryService.getCountries(companyId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
     }
   }
 
   onSelectedCompanyChange(companyId: string): void {
     if (companyId) {
-      this.companyCountryService.getCountries(companyId).subscribe();
+      this.companyCountryService.getCountries(companyId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
     }
   }
 
@@ -88,6 +89,7 @@ export class RegionsEdit implements OnInit {
       if (!regionId) return;
       this.companyRegionService
         .updateRegion(event.companyId, event.countryId, regionId, event.request)
+        .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
           next: () =>
             this.router.navigate(['/companies/regions'], {
@@ -98,6 +100,7 @@ export class RegionsEdit implements OnInit {
     } else {
       this.companyRegionService
         .addRegion(event.companyId, event.countryId, event.request)
+        .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
           next: () =>
             this.router.navigate(['/companies/regions'], {
