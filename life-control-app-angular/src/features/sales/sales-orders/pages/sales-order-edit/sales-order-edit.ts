@@ -421,7 +421,7 @@ export class SalesOrderEdit implements OnInit {
       discountApplied: 0,
     };
 
-    this.salesOrderService.addItem(orderId, request).subscribe({
+    this.salesOrderService.addItem(orderId, request).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (created) => {
         this.lineItems.update((rows) => [...rows, this.toItemTableRow(created)]);
         this.savingIndex.set(null);
@@ -443,7 +443,7 @@ export class SalesOrderEdit implements OnInit {
 
     this.savingIndex.set(index);
 
-    this.salesOrderService.deleteItem(orderId, row.id).subscribe({
+    this.salesOrderService.deleteItem(orderId, row.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => {
         this.lineItems.update((items) => items.filter((_, i) => i !== index));
         this.savingIndex.set(null);
@@ -471,7 +471,7 @@ export class SalesOrderEdit implements OnInit {
       discountApplied: row.discountApplied,
     };
 
-    this.salesOrderService.updateItem(orderId, row.id, request).subscribe({
+    this.salesOrderService.updateItem(orderId, row.id, request).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (updated) => {
         this.lineItems.update((items) =>
           items.map((item, i) =>
@@ -514,7 +514,7 @@ export class SalesOrderEdit implements OnInit {
       discountApplied: row.discountApplied,
     };
 
-    this.salesOrderService.updateItem(orderId, row.id, request).subscribe({
+    this.salesOrderService.updateItem(orderId, row.id, request).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (updated) => {
         this.lineItems.update((items) =>
           items.map((item, i) =>
@@ -557,7 +557,7 @@ export class SalesOrderEdit implements OnInit {
       discountApplied: data.value,
     };
 
-    this.salesOrderService.updateItem(orderId, row.id, request).subscribe({
+    this.salesOrderService.updateItem(orderId, row.id, request).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (updated) => {
         this.lineItems.update((items) =>
           items.map((item, i) =>
@@ -642,7 +642,7 @@ export class SalesOrderEdit implements OnInit {
 
     if (this.isEditMode()) {
       const id = this.orderId()!;
-      this.salesOrderService.update(id, request).subscribe({
+      this.salesOrderService.update(id, request).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: () => {
           this.saving.set(false);
           this.router.navigate(['/sales/orders']);
@@ -653,7 +653,7 @@ export class SalesOrderEdit implements OnInit {
         },
       });
     } else {
-      this.salesOrderService.create(request).subscribe({
+      this.salesOrderService.create(request).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (created) => {
           this.saving.set(false);
           this.router.navigate(['/sales/orders', created.id]);
