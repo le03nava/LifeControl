@@ -89,7 +89,7 @@ export class CompanyList {
     const dialogRef = this.dialog.open(DeleteCompanyDialogComponent, {
       data: { companyName: companyInfo.name },
     });
-    dialogRef.afterClosed().subscribe((result: boolean) => {
+    dialogRef.afterClosed().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((result: boolean) => {
       if (result) {
         this.companyService.deleteCompany(companyInfo.id).pipe(
           takeUntilDestroyed(this.destroyRef),

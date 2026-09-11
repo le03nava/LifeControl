@@ -89,7 +89,7 @@ export class ProductList {
     const dialogRef = this.dialog.open(DeleteProductDialogComponent, {
       data: { productName: productInfo.name },
     });
-    dialogRef.afterClosed().subscribe((result: boolean) => {
+    dialogRef.afterClosed().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((result: boolean) => {
       if (result) {
         this.productService.deleteProduct(productInfo.id).pipe(
           takeUntilDestroyed(this.destroyRef),
