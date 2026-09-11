@@ -1,4 +1,4 @@
-import { Component, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 
 /**
  * Atom: Basic button component following modern Angular 20 patterns
@@ -10,6 +10,7 @@ import { Component, input, output } from '@angular/core';
  */
 @Component({
   selector: 'button[app-button]',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: `./button.html`,
   styleUrl: `./button.scss`,
   host: {

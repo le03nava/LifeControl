@@ -28,7 +28,7 @@
       </ul>
 
       <div class="nav-actions">
-        @if (authenticated) {
+        @if (authenticated()) {
           <button class="user-menu-trigger" [matMenuTriggerFor]="userMenu">
             <mat-icon>account_circle</mat-icon>
             <span class="user-name">{{ userName() }}</span>

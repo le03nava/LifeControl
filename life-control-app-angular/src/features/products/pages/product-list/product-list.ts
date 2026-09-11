@@ -1,4 +1,4 @@
-import { Component, DestroyRef, effect, inject, signal, computed } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, effect, inject, signal, computed } from '@angular/core';
 import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
 import { PageHeader } from '@shared/ui';
@@ -14,6 +14,7 @@ import { DeleteProductDialogComponent } from '../../ui/delete-product-dialog/del
 
 @Component({
   selector: 'app-product-list',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink, PageHeader, ProductsCard, MatIconModule, MatPaginatorModule, MatButtonModule, MatFormFieldModule, MatInputModule],
   templateUrl: './product-list.html',
   styleUrl: './product-list.scss',

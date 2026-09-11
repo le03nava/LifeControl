@@ -1,4 +1,4 @@
-import { Component, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 
 /**
  * Atom: Loading spinner component
@@ -9,6 +9,7 @@ import { Component, input } from '@angular/core';
  */
 @Component({
   selector: 'app-spinner',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="spinner" [attr.aria-label]="ariaLabel()" role="status" aria-live="polite">
       @if (showText()) {

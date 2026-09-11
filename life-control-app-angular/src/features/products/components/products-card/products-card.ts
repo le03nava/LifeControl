@@ -1,4 +1,4 @@
-import { Component, computed, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 import { Product } from '../../models/product.models';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
@@ -8,6 +8,7 @@ import { MatChipsModule } from '@angular/material/chips';
 @Component({
   selector: 'app-products-card',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [MatButtonModule, MatIconModule, MatCardModule, MatChipsModule],
   templateUrl: './products-card.html',
   styleUrl: './products-card.scss',

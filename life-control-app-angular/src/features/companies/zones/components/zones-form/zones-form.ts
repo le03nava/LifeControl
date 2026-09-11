@@ -1,4 +1,5 @@
 import {
+  ChangeDetectionStrategy,
   Component,
   computed,
   effect,
@@ -34,6 +35,7 @@ const ZONE_CODE_PATTERN = /^[a-zA-Z0-9-]+$/;
 @Component({
   selector: 'app-zones-form',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     ReactiveFormsModule,
     MatFormFieldModule,

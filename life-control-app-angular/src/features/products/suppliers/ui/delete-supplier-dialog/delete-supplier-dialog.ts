@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import {
   MatDialogTitle,
   MatDialogContent,
@@ -11,6 +11,7 @@ import { MatButtonModule } from '@angular/material/button';
 
 @Component({
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [MatButtonModule, MatDialogTitle, MatDialogContent, MatDialogActions, MatDialogClose],
   templateUrl: './delete-supplier-dialog.html',
 })

@@ -1,4 +1,5 @@
 import {
+  ChangeDetectionStrategy,
   Component,
   computed,
   effect,
@@ -25,6 +26,7 @@ import { Country } from '@features/companies/countries/models/country.models';
 @Component({
   selector: 'app-companies-form',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [ReactiveFormsModule, MatFormFieldModule, MatInputModule, MatButtonModule, MatSelectModule, MatSlideToggleModule, MatIconModule, AddressFormComponent],
   templateUrl: './companies-form.html',
   styleUrl: './companies-form.scss',

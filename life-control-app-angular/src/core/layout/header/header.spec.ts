@@ -126,7 +126,7 @@ describe('Header', () => {
       expect(companiesItem).toBeDefined();
       expect(companiesItem?.textLink).toBe('Companies');
       expect(items.some((i) => i.routeLink === '/users-admin')).toBe(true);
-      expect(items.length).toBe(4); // Companies + Products + Purchases + Users Admin
+      expect(items.length).toBe(5); // Companies + Sales + Products + Purchases + Users Admin
     });
 
     it('should NOT show Companies menu when user has no company client roles', () => {
@@ -149,7 +149,7 @@ describe('Header', () => {
       expect(component.isCompanyRole()).toBe(true);
       const items = component.items();
       expect(items.some((i) => i.routeLink === '/users-admin')).toBe(true);
-      expect(items.length).toBe(4); // Companies + Products + Purchases + Users Admin
+      expect(items.length).toBe(5); // Companies + Sales + Products + Purchases + Users Admin
     });
 
     it('should NOT show Users Admin for lc-company role', () => {
@@ -402,16 +402,11 @@ describe('Header', () => {
     });
   });
 
-  // ─── Sales menu gating (lc-sales client role from life-control-api) ─
+  // ─── Sales menu gating (lc-sales / lc-admin client roles from life-control-client) ─
 
   describe('sales menu gating', () => {
     it('should show Sales menu when user has lc-sales client role', () => {
-      const { component } = setup(['lc-admin'], {
-        resource_access: {
-          'life-control-client': { roles: ['lc-admin'] },
-          'life-control-api': { roles: ['lc-sales'] },
-        },
-      });
+      const { component } = setup(['lc-sales']);
       expect(component.isSalesRole()).toBe(true);
       const items = component.items();
       const salesItem = items.find((i) => i.routeLink === '/sales');
@@ -421,39 +416,7 @@ describe('Header', () => {
     });
 
     it('should show Sales menu when user has only lc-sales role', () => {
-      const keycloakEventSignal = signal({
-        type: KeycloakEventType.Ready,
-        token: null,
-      });
-
-      TestBed.configureTestingModule({
-        providers: [
-          provideRouter([]),
-          provideLocationMocks(),
-          provideHttpClient(),
-          {
-            provide: Keycloak,
-            useValue: {
-              login: vi.fn(),
-              logout: vi.fn(),
-              accountManagement: vi.fn(),
-              hasRealmRole: vi.fn().mockReturnValue(false),
-              tokenParsed: {
-                resource_access: {
-                  'life-control-api': { roles: ['lc-sales'] },
-                },
-              },
-              authenticated: true,
-            } as Partial<Keycloak>,
-          },
-          { provide: KEYCLOAK_EVENT_SIGNAL, useValue: keycloakEventSignal },
-        ],
-      });
-
-      const fixture = TestBed.createComponent(Header);
-      const component = fixture.componentInstance;
-      fixture.detectChanges();
-
+      const { component } = setup(['lc-sales']);
       expect(component.isSalesRole()).toBe(true);
       expect(component.isCompanyRole()).toBe(false);
       expect(component.isAdmin()).toBe(false);
@@ -464,31 +427,26 @@ describe('Header', () => {
     });
 
     it('should NOT show Sales menu when user has no lc-sales role', () => {
-      const { component } = setup(['lc-admin']);
+      const { component } = setup(['lc-company']);
       expect(component.isSalesRole()).toBe(false);
       const items = component.items();
       const salesItem = items.find((i) => i.routeLink === '/sales');
       expect(salesItem).toBeUndefined();
     });
 
-    it('should NOT show Sales menu when user has lc-admin but lacks lc-sales', () => {
+    it('should show Sales menu for lc-admin even without explicit lc-sales role', () => {
       const { component } = setup(['lc-admin'], {
         name: 'Admin User',
       });
-      expect(component.isSalesRole()).toBe(false);
+      expect(component.isSalesRole()).toBe(true);
       expect(component.isAdmin()).toBe(true);
       const items = component.items();
       const salesItem = items.find((i) => i.routeLink === '/sales');
-      expect(salesItem).toBeUndefined();
+      expect(salesItem).toBeDefined();
     });
 
     it('should show Sales menu alongside Companies and Admin menus', () => {
-      const { component } = setup(['lc-admin'], {
-        resource_access: {
-          'life-control-client': { roles: ['lc-admin'] },
-          'life-control-api': { roles: ['lc-sales'] },
-        },
-      });
+      const { component } = setup(['lc-admin', 'lc-sales']);
       expect(component.isSalesRole()).toBe(true);
       expect(component.isCompanyRole()).toBe(true);
       expect(component.isAdmin()).toBe(true);
@@ -518,7 +476,7 @@ describe('Header', () => {
               hasRealmRole: vi.fn().mockReturnValue(false),
               tokenParsed: {
                 resource_access: {
-                  'life-control-api': { roles: ['lc-sales'] },
+                  'life-control-client': { roles: ['lc-sales'] },
                 },
               },
               authenticated: true,

@@ -1,4 +1,5 @@
 import {
+  ChangeDetectionStrategy,
   Component,
   computed,
   inject,
@@ -19,6 +20,7 @@ import { CompanyRegionService } from '../../data/company-region.service';
 @Component({
   selector: 'app-regions-list',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     MatFormFieldModule,
     MatSelectModule,

@@ -1,6 +1,6 @@
 import { BreakpointObserver, Breakpoints } from '@angular/cdk/layout';
 import { CommonModule } from '@angular/common';
-import { Component, computed, effect, inject, OnInit, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, OnInit, signal } from '@angular/core';
 import { MatDividerModule } from '@angular/material/divider';
 import { MatIconModule } from '@angular/material/icon';
 import { MatMenuModule } from '@angular/material/menu';
@@ -21,6 +21,7 @@ import { KEYCLOAK_EVENT_SIGNAL, KeycloakEventType } from 'keycloak-angular';
  */
 @Component({
   selector: 'header[app-header]',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     CommonModule,
     Button,
@@ -83,7 +84,7 @@ export class Header implements OnInit {
     return menuItems;
   });
 
-  authenticated = false;
+  authenticated = signal(false);
 
   ngOnInit(): void {
     this.companyContext.loadCompanies();
@@ -98,14 +99,14 @@ export class Header implements OnInit {
     // Subscribe to keycloak events
     const keycloakEvent = this.keycloakSignal();
     if (keycloakEvent?.type === KeycloakEventType.Ready) {
-      this.authenticated = this.keycloak.authenticated ?? false;
+      this.authenticated.set(this.keycloak.authenticated ?? false);
       this.updateUserFromToken();
     }
 
     effect(() => {
       const event = this.keycloakSignal();
       if (event?.type === KeycloakEventType.Ready) {
-        this.authenticated = this.keycloak.authenticated ?? false;
+        this.authenticated.set(this.keycloak.authenticated ?? false);
         const token = this.keycloak.tokenParsed;
         const clientRoles: string[] = token?.resource_access?.['life-control-client']?.roles ?? [];
         this.isAdmin.set(clientRoles.includes('lc-admin'));
@@ -121,7 +122,7 @@ export class Header implements OnInit {
         this.updateUserFromToken();
       }
       if (event?.type === KeycloakEventType.AuthLogout) {
-        this.authenticated = false;
+        this.authenticated.set(false);
         this.isAdmin.set(false);
         this.isCompanyRole.set(false);
         this.isSalesRole.set(false);

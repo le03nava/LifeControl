@@ -1,4 +1,4 @@
-import { Component, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterModule } from '@angular/router';
 /**
@@ -11,6 +11,7 @@ import { RouterModule } from '@angular/router';
  */
 @Component({
   selector: 'a[app-hyperlink]',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: `./hyperlink.html`,
   styleUrl: `./hyperlink.scss`,
   imports: [CommonModule, RouterModule],

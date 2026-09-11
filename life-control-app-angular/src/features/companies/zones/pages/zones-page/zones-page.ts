@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal, OnInit } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal, OnInit } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
@@ -20,6 +20,7 @@ import { CompanyZone } from '../../models/zone.models';
 @Component({
   selector: 'app-zones-page',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     MatButtonModule,
     MatIconModule,

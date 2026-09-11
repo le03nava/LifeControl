@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { LoadingService } from '@shared/data/loading';
 import { Spinner } from './spinner';
 
@@ -8,6 +8,7 @@ import { Spinner } from './spinner';
  */
 @Component({
   selector: 'app-loading-indicator',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [Spinner],
   template: `
     @if (loadingService.isLoading()) {
