@@ -2,11 +2,13 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  DestroyRef,
   inject,
   input,
   output,
   signal,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatSelectChange, MatSelectModule } from '@angular/material/select';
@@ -33,6 +35,7 @@ import { CompanyRegionService } from '../../data/company-region.service';
 })
 export class RegionsList {
   // ─── Services ───────────────────────────────────────────────
+  private readonly destroyRef = inject(DestroyRef);
   private readonly regionService = inject(CompanyRegionService);
 
   // ─── Inputs ─────────────────────────────────────────────────
@@ -74,7 +77,10 @@ export class RegionsList {
     this.selectedCompanyCountryId.set(cc.id);
     const companyId = this.selectedCompanyId();
     if (companyId) {
-      this.regionService.getRegions(companyId, cc.id).subscribe();
+      this.regionService
+        .getRegions(companyId, cc.id)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe();
     }
   }
 

@@ -1,6 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { signal } from '@angular/core';
+import { of } from 'rxjs';
 import { RegionsList } from './regions-list';
 import { CompanyRegionService } from '../../data/company-region.service';
 import { Company } from '../../../companies/models/company.models';
@@ -61,7 +62,7 @@ describe('RegionsList', () => {
   const mockRegionsSignal = signal<CompanyRegion[]>([]);
   const mockLoadingSignal = signal(false);
   const mockErrorSignal = signal<string | null>(null);
-  const mockGetRegions = vi.fn().mockReturnValue({ subscribe: vi.fn() });
+  const mockGetRegions = vi.fn().mockReturnValue(of([] as CompanyRegion[]));
 
   const mockService = {
     regions: mockRegionsSignal.asReadonly(),
@@ -85,7 +86,7 @@ describe('RegionsList', () => {
     mockLoadingSignal.set(false);
     mockErrorSignal.set(null);
     mockGetRegions.mockClear();
-    mockGetRegions.mockReturnValue({ subscribe: vi.fn() });
+    mockGetRegions.mockReturnValue(of([] as CompanyRegion[]));
 
     await TestBed.configureTestingModule({
       imports: [RegionsList, NoopAnimationsModule],

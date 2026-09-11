@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  DestroyRef,
   effect,
   inject,
   input,
@@ -16,6 +17,7 @@ import {
   Validators,
 } from '@angular/forms';
 import { Subscription } from 'rxjs';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
@@ -57,6 +59,7 @@ export class CountriesForm {
   cancelForm = output<void>();
 
   // ─── Injected services ──────────────────────────────────────
+  private readonly destroyRef = inject(DestroyRef);
   private countryService = inject(CountryService);
 
   // ─── Signals ────────────────────────────────────────────────
@@ -106,7 +109,10 @@ export class CountriesForm {
   // ─── Constructor ────────────────────────────────────────────
   constructor() {
     // Load catalog countries on creation
-    this.countryService.getCountries().subscribe();
+    this.countryService
+      .getCountries()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe();
 
     // --- Edit mode: pre-fill form and selectors ---
     effect(() => {
