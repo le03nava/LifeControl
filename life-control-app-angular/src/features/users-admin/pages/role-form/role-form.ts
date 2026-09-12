@@ -7,7 +7,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatIconModule } from '@angular/material/icon';
-import { UsersAdminService } from '../../services/users-admin.service';
+import { UsersAdminService } from '../../data/users-admin.service';
 import { NotificationService } from '@shared/data/notification';
 import { RoleRequest } from '../../models/users-admin.models';
 

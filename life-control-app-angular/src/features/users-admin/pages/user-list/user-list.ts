@@ -7,7 +7,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { FormsModule } from '@angular/forms';
-import { UsersAdminService } from '../../services/users-admin.service';
+import { UsersAdminService } from '../../data/users-admin.service';
 
 @Component({
   standalone: true,
