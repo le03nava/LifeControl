@@ -40,7 +40,6 @@ export class ConfigService {
         },
       };
       this.config.set(runtimeConfig);
-      console.log('[ConfigService] Runtime config loaded:', runtimeConfig);
     } else {
       console.warn('[ConfigService] window.env not found, using default values');
     }
@@ -68,7 +67,6 @@ export class ConfigService {
 
   get apiUrl(): string {
     const url = `${this.apiGatewayUrl}${this.apiBasePath}`;
-    console.log('[ConfigService] apiUrl accessed:', url);
     return url;
   }
 }
