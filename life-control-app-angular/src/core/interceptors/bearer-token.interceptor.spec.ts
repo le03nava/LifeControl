@@ -74,4 +74,14 @@ describe('bearerTokenInterceptor', () => {
     const forwarded = forwardedRequest(`${TEST_API}/companies`);
     expect(forwarded.headers.has('Authorization')).toBe(false);
   });
+
+  it('should not add the token when Keycloak is not available', () => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [{ provide: ConfigService, useValue: { apiUrl: TEST_API } }],
+    });
+
+    const forwarded = forwardedRequest(`${TEST_API}/companies`);
+    expect(forwarded.headers.has('Authorization')).toBe(false);
+  });
 });
