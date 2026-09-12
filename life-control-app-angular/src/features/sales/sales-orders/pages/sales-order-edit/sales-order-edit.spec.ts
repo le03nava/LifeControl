@@ -11,7 +11,12 @@ import { SalesOrderService } from '../../data/sales-order.service';
 import { ProfileService } from '@features/user/profile/data/profile.service';
 import { NotificationService } from '@shared/data/notification';
 import { ConfigService } from '@app/services/config.service';
-import type { SalesOrder, SalesOrderItem, CustomerOption, Page } from '../../models/sales-order.models';
+import type {
+  SalesOrder,
+  SalesOrderItem,
+  CustomerOption,
+  Page,
+} from '../../models/sales-order.models';
 import type { ProfileResponse } from '@features/user/profile/data/profile.models';
 
 const TEST_API = 'http://test/api';
@@ -68,9 +73,7 @@ function createActivatedRoute(params: { id?: string }) {
   return {
     snapshot: {
       paramMap: {
-        get: vi
-          .fn()
-          .mockReturnValue(params.id ?? null),
+        get: vi.fn().mockReturnValue(params.id ?? null),
       },
     },
   };
@@ -144,19 +147,13 @@ describe('SalesOrderEdit', () => {
   describe('create mode', () => {
     beforeEach(async () => {
       await TestBed.configureTestingModule({
-        imports: [
-          SalesOrderEdit,
-          NoopAnimationsModule,
-          HttpClientTestingModule,
-        ],
+        imports: [SalesOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
         providers: baseProviders(null),
       }).compileComponents();
 
       fixture = TestBed.createComponent(SalesOrderEdit);
       component = fixture.componentInstance;
-      salesOrderService = TestBed.inject(
-        SalesOrderService,
-      ) as unknown as typeof salesOrderService;
+      salesOrderService = TestBed.inject(SalesOrderService) as unknown as typeof salesOrderService;
       router = TestBed.inject(Router);
       vi.spyOn(router, 'navigate');
 
@@ -205,9 +202,7 @@ describe('SalesOrderEdit', () => {
 
     it('should navigate to edit page after successful create', () => {
       const created: SalesOrder = { ...mockOrder, id: 'so-new' };
-      salesOrderService.create = vi
-        .fn()
-        .mockReturnValue(of(created));
+      salesOrderService.create = vi.fn().mockReturnValue(of(created));
 
       const form = component.headerForm();
       form.controls.customerId.setValue('cust-1');
@@ -215,10 +210,7 @@ describe('SalesOrderEdit', () => {
       form.controls.shiftId.setValue('shift-1');
       component.onSave();
 
-      expect(router.navigate).toHaveBeenCalledWith([
-        '/sales/orders',
-        'so-new',
-      ]);
+      expect(router.navigate).toHaveBeenCalledWith(['/sales/orders', 'so-new']);
     });
 
     it('should not save when form is invalid', () => {
@@ -288,9 +280,7 @@ describe('SalesOrderEdit', () => {
 
       // UUID request should be pending after detectChanges
       const uuidReq = httpTesting.expectOne(
-        (req) =>
-          req.url ===
-          `${TEST_API}/customers/00000000-0000-0000-0000-000000000001`,
+        (req) => req.url === `${TEST_API}/customers/00000000-0000-0000-0000-000000000001`,
       );
       expect(uuidReq.request.method).toBe('GET');
 
@@ -311,9 +301,7 @@ describe('SalesOrderEdit', () => {
 
       // UUID request fails with 404
       const uuidReq = httpTesting.expectOne(
-        (req) =>
-          req.url ===
-          `${TEST_API}/customers/00000000-0000-0000-0000-000000000001`,
+        (req) => req.url === `${TEST_API}/customers/00000000-0000-0000-0000-000000000001`,
       );
       uuidReq.flush('Not Found', {
         status: 404,
@@ -323,8 +311,7 @@ describe('SalesOrderEdit', () => {
       // Fallback search request should fire
       const fallbackReq = httpTesting.expectOne(
         (req) =>
-          req.url === `${TEST_API}/customers` &&
-          req.params.get('search') === 'PUBLICO EN GENERAL',
+          req.url === `${TEST_API}/customers` && req.params.get('search') === 'PUBLICO EN GENERAL',
       );
       expect(fallbackReq.request.method).toBe('GET');
 
@@ -343,9 +330,7 @@ describe('SalesOrderEdit', () => {
         empty: false,
       } satisfies Page<CustomerOption>);
 
-      expect(component.headerForm().controls.customerId.value).toBe(
-        'fallback-id',
-      );
+      expect(component.headerForm().controls.customerId.value).toBe('fallback-id');
       expect(component.defaultCustomer()).toEqual(customer);
     });
 
@@ -354,9 +339,7 @@ describe('SalesOrderEdit', () => {
 
       // UUID 404
       const uuidReq = httpTesting.expectOne(
-        (req) =>
-          req.url ===
-          `${TEST_API}/customers/00000000-0000-0000-0000-000000000001`,
+        (req) => req.url === `${TEST_API}/customers/00000000-0000-0000-0000-000000000001`,
       );
       uuidReq.flush('Not Found', {
         status: 404,
@@ -366,8 +349,7 @@ describe('SalesOrderEdit', () => {
       // Fallback also fails
       const fallbackReq = httpTesting.expectOne(
         (req) =>
-          req.url === `${TEST_API}/customers` &&
-          req.params.get('search') === 'PUBLICO EN GENERAL',
+          req.url === `${TEST_API}/customers` && req.params.get('search') === 'PUBLICO EN GENERAL',
       );
       fallbackReq.flush('Server Error', {
         status: 500,
@@ -383,9 +365,7 @@ describe('SalesOrderEdit', () => {
 
       // UUID 404
       const uuidReq = httpTesting.expectOne(
-        (req) =>
-          req.url ===
-          `${TEST_API}/customers/00000000-0000-0000-0000-000000000001`,
+        (req) => req.url === `${TEST_API}/customers/00000000-0000-0000-0000-000000000001`,
       );
       uuidReq.flush('Not Found', {
         status: 404,
@@ -395,8 +375,7 @@ describe('SalesOrderEdit', () => {
       // Fallback returns page with no matching customer
       const fallbackReq = httpTesting.expectOne(
         (req) =>
-          req.url === `${TEST_API}/customers` &&
-          req.params.get('search') === 'PUBLICO EN GENERAL',
+          req.url === `${TEST_API}/customers` && req.params.get('search') === 'PUBLICO EN GENERAL',
       );
       fallbackReq.flush({
         content: [{ id: 'other-id', name: 'Otro Cliente' }],
@@ -419,9 +398,7 @@ describe('SalesOrderEdit', () => {
       const httpTesting = TestBed.inject(HttpTestingController);
 
       const uuidReq = httpTesting.expectOne(
-        (req) =>
-          req.url ===
-          `${TEST_API}/customers/00000000-0000-0000-0000-000000000001`,
+        (req) => req.url === `${TEST_API}/customers/00000000-0000-0000-0000-000000000001`,
       );
 
       const customer: CustomerOption = {
@@ -450,9 +427,7 @@ describe('SalesOrderEdit', () => {
       const httpTesting = TestBed.inject(HttpTestingController);
 
       const uuidReq = httpTesting.expectOne(
-        (req) =>
-          req.url ===
-          `${TEST_API}/customers/00000000-0000-0000-0000-000000000001`,
+        (req) => req.url === `${TEST_API}/customers/00000000-0000-0000-0000-000000000001`,
       );
 
       const customer: CustomerOption = {
@@ -497,9 +472,7 @@ describe('SalesOrderEdit', () => {
       const httpTesting = TestBed.inject(HttpTestingController);
 
       const uuidReq = httpTesting.expectOne(
-        (req) =>
-          req.url ===
-          `${TEST_API}/customers/00000000-0000-0000-0000-000000000001`,
+        (req) => req.url === `${TEST_API}/customers/00000000-0000-0000-0000-000000000001`,
       );
 
       const customer: CustomerOption = {
@@ -530,9 +503,7 @@ describe('SalesOrderEdit', () => {
       const httpTesting = TestBed.inject(HttpTestingController);
 
       const uuidReq = httpTesting.expectOne(
-        (req) =>
-          req.url ===
-          `${TEST_API}/customers/00000000-0000-0000-0000-000000000001`,
+        (req) => req.url === `${TEST_API}/customers/00000000-0000-0000-0000-000000000001`,
       );
 
       const customer: CustomerOption = {
@@ -553,9 +524,7 @@ describe('SalesOrderEdit', () => {
       component.creating.set(true);
       fixture.detectChanges();
 
-      const spinner = fixture.nativeElement.querySelector(
-        '[data-testid="creating-spinner"]',
-      );
+      const spinner = fixture.nativeElement.querySelector('[data-testid="creating-spinner"]');
       expect(spinner).toBeTruthy();
       expect(spinner.textContent).toContain('Creating order...');
     });
@@ -576,19 +545,13 @@ describe('SalesOrderEdit', () => {
   describe('edit mode', () => {
     beforeEach(async () => {
       await TestBed.configureTestingModule({
-        imports: [
-          SalesOrderEdit,
-          NoopAnimationsModule,
-          HttpClientTestingModule,
-        ],
+        imports: [SalesOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
         providers: baseProviders('so-1'),
       }).compileComponents();
 
       fixture = TestBed.createComponent(SalesOrderEdit);
       component = fixture.componentInstance;
-      salesOrderService = TestBed.inject(
-        SalesOrderService,
-      ) as unknown as typeof salesOrderService;
+      salesOrderService = TestBed.inject(SalesOrderService) as unknown as typeof salesOrderService;
       router = TestBed.inject(Router);
       vi.spyOn(router, 'navigate');
 
@@ -604,9 +567,7 @@ describe('SalesOrderEdit', () => {
     });
 
     it('should load order and populate form', () => {
-      expect(salesOrderService.getSalesOrder).toHaveBeenCalledWith(
-        'so-1',
-      );
+      expect(salesOrderService.getSalesOrder).toHaveBeenCalledWith('so-1');
 
       const form = component.headerForm();
       expect(form.controls.customerId.value).toBe('cust-1');
@@ -716,19 +677,13 @@ describe('SalesOrderEdit', () => {
   describe('line items', () => {
     beforeEach(async () => {
       await TestBed.configureTestingModule({
-        imports: [
-          SalesOrderEdit,
-          NoopAnimationsModule,
-          HttpClientTestingModule,
-        ],
+        imports: [SalesOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
         providers: baseProviders('so-1'),
       }).compileComponents();
 
       fixture = TestBed.createComponent(SalesOrderEdit);
       component = fixture.componentInstance;
-      salesOrderService = TestBed.inject(
-        SalesOrderService,
-      ) as unknown as typeof salesOrderService;
+      salesOrderService = TestBed.inject(SalesOrderService) as unknown as typeof salesOrderService;
 
       fixture.detectChanges();
     });
@@ -747,20 +702,14 @@ describe('SalesOrderEdit', () => {
   describe('cancel navigation', () => {
     it('should have a Back button linking to order list', async () => {
       await TestBed.configureTestingModule({
-        imports: [
-          SalesOrderEdit,
-          NoopAnimationsModule,
-          HttpClientTestingModule,
-        ],
+        imports: [SalesOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
         providers: baseProviders(null),
       }).compileComponents();
 
       const f = TestBed.createComponent(SalesOrderEdit);
       f.detectChanges();
 
-      const backBtn = f.nativeElement.querySelector(
-        'button[routerLink="/sales/orders"]',
-      );
+      const backBtn = f.nativeElement.querySelector('button[routerLink="/sales/orders"]');
       expect(backBtn).toBeTruthy();
       expect(backBtn.textContent).toContain('Back');
     });
@@ -773,19 +722,13 @@ describe('SalesOrderEdit', () => {
   describe('conflict handling', () => {
     beforeEach(async () => {
       await TestBed.configureTestingModule({
-        imports: [
-          SalesOrderEdit,
-          NoopAnimationsModule,
-          HttpClientTestingModule,
-        ],
+        imports: [SalesOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
         providers: baseProviders('so-1'),
       }).compileComponents();
 
       fixture = TestBed.createComponent(SalesOrderEdit);
       component = fixture.componentInstance;
-      salesOrderService = TestBed.inject(
-        SalesOrderService,
-      ) as unknown as typeof salesOrderService;
+      salesOrderService = TestBed.inject(SalesOrderService) as unknown as typeof salesOrderService;
 
       fixture.detectChanges();
     });
@@ -815,24 +758,22 @@ describe('SalesOrderEdit', () => {
   describe('variant selection', () => {
     beforeEach(async () => {
       await TestBed.configureTestingModule({
-        imports: [
-          SalesOrderEdit,
-          NoopAnimationsModule,
-          HttpClientTestingModule,
-        ],
+        imports: [SalesOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
         providers: baseProviders('so-1'),
       }).compileComponents();
 
       fixture = TestBed.createComponent(SalesOrderEdit);
       component = fixture.componentInstance;
-      salesOrderService = TestBed.inject(
-        SalesOrderService,
-      ) as unknown as typeof salesOrderService;
+      salesOrderService = TestBed.inject(SalesOrderService) as unknown as typeof salesOrderService;
 
       fixture.detectChanges();
     });
 
-    function createServerItem(variantId: string, variantName: string, price: number): SalesOrderItem {
+    function createServerItem(
+      variantId: string,
+      variantName: string,
+      price: number,
+    ): SalesOrderItem {
       return {
         id: `item-${variantId}`,
         salesOrderId: 'so-1',
@@ -851,7 +792,17 @@ describe('SalesOrderEdit', () => {
     }
 
     function makeVariant(id: string, name: string, price: number) {
-      return { id, productId: 'prod-1', variantName: name, barCode: 'BAR', sku: 'SKU', listPrice: price, stock: 100, enabled: true, productName: 'Test Product' };
+      return {
+        id,
+        productId: 'prod-1',
+        variantName: name,
+        barCode: 'BAR',
+        sku: 'SKU',
+        listPrice: price,
+        stock: 100,
+        enabled: true,
+        productName: 'Test Product',
+      };
     }
 
     it('should call addItem with correct payload when a variant is selected', () => {
@@ -874,9 +825,9 @@ describe('SalesOrderEdit', () => {
       const serverItem = createServerItem('pv-new', 'Widget Blue - Medium', 75);
       salesOrderService.addItem = vi.fn().mockReturnValue(of(serverItem));
       // loadOrder() is called after addItem succeeds — return an updated order
-      salesOrderService.getSalesOrder = vi.fn().mockReturnValue(
-        of({ ...mockOrder, items: [...mockOrder.items, serverItem] }),
-      );
+      salesOrderService.getSalesOrder = vi
+        .fn()
+        .mockReturnValue(of({ ...mockOrder, items: [...mockOrder.items, serverItem] }));
 
       expect(component.lineItems()).toHaveLength(1); // pre-populated from mockOrder
 
@@ -895,9 +846,9 @@ describe('SalesOrderEdit', () => {
       const addSubject = new Subject<SalesOrderItem>();
       salesOrderService.addItem = vi.fn().mockReturnValue(addSubject.asObservable());
       const serverItem = createServerItem('pv-new', 'Test', 50);
-      salesOrderService.getSalesOrder = vi.fn().mockReturnValue(
-        of({ ...mockOrder, items: [...mockOrder.items, serverItem] }),
-      );
+      salesOrderService.getSalesOrder = vi
+        .fn()
+        .mockReturnValue(of({ ...mockOrder, items: [...mockOrder.items, serverItem] }));
       const variant = makeVariant('pv-new', 'Test', 50);
 
       expect(component.savingIndex()).toBeNull();
@@ -939,19 +890,13 @@ describe('SalesOrderEdit', () => {
   describe('item operations', () => {
     beforeEach(async () => {
       await TestBed.configureTestingModule({
-        imports: [
-          SalesOrderEdit,
-          NoopAnimationsModule,
-          HttpClientTestingModule,
-        ],
+        imports: [SalesOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
         providers: baseProviders('so-1'),
       }).compileComponents();
 
       fixture = TestBed.createComponent(SalesOrderEdit);
       component = fixture.componentInstance;
-      salesOrderService = TestBed.inject(
-        SalesOrderService,
-      ) as unknown as typeof salesOrderService;
+      salesOrderService = TestBed.inject(SalesOrderService) as unknown as typeof salesOrderService;
 
       fixture.detectChanges();
     });
@@ -1026,9 +971,9 @@ describe('SalesOrderEdit', () => {
       });
 
       it('should revert quantity on error', () => {
-        salesOrderService.updateItem = vi.fn().mockReturnValue(
-          throwError(() => new HttpErrorResponse({ status: 400 })),
-        );
+        salesOrderService.updateItem = vi
+          .fn()
+          .mockReturnValue(throwError(() => new HttpErrorResponse({ status: 400 })));
 
         component.onQuantityChanged({ index: 0, value: 10 });
 
@@ -1058,9 +1003,9 @@ describe('SalesOrderEdit', () => {
       });
 
       it('should revert listPrice on error', () => {
-        salesOrderService.updateItem = vi.fn().mockReturnValue(
-          throwError(() => new HttpErrorResponse({ status: 400 })),
-        );
+        salesOrderService.updateItem = vi
+          .fn()
+          .mockReturnValue(throwError(() => new HttpErrorResponse({ status: 400 })));
 
         component.onListPriceChanged({ index: 0, value: 120 });
 
@@ -1101,9 +1046,9 @@ describe('SalesOrderEdit', () => {
       });
 
       it('should revert discount on error', () => {
-        salesOrderService.updateItem = vi.fn().mockReturnValue(
-          throwError(() => new HttpErrorResponse({ status: 400 })),
-        );
+        salesOrderService.updateItem = vi
+          .fn()
+          .mockReturnValue(throwError(() => new HttpErrorResponse({ status: 400 })));
 
         component.onDiscountChanged({ index: 0, value: 10 });
 
@@ -1155,11 +1100,7 @@ describe('SalesOrderEdit', () => {
     describe('edit mode', () => {
       beforeEach(async () => {
         await TestBed.configureTestingModule({
-          imports: [
-            SalesOrderEdit,
-            NoopAnimationsModule,
-            HttpClientTestingModule,
-          ],
+          imports: [SalesOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
           providers: baseProviders('so-1'),
         }).compileComponents();
 
@@ -1235,11 +1176,7 @@ describe('SalesOrderEdit', () => {
     describe('create mode', () => {
       beforeEach(async () => {
         await TestBed.configureTestingModule({
-          imports: [
-            SalesOrderEdit,
-            NoopAnimationsModule,
-            HttpClientTestingModule,
-          ],
+          imports: [SalesOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
           providers: baseProviders(null),
         }).compileComponents();
 
@@ -1283,15 +1220,8 @@ describe('SalesOrderEdit', () => {
       mocks.getSalesOrder = vi.fn().mockReturnValue(orderSubject.asObservable());
 
       await TestBed.configureTestingModule({
-        imports: [
-          SalesOrderEdit,
-          NoopAnimationsModule,
-          HttpClientTestingModule,
-        ],
-        providers: [
-          ...baseProviders('so-1'),
-          { provide: SalesOrderService, useValue: mocks },
-        ],
+        imports: [SalesOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
+        providers: [...baseProviders('so-1'), { provide: SalesOrderService, useValue: mocks }],
       }).compileComponents();
 
       const f = TestBed.createComponent(SalesOrderEdit);
@@ -1317,15 +1247,8 @@ describe('SalesOrderEdit', () => {
       mocks.getSalesOrder = vi.fn().mockReturnValue(orderSubject.asObservable());
 
       await TestBed.configureTestingModule({
-        imports: [
-          SalesOrderEdit,
-          NoopAnimationsModule,
-          HttpClientTestingModule,
-        ],
-        providers: [
-          ...baseProviders('so-1'),
-          { provide: SalesOrderService, useValue: mocks },
-        ],
+        imports: [SalesOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
+        providers: [...baseProviders('so-1'), { provide: SalesOrderService, useValue: mocks }],
       }).compileComponents();
 
       const f = TestBed.createComponent(SalesOrderEdit);
@@ -1342,11 +1265,7 @@ describe('SalesOrderEdit', () => {
 
     it('should NOT be loading in create mode', async () => {
       await TestBed.configureTestingModule({
-        imports: [
-          SalesOrderEdit,
-          NoopAnimationsModule,
-          HttpClientTestingModule,
-        ],
+        imports: [SalesOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
         providers: baseProviders(null),
       }).compileComponents();
 
@@ -1365,19 +1284,13 @@ describe('SalesOrderEdit', () => {
   describe('scan mode', () => {
     beforeEach(async () => {
       await TestBed.configureTestingModule({
-        imports: [
-          SalesOrderEdit,
-          NoopAnimationsModule,
-          HttpClientTestingModule,
-        ],
+        imports: [SalesOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
         providers: baseProviders('so-1'),
       }).compileComponents();
 
       fixture = TestBed.createComponent(SalesOrderEdit);
       component = fixture.componentInstance;
-      salesOrderService = TestBed.inject(
-        SalesOrderService,
-      ) as unknown as typeof salesOrderService;
+      salesOrderService = TestBed.inject(SalesOrderService) as unknown as typeof salesOrderService;
 
       fixture.detectChanges();
     });
@@ -1405,9 +1318,7 @@ describe('SalesOrderEdit', () => {
     });
 
     it('should pass scanMode input to ProductVariantSelector', () => {
-      const selectorEl = fixture.debugElement.query(
-        By.directive(ProductVariantSelector),
-      );
+      const selectorEl = fixture.debugElement.query(By.directive(ProductVariantSelector));
       expect(selectorEl).toBeTruthy();
       const selector = selectorEl.componentInstance as ProductVariantSelector;
 
@@ -1426,19 +1337,13 @@ describe('SalesOrderEdit', () => {
   describe('charge / cobrar', () => {
     beforeEach(async () => {
       await TestBed.configureTestingModule({
-        imports: [
-          SalesOrderEdit,
-          NoopAnimationsModule,
-          HttpClientTestingModule,
-        ],
+        imports: [SalesOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
         providers: baseProviders('so-1'),
       }).compileComponents();
 
       fixture = TestBed.createComponent(SalesOrderEdit);
       component = fixture.componentInstance;
-      salesOrderService = TestBed.inject(
-        SalesOrderService,
-      ) as unknown as typeof salesOrderService;
+      salesOrderService = TestBed.inject(SalesOrderService) as unknown as typeof salesOrderService;
 
       fixture.detectChanges();
     });
@@ -1455,7 +1360,9 @@ describe('SalesOrderEdit', () => {
     it('should call chargeSalesOrder with correct id and paymentMethodId on onCharge', () => {
       // Set up as Pending order
       component.loadedOrder.set({ ...mockOrder, statusName: 'Pending' });
-      salesOrderService.chargeSalesOrder = vi.fn().mockReturnValue(of({ ...mockOrder, statusName: 'Completed' }));
+      salesOrderService.chargeSalesOrder = vi
+        .fn()
+        .mockReturnValue(of({ ...mockOrder, statusName: 'Completed' }));
 
       component.onCharge('pm-1');
 
@@ -1481,9 +1388,13 @@ describe('SalesOrderEdit', () => {
 
     it('should reload order on successful charge', () => {
       component.loadedOrder.set({ ...mockOrder, statusName: 'Pending' });
-      salesOrderService.chargeSalesOrder = vi.fn().mockReturnValue(of({ ...mockOrder, statusName: 'Completed' }));
+      salesOrderService.chargeSalesOrder = vi
+        .fn()
+        .mockReturnValue(of({ ...mockOrder, statusName: 'Completed' }));
       // Reset the mock so we can verify it's called again
-      salesOrderService.getSalesOrder = vi.fn().mockReturnValue(of({ ...mockOrder, statusName: 'Completed' }));
+      salesOrderService.getSalesOrder = vi
+        .fn()
+        .mockReturnValue(of({ ...mockOrder, statusName: 'Completed' }));
 
       component.onCharge('pm-1');
 
@@ -1494,11 +1405,14 @@ describe('SalesOrderEdit', () => {
       const notificationService = TestBed.inject(NotificationService);
       component.loadedOrder.set({ ...mockOrder, statusName: 'Pending' });
       salesOrderService.chargeSalesOrder = vi.fn().mockReturnValue(
-        throwError(() => new HttpErrorResponse({
-          error: { message: 'Order is not Pending' },
-          status: 400,
-          statusText: 'Bad Request',
-        })),
+        throwError(
+          () =>
+            new HttpErrorResponse({
+              error: { message: 'Order is not Pending' },
+              status: 400,
+              statusText: 'Bad Request',
+            }),
+        ),
       );
 
       component.onCharge('pm-1');
@@ -1508,7 +1422,9 @@ describe('SalesOrderEdit', () => {
 
     it('should pass paymentMethodId to chargeSalesOrder', () => {
       component.loadedOrder.set({ ...mockOrder, statusName: 'Pending' });
-      salesOrderService.chargeSalesOrder = vi.fn().mockReturnValue(of({ ...mockOrder, statusName: 'Completed' }));
+      salesOrderService.chargeSalesOrder = vi
+        .fn()
+        .mockReturnValue(of({ ...mockOrder, statusName: 'Completed' }));
 
       component.onCharge('pm-2');
 

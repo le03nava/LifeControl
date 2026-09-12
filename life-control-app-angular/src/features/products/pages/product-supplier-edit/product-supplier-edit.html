@@ -1,8 +1,5 @@
 <!-- Product Header -->
-<app-page-header
-  [title]="product()?.name ?? 'Supplier Assignment'"
-  [subtitle]="headerSubtitle()"
-/>
+<app-page-header [title]="product()?.name ?? 'Supplier Assignment'" [subtitle]="headerSubtitle()" />
 
 @if (generalError(); as errorMessage) {
   <app-error-banner [message]="errorMessage" />

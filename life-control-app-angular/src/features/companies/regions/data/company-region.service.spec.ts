@@ -16,24 +16,33 @@ describe('CompanyRegionService', () => {
 
   const mockRegions: CompanyRegion[] = [
     {
-      id: 'reg-1', companyCountryId: 'cc-1', companyId: 'company-123', countryId: '1',
-      regionCode: 'US-CA', regionName: 'California',
-      enabled: true, createdAt: '2024-01-01', updatedAt: '2024-01-01',
+      id: 'reg-1',
+      companyCountryId: 'cc-1',
+      companyId: 'company-123',
+      countryId: '1',
+      regionCode: 'US-CA',
+      regionName: 'California',
+      enabled: true,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
     },
     {
-      id: 'reg-2', companyCountryId: 'cc-1', companyId: 'company-123', countryId: '1',
-      regionCode: 'US-TX', regionName: 'Texas',
-      enabled: true, createdAt: '2024-01-01', updatedAt: '2024-01-01',
+      id: 'reg-2',
+      companyCountryId: 'cc-1',
+      companyId: 'company-123',
+      countryId: '1',
+      regionCode: 'US-TX',
+      regionName: 'Texas',
+      enabled: true,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
     },
   ];
 
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [HttpClientTestingModule],
-      providers: [
-        CompanyRegionService,
-        { provide: ConfigService, useValue: { apiUrl: baseUrl } },
-      ],
+      providers: [CompanyRegionService, { provide: ConfigService, useValue: { apiUrl: baseUrl } }],
     });
     service = TestBed.inject(CompanyRegionService);
     httpMock = TestBed.inject(HttpTestingController);
@@ -52,8 +61,9 @@ describe('CompanyRegionService', () => {
       const regionsPromise = firstValueFrom(service.getRegions(companyId, countryId));
 
       const req = httpMock.expectOne(
-        r => r.url === `${baseUrl}/companies/${companyId}/countries/${countryId}/regions`
-          && r.method === 'GET'
+        (r) =>
+          r.url === `${baseUrl}/companies/${companyId}/countries/${countryId}/regions` &&
+          r.method === 'GET',
       );
       expect(req.request.params.get('includeDisabled')).toBe('false');
       req.flush(mockRegions);
@@ -67,8 +77,9 @@ describe('CompanyRegionService', () => {
       const fetchPromise = firstValueFrom(service.getRegions(companyId, countryId));
 
       const req = httpMock.expectOne(
-        r => r.url === `${baseUrl}/companies/${companyId}/countries/${countryId}/regions`
-          && r.method === 'GET'
+        (r) =>
+          r.url === `${baseUrl}/companies/${companyId}/countries/${countryId}/regions` &&
+          r.method === 'GET',
       );
       req.flush(mockRegions);
 
@@ -83,13 +94,14 @@ describe('CompanyRegionService', () => {
 
       const fetchPromise = firstValueFrom(service.getRegions(companyId, countryId));
 
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await new Promise((resolve) => setTimeout(resolve, 10));
 
       expect(service.loading()).toBe(true);
 
       const req = httpMock.expectOne(
-        r => r.url === `${baseUrl}/companies/${companyId}/countries/${countryId}/regions`
-          && r.method === 'GET'
+        (r) =>
+          r.url === `${baseUrl}/companies/${companyId}/countries/${countryId}/regions` &&
+          r.method === 'GET',
       );
       req.flush(mockRegions);
 
@@ -102,8 +114,9 @@ describe('CompanyRegionService', () => {
       const errorPromise = firstValueFrom(service.getRegions(companyId, countryId));
 
       const req = httpMock.expectOne(
-        r => r.url === `${baseUrl}/companies/${companyId}/countries/${countryId}/regions`
-          && r.method === 'GET'
+        (r) =>
+          r.url === `${baseUrl}/companies/${companyId}/countries/${countryId}/regions` &&
+          r.method === 'GET',
       );
       req.flush('Server error', { status: 500, statusText: 'Internal Server Error' });
 
@@ -120,20 +133,29 @@ describe('CompanyRegionService', () => {
     };
 
     const response: CompanyRegion = {
-      id: 'reg-3', companyCountryId: 'cc-1', companyId: 'company-123', countryId: '1',
-      regionCode: 'US-NY', regionName: 'New York',
-      enabled: true, createdAt: '2024-01-01', updatedAt: '2024-01-01',
+      id: 'reg-3',
+      companyCountryId: 'cc-1',
+      companyId: 'company-123',
+      countryId: '1',
+      regionCode: 'US-NY',
+      regionName: 'New York',
+      enabled: true,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
     };
 
     it('should POST and push the new region to the signal', async () => {
-      (service as unknown as { _regions: WritableSignal<CompanyRegion[]> })._regions.set([mockRegions[0]]);
+      (service as unknown as { _regions: WritableSignal<CompanyRegion[]> })._regions.set([
+        mockRegions[0],
+      ]);
       expect(service.regions().length).toBe(1);
 
       const addPromise = firstValueFrom(service.addRegion(companyId, countryId, request));
 
       const req = httpMock.expectOne(
-        r => r.url === `${baseUrl}/companies/${companyId}/countries/${countryId}/regions`
-          && r.method === 'POST'
+        (r) =>
+          r.url === `${baseUrl}/companies/${companyId}/countries/${countryId}/regions` &&
+          r.method === 'POST',
       );
       expect(req.request.body).toEqual(request);
       req.flush(response);
@@ -148,7 +170,9 @@ describe('CompanyRegionService', () => {
     it('should set specific error message on 409 Conflict', async () => {
       const addPromise = firstValueFrom(service.addRegion(companyId, countryId, request));
 
-      const req = httpMock.expectOne(`${baseUrl}/companies/${companyId}/countries/${countryId}/regions`);
+      const req = httpMock.expectOne(
+        `${baseUrl}/companies/${companyId}/countries/${countryId}/regions`,
+      );
       req.flush({ message: 'Conflict' }, { status: 409, statusText: 'Conflict' });
 
       await expect(addPromise).rejects.toThrow();
@@ -157,11 +181,15 @@ describe('CompanyRegionService', () => {
     });
 
     it('should NOT modify signal on error', async () => {
-      (service as unknown as { _regions: WritableSignal<CompanyRegion[]> })._regions.set([mockRegions[0]]);
+      (service as unknown as { _regions: WritableSignal<CompanyRegion[]> })._regions.set([
+        mockRegions[0],
+      ]);
 
       const addPromise = firstValueFrom(service.addRegion(companyId, countryId, request));
 
-      const req = httpMock.expectOne(`${baseUrl}/companies/${companyId}/countries/${countryId}/regions`);
+      const req = httpMock.expectOne(
+        `${baseUrl}/companies/${companyId}/countries/${countryId}/regions`,
+      );
       req.flush('Server error', { status: 500, statusText: 'Internal Server Error' });
 
       await expect(addPromise).rejects.toThrow();
@@ -172,7 +200,9 @@ describe('CompanyRegionService', () => {
     it('should set generic error on non-409 failure', async () => {
       const addPromise = firstValueFrom(service.addRegion(companyId, countryId, request));
 
-      const req = httpMock.expectOne(`${baseUrl}/companies/${companyId}/countries/${countryId}/regions`);
+      const req = httpMock.expectOne(
+        `${baseUrl}/companies/${companyId}/countries/${countryId}/regions`,
+      );
       req.flush('Server error', { status: 500, statusText: 'Internal Server Error' });
 
       await expect(addPromise).rejects.toThrow();
@@ -189,20 +219,32 @@ describe('CompanyRegionService', () => {
     };
 
     const updatedRegion: CompanyRegion = {
-      id: 'reg-1', companyCountryId: 'cc-1', companyId: 'company-123', countryId: '1',
-      regionCode: 'US-CA', regionName: 'California Updated',
-      enabled: true, createdAt: '2024-01-01', updatedAt: '2024-01-02',
+      id: 'reg-1',
+      companyCountryId: 'cc-1',
+      companyId: 'company-123',
+      countryId: '1',
+      regionCode: 'US-CA',
+      regionName: 'California Updated',
+      enabled: true,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-02',
     };
 
     it('should PUT and replace the region in the signal', async () => {
-      (service as unknown as { _regions: WritableSignal<CompanyRegion[]> })._regions.set(mockRegions);
+      (service as unknown as { _regions: WritableSignal<CompanyRegion[]> })._regions.set(
+        mockRegions,
+      );
       expect(service.regions().length).toBe(2);
 
-      const updatePromise = firstValueFrom(service.updateRegion(companyId, countryId, regionId, request));
+      const updatePromise = firstValueFrom(
+        service.updateRegion(companyId, countryId, regionId, request),
+      );
 
       const req = httpMock.expectOne(
-        r => r.url === `${baseUrl}/companies/${companyId}/countries/${countryId}/regions/${regionId}`
-          && r.method === 'PUT'
+        (r) =>
+          r.url ===
+            `${baseUrl}/companies/${companyId}/countries/${countryId}/regions/${regionId}` &&
+          r.method === 'PUT',
       );
       expect(req.request.body).toEqual(request);
       req.flush(updatedRegion);
@@ -214,10 +256,12 @@ describe('CompanyRegionService', () => {
     });
 
     it('should set error on update failure', async () => {
-      const updatePromise = firstValueFrom(service.updateRegion(companyId, countryId, regionId, request));
+      const updatePromise = firstValueFrom(
+        service.updateRegion(companyId, countryId, regionId, request),
+      );
 
       const req = httpMock.expectOne(
-        `${baseUrl}/companies/${companyId}/countries/${countryId}/regions/${regionId}`
+        `${baseUrl}/companies/${companyId}/countries/${countryId}/regions/${regionId}`,
       );
       req.flush('Error', { status: 500, statusText: 'Internal Server Error' });
 
@@ -231,14 +275,18 @@ describe('CompanyRegionService', () => {
     const regionId = 'reg-1';
 
     it('should DELETE and filter out the removed region', async () => {
-      (service as unknown as { _regions: WritableSignal<CompanyRegion[]> })._regions.set(mockRegions);
+      (service as unknown as { _regions: WritableSignal<CompanyRegion[]> })._regions.set(
+        mockRegions,
+      );
       expect(service.regions().length).toBe(2);
 
       const removePromise = firstValueFrom(service.removeRegion(companyId, countryId, regionId));
 
       const req = httpMock.expectOne(
-        r => r.url === `${baseUrl}/companies/${companyId}/countries/${countryId}/regions/${regionId}`
-          && r.method === 'DELETE'
+        (r) =>
+          r.url ===
+            `${baseUrl}/companies/${companyId}/countries/${countryId}/regions/${regionId}` &&
+          r.method === 'DELETE',
       );
       req.flush(null);
 
@@ -252,7 +300,7 @@ describe('CompanyRegionService', () => {
       const removePromise = firstValueFrom(service.removeRegion(companyId, countryId, regionId));
 
       const req = httpMock.expectOne(
-        `${baseUrl}/companies/${companyId}/countries/${countryId}/regions/${regionId}`
+        `${baseUrl}/companies/${companyId}/countries/${countryId}/regions/${regionId}`,
       );
       req.flush('Error', { status: 500, statusText: 'Internal Server Error' });
 
@@ -265,9 +313,15 @@ describe('CompanyRegionService', () => {
   describe('enableRegion', () => {
     const regionId = 'reg-3';
     const enabledRegion: CompanyRegion = {
-      id: 'reg-3', companyCountryId: 'cc-1', companyId: 'company-123', countryId: '1',
-      regionCode: 'US-DC', regionName: 'Distrito de Columbia',
-      enabled: true, createdAt: '2024-01-01', updatedAt: '2024-01-02',
+      id: 'reg-3',
+      companyCountryId: 'cc-1',
+      companyId: 'company-123',
+      countryId: '1',
+      regionCode: 'US-DC',
+      regionName: 'Distrito de Columbia',
+      enabled: true,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-02',
     };
 
     it('should PATCH and update region enabled state in signal', async () => {
@@ -280,22 +334,24 @@ describe('CompanyRegionService', () => {
       const enablePromise = firstValueFrom(service.enableRegion(companyId, countryId, regionId));
 
       const req = httpMock.expectOne(
-        r => r.url === `${baseUrl}/companies/${companyId}/countries/${countryId}/regions/${regionId}`
-          && r.method === 'PATCH'
+        (r) =>
+          r.url ===
+            `${baseUrl}/companies/${companyId}/countries/${countryId}/regions/${regionId}` &&
+          r.method === 'PATCH',
       );
       req.flush(enabledRegion);
 
       const region = await enablePromise;
       expect(region).toEqual(enabledRegion);
       expect(region.enabled).toBe(true);
-      expect(service.regions().find(r => r.id === regionId)?.enabled).toBe(true);
+      expect(service.regions().find((r) => r.id === regionId)?.enabled).toBe(true);
     });
 
     it('should set error on enable failure', async () => {
       const enablePromise = firstValueFrom(service.enableRegion(companyId, countryId, regionId));
 
       const req = httpMock.expectOne(
-        `${baseUrl}/companies/${companyId}/countries/${countryId}/regions/${regionId}`
+        `${baseUrl}/companies/${companyId}/countries/${countryId}/regions/${regionId}`,
       );
       req.flush('Error', { status: 500, statusText: 'Internal Server Error' });
 

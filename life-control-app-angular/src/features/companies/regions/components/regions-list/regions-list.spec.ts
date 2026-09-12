@@ -14,47 +14,89 @@ describe('RegionsList', () => {
 
   const mockCompanies: Company[] = [
     {
-      id: 'comp-1', companyKey: 'ACME', companyName: 'ACME Corp',
-      tipoPersonaId: 1, razonSocial: 'ACME Corp SA',
-      rfc: 'ACME010101', email: 'a@a.com', phone: '1234567890',
-      enabled: true, createdAt: '', updatedAt: '',
+      id: 'comp-1',
+      companyKey: 'ACME',
+      companyName: 'ACME Corp',
+      tipoPersonaId: 1,
+      razonSocial: 'ACME Corp SA',
+      rfc: 'ACME010101',
+      email: 'a@a.com',
+      phone: '1234567890',
+      enabled: true,
+      createdAt: '',
+      updatedAt: '',
     },
     {
-      id: 'comp-2', companyKey: 'BETA', companyName: 'Beta Inc',
-      tipoPersonaId: 2, razonSocial: 'Beta Inc SA',
-      rfc: 'BETA010101', email: 'b@b.com', phone: '0987654321',
-      enabled: true, createdAt: '', updatedAt: '',
+      id: 'comp-2',
+      companyKey: 'BETA',
+      companyName: 'Beta Inc',
+      tipoPersonaId: 2,
+      razonSocial: 'Beta Inc SA',
+      rfc: 'BETA010101',
+      email: 'b@b.com',
+      phone: '0987654321',
+      enabled: true,
+      createdAt: '',
+      updatedAt: '',
     },
   ];
 
   const mockCountries: CompanyCountry[] = [
     {
-      id: 'cc-1', companyId: 'comp-1', countryId: '1',
-      countryCode: 'US', countryName: 'United States',
-      localAlias: null, createdAt: '', updatedAt: '',
+      id: 'cc-1',
+      companyId: 'comp-1',
+      countryId: '1',
+      countryCode: 'US',
+      countryName: 'United States',
+      localAlias: null,
+      createdAt: '',
+      updatedAt: '',
     },
     {
-      id: 'cc-2', companyId: 'comp-1', countryId: '2',
-      countryCode: 'MX', countryName: 'Mexico',
-      localAlias: null, createdAt: '', updatedAt: '',
+      id: 'cc-2',
+      companyId: 'comp-1',
+      countryId: '2',
+      countryCode: 'MX',
+      countryName: 'Mexico',
+      localAlias: null,
+      createdAt: '',
+      updatedAt: '',
     },
   ];
 
   const mockRegions: CompanyRegion[] = [
     {
-      id: 'reg-1', companyCountryId: 'cc-1', companyId: 'comp-1', countryId: '1',
-      regionCode: 'US-CA', regionName: 'California',
-      enabled: true, createdAt: '2024-01-01', updatedAt: '2024-01-01',
+      id: 'reg-1',
+      companyCountryId: 'cc-1',
+      companyId: 'comp-1',
+      countryId: '1',
+      regionCode: 'US-CA',
+      regionName: 'California',
+      enabled: true,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
     },
     {
-      id: 'reg-2', companyCountryId: 'cc-1', companyId: 'comp-1', countryId: '1',
-      regionCode: 'US-TX', regionName: 'Texas',
-      enabled: true, createdAt: '2024-01-01', updatedAt: '2024-01-01',
+      id: 'reg-2',
+      companyCountryId: 'cc-1',
+      companyId: 'comp-1',
+      countryId: '1',
+      regionCode: 'US-TX',
+      regionName: 'Texas',
+      enabled: true,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
     },
     {
-      id: 'reg-3', companyCountryId: 'cc-1', companyId: 'comp-1', countryId: '1',
-      regionCode: 'US-DC', regionName: 'Distrito de Columbia',
-      enabled: false, createdAt: '2024-01-01', updatedAt: '2024-01-01',
+      id: 'reg-3',
+      companyCountryId: 'cc-1',
+      companyId: 'comp-1',
+      countryId: '1',
+      regionCode: 'US-DC',
+      regionName: 'Distrito de Columbia',
+      enabled: false,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
     },
   ];
 
@@ -90,9 +132,7 @@ describe('RegionsList', () => {
 
     await TestBed.configureTestingModule({
       imports: [RegionsList, NoopAnimationsModule],
-      providers: [
-        { provide: CompanyRegionService, useValue: mockService },
-      ],
+      providers: [{ provide: CompanyRegionService, useValue: mockService }],
     }).compileComponents();
 
     fixture = TestBed.createComponent(RegionsList);
@@ -212,8 +252,8 @@ describe('RegionsList', () => {
       expect(allButtons.length).toBe(4);
 
       const btnTexts = [...allButtons].map((b: Element) => b.textContent?.trim() ?? '');
-      const editCount = btnTexts.filter(t => t === 'Editar').length;
-      const deleteCount = btnTexts.filter(t => t === 'Eliminar').length;
+      const editCount = btnTexts.filter((t) => t === 'Editar').length;
+      const deleteCount = btnTexts.filter((t) => t === 'Eliminar').length;
       expect(editCount).toBe(2);
       expect(deleteCount).toBe(2);
     });

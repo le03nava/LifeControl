@@ -1,6 +1,12 @@
 <div class="countries-page">
   <app-page-header title="Países" subtitle="Gestión de países del sistema">
-    <button mat-flat-button color="primary" type="button" [disabled]="!selectedCompanyId()" (click)="onCreateCountry()">
+    <button
+      mat-flat-button
+      color="primary"
+      type="button"
+      [disabled]="!selectedCompanyId()"
+      (click)="onCreateCountry()"
+    >
       <mat-icon fontIcon="add" /> Agregar País
     </button>
   </app-page-header>

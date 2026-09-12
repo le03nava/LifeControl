@@ -19,7 +19,12 @@ export class CompanyStoreService {
   readonly loading = this._loading.asReadonly();
   readonly error = this._error.asReadonly();
 
-  private storesUrl(companyId: string, companyCountryId: string, regionId: string, zoneId: string): string {
+  private storesUrl(
+    companyId: string,
+    companyCountryId: string,
+    regionId: string,
+    zoneId: string,
+  ): string {
     return `${this.configService.apiUrl}/companies/${companyId}/countries/${companyCountryId}/regions/${regionId}/zones/${zoneId}/stores`;
   }
 
@@ -33,14 +38,18 @@ export class CompanyStoreService {
     this._loading.set(true);
     this._error.set(null);
     const params = { includeDisabled: String(includeDisabled) };
-    return this.http.get<CompanyStore[]>(this.storesUrl(companyId, companyCountryId, regionId, zoneId), { params }).pipe(
-      tap(stores => this._stores.set(stores)),
-      catchError(err => {
-        this._error.set('Error al cargar las tiendas');
-        return throwError(() => err);
-      }),
-      finalize(() => this._loading.set(false)),
-    );
+    return this.http
+      .get<CompanyStore[]>(this.storesUrl(companyId, companyCountryId, regionId, zoneId), {
+        params,
+      })
+      .pipe(
+        tap((stores) => this._stores.set(stores)),
+        catchError((err) => {
+          this._error.set('Error al cargar las tiendas');
+          return throwError(() => err);
+        }),
+        finalize(() => this._loading.set(false)),
+      );
   }
 
   getStore(
@@ -52,13 +61,15 @@ export class CompanyStoreService {
   ): Observable<CompanyStore> {
     this._loading.set(true);
     this._error.set(null);
-    return this.http.get<CompanyStore>(`${this.storesUrl(companyId, companyCountryId, regionId, zoneId)}/${id}`).pipe(
-      catchError(err => {
-        this._error.set('Error al cargar la tienda');
-        return throwError(() => err);
-      }),
-      finalize(() => this._loading.set(false)),
-    );
+    return this.http
+      .get<CompanyStore>(`${this.storesUrl(companyId, companyCountryId, regionId, zoneId)}/${id}`)
+      .pipe(
+        catchError((err) => {
+          this._error.set('Error al cargar la tienda');
+          return throwError(() => err);
+        }),
+        finalize(() => this._loading.set(false)),
+      );
   }
 
   addStore(
@@ -70,17 +81,19 @@ export class CompanyStoreService {
   ): Observable<CompanyStore> {
     this._loading.set(true);
     this._error.set(null);
-    return this.http.post<CompanyStore>(this.storesUrl(companyId, companyCountryId, regionId, zoneId), request).pipe(
-      tap(store => {
-        const current = this._stores();
-        this._stores.set([...current, store]);
-      }),
-      catchError(err => {
-        this._error.set('Error al crear la tienda');
-        return throwError(() => err);
-      }),
-      finalize(() => this._loading.set(false)),
-    );
+    return this.http
+      .post<CompanyStore>(this.storesUrl(companyId, companyCountryId, regionId, zoneId), request)
+      .pipe(
+        tap((store) => {
+          const current = this._stores();
+          this._stores.set([...current, store]);
+        }),
+        catchError((err) => {
+          this._error.set('Error al crear la tienda');
+          return throwError(() => err);
+        }),
+        finalize(() => this._loading.set(false)),
+      );
   }
 
   updateStore(
@@ -93,20 +106,22 @@ export class CompanyStoreService {
   ): Observable<CompanyStore> {
     this._loading.set(true);
     this._error.set(null);
-    return this.http.put<CompanyStore>(
-      `${this.storesUrl(companyId, companyCountryId, regionId, zoneId)}/${id}`,
-      request,
-    ).pipe(
-      tap(updated => {
-        const current = this._stores();
-        this._stores.set(current.map(s => (s.id === id ? updated : s)));
-      }),
-      catchError(err => {
-        this._error.set('Error al actualizar la tienda');
-        return throwError(() => err);
-      }),
-      finalize(() => this._loading.set(false)),
-    );
+    return this.http
+      .put<CompanyStore>(
+        `${this.storesUrl(companyId, companyCountryId, regionId, zoneId)}/${id}`,
+        request,
+      )
+      .pipe(
+        tap((updated) => {
+          const current = this._stores();
+          this._stores.set(current.map((s) => (s.id === id ? updated : s)));
+        }),
+        catchError((err) => {
+          this._error.set('Error al actualizar la tienda');
+          return throwError(() => err);
+        }),
+        finalize(() => this._loading.set(false)),
+      );
   }
 
   removeStore(
@@ -117,19 +132,19 @@ export class CompanyStoreService {
     id: string,
   ): Observable<void> {
     this._loading.set(true);
-    return this.http.delete<void>(
-      `${this.storesUrl(companyId, companyCountryId, regionId, zoneId)}/${id}`,
-    ).pipe(
-      tap(() => {
-        const current = this._stores();
-        this._stores.set(current.map(s => (s.id === id ? { ...s, enabled: false } : s)));
-      }),
-      catchError(err => {
-        this._error.set('Error al deshabilitar la tienda');
-        return throwError(() => err);
-      }),
-      finalize(() => this._loading.set(false)),
-    );
+    return this.http
+      .delete<void>(`${this.storesUrl(companyId, companyCountryId, regionId, zoneId)}/${id}`)
+      .pipe(
+        tap(() => {
+          const current = this._stores();
+          this._stores.set(current.map((s) => (s.id === id ? { ...s, enabled: false } : s)));
+        }),
+        catchError((err) => {
+          this._error.set('Error al deshabilitar la tienda');
+          return throwError(() => err);
+        }),
+        finalize(() => this._loading.set(false)),
+      );
   }
 
   enableStore(
@@ -141,20 +156,22 @@ export class CompanyStoreService {
   ): Observable<CompanyStore> {
     this._loading.set(true);
     this._error.set(null);
-    return this.http.patch<CompanyStore>(
-      `${this.storesUrl(companyId, companyCountryId, regionId, zoneId)}/${id}`,
-      {},
-    ).pipe(
-      tap(updated => {
-        const current = this._stores();
-        this._stores.set(current.map(s => (s.id === id ? updated : s)));
-      }),
-      catchError(err => {
-        this._error.set('Error al reactivar la tienda');
-        return throwError(() => err);
-      }),
-      finalize(() => this._loading.set(false)),
-    );
+    return this.http
+      .patch<CompanyStore>(
+        `${this.storesUrl(companyId, companyCountryId, regionId, zoneId)}/${id}`,
+        {},
+      )
+      .pipe(
+        tap((updated) => {
+          const current = this._stores();
+          this._stores.set(current.map((s) => (s.id === id ? updated : s)));
+        }),
+        catchError((err) => {
+          this._error.set('Error al reactivar la tienda');
+          return throwError(() => err);
+        }),
+        finalize(() => this._loading.set(false)),
+      );
   }
 
   clearError(): void {

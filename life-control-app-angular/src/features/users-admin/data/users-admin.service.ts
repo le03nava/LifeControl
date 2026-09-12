@@ -142,7 +142,11 @@ export class UsersAdminService {
     );
   }
 
-  assignClientRole(userId: string, clientId: string, request: RoleAssignmentRequest): Observable<void> {
+  assignClientRole(
+    userId: string,
+    clientId: string,
+    request: RoleAssignmentRequest,
+  ): Observable<void> {
     return this.http.post<void>(
       `${this.baseUrl}/users/${encodeURIComponent(userId)}/roles/client/${encodeURIComponent(clientId)}`,
       request,

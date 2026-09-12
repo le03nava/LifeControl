@@ -1,5 +1,14 @@
 import { BreakpointObserver, Breakpoints } from '@angular/cdk/layout';
-import { ChangeDetectionStrategy, Component, computed, DestroyRef, effect, inject, OnInit, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  DestroyRef,
+  effect,
+  inject,
+  OnInit,
+  signal,
+} from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MatDividerModule } from '@angular/material/divider';
 import { MatIconModule } from '@angular/material/icon';
@@ -22,14 +31,7 @@ import { KEYCLOAK_EVENT_SIGNAL, KeycloakEventType } from 'keycloak-angular';
 @Component({
   selector: 'header[app-header]',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [
-    Button,
-    Hyperlink,
-    MatDividerModule,
-    MatIconModule,
-    MatMenuModule,
-    RouterModule,
-  ],
+  imports: [Button, Hyperlink, MatDividerModule, MatIconModule, MatMenuModule, RouterModule],
   templateUrl: `header.html`,
   styleUrl: `header.scss`,
 })
@@ -62,22 +64,23 @@ export class Header implements OnInit {
     const menuItems: { id: string; routeLink: string; textLink: string; icon: string }[] = [];
 
     if (this.isCompanyRole()) {
-      menuItems.push(
-        { id: '2', routeLink: '/companies', textLink: 'Companies', icon: 'business' },
-      );
+      menuItems.push({ id: '2', routeLink: '/companies', textLink: 'Companies', icon: 'business' });
     }
 
     if (this.isSalesRole()) {
-      menuItems.push(
-        { id: '6', routeLink: '/sales', textLink: 'Sales', icon: 'point_of_sale' },
-      );
+      menuItems.push({ id: '6', routeLink: '/sales', textLink: 'Sales', icon: 'point_of_sale' });
     }
 
     if (this.isAdmin()) {
       menuItems.push(
         { id: '3', routeLink: '/products', textLink: 'Products', icon: 'inventory_2' },
         { id: '4', routeLink: '/purchases', textLink: 'Compras', icon: 'shopping_cart' },
-        { id: '5', routeLink: '/users-admin', textLink: 'Users Admin', icon: 'admin_panel_settings' },
+        {
+          id: '5',
+          routeLink: '/users-admin',
+          textLink: 'Users Admin',
+          icon: 'admin_panel_settings',
+        },
       );
     }
 
@@ -115,11 +118,11 @@ export class Header implements OnInit {
         this.isAdmin.set(clientRoles.includes('lc-admin'));
         this.isCompanyRole.set(
           clientRoles.includes('lc-admin') ||
-          clientRoles.includes('lc-company') ||
-          clientRoles.includes('lc-company-country') ||
-          clientRoles.includes('lc-company-region') ||
-          clientRoles.includes('lc-company-zone') ||
-          clientRoles.includes('lc-company-store'),
+            clientRoles.includes('lc-company') ||
+            clientRoles.includes('lc-company-country') ||
+            clientRoles.includes('lc-company-region') ||
+            clientRoles.includes('lc-company-zone') ||
+            clientRoles.includes('lc-company-store'),
         );
         this.isSalesRole.set(clientRoles.includes('lc-sales') || clientRoles.includes('lc-admin'));
         this.updateUserFromToken();

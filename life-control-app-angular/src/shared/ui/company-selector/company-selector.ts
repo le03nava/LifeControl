@@ -19,7 +19,7 @@ export class CompanySelector {
   readonly currentCompany = this.companyContext.currentCompany;
 
   onCompanyChange(companyKey: string): void {
-    const company = this.companies().find(c => c.companyKey === companyKey);
+    const company = this.companies().find((c) => c.companyKey === companyKey);
     if (company) {
       this.companyContext.setCurrentCompany(company);
     }

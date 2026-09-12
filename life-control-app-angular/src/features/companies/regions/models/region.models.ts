@@ -1,5 +1,9 @@
 import { FormControl } from '@angular/forms';
-import type { Country, CompanyCountry, CompanyCountryRequest } from '../../countries/models/country.models';
+import type {
+  Country,
+  CompanyCountry,
+  CompanyCountryRequest,
+} from '../../countries/models/country.models';
 
 export type { Country, CompanyCountry, CompanyCountryRequest };
 

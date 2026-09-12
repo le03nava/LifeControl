@@ -13,7 +13,13 @@ describe('ProductsAdminComponent', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [ProductsAdminComponent, PageHeader, MatCardModule, MatIconModule, NoopAnimationsModule],
+      imports: [
+        ProductsAdminComponent,
+        PageHeader,
+        MatCardModule,
+        MatIconModule,
+        NoopAnimationsModule,
+      ],
       providers: [provideRouter([])],
     }).compileComponents();
 
@@ -56,9 +62,7 @@ describe('ProductsAdminComponent', () => {
   });
 
   it('should have RouterLink on every disabled card (with null value)', () => {
-    const disabledCards = fixture.debugElement.queryAll(
-      By.css('.dashboard-card.card--disabled'),
-    );
+    const disabledCards = fixture.debugElement.queryAll(By.css('.dashboard-card.card--disabled'));
     expect(disabledCards).toHaveLength(2);
     for (const card of disabledCards) {
       expect(card.injector.get(RouterLink)).toBeTruthy();
@@ -87,9 +91,7 @@ describe('ProductsAdminComponent', () => {
   it('should render the dashboard subtitle', () => {
     const subtitle = fixture.nativeElement.querySelector('.page-subtitle');
     expect(subtitle).toBeTruthy();
-    expect(subtitle.textContent.trim()).toBe(
-      'Manage products, categories, and product types',
-    );
+    expect(subtitle.textContent.trim()).toBe('Manage products, categories, and product types');
   });
 
   it('should render active cards with "Manage" call-to-action text', () => {
@@ -101,12 +103,11 @@ describe('ProductsAdminComponent', () => {
   });
 
   it('should render card icons with correct Material icon names', () => {
-    const icons: NodeListOf<Element> = fixture.nativeElement.querySelectorAll('.card-icon mat-icon');
+    const icons: NodeListOf<Element> =
+      fixture.nativeElement.querySelectorAll('.card-icon mat-icon');
     expect(icons).toHaveLength(5);
 
-    const iconNames = Array.from(icons).map((el: Element) =>
-      el.getAttribute('data-mat-icon-name'),
-    );
+    const iconNames = Array.from(icons).map((el: Element) => el.getAttribute('data-mat-icon-name'));
     expect(iconNames).toContain('inventory_2');
     expect(iconNames).toContain('add');
     expect(iconNames).toContain('category');

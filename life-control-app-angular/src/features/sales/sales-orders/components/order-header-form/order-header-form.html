@@ -2,9 +2,7 @@
 @if (loadedOrder(); as order) {
   <div class="status-section">
     @if (order.orderNumber) {
-      <span class="order-number">
-        <strong>Order:</strong> {{ order.orderNumber }}
-      </span>
+      <span class="order-number"> <strong>Order:</strong> {{ order.orderNumber }} </span>
     }
     <mat-chip
       [style.background-color]="statusColor[order.statusName] || '#9e9e9e'"
@@ -15,4 +13,3 @@
     </mat-chip>
   </div>
 }
-

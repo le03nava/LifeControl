@@ -1,21 +1,22 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal, OnInit } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  inject,
+  signal,
+  OnInit,
+} from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ProductService } from '../../data/product.service';
 import { ApiError } from '@shared/models';
 import { Product, ProductControl } from '../../models/product.models';
-import {
-  NonNullableFormBuilder,
-  FormGroup,
-  Validators,
-  ReactiveFormsModule,
-} from '@angular/forms';
+import { NonNullableFormBuilder, FormGroup, Validators, ReactiveFormsModule } from '@angular/forms';
 import { ProductsForm } from '../../components/products-form/products-form';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { ErrorBanner } from '@shared/ui';
-
 
 @Component({
   selector: 'app-product-edit',
@@ -48,25 +49,30 @@ export class ProductEdit implements OnInit {
   }
 
   private loadProduct(id: string): void {
-    this.productService.getProductById(id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (product) => {
-        this.productForm.set(
-          this.fb.group({
-            id: this.fb.control(product.id),
-            sku: this.fb.control(product.sku, Validators.required),
-            name: this.fb.control(product.name, Validators.required),
-            shortName: this.fb.control(product.shortName ?? null),
-            satCode: this.fb.control(product.satCode ?? null),
-            productType: this.fb.control(product.productType ?? null),
-            attributes: this.fb.control(product.attributes ? JSON.stringify(product.attributes) : null),
-            enabled: this.fb.control(product.enabled),
-          })
-        );
-      },
-      error: (err) => {
-        console.error('[ProductEdit] Error loading product:', err);
-      },
-    });
+    this.productService
+      .getProductById(id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (product) => {
+          this.productForm.set(
+            this.fb.group({
+              id: this.fb.control(product.id),
+              sku: this.fb.control(product.sku, Validators.required),
+              name: this.fb.control(product.name, Validators.required),
+              shortName: this.fb.control(product.shortName ?? null),
+              satCode: this.fb.control(product.satCode ?? null),
+              productType: this.fb.control(product.productType ?? null),
+              attributes: this.fb.control(
+                product.attributes ? JSON.stringify(product.attributes) : null,
+              ),
+              enabled: this.fb.control(product.enabled),
+            }),
+          );
+        },
+        error: (err) => {
+          console.error('[ProductEdit] Error loading product:', err);
+        },
+      });
   }
 
   private createForm(): FormGroup<ProductControl> {
@@ -85,23 +91,29 @@ export class ProductEdit implements OnInit {
   onSaveProduct(productData: Product): void {
     if (productData.id === '') {
       const { id: _id, ...createData } = productData;
-      this.productService.createProduct(createData as Product).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: (createdProduct) => {
-          this.router.navigate(['/products/edit', createdProduct.id]);
-        },
-        error: (err: HttpErrorResponse) => {
-          this.handleServerError(err);
-        },
-      });
+      this.productService
+        .createProduct(createData as Product)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: (createdProduct) => {
+            this.router.navigate(['/products/edit', createdProduct.id]);
+          },
+          error: (err: HttpErrorResponse) => {
+            this.handleServerError(err);
+          },
+        });
     } else {
-      this.productService.updateProduct(productData.id, productData).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: () => {
-          this.router.navigate(['/products']);
-        },
-        error: (err: HttpErrorResponse) => {
-          this.handleServerError(err);
-        },
-      });
+      this.productService
+        .updateProduct(productData.id, productData)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: () => {
+            this.router.navigate(['/products']);
+          },
+          error: (err: HttpErrorResponse) => {
+            this.handleServerError(err);
+          },
+        });
     }
   }
 
@@ -129,5 +141,4 @@ export class ProductEdit implements OnInit {
       this.router.navigate(['/products/edit', id, 'suppliers']);
     }
   }
-
 }

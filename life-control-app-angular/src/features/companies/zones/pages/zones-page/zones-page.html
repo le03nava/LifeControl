@@ -1,6 +1,12 @@
 <div class="zones-page">
   <app-page-header title="Zonas" subtitle="Gestión de zonas operativas del sistema">
-    <button mat-flat-button color="primary" type="button" [disabled]="!selectedRegion()" (click)="onCreateZone()">
+    <button
+      mat-flat-button
+      color="primary"
+      type="button"
+      [disabled]="!selectedRegion()"
+      (click)="onCreateZone()"
+    >
       <mat-icon fontIcon="add" /> Nueva Zona
     </button>
   </app-page-header>

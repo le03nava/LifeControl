@@ -1,4 +1,11 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal, OnInit } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  inject,
+  signal,
+  OnInit,
+} from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { CompanyService } from '../../../companies/data/company.service';
 import { CompanyCountryService } from '../../../countries/data/company-country.service';
@@ -35,10 +42,9 @@ export class ZonesEdit implements OnInit {
   isEditMode = signal(false);
 
   // ─── Data signals ──────────────────────────────────────
-  companies = toSignal(
-    this.companyService.getCompanies(0, 1000).pipe(map(p => p.content)),
-    { initialValue: [] },
-  );
+  companies = toSignal(this.companyService.getCompanies(0, 1000).pipe(map((p) => p.content)), {
+    initialValue: [],
+  });
   companyCountries = this.companyCountryService.assignedCountries;
 
   regionList = signal<CompanyRegion[]>([]);
@@ -62,10 +68,10 @@ export class ZonesEdit implements OnInit {
       if (zoneFromState) {
         this.zoneToEdit.set(zoneFromState);
         // Load regions for the zone's country
-        this.companyRegionService.getRegions(
-          zoneFromState.companyId,
-          zoneFromState.companyCountryId,
-        ).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(regions => this.regionList.set(regions));
+        this.companyRegionService
+          .getRegions(zoneFromState.companyId, zoneFromState.companyCountryId)
+          .pipe(takeUntilDestroyed(this.destroyRef))
+          .subscribe((regions) => this.regionList.set(regions));
       } else {
         // Fallback: redirect to zones list if no state
         this.router.navigate(['/companies/zones']);
@@ -82,10 +88,15 @@ export class ZonesEdit implements OnInit {
         this.initialCompanyId.set(companyId);
         this.initialCountryId.set(countryId);
         this.initialRegionId.set(regionId);
-        this.companyCountryService.getCountries(companyId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
+        this.companyCountryService
+          .getCountries(companyId)
+          .pipe(takeUntilDestroyed(this.destroyRef))
+          .subscribe();
         if (countryId) {
-          this.companyRegionService.getRegions(companyId, countryId)
-            .pipe(takeUntilDestroyed(this.destroyRef)).subscribe(regions => this.regionList.set(regions));
+          this.companyRegionService
+            .getRegions(companyId, countryId)
+            .pipe(takeUntilDestroyed(this.destroyRef))
+            .subscribe((regions) => this.regionList.set(regions));
         }
       }
     }
@@ -93,14 +104,19 @@ export class ZonesEdit implements OnInit {
 
   onSelectedCompanyChange(companyId: string): void {
     if (companyId) {
-      this.companyCountryService.getCountries(companyId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
+      this.companyCountryService
+        .getCountries(companyId)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe();
     }
   }
 
   onSelectedCountryChange(cc: CompanyCountry): void {
     if (cc?.companyId && cc?.id) {
-      this.companyRegionService.getRegions(cc.companyId, cc.id)
-        .pipe(takeUntilDestroyed(this.destroyRef)).subscribe(regions => this.regionList.set(regions));
+      this.companyRegionService
+        .getRegions(cc.companyId, cc.id)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe((regions) => this.regionList.set(regions));
     }
   }
 
@@ -118,7 +134,11 @@ export class ZonesEdit implements OnInit {
         .subscribe({
           next: () =>
             this.router.navigate(['/companies/zones'], {
-              queryParams: { companyId: event.companyId, countryId: event.countryId, regionId: event.regionId },
+              queryParams: {
+                companyId: event.companyId,
+                countryId: event.countryId,
+                regionId: event.regionId,
+              },
             }),
           error: (err: HttpErrorResponse) => this.handleError(err),
         });
@@ -129,7 +149,11 @@ export class ZonesEdit implements OnInit {
         .subscribe({
           next: () =>
             this.router.navigate(['/companies/zones'], {
-              queryParams: { companyId: event.companyId, countryId: event.countryId, regionId: event.regionId },
+              queryParams: {
+                companyId: event.companyId,
+                countryId: event.countryId,
+                regionId: event.regionId,
+              },
             }),
           error: (err: HttpErrorResponse) => this.handleError(err),
         });

@@ -17,7 +17,13 @@
         placeholder="Search by order number or customer..."
       />
       @if (searchQuery()) {
-        <button matSuffix mat-icon-button aria-label="Clear search" (click)="clearSearch()" type="button">
+        <button
+          matSuffix
+          mat-icon-button
+          aria-label="Clear search"
+          (click)="clearSearch()"
+          type="button"
+        >
           <mat-icon>close</mat-icon>
         </button>
       }
@@ -98,7 +104,12 @@
               <ng-container matColumnDef="actions">
                 <th mat-header-cell *matHeaderCellDef>Actions</th>
                 <td mat-cell *matCellDef="let row">
-                  <button mat-icon-button color="primary" (click)="editOrder(row.id)" matTooltip="Edit order">
+                  <button
+                    mat-icon-button
+                    color="primary"
+                    (click)="editOrder(row.id)"
+                    matTooltip="Edit order"
+                  >
                     <mat-icon>edit</mat-icon>
                   </button>
                 </td>
@@ -116,26 +127,119 @@
             <svg viewBox="0 0 200 200" class="empty-svg">
               <defs>
                 <linearGradient id="soGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" style="stop-color:#2563eb;stop-opacity:0.1" />
-                  <stop offset="100%" style="stop-color:#06b6d4;stop-opacity:0.1" />
+                  <stop offset="0%" style="stop-color: #2563eb; stop-opacity: 0.1" />
+                  <stop offset="100%" style="stop-color: #06b6d4; stop-opacity: 0.1" />
                 </linearGradient>
               </defs>
               <circle cx="100" cy="100" r="80" fill="url(#soGrad)" />
               <g transform="translate(50, 55)">
-                <rect x="0" y="0" width="100" height="80" rx="4" fill="none" stroke="var(--mat-sys-outline, #cbd5e1)" stroke-width="2" />
-                <rect x="5" y="5" width="90" height="8" rx="2" fill="var(--mat-sys-primary, #2563eb)" opacity="0.3" />
-                <rect x="5" y="18" width="60" height="5" rx="2" fill="var(--mat-sys-on-surface-variant, #94a3b8)" opacity="0.3" />
-                <rect x="5" y="28" width="80" height="5" rx="2" fill="var(--mat-sys-on-surface-variant, #94a3b8)" opacity="0.3" />
-                <rect x="5" y="38" width="50" height="5" rx="2" fill="var(--mat-sys-on-surface-variant, #94a3b8)" opacity="0.3" />
-                <rect x="5" y="48" width="70" height="5" rx="2" fill="var(--mat-sys-on-surface-variant, #94a3b8)" opacity="0.3" />
-                <rect x="5" y="58" width="40" height="5" rx="2" fill="var(--mat-sys-on-surface-variant, #94a3b8)" opacity="0.3" />
-                <line x1="5" y1="68" x2="95" y2="68" stroke="var(--mat-sys-outline, #cbd5e1)" stroke-width="1" opacity="0.3" />
-                <rect x="5" y="73" width="25" height="6" rx="2" fill="var(--mat-sys-secondary, #64748b)" opacity="0.3" />
-                <rect x="60" y="73" width="25" height="6" rx="2" fill="var(--mat-sys-error, #ef4444)" opacity="0.3" />
+                <rect
+                  x="0"
+                  y="0"
+                  width="100"
+                  height="80"
+                  rx="4"
+                  fill="none"
+                  stroke="var(--mat-sys-outline, #cbd5e1)"
+                  stroke-width="2"
+                />
+                <rect
+                  x="5"
+                  y="5"
+                  width="90"
+                  height="8"
+                  rx="2"
+                  fill="var(--mat-sys-primary, #2563eb)"
+                  opacity="0.3"
+                />
+                <rect
+                  x="5"
+                  y="18"
+                  width="60"
+                  height="5"
+                  rx="2"
+                  fill="var(--mat-sys-on-surface-variant, #94a3b8)"
+                  opacity="0.3"
+                />
+                <rect
+                  x="5"
+                  y="28"
+                  width="80"
+                  height="5"
+                  rx="2"
+                  fill="var(--mat-sys-on-surface-variant, #94a3b8)"
+                  opacity="0.3"
+                />
+                <rect
+                  x="5"
+                  y="38"
+                  width="50"
+                  height="5"
+                  rx="2"
+                  fill="var(--mat-sys-on-surface-variant, #94a3b8)"
+                  opacity="0.3"
+                />
+                <rect
+                  x="5"
+                  y="48"
+                  width="70"
+                  height="5"
+                  rx="2"
+                  fill="var(--mat-sys-on-surface-variant, #94a3b8)"
+                  opacity="0.3"
+                />
+                <rect
+                  x="5"
+                  y="58"
+                  width="40"
+                  height="5"
+                  rx="2"
+                  fill="var(--mat-sys-on-surface-variant, #94a3b8)"
+                  opacity="0.3"
+                />
+                <line
+                  x1="5"
+                  y1="68"
+                  x2="95"
+                  y2="68"
+                  stroke="var(--mat-sys-outline, #cbd5e1)"
+                  stroke-width="1"
+                  opacity="0.3"
+                />
+                <rect
+                  x="5"
+                  y="73"
+                  width="25"
+                  height="6"
+                  rx="2"
+                  fill="var(--mat-sys-secondary, #64748b)"
+                  opacity="0.3"
+                />
+                <rect
+                  x="60"
+                  y="73"
+                  width="25"
+                  height="6"
+                  rx="2"
+                  fill="var(--mat-sys-error, #ef4444)"
+                  opacity="0.3"
+                />
               </g>
               <g transform="translate(85, 140)">
-                <circle cx="0" cy="0" r="15" fill="var(--mat-sys-surface-container, #ffffff)" stroke="var(--mat-sys-outline, #cbd5e1)" stroke-width="2" />
-                <path d="M-5,-5 L5,5 M-5,5 L5,-5" stroke="var(--mat-sys-on-surface-variant, #94a3b8)" stroke-width="2" stroke-linecap="round" />
+                <circle
+                  cx="0"
+                  cy="0"
+                  r="15"
+                  fill="var(--mat-sys-surface-container, #ffffff)"
+                  stroke="var(--mat-sys-outline, #cbd5e1)"
+                  stroke-width="2"
+                />
+                <path
+                  d="M-5,-5 L5,5 M-5,5 L5,-5"
+                  stroke="var(--mat-sys-on-surface-variant, #94a3b8)"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
               </g>
             </svg>
           </div>
@@ -147,13 +251,9 @@
             }
           </h3>
           @if (searchQuery()) {
-            <p class="empty-subtitle">
-              Try a different search term
-            </p>
+            <p class="empty-subtitle">Try a different search term</p>
           } @else {
-            <p class="empty-subtitle">
-              Click "New Order" to create the first one
-            </p>
+            <p class="empty-subtitle">Click "New Order" to create the first one</p>
           }
         </div>
       }

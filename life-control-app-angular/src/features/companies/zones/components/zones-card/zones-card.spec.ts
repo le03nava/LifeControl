@@ -135,7 +135,9 @@ describe('ZonesCard', () => {
       setZone(activeZone);
 
       let emittedId: string | undefined;
-      component.edit.subscribe((id) => { emittedId = id; });
+      component.edit.subscribe((id) => {
+        emittedId = id;
+      });
 
       const editBtn = fixture.nativeElement.querySelector('button[aria-label="Editar zona"]');
       expect(editBtn).toBeTruthy();
@@ -148,7 +150,9 @@ describe('ZonesCard', () => {
       setZone(activeZone);
 
       let emittedId: string | undefined;
-      component.remove.subscribe((id) => { emittedId = id; });
+      component.remove.subscribe((id) => {
+        emittedId = id;
+      });
 
       const deleteBtn = fixture.nativeElement.querySelector('button[aria-label="Eliminar zona"]');
       expect(deleteBtn).toBeTruthy();
@@ -161,7 +165,9 @@ describe('ZonesCard', () => {
       setZone(activeZone);
 
       let emitted: { id: string; enable: boolean } | undefined;
-      component.enable.subscribe((val) => { emitted = val; });
+      component.enable.subscribe((val) => {
+        emitted = val;
+      });
 
       component.onToggle();
 
@@ -172,7 +178,9 @@ describe('ZonesCard', () => {
       setZone(inactiveZone);
 
       let emitted: { id: string; enable: boolean } | undefined;
-      component.enable.subscribe((val) => { emitted = val; });
+      component.enable.subscribe((val) => {
+        emitted = val;
+      });
 
       component.onToggle();
 

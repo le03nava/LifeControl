@@ -48,12 +48,7 @@ interface PageStatusType {
 @Component({
   selector: 'app-status-selector',
   standalone: true,
-  imports: [
-    MatFormFieldModule,
-    MatSelectModule,
-    MatButtonModule,
-    MatIconModule,
-  ],
+  imports: [MatFormFieldModule, MatSelectModule, MatButtonModule, MatIconModule],
   templateUrl: './status-selector.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -77,8 +72,8 @@ export class StatusSelector implements OnInit {
 
   // ─── Computed ───────────────────────────────────────────
   readonly currentStatusName = computed(() => this.order().statusName);
-  readonly validTransitionNames = computed(() =>
-    PO_STATUS_TRANSITIONS[this.currentStatusName()] ?? [],
+  readonly validTransitionNames = computed(
+    () => PO_STATUS_TRANSITIONS[this.currentStatusName()] ?? [],
   );
 
   /** Whether the dropdown should be disabled (no valid transitions). */

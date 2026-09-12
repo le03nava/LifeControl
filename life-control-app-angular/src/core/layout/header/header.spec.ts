@@ -15,21 +15,17 @@ describe('Header', () => {
    * @param clientRoles - roles inside resource_access['life-control-client'].roles
    * @param extraTokenParsed - additional tokenParsed properties (e.g. realm_access for backward-compat tests)
    */
-  const setup = (
-    clientRoles: string[] = [],
-    extraTokenParsed: Record<string, unknown> = {},
-  ) => {
-    const tokenParsed = clientRoles.length > 0 || Object.keys(extraTokenParsed).length > 0
-      ? {
-          ...extraTokenParsed,
-          resource_access: {
-            ...((extraTokenParsed['resource_access'] as Record<string, unknown>) || {}),
-            ...(clientRoles.length > 0
-              ? { 'life-control-client': { roles: clientRoles } }
-              : {}),
-          },
-        }
-      : undefined;
+  const setup = (clientRoles: string[] = [], extraTokenParsed: Record<string, unknown> = {}) => {
+    const tokenParsed =
+      clientRoles.length > 0 || Object.keys(extraTokenParsed).length > 0
+        ? {
+            ...extraTokenParsed,
+            resource_access: {
+              ...((extraTokenParsed['resource_access'] as Record<string, unknown>) || {}),
+              ...(clientRoles.length > 0 ? { 'life-control-client': { roles: clientRoles } } : {}),
+            },
+          }
+        : undefined;
 
     keycloakMock = {
       login: vi.fn(),
@@ -240,16 +236,19 @@ describe('Header', () => {
           provideRouter([]),
           provideLocationMocks(),
           provideHttpClient(),
-          { provide: Keycloak, useValue: {
-            login: vi.fn(),
-            logout: vi.fn(),
-            accountManagement: vi.fn(),
-            hasRealmRole: vi.fn().mockReturnValue(false),
-            tokenParsed: {
-              resource_access: { 'life-control-client': { roles: ['lc-company-region'] } },
-            },
-            authenticated: true,
-          } as Partial<Keycloak> },
+          {
+            provide: Keycloak,
+            useValue: {
+              login: vi.fn(),
+              logout: vi.fn(),
+              accountManagement: vi.fn(),
+              hasRealmRole: vi.fn().mockReturnValue(false),
+              tokenParsed: {
+                resource_access: { 'life-control-client': { roles: ['lc-company-region'] } },
+              },
+              authenticated: true,
+            } as Partial<Keycloak>,
+          },
           { provide: KEYCLOAK_EVENT_SIGNAL, useValue: keycloakEventSignal },
         ],
       });

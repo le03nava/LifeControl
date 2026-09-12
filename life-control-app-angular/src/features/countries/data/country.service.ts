@@ -31,11 +31,11 @@ export class CountryService {
     this._loading.set(true);
     this._error.set(null);
     return this.http.get<Country[]>(this.apiUrl).pipe(
-      tap(countries => {
+      tap((countries) => {
         this._countries.set(countries);
         this._loaded.set(true);
       }),
-      catchError(err => {
+      catchError((err) => {
         this._loaded.set(false);
         this._error.set('Error al cargar los países');
         return throwError(() => err);

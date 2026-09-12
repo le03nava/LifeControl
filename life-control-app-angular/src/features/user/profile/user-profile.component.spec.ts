@@ -46,59 +46,107 @@ describe('UserProfileComponent', () => {
 
   const mockCompanies: Company[] = [
     {
-      id: 'comp-1', companyKey: 'C1', companyName: 'Company One',
-      tipoPersonaId: 1, razonSocial: 'Razon 1', rfc: 'RFC1',
-      email: 'c1@test.com', phone: '555-0001', enabled: true,
-      createdAt: '', updatedAt: '',
+      id: 'comp-1',
+      companyKey: 'C1',
+      companyName: 'Company One',
+      tipoPersonaId: 1,
+      razonSocial: 'Razon 1',
+      rfc: 'RFC1',
+      email: 'c1@test.com',
+      phone: '555-0001',
+      enabled: true,
+      createdAt: '',
+      updatedAt: '',
     },
     {
-      id: 'comp-2', companyKey: 'C2', companyName: 'Company Two',
-      tipoPersonaId: 1, razonSocial: 'Razon 2', rfc: 'RFC2',
-      email: 'c2@test.com', phone: '555-0002', enabled: true,
-      createdAt: '', updatedAt: '',
+      id: 'comp-2',
+      companyKey: 'C2',
+      companyName: 'Company Two',
+      tipoPersonaId: 1,
+      razonSocial: 'Razon 2',
+      rfc: 'RFC2',
+      email: 'c2@test.com',
+      phone: '555-0002',
+      enabled: true,
+      createdAt: '',
+      updatedAt: '',
     },
   ];
 
   const mockCountries: CompanyCountry[] = [
     {
-      id: 'cc-1', companyId: 'comp-1', countryId: 'ctry-1',
-      countryCode: 'MX', countryName: 'Mexico', localAlias: null,
-      createdAt: '', updatedAt: '',
+      id: 'cc-1',
+      companyId: 'comp-1',
+      countryId: 'ctry-1',
+      countryCode: 'MX',
+      countryName: 'Mexico',
+      localAlias: null,
+      createdAt: '',
+      updatedAt: '',
     },
     {
-      id: 'cc-2', companyId: 'comp-1', countryId: 'ctry-2',
-      countryCode: 'US', countryName: 'United States', localAlias: null,
-      createdAt: '', updatedAt: '',
+      id: 'cc-2',
+      companyId: 'comp-1',
+      countryId: 'ctry-2',
+      countryCode: 'US',
+      countryName: 'United States',
+      localAlias: null,
+      createdAt: '',
+      updatedAt: '',
     },
   ];
 
   const mockRegions: CompanyRegion[] = [
     {
-      id: 'reg-1', companyCountryId: 'cc-1', companyId: 'comp-1',
-      countryId: 'ctry-1', regionCode: 'NORTE', regionName: 'Norte',
-      enabled: true, createdAt: '', updatedAt: '',
+      id: 'reg-1',
+      companyCountryId: 'cc-1',
+      companyId: 'comp-1',
+      countryId: 'ctry-1',
+      regionCode: 'NORTE',
+      regionName: 'Norte',
+      enabled: true,
+      createdAt: '',
+      updatedAt: '',
     },
     {
-      id: 'reg-2', companyCountryId: 'cc-1', companyId: 'comp-1',
-      countryId: 'ctry-1', regionCode: 'SUR', regionName: 'Sur',
-      enabled: true, createdAt: '', updatedAt: '',
+      id: 'reg-2',
+      companyCountryId: 'cc-1',
+      companyId: 'comp-1',
+      countryId: 'ctry-1',
+      regionCode: 'SUR',
+      regionName: 'Sur',
+      enabled: true,
+      createdAt: '',
+      updatedAt: '',
     },
   ];
 
   const mockZones: CompanyZone[] = [
     {
-      id: 'zone-1', companyRegionId: 'reg-1', companyCountryId: 'cc-1',
-      companyId: 'comp-1', countryId: 'ctry-1',
-      zoneCode: 'Z1', zoneName: 'Zone One', enabled: true,
-      createdAt: '', updatedAt: '',
+      id: 'zone-1',
+      companyRegionId: 'reg-1',
+      companyCountryId: 'cc-1',
+      companyId: 'comp-1',
+      countryId: 'ctry-1',
+      zoneCode: 'Z1',
+      zoneName: 'Zone One',
+      enabled: true,
+      createdAt: '',
+      updatedAt: '',
     },
   ];
 
   const mockStores: CompanyStore[] = [
     {
-      id: 'store-1', companyId: 'comp-1', companyCountryId: 'cc-1',
-      regionId: 'reg-1', zoneId: 'zone-1', storeName: 'Store One',
-      enabled: true, createdAt: '', updatedAt: '',
+      id: 'store-1',
+      companyId: 'comp-1',
+      companyCountryId: 'cc-1',
+      regionId: 'reg-1',
+      zoneId: 'zone-1',
+      storeName: 'Store One',
+      enabled: true,
+      createdAt: '',
+      updatedAt: '',
     },
   ];
 
@@ -115,11 +163,18 @@ describe('UserProfileComponent', () => {
 
     // Mock CompanyService
     const companyServiceMock = {
-      getCompanies: vi.fn().mockReturnValue(of({
-        content: mockCompanies,
-        totalElements: 2, totalPages: 1, size: 1000, number: 0,
-        first: true, last: true, empty: false,
-      } as Page<Company>)),
+      getCompanies: vi.fn().mockReturnValue(
+        of({
+          content: mockCompanies,
+          totalElements: 2,
+          totalPages: 1,
+          size: 1000,
+          number: 0,
+          first: true,
+          last: true,
+          empty: false,
+        } as Page<Company>),
+      ),
     };
 
     // Mock CompanyCountryService
@@ -322,20 +377,12 @@ describe('UserProfileComponent', () => {
 
   describe('edit mode with location pre-populated', () => {
     it('should load cascade when profile has companyId', () => {
-      const { companyCountryServiceMock } = setup(
-        { edit: 'true' },
-        mockProfileWithLocation,
-        true,
-      );
+      const { companyCountryServiceMock } = setup({ edit: 'true' }, mockProfileWithLocation, true);
       expect(companyCountryServiceMock.getCountries).toHaveBeenCalledWith('comp-1');
     });
 
     it('should pre-populate form with location fields', () => {
-      const { component } = setup(
-        { edit: 'true' },
-        mockProfileWithLocation,
-        true,
-      );
+      const { component } = setup({ edit: 'true' }, mockProfileWithLocation, true);
       const formValues = component.form().getRawValue();
       expect(formValues.companyId).toBe('comp-1');
       expect(formValues.companyCountryId).toBe('cc-1');
@@ -369,9 +416,9 @@ describe('UserProfileComponent', () => {
 
     it('should handle save error', () => {
       const { component, profileServiceMock } = setup({ edit: 'true' });
-      profileServiceMock.updateProfile = vi.fn().mockReturnValue(
-        throwError(() => new Error('Update failed')),
-      );
+      profileServiceMock.updateProfile = vi
+        .fn()
+        .mockReturnValue(throwError(() => new Error('Update failed')));
       component.save();
       expect(component.error()).toBeTruthy();
     });
@@ -391,9 +438,7 @@ describe('UserProfileComponent', () => {
       TestBed.resetTestingModule();
 
       const profileServiceMock = {
-        getProfile: vi.fn().mockReturnValue(
-          throwError(() => new Error('Load failed')),
-        ),
+        getProfile: vi.fn().mockReturnValue(throwError(() => new Error('Load failed'))),
         updateProfile: vi.fn(),
       };
 
@@ -436,7 +481,9 @@ describe('UserProfileComponent', () => {
           {
             provide: Keycloak,
             useValue: {
-              authenticated: false, login: vi.fn(), logout: vi.fn(),
+              authenticated: false,
+              login: vi.fn(),
+              logout: vi.fn(),
               hasRealmRole: vi.fn().mockReturnValue(false),
             },
           },
@@ -507,7 +554,10 @@ describe('UserProfileComponent', () => {
       });
       component.onZoneChange('zone-1');
       expect(companyStoreServiceMock.getStores).toHaveBeenCalledWith(
-        'comp-1', 'cc-1', 'reg-1', 'zone-1',
+        'comp-1',
+        'cc-1',
+        'reg-1',
+        'zone-1',
       );
     });
 

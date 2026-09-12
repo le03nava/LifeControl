@@ -29,17 +29,11 @@ import { Company } from '../../../companies/models/company.models';
 import { CompanyCountry } from '../../../countries/models/country.models';
 import { CompanyRegion } from '../../../regions/models/region.models';
 import { CompanyZone } from '../../../zones/models/zone.models';
-import {
-  CompanyStore,
-  StoreControl,
-  StoreSaveEvent,
-} from '../../models/store.models';
+import { CompanyStore, StoreControl, StoreSaveEvent } from '../../models/store.models';
 import { CompanyZoneService } from '../../../zones/data/company-zone.service';
 import { CountryService } from '../../../../countries/data/country.service';
 import { Country } from '../../../countries/models/country.models';
-import {
-  AddressControl,
-} from '@shared/models/address.models';
+import { AddressControl } from '@shared/models/address.models';
 import { AddressFormComponent } from '@shared/ui/address-form';
 
 @Component({
@@ -173,11 +167,17 @@ export class StoresForm {
   }
 
   // ─── Helpers for mat-select compareWith ──────────────────────
-  protected compareCompanyCountryById = (option: CompanyCountry | null, selectedId: string | null): boolean => {
+  protected compareCompanyCountryById = (
+    option: CompanyCountry | null,
+    selectedId: string | null,
+  ): boolean => {
     return option?.id === selectedId;
   };
 
-  protected compareRegionById = (option: CompanyRegion | null, selectedId: string | null): boolean => {
+  protected compareRegionById = (
+    option: CompanyRegion | null,
+    selectedId: string | null,
+  ): boolean => {
     return option?.id === selectedId;
   };
 
@@ -333,12 +333,16 @@ export class StoresForm {
 
     const raw = this.formGroup.getRawValue();
     const address = raw.address;
-    const hasAddress = address && (
-      address.street || address.streetNumber ||
-      address.internalNumber || address.neighborhood ||
-      address.zipCode || address.city ||
-      address.state || address.countryId
-    );
+    const hasAddress =
+      address &&
+      (address.street ||
+        address.streetNumber ||
+        address.internalNumber ||
+        address.neighborhood ||
+        address.zipCode ||
+        address.city ||
+        address.state ||
+        address.countryId);
 
     this.save.emit({
       companyId,

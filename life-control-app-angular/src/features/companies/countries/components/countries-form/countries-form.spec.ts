@@ -14,28 +14,61 @@ describe('CountriesForm', () => {
 
   const mockCompanies: Company[] = [
     {
-      id: 'comp-1', companyKey: 'ACME', companyName: 'ACME Corp',
-      tipoPersonaId: 1, razonSocial: 'ACME Corp SA',
-      rfc: 'ACME010101', email: 'a@a.com', phone: '1234567890',
-      enabled: true, createdAt: '', updatedAt: '',
+      id: 'comp-1',
+      companyKey: 'ACME',
+      companyName: 'ACME Corp',
+      tipoPersonaId: 1,
+      razonSocial: 'ACME Corp SA',
+      rfc: 'ACME010101',
+      email: 'a@a.com',
+      phone: '1234567890',
+      enabled: true,
+      createdAt: '',
+      updatedAt: '',
     },
     {
-      id: 'comp-2', companyKey: 'BETA', companyName: 'Beta Inc',
-      tipoPersonaId: 2, razonSocial: 'Beta Inc SA',
-      rfc: 'BETA010101', email: 'b@b.com', phone: '0987654321',
-      enabled: true, createdAt: '', updatedAt: '',
+      id: 'comp-2',
+      companyKey: 'BETA',
+      companyName: 'Beta Inc',
+      tipoPersonaId: 2,
+      razonSocial: 'Beta Inc SA',
+      rfc: 'BETA010101',
+      email: 'b@b.com',
+      phone: '0987654321',
+      enabled: true,
+      createdAt: '',
+      updatedAt: '',
     },
   ];
 
   const mockCatalogCountries: Country[] = [
-    { id: '1', countryCode: 'US', countryName: 'United States', enabled: true, createdAt: '', updatedAt: '' },
-    { id: '2', countryCode: 'MX', countryName: 'Mexico', enabled: true, createdAt: '', updatedAt: '' },
+    {
+      id: '1',
+      countryCode: 'US',
+      countryName: 'United States',
+      enabled: true,
+      createdAt: '',
+      updatedAt: '',
+    },
+    {
+      id: '2',
+      countryCode: 'MX',
+      countryName: 'Mexico',
+      enabled: true,
+      createdAt: '',
+      updatedAt: '',
+    },
   ];
 
   const mockCc: CompanyCountry = {
-    id: 'cc-1', companyId: 'comp-1', countryId: '1',
-    countryCode: 'US', countryName: 'United States',
-    localAlias: 'USA Office', createdAt: '', updatedAt: '',
+    id: 'cc-1',
+    companyId: 'comp-1',
+    countryId: '1',
+    countryCode: 'US',
+    countryName: 'United States',
+    localAlias: 'USA Office',
+    createdAt: '',
+    updatedAt: '',
   };
 
   beforeEach(async () => {
@@ -46,9 +79,7 @@ describe('CountriesForm', () => {
 
     await TestBed.configureTestingModule({
       imports: [CountriesForm, NoopAnimationsModule],
-      providers: [
-        { provide: CountryService, useValue: countryServiceMock },
-      ],
+      providers: [{ provide: CountryService, useValue: countryServiceMock }],
     }).compileComponents();
 
     fixture = TestBed.createComponent(CountriesForm);
@@ -103,7 +134,9 @@ describe('CountriesForm', () => {
       component.formGroup.markAllAsTouched();
 
       let emitted = false;
-      component.saveCountry.subscribe(() => { emitted = true; });
+      component.saveCountry.subscribe(() => {
+        emitted = true;
+      });
 
       component.onSave();
 
@@ -114,7 +147,9 @@ describe('CountriesForm', () => {
       component.onCountryChange(mockCatalogCountries[0]);
 
       let emitted = false;
-      component.saveCountry.subscribe(() => { emitted = true; });
+      component.saveCountry.subscribe(() => {
+        emitted = true;
+      });
 
       component.onSave();
 
@@ -125,7 +160,9 @@ describe('CountriesForm', () => {
       component.onCompanyChange('comp-1');
 
       let emitted = false;
-      component.saveCountry.subscribe(() => { emitted = true; });
+      component.saveCountry.subscribe(() => {
+        emitted = true;
+      });
 
       component.onSave();
 
@@ -144,7 +181,9 @@ describe('CountriesForm', () => {
       component.formGroup.patchValue({ localAlias: 'My Alias' });
 
       let emitted: CountrySaveEvent | undefined;
-      component.saveCountry.subscribe((ev: CountrySaveEvent) => { emitted = ev; });
+      component.saveCountry.subscribe((ev: CountrySaveEvent) => {
+        emitted = ev;
+      });
 
       component.onSave();
 
@@ -159,7 +198,9 @@ describe('CountriesForm', () => {
       component.formGroup.patchValue({ localAlias: '  Alias con espacios  ' });
 
       let emitted: CountrySaveEvent | undefined;
-      component.saveCountry.subscribe((ev: CountrySaveEvent) => { emitted = ev; });
+      component.saveCountry.subscribe((ev: CountrySaveEvent) => {
+        emitted = ev;
+      });
 
       component.onSave();
 
@@ -171,7 +212,9 @@ describe('CountriesForm', () => {
       component.formGroup.patchValue({ localAlias: '' });
 
       let emitted: CountrySaveEvent | undefined;
-      component.saveCountry.subscribe((ev: CountrySaveEvent) => { emitted = ev; });
+      component.saveCountry.subscribe((ev: CountrySaveEvent) => {
+        emitted = ev;
+      });
 
       component.onSave();
 
@@ -184,7 +227,9 @@ describe('CountriesForm', () => {
       fixture.detectChanges();
 
       let emitted: CountrySaveEvent | undefined;
-      component.saveCountry.subscribe((ev: CountrySaveEvent) => { emitted = ev; });
+      component.saveCountry.subscribe((ev: CountrySaveEvent) => {
+        emitted = ev;
+      });
 
       component.onSave();
 
@@ -197,7 +242,9 @@ describe('CountriesForm', () => {
   describe('onCancel', () => {
     it('should emit cancelForm void', () => {
       let emitted = false;
-      component.cancelForm.subscribe(() => { emitted = true; });
+      component.cancelForm.subscribe(() => {
+        emitted = true;
+      });
 
       component.onCancel();
 
@@ -283,9 +330,7 @@ describe('CountriesForm', () => {
       });
       fixture.detectChanges();
 
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('nonexistent'),
-      );
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('nonexistent'));
 
       warnSpy.mockRestore();
     });

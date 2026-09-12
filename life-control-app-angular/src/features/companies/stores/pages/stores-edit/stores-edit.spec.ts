@@ -23,38 +23,94 @@ describe('StoresEdit', () => {
 
   const mockCompanies: Company[] = [
     {
-      id: 'company-1', companyKey: 'COMP001', companyName: 'Test Company',
-      tipoPersonaId: 1, razonSocial: 'Test Company SA',
-      rfc: 'RFC123', email: 'test@company.com', phone: '+525512345678',
-      enabled: true, createdAt: '', updatedAt: '',
+      id: 'company-1',
+      companyKey: 'COMP001',
+      companyName: 'Test Company',
+      tipoPersonaId: 1,
+      razonSocial: 'Test Company SA',
+      rfc: 'RFC123',
+      email: 'test@company.com',
+      phone: '+525512345678',
+      enabled: true,
+      createdAt: '',
+      updatedAt: '',
     },
   ];
 
   const mockCompaniesPage: Page<Company> = {
-    content: mockCompanies, totalElements: 1, totalPages: 1, size: 1000, number: 0,
-    first: true, last: true, empty: false,
+    content: mockCompanies,
+    totalElements: 1,
+    totalPages: 1,
+    size: 1000,
+    number: 0,
+    first: true,
+    last: true,
+    empty: false,
   };
 
   const mockCountries: CompanyCountry[] = [
-    { id: 'cc-1', companyId: 'company-1', countryId: '1', countryCode: 'MX', countryName: 'Mexico', localAlias: null, createdAt: '', updatedAt: '' },
+    {
+      id: 'cc-1',
+      companyId: 'company-1',
+      countryId: '1',
+      countryCode: 'MX',
+      countryName: 'Mexico',
+      localAlias: null,
+      createdAt: '',
+      updatedAt: '',
+    },
   ];
 
   const mockRegions: CompanyRegion[] = [
-    { id: 'reg-1', companyCountryId: 'cc-1', companyId: 'company-1', countryId: '1', regionCode: 'CENTRO', regionName: 'Centro', enabled: true, createdAt: '', updatedAt: '' },
+    {
+      id: 'reg-1',
+      companyCountryId: 'cc-1',
+      companyId: 'company-1',
+      countryId: '1',
+      regionCode: 'CENTRO',
+      regionName: 'Centro',
+      enabled: true,
+      createdAt: '',
+      updatedAt: '',
+    },
   ];
 
   const mockZones: CompanyZone[] = [
-    { id: 'zone-1', companyRegionId: 'reg-1', companyCountryId: 'cc-1', companyId: 'company-1', countryId: '1', zoneCode: 'DT', zoneName: 'Downtown', displayOrder: 1, enabled: true, createdAt: '', updatedAt: '' },
+    {
+      id: 'zone-1',
+      companyRegionId: 'reg-1',
+      companyCountryId: 'cc-1',
+      companyId: 'company-1',
+      countryId: '1',
+      zoneCode: 'DT',
+      zoneName: 'Downtown',
+      displayOrder: 1,
+      enabled: true,
+      createdAt: '',
+      updatedAt: '',
+    },
   ];
 
   const mockStore: CompanyStore = {
-    id: 'store-1', companyId: 'company-1', companyCountryId: 'cc-1', regionId: 'reg-1', zoneId: 'zone-1',
-    storeName: 'Tienda Central', email: 'central@store.com', phoneNumber: '+525512345678',
+    id: 'store-1',
+    companyId: 'company-1',
+    companyCountryId: 'cc-1',
+    regionId: 'reg-1',
+    zoneId: 'zone-1',
+    storeName: 'Tienda Central',
+    email: 'central@store.com',
+    phoneNumber: '+525512345678',
     address: {
-      street: 'Av. Reforma', streetNumber: '222', neighborhood: 'Juárez',
-      city: 'CDMX', state: 'CDMX', countryId: 'MX',
+      street: 'Av. Reforma',
+      streetNumber: '222',
+      neighborhood: 'Juárez',
+      city: 'CDMX',
+      state: 'CDMX',
+      countryId: 'MX',
     },
-    enabled: true, createdAt: '', updatedAt: '',
+    enabled: true,
+    createdAt: '',
+    updatedAt: '',
   };
 
   class MockCompanyService {
@@ -119,7 +175,12 @@ describe('StoresEdit', () => {
           {
             provide: ActivatedRoute,
             useValue: createActivatedRoute({
-              queryParams: { companyId: 'company-1', countryId: 'cc-1', regionId: 'reg-1', zoneId: 'zone-1' },
+              queryParams: {
+                companyId: 'company-1',
+                countryId: 'cc-1',
+                regionId: 'reg-1',
+                zoneId: 'zone-1',
+              },
             }),
           },
         ],
@@ -155,40 +216,72 @@ describe('StoresEdit', () => {
     });
 
     it('should load countries on init when companyId is present', () => {
-      const countryService = TestBed.inject(CompanyCountryService) as unknown as MockCompanyCountryService;
+      const countryService = TestBed.inject(
+        CompanyCountryService,
+      ) as unknown as MockCompanyCountryService;
       expect(countryService.getCountries).toHaveBeenCalledWith('company-1');
     });
 
     it('should load regions on init when countryId is present', () => {
-      const regionService = TestBed.inject(CompanyRegionService) as unknown as MockCompanyRegionService;
+      const regionService = TestBed.inject(
+        CompanyRegionService,
+      ) as unknown as MockCompanyRegionService;
       expect(regionService.getRegions).toHaveBeenCalledWith('company-1', 'cc-1');
     });
 
     it('should call addStore on save when not edit mode', () => {
-      const storeService = TestBed.inject(CompanyStoreService) as unknown as MockCompanyStoreService;
+      const storeService = TestBed.inject(
+        CompanyStoreService,
+      ) as unknown as MockCompanyStoreService;
       const router = TestBed.inject(Router) as unknown as { navigate: ReturnType<typeof vi.fn> };
 
       const event: StoreSaveEvent = {
-        companyId: 'company-1', countryId: 'cc-1', regionId: 'reg-1', zoneId: 'zone-1',
+        companyId: 'company-1',
+        countryId: 'cc-1',
+        regionId: 'reg-1',
+        zoneId: 'zone-1',
         request: { storeName: 'New Store' },
       };
       component.onSaveStore(event);
 
-      expect(storeService.addStore).toHaveBeenCalledWith('company-1', 'cc-1', 'reg-1', 'zone-1', event.request);
+      expect(storeService.addStore).toHaveBeenCalledWith(
+        'company-1',
+        'cc-1',
+        'reg-1',
+        'zone-1',
+        event.request,
+      );
       expect(router.navigate).toHaveBeenCalledWith(['/companies/stores'], {
-        queryParams: { companyId: 'company-1', countryId: 'cc-1', regionId: 'reg-1', zoneId: 'zone-1' },
+        queryParams: {
+          companyId: 'company-1',
+          countryId: 'cc-1',
+          regionId: 'reg-1',
+          zoneId: 'zone-1',
+        },
       });
     });
 
     it('should handle addStore errors via serverErrors', () => {
       const apiError = { status: 400, message: 'Error', errors: { storeName: 'Already exists' } };
-      const storeService = TestBed.inject(CompanyStoreService) as unknown as MockCompanyStoreService;
-      storeService.addStore = vi.fn().mockReturnValue(throwError(() => new HttpErrorResponse({
-        error: apiError, status: 400, statusText: 'Bad Request',
-      })));
+      const storeService = TestBed.inject(
+        CompanyStoreService,
+      ) as unknown as MockCompanyStoreService;
+      storeService.addStore = vi.fn().mockReturnValue(
+        throwError(
+          () =>
+            new HttpErrorResponse({
+              error: apiError,
+              status: 400,
+              statusText: 'Bad Request',
+            }),
+        ),
+      );
 
       const event: StoreSaveEvent = {
-        companyId: 'company-1', countryId: 'cc-1', regionId: 'reg-1', zoneId: 'zone-1',
+        companyId: 'company-1',
+        countryId: 'cc-1',
+        regionId: 'reg-1',
+        zoneId: 'zone-1',
         request: { storeName: 'Duplicate Store' },
       };
       component.onSaveStore(event);
@@ -277,36 +370,69 @@ describe('StoresEdit', () => {
     });
 
     it('should load regions for the store country', () => {
-      const regionService = TestBed.inject(CompanyRegionService) as unknown as MockCompanyRegionService;
+      const regionService = TestBed.inject(
+        CompanyRegionService,
+      ) as unknown as MockCompanyRegionService;
       expect(regionService.getRegions).toHaveBeenCalledWith('company-1', 'cc-1');
     });
 
     it('should call updateStore on save when in edit mode', () => {
-      const storeService = TestBed.inject(CompanyStoreService) as unknown as MockCompanyStoreService;
+      const storeService = TestBed.inject(
+        CompanyStoreService,
+      ) as unknown as MockCompanyStoreService;
       const router = TestBed.inject(Router) as unknown as { navigate: ReturnType<typeof vi.fn> };
 
       const event: StoreSaveEvent = {
-        companyId: 'company-1', countryId: 'cc-1', regionId: 'reg-1', zoneId: 'zone-1',
-        request: { storeName: 'Updated Store' }, storeId: 'store-1',
+        companyId: 'company-1',
+        countryId: 'cc-1',
+        regionId: 'reg-1',
+        zoneId: 'zone-1',
+        request: { storeName: 'Updated Store' },
+        storeId: 'store-1',
       };
       component.onSaveStore(event);
 
-      expect(storeService.updateStore).toHaveBeenCalledWith('company-1', 'cc-1', 'reg-1', 'zone-1', 'store-1', event.request);
+      expect(storeService.updateStore).toHaveBeenCalledWith(
+        'company-1',
+        'cc-1',
+        'reg-1',
+        'zone-1',
+        'store-1',
+        event.request,
+      );
       expect(router.navigate).toHaveBeenCalledWith(['/companies/stores'], {
-        queryParams: { companyId: 'company-1', countryId: 'cc-1', regionId: 'reg-1', zoneId: 'zone-1' },
+        queryParams: {
+          companyId: 'company-1',
+          countryId: 'cc-1',
+          regionId: 'reg-1',
+          zoneId: 'zone-1',
+        },
       });
     });
 
     it('should handle updateStore errors via serverErrors', () => {
       const apiError = { status: 400, message: 'Error', errors: { storeName: 'Name taken' } };
-      const storeService = TestBed.inject(CompanyStoreService) as unknown as MockCompanyStoreService;
-      storeService.updateStore = vi.fn().mockReturnValue(throwError(() => new HttpErrorResponse({
-        error: apiError, status: 400, statusText: 'Bad Request',
-      })));
+      const storeService = TestBed.inject(
+        CompanyStoreService,
+      ) as unknown as MockCompanyStoreService;
+      storeService.updateStore = vi.fn().mockReturnValue(
+        throwError(
+          () =>
+            new HttpErrorResponse({
+              error: apiError,
+              status: 400,
+              statusText: 'Bad Request',
+            }),
+        ),
+      );
 
       const event: StoreSaveEvent = {
-        companyId: 'company-1', countryId: 'cc-1', regionId: 'reg-1', zoneId: 'zone-1',
-        request: { storeName: 'Duplicate' }, storeId: 'store-1',
+        companyId: 'company-1',
+        countryId: 'cc-1',
+        regionId: 'reg-1',
+        zoneId: 'zone-1',
+        request: { storeName: 'Duplicate' },
+        storeId: 'store-1',
       };
       component.onSaveStore(event);
 
@@ -341,7 +467,12 @@ describe('StoresEdit', () => {
       component.onCancelForm();
 
       expect(router.navigate).toHaveBeenCalledWith(['/companies/stores'], {
-        queryParams: { companyId: 'company-1', countryId: 'cc-1', regionId: 'reg-1', zoneId: 'zone-1' },
+        queryParams: {
+          companyId: 'company-1',
+          countryId: 'cc-1',
+          regionId: 'reg-1',
+          zoneId: 'zone-1',
+        },
       });
     });
 
@@ -371,7 +502,12 @@ describe('StoresEdit', () => {
       component.onCancelForm();
 
       expect(router.navigate).toHaveBeenCalledWith(['/companies/stores'], {
-        queryParams: { companyId: 'company-1', countryId: 'cc-1', regionId: 'reg-1', zoneId: 'zone-1' },
+        queryParams: {
+          companyId: 'company-1',
+          countryId: 'cc-1',
+          regionId: 'reg-1',
+          zoneId: 'zone-1',
+        },
       });
     });
 

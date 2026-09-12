@@ -1,4 +1,12 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, effect, inject, signal, OnInit } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  effect,
+  inject,
+  signal,
+  OnInit,
+} from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
@@ -18,7 +26,6 @@ import {
 } from '@angular/forms';
 import { SuppliersForm } from '../../components/suppliers-form/suppliers-form';
 import { ErrorBanner } from '@shared/ui';
-
 
 @Component({
   selector: 'app-supplier-edit',
@@ -59,35 +66,62 @@ export class SupplierEdit implements OnInit {
   }
 
   private loadSupplier(id: string): void {
-    this.supplierService.getSupplierById(id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (supplier) => {
-        this.supplierForm.set(
-          this.fb.group({
-            id: this.fb.control(supplier.id),
-            supplierName: this.fb.control(supplier.supplierName, Validators.required),
-            razonSocial: this.fb.control(supplier.razonSocial),
-            rfc: this.fb.control(supplier.rfc, [Validators.required, Validators.pattern(/^[A-Za-z0-9]{12,13}$/)]),
-            email: this.fb.control(supplier.email, Validators.email),
-            phoneNumber: this.fb.control(supplier.phoneNumber),
-            internalNumber: new FormControl<string | null>(supplier.internalNumber || null, { nonNullable: false }),
-            address: new FormGroup<AddressControl>({
-              street: new FormControl<string | null>(supplier.address?.street ?? null, { nonNullable: false }),
-              streetNumber: new FormControl<string | null>(supplier.address?.streetNumber ?? null, { nonNullable: false }),
-              internalNumber: new FormControl<string | null>(supplier.address?.internalNumber ?? null, { nonNullable: false }),
-              neighborhood: new FormControl<string | null>(supplier.address?.neighborhood ?? null, { nonNullable: false }),
-              zipCode: new FormControl<string | null>(supplier.address?.zipCode ?? null, { nonNullable: false }),
-              city: new FormControl<string | null>(supplier.address?.city ?? null, { nonNullable: false }),
-              state: new FormControl<string | null>(supplier.address?.state ?? null, { nonNullable: false }),
-              countryId: new FormControl<string | null>(supplier.address?.countryId ?? null, { nonNullable: false }),
+    this.supplierService
+      .getSupplierById(id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (supplier) => {
+          this.supplierForm.set(
+            this.fb.group({
+              id: this.fb.control(supplier.id),
+              supplierName: this.fb.control(supplier.supplierName, Validators.required),
+              razonSocial: this.fb.control(supplier.razonSocial),
+              rfc: this.fb.control(supplier.rfc, [
+                Validators.required,
+                Validators.pattern(/^[A-Za-z0-9]{12,13}$/),
+              ]),
+              email: this.fb.control(supplier.email, Validators.email),
+              phoneNumber: this.fb.control(supplier.phoneNumber),
+              internalNumber: new FormControl<string | null>(supplier.internalNumber || null, {
+                nonNullable: false,
+              }),
+              address: new FormGroup<AddressControl>({
+                street: new FormControl<string | null>(supplier.address?.street ?? null, {
+                  nonNullable: false,
+                }),
+                streetNumber: new FormControl<string | null>(
+                  supplier.address?.streetNumber ?? null,
+                  { nonNullable: false },
+                ),
+                internalNumber: new FormControl<string | null>(
+                  supplier.address?.internalNumber ?? null,
+                  { nonNullable: false },
+                ),
+                neighborhood: new FormControl<string | null>(
+                  supplier.address?.neighborhood ?? null,
+                  { nonNullable: false },
+                ),
+                zipCode: new FormControl<string | null>(supplier.address?.zipCode ?? null, {
+                  nonNullable: false,
+                }),
+                city: new FormControl<string | null>(supplier.address?.city ?? null, {
+                  nonNullable: false,
+                }),
+                state: new FormControl<string | null>(supplier.address?.state ?? null, {
+                  nonNullable: false,
+                }),
+                countryId: new FormControl<string | null>(supplier.address?.countryId ?? null, {
+                  nonNullable: false,
+                }),
+              }),
+              enabled: this.fb.control(supplier.enabled),
             }),
-            enabled: this.fb.control(supplier.enabled),
-          })
-        );
-      },
-      error: (err) => {
-        console.error('[SupplierEdit] Error loading supplier:', err);
-      },
-    });
+          );
+        },
+        error: (err) => {
+          console.error('[SupplierEdit] Error loading supplier:', err);
+        },
+      });
   }
 
   private createForm(): FormGroup<SupplierControl> {
@@ -116,44 +150,58 @@ export class SupplierEdit implements OnInit {
   onSaveSupplier(supplierData: Supplier): void {
     if (supplierData.id === '') {
       const { id: _id, address, ...rest } = supplierData;
-      const hasAddress = address && (
-        address.street || address.streetNumber ||
-        address.internalNumber || address.neighborhood ||
-        address.zipCode || address.city ||
-        address.state || address.countryId
-      );
+      const hasAddress =
+        address &&
+        (address.street ||
+          address.streetNumber ||
+          address.internalNumber ||
+          address.neighborhood ||
+          address.zipCode ||
+          address.city ||
+          address.state ||
+          address.countryId);
       const payload = {
         ...rest,
         ...(hasAddress ? { address } : {}),
       };
-      this.supplierService.createSupplier(payload as unknown as Supplier).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: (createdSupplier) => {
-          this.router.navigate(['/products/suppliers/edit', createdSupplier.id]);
-        },
-        error: (err: HttpErrorResponse) => {
-          this.handleServerError(err);
-        },
-      });
+      this.supplierService
+        .createSupplier(payload as unknown as Supplier)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: (createdSupplier) => {
+            this.router.navigate(['/products/suppliers/edit', createdSupplier.id]);
+          },
+          error: (err: HttpErrorResponse) => {
+            this.handleServerError(err);
+          },
+        });
     } else {
       const { id: _id, address, ...rest } = supplierData;
-      const hasAddress = address && (
-        address.street || address.streetNumber ||
-        address.internalNumber || address.neighborhood ||
-        address.zipCode || address.city ||
-        address.state || address.countryId
-      );
+      const hasAddress =
+        address &&
+        (address.street ||
+          address.streetNumber ||
+          address.internalNumber ||
+          address.neighborhood ||
+          address.zipCode ||
+          address.city ||
+          address.state ||
+          address.countryId);
       const payload = {
         ...rest,
         ...(hasAddress ? { address } : {}),
       };
-      this.supplierService.updateSupplier(supplierData.id, payload as unknown as Supplier).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: () => {
-          this.router.navigate(['/products/suppliers']);
-        },
-        error: (err: HttpErrorResponse) => {
-          this.handleServerError(err);
-        },
-      });
+      this.supplierService
+        .updateSupplier(supplierData.id, payload as unknown as Supplier)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: () => {
+            this.router.navigate(['/products/suppliers']);
+          },
+          error: (err: HttpErrorResponse) => {
+            this.handleServerError(err);
+          },
+        });
     }
   }
 
@@ -188,5 +236,4 @@ export class SupplierEdit implements OnInit {
   cancelForm(): void {
     this.router.navigate(['/products/suppliers']);
   }
-
 }

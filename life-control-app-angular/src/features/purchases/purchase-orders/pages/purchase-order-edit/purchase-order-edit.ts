@@ -10,22 +10,14 @@ import {
 import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import {
-  NonNullableFormBuilder,
-  FormGroup,
-  Validators,
-  ReactiveFormsModule,
-} from '@angular/forms';
+import { NonNullableFormBuilder, FormGroup, Validators, ReactiveFormsModule } from '@angular/forms';
 // CurrencyPipe no longer needed in parent — used by child components
 import { PurchaseOrderService } from '../../data/purchase-order.service';
 import { ProductService } from '@features/products/data/product.service';
 import { ApiError } from '@shared/models';
 import { PageHeader } from '@shared/ui';
 import { StatusSelector } from '../../components/status-selector/status-selector';
-import {
-  DetailTable,
-  type DetailTableRow,
-} from '../../components/detail-table/detail-table';
+import { DetailTable, type DetailTableRow } from '../../components/detail-table/detail-table';
 import { CompanyInfoSection } from '../../components/company-info-section/company-info-section';
 import { SupplierInfoSection } from '../../components/supplier-info-section/supplier-info-section';
 import type {
@@ -67,24 +59,18 @@ export class PurchaseOrderEdit implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
 
   // ─── Route data ────────────────────────────────────────
-  readonly orderId = signal<string | null>(
-    this.route.snapshot.paramMap.get('id'),
-  );
+  readonly orderId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
   readonly isEditMode = computed(() => this.orderId() !== null);
 
   // ─── Header form ───────────────────────────────────────
-  readonly headerForm = signal<FormGroup<PurchaseOrderHeaderControl>>(
-    this.createForm(),
-  );
+  readonly headerForm = signal<FormGroup<PurchaseOrderHeaderControl>>(this.createForm());
   readonly serverErrors = signal<Record<string, string>>({});
   readonly generalError = signal<string | null>(null);
   readonly saving = signal(false);
 
   // ─── Loaded order data (edit mode) ─────────────────────
   readonly loadedOrder = signal<PurchaseOrder | null>(null);
-  readonly isDraft = computed(
-    () => this.loadedOrder()?.statusName === 'Draft',
-  );
+  readonly isDraft = computed(() => this.loadedOrder()?.statusName === 'Draft');
 
   // ─── Line items ────────────────────────────────────────
   readonly lineItems = signal<DetailTableRow[]>([]);
@@ -94,20 +80,23 @@ export class PurchaseOrderEdit implements OnInit {
 
   ngOnInit(): void {
     // Watch supplier changes to load associated products
-    this.headerForm().controls.supplierId.valueChanges
-      .pipe(takeUntilDestroyed(this.destroyRef))
+    this.headerForm()
+      .controls.supplierId.valueChanges.pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((supplierId) => {
         if (supplierId) {
-          this.productService.getProductsBySupplier(supplierId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-            next: (products) =>
-              this.supplierProducts.set(
-                products.map((p) => ({
-                  id: p.productId,
-                  name: p.productName,
-                  sku: p.sku,
-                })),
-              ),
-          });
+          this.productService
+            .getProductsBySupplier(supplierId)
+            .pipe(takeUntilDestroyed(this.destroyRef))
+            .subscribe({
+              next: (products) =>
+                this.supplierProducts.set(
+                  products.map((p) => ({
+                    id: p.productId,
+                    name: p.productName,
+                    sku: p.sku,
+                  })),
+                ),
+            });
         } else {
           this.supplierProducts.set([]);
         }
@@ -197,13 +186,11 @@ export class PurchaseOrderEdit implements OnInit {
     this.saving.set(true);
 
     const formValue = form.getRawValue();
-    const details: PurchaseOrderDetailRequest[] = this.lineItems().map(
-      (item) => ({
-        productId: item.productId,
-        quantity: item.quantity,
-        unitPrice: item.unitPrice,
-      }),
-    );
+    const details: PurchaseOrderDetailRequest[] = this.lineItems().map((item) => ({
+      productId: item.productId,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+    }));
 
     const request: PurchaseOrderRequest = {
       supplierId: formValue.supplierId,
@@ -215,27 +202,33 @@ export class PurchaseOrderEdit implements OnInit {
 
     if (this.isEditMode()) {
       const id = this.orderId()!;
-      this.purchaseOrderService.update(id, request).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: () => {
-          this.saving.set(false);
-          this.router.navigate(['/purchases/orders']);
-        },
-        error: (err: HttpErrorResponse) => {
-          this.saving.set(false);
-          this.handleServerError(err);
-        },
-      });
+      this.purchaseOrderService
+        .update(id, request)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: () => {
+            this.saving.set(false);
+            this.router.navigate(['/purchases/orders']);
+          },
+          error: (err: HttpErrorResponse) => {
+            this.saving.set(false);
+            this.handleServerError(err);
+          },
+        });
     } else {
-      this.purchaseOrderService.create(request).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: (created) => {
-          this.saving.set(false);
-          this.router.navigate(['/purchases/orders', created.id]);
-        },
-        error: (err: HttpErrorResponse) => {
-          this.saving.set(false);
-          this.handleServerError(err);
-        },
-      });
+      this.purchaseOrderService
+        .create(request)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: (created) => {
+            this.saving.set(false);
+            this.router.navigate(['/purchases/orders', created.id]);
+          },
+          error: (err: HttpErrorResponse) => {
+            this.saving.set(false);
+            this.handleServerError(err);
+          },
+        });
     }
   }
 
@@ -249,9 +242,7 @@ export class PurchaseOrderEdit implements OnInit {
       this.generalError.set(apiError.message);
     } else {
       this.serverErrors.set({});
-      this.generalError.set(
-        'Error inesperado. Intente de nuevo más tarde.',
-      );
+      this.generalError.set('Error inesperado. Intente de nuevo más tarde.');
     }
   }
 

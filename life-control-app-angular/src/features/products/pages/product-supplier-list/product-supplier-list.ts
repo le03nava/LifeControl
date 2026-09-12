@@ -1,4 +1,11 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, effect, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
 import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -41,9 +48,7 @@ export class ProductSupplierList {
   private readonly dialog = inject(MatDialog);
   private readonly destroyRef = inject(DestroyRef);
 
-  readonly productId = signal<string | null>(
-    this.route.snapshot.paramMap.get('id'),
-  );
+  readonly productId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
 
   readonly productResource = rxResource({
     params: () => ({ productId: this.productId() }),

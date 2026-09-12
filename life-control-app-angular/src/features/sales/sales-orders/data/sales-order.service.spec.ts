@@ -1,8 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import {
-  HttpClientTestingModule,
-  HttpTestingController,
-} from '@angular/common/http/testing';
+import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 import { firstValueFrom } from 'rxjs';
 import { SalesOrderService } from './sales-order.service';
 import { ConfigService } from '@app/services/config.service';
@@ -78,10 +75,7 @@ describe('SalesOrderService', () => {
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
       imports: [HttpClientTestingModule],
-      providers: [
-        SalesOrderService,
-        { provide: ConfigService, useValue: { apiUrl: TEST_API } },
-      ],
+      providers: [SalesOrderService, { provide: ConfigService, useValue: { apiUrl: TEST_API } }],
     });
     service = TestBed.inject(SalesOrderService);
     httpMock = TestBed.inject(HttpTestingController);
@@ -111,8 +105,7 @@ describe('SalesOrderService', () => {
       const promise = firstValueFrom(service.getSalesOrders(0, 12));
 
       const req = httpMock.expectOne(
-        (r) =>
-          r.url === `${TEST_API}/sales-orders` && r.method === 'GET',
+        (r) => r.url === `${TEST_API}/sales-orders` && r.method === 'GET',
       );
       expect(req.request.params.get('page')).toBe('0');
       expect(req.request.params.get('size')).toBe('12');
@@ -136,13 +129,10 @@ describe('SalesOrderService', () => {
         empty: true,
       };
 
-      const promise = firstValueFrom(
-        service.getSalesOrders(0, 12, 'John'),
-      );
+      const promise = firstValueFrom(service.getSalesOrders(0, 12, 'John'));
 
       const req = httpMock.expectOne(
-        (r) =>
-          r.url === `${TEST_API}/sales-orders` && r.method === 'GET',
+        (r) => r.url === `${TEST_API}/sales-orders` && r.method === 'GET',
       );
       expect(req.request.params.get('search')).toBe('John');
       req.flush(mockPage);
@@ -166,8 +156,7 @@ describe('SalesOrderService', () => {
       const promise = firstValueFrom(service.getSalesOrders(2, 24));
 
       const req = httpMock.expectOne(
-        (r) =>
-          r.url === `${TEST_API}/sales-orders` && r.method === 'GET',
+        (r) => r.url === `${TEST_API}/sales-orders` && r.method === 'GET',
       );
       expect(req.request.params.get('page')).toBe('2');
       expect(req.request.params.get('size')).toBe('24');
@@ -182,17 +171,11 @@ describe('SalesOrderService', () => {
       const promise = firstValueFrom(service.getSalesOrders(0, 12));
 
       const req = httpMock.expectOne(
-        (r) =>
-          r.url === `${TEST_API}/sales-orders` && r.method === 'GET',
+        (r) => r.url === `${TEST_API}/sales-orders` && r.method === 'GET',
       );
-      req.flush(
-        { message: 'Server error' },
-        { status: 500, statusText: 'Internal Server Error' },
-      );
+      req.flush({ message: 'Server error' }, { status: 500, statusText: 'Internal Server Error' });
 
-      await expect(promise).rejects.toEqual(
-        expect.objectContaining({ status: 500 }),
-      );
+      await expect(promise).rejects.toEqual(expect.objectContaining({ status: 500 }));
     });
   });
 
@@ -200,9 +183,7 @@ describe('SalesOrderService', () => {
     it('should fetch a single sales order by ID', async () => {
       const promise = firstValueFrom(service.getSalesOrder('so-1'));
 
-      const req = httpMock.expectOne(
-        `${TEST_API}/sales-orders/so-1`,
-      );
+      const req = httpMock.expectOne(`${TEST_API}/sales-orders/so-1`);
       expect(req.request.method).toBe('GET');
       req.flush(mockOrder);
 
@@ -215,9 +196,7 @@ describe('SalesOrderService', () => {
       const customId = '550e8400-e29b-41d4-a716-446655440000';
       const promise = firstValueFrom(service.getSalesOrder(customId));
 
-      const req = httpMock.expectOne(
-        `${TEST_API}/sales-orders/${customId}`,
-      );
+      const req = httpMock.expectOne(`${TEST_API}/sales-orders/${customId}`);
       expect(req.request.url).toContain(customId);
       req.flush({ ...mockOrder, id: customId });
 
@@ -228,17 +207,10 @@ describe('SalesOrderService', () => {
     it('should propagate 404 error', async () => {
       const promise = firstValueFrom(service.getSalesOrder('bad-id'));
 
-      const req = httpMock.expectOne(
-        `${TEST_API}/sales-orders/bad-id`,
-      );
-      req.flush(
-        { message: 'Not found' },
-        { status: 404, statusText: 'Not Found' },
-      );
+      const req = httpMock.expectOne(`${TEST_API}/sales-orders/bad-id`);
+      req.flush({ message: 'Not found' }, { status: 404, statusText: 'Not Found' });
 
-      await expect(promise).rejects.toEqual(
-        expect.objectContaining({ status: 404 }),
-      );
+      await expect(promise).rejects.toEqual(expect.objectContaining({ status: 404 }));
     });
   });
 
@@ -248,9 +220,7 @@ describe('SalesOrderService', () => {
 
       const promise = firstValueFrom(service.create(mockRequest));
 
-      const req = httpMock.expectOne(
-        `${TEST_API}/sales-orders`,
-      );
+      const req = httpMock.expectOne(`${TEST_API}/sales-orders`);
       expect(req.request.method).toBe('POST');
       expect(req.request.body).toEqual(mockRequest);
       req.flush(created);
@@ -262,17 +232,13 @@ describe('SalesOrderService', () => {
     it('should propagate 400 validation errors', async () => {
       const promise = firstValueFrom(service.create(mockRequest));
 
-      const req = httpMock.expectOne(
-        `${TEST_API}/sales-orders`,
-      );
+      const req = httpMock.expectOne(`${TEST_API}/sales-orders`);
       req.flush(
         { message: 'Validation failed', errors: { customerId: 'Required' } },
         { status: 400, statusText: 'Bad Request' },
       );
 
-      await expect(promise).rejects.toEqual(
-        expect.objectContaining({ status: 400 }),
-      );
+      await expect(promise).rejects.toEqual(expect.objectContaining({ status: 400 }));
     });
   });
 
@@ -289,9 +255,7 @@ describe('SalesOrderService', () => {
 
       const promise = firstValueFrom(service.update('so-1', updateReq));
 
-      const req = httpMock.expectOne(
-        `${TEST_API}/sales-orders/so-1`,
-      );
+      const req = httpMock.expectOne(`${TEST_API}/sales-orders/so-1`);
       expect(req.request.method).toBe('PUT');
       expect(req.request.body).toEqual(updateReq);
       req.flush(updated);
@@ -309,13 +273,9 @@ describe('SalesOrderService', () => {
         statusName: 'Pending',
       };
 
-      const promise = firstValueFrom(
-        service.updateStatus('so-1', mockStatusRequest),
-      );
+      const promise = firstValueFrom(service.updateStatus('so-1', mockStatusRequest));
 
-      const req = httpMock.expectOne(
-        `${TEST_API}/sales-orders/so-1/status`,
-      );
+      const req = httpMock.expectOne(`${TEST_API}/sales-orders/so-1/status`);
       expect(req.request.method).toBe('PATCH');
       expect(req.request.body).toEqual(mockStatusRequest);
       req.flush(updated);
@@ -325,21 +285,12 @@ describe('SalesOrderService', () => {
     });
 
     it('should propagate 409 conflict on invalid transition', async () => {
-      const promise = firstValueFrom(
-        service.updateStatus('so-1', mockStatusRequest),
-      );
+      const promise = firstValueFrom(service.updateStatus('so-1', mockStatusRequest));
 
-      const req = httpMock.expectOne(
-        `${TEST_API}/sales-orders/so-1/status`,
-      );
-      req.flush(
-        { message: 'Transition not allowed' },
-        { status: 409, statusText: 'Conflict' },
-      );
+      const req = httpMock.expectOne(`${TEST_API}/sales-orders/so-1/status`);
+      req.flush({ message: 'Transition not allowed' }, { status: 409, statusText: 'Conflict' });
 
-      await expect(promise).rejects.toEqual(
-        expect.objectContaining({ status: 409 }),
-      );
+      await expect(promise).rejects.toEqual(expect.objectContaining({ status: 409 }));
     });
   });
 
@@ -349,9 +300,7 @@ describe('SalesOrderService', () => {
 
       const promise = firstValueFrom(service.enable('so-1'));
 
-      const req = httpMock.expectOne(
-        `${TEST_API}/sales-orders/so-1/enable`,
-      );
+      const req = httpMock.expectOne(`${TEST_API}/sales-orders/so-1/enable`);
       expect(req.request.method).toBe('PATCH');
       req.flush(enabled);
 
@@ -364,9 +313,7 @@ describe('SalesOrderService', () => {
     it('should DELETE a sales order', async () => {
       const promise = firstValueFrom(service.delete('so-1'));
 
-      const req = httpMock.expectOne(
-        `${TEST_API}/sales-orders/so-1`,
-      );
+      const req = httpMock.expectOne(`${TEST_API}/sales-orders/so-1`);
       expect(req.request.method).toBe('DELETE');
       req.flush(null);
 
@@ -381,9 +328,7 @@ describe('SalesOrderService', () => {
 
       const promise = firstValueFrom(service.getItems('so-1'));
 
-      const req = httpMock.expectOne(
-        `${TEST_API}/sales-orders/so-1/items`,
-      );
+      const req = httpMock.expectOne(`${TEST_API}/sales-orders/so-1/items`);
       expect(req.request.method).toBe('GET');
       req.flush(items);
 
@@ -397,13 +342,9 @@ describe('SalesOrderService', () => {
     it('should POST a new line item', async () => {
       const newItem: SalesOrderItem = { ...mockItem, id: 'item-new' };
 
-      const promise = firstValueFrom(
-        service.addItem('so-1', mockItemRequest),
-      );
+      const promise = firstValueFrom(service.addItem('so-1', mockItemRequest));
 
-      const req = httpMock.expectOne(
-        `${TEST_API}/sales-orders/so-1/items`,
-      );
+      const req = httpMock.expectOne(`${TEST_API}/sales-orders/so-1/items`);
       expect(req.request.method).toBe('POST');
       expect(req.request.body).toEqual(mockItemRequest);
       req.flush(newItem);
@@ -425,13 +366,9 @@ describe('SalesOrderService', () => {
         quantity: 5,
       };
 
-      const promise = firstValueFrom(
-        service.updateItem('so-1', 'item-1', updateReq),
-      );
+      const promise = firstValueFrom(service.updateItem('so-1', 'item-1', updateReq));
 
-      const req = httpMock.expectOne(
-        `${TEST_API}/sales-orders/so-1/items/item-1`,
-      );
+      const req = httpMock.expectOne(`${TEST_API}/sales-orders/so-1/items/item-1`);
       expect(req.request.method).toBe('PUT');
       expect(req.request.body.quantity).toBe(5);
       req.flush(updatedItem);
@@ -443,13 +380,9 @@ describe('SalesOrderService', () => {
 
   describe('deleteItem', () => {
     it('should DELETE a line item', async () => {
-      const promise = firstValueFrom(
-        service.deleteItem('so-1', 'item-1'),
-      );
+      const promise = firstValueFrom(service.deleteItem('so-1', 'item-1'));
 
-      const req = httpMock.expectOne(
-        `${TEST_API}/sales-orders/so-1/items/item-1`,
-      );
+      const req = httpMock.expectOne(`${TEST_API}/sales-orders/so-1/items/item-1`);
       expect(req.request.method).toBe('DELETE');
       req.flush(null);
 
@@ -467,13 +400,9 @@ describe('SalesOrderService', () => {
         paymentMethodId: 'pm-1',
       };
 
-      const promise = firstValueFrom(
-        service.chargeSalesOrder('so-1', 'pm-1'),
-      );
+      const promise = firstValueFrom(service.chargeSalesOrder('so-1', 'pm-1'));
 
-      const req = httpMock.expectOne(
-        `${TEST_API}/sales-orders/so-1/charge`,
-      );
+      const req = httpMock.expectOne(`${TEST_API}/sales-orders/so-1/charge`);
       expect(req.request.method).toBe('PATCH');
       expect(req.request.body).toEqual({ paymentMethodId: 'pm-1' });
       req.flush(charged);
@@ -484,21 +413,15 @@ describe('SalesOrderService', () => {
     });
 
     it('should propagate 400 error when order is not Pending', async () => {
-      const promise = firstValueFrom(
-        service.chargeSalesOrder('so-1', 'pm-1'),
-      );
+      const promise = firstValueFrom(service.chargeSalesOrder('so-1', 'pm-1'));
 
-      const req = httpMock.expectOne(
-        `${TEST_API}/sales-orders/so-1/charge`,
-      );
+      const req = httpMock.expectOne(`${TEST_API}/sales-orders/so-1/charge`);
       req.flush(
         { message: 'Cannot charge sales order' },
         { status: 400, statusText: 'Bad Request' },
       );
 
-      await expect(promise).rejects.toEqual(
-        expect.objectContaining({ status: 400 }),
-      );
+      await expect(promise).rejects.toEqual(expect.objectContaining({ status: 400 }));
     });
   });
 
@@ -510,13 +433,9 @@ describe('SalesOrderService', () => {
         statusName: 'Added',
       };
 
-      const promise = firstValueFrom(
-        service.updateItemStatus('so-1', 'item-1', 'st-added'),
-      );
+      const promise = firstValueFrom(service.updateItemStatus('so-1', 'item-1', 'st-added'));
 
-      const req = httpMock.expectOne(
-        `${TEST_API}/sales-orders/so-1/items/item-1/status`,
-      );
+      const req = httpMock.expectOne(`${TEST_API}/sales-orders/so-1/items/item-1/status`);
       expect(req.request.method).toBe('PATCH');
       expect(req.request.body).toEqual({ statusId: 'st-added' });
       req.flush(updatedItem);

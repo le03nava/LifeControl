@@ -308,10 +308,7 @@ describe('ZonesPage', () => {
     component.onSelectCountry(mockCC);
     fixture.detectChanges();
 
-    expect(companyRegionService.getRegions).toHaveBeenCalledWith(
-      mockCC.companyId,
-      mockCC.id,
-    );
+    expect(companyRegionService.getRegions).toHaveBeenCalledWith(mockCC.companyId, mockCC.id);
   });
 
   it('should clear selectedRegion when country changes', () => {
@@ -341,11 +338,7 @@ describe('ZonesPage', () => {
     component.onSelectRegion(mockRegions[0]);
     fixture.detectChanges();
 
-    expect(companyZoneService.getZones).toHaveBeenCalledWith(
-      'company-1',
-      'cc-1',
-      'reg-1',
-    );
+    expect(companyZoneService.getZones).toHaveBeenCalledWith('company-1', 'cc-1', 'reg-1');
   });
 
   // ─── onCreateZone ────────────────────────────────────────────
@@ -476,7 +469,10 @@ describe('ZonesPage', () => {
     component.onCardToggleZone({ id: 'zone-3', enable: true });
 
     expect(companyZoneService.enableZone).toHaveBeenCalledWith(
-      'company-1', 'cc-1', 'reg-1', 'zone-3',
+      'company-1',
+      'cc-1',
+      'reg-1',
+      'zone-3',
     );
     expect(companyZoneService.removeZone).not.toHaveBeenCalled();
   });
@@ -491,7 +487,10 @@ describe('ZonesPage', () => {
     component.onCardToggleZone({ id: 'zone-1', enable: false });
 
     expect(companyZoneService.removeZone).toHaveBeenCalledWith(
-      'company-1', 'cc-1', 'reg-1', 'zone-1',
+      'company-1',
+      'cc-1',
+      'reg-1',
+      'zone-1',
     );
     expect(companyZoneService.enableZone).not.toHaveBeenCalled();
   });
@@ -508,7 +507,10 @@ describe('ZonesPage', () => {
     component.onToggleZone(mockZones[0]); // enabled: true
 
     expect(companyZoneService.removeZone).toHaveBeenCalledWith(
-      'company-1', 'cc-1', 'reg-1', 'zone-1',
+      'company-1',
+      'cc-1',
+      'reg-1',
+      'zone-1',
     );
   });
 
@@ -522,7 +524,10 @@ describe('ZonesPage', () => {
     component.onToggleZone(mockZones[2]); // enabled: false
 
     expect(companyZoneService.enableZone).toHaveBeenCalledWith(
-      'company-1', 'cc-1', 'reg-1', 'zone-3',
+      'company-1',
+      'cc-1',
+      'reg-1',
+      'zone-3',
     );
   });
 

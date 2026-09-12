@@ -14,10 +14,10 @@ export class CompanyService {
 
   // Signal para estado de carga
   private readonly _loading = signal(false);
-  
+
   // Signal para errores
   private readonly _error = signal<string | null>(null);
-  
+
   // Signals de solo lectura para usar en componentes
   readonly loading = this._loading.asReadonly();
   readonly error = this._error.asReadonly();
@@ -27,9 +27,7 @@ export class CompanyService {
   }
 
   getCompanies(page = 0, size = 12, search?: string): Observable<Page<Company>> {
-    let params = new HttpParams()
-      .set('page', page.toString())
-      .set('size', size.toString());
+    let params = new HttpParams().set('page', page.toString()).set('size', size.toString());
 
     if (search) {
       params = params.set('search', search);
@@ -48,7 +46,7 @@ export class CompanyService {
 
     return this.http.post<Company>(this.apiUrl, data).pipe(
       finalize(() => this._loading.set(false)),
-      catchError(err => {
+      catchError((err) => {
         this._error.set('Error al crear la empresa');
         return throwError(() => err);
       }),
@@ -61,7 +59,7 @@ export class CompanyService {
 
     return this.http.put<Company>(`${this.apiUrl}/${id}`, data).pipe(
       finalize(() => this._loading.set(false)),
-      catchError(err => {
+      catchError((err) => {
         this._error.set('Error al actualizar la empresa');
         return throwError(() => err);
       }),
@@ -74,13 +72,13 @@ export class CompanyService {
 
     return this.http.delete<void>(`${this.apiUrl}/${id}`).pipe(
       finalize(() => this._loading.set(false)),
-      catchError(err => {
+      catchError((err) => {
         this._error.set('Error al eliminar la empresa');
         return throwError(() => err);
       }),
     );
   }
-  
+
   clearError(): void {
     this._error.set(null);
   }

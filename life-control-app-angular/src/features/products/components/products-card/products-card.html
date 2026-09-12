@@ -21,14 +21,28 @@
       </mat-card-subtitle>
     </mat-card-header>
     <mat-card-content>
-      @if (p.shortName) { <div class="card-field"><span class="field-label">Nombre Corto:</span><span class="field-value">{{ p.shortName }}</span></div> }
-      @if (p.satCode) { <div class="card-field"><span class="field-label">SAT:</span><span class="field-value">{{ p.satCode }}</span></div> }
+      @if (p.shortName) {
+        <div class="card-field">
+          <span class="field-label">Nombre Corto:</span
+          ><span class="field-value">{{ p.shortName }}</span>
+        </div>
+      }
+      @if (p.satCode) {
+        <div class="card-field">
+          <span class="field-label">SAT:</span><span class="field-value">{{ p.satCode }}</span>
+        </div>
+      }
     </mat-card-content>
     <mat-card-actions align="end">
       <button mat-button (click)="onEditProduct($event)" aria-label="Editar producto">
         <mat-icon fontIcon="edit" /> Editar
       </button>
-      <button mat-flat-button color="warn" (click)="onDeleteProduct($event)" aria-label="Eliminar producto">
+      <button
+        mat-flat-button
+        color="warn"
+        (click)="onDeleteProduct($event)"
+        aria-label="Eliminar producto"
+      >
         <mat-icon fontIcon="delete" /> Eliminar
       </button>
     </mat-card-actions>

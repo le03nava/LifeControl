@@ -1,9 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
-import {
-  HttpClientTestingModule,
-  HttpTestingController,
-} from '@angular/common/http/testing';
+import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 import { CustomerSelector } from './customer-selector';
 import { ConfigService } from '@app/services/config.service';
 import type { CustomerOption } from '../../models/sales-order.models';
@@ -29,14 +26,8 @@ describe('CustomerSelector', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [
-        CustomerSelector,
-        NoopAnimationsModule,
-        HttpClientTestingModule,
-      ],
-      providers: [
-        { provide: ConfigService, useValue: { apiUrl: TEST_API } },
-      ],
+      imports: [CustomerSelector, NoopAnimationsModule, HttpClientTestingModule],
+      providers: [{ provide: ConfigService, useValue: { apiUrl: TEST_API } }],
     }).compileComponents();
 
     httpMock = TestBed.inject(HttpTestingController);
@@ -82,9 +73,7 @@ describe('CustomerSelector', () => {
       fixture.detectChanges();
 
       const req = httpMock.expectOne(
-        (r) =>
-          r.url === `${TEST_API}/customers` &&
-          r.params.get('search') === 'jo',
+        (r) => r.url === `${TEST_API}/customers` && r.params.get('search') === 'jo',
       );
       expect(req.request.method).toBe('GET');
       req.flush(mockCustomersPage);
@@ -115,9 +104,7 @@ describe('CustomerSelector', () => {
       comp.onSearchChange('john');
       fixture.detectChanges();
 
-      const req = httpMock.expectOne(
-        (r) => r.url === `${TEST_API}/customers`,
-      );
+      const req = httpMock.expectOne((r) => r.url === `${TEST_API}/customers`);
       req.flush(mockCustomersPage);
       fixture.detectChanges();
 
@@ -158,9 +145,7 @@ describe('CustomerSelector', () => {
       comp.onSearchChange('jo');
       fixture.detectChanges();
 
-      const req = httpMock.expectOne(
-        (r) => r.url === `${TEST_API}/customers`,
-      );
+      const req = httpMock.expectOne((r) => r.url === `${TEST_API}/customers`);
       req.flush(mockCustomersPage);
       fixture.detectChanges();
 
@@ -186,9 +171,7 @@ describe('CustomerSelector', () => {
       comp.onSearchChange('error');
       fixture.detectChanges();
 
-      const req = httpMock.expectOne(
-        (r) => r.url === `${TEST_API}/customers`,
-      );
+      const req = httpMock.expectOne((r) => r.url === `${TEST_API}/customers`);
       req.flush('Server error', {
         status: 500,
         statusText: 'Internal Server Error',

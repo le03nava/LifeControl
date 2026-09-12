@@ -44,9 +44,7 @@ describe('keycloakRoleGuard', () => {
     const route = createRouteSnapshot({ role: 'admin' });
     const state = createStateSnapshot('/users-admin');
 
-    const result = await TestBed.runInInjectionContext(() =>
-      keycloakRoleGuard(route, state),
-    );
+    const result = await TestBed.runInInjectionContext(() => keycloakRoleGuard(route, state));
 
     expect(result).toBe(true);
   });
@@ -59,9 +57,7 @@ describe('keycloakRoleGuard', () => {
     const route = createRouteSnapshot({ roles: ['admin', 'manager'] });
     const state = createStateSnapshot('/users-admin');
 
-    const result = await TestBed.runInInjectionContext(() =>
-      keycloakRoleGuard(route, state),
-    );
+    const result = await TestBed.runInInjectionContext(() => keycloakRoleGuard(route, state));
 
     expect(result).toBe(true);
   });
@@ -76,9 +72,7 @@ describe('keycloakRoleGuard', () => {
     const route = createRouteSnapshot({ role: 'admin' });
     const state = createStateSnapshot('/users-admin');
 
-    const result = await TestBed.runInInjectionContext(() =>
-      keycloakRoleGuard(route, state),
-    );
+    const result = await TestBed.runInInjectionContext(() => keycloakRoleGuard(route, state));
 
     expect(result).toBe(false);
     expect(routerMock.navigate).toHaveBeenCalledWith(['/unauthorized']);
@@ -92,9 +86,7 @@ describe('keycloakRoleGuard', () => {
     const route = createRouteSnapshot({ role: 'admin' });
     const state = createStateSnapshot('/users-admin');
 
-    const result = await TestBed.runInInjectionContext(() =>
-      keycloakRoleGuard(route, state),
-    );
+    const result = await TestBed.runInInjectionContext(() => keycloakRoleGuard(route, state));
 
     expect(result).toBe(false);
     expect(routerMock.navigate).toHaveBeenCalledWith(['/unauthorized']);
@@ -110,9 +102,7 @@ describe('keycloakRoleGuard', () => {
     const route = createRouteSnapshot({});
     const state = createStateSnapshot('/any-route');
 
-    const result = await TestBed.runInInjectionContext(() =>
-      keycloakRoleGuard(route, state),
-    );
+    const result = await TestBed.runInInjectionContext(() => keycloakRoleGuard(route, state));
 
     expect(result).toBe(true);
   });
@@ -125,9 +115,7 @@ describe('keycloakRoleGuard', () => {
     const route = createRouteSnapshot({ role: 'admin' });
     const state = createStateSnapshot('/users-admin');
 
-    const result = await TestBed.runInInjectionContext(() =>
-      keycloakRoleGuard(route, state),
-    );
+    const result = await TestBed.runInInjectionContext(() => keycloakRoleGuard(route, state));
 
     expect(result).toBe(false);
     expect(keycloakMock.login).toHaveBeenCalled();
@@ -148,9 +136,7 @@ describe('keycloakRoleGuard', () => {
     });
     const state = createStateSnapshot('/companies');
 
-    const result = await TestBed.runInInjectionContext(() =>
-      keycloakRoleGuard(route, state),
-    );
+    const result = await TestBed.runInInjectionContext(() => keycloakRoleGuard(route, state));
 
     expect(result).toBe(true);
   });
@@ -168,9 +154,7 @@ describe('keycloakRoleGuard', () => {
     });
     const state = createStateSnapshot('/companies');
 
-    const result = await TestBed.runInInjectionContext(() =>
-      keycloakRoleGuard(route, state),
-    );
+    const result = await TestBed.runInInjectionContext(() => keycloakRoleGuard(route, state));
 
     expect(result).toBe(false);
     expect(routerMock.navigate).toHaveBeenCalledWith(['/unauthorized']);
@@ -187,9 +171,7 @@ describe('keycloakRoleGuard', () => {
     });
     const state = createStateSnapshot('/companies');
 
-    const result = await TestBed.runInInjectionContext(() =>
-      keycloakRoleGuard(route, state),
-    );
+    const result = await TestBed.runInInjectionContext(() => keycloakRoleGuard(route, state));
 
     expect(result).toBe(false);
     expect(routerMock.navigate).toHaveBeenCalledWith(['/unauthorized']);
@@ -210,9 +192,7 @@ describe('keycloakRoleGuard', () => {
     });
     const state = createStateSnapshot('/companies');
 
-    const result = await TestBed.runInInjectionContext(() =>
-      keycloakRoleGuard(route, state),
-    );
+    const result = await TestBed.runInInjectionContext(() => keycloakRoleGuard(route, state));
 
     expect(result).toBe(true);
   });
@@ -230,9 +210,7 @@ describe('keycloakRoleGuard', () => {
     });
     const state = createStateSnapshot('/companies');
 
-    const result = await TestBed.runInInjectionContext(() =>
-      keycloakRoleGuard(route, state),
-    );
+    const result = await TestBed.runInInjectionContext(() => keycloakRoleGuard(route, state));
 
     expect(result).toBe(true);
   });
@@ -253,9 +231,7 @@ describe('keycloakRoleGuard', () => {
     });
     const state = createStateSnapshot('/companies');
 
-    const result = await TestBed.runInInjectionContext(() =>
-      keycloakRoleGuard(route, state),
-    );
+    const result = await TestBed.runInInjectionContext(() => keycloakRoleGuard(route, state));
 
     expect(result).toBe(false);
     expect(routerMock.navigate).toHaveBeenCalledWith(['/unauthorized']);

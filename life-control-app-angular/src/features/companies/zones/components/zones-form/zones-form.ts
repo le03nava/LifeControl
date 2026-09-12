@@ -24,11 +24,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { Company } from '../../../companies/models/company.models';
 import { CompanyCountry } from '../../../countries/models/country.models';
 import { CompanyRegion } from '../../../regions/models/region.models';
-import {
-  CompanyZone,
-  ZoneControl,
-  ZoneSaveEvent,
-} from '../../models/zone.models';
+import { CompanyZone, ZoneControl, ZoneSaveEvent } from '../../models/zone.models';
 
 const ZONE_CODE_PATTERN = /^[a-zA-Z0-9-]+$/;
 
@@ -228,12 +224,18 @@ export class ZonesForm {
   }
 
   /** compareWith for mat-select: option value is CompanyCountry, selected value is string ID */
-  protected compareCompanyCountryById = (option: CompanyCountry | null, selectedId: string | null): boolean => {
+  protected compareCompanyCountryById = (
+    option: CompanyCountry | null,
+    selectedId: string | null,
+  ): boolean => {
     return option?.id === selectedId;
   };
 
   /** compareWith for mat-select: option value is CompanyRegion, selected value is string ID */
-  protected compareRegionById = (option: CompanyRegion | null, selectedId: string | null): boolean => {
+  protected compareRegionById = (
+    option: CompanyRegion | null,
+    selectedId: string | null,
+  ): boolean => {
     return option?.id === selectedId;
   };
 

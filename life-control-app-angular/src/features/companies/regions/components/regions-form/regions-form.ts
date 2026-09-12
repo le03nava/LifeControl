@@ -23,11 +23,7 @@ import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatIconModule } from '@angular/material/icon';
 import { Company } from '../../../companies/models/company.models';
 import { CompanyCountry } from '../../../countries/models/country.models';
-import {
-  CompanyRegion,
-  RegionControl,
-  RegionSaveEvent,
-} from '../../models/region.models';
+import { CompanyRegion, RegionControl, RegionSaveEvent } from '../../models/region.models';
 
 const REGION_CODE_PATTERN = /^[a-zA-Z0-9-]+$/;
 
@@ -196,7 +192,10 @@ export class RegionsForm {
   }
 
   /** compareWith for mat-select: option value is CompanyCountry, selected value is string ID */
-  protected compareCompanyCountryById = (option: CompanyCountry | null, selectedId: string | null): boolean => {
+  protected compareCompanyCountryById = (
+    option: CompanyCountry | null,
+    selectedId: string | null,
+  ): boolean => {
     return option?.id === selectedId;
   };
 

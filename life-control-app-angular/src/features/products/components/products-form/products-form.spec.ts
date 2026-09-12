@@ -128,9 +128,7 @@ describe('ProductsForm', () => {
     });
     fixture.detectChanges();
 
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('nonexistent'),
-    );
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('nonexistent'));
 
     warnSpy.mockRestore();
   });

@@ -10,28 +10,28 @@ import { CompanyCountryService } from '../../data/company-country.service';
 import { CountryService } from '@features/countries/data/country.service';
 import { CompanyCountry, CountrySaveEvent, Country } from '../../models/country.models';
 import { Company, Page } from '../../../companies/models/company.models';
-  const mockAssignedCountries: CompanyCountry[] = [
-    {
-      id: "cc-1",
-      companyId: "company-1",
-      countryId: "c1",
-      countryCode: "MX",
-      countryName: "Mexico",
-      localAlias: "Sucursal CDMX",
-      createdAt: "2024-01-01",
-      updatedAt: "2024-01-01",
-    },
-    {
-      id: "cc-2",
-      companyId: "company-1",
-      countryId: "c2",
-      countryCode: "US",
-      countryName: "United States",
-      localAlias: null,
-      createdAt: "2024-01-01",
-      updatedAt: "2024-01-01",
-    },
-  ];
+const mockAssignedCountries: CompanyCountry[] = [
+  {
+    id: 'cc-1',
+    companyId: 'company-1',
+    countryId: 'c1',
+    countryCode: 'MX',
+    countryName: 'Mexico',
+    localAlias: 'Sucursal CDMX',
+    createdAt: '2024-01-01',
+    updatedAt: '2024-01-01',
+  },
+  {
+    id: 'cc-2',
+    companyId: 'company-1',
+    countryId: 'c2',
+    countryCode: 'US',
+    countryName: 'United States',
+    localAlias: null,
+    createdAt: '2024-01-01',
+    updatedAt: '2024-01-01',
+  },
+];
 
 describe('CountriesEdit', () => {
   let companyCountryServiceMock: MockCompanyCountryService;
@@ -152,7 +152,10 @@ describe('CountriesEdit', () => {
   });
 
   /** Helper: create component with current mocks and detect changes. */
-  function createComponent(): { component: CountriesEdit; fixture: ComponentFixture<CountriesEdit> } {
+  function createComponent(): {
+    component: CountriesEdit;
+    fixture: ComponentFixture<CountriesEdit>;
+  } {
     const f = TestBed.createComponent(CountriesEdit);
     const c = f.componentInstance;
     f.detectChanges();
@@ -223,10 +226,7 @@ describe('CountriesEdit', () => {
     };
     component.onSaveCountry(event);
 
-    expect(companyCountryServiceMock.addCountry).toHaveBeenCalledWith(
-      'company-1',
-      event.request,
-    );
+    expect(companyCountryServiceMock.addCountry).toHaveBeenCalledWith('company-1', event.request);
     expect(companyCountryServiceMock.updateCountry).not.toHaveBeenCalled();
   });
 

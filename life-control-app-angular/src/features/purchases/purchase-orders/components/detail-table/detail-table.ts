@@ -1,11 +1,4 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  computed,
-  input,
-  output,
-  signal,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
 import { MatTableModule } from '@angular/material/table';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -63,9 +56,7 @@ export class DetailTable {
   readonly isDraft = input<boolean>(false);
 
   /** Available products for the add-row product autocomplete. */
-  readonly availableProducts = input.required<
-    { id: string; name: string; sku: string }[]
-  >();
+  readonly availableProducts = input.required<{ id: string; name: string; sku: string }[]>();
 
   /** Emits the full updated items array after any add or remove. */
   readonly itemsChanged = output<DetailTableRow[]>();
@@ -83,9 +74,7 @@ export class DetailTable {
     const products = this.availableProducts();
     if (!query) return products;
     return products.filter(
-      (p) =>
-        p.name.toLowerCase().includes(query) ||
-        p.sku.toLowerCase().includes(query),
+      (p) => p.name.toLowerCase().includes(query) || p.sku.toLowerCase().includes(query),
     );
   });
 
@@ -99,17 +88,11 @@ export class DetailTable {
   ];
 
   readonly lineItemsTotal = computed(() =>
-    this.items().reduce(
-      (sum, item) => sum + item.quantity * item.unitPrice,
-      0,
-    ),
+    this.items().reduce((sum, item) => sum + item.quantity * item.unitPrice, 0),
   );
 
   readonly canAddItem = computed(
-    () =>
-      this.isDraft() &&
-      this.newProductId() !== '' &&
-      this.newQuantity() > 0,
+    () => this.isDraft() && this.newProductId() !== '' && this.newQuantity() > 0,
   );
 
   // ─── Mutations ─────────────────────────────────────────
@@ -119,9 +102,7 @@ export class DetailTable {
       return;
     }
 
-    const product = this.availableProducts().find(
-      (p) => p.id === this.newProductId(),
-    );
+    const product = this.availableProducts().find((p) => p.id === this.newProductId());
     if (!product) {
       return;
     }

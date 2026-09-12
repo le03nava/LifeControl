@@ -75,10 +75,7 @@ export class CountriesForm {
   });
 
   // ─── Error messages ─────────────────────────────────────────
-  private readonly defaultErrorMessages: Record<
-    string,
-    (error: unknown) => string
-  > = {
+  private readonly defaultErrorMessages: Record<string, (error: unknown) => string> = {
     maxlength: (err) =>
       `No puede superar los ${(err as { requiredLength?: number }).requiredLength} caracteres.`,
     serverError: (err) => err as string,
@@ -109,10 +106,7 @@ export class CountriesForm {
   // ─── Constructor ────────────────────────────────────────────
   constructor() {
     // Load catalog countries on creation
-    this.countryService
-      .getCountries()
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe();
+    this.countryService.getCountries().pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
 
     // --- Edit mode: pre-fill form and selectors ---
     effect(() => {
@@ -121,9 +115,7 @@ export class CountriesForm {
 
       this.selectedCompanyId.set(cc.companyId);
 
-      const catCountry = this.catalogCountries().find(
-        (c) => c.countryCode === cc.countryCode,
-      );
+      const catCountry = this.catalogCountries().find((c) => c.countryCode === cc.countryCode);
       if (catCountry) {
         this.selectedCatalogCountry.set(catCountry);
       }
@@ -155,26 +147,18 @@ export class CountriesForm {
         const control = fg.get(key);
         if (control) {
           const currentErrors = control.errors || {};
-          control.setErrors(
-            { ...currentErrors, serverError: message },
-            { emitEvent: false },
-          );
+          control.setErrors({ ...currentErrors, serverError: message }, { emitEvent: false });
 
           const sub = control.valueChanges.subscribe(() => {
             if (control.errors && 'serverError' in control.errors) {
               const { serverError: _, ...otherErrors } = control.errors;
               const remainingKeys = Object.keys(otherErrors);
-              control.setErrors(
-                remainingKeys.length > 0 ? otherErrors : null,
-                { emitEvent: true },
-              );
+              control.setErrors(remainingKeys.length > 0 ? otherErrors : null, { emitEvent: true });
             }
           });
           subscriptions.push(sub);
         } else {
-          console.warn(
-            `[CountriesForm] No control found for server error key: "${key}"`,
-          );
+          console.warn(`[CountriesForm] No control found for server error key: "${key}"`);
         }
       });
 
@@ -194,10 +178,7 @@ export class CountriesForm {
   }
 
   /** compareWith for mat-select: compare Country objects by countryCode */
-  protected compareCountryByCode = (
-    a: Country | null,
-    b: Country | null,
-  ): boolean => {
+  protected compareCountryByCode = (a: Country | null, b: Country | null): boolean => {
     return a?.countryCode === b?.countryCode;
   };
 

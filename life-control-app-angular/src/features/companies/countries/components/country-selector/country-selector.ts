@@ -1,10 +1,4 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  input,
-  output,
-  signal,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, input, output, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -15,13 +9,7 @@ import { Country, CompanyCountry, CompanyCountryRequest } from '../../models/cou
 @Component({
   selector: 'app-country-selector',
   standalone: true,
-  imports: [
-    MatSelectModule,
-    MatChipsModule,
-    MatButtonModule,
-    MatFormFieldModule,
-    MatInputModule,
-  ],
+  imports: [MatSelectModule, MatChipsModule, MatButtonModule, MatFormFieldModule, MatInputModule],
   templateUrl: './country-selector.html',
   styleUrl: './country-selector.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

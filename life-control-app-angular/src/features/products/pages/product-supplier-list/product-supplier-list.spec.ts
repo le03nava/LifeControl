@@ -23,7 +23,10 @@ describe('ProductSupplierList', () => {
     return [createSupplier(0), createSupplier(1)];
   }
 
-  function createSupplier(index: number, overrides: Partial<ProductSupplier> = {}): ProductSupplier {
+  function createSupplier(
+    index: number,
+    overrides: Partial<ProductSupplier> = {},
+  ): ProductSupplier {
     return {
       id: `ps-${index}`,
       productId: mockProductId,
@@ -62,7 +65,10 @@ describe('ProductSupplierList', () => {
       providers: [
         provideHttpClient(),
         { provide: ProductSupplierService, useValue: serviceMock },
-        { provide: ProductService, useValue: { getProductById: vi.fn().mockReturnValue(of(null)) } },
+        {
+          provide: ProductService,
+          useValue: { getProductById: vi.fn().mockReturnValue(of(null)) },
+        },
         { provide: Router, useValue: routerMock },
         { provide: MatDialog, useValue: dialogMock },
         {

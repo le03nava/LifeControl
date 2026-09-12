@@ -1,4 +1,11 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  inject,
+  OnInit,
+  signal,
+} from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { MatTabsModule } from '@angular/material/tabs';
@@ -86,16 +93,19 @@ export class UserDetail implements OnInit {
 
   loadRoles(): void {
     this.loadingRoles.set(true);
-    this.service.getUserRoles(this.userId()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (roles) => {
-        this.userRoles.set(roles);
-        this.loadingRoles.set(false);
-      },
-      error: (err) => {
-        this.notification.showError(err?.error?.message ?? 'Failed to load user roles');
-        this.loadingRoles.set(false);
-      },
-    });
+    this.service
+      .getUserRoles(this.userId())
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (roles) => {
+          this.userRoles.set(roles);
+          this.loadingRoles.set(false);
+        },
+        error: (err) => {
+          this.notification.showError(err?.error?.message ?? 'Failed to load user roles');
+          this.loadingRoles.set(false);
+        },
+      });
   }
 
   onAssignRole(): void {
@@ -105,39 +115,48 @@ export class UserDetail implements OnInit {
     const request: RoleAssignmentRequest = {
       roleName: name,
       scope: this.assignScope(),
-      clientId: this.assignScope() === 'client' ? this.assignClientId().trim() || undefined : undefined,
+      clientId:
+        this.assignScope() === 'client' ? this.assignClientId().trim() || undefined : undefined,
     };
 
     this.assigning.set(true);
 
     if (this.assignScope() === 'realm') {
-      this.service.assignRealmRole(this.userId(), request).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: () => {
-          this.notification.showSuccess(`Role "${name}" assigned`);
-          this.assignRoleName.set('');
-          this.loadRoles();
-          this.assigning.set(false);
-        },
-        error: (err) => {
-          this.notification.showError(err?.error?.message ?? `Failed to assign role "${name}"`);
-          this.assigning.set(false);
-        },
-      });
+      this.service
+        .assignRealmRole(this.userId(), request)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: () => {
+            this.notification.showSuccess(`Role "${name}" assigned`);
+            this.assignRoleName.set('');
+            this.loadRoles();
+            this.assigning.set(false);
+          },
+          error: (err) => {
+            this.notification.showError(err?.error?.message ?? `Failed to assign role "${name}"`);
+            this.assigning.set(false);
+          },
+        });
     } else {
       const clientId = request.clientId!;
-      this.service.assignClientRole(this.userId(), clientId, request).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: () => {
-          this.notification.showSuccess(`Client role "${name}" assigned`);
-          this.assignRoleName.set('');
-          this.assignClientId.set('');
-          this.loadRoles();
-          this.assigning.set(false);
-        },
-        error: (err) => {
-          this.notification.showError(err?.error?.message ?? `Failed to assign client role "${name}"`);
-          this.assigning.set(false);
-        },
-      });
+      this.service
+        .assignClientRole(this.userId(), clientId, request)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: () => {
+            this.notification.showSuccess(`Client role "${name}" assigned`);
+            this.assignRoleName.set('');
+            this.assignClientId.set('');
+            this.loadRoles();
+            this.assigning.set(false);
+          },
+          error: (err) => {
+            this.notification.showError(
+              err?.error?.message ?? `Failed to assign client role "${name}"`,
+            );
+            this.assigning.set(false);
+          },
+        });
     }
   }
 
@@ -148,25 +167,35 @@ export class UserDetail implements OnInit {
     if (!confirmed) return;
 
     if (role.scope === 'realm') {
-      this.service.removeRealmRole(this.userId(), role.name).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: () => {
-          this.notification.showSuccess(`Role "${role.name}" removed`);
-          this.loadRoles();
-        },
-        error: (err) => {
-          this.notification.showError(err?.error?.message ?? `Failed to remove role "${role.name}"`);
-        },
-      });
+      this.service
+        .removeRealmRole(this.userId(), role.name)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: () => {
+            this.notification.showSuccess(`Role "${role.name}" removed`);
+            this.loadRoles();
+          },
+          error: (err) => {
+            this.notification.showError(
+              err?.error?.message ?? `Failed to remove role "${role.name}"`,
+            );
+          },
+        });
     } else if (role.clientId) {
-      this.service.removeClientRole(this.userId(), role.clientId, role.name).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: () => {
-          this.notification.showSuccess(`Client role "${role.name}" removed`);
-          this.loadRoles();
-        },
-        error: (err) => {
-          this.notification.showError(err?.error?.message ?? `Failed to remove client role "${role.name}"`);
-        },
-      });
+      this.service
+        .removeClientRole(this.userId(), role.clientId, role.name)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: () => {
+            this.notification.showSuccess(`Client role "${role.name}" removed`);
+            this.loadRoles();
+          },
+          error: (err) => {
+            this.notification.showError(
+              err?.error?.message ?? `Failed to remove client role "${role.name}"`,
+            );
+          },
+        });
     }
   }
 
@@ -174,16 +203,19 @@ export class UserDetail implements OnInit {
 
   loadAttributes(): void {
     this.loadingAttributes.set(true);
-    this.service.getUserAttributes(this.userId()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (attrs) => {
-        this.userAttributes.set(attrs);
-        this.loadingAttributes.set(false);
-      },
-      error: (err) => {
-        this.notification.showError(err?.error?.message ?? 'Failed to load attributes');
-        this.loadingAttributes.set(false);
-      },
-    });
+    this.service
+      .getUserAttributes(this.userId())
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (attrs) => {
+          this.userAttributes.set(attrs);
+          this.loadingAttributes.set(false);
+        },
+        error: (err) => {
+          this.notification.showError(err?.error?.message ?? 'Failed to load attributes');
+          this.loadingAttributes.set(false);
+        },
+      });
   }
 
   getAttributesAsList(): { key: string; values: string[] }[] {
@@ -223,35 +255,41 @@ export class UserDetail implements OnInit {
     }
 
     this.savingAttr.set(true);
-    this.service.updateUserAttribute(this.userId(), key, values).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => {
-        this.notification.showSuccess(`Attribute "${key}" saved`);
-        this.attrKey.set('');
-        this.attrValue.set('');
-        this.editingAttr.set(false);
-        this.savingAttr.set(false);
-        this.loadAttributes();
-      },
-      error: (err) => {
-        this.notification.showError(err?.error?.message ?? `Failed to save attribute "${key}"`);
-        this.savingAttr.set(false);
-      },
-    });
+    this.service
+      .updateUserAttribute(this.userId(), key, values)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.notification.showSuccess(`Attribute "${key}" saved`);
+          this.attrKey.set('');
+          this.attrValue.set('');
+          this.editingAttr.set(false);
+          this.savingAttr.set(false);
+          this.loadAttributes();
+        },
+        error: (err) => {
+          this.notification.showError(err?.error?.message ?? `Failed to save attribute "${key}"`);
+          this.savingAttr.set(false);
+        },
+      });
   }
 
   onDeleteAttribute(key: string): void {
     const confirmed = confirm(`Delete attribute "${key}"?`);
     if (!confirmed) return;
 
-    this.service.deleteUserAttribute(this.userId(), key).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => {
-        this.notification.showSuccess(`Attribute "${key}" deleted`);
-        this.loadAttributes();
-      },
-      error: (err) => {
-        this.notification.showError(err?.error?.message ?? `Failed to delete attribute "${key}"`);
-      },
-    });
+    this.service
+      .deleteUserAttribute(this.userId(), key)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.notification.showSuccess(`Attribute "${key}" deleted`);
+          this.loadAttributes();
+        },
+        error: (err) => {
+          this.notification.showError(err?.error?.message ?? `Failed to delete attribute "${key}"`);
+        },
+      });
   }
 
   cancelAttributeEdit(): void {

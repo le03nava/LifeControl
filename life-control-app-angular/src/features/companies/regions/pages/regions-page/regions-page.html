@@ -1,6 +1,12 @@
 <div class="regions-page">
   <app-page-header title="Regiones" subtitle="Gestión de regiones del sistema">
-    <button mat-flat-button color="primary" type="button" [disabled]="!selectedCountry()" (click)="onCreateRegion()">
+    <button
+      mat-flat-button
+      color="primary"
+      type="button"
+      [disabled]="!selectedCountry()"
+      (click)="onCreateRegion()"
+    >
       <mat-icon fontIcon="add" /> Nueva Región
     </button>
   </app-page-header>

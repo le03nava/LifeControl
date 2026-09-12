@@ -12,42 +12,78 @@ describe('ZonesForm', () => {
 
   const mockCompanies: Company[] = [
     {
-      id: 'comp-1', companyKey: 'ACME', companyName: 'ACME Corp',
-      tipoPersonaId: 1, razonSocial: 'ACME Corp SA',
-      rfc: 'ACME010101', email: 'a@a.com', phone: '1234567890',
-      enabled: true, createdAt: '', updatedAt: '',
+      id: 'comp-1',
+      companyKey: 'ACME',
+      companyName: 'ACME Corp',
+      tipoPersonaId: 1,
+      razonSocial: 'ACME Corp SA',
+      rfc: 'ACME010101',
+      email: 'a@a.com',
+      phone: '1234567890',
+      enabled: true,
+      createdAt: '',
+      updatedAt: '',
     },
     {
-      id: 'comp-2', companyKey: 'BETA', companyName: 'Beta Inc',
-      tipoPersonaId: 2, razonSocial: 'Beta Inc SA',
-      rfc: 'BETA010101', email: 'b@b.com', phone: '0987654321',
-      enabled: true, createdAt: '', updatedAt: '',
+      id: 'comp-2',
+      companyKey: 'BETA',
+      companyName: 'Beta Inc',
+      tipoPersonaId: 2,
+      razonSocial: 'Beta Inc SA',
+      rfc: 'BETA010101',
+      email: 'b@b.com',
+      phone: '0987654321',
+      enabled: true,
+      createdAt: '',
+      updatedAt: '',
     },
   ];
 
   const mockCountries: CompanyCountry[] = [
     {
-      id: 'cc-1', companyId: 'comp-1', countryId: '1',
-      countryCode: 'US', countryName: 'United States',
-      localAlias: null, createdAt: '', updatedAt: '',
+      id: 'cc-1',
+      companyId: 'comp-1',
+      countryId: '1',
+      countryCode: 'US',
+      countryName: 'United States',
+      localAlias: null,
+      createdAt: '',
+      updatedAt: '',
     },
     {
-      id: 'cc-2', companyId: 'comp-1', countryId: '2',
-      countryCode: 'MX', countryName: 'Mexico',
-      localAlias: null, createdAt: '', updatedAt: '',
+      id: 'cc-2',
+      companyId: 'comp-1',
+      countryId: '2',
+      countryCode: 'MX',
+      countryName: 'Mexico',
+      localAlias: null,
+      createdAt: '',
+      updatedAt: '',
     },
   ];
 
   const mockRegions: CompanyRegion[] = [
     {
-      id: 'reg-1', companyCountryId: 'cc-1', companyId: 'comp-1', countryId: '1',
-      regionCode: 'US-CA', regionName: 'California',
-      enabled: true, createdAt: '', updatedAt: '',
+      id: 'reg-1',
+      companyCountryId: 'cc-1',
+      companyId: 'comp-1',
+      countryId: '1',
+      regionCode: 'US-CA',
+      regionName: 'California',
+      enabled: true,
+      createdAt: '',
+      updatedAt: '',
     },
     {
-      id: 'reg-2', companyCountryId: 'cc-1', companyId: 'comp-1', countryId: '1',
-      regionCode: 'US-TX', regionName: 'Texas',
-      enabled: true, createdAt: '', updatedAt: '',
+      id: 'reg-2',
+      companyCountryId: 'cc-1',
+      companyId: 'comp-1',
+      countryId: '1',
+      regionCode: 'US-TX',
+      regionName: 'Texas',
+      enabled: true,
+      createdAt: '',
+      updatedAt: '',
     },
   ];
 
@@ -117,7 +153,9 @@ describe('ZonesForm', () => {
   describe('company selector', () => {
     it('should emit selectedCompanyChange when company is selected', () => {
       let emittedId = '';
-      component.selectedCompanyChange.subscribe((id: string) => { emittedId = id; });
+      component.selectedCompanyChange.subscribe((id: string) => {
+        emittedId = id;
+      });
 
       component.onCompanyChange('comp-1');
       expect(emittedId).toBe('comp-1');
@@ -147,7 +185,9 @@ describe('ZonesForm', () => {
   describe('country selector', () => {
     it('should emit selectedCountryChange when country is selected', () => {
       let emitted: CompanyCountry | undefined;
-      component.selectedCountryChange.subscribe((cc: CompanyCountry) => { emitted = cc; });
+      component.selectedCountryChange.subscribe((cc: CompanyCountry) => {
+        emitted = cc;
+      });
 
       component.onCompanyChange('comp-1');
       fixture.componentRef.setInput('companyCountries', mockCountries);
@@ -177,7 +217,9 @@ describe('ZonesForm', () => {
   describe('region selector', () => {
     it('should emit selectedRegionChange when region is selected', () => {
       let emitted: CompanyRegion | undefined;
-      component.selectedRegionChange.subscribe((r: CompanyRegion) => { emitted = r; });
+      component.selectedRegionChange.subscribe((r: CompanyRegion) => {
+        emitted = r;
+      });
 
       component.onCompanyChange('comp-1');
       fixture.componentRef.setInput('companyCountries', mockCountries);
@@ -348,7 +390,9 @@ describe('ZonesForm', () => {
       });
 
       let emitted: ZoneSaveEvent | undefined;
-      component.save.subscribe((ev: ZoneSaveEvent) => { emitted = ev; });
+      component.save.subscribe((ev: ZoneSaveEvent) => {
+        emitted = ev;
+      });
 
       component.onSave();
 
@@ -371,7 +415,9 @@ describe('ZonesForm', () => {
       });
 
       let emitted: ZoneSaveEvent | undefined;
-      component.save.subscribe((ev: ZoneSaveEvent) => { emitted = ev; });
+      component.save.subscribe((ev: ZoneSaveEvent) => {
+        emitted = ev;
+      });
 
       component.onSave();
 
@@ -387,7 +433,9 @@ describe('ZonesForm', () => {
       });
 
       let emitted: ZoneSaveEvent | undefined;
-      component.save.subscribe((ev: ZoneSaveEvent) => { emitted = ev; });
+      component.save.subscribe((ev: ZoneSaveEvent) => {
+        emitted = ev;
+      });
 
       component.onSave();
 
@@ -400,7 +448,9 @@ describe('ZonesForm', () => {
       component.formGroup.controls.zoneCode.setValue('');
 
       let emitted = false;
-      component.save.subscribe(() => { emitted = true; });
+      component.save.subscribe(() => {
+        emitted = true;
+      });
 
       component.onSave();
 
@@ -411,7 +461,9 @@ describe('ZonesForm', () => {
       component.selectedRegionId.set(null);
 
       let emitted = false;
-      component.save.subscribe(() => { emitted = true; });
+      component.save.subscribe(() => {
+        emitted = true;
+      });
 
       component.onSave();
 
@@ -433,7 +485,9 @@ describe('ZonesForm', () => {
   describe('onCancel', () => {
     it('should emit cancel void', () => {
       let emitted = false;
-      component.cancelForm.subscribe(() => { emitted = true; });
+      component.cancelForm.subscribe(() => {
+        emitted = true;
+      });
 
       component.onCancel();
 
@@ -494,9 +548,7 @@ describe('ZonesForm', () => {
       });
       fixture.detectChanges();
 
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('nonexistent'),
-      );
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('nonexistent'));
 
       warnSpy.mockRestore();
     });

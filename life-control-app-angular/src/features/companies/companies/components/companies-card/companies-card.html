@@ -16,15 +16,36 @@
       </mat-card-subtitle>
     </mat-card-header>
     <mat-card-content>
-      @if (c.razonSocial) { <div class="card-field"><mat-icon fontIcon="business" class="field-icon" /><span class="field-label">Razón Social:</span><span class="field-value">{{ c.razonSocial }}</span></div> }
-      @if (c.email) { <div class="card-field"><mat-icon fontIcon="mail" class="field-icon" /><span class="field-label">Email:</span><span class="field-value">{{ c.email }}</span></div> }
-      @if (c.phone) { <div class="card-field"><mat-icon fontIcon="phone" class="field-icon" /><span class="field-label">Teléfono:</span><span class="field-value">{{ c.phone }}</span></div> }
+      @if (c.razonSocial) {
+        <div class="card-field">
+          <mat-icon fontIcon="business" class="field-icon" /><span class="field-label"
+            >Razón Social:</span
+          ><span class="field-value">{{ c.razonSocial }}</span>
+        </div>
+      }
+      @if (c.email) {
+        <div class="card-field">
+          <mat-icon fontIcon="mail" class="field-icon" /><span class="field-label">Email:</span
+          ><span class="field-value">{{ c.email }}</span>
+        </div>
+      }
+      @if (c.phone) {
+        <div class="card-field">
+          <mat-icon fontIcon="phone" class="field-icon" /><span class="field-label">Teléfono:</span
+          ><span class="field-value">{{ c.phone }}</span>
+        </div>
+      }
     </mat-card-content>
     <mat-card-actions align="end">
       <button mat-button (click)="onEditCompany($event)" aria-label="Editar empresa">
         <mat-icon fontIcon="edit" /> Editar
       </button>
-      <button mat-flat-button color="warn" (click)="onDeleteCompany($event)" aria-label="Eliminar empresa">
+      <button
+        mat-flat-button
+        color="warn"
+        (click)="onDeleteCompany($event)"
+        aria-label="Eliminar empresa"
+      >
         <mat-icon fontIcon="delete" /> Eliminar
       </button>
     </mat-card-actions>

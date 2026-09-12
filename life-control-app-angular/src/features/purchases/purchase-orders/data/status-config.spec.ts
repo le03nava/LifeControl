@@ -1,8 +1,4 @@
-import {
-  PO_STATUS_TRANSITIONS,
-  PO_STATUS_COLORS,
-  PO_STATUS_LABELS,
-} from './status-config';
+import { PO_STATUS_TRANSITIONS, PO_STATUS_COLORS, PO_STATUS_LABELS } from './status-config';
 
 describe('PO_STATUS_TRANSITIONS', () => {
   it('should have 8 status keys', () => {

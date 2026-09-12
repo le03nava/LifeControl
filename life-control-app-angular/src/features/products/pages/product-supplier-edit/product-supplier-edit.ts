@@ -12,12 +12,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router } from '@angular/router';
 import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { map, of } from 'rxjs';
-import {
-  NonNullableFormBuilder,
-  FormGroup,
-  Validators,
-  ReactiveFormsModule,
-} from '@angular/forms';
+import { NonNullableFormBuilder, FormGroup, Validators, ReactiveFormsModule } from '@angular/forms';
 import { ProductSupplierService } from '../../data/product-supplier.service';
 import { ProductService } from '../../data/product.service';
 import { SupplierService } from '../../suppliers/data/supplier.service';
@@ -47,12 +42,8 @@ export class ProductSupplierEdit implements OnInit {
   private readonly supplierService = inject(SupplierService);
   private readonly destroyRef = inject(DestroyRef);
 
-  readonly productId = signal<string | null>(
-    this.route.snapshot.paramMap.get('id'),
-  );
-  readonly psId = signal<string | null>(
-    this.route.snapshot.paramMap.get('supplierId'),
-  );
+  readonly productId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
+  readonly psId = signal<string | null>(this.route.snapshot.paramMap.get('supplierId'));
 
   readonly productResource = rxResource({
     params: () => ({ productId: this.productId() }),
@@ -71,19 +62,14 @@ export class ProductSupplierEdit implements OnInit {
     return sku ? `SKU: ${sku} — ${mode}` : mode;
   });
 
-  readonly assignmentForm = signal<FormGroup<ProductSupplierControl>>(
-    this.createForm(),
-  );
+  readonly assignmentForm = signal<FormGroup<ProductSupplierControl>>(this.createForm());
   readonly isEditMode = signal(false);
   readonly serverErrors = signal<Record<string, string>>({});
   readonly generalError = signal<string | null>(null);
 
   // All suppliers for the dropdown
   readonly allSuppliersResource = rxResource({
-    stream: () =>
-      this.supplierService
-        .getAllSuppliers(0, 1000)
-        .pipe(map((p) => p.content)),
+    stream: () => this.supplierService.getAllSuppliers(0, 1000).pipe(map((p) => p.content)),
   });
   readonly allSuppliers = this.allSuppliersResource.value;
 
@@ -157,9 +143,7 @@ export class ProductSupplierEdit implements OnInit {
       });
   }
 
-  private buildFormFromAssignment(
-    assignment: ProductSupplier,
-  ): FormGroup<ProductSupplierControl> {
+  private buildFormFromAssignment(assignment: ProductSupplier): FormGroup<ProductSupplierControl> {
     return this.fb.group({
       id: this.fb.control(assignment.id),
       supplierId: this.fb.control(assignment.supplierId, Validators.required),
@@ -176,10 +160,7 @@ export class ProductSupplierEdit implements OnInit {
     return this.fb.group({
       id: this.fb.control(''),
       supplierId: this.fb.control('', Validators.required),
-      purchaseCost: this.fb.control(0, [
-        Validators.required,
-        Validators.min(0),
-      ]),
+      purchaseCost: this.fb.control(0, [Validators.required, Validators.min(0)]),
       main: this.fb.control(false),
       enabled: this.fb.control(true),
     });
@@ -198,12 +179,7 @@ export class ProductSupplierEdit implements OnInit {
         .updateSupplier(productId, psId, data)
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
-          next: () =>
-            this.router.navigate([
-              '/products/edit',
-              productId,
-              'suppliers',
-            ]),
+          next: () => this.router.navigate(['/products/edit', productId, 'suppliers']),
           error: (err: HttpErrorResponse) => this.handleServerError(err),
         });
     } else {
@@ -211,12 +187,7 @@ export class ProductSupplierEdit implements OnInit {
         .addSupplier(productId, data)
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
-          next: () =>
-            this.router.navigate([
-              '/products/edit',
-              productId,
-              'suppliers',
-            ]),
+          next: () => this.router.navigate(['/products/edit', productId, 'suppliers']),
           error: (err: HttpErrorResponse) => this.handleServerError(err),
         });
     }
@@ -232,9 +203,7 @@ export class ProductSupplierEdit implements OnInit {
       this.generalError.set(apiError.message);
     } else if (err.status === 409) {
       this.serverErrors.set({});
-      this.generalError.set(
-        'This supplier is already assigned to the product.',
-      );
+      this.generalError.set('This supplier is already assigned to the product.');
     } else {
       this.serverErrors.set({});
       this.generalError.set('Unexpected error. Please try again later.');

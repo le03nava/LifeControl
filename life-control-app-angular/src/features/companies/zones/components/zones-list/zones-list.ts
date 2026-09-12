@@ -1,11 +1,4 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  computed,
-  input,
-  output,
-  signal,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
@@ -16,12 +9,7 @@ import { CompanyZone } from '../../models/zone.models';
   selector: 'app-zones-list',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [
-    MatTableModule,
-    MatButtonModule,
-    MatIconModule,
-    MatSlideToggleModule,
-  ],
+  imports: [MatTableModule, MatButtonModule, MatIconModule, MatSlideToggleModule],
   templateUrl: './zones-list.html',
   styleUrl: './zones-list.scss',
 })

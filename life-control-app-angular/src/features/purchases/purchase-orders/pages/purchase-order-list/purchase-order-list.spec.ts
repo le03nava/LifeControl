@@ -56,11 +56,7 @@ const mockOrders: PurchaseOrder[] = [
   },
 ];
 
-const createMockPage = (
-  orders: PurchaseOrder[],
-  page = 0,
-  size = 12,
-): Page<PurchaseOrder> => ({
+const createMockPage = (orders: PurchaseOrder[], page = 0, size = 12): Page<PurchaseOrder> => ({
   content: orders,
   totalElements: orders.length,
   totalPages: Math.ceil(orders.length / size) || 1,
@@ -79,9 +75,7 @@ describe('PurchaseOrderList', () => {
 
   beforeEach(async () => {
     purchaseOrderService = {
-      getPurchaseOrders: vi
-        .fn()
-        .mockReturnValue(of(createMockPage(mockOrders))),
+      getPurchaseOrders: vi.fn().mockReturnValue(of(createMockPage(mockOrders))),
     };
 
     await TestBed.configureTestingModule({
@@ -108,11 +102,7 @@ describe('PurchaseOrderList', () => {
   describe('data loading', () => {
     it('should call getPurchaseOrders with default params on init', () => {
       fixture.detectChanges();
-      expect(purchaseOrderService.getPurchaseOrders).toHaveBeenCalledWith(
-        0,
-        12,
-        undefined,
-      );
+      expect(purchaseOrderService.getPurchaseOrders).toHaveBeenCalledWith(0, 12, undefined);
     });
 
     it('should render table rows when data loads', async () => {
@@ -130,9 +120,7 @@ describe('PurchaseOrderList', () => {
       fixture.detectChanges();
 
       const cells = fixture.debugElement.queryAll(By.css('td.mat-mdc-cell'));
-      const orderNumberCell = cells.find((c) =>
-        c.nativeElement.textContent.includes('PO-00001'),
-      );
+      const orderNumberCell = cells.find((c) => c.nativeElement.textContent.includes('PO-00001'));
       expect(orderNumberCell).toBeTruthy();
     });
 
@@ -156,9 +144,7 @@ describe('PurchaseOrderList', () => {
 
   describe('empty state', () => {
     beforeEach(() => {
-      purchaseOrderService.getPurchaseOrders = vi
-        .fn()
-        .mockReturnValue(of(createMockPage([])));
+      purchaseOrderService.getPurchaseOrders = vi.fn().mockReturnValue(of(createMockPage([])));
     });
 
     it('should show empty state when no orders', async () => {
@@ -168,9 +154,7 @@ describe('PurchaseOrderList', () => {
       f.detectChanges();
 
       const emptyEl: HTMLElement = f.nativeElement;
-      expect(emptyEl.textContent).toContain(
-        'No hay órdenes de compra registradas',
-      );
+      expect(emptyEl.textContent).toContain('No hay órdenes de compra registradas');
     });
   });
 
@@ -208,9 +192,7 @@ describe('PurchaseOrderList', () => {
       f.detectChanges();
 
       purchaseOrderService.getPurchaseOrders.mockClear();
-      purchaseOrderService.getPurchaseOrders.mockReturnValue(
-        of(createMockPage(mockOrders)),
-      );
+      purchaseOrderService.getPurchaseOrders.mockReturnValue(of(createMockPage(mockOrders)));
 
       comp.onRetry();
       f.detectChanges();
@@ -243,11 +225,7 @@ describe('PurchaseOrderList', () => {
       vi.advanceTimersByTime(300);
       fixture.detectChanges();
 
-      expect(purchaseOrderService.getPurchaseOrders).toHaveBeenCalledWith(
-        0,
-        12,
-        'Acme',
-      );
+      expect(purchaseOrderService.getPurchaseOrders).toHaveBeenCalledWith(0, 12, 'Acme');
 
       vi.useRealTimers();
     });
@@ -285,11 +263,7 @@ describe('PurchaseOrderList', () => {
       fixture.detectChanges();
       vi.advanceTimersByTime(0);
 
-      expect(purchaseOrderService.getPurchaseOrders).toHaveBeenCalledWith(
-        1,
-        12,
-        undefined,
-      );
+      expect(purchaseOrderService.getPurchaseOrders).toHaveBeenCalledWith(1, 12, undefined);
 
       vi.useRealTimers();
     });
@@ -298,17 +272,12 @@ describe('PurchaseOrderList', () => {
   describe('navigation', () => {
     it('should navigate to edit page on editOrder', () => {
       component.editOrder('po-1');
-      expect(router.navigate).toHaveBeenCalledWith([
-        '/purchases/orders',
-        'po-1',
-      ]);
+      expect(router.navigate).toHaveBeenCalledWith(['/purchases/orders', 'po-1']);
     });
 
     it('should navigate to create page on createOrder', () => {
       component.createOrder();
-      expect(router.navigate).toHaveBeenCalledWith([
-        '/purchases/orders/create',
-      ]);
+      expect(router.navigate).toHaveBeenCalledWith(['/purchases/orders/create']);
     });
   });
 

@@ -1,4 +1,11 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  inject,
+  OnInit,
+  signal,
+} from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { NonNullableFormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
@@ -54,19 +61,22 @@ export class RoleForm implements OnInit {
   }
 
   private loadRole(name: string): void {
-    this.service.getRealmRole(name).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (role) => {
-        this.form.patchValue({
-          name: role.name,
-          description: role.description ?? '',
-          composite: role.composite,
-        });
-      },
-      error: (err) => {
-        this.notification.showError(err?.error?.message ?? 'Failed to load role');
-        this.router.navigate(['../'], { relativeTo: this.route });
-      },
-    });
+    this.service
+      .getRealmRole(name)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (role) => {
+          this.form.patchValue({
+            name: role.name,
+            description: role.description ?? '',
+            composite: role.composite,
+          });
+        },
+        error: (err) => {
+          this.notification.showError(err?.error?.message ?? 'Failed to load role');
+          this.router.navigate(['../'], { relativeTo: this.route });
+        },
+      });
   }
 
   onSubmit(): void {
@@ -82,27 +92,33 @@ export class RoleForm implements OnInit {
 
     if (this.isEdit()) {
       const name = this.existingName()!;
-      this.service.updateRealmRole(name, request).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: () => {
-          this.notification.showSuccess(`Role "${request.name}" updated`);
-          this.router.navigate(['../'], { relativeTo: this.route });
-        },
-        error: (err) => {
-          this.notification.showError(err?.error?.message ?? 'Failed to update role');
-          this.saving.set(false);
-        },
-      });
+      this.service
+        .updateRealmRole(name, request)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: () => {
+            this.notification.showSuccess(`Role "${request.name}" updated`);
+            this.router.navigate(['../'], { relativeTo: this.route });
+          },
+          error: (err) => {
+            this.notification.showError(err?.error?.message ?? 'Failed to update role');
+            this.saving.set(false);
+          },
+        });
     } else {
-      this.service.createRealmRole(request).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: () => {
-          this.notification.showSuccess(`Role "${request.name}" created`);
-          this.router.navigate(['../'], { relativeTo: this.route });
-        },
-        error: (err) => {
-          this.notification.showError(err?.error?.message ?? 'Failed to create role');
-          this.saving.set(false);
-        },
-      });
+      this.service
+        .createRealmRole(request)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: () => {
+            this.notification.showSuccess(`Role "${request.name}" created`);
+            this.router.navigate(['../'], { relativeTo: this.route });
+          },
+          error: (err) => {
+            this.notification.showError(err?.error?.message ?? 'Failed to create role');
+            this.saving.set(false);
+          },
+        });
     }
   }
 }

@@ -24,8 +24,22 @@ describe('AddressFormComponent', () => {
 
   function createMockCountries(): Country[] {
     return [
-      { id: '1', countryCode: 'MX', countryName: 'México', enabled: true, createdAt: '', updatedAt: '' },
-      { id: '2', countryCode: 'US', countryName: 'Estados Unidos', enabled: true, createdAt: '', updatedAt: '' },
+      {
+        id: '1',
+        countryCode: 'MX',
+        countryName: 'México',
+        enabled: true,
+        createdAt: '',
+        updatedAt: '',
+      },
+      {
+        id: '2',
+        countryCode: 'US',
+        countryName: 'Estados Unidos',
+        enabled: true,
+        createdAt: '',
+        updatedAt: '',
+      },
     ];
   }
 
@@ -59,7 +73,15 @@ describe('AddressFormComponent', () => {
   });
 
   it('should render all 7 address input fields when FormGroup provided (country hidden when no countries)', () => {
-    const addressFields = ['street', 'streetNumber', 'internalNumber', 'neighborhood', 'zipCode', 'city', 'state'];
+    const addressFields = [
+      'street',
+      'streetNumber',
+      'internalNumber',
+      'neighborhood',
+      'zipCode',
+      'city',
+      'state',
+    ];
     for (const field of addressFields) {
       const el = fixture.nativeElement.querySelector(`[formControlName="${field}"]`);
       expect(el).toBeTruthy();
@@ -80,7 +102,16 @@ describe('AddressFormComponent', () => {
   });
 
   it('should keep all address fields optional (no required indicator)', () => {
-    const addressFields = ['street', 'streetNumber', 'internalNumber', 'neighborhood', 'zipCode', 'city', 'state', 'countryId'];
+    const addressFields = [
+      'street',
+      'streetNumber',
+      'internalNumber',
+      'neighborhood',
+      'zipCode',
+      'city',
+      'state',
+      'countryId',
+    ];
     for (const field of addressFields) {
       const control = component.addressFormGroup().get(field);
       control?.markAsTouched();
@@ -114,11 +145,13 @@ describe('AddressFormComponent', () => {
       streetControl.setErrors({ serverError: 'La calle es inválida' });
       fixture.detectChanges();
 
-      const matErrors = Array.from(fixture.nativeElement.querySelectorAll('mat-error') as NodeListOf<Element>);
+      const matErrors = Array.from(
+        fixture.nativeElement.querySelectorAll('mat-error') as NodeListOf<Element>,
+      );
       expect(matErrors.length).toBeGreaterThan(0);
 
-      const streetError = Array.from(matErrors).find(
-        (el: Element) => el.textContent?.includes('La calle es inválida')
+      const streetError = Array.from(matErrors).find((el: Element) =>
+        el.textContent?.includes('La calle es inválida'),
       );
       expect(streetError).toBeTruthy();
     });
@@ -145,9 +178,7 @@ describe('AddressFormComponent', () => {
       });
       fixture.detectChanges();
 
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('nonexistent'),
-      );
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('nonexistent'));
 
       warnSpy.mockRestore();
     });

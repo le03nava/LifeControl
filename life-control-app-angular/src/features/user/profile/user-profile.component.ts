@@ -8,12 +8,7 @@ import {
   OnInit,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import {
-  FormGroup,
-  FormControl,
-  ReactiveFormsModule,
-  Validators,
-} from '@angular/forms';
+import { FormGroup, FormControl, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, ActivatedRoute, RouterModule } from '@angular/router';
 import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
@@ -119,9 +114,7 @@ export class UserProfileComponent implements OnInit {
 
   constructor() {
     // Read edit mode from query params on construction
-    this.isEditMode.set(
-      this.route.snapshot.queryParamMap.get('edit') === 'true',
-    );
+    this.isEditMode.set(this.route.snapshot.queryParamMap.get('edit') === 'true');
   }
 
   ngOnInit(): void {
@@ -315,12 +308,7 @@ export class UserProfileComponent implements OnInit {
   /**
    * Load stores for the given company+country+region+zone.
    */
-  private loadStores(
-    companyId: string,
-    countryId: string,
-    regionId: string,
-    zoneId: string,
-  ): void {
+  private loadStores(companyId: string, countryId: string, regionId: string, zoneId: string): void {
     this.loadingStores.set(true);
     this.companyStoreService
       .getStores(companyId, countryId, regionId, zoneId)
@@ -464,9 +452,7 @@ export class UserProfileComponent implements OnInit {
         },
         error: (err) => {
           this.saving.set(false);
-          this.error.set(
-            err.error?.message ?? 'Failed to update profile. Please try again.',
-          );
+          this.error.set(err.error?.message ?? 'Failed to update profile. Please try again.');
         },
       });
   }

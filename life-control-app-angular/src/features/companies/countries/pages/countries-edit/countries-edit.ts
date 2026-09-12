@@ -1,4 +1,11 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal, OnInit } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  inject,
+  signal,
+  OnInit,
+} from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { CompanyService } from '../../../companies/data/company.service';
 import { CompanyCountryService } from '../../data/company-country.service';
@@ -31,10 +38,9 @@ export class CountriesEdit implements OnInit {
   isEditMode = signal(false);
 
   // ─── Data signals ──────────────────────────────────────
-  companies = toSignal(
-    this.companyService.getCompanies(0, 1000).pipe(map(p => p.content)),
-    { initialValue: [] },
-  );
+  companies = toSignal(this.companyService.getCompanies(0, 1000).pipe(map((p) => p.content)), {
+    initialValue: [],
+  });
   companyCountries = this.companyCountryService.assignedCountries;
   catalogCountries = this.countryService.countries;
   serverErrors = signal<Record<string, string>>({});
@@ -67,7 +73,10 @@ export class CountriesEdit implements OnInit {
 
     if (!id && companyId) {
       this.initialCompanyId.set(companyId);
-      this.companyCountryService.getCountries(companyId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
+      this.companyCountryService
+        .getCountries(companyId)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe();
     }
   }
 

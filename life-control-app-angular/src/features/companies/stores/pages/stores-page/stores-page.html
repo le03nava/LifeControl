@@ -1,6 +1,12 @@
 <div class="stores-page">
   <app-page-header title="Tiendas" subtitle="Gestión de tiendas operativas del sistema">
-    <button mat-flat-button color="primary" type="button" [disabled]="!selectedZone()" (click)="onCreateStore()">
+    <button
+      mat-flat-button
+      color="primary"
+      type="button"
+      [disabled]="!selectedZone()"
+      (click)="onCreateStore()"
+    >
       <mat-icon fontIcon="add" /> Nueva Tienda
     </button>
   </app-page-header>

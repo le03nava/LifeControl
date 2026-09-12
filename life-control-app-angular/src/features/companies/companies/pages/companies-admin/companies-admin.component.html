@@ -8,11 +8,7 @@
   <div class="dashboard-cards">
     @for (card of cards(); track card.title; let i = $index) {
       <div class="card-wrapper" [style.--i]="i">
-        <mat-card
-          class="dashboard-card"
-          appearance="outlined"
-          [routerLink]="card.route"
-        >
+        <mat-card class="dashboard-card" appearance="outlined" [routerLink]="card.route">
           <mat-card-content>
             <div class="card-icon">
               <mat-icon [fontIcon]="card.icon" />

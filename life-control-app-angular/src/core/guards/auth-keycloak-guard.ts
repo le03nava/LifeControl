@@ -47,8 +47,8 @@ export const keycloakRoleGuard: CanActivateFn = async (route, state) => {
   const clientId = route.data['clientId'] as string | undefined;
 
   const availableRoles: string[] = clientId
-    ? token?.resource_access?.[clientId]?.roles ?? []
-    : token?.realm_access?.roles ?? [];
+    ? (token?.resource_access?.[clientId]?.roles ?? [])
+    : (token?.realm_access?.roles ?? []);
 
   // Comprobar si el usuario tiene al menos uno de los roles requeridos
   const hasRole = requiredRoles.some((role) => availableRoles.includes(role));

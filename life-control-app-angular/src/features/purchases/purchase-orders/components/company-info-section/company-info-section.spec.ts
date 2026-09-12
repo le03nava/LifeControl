@@ -53,23 +53,83 @@ const mockCompanyById = {
 };
 
 const mockCountries = [
-  { id: 'cc-1', companyId: 'comp-1', countryId: 'c-1', countryCode: 'MX', countryName: 'México', localAlias: null },
-  { id: 'cc-2', companyId: 'comp-1', countryId: 'c-2', countryCode: 'US', countryName: 'Estados Unidos', localAlias: null },
+  {
+    id: 'cc-1',
+    companyId: 'comp-1',
+    countryId: 'c-1',
+    countryCode: 'MX',
+    countryName: 'México',
+    localAlias: null,
+  },
+  {
+    id: 'cc-2',
+    companyId: 'comp-1',
+    countryId: 'c-2',
+    countryCode: 'US',
+    countryName: 'Estados Unidos',
+    localAlias: null,
+  },
 ];
 
 const mockRegions = [
-  { id: 'reg-1', companyCountryId: 'cc-1', companyId: 'comp-1', countryId: 'c-1', regionCode: 'R1', regionName: 'Norte' },
-  { id: 'reg-2', companyCountryId: 'cc-1', companyId: 'comp-1', countryId: 'c-1', regionCode: 'R2', regionName: 'Sur' },
+  {
+    id: 'reg-1',
+    companyCountryId: 'cc-1',
+    companyId: 'comp-1',
+    countryId: 'c-1',
+    regionCode: 'R1',
+    regionName: 'Norte',
+  },
+  {
+    id: 'reg-2',
+    companyCountryId: 'cc-1',
+    companyId: 'comp-1',
+    countryId: 'c-1',
+    regionCode: 'R2',
+    regionName: 'Sur',
+  },
 ];
 
 const mockZones = [
-  { id: 'zone-1', companyRegionId: 'reg-1', companyCountryId: 'cc-1', companyId: 'comp-1', countryId: 'c-1', zoneCode: 'Z1', zoneName: 'Zona A' },
-  { id: 'zone-2', companyRegionId: 'reg-1', companyCountryId: 'cc-1', companyId: 'comp-1', countryId: 'c-1', zoneCode: 'Z2', zoneName: 'Zona B' },
+  {
+    id: 'zone-1',
+    companyRegionId: 'reg-1',
+    companyCountryId: 'cc-1',
+    companyId: 'comp-1',
+    countryId: 'c-1',
+    zoneCode: 'Z1',
+    zoneName: 'Zona A',
+  },
+  {
+    id: 'zone-2',
+    companyRegionId: 'reg-1',
+    companyCountryId: 'cc-1',
+    companyId: 'comp-1',
+    countryId: 'c-1',
+    zoneCode: 'Z2',
+    zoneName: 'Zona B',
+  },
 ];
 
 const mockStores = [
-  { id: 'store-1', companyId: 'comp-1', companyCountryId: 'cc-1', regionId: 'reg-1', zoneId: 'zone-1', storeName: 'Tienda Centro', enabled: true },
-  { id: 'store-2', companyId: 'comp-1', companyCountryId: 'cc-1', regionId: 'reg-1', zoneId: 'zone-1', storeName: 'Tienda Norte', enabled: true },
+  {
+    id: 'store-1',
+    companyId: 'comp-1',
+    companyCountryId: 'cc-1',
+    regionId: 'reg-1',
+    zoneId: 'zone-1',
+    storeName: 'Tienda Centro',
+    enabled: true,
+  },
+  {
+    id: 'store-2',
+    companyId: 'comp-1',
+    companyCountryId: 'cc-1',
+    regionId: 'reg-1',
+    zoneId: 'zone-1',
+    storeName: 'Tienda Norte',
+    enabled: true,
+  },
 ];
 
 const mockProfile = {
@@ -133,7 +193,10 @@ describe('CompanyInfoSection', () => {
     return new FormGroup<PurchaseOrderHeaderControl>({
       supplierId: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
       companyStoreId: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
-      paymentMethodId: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
+      paymentMethodId: new FormControl('', {
+        nonNullable: true,
+        validators: [Validators.required],
+      }),
       comments: new FormControl<string | null>(null),
     });
   }
@@ -223,7 +286,12 @@ describe('CompanyInfoSection', () => {
       const { componentInstance: comp } = createFixture();
 
       expect(comp.selectedZoneId()).toBe('zone-1');
-      expect(companyStoreServiceMock.getStores).toHaveBeenCalledWith('comp-1', 'cc-1', 'reg-1', 'zone-1');
+      expect(companyStoreServiceMock.getStores).toHaveBeenCalledWith(
+        'comp-1',
+        'cc-1',
+        'reg-1',
+        'zone-1',
+      );
     });
 
     it('should patch store form value after full cascade', () => {
@@ -243,14 +311,16 @@ describe('CompanyInfoSection', () => {
     });
 
     it('should not crash when profile has no companyId', () => {
-      profileServiceMock.getProfile = vi.fn().mockReturnValue(of({
-        ...mockProfile,
-        companyId: null,
-        companyCountryId: null,
-        companyRegionId: null,
-        companyZoneId: null,
-        companyStoreId: null,
-      }));
+      profileServiceMock.getProfile = vi.fn().mockReturnValue(
+        of({
+          ...mockProfile,
+          companyId: null,
+          companyCountryId: null,
+          companyRegionId: null,
+          companyZoneId: null,
+          companyStoreId: null,
+        }),
+      );
 
       const { componentInstance: comp } = createFixture();
 
@@ -365,14 +435,16 @@ describe('CompanyInfoSection', () => {
   describe('form helpers', () => {
     function createFixture() {
       // Override profile mock so cascade doesn't auto-fill form values
-      profileServiceMock.getProfile = vi.fn().mockReturnValue(of({
-        ...mockProfile,
-        companyId: null,
-        companyCountryId: null,
-        companyRegionId: null,
-        companyZoneId: null,
-        companyStoreId: null,
-      }));
+      profileServiceMock.getProfile = vi.fn().mockReturnValue(
+        of({
+          ...mockProfile,
+          companyId: null,
+          companyCountryId: null,
+          companyRegionId: null,
+          companyZoneId: null,
+          companyStoreId: null,
+        }),
+      );
 
       const fixture = TestBed.createComponent(CompanyInfoSection);
       fixture.componentRef.setInput('headerForm', headerForm);

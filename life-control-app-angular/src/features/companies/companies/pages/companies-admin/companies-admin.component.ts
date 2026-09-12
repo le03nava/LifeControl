@@ -47,8 +47,11 @@ const STATIC_CARDS: Omit<DashboardCard, 'disabled'>[] = [
     description: 'Define operational zones for your company structure.',
     route: '/companies/zones',
     requiredRoles: [
-      'lc-admin', 'lc-company', 'lc-company-country',
-      'lc-company-region', 'lc-company-zone',
+      'lc-admin',
+      'lc-company',
+      'lc-company-country',
+      'lc-company-region',
+      'lc-company-zone',
     ],
   },
   {
@@ -57,8 +60,12 @@ const STATIC_CARDS: Omit<DashboardCard, 'disabled'>[] = [
     description: 'Manage operational store locations and their details.',
     route: '/companies/stores',
     requiredRoles: [
-      'lc-admin', 'lc-company', 'lc-company-country',
-      'lc-company-region', 'lc-company-zone', 'lc-company-store',
+      'lc-admin',
+      'lc-company',
+      'lc-company-country',
+      'lc-company-region',
+      'lc-company-zone',
+      'lc-company-store',
     ],
   },
 ];
@@ -91,12 +98,10 @@ export class CompaniesAdminComponent {
   readonly cards = computed<DashboardCard[]>(() => {
     const roles = this.userRoles();
 
-    return STATIC_CARDS
-      .map((card) => ({
-        ...card,
-        disabled: card.requiredRoles.length > 0 && !card.requiredRoles.some((r) => roles.includes(r)),
-      }))
-      .filter((card) => !card.disabled);
+    return STATIC_CARDS.map((card) => ({
+      ...card,
+      disabled: card.requiredRoles.length > 0 && !card.requiredRoles.some((r) => roles.includes(r)),
+    })).filter((card) => !card.disabled);
   });
 
   constructor() {

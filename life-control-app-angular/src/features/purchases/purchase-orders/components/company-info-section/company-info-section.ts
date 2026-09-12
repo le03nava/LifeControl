@@ -51,12 +51,7 @@ interface CompanyDetail {
 @Component({
   selector: 'app-company-info-section',
   standalone: true,
-  imports: [
-    ReactiveFormsModule,
-    MatCardModule,
-    MatFormFieldModule,
-    MatSelectModule,
-  ],
+  imports: [ReactiveFormsModule, MatCardModule, MatFormFieldModule, MatSelectModule],
   templateUrl: './company-info-section.html',
   styleUrl: './company-info-section.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -173,9 +168,7 @@ export class CompanyInfoSection implements OnInit {
     this.companyService
       .getCompanies(0, 1000)
       .pipe(
-        map((p) =>
-          p.content.map((c) => ({ id: c.id, name: c.companyName })),
-        ),
+        map((p) => p.content.map((c) => ({ id: c.id, name: c.companyName }))),
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe({
@@ -209,15 +202,10 @@ export class CompanyInfoSection implements OnInit {
     const addressParts: string[] = [];
 
     if (address) {
-      const street =
-        [address.street, address.streetNumber]
-          .filter(Boolean)
-          .join(' ') || '';
+      const street = [address.street, address.streetNumber].filter(Boolean).join(' ') || '';
       if (street) addressParts.push(street);
       if (address.neighborhood) addressParts.push(address.neighborhood);
-      const zipCity = [address.zipCode, address.city]
-        .filter(Boolean)
-        .join(' ');
+      const zipCity = [address.zipCode, address.city].filter(Boolean).join(' ');
       if (zipCity) addressParts.push(zipCity);
       if (address.state) addressParts.push(address.state);
     }
@@ -253,9 +241,7 @@ export class CompanyInfoSection implements OnInit {
       this.companyCountryService
         .getCountries(companyId)
         .pipe(
-          map((list) =>
-            list.map((c) => ({ id: c.id, name: c.countryName })),
-          ),
+          map((list) => list.map((c) => ({ id: c.id, name: c.countryName }))),
           takeUntilDestroyed(this.destroyRef),
         )
         .subscribe({
@@ -280,9 +266,7 @@ export class CompanyInfoSection implements OnInit {
       this.companyRegionService
         .getRegions(companyId, targets.companyCountryId)
         .pipe(
-          map((list) =>
-            list.map((r) => ({ id: r.id, name: r.regionName })),
-          ),
+          map((list) => list.map((r) => ({ id: r.id, name: r.regionName }))),
           takeUntilDestroyed(this.destroyRef),
         )
         .subscribe({
@@ -307,9 +291,7 @@ export class CompanyInfoSection implements OnInit {
       this.companyZoneService
         .getZones(companyId, targets.companyCountryId!, targets.regionId)
         .pipe(
-          map((list) =>
-            list.map((z) => ({ id: z.id, name: z.zoneName })),
-          ),
+          map((list) => list.map((z) => ({ id: z.id, name: z.zoneName }))),
           takeUntilDestroyed(this.destroyRef),
         )
         .subscribe({
@@ -332,17 +314,10 @@ export class CompanyInfoSection implements OnInit {
 
       // Load stores
       this.companyStoreService
-        .getStores(
-          companyId,
-          targets.companyCountryId!,
-          targets.regionId!,
-          targets.zoneId,
-        )
+        .getStores(companyId, targets.companyCountryId!, targets.regionId!, targets.zoneId)
         .pipe(
           map((list) =>
-            list
-              .filter((s) => s.enabled)
-              .map((s) => ({ id: s.id, name: s.storeName })),
+            list.filter((s) => s.enabled).map((s) => ({ id: s.id, name: s.storeName })),
           ),
           takeUntilDestroyed(this.destroyRef),
         )
@@ -361,10 +336,9 @@ export class CompanyInfoSection implements OnInit {
       targets.companyStoreId &&
       this.stores().some((s) => s.id === targets.companyStoreId)
     ) {
-      this.headerForm()
-        .controls.companyStoreId.setValue(targets.companyStoreId, {
-          emitEvent: false,
-        });
+      this.headerForm().controls.companyStoreId.setValue(targets.companyStoreId, {
+        emitEvent: false,
+      });
     }
   }
 
@@ -394,9 +368,7 @@ export class CompanyInfoSection implements OnInit {
       this.companyCountryService
         .getCountries(companyId)
         .pipe(
-          map((list) =>
-            list.map((c) => ({ id: c.id, name: c.countryName })),
-          ),
+          map((list) => list.map((c) => ({ id: c.id, name: c.countryName }))),
           takeUntilDestroyed(this.destroyRef),
         )
         .subscribe({
@@ -422,9 +394,7 @@ export class CompanyInfoSection implements OnInit {
       this.companyRegionService
         .getRegions(companyId, countryId)
         .pipe(
-          map((list) =>
-            list.map((r) => ({ id: r.id, name: r.regionName })),
-          ),
+          map((list) => list.map((r) => ({ id: r.id, name: r.regionName }))),
           takeUntilDestroyed(this.destroyRef),
         )
         .subscribe({
@@ -449,9 +419,7 @@ export class CompanyInfoSection implements OnInit {
       this.companyZoneService
         .getZones(companyId, countryId, regionId)
         .pipe(
-          map((list) =>
-            list.map((z) => ({ id: z.id, name: z.zoneName })),
-          ),
+          map((list) => list.map((z) => ({ id: z.id, name: z.zoneName }))),
           takeUntilDestroyed(this.destroyRef),
         )
         .subscribe({
@@ -476,9 +444,7 @@ export class CompanyInfoSection implements OnInit {
         .getStores(companyId, countryId, regionId, zoneId)
         .pipe(
           map((list) =>
-            list
-              .filter((s) => s.enabled)
-              .map((s) => ({ id: s.id, name: s.storeName })),
+            list.filter((s) => s.enabled).map((s) => ({ id: s.id, name: s.storeName })),
           ),
           takeUntilDestroyed(this.destroyRef),
         )

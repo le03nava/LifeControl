@@ -9,19 +9,46 @@ describe('ZonesList', () => {
 
   const mockZones: CompanyZone[] = [
     {
-      id: 'zone-1', companyRegionId: 'reg-1', companyCountryId: 'cc-1', companyId: 'comp-1', countryId: '1',
-      zoneCode: 'US-CA-DT', zoneName: 'Downtown', description: 'Zona céntrica', displayOrder: 1,
-      enabled: true, createdAt: '2024-01-01', updatedAt: '2024-01-01',
+      id: 'zone-1',
+      companyRegionId: 'reg-1',
+      companyCountryId: 'cc-1',
+      companyId: 'comp-1',
+      countryId: '1',
+      zoneCode: 'US-CA-DT',
+      zoneName: 'Downtown',
+      description: 'Zona céntrica',
+      displayOrder: 1,
+      enabled: true,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
     },
     {
-      id: 'zone-2', companyRegionId: 'reg-1', companyCountryId: 'cc-1', companyId: 'comp-1', countryId: '1',
-      zoneCode: 'US-CA-SF', zoneName: 'San Francisco', description: 'Zona norte', displayOrder: 2,
-      enabled: true, createdAt: '2024-01-01', updatedAt: '2024-01-01',
+      id: 'zone-2',
+      companyRegionId: 'reg-1',
+      companyCountryId: 'cc-1',
+      companyId: 'comp-1',
+      countryId: '1',
+      zoneCode: 'US-CA-SF',
+      zoneName: 'San Francisco',
+      description: 'Zona norte',
+      displayOrder: 2,
+      enabled: true,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
     },
     {
-      id: 'zone-3', companyRegionId: 'reg-1', companyCountryId: 'cc-1', companyId: 'comp-1', countryId: '1',
-      zoneCode: 'US-CA-LA', zoneName: 'Los Angeles', description: '', displayOrder: undefined,
-      enabled: false, createdAt: '2024-01-01', updatedAt: '2024-01-01',
+      id: 'zone-3',
+      companyRegionId: 'reg-1',
+      companyCountryId: 'cc-1',
+      companyId: 'comp-1',
+      countryId: '1',
+      zoneCode: 'US-CA-LA',
+      zoneName: 'Los Angeles',
+      description: '',
+      displayOrder: undefined,
+      enabled: false,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
     },
   ];
 
@@ -96,8 +123,8 @@ describe('ZonesList', () => {
       expect(allButtons.length).toBe(4);
 
       const btnTexts = [...allButtons].map((b: Element) => b.textContent?.trim() ?? '');
-      const editCount = btnTexts.filter(t => t === 'Editar').length;
-      const deleteCount = btnTexts.filter(t => t === 'Eliminar').length;
+      const editCount = btnTexts.filter((t) => t === 'Editar').length;
+      const deleteCount = btnTexts.filter((t) => t === 'Eliminar').length;
       expect(editCount).toBe(2);
       expect(deleteCount).toBe(2);
     });

@@ -11,7 +11,7 @@ export const notificationAnimation = trigger('notificationAnimation', [
       style({
         opacity: 1,
         transform: 'translateX(0) translateY(-50%)',
-      })
+      }),
     ),
   ]),
   transition(':leave', [
@@ -20,7 +20,7 @@ export const notificationAnimation = trigger('notificationAnimation', [
       style({
         opacity: 0,
         transform: 'translateX(100%) translateY(-50%)',
-      })
+      }),
     ),
   ]),
 ]);

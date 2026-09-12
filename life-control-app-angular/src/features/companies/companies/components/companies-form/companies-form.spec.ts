@@ -27,11 +27,20 @@ describe('CompaniesForm', () => {
       id: new FormControl('', { nonNullable: true }),
       companyKey: new FormControl('', { nonNullable: true, validators: Validators.required }),
       companyName: new FormControl('', { nonNullable: true, validators: Validators.required }),
-      tipoPersonaId: new FormControl<number>(1, { nonNullable: true, validators: Validators.required }),
+      tipoPersonaId: new FormControl<number>(1, {
+        nonNullable: true,
+        validators: Validators.required,
+      }),
       razonSocial: new FormControl('', { nonNullable: true, validators: Validators.required }),
-      rfc: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.pattern(/^[A-ZÑ&]{3,4}\d{6}[A-Z\d]{3}$/)] }),
+      rfc: new FormControl('', {
+        nonNullable: true,
+        validators: [Validators.required, Validators.pattern(/^[A-ZÑ&]{3,4}\d{6}[A-Z\d]{3}$/)],
+      }),
       email: new FormControl('', { nonNullable: true, validators: [Validators.email] }),
-      phone: new FormControl('', { nonNullable: true, validators: [Validators.pattern(/^\+?\d{10,13}$/)] }),
+      phone: new FormControl('', {
+        nonNullable: true,
+        validators: [Validators.pattern(/^\+?\d{10,13}$/)],
+      }),
       address: createAddressGroup(),
       enabled: new FormControl<boolean>(true, { nonNullable: true }),
     });
@@ -53,12 +62,13 @@ describe('CompaniesForm', () => {
   });
 
   function triggerErrorsOnTrackedFields(): void {
-    ['companyKey', 'companyName', 'tipoPersonaId', 'razonSocial', 'rfc', 'email', 'phone']
-      .forEach(key => {
+    ['companyKey', 'companyName', 'tipoPersonaId', 'razonSocial', 'rfc', 'email', 'phone'].forEach(
+      (key) => {
         const control = component.formGroup().get(key);
         control?.markAsTouched();
         control?.setErrors({ required: true });
-      });
+      },
+    );
     fixture.detectChanges();
   }
 
@@ -115,9 +125,7 @@ describe('CompaniesForm', () => {
       });
       fixture.detectChanges();
 
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('nonexistent'),
-      );
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('nonexistent'));
 
       warnSpy.mockRestore();
     });
@@ -164,7 +172,9 @@ describe('CompaniesForm', () => {
       addressGroup.controls.countryId.setValue('MX');
 
       let emitted: Company | undefined;
-      component.saveCompany.subscribe((c: Company) => { emitted = c; });
+      component.saveCompany.subscribe((c: Company) => {
+        emitted = c;
+      });
 
       component.onSave();
 
@@ -179,7 +189,9 @@ describe('CompaniesForm', () => {
       fillRequiredFields();
 
       let emitted: Company | undefined;
-      component.saveCompany.subscribe((c: Company) => { emitted = c; });
+      component.saveCompany.subscribe((c: Company) => {
+        emitted = c;
+      });
 
       component.onSave();
 

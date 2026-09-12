@@ -1,11 +1,4 @@
-import {
-  Component,
-  computed,
-  input,
-  output,
-  signal,
-  ChangeDetectionStrategy,
-} from '@angular/core';
+import { Component, computed, input, output, signal, ChangeDetectionStrategy } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
@@ -15,12 +8,7 @@ import { CompanyStore } from '../../models/store.models';
 @Component({
   selector: 'app-stores-list',
   standalone: true,
-  imports: [
-    MatTableModule,
-    MatButtonModule,
-    MatIconModule,
-    MatSlideToggleModule,
-  ],
+  imports: [MatTableModule, MatButtonModule, MatIconModule, MatSlideToggleModule],
   templateUrl: './stores-list.html',
   styleUrl: './stores-list.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

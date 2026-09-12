@@ -12,19 +12,24 @@ import { HttpErrorResponse, HttpClient } from '@angular/common/http';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { catchError, map, throwError } from 'rxjs';
-import {
-  NonNullableFormBuilder,
-  FormGroup,
-  Validators,
-  ReactiveFormsModule,
-} from '@angular/forms';
+import { NonNullableFormBuilder, FormGroup, Validators, ReactiveFormsModule } from '@angular/forms';
 import { SalesOrderService } from '../../data/sales-order.service';
 import { ProfileService } from '@features/user/profile/data/profile.service';
 import { ConfigService } from '@app/services/config.service';
 import { ApiError } from '@shared/models';
-import { SalesOrderItemTable, type ItemTableRow } from '../../components/sales-order-item-table/sales-order-item-table';
+import {
+  SalesOrderItemTable,
+  type ItemTableRow,
+} from '../../components/sales-order-item-table/sales-order-item-table';
 import { ProductVariantSelector } from '../../components/product-variant-selector/product-variant-selector';
-import type { SalesOrder, SalesOrderRequest, SalesOrderItemRequest, PaymentMethodOption, CustomerOption, Page } from '../../models/sales-order.models';
+import type {
+  SalesOrder,
+  SalesOrderRequest,
+  SalesOrderItemRequest,
+  PaymentMethodOption,
+  CustomerOption,
+  Page,
+} from '../../models/sales-order.models';
 import type { ProductVariantOption } from '../../models/sales-order.models';
 import { NotificationService } from '@shared/data/notification';
 import type { SalesOrderHeaderControl } from '../../models/sales-order-control.models';
@@ -65,15 +70,11 @@ export class SalesOrderEdit implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
 
   // ─── Route data ────────────────────────────────────────
-  readonly orderId = signal<string | null>(
-    this.route.snapshot.paramMap.get('id'),
-  );
+  readonly orderId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
   readonly isEditMode = computed(() => this.orderId() !== null);
 
   // ─── Header form ───────────────────────────────────────
-  readonly headerForm = signal<FormGroup<SalesOrderHeaderControl>>(
-    this.createForm(),
-  );
+  readonly headerForm = signal<FormGroup<SalesOrderHeaderControl>>(this.createForm());
   readonly serverErrors = signal<Record<string, string>>({});
   readonly generalError = signal<string | null>(null);
   readonly saving = signal(false);
@@ -87,13 +88,11 @@ export class SalesOrderEdit implements OnInit {
 
   // ─── Loaded order data (edit mode) ─────────────────────
   readonly loadedOrder = signal<SalesOrder | null>(null);
-  readonly isDraft = computed(
-    () => {
-      const order = this.loadedOrder();
-      if (!order) return true;
-      return order.statusName === 'Draft';
-    },
-  );
+  readonly isDraft = computed(() => {
+    const order = this.loadedOrder();
+    if (!order) return true;
+    return order.statusName === 'Draft';
+  });
 
   /** Store name fetched from the stores API using profile cascade IDs. */
   readonly displayStoreName = computed(() => this.userStoreName());
@@ -116,13 +115,11 @@ export class SalesOrderEdit implements OnInit {
   readonly statusLabels = SO_STATUS_LABELS;
 
   /** Whether the order is Pending (eligible for charge). */
-  readonly isPending = computed(
-    () => {
-      const order = this.loadedOrder();
-      if (!order) return false;
-      return order.statusName === 'Pending';
-    },
-  );
+  readonly isPending = computed(() => {
+    const order = this.loadedOrder();
+    if (!order) return false;
+    return order.statusName === 'Pending';
+  });
 
   // ─── Default customer (create mode) ─────────────────────
   readonly defaultCustomer = signal<CustomerOption | null>(null);
@@ -148,7 +145,7 @@ export class SalesOrderEdit implements OnInit {
   readonly scanMode = signal(true);
 
   toggleScanMode(): void {
-    this.scanMode.update(v => !v);
+    this.scanMode.update((v) => !v);
   }
 
   // ─── Charge / Cobrar ─────────────────────────────────────
@@ -260,32 +257,23 @@ export class SalesOrderEdit implements OnInit {
   /** Load default customer: try UUID lookup first, fall back to name search. */
   private loadDefaultCustomer(): void {
     this.http
-      .get<CustomerOption>(
-        `${this.configService.apiUrl}/customers/${this.DEFAULT_CUSTOMER_ID}`,
-      )
+      .get<CustomerOption>(`${this.configService.apiUrl}/customers/${this.DEFAULT_CUSTOMER_ID}`)
       .pipe(
         catchError((err: HttpErrorResponse) => {
           if (err.status === 404 || err.status === 0) {
             return this.http
-              .get<Page<CustomerOption>>(
-                `${this.configService.apiUrl}/customers`,
-                {
-                  params: {
-                    search: 'PUBLICO EN GENERAL',
-                    page: '0',
-                    size: '5',
-                  },
+              .get<Page<CustomerOption>>(`${this.configService.apiUrl}/customers`, {
+                params: {
+                  search: 'PUBLICO EN GENERAL',
+                  page: '0',
+                  size: '5',
                 },
-              )
+              })
               .pipe(
                 map((page) => {
-                  const found = page.content.find(
-                    (c) => c.name === 'PUBLICO EN GENERAL',
-                  );
+                  const found = page.content.find((c) => c.name === 'PUBLICO EN GENERAL');
                   if (found) return found;
-                  throw new Error(
-                    'Default customer not found in fallback search',
-                  );
+                  throw new Error('Default customer not found in fallback search');
                 }),
               );
           }
@@ -335,9 +323,7 @@ export class SalesOrderEdit implements OnInit {
           if (apiError?.message) {
             this.generalError.set(apiError.message);
           } else {
-            this.generalError.set(
-              'Unexpected error during auto-creation. Please try again.',
-            );
+            this.generalError.set('Unexpected error during auto-creation. Please try again.');
           }
         },
       });
@@ -374,9 +360,7 @@ export class SalesOrderEdit implements OnInit {
         error: (err: HttpErrorResponse) => {
           this.loading.set(false);
           this.generalError.set(
-            err.status === 404
-              ? 'Order not found.'
-              : 'Error loading sales order.',
+            err.status === 404 ? 'Order not found.' : 'Error loading sales order.',
           );
         },
       });
@@ -421,18 +405,21 @@ export class SalesOrderEdit implements OnInit {
       discountApplied: 0,
     };
 
-    this.salesOrderService.addItem(orderId, request).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (created) => {
-        this.lineItems.update((rows) => [...rows, this.toItemTableRow(created)]);
-        this.savingIndex.set(null);
-        // Reload order to pick up status changes (e.g. Draft → Pending on first item)
-        this.loadOrder(orderId);
-      },
-      error: (err: HttpErrorResponse) => {
-        this.savingIndex.set(null);
-        this.handleItemError(err);
-      },
-    });
+    this.salesOrderService
+      .addItem(orderId, request)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (created) => {
+          this.lineItems.update((rows) => [...rows, this.toItemTableRow(created)]);
+          this.savingIndex.set(null);
+          // Reload order to pick up status changes (e.g. Draft → Pending on first item)
+          this.loadOrder(orderId);
+        },
+        error: (err: HttpErrorResponse) => {
+          this.savingIndex.set(null);
+          this.handleItemError(err);
+        },
+      });
   }
 
   /** Called by `<app-sales-order-item-table>` when a row's remove button is clicked. */
@@ -443,16 +430,19 @@ export class SalesOrderEdit implements OnInit {
 
     this.savingIndex.set(index);
 
-    this.salesOrderService.deleteItem(orderId, row.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => {
-        this.lineItems.update((items) => items.filter((_, i) => i !== index));
-        this.savingIndex.set(null);
-      },
-      error: (err: HttpErrorResponse) => {
-        this.savingIndex.set(null);
-        this.handleItemError(err);
-      },
-    });
+    this.salesOrderService
+      .deleteItem(orderId, row.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.lineItems.update((items) => items.filter((_, i) => i !== index));
+          this.savingIndex.set(null);
+        },
+        error: (err: HttpErrorResponse) => {
+          this.savingIndex.set(null);
+          this.handleItemError(err);
+        },
+      });
   }
 
   /** Called by `<app-sales-order-item-table>` when quantity is changed on a row. */
@@ -471,31 +461,34 @@ export class SalesOrderEdit implements OnInit {
       discountApplied: row.discountApplied,
     };
 
-    this.salesOrderService.updateItem(orderId, row.id, request).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (updated) => {
-        this.lineItems.update((items) =>
-          items.map((item, i) =>
-            i === data.index
-              ? {
-                  ...item,
-                  quantity: updated.quantity,
-                  listPrice: updated.listPrice,
-                  discountApplied: updated.discountApplied,
-                }
-              : item,
-          ),
-        );
-        this.savingIndex.set(null);
-      },
-      error: () => {
-        this.lineItems.update((items) =>
-          items.map((item, i) =>
-            i === data.index ? { ...item, quantity: previousValue } : item,
-          ),
-        );
-        this.savingIndex.set(null);
-      },
-    });
+    this.salesOrderService
+      .updateItem(orderId, row.id, request)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (updated) => {
+          this.lineItems.update((items) =>
+            items.map((item, i) =>
+              i === data.index
+                ? {
+                    ...item,
+                    quantity: updated.quantity,
+                    listPrice: updated.listPrice,
+                    discountApplied: updated.discountApplied,
+                  }
+                : item,
+            ),
+          );
+          this.savingIndex.set(null);
+        },
+        error: () => {
+          this.lineItems.update((items) =>
+            items.map((item, i) =>
+              i === data.index ? { ...item, quantity: previousValue } : item,
+            ),
+          );
+          this.savingIndex.set(null);
+        },
+      });
   }
 
   /** Called by `<app-sales-order-item-table>` when list price is changed on a row. */
@@ -514,31 +507,34 @@ export class SalesOrderEdit implements OnInit {
       discountApplied: row.discountApplied,
     };
 
-    this.salesOrderService.updateItem(orderId, row.id, request).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (updated) => {
-        this.lineItems.update((items) =>
-          items.map((item, i) =>
-            i === data.index
-              ? {
-                  ...item,
-                  listPrice: updated.listPrice,
-                  quantity: updated.quantity,
-                  discountApplied: updated.discountApplied,
-                }
-              : item,
-          ),
-        );
-        this.savingIndex.set(null);
-      },
-      error: () => {
-        this.lineItems.update((items) =>
-          items.map((item, i) =>
-            i === data.index ? { ...item, listPrice: previousValue } : item,
-          ),
-        );
-        this.savingIndex.set(null);
-      },
-    });
+    this.salesOrderService
+      .updateItem(orderId, row.id, request)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (updated) => {
+          this.lineItems.update((items) =>
+            items.map((item, i) =>
+              i === data.index
+                ? {
+                    ...item,
+                    listPrice: updated.listPrice,
+                    quantity: updated.quantity,
+                    discountApplied: updated.discountApplied,
+                  }
+                : item,
+            ),
+          );
+          this.savingIndex.set(null);
+        },
+        error: () => {
+          this.lineItems.update((items) =>
+            items.map((item, i) =>
+              i === data.index ? { ...item, listPrice: previousValue } : item,
+            ),
+          );
+          this.savingIndex.set(null);
+        },
+      });
   }
 
   /** Called by `<app-sales-order-item-table>` when discount is changed on a row. */
@@ -557,33 +553,34 @@ export class SalesOrderEdit implements OnInit {
       discountApplied: data.value,
     };
 
-    this.salesOrderService.updateItem(orderId, row.id, request).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (updated) => {
-        this.lineItems.update((items) =>
-          items.map((item, i) =>
-            i === data.index
-              ? {
-                  ...item,
-                  discountApplied: updated.discountApplied,
-                  quantity: updated.quantity,
-                  listPrice: updated.listPrice,
-                }
-              : item,
-          ),
-        );
-        this.savingIndex.set(null);
-      },
-      error: () => {
-        this.lineItems.update((items) =>
-          items.map((item, i) =>
-            i === data.index
-              ? { ...item, discountApplied: previousValue }
-              : item,
-          ),
-        );
-        this.savingIndex.set(null);
-      },
-    });
+    this.salesOrderService
+      .updateItem(orderId, row.id, request)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (updated) => {
+          this.lineItems.update((items) =>
+            items.map((item, i) =>
+              i === data.index
+                ? {
+                    ...item,
+                    discountApplied: updated.discountApplied,
+                    quantity: updated.quantity,
+                    listPrice: updated.listPrice,
+                  }
+                : item,
+            ),
+          );
+          this.savingIndex.set(null);
+        },
+        error: () => {
+          this.lineItems.update((items) =>
+            items.map((item, i) =>
+              i === data.index ? { ...item, discountApplied: previousValue } : item,
+            ),
+          );
+          this.savingIndex.set(null);
+        },
+      });
   }
 
   /** Called by a payment-method button to charge the current Pending sales order. */
@@ -642,36 +639,40 @@ export class SalesOrderEdit implements OnInit {
 
     if (this.isEditMode()) {
       const id = this.orderId()!;
-      this.salesOrderService.update(id, request).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: () => {
-          this.saving.set(false);
-          this.router.navigate(['/sales/orders']);
-        },
-        error: (err: HttpErrorResponse) => {
-          this.saving.set(false);
-          this.handleServerError(err);
-        },
-      });
+      this.salesOrderService
+        .update(id, request)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: () => {
+            this.saving.set(false);
+            this.router.navigate(['/sales/orders']);
+          },
+          error: (err: HttpErrorResponse) => {
+            this.saving.set(false);
+            this.handleServerError(err);
+          },
+        });
     } else {
-      this.salesOrderService.create(request).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: (created) => {
-          this.saving.set(false);
-          this.router.navigate(['/sales/orders', created.id]);
-        },
-        error: (err: HttpErrorResponse) => {
-          this.saving.set(false);
-          this.handleServerError(err);
-        },
-      });
+      this.salesOrderService
+        .create(request)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: (created) => {
+            this.saving.set(false);
+            this.router.navigate(['/sales/orders', created.id]);
+          },
+          error: (err: HttpErrorResponse) => {
+            this.saving.set(false);
+            this.handleServerError(err);
+          },
+        });
     }
   }
 
   private handleServerError(err: HttpErrorResponse): void {
     if (err.status === 409) {
       this.serverErrors.set({});
-      this.generalError.set(
-        'The order was concurrently modified. Please reload and try again.',
-      );
+      this.generalError.set('The order was concurrently modified. Please reload and try again.');
       return;
     }
 
@@ -690,7 +691,8 @@ export class SalesOrderEdit implements OnInit {
 
   private handleItemError(err: HttpErrorResponse): void {
     const message =
-      err.error?.message || (err.status === 409
+      err.error?.message ||
+      (err.status === 409
         ? 'Insufficient stock for the requested quantity.'
         : 'An error occurred while updating the item.');
     this.notificationService.showError(message);
@@ -728,5 +730,4 @@ export class SalesOrderEdit implements OnInit {
       comments: this.fb.control<string | null>(null),
     });
   }
-
 }

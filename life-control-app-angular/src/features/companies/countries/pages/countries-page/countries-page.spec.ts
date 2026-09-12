@@ -170,10 +170,9 @@ describe('CountriesPage', () => {
     component.selectedCompanyId.set('company-1');
     component.onCreateCountry();
 
-    expect(routerMock.navigate).toHaveBeenCalledWith(
-      ['/companies/countries/create'],
-      { queryParams: { companyId: 'company-1' } },
-    );
+    expect(routerMock.navigate).toHaveBeenCalledWith(['/companies/countries/create'], {
+      queryParams: { companyId: 'company-1' },
+    });
   });
 
   it('should NOT navigate when no company is selected', () => {
@@ -188,10 +187,9 @@ describe('CountriesPage', () => {
     component.onCompanyChange('company-1');
     component.onCardEditCountry('cc-1');
 
-    expect(routerMock.navigate).toHaveBeenCalledWith(
-      ['/companies/countries/edit', 'cc-1'],
-      { state: { cc: mockAssignedCountries[0] } },
-    );
+    expect(routerMock.navigate).toHaveBeenCalledWith(['/companies/countries/edit', 'cc-1'], {
+      state: { cc: mockAssignedCountries[0] },
+    });
   });
 
   it('should NOT navigate when cc is not found', () => {
@@ -211,10 +209,7 @@ describe('CountriesPage', () => {
     component.selectedCompanyId.set('company-1');
     component.onDeleteCountry('cc-1');
 
-    expect(companyCountryService.removeCountry).toHaveBeenCalledWith(
-      'company-1',
-      'cc-1',
-    );
+    expect(companyCountryService.removeCountry).toHaveBeenCalledWith('company-1', 'cc-1');
   });
 
   it('should NOT call removeCountry when no company is selected', () => {
@@ -255,9 +250,7 @@ describe('CountriesPage', () => {
 
   it('should display error message when error is set', () => {
     component.onCompanyChange('company-1');
-    const svc = TestBed.inject(
-      CompanyCountryService,
-    ) as unknown as MockCompanyCountryService;
+    const svc = TestBed.inject(CompanyCountryService) as unknown as MockCompanyCountryService;
     svc._error.set('Error al cargar los países');
     fixture.detectChanges();
 
@@ -268,9 +261,7 @@ describe('CountriesPage', () => {
 
   it('should display loading text when loading', () => {
     component.onCompanyChange('company-1');
-    const svc = TestBed.inject(
-      CompanyCountryService,
-    ) as unknown as MockCompanyCountryService;
+    const svc = TestBed.inject(CompanyCountryService) as unknown as MockCompanyCountryService;
     svc._loading.set(true);
     fixture.detectChanges();
 
@@ -281,11 +272,11 @@ describe('CountriesPage', () => {
 
   it('should show empty message when no countries and not loading', () => {
     component.onCompanyChange('company-1');
-    const svc = TestBed.inject(
-      CompanyCountryService,
-    ) as unknown as MockCompanyCountryService;
+    const svc = TestBed.inject(CompanyCountryService) as unknown as MockCompanyCountryService;
     // Accessing private property for test - using type assertion
-    (svc as unknown as { _assignedCountries: WritableSignal<CompanyCountry[]> })._assignedCountries.set([]);
+    (
+      svc as unknown as { _assignedCountries: WritableSignal<CompanyCountry[]> }
+    )._assignedCountries.set([]);
     fixture.detectChanges();
 
     const emptyEl = fixture.nativeElement.querySelector('.empty-state');
@@ -295,11 +286,11 @@ describe('CountriesPage', () => {
 
   it('should NOT show empty message when loading even if no countries', () => {
     component.onCompanyChange('company-1');
-    const svc = TestBed.inject(
-      CompanyCountryService,
-    ) as unknown as MockCompanyCountryService;
+    const svc = TestBed.inject(CompanyCountryService) as unknown as MockCompanyCountryService;
     // Accessing private property for test - using type assertion
-    (svc as unknown as { _assignedCountries: WritableSignal<CompanyCountry[]> })._assignedCountries.set([]);
+    (
+      svc as unknown as { _assignedCountries: WritableSignal<CompanyCountry[]> }
+    )._assignedCountries.set([]);
     svc._loading.set(true);
     fixture.detectChanges();
 

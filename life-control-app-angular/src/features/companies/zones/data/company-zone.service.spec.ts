@@ -49,10 +49,7 @@ describe('CompanyZoneService', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [HttpClientTestingModule],
-      providers: [
-        CompanyZoneService,
-        { provide: ConfigService, useValue: { apiUrl: baseUrl } },
-      ],
+      providers: [CompanyZoneService, { provide: ConfigService, useValue: { apiUrl: baseUrl } }],
     });
     service = TestBed.inject(CompanyZoneService);
     httpMock = TestBed.inject(HttpTestingController);
@@ -72,9 +69,7 @@ describe('CompanyZoneService', () => {
     it('should fetch zones for a company country region', async () => {
       const zonesPromise = firstValueFrom(service.getZones(companyId, countryId, regionId));
 
-      const req = httpMock.expectOne(
-        r => r.url === expectedUrl && r.method === 'GET'
-      );
+      const req = httpMock.expectOne((r) => r.url === expectedUrl && r.method === 'GET');
       expect(req.request.params.get('includeDisabled')).toBe('false');
       req.flush(mockZones);
 
@@ -86,9 +81,7 @@ describe('CompanyZoneService', () => {
     it('should populate the zones signal', async () => {
       const fetchPromise = firstValueFrom(service.getZones(companyId, countryId, regionId));
 
-      const req = httpMock.expectOne(
-        r => r.url === expectedUrl && r.method === 'GET'
-      );
+      const req = httpMock.expectOne((r) => r.url === expectedUrl && r.method === 'GET');
       req.flush(mockZones);
 
       await fetchPromise;
@@ -102,13 +95,11 @@ describe('CompanyZoneService', () => {
 
       const fetchPromise = firstValueFrom(service.getZones(companyId, countryId, regionId));
 
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await new Promise((resolve) => setTimeout(resolve, 10));
 
       expect(service.loading()).toBe(true);
 
-      const req = httpMock.expectOne(
-        r => r.url === expectedUrl && r.method === 'GET'
-      );
+      const req = httpMock.expectOne((r) => r.url === expectedUrl && r.method === 'GET');
       req.flush(mockZones);
 
       await fetchPromise;
@@ -119,9 +110,7 @@ describe('CompanyZoneService', () => {
     it('should set error signal on HTTP failure', async () => {
       const errorPromise = firstValueFrom(service.getZones(companyId, countryId, regionId));
 
-      const req = httpMock.expectOne(
-        r => r.url === expectedUrl && r.method === 'GET'
-      );
+      const req = httpMock.expectOne((r) => r.url === expectedUrl && r.method === 'GET');
       req.flush('Server error', { status: 500, statusText: 'Internal Server Error' });
 
       await expect(errorPromise).rejects.toThrow();
@@ -137,9 +126,7 @@ describe('CompanyZoneService', () => {
     it('should fetch a single zone by id', async () => {
       const zonePromise = firstValueFrom(service.getZone(companyId, countryId, regionId, zoneId));
 
-      const req = httpMock.expectOne(
-        r => r.url === expectedUrl && r.method === 'GET'
-      );
+      const req = httpMock.expectOne((r) => r.url === expectedUrl && r.method === 'GET');
       req.flush(mockZones[0]);
 
       const zone = await zonePromise;
@@ -189,9 +176,7 @@ describe('CompanyZoneService', () => {
 
       const addPromise = firstValueFrom(service.addZone(companyId, countryId, regionId, request));
 
-      const req = httpMock.expectOne(
-        r => r.url === expectedUrl && r.method === 'POST'
-      );
+      const req = httpMock.expectOne((r) => r.url === expectedUrl && r.method === 'POST');
       expect(req.request.body).toEqual(request);
       req.flush(response);
 
@@ -265,11 +250,11 @@ describe('CompanyZoneService', () => {
       (service as unknown as { _zones: WritableSignal<CompanyZone[]> })._zones.set(mockZones);
       expect(service.zones().length).toBe(2);
 
-      const updatePromise = firstValueFrom(service.updateZone(companyId, countryId, regionId, zoneId, request));
-
-      const req = httpMock.expectOne(
-        r => r.url === expectedUrl && r.method === 'PUT'
+      const updatePromise = firstValueFrom(
+        service.updateZone(companyId, countryId, regionId, zoneId, request),
       );
+
+      const req = httpMock.expectOne((r) => r.url === expectedUrl && r.method === 'PUT');
       expect(req.request.body).toEqual(request);
       req.flush(updatedZone);
 
@@ -280,7 +265,9 @@ describe('CompanyZoneService', () => {
     });
 
     it('should set error on update failure', async () => {
-      const updatePromise = firstValueFrom(service.updateZone(companyId, countryId, regionId, zoneId, request));
+      const updatePromise = firstValueFrom(
+        service.updateZone(companyId, countryId, regionId, zoneId, request),
+      );
 
       const req = httpMock.expectOne(expectedUrl);
       req.flush('Error', { status: 500, statusText: 'Internal Server Error' });
@@ -299,11 +286,11 @@ describe('CompanyZoneService', () => {
       (service as unknown as { _zones: WritableSignal<CompanyZone[]> })._zones.set(mockZones);
       expect(service.zones().length).toBe(2);
 
-      const removePromise = firstValueFrom(service.removeZone(companyId, countryId, regionId, zoneId));
-
-      const req = httpMock.expectOne(
-        r => r.url === expectedUrl && r.method === 'DELETE'
+      const removePromise = firstValueFrom(
+        service.removeZone(companyId, countryId, regionId, zoneId),
       );
+
+      const req = httpMock.expectOne((r) => r.url === expectedUrl && r.method === 'DELETE');
       req.flush(null);
 
       await removePromise;
@@ -313,7 +300,9 @@ describe('CompanyZoneService', () => {
     });
 
     it('should set error on remove failure', async () => {
-      const removePromise = firstValueFrom(service.removeZone(companyId, countryId, regionId, zoneId));
+      const removePromise = firstValueFrom(
+        service.removeZone(companyId, countryId, regionId, zoneId),
+      );
 
       const req = httpMock.expectOne(expectedUrl);
       req.flush('Error', { status: 500, statusText: 'Internal Server Error' });
@@ -349,21 +338,23 @@ describe('CompanyZoneService', () => {
       ]);
       expect(service.zones().length).toBe(3);
 
-      const enablePromise = firstValueFrom(service.enableZone(companyId, countryId, regionId, zoneId));
-
-      const req = httpMock.expectOne(
-        r => r.url === expectedUrl && r.method === 'PATCH'
+      const enablePromise = firstValueFrom(
+        service.enableZone(companyId, countryId, regionId, zoneId),
       );
+
+      const req = httpMock.expectOne((r) => r.url === expectedUrl && r.method === 'PATCH');
       req.flush(enabledZone);
 
       const zone = await enablePromise;
       expect(zone).toEqual(enabledZone);
       expect(zone.enabled).toBe(true);
-      expect(service.zones().find(z => z.id === zoneId)?.enabled).toBe(true);
+      expect(service.zones().find((z) => z.id === zoneId)?.enabled).toBe(true);
     });
 
     it('should set error on enable failure', async () => {
-      const enablePromise = firstValueFrom(service.enableZone(companyId, countryId, regionId, zoneId));
+      const enablePromise = firstValueFrom(
+        service.enableZone(companyId, countryId, regionId, zoneId),
+      );
 
       const req = httpMock.expectOne(expectedUrl);
       req.flush('Error', { status: 500, statusText: 'Internal Server Error' });

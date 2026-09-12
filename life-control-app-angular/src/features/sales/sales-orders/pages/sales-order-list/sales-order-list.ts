@@ -56,11 +56,7 @@ export class SalesOrderList {
       search: this._debouncedSearch(),
     }),
     stream: ({ params }) =>
-      this.salesOrderService.getSalesOrders(
-        params.page,
-        params.size,
-        params.search || undefined,
-      ),
+      this.salesOrderService.getSalesOrders(params.page, params.size, params.search || undefined),
   });
 
   // Computed helpers

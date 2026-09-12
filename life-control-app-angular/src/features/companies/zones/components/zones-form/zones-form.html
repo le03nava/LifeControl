@@ -90,13 +90,7 @@
 
     <mat-form-field appearance="outline">
       <mat-label>Orden de Visualización</mat-label>
-      <input
-        matInput
-        type="number"
-        formControlName="displayOrder"
-        placeholder="Opcional"
-        min="1"
-      />
+      <input matInput type="number" formControlName="displayOrder" placeholder="Opcional" min="1" />
       @if (getErrorMessage(formGroup.controls.displayOrder); as msg) {
         <mat-error>{{ msg }}</mat-error>
       }

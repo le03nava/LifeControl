@@ -1,69 +1,76 @@
 <div class="form-card">
   <h2>Países asignados</h2>
 
-    @if (errorMessage()) {
-      <div class="error-message">{{ errorMessage() }}</div>
-    }
+  @if (errorMessage()) {
+    <div class="error-message">{{ errorMessage() }}</div>
+  }
 
-    @if (loading()) {
-      <p class="loading-text">Cargando países...</p>
-    }
+  @if (loading()) {
+    <p class="loading-text">Cargando países...</p>
+  }
 
-    @if (assignedCountries().length > 0) {
-      <mat-chip-set>
-        @for (cc of assignedCountries(); track cc.id) {
-          <mat-chip (click)="onSelectCountry(cc)" (removed)="onRemove(cc.id)" [disabled]="loading()" [class.selected]="cc.id === selectedAssignedCountryId()">
-            {{ cc.countryName }} ({{ cc.countryCode }})
-            @if (cc.localAlias) {
-              <span class="chip-alias">— {{ cc.localAlias }}</span>
-            }
-            <button matChipRemove [attr.aria-label]="'Eliminar ' + cc.countryName">×</button>
-          </mat-chip>
-        }
-      </mat-chip-set>
-    } @else {
-      @if (!loading()) {
-        <p class="no-countries">No hay países asignados a esta empresa.</p>
-      }
-    }
-
-    <form class="country-form">
-      <mat-form-field appearance="outline">
-        <mat-label>País</mat-label>
-        <mat-select
-          [value]="selectedCountryCode()"
-          (selectionChange)="selectedCountryCode.set($event.value)"
+  @if (assignedCountries().length > 0) {
+    <mat-chip-set>
+      @for (cc of assignedCountries(); track cc.id) {
+        <mat-chip
+          (click)="onSelectCountry(cc)"
+          (removed)="onRemove(cc.id)"
           [disabled]="loading()"
+          [class.selected]="cc.id === selectedAssignedCountryId()"
         >
-          <mat-option value="">— Seleccionar país —</mat-option>
-          @for (country of countries(); track country.id) {
-            <mat-option [value]="country.countryCode">{{ country.countryName }} ({{ country.countryCode }})</mat-option>
+          {{ cc.countryName }} ({{ cc.countryCode }})
+          @if (cc.localAlias) {
+            <span class="chip-alias">— {{ cc.localAlias }}</span>
           }
-        </mat-select>
-      </mat-form-field>
+          <button matChipRemove [attr.aria-label]="'Eliminar ' + cc.countryName">×</button>
+        </mat-chip>
+      }
+    </mat-chip-set>
+  } @else {
+    @if (!loading()) {
+      <p class="no-countries">No hay países asignados a esta empresa.</p>
+    }
+  }
 
-      <mat-form-field appearance="outline">
-        <mat-label>Alias local (opcional)</mat-label>
-        <input
-          matInput
-          type="text"
-          [value]="localAlias()"
-          (input)="localAlias.set($any($event.target).value)"
-          placeholder="Ej: Sucursal Bogotá"
-          maxlength="200"
-        />
-      </mat-form-field>
+  <form class="country-form">
+    <mat-form-field appearance="outline">
+      <mat-label>País</mat-label>
+      <mat-select
+        [value]="selectedCountryCode()"
+        (selectionChange)="selectedCountryCode.set($event.value)"
+        [disabled]="loading()"
+      >
+        <mat-option value="">— Seleccionar país —</mat-option>
+        @for (country of countries(); track country.id) {
+          <mat-option [value]="country.countryCode"
+            >{{ country.countryName }} ({{ country.countryCode }})</mat-option
+          >
+        }
+      </mat-select>
+    </mat-form-field>
 
-      <div class="form-actions">
-        <button
-          mat-raised-button
-          color="primary"
-          type="button"
-          (click)="onAdd()"
-          [disabled]="!selectedCountryCode() || loading()"
-        >
-          Agregar país
-        </button>
-      </div>
-    </form>
+    <mat-form-field appearance="outline">
+      <mat-label>Alias local (opcional)</mat-label>
+      <input
+        matInput
+        type="text"
+        [value]="localAlias()"
+        (input)="localAlias.set($any($event.target).value)"
+        placeholder="Ej: Sucursal Bogotá"
+        maxlength="200"
+      />
+    </mat-form-field>
+
+    <div class="form-actions">
+      <button
+        mat-raised-button
+        color="primary"
+        type="button"
+        (click)="onAdd()"
+        [disabled]="!selectedCountryCode() || loading()"
+      >
+        Agregar país
+      </button>
+    </div>
+  </form>
 </div>
