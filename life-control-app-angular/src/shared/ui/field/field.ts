@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, input, OnInit, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 import { FormControl } from '@angular/forms';
 import { FormInput } from '../form-input/form-input';
 @Component({
@@ -9,7 +9,7 @@ import { FormInput } from '../form-input/form-input';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class Field {
-  control = input.required<FormControl<any>>();
+  control = input.required<FormControl<unknown>>();
   fieldId = input.required<string>();
   label = input<string>();
   type = input<'text' | 'email' | 'password' | 'number' | 'tel' | 'url'>('text');

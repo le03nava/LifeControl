@@ -8,8 +8,8 @@ import { ProfileResponse, ProfileUpdateRequest } from './profile.models';
   providedIn: 'root',
 })
 export class ProfileService {
-  private configService = inject(ConfigService);
-  private http = inject(HttpClient);
+  private readonly configService = inject(ConfigService);
+  private readonly http = inject(HttpClient);
 
   private get profileUrl(): string {
     return `${this.configService.apiUrl}/profile`;

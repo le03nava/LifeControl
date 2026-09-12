@@ -34,11 +34,11 @@ import { of } from 'rxjs';
   styleUrl: './product-supplier-list.scss',
 })
 export class ProductSupplierList {
-  private productSupplierService = inject(ProductSupplierService);
-  private productService = inject(ProductService);
-  private route = inject(ActivatedRoute);
-  private router = inject(Router);
-  private dialog = inject(MatDialog);
+  private readonly productSupplierService = inject(ProductSupplierService);
+  private readonly productService = inject(ProductService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly dialog = inject(MatDialog);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly productId = signal<string | null>(

@@ -2,7 +2,6 @@ import {
   ChangeDetectionStrategy,
   Component,
   effect,
-  inject,
   input,
 } from '@angular/core';
 import {
@@ -45,20 +44,22 @@ export class AddressFormComponent {
     return optionId === selectedId;
   };
 
-  private readonly defaultErrorMessages: Record<string, (error: any) => string> = {
+  private readonly defaultErrorMessages: Record<string, (error: unknown) => string> = {
     required: () => 'Este campo es obligatorio.',
     email: () => 'El formato del correo electrónico no es válido.',
-    minlength: (err) =>
-      `Debe tener al menos ${err.requiredLength} caracteres (llevas ${err.actualLength}).`,
+    minlength: (err) => {
+      const { requiredLength, actualLength } = err as { requiredLength?: number; actualLength?: number };
+      return `Debe tener al menos ${requiredLength} caracteres (llevas ${actualLength}).`;
+    },
     maxlength: (err) =>
-      `No puede superar los ${err.requiredLength} caracteres.`,
+      `No puede superar los ${(err as { requiredLength?: number }).requiredLength} caracteres.`,
     pattern: () => 'El formato ingresado no es válido.',
-    serverError: (err) => err,
+    serverError: (err) => err as string,
   };
 
   protected getErrorMessage(
     control: AbstractControl | null,
-    customMessages?: Record<string, (error: any) => string>,
+    customMessages?: Record<string, (error: unknown) => string>,
   ): string | null {
     if (!control || !control.errors || !control.touched) {
       return null;

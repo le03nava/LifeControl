@@ -1,7 +1,9 @@
 import { TestBed } from '@angular/core/testing';
 import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
+import { WritableSignal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { CompanyRegionService } from './company-region.service';
+import { ConfigService } from '@app/services/config.service';
 import { CompanyRegion, CompanyRegionRequest } from '../models/region.models';
 
 describe('CompanyRegionService', () => {
@@ -28,12 +30,13 @@ describe('CompanyRegionService', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [HttpClientTestingModule],
-      providers: [CompanyRegionService],
+      providers: [
+        CompanyRegionService,
+        { provide: ConfigService, useValue: { apiUrl: baseUrl } },
+      ],
     });
     service = TestBed.inject(CompanyRegionService);
     httpMock = TestBed.inject(HttpTestingController);
-    // Mock ConfigService apiUrl
-    (service as any).configService = { apiUrl: baseUrl };
   });
 
   afterEach(() => {
@@ -123,7 +126,7 @@ describe('CompanyRegionService', () => {
     };
 
     it('should POST and push the new region to the signal', async () => {
-      (service as any)._regions.set([mockRegions[0]]);
+      (service as unknown as { _regions: WritableSignal<CompanyRegion[]> })._regions.set([mockRegions[0]]);
       expect(service.regions().length).toBe(1);
 
       const addPromise = firstValueFrom(service.addRegion(companyId, countryId, request));
@@ -154,7 +157,7 @@ describe('CompanyRegionService', () => {
     });
 
     it('should NOT modify signal on error', async () => {
-      (service as any)._regions.set([mockRegions[0]]);
+      (service as unknown as { _regions: WritableSignal<CompanyRegion[]> })._regions.set([mockRegions[0]]);
 
       const addPromise = firstValueFrom(service.addRegion(companyId, countryId, request));
 
@@ -192,7 +195,7 @@ describe('CompanyRegionService', () => {
     };
 
     it('should PUT and replace the region in the signal', async () => {
-      (service as any)._regions.set(mockRegions);
+      (service as unknown as { _regions: WritableSignal<CompanyRegion[]> })._regions.set(mockRegions);
       expect(service.regions().length).toBe(2);
 
       const updatePromise = firstValueFrom(service.updateRegion(companyId, countryId, regionId, request));
@@ -228,7 +231,7 @@ describe('CompanyRegionService', () => {
     const regionId = 'reg-1';
 
     it('should DELETE and filter out the removed region', async () => {
-      (service as any)._regions.set(mockRegions);
+      (service as unknown as { _regions: WritableSignal<CompanyRegion[]> })._regions.set(mockRegions);
       expect(service.regions().length).toBe(2);
 
       const removePromise = firstValueFrom(service.removeRegion(companyId, countryId, regionId));
@@ -268,7 +271,7 @@ describe('CompanyRegionService', () => {
     };
 
     it('should PATCH and update region enabled state in signal', async () => {
-      (service as any)._regions.set([
+      (service as unknown as { _regions: WritableSignal<CompanyRegion[]> })._regions.set([
         ...mockRegions,
         { ...mockRegions[0], id: 'reg-3', regionCode: 'US-DC', enabled: false },
       ]);
@@ -304,7 +307,7 @@ describe('CompanyRegionService', () => {
 
   describe('clearError', () => {
     it('should reset the error signal to null', () => {
-      (service as any)._error.set('Some error');
+      (service as unknown as { _error: WritableSignal<string | null> })._error.set('Some error');
       expect(service.error()).toBe('Some error');
 
       service.clearError();

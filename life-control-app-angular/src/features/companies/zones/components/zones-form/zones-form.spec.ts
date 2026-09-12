@@ -433,7 +433,7 @@ describe('ZonesForm', () => {
   describe('onCancel', () => {
     it('should emit cancel void', () => {
       let emitted = false;
-      component.cancel.subscribe(() => { emitted = true; });
+      component.cancelForm.subscribe(() => { emitted = true; });
 
       component.onCancel();
 

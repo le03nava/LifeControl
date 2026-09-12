@@ -38,9 +38,9 @@ describe('keycloakRoleGuard', () => {
 
   it('should allow user with admin role when data.role is "admin"', async () => {
     keycloakMock.authenticated = true;
-    (keycloakMock as any).tokenParsed = {
+    keycloakMock.tokenParsed = {
       realm_access: { roles: ['admin'] },
-    };
+    } as unknown as Keycloak['tokenParsed'];
     const route = createRouteSnapshot({ role: 'admin' });
     const state = createStateSnapshot('/users-admin');
 
@@ -53,9 +53,9 @@ describe('keycloakRoleGuard', () => {
 
   it('should allow user with admin role when data.roles is ["admin", "manager"]', async () => {
     keycloakMock.authenticated = true;
-    (keycloakMock as any).tokenParsed = {
+    keycloakMock.tokenParsed = {
       realm_access: { roles: ['admin', 'manager', 'user'] },
-    };
+    } as unknown as Keycloak['tokenParsed'];
     const route = createRouteSnapshot({ roles: ['admin', 'manager'] });
     const state = createStateSnapshot('/users-admin');
 
@@ -121,7 +121,7 @@ describe('keycloakRoleGuard', () => {
 
   it('should redirect to login when user is not authenticated', async () => {
     keycloakMock.authenticated = false;
-    (keycloakMock as any).tokenParsed = null;
+    keycloakMock.tokenParsed = undefined;
     const route = createRouteSnapshot({ role: 'admin' });
     const state = createStateSnapshot('/users-admin');
 
@@ -137,11 +137,11 @@ describe('keycloakRoleGuard', () => {
 
   it('should allow user with client role when clientId is present in route data', async () => {
     keycloakMock.authenticated = true;
-    (keycloakMock as any).tokenParsed = {
+    keycloakMock.tokenParsed = {
       resource_access: {
         'life-control-client': { roles: ['lc-admin', 'lc-company'] },
       },
-    };
+    } as unknown as Keycloak['tokenParsed'];
     const route = createRouteSnapshot({
       roles: ['lc-admin', 'lc-company'],
       clientId: 'life-control-client',
@@ -157,11 +157,11 @@ describe('keycloakRoleGuard', () => {
 
   it('should deny user without required client role when clientId is present', async () => {
     keycloakMock.authenticated = true;
-    (keycloakMock as any).tokenParsed = {
+    keycloakMock.tokenParsed = {
       resource_access: {
         'life-control-client': { roles: ['some-other-role'] },
       },
-    };
+    } as unknown as Keycloak['tokenParsed'];
     const route = createRouteSnapshot({
       roles: ['lc-admin', 'lc-company'],
       clientId: 'life-control-client',
@@ -180,7 +180,7 @@ describe('keycloakRoleGuard', () => {
 
   it('should deny access safely when resource_access claim is missing but clientId present', async () => {
     keycloakMock.authenticated = true;
-    (keycloakMock as any).tokenParsed = {}; // no resource_access
+    keycloakMock.tokenParsed = {} as unknown as Keycloak['tokenParsed']; // no resource_access
     const route = createRouteSnapshot({
       roles: ['lc-admin'],
       clientId: 'life-control-client',
@@ -199,11 +199,11 @@ describe('keycloakRoleGuard', () => {
 
   it('should allow user with lc-company-country client role when clientId is present', async () => {
     keycloakMock.authenticated = true;
-    (keycloakMock as any).tokenParsed = {
+    keycloakMock.tokenParsed = {
       resource_access: {
         'life-control-client': { roles: ['lc-company-country'] },
       },
-    };
+    } as unknown as Keycloak['tokenParsed'];
     const route = createRouteSnapshot({
       roles: ['lc-admin', 'lc-company', 'lc-company-country'],
       clientId: 'life-control-client',
@@ -219,11 +219,11 @@ describe('keycloakRoleGuard', () => {
 
   it('should allow user with lc-company-country + lc-company roles (union)', async () => {
     keycloakMock.authenticated = true;
-    (keycloakMock as any).tokenParsed = {
+    keycloakMock.tokenParsed = {
       resource_access: {
         'life-control-client': { roles: ['lc-company-country', 'lc-company'] },
       },
-    };
+    } as unknown as Keycloak['tokenParsed'];
     const route = createRouteSnapshot({
       roles: ['lc-admin', 'lc-company', 'lc-company-country'],
       clientId: 'life-control-client',
@@ -241,12 +241,12 @@ describe('keycloakRoleGuard', () => {
 
   it('should deny access when user has old realm roles but no client roles for Companies route', async () => {
     keycloakMock.authenticated = true;
-    (keycloakMock as any).tokenParsed = {
+    keycloakMock.tokenParsed = {
       realm_access: { roles: ['life-control-admin', 'life-control-country'] },
       resource_access: {
         'life-control-client': { roles: [] }, // no lc-admin or lc-company
       },
-    };
+    } as unknown as Keycloak['tokenParsed'];
     const route = createRouteSnapshot({
       roles: ['lc-admin', 'lc-company'],
       clientId: 'life-control-client',

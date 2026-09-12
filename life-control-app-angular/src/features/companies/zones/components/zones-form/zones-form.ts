@@ -61,7 +61,7 @@ export class ZonesForm {
 
   // ─── Outputs ────────────────────────────────────────────────
   save = output<ZoneSaveEvent>();
-  cancel = output<void>();
+  cancelForm = output<void>();
   selectedCompanyChange = output<string>();
   selectedCountryChange = output<CompanyCountry>();
   selectedRegionChange = output<CompanyRegion>();
@@ -97,18 +97,18 @@ export class ZonesForm {
   });
 
   // ─── Error messages ─────────────────────────────────────────
-  private readonly defaultErrorMessages: Record<string, (error: any) => string> = {
+  private readonly defaultErrorMessages: Record<string, (error: unknown) => string> = {
     required: () => 'Este campo es obligatorio.',
     maxlength: (err) =>
-      `No puede superar los ${err.requiredLength} caracteres.`,
+      `No puede superar los ${(err as { requiredLength?: number }).requiredLength} caracteres.`,
     pattern: () => 'Solo letras, números y guiones',
     min: () => 'El valor debe ser mayor o igual a 1.',
-    serverError: (err) => err,
+    serverError: (err) => err as string,
   };
 
   protected getErrorMessage(
     control: AbstractControl | null,
-    customMessages?: Record<string, (error: any) => string>,
+    customMessages?: Record<string, (error: unknown) => string>,
   ): string | null {
     if (!control || !control.errors || !control.touched) {
       return null;
@@ -259,7 +259,7 @@ export class ZonesForm {
 
     if (!companyId || !countryId || !regionId) return;
 
-    const { zoneCode, zoneName, description, displayOrder, enabled } = this.formGroup.getRawValue();
+    const { zoneCode, zoneName, description, displayOrder } = this.formGroup.getRawValue();
 
     this.save.emit({
       companyId,
@@ -275,6 +275,6 @@ export class ZonesForm {
   }
 
   onCancel(): void {
-    this.cancel.emit();
+    this.cancelForm.emit();
   }
 }

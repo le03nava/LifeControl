@@ -18,14 +18,12 @@ const DEFAULT_CONFIG: AppConfig = {
 })
 export class ConfigService {
   // Inicializar con valores por defecto de forma síncrona
-  private config = signal<AppConfig>(DEFAULT_CONFIG);
+  private readonly config = signal<AppConfig>(DEFAULT_CONFIG);
 
   readonly config$ = this.config.asReadonly();
 
-  constructor() {}
-
   async loadConfig(): Promise<void> {
-    const envConfig = (window as any).env;
+    const envConfig = window.env;
     
     if (envConfig) {
       const runtimeConfig: AppConfig = {

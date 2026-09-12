@@ -9,10 +9,10 @@ import { CompanyService } from '@features/companies/companies/data/company.servi
 import { Company, Page } from '@features/companies/companies/models/company.models';
 import { of } from 'rxjs';
 
-type CompanyServiceMock = {
+interface CompanyServiceMock {
   getCompanies: ReturnType<typeof vi.fn>;
   deleteCompany: ReturnType<typeof vi.fn>;
-};
+}
 
 describe('CompanyList', () => {
   let component: CompanyList;
@@ -26,7 +26,7 @@ describe('CompanyList', () => {
     { id: '3', companyKey: '3', companyName: 'Gamma SA', tipoPersonaId: 1, razonSocial: 'Razon Gamma', rfc: 'RFC0000000003', email: 'gamma@test.com', phone: '5555556666', enabled: false, createdAt: '', updatedAt: '' },
   ];
 
-  const createMockPage = (companies: Company[], page: number = 0, size: number = 12): Page<Company> => ({
+  const createMockPage = (companies: Company[], page = 0, size = 12): Page<Company> => ({
     content: companies,
     totalElements: companies.length,
     totalPages: Math.ceil(companies.length / size),
@@ -80,14 +80,16 @@ describe('CompanyList', () => {
 
   it('should delete company when dialog confirms', () => {
     const dialogRef = { afterClosed: vi.fn().mockReturnValue(of(true)) };
-    vi.spyOn(TestBed.inject(MatDialog), 'open').mockReturnValue(dialogRef as any);
+    const matDialog = TestBed.inject(MatDialog);
+    vi.spyOn(matDialog, 'open').mockReturnValue(dialogRef as unknown as ReturnType<typeof matDialog.open>);
     component.confirmDelete({ id: '1', name: 'Alpha Corp' });
     expect(companyService.deleteCompany).toHaveBeenCalledWith('1');
   });
 
   it('should NOT delete company when dialog cancels', () => {
     const dialogRef = { afterClosed: vi.fn().mockReturnValue(of(false)) };
-    vi.spyOn(TestBed.inject(MatDialog), 'open').mockReturnValue(dialogRef as any);
+    const matDialog = TestBed.inject(MatDialog);
+    vi.spyOn(matDialog, 'open').mockReturnValue(dialogRef as unknown as ReturnType<typeof matDialog.open>);
     component.confirmDelete({ id: '1', name: 'Alpha Corp' });
     expect(companyService.deleteCompany).not.toHaveBeenCalled();
   });
@@ -162,7 +164,7 @@ describe('CompanyList', () => {
         addListener: vi.fn(),
         removeListener: vi.fn(),
       };
-      window.matchMedia = vi.fn().mockReturnValue(mql as any) as unknown as typeof window.matchMedia;
+      window.matchMedia = vi.fn().mockReturnValue(mql as unknown as MediaQueryList) as unknown as typeof window.matchMedia;
       return { mql, listeners };
     }
 
@@ -194,7 +196,6 @@ describe('CompanyList', () => {
       const f = TestBed.createComponent(CompanyList);
       f.detectChanges();
 
-      const paginatorEl = f.nativeElement.querySelector('.pagination-section');
       // With showFirstLastButtons=false, the first/last nav buttons should not render
       expect(f.componentInstance.isMobile()).toBe(true);
     });

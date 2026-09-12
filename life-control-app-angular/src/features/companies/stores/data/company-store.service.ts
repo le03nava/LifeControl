@@ -9,11 +9,11 @@ import { ConfigService } from '@app/services/config.service';
   providedIn: 'root',
 })
 export class CompanyStoreService {
-  private configService = inject(ConfigService);
-  private http = inject(HttpClient);
-  private _stores = signal<CompanyStore[]>([]);
-  private _loading = signal(false);
-  private _error = signal<string | null>(null);
+  private readonly configService = inject(ConfigService);
+  private readonly http = inject(HttpClient);
+  private readonly _stores = signal<CompanyStore[]>([]);
+  private readonly _loading = signal(false);
+  private readonly _error = signal<string | null>(null);
 
   readonly stores = this._stores.asReadonly();
   readonly loading = this._loading.asReadonly();

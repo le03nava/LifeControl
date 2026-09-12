@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { Button } from '@shared/ui/button/button';
 
@@ -9,6 +9,7 @@ import { Button } from '@shared/ui/button/button';
 @Component({
   selector: 'app-unauthorized',
   imports: [RouterLink, Button],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="unauthorized-page">
       <div class="unauthorized-content">

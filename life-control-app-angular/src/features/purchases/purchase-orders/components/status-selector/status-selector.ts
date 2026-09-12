@@ -59,10 +59,10 @@ interface PageStatusType {
 })
 export class StatusSelector implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
-  private configService = inject(ConfigService);
-  private http = inject(HttpClient);
-  private purchaseOrderService = inject(PurchaseOrderService);
-  private notificationService = inject(NotificationService);
+  private readonly configService = inject(ConfigService);
+  private readonly http = inject(HttpClient);
+  private readonly purchaseOrderService = inject(PurchaseOrderService);
+  private readonly notificationService = inject(NotificationService);
 
   /** The current purchase order (must include `statusId`, `statusName`, `id`). */
   readonly order = input.required<PurchaseOrder>();
@@ -163,7 +163,7 @@ export class StatusSelector implements OnInit {
       .updateStatus(id, { statusId: transitionId })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (updated) => {
+        next: (_updated) => {
           this.changing.set(false);
           this.notificationService.showSuccess('Estado actualizado correctamente.');
           this.statusChanged.emit(transitionId);

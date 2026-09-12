@@ -5,11 +5,12 @@ import { CompanyCountryService } from '../../../countries/data/company-country.s
 import { CompanyRegionService } from '../../../regions/data/company-region.service';
 import { CompanyZoneService } from '../../data/company-zone.service';
 import { ZonesForm } from '../../components/zones-form/zones-form';
-import { CompanyZone, CompanyZoneRequest, ZoneSaveEvent } from '../../models/zone.models';
+import { CompanyZone, ZoneSaveEvent } from '../../models/zone.models';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ApiError } from '@shared/models';
 import { map } from 'rxjs/operators';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { CompanyCountry } from '../../../countries/models/country.models';
 import { CompanyRegion } from '../../../regions/models/region.models';
 
 @Component({
@@ -21,13 +22,13 @@ import { CompanyRegion } from '../../../regions/models/region.models';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ZonesEdit implements OnInit {
-  private route = inject(ActivatedRoute);
-  private router = inject(Router);
-  private companyService = inject(CompanyService);
-  private companyCountryService = inject(CompanyCountryService);
-  private companyRegionService = inject(CompanyRegionService);
-  private companyZoneService = inject(CompanyZoneService);
-  private destroyRef = inject(DestroyRef);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly companyService = inject(CompanyService);
+  private readonly companyCountryService = inject(CompanyCountryService);
+  private readonly companyRegionService = inject(CompanyRegionService);
+  private readonly companyZoneService = inject(CompanyZoneService);
+  private readonly destroyRef = inject(DestroyRef);
 
   // ─── Route data ────────────────────────────────────────
   zoneId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
@@ -96,14 +97,14 @@ export class ZonesEdit implements OnInit {
     }
   }
 
-  onSelectedCountryChange(cc: any): void {
+  onSelectedCountryChange(cc: CompanyCountry): void {
     if (cc?.companyId && cc?.id) {
       this.companyRegionService.getRegions(cc.companyId, cc.id)
         .pipe(takeUntilDestroyed(this.destroyRef)).subscribe(regions => this.regionList.set(regions));
     }
   }
 
-  onSelectedRegionChange(_region: any): void {
+  onSelectedRegionChange(_region: CompanyRegion): void {
     // region selected — no need to load zones here
   }
 

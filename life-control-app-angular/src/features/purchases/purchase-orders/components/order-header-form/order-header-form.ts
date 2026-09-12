@@ -72,15 +72,15 @@ interface DropdownOption {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class OrderHeaderForm implements OnInit {
-  private destroyRef = inject(DestroyRef);
-  private configService = inject(ConfigService);
-  private http = inject(HttpClient);
-  private supplierService = inject(SupplierService);
-  private companyService = inject(CompanyService);
-  private companyCountryService = inject(CompanyCountryService);
-  private companyRegionService = inject(CompanyRegionService);
-  private companyZoneService = inject(CompanyZoneService);
-  private companyStoreService = inject(CompanyStoreService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly configService = inject(ConfigService);
+  private readonly http = inject(HttpClient);
+  private readonly supplierService = inject(SupplierService);
+  private readonly companyService = inject(CompanyService);
+  private readonly companyCountryService = inject(CompanyCountryService);
+  private readonly companyRegionService = inject(CompanyRegionService);
+  private readonly companyZoneService = inject(CompanyZoneService);
+  private readonly companyStoreService = inject(CompanyStoreService);
 
   /** The header form group from the parent component. */
   readonly headerForm = input.required<FormGroup<PurchaseOrderHeaderControl>>();

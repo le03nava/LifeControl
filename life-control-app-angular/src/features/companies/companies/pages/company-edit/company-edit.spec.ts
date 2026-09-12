@@ -197,7 +197,7 @@ describe('CompanyEdit', () => {
       const company = createCompanyWithAddress();
       companyServiceMock.getCompanyById = vi.fn().mockReturnValue(of(company));
 
-      (component as any).loadCompany(company.id);
+      (component as unknown as { loadCompany: (id: string) => void }).loadCompany(company.id);
       fixture.detectChanges();
 
       const addressGroup = component.companyForm().controls.address;
@@ -226,7 +226,7 @@ describe('CompanyEdit', () => {
       });
       companyServiceMock.getCompanyById = vi.fn().mockReturnValue(of(company));
 
-      (component as any).loadCompany(company.id);
+      (component as unknown as { loadCompany: (id: string) => void }).loadCompany(company.id);
       fixture.detectChanges();
 
       const addressGroup = component.companyForm().controls.address;

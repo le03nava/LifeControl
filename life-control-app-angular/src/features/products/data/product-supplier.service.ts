@@ -8,8 +8,8 @@ import { ConfigService } from '@app/services/config.service';
   providedIn: 'root',
 })
 export class ProductSupplierService {
-  private configService = inject(ConfigService);
-  private http = inject(HttpClient);
+  private readonly configService = inject(ConfigService);
+  private readonly http = inject(HttpClient);
 
   get apiUrl(): string {
     return `${this.configService.apiUrl}/products`;

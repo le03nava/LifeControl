@@ -10,7 +10,7 @@ import { FormControl, ReactiveFormsModule } from '@angular/forms';
   standalone: true,
 })
 export class FormInput {
-  control = input.required<FormControl<any | null>>();
+  control = input.required<FormControl<unknown>>();
   // Inputs opcionales
   placeholder = input<string>('');
   type = input<'text' | 'email' | 'password' | 'number' | 'tel' | 'url'>('text');

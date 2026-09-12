@@ -50,9 +50,9 @@ import type {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ProductVariantSelector {
-  private configService = inject(ConfigService);
-  private http = inject(HttpClient);
-  private destroyRef = inject(DestroyRef);
+  private readonly configService = inject(ConfigService);
+  private readonly http = inject(HttpClient);
+  private readonly destroyRef = inject(DestroyRef);
 
   /** Store ID to scope the search to the current order's store. */
   readonly storeId = input<string | null>(null);
@@ -62,7 +62,7 @@ export class ProductVariantSelector {
 
   /** Reference to the autocomplete trigger for programmatic panel opening. */
   @ViewChild(MatAutocompleteTrigger)
-  private autocompleteTrigger?: MatAutocompleteTrigger;
+  private readonly autocompleteTrigger?: MatAutocompleteTrigger;
 
   /** Emits when the user picks a variant. */
   readonly variantSelected = output<ProductVariantOption>();

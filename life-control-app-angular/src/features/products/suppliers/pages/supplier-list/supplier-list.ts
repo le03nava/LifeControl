@@ -21,7 +21,7 @@ import { DeleteSupplierDialogComponent } from '../../ui/delete-supplier-dialog/d
 })
 export class SupplierList {
   supplierService = inject(SupplierService);
-  private router = inject(Router);
+  private readonly router = inject(Router);
   private readonly dialog = inject(MatDialog);
   private readonly destroyRef = inject(DestroyRef);
 

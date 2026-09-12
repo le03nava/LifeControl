@@ -64,10 +64,10 @@ interface TransitionOption {
 })
 export class StatusTransition implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
-  private configService = inject(ConfigService);
-  private http = inject(HttpClient);
-  private salesOrderService = inject(SalesOrderService);
-  private notificationService = inject(NotificationService);
+  private readonly configService = inject(ConfigService);
+  private readonly http = inject(HttpClient);
+  private readonly salesOrderService = inject(SalesOrderService);
+  private readonly notificationService = inject(NotificationService);
 
   /** The current sales order. */
   readonly order = input.required<SalesOrder>();

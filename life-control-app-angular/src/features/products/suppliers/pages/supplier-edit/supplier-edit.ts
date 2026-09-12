@@ -28,12 +28,12 @@ import { ErrorBanner } from '@shared/ui';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SupplierEdit implements OnInit {
-  private route = inject(ActivatedRoute);
-  private supplierService = inject(SupplierService);
-  private fb = inject(NonNullableFormBuilder);
-  private router = inject(Router);
-  private countryService = inject(CountryService);
-  private destroyRef = inject(DestroyRef);
+  private readonly route = inject(ActivatedRoute);
+  private readonly supplierService = inject(SupplierService);
+  private readonly fb = inject(NonNullableFormBuilder);
+  private readonly router = inject(Router);
+  private readonly countryService = inject(CountryService);
+  private readonly destroyRef = inject(DestroyRef);
 
   supplierId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
 
@@ -115,7 +115,7 @@ export class SupplierEdit implements OnInit {
 
   onSaveSupplier(supplierData: Supplier): void {
     if (supplierData.id === '') {
-      const { id, address, ...rest } = supplierData;
+      const { id: _id, address, ...rest } = supplierData;
       const hasAddress = address && (
         address.street || address.streetNumber ||
         address.internalNumber || address.neighborhood ||
@@ -135,7 +135,7 @@ export class SupplierEdit implements OnInit {
         },
       });
     } else {
-      const { id, address, ...rest } = supplierData;
+      const { id: _id, address, ...rest } = supplierData;
       const hasAddress = address && (
         address.street || address.streetNumber ||
         address.internalNumber || address.neighborhood ||

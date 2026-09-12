@@ -40,20 +40,20 @@ export class ProductsForm {
   saveProduct = output<Product>();
   cancelForm = output<void>();
 
-  readonly defaultErrorMessages: Record<string, (error: any) => string> = {
+  readonly defaultErrorMessages: Record<string, (error: unknown) => string> = {
     required: () => 'Este campo es obligatorio.',
     minlength: (err) =>
-      `Debe tener al menos ${err.requiredLength} caracteres (llevas ${err.actualLength}).`,
+      `Debe tener al menos ${(err as { requiredLength?: number; actualLength?: number }).requiredLength} caracteres (llevas ${(err as { requiredLength?: number; actualLength?: number }).actualLength}).`,
     maxlength: (err) =>
-      `No puede superar los ${err.requiredLength} caracteres.`,
+      `No puede superar los ${(err as { requiredLength?: number }).requiredLength} caracteres.`,
     pattern: () => 'El formato ingresado no es válido.',
     json: () => 'Ingrese un JSON válido.',
-    serverError: (err) => err,
+    serverError: (err) => err as string,
   };
 
   protected getErrorMessage(
     control: AbstractControl | null,
-    customMessages?: Record<string, (error: any) => string>,
+    customMessages?: Record<string, (error: unknown) => string>,
   ): string | null {
     if (!control || !control.errors || !control.touched) {
       return null;
@@ -120,7 +120,7 @@ export class ProductsForm {
     if (this.formGroup().valid) {
       const raw = this.formGroup().getRawValue();
 
-      let parsedAttributes: Record<string, any> | undefined;
+      let parsedAttributes: Record<string, unknown> | undefined;
       if (raw.attributes && raw.attributes.trim()) {
         try {
           parsedAttributes = JSON.parse(raw.attributes);

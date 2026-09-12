@@ -38,9 +38,9 @@ export const appConfig: ApplicationConfig = {
     // 5. Keycloak (después de inicialización)
     provideKeycloak({
       config: {
-        url: (window as any).env.KEYCLOAK_URL || 'http://localhost:8181',
-        realm: (window as any).env.KEYCLOAK_REALM || 'life-control-realm',
-        clientId: (window as any).env.KEYCLOAK_CLIENT_ID || 'life-control-client',
+        url: window.env?.KEYCLOAK_URL || 'http://localhost:8181',
+        realm: window.env?.KEYCLOAK_REALM || 'life-control-realm',
+        clientId: window.env?.KEYCLOAK_CLIENT_ID || 'life-control-client',
       },
       initOptions: {
         onLoad: 'check-sso',

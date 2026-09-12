@@ -37,8 +37,8 @@ import { MatTooltipModule } from '@angular/material/tooltip';
   styleUrl: './sales-order-list.scss',
 })
 export class SalesOrderList {
-  private salesOrderService = inject(SalesOrderService);
-  private router = inject(Router);
+  private readonly salesOrderService = inject(SalesOrderService);
+  private readonly router = inject(Router);
 
   // Pagination signals
   readonly pageSize = signal(12);

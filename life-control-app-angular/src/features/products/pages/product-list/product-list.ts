@@ -21,7 +21,7 @@ import { DeleteProductDialogComponent } from '../../ui/delete-product-dialog/del
 })
 export class ProductList {
   productService = inject(ProductService);
-  private router = inject(Router);
+  private readonly router = inject(Router);
   private readonly dialog = inject(MatDialog);
   private readonly destroyRef = inject(DestroyRef);
 

@@ -29,13 +29,13 @@ import { ErrorBanner } from '@shared/ui';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CompanyEdit implements OnInit {
-  private route = inject(ActivatedRoute);
-  private companyService = inject(CompanyService);
-  private companyContextService = inject(CompanyContextService);
-  private fb = inject(NonNullableFormBuilder);
-  private router = inject(Router);
-  private countryService = inject(CountryService);
-  private destroyRef = inject(DestroyRef);
+  private readonly route = inject(ActivatedRoute);
+  private readonly companyService = inject(CompanyService);
+  private readonly companyContextService = inject(CompanyContextService);
+  private readonly fb = inject(NonNullableFormBuilder);
+  private readonly router = inject(Router);
+  private readonly countryService = inject(CountryService);
+  private readonly destroyRef = inject(DestroyRef);
 
   companyId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
 
@@ -124,7 +124,7 @@ export class CompanyEdit implements OnInit {
 
   onSaveCompany(companyData: Company): void {
     if (companyData.id === '') {
-      const { id, address, ...rest } = companyData;
+      const { id: _id, address, ...rest } = companyData;
       const hasAddress = address && (
         address.street || address.streetNumber ||
         address.internalNumber || address.neighborhood ||
@@ -144,7 +144,7 @@ export class CompanyEdit implements OnInit {
         },
       });
     } else {
-      const { id, address, ...rest } = companyData;
+      const { id: _id, address, ...rest } = companyData;
       const hasAddress = address && (
         address.street || address.streetNumber ||
         address.internalNumber || address.neighborhood ||

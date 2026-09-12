@@ -37,9 +37,9 @@ import type { CustomerOption, Page } from '../../models/sales-order.models';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CustomerSelector {
-  private configService = inject(ConfigService);
-  private http = inject(HttpClient);
-  private destroyRef = inject(DestroyRef);
+  private readonly configService = inject(ConfigService);
+  private readonly http = inject(HttpClient);
+  private readonly destroyRef = inject(DestroyRef);
 
   /** Optional customer to pre-select on init (e.g. PUBLICO EN GENERAL). */
   readonly initialCustomer = input<CustomerOption | null>(null);

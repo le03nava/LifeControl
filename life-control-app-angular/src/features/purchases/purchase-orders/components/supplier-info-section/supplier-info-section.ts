@@ -60,10 +60,10 @@ interface SupplierDetail {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SupplierInfoSection implements OnInit {
-  private destroyRef = inject(DestroyRef);
-  private configService = inject(ConfigService);
-  private http = inject(HttpClient);
-  private supplierService = inject(SupplierService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly configService = inject(ConfigService);
+  private readonly http = inject(HttpClient);
+  private readonly supplierService = inject(SupplierService);
 
   /** The header form group from the parent component. */
   readonly headerForm = input.required<FormGroup<PurchaseOrderHeaderControl>>();

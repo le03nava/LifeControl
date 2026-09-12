@@ -164,7 +164,7 @@ describe('StoresList', () => {
 
     it('should emit toggle when toggle is called', async () => {
       const emitted = await new Promise<{ id: string; enable: boolean }>((resolve) => {
-        component.toggle.subscribe(resolve);
+        component.storeToggle.subscribe(resolve);
         component.onToggle(mockStores[0]);
       });
       expect(emitted.id).toBe('store-1');
@@ -173,7 +173,7 @@ describe('StoresList', () => {
 
     it('should emit enable=true when toggling disabled store', async () => {
       const emitted = await new Promise<{ id: string; enable: boolean }>((resolve) => {
-        component.toggle.subscribe(resolve);
+        component.storeToggle.subscribe(resolve);
         component.onToggle(mockStores[1]); // enabled: false
       });
       expect(emitted.id).toBe('store-2');

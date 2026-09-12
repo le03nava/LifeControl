@@ -17,8 +17,8 @@ import type {
   providedIn: 'root',
 })
 export class SalesOrderService {
-  private configService = inject(ConfigService);
-  private http = inject(HttpClient);
+  private readonly configService = inject(ConfigService);
+  private readonly http = inject(HttpClient);
 
   private get baseUrl(): string {
     return `${this.configService.apiUrl}/sales-orders`;

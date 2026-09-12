@@ -7,9 +7,9 @@ import { SalesOrderList } from './sales-order-list';
 import { SalesOrderService } from '../../data/sales-order.service';
 import type { SalesOrder, Page } from '../../models/sales-order.models';
 
-type ServiceMock = {
+interface ServiceMock {
   getSalesOrders: ReturnType<typeof vi.fn>;
-};
+}
 
 const mockOrders: SalesOrder[] = [
   {

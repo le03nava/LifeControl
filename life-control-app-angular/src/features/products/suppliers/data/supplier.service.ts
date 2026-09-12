@@ -9,14 +9,14 @@ import { ConfigService } from '@app/services/config.service';
   providedIn: 'root',
 })
 export class SupplierService {
-  private configService = inject(ConfigService);
-  private http = inject(HttpClient);
+  private readonly configService = inject(ConfigService);
+  private readonly http = inject(HttpClient);
 
   // Signal para estado de carga
-  private _loading = signal(false);
+  private readonly _loading = signal(false);
 
   // Signal para errores
-  private _error = signal<string | null>(null);
+  private readonly _error = signal<string | null>(null);
 
   // Signals de solo lectura para usar en componentes
   readonly loading = this._loading.asReadonly();
@@ -26,7 +26,7 @@ export class SupplierService {
     return `${this.configService.apiUrl}/suppliers`;
   }
 
-  getSuppliers(page: number = 0, size: number = 12, search?: string): Observable<Page<Supplier>> {
+  getSuppliers(page = 0, size = 12, search?: string): Observable<Page<Supplier>> {
     let params = new HttpParams()
       .set('page', page.toString())
       .set('size', size.toString());

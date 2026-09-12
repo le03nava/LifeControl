@@ -9,11 +9,11 @@ import { ConfigService } from '@app/services/config.service';
   providedIn: 'root',
 })
 export class CompanyZoneService {
-  private configService = inject(ConfigService);
-  private http = inject(HttpClient);
-  private _zones = signal<CompanyZone[]>([]);
-  private _loading = signal(false);
-  private _error = signal<string | null>(null);
+  private readonly configService = inject(ConfigService);
+  private readonly http = inject(HttpClient);
+  private readonly _zones = signal<CompanyZone[]>([]);
+  private readonly _loading = signal(false);
+  private readonly _error = signal<string | null>(null);
 
   readonly zones = this._zones.asReadonly();
   readonly loading = this._loading.asReadonly();

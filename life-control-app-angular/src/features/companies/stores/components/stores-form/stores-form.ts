@@ -61,8 +61,8 @@ import { AddressFormComponent } from '@shared/ui/address-form';
 })
 export class StoresForm {
   private readonly destroyRef = inject(DestroyRef);
-  private companyZoneService = inject(CompanyZoneService);
-  private countryService = inject(CountryService);
+  private readonly companyZoneService = inject(CompanyZoneService);
+  private readonly countryService = inject(CountryService);
 
   // ─── Inputs ─────────────────────────────────────────────────
   companies = input.required<Company[]>();
@@ -78,7 +78,7 @@ export class StoresForm {
 
   // ─── Outputs ────────────────────────────────────────────────
   save = output<StoreSaveEvent>();
-  cancel = output<void>();
+  cancelForm = output<void>();
   selectedCompanyChange = output<string>();
   selectedCountryChange = output<CompanyCountry>();
   selectedRegionChange = output<CompanyRegion>();
@@ -91,7 +91,7 @@ export class StoresForm {
   selectedZoneId = signal<string | null>(null);
 
   // ─── Zone options from CompanyZoneService ───────────────────
-  private _zones = signal<CompanyZone[]>([]);
+  private readonly _zones = signal<CompanyZone[]>([]);
   readonly zones = this._zones.asReadonly();
 
   // ─── Country catalog for address country selector ────────────
@@ -127,17 +127,17 @@ export class StoresForm {
   });
 
   // ─── Error messages ─────────────────────────────────────────
-  private readonly defaultErrorMessages: Record<string, (error: any) => string> = {
+  private readonly defaultErrorMessages: Record<string, (error: unknown) => string> = {
     required: () => 'Este campo es obligatorio.',
     maxlength: (err) =>
-      `No puede superar los ${err.requiredLength} caracteres.`,
+      `No puede superar los ${(err as { requiredLength?: number }).requiredLength} caracteres.`,
     email: () => 'Ingrese un correo electrónico válido.',
-    serverError: (err) => err,
+    serverError: (err) => err as string,
   };
 
   protected getErrorMessage(
     control: AbstractControl | null,
-    customMessages?: Record<string, (error: any) => string>,
+    customMessages?: Record<string, (error: unknown) => string>,
   ): string | null {
     if (!control || !control.errors || !control.touched) {
       return null;
@@ -356,6 +356,6 @@ export class StoresForm {
   }
 
   onCancel(): void {
-    this.cancel.emit();
+    this.cancelForm.emit();
   }
 }

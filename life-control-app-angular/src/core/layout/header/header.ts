@@ -34,16 +34,16 @@ import { KEYCLOAK_EVENT_SIGNAL, KeycloakEventType } from 'keycloak-angular';
   styleUrl: `header.scss`,
 })
 export class Header implements OnInit {
-  private breakpointObserver = inject(BreakpointObserver);
-  private destroyRef = inject(DestroyRef);
-  private keycloak = inject(Keycloak);
-  private keycloakSignal = inject(KEYCLOAK_EVENT_SIGNAL);
-  private companyContext = inject(CompanyContextService);
-  private router = inject(Router);
+  private readonly breakpointObserver = inject(BreakpointObserver);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly keycloak = inject(Keycloak);
+  private readonly keycloakSignal = inject(KEYCLOAK_EVENT_SIGNAL);
+  private readonly companyContext = inject(CompanyContextService);
+  private readonly router = inject(Router);
 
   // Signals
-  private showMenu = signal(false);
-  private isSmallScreen = signal(false);
+  private readonly showMenu = signal(false);
+  private readonly isSmallScreen = signal(false);
   isCompanyRole = signal(false);
   isAdmin = signal(false);
   isSalesRole = signal(false);

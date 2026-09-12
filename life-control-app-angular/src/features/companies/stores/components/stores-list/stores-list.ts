@@ -33,7 +33,7 @@ export class StoresList {
 
   // ─── Outputs ────────────────────────────────────────────────
   edit = output<string>();
-  toggle = output<{ id: string; enable: boolean }>();
+  storeToggle = output<{ id: string; enable: boolean }>();
 
   // ─── Internal state ─────────────────────────────────────────
   showDisabled = signal(false);
@@ -54,6 +54,6 @@ export class StoresList {
   }
 
   onToggle(store: CompanyStore): void {
-    this.toggle.emit({ id: store.id, enable: !store.enabled });
+    this.storeToggle.emit({ id: store.id, enable: !store.enabled });
   }
 }

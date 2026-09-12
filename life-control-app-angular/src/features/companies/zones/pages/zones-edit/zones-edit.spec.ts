@@ -9,15 +9,12 @@ import { CompanyService } from '../../../companies/data/company.service';
 import { CompanyCountryService } from '../../../countries/data/company-country.service';
 import { CompanyRegionService } from '../../../regions/data/company-region.service';
 import { CompanyZoneService } from '../../data/company-zone.service';
-import { CompanyZone, CompanyZoneRequest, ZoneSaveEvent } from '../../models/zone.models';
+import { CompanyZone, ZoneSaveEvent } from '../../models/zone.models';
 import { CompanyRegion } from '../../../regions/models/region.models';
 import { CompanyCountry } from '../../../countries/models/country.models';
 import { Company, Page } from '../../../companies/models/company.models';
 
 describe('ZonesEdit', () => {
-  let component: ZonesEdit;
-  let fixture: ComponentFixture<ZonesEdit>;
-
   let routeMock: {
     snapshot: {
       paramMap: { get: ReturnType<typeof vi.fn> };

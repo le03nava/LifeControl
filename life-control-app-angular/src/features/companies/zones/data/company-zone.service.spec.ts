@@ -1,6 +1,8 @@
 import { TestBed } from '@angular/core/testing';
+import { WritableSignal } from '@angular/core';
 import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 import { firstValueFrom } from 'rxjs';
+import { ConfigService } from '@app/services/config.service';
 import { CompanyZoneService } from './company-zone.service';
 import { CompanyZone, CompanyZoneRequest } from '../models/zone.models';
 
@@ -47,11 +49,13 @@ describe('CompanyZoneService', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [HttpClientTestingModule],
-      providers: [CompanyZoneService],
+      providers: [
+        CompanyZoneService,
+        { provide: ConfigService, useValue: { apiUrl: baseUrl } },
+      ],
     });
     service = TestBed.inject(CompanyZoneService);
     httpMock = TestBed.inject(HttpTestingController);
-    (service as any).configService = { apiUrl: baseUrl };
   });
 
   afterEach(() => {
@@ -180,7 +184,7 @@ describe('CompanyZoneService', () => {
     };
 
     it('should POST and push the new zone to the signal', async () => {
-      (service as any)._zones.set([mockZones[0]]);
+      (service as unknown as { _zones: WritableSignal<CompanyZone[]> })._zones.set([mockZones[0]]);
       expect(service.zones().length).toBe(1);
 
       const addPromise = firstValueFrom(service.addZone(companyId, countryId, regionId, request));
@@ -210,7 +214,7 @@ describe('CompanyZoneService', () => {
     });
 
     it('should NOT modify signal on error', async () => {
-      (service as any)._zones.set([mockZones[0]]);
+      (service as unknown as { _zones: WritableSignal<CompanyZone[]> })._zones.set([mockZones[0]]);
 
       const addPromise = firstValueFrom(service.addZone(companyId, countryId, regionId, request));
 
@@ -258,7 +262,7 @@ describe('CompanyZoneService', () => {
     };
 
     it('should PUT and replace the zone in the signal', async () => {
-      (service as any)._zones.set(mockZones);
+      (service as unknown as { _zones: WritableSignal<CompanyZone[]> })._zones.set(mockZones);
       expect(service.zones().length).toBe(2);
 
       const updatePromise = firstValueFrom(service.updateZone(companyId, countryId, regionId, zoneId, request));
@@ -292,7 +296,7 @@ describe('CompanyZoneService', () => {
     const expectedUrl = `${baseUrl}/companies/${companyId}/countries/${countryId}/regions/${regionId}/zones/${zoneId}`;
 
     it('should DELETE and filter out the removed zone', async () => {
-      (service as any)._zones.set(mockZones);
+      (service as unknown as { _zones: WritableSignal<CompanyZone[]> })._zones.set(mockZones);
       expect(service.zones().length).toBe(2);
 
       const removePromise = firstValueFrom(service.removeZone(companyId, countryId, regionId, zoneId));
@@ -339,7 +343,7 @@ describe('CompanyZoneService', () => {
     };
 
     it('should PATCH and update zone enabled state in signal', async () => {
-      (service as any)._zones.set([
+      (service as unknown as { _zones: WritableSignal<CompanyZone[]> })._zones.set([
         ...mockZones,
         { ...mockZones[0], id: 'zone-3', zoneCode: 'US-CA-NB', enabled: false },
       ]);
@@ -372,7 +376,7 @@ describe('CompanyZoneService', () => {
 
   describe('clearError', () => {
     it('should reset the error signal to null', () => {
-      (service as any)._error.set('Some error');
+      (service as unknown as { _error: WritableSignal<string | null> })._error.set('Some error');
       expect(service.error()).toBe('Some error');
 
       service.clearError();

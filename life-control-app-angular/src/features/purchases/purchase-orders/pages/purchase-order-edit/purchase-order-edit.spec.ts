@@ -2,7 +2,6 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { provideRouter, Router, ActivatedRoute } from '@angular/router';
-import { signal } from '@angular/core';
 import { of, throwError } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
 import { PurchaseOrderEdit } from './purchase-order-edit';
@@ -19,7 +18,6 @@ import { NotificationService } from '@shared/data/notification';
 import { ConfigService } from '@app/services/config.service';
 import type {
   PurchaseOrder,
-  PurchaseOrderDetail,
   Page,
 } from '../../models/purchase-order.models';
 
@@ -63,7 +61,7 @@ const mockOrder: PurchaseOrder = {
   ],
 };
 
-const emptyPage: Page<any> = {
+const emptyPage: Page<unknown> = {
   content: [],
   totalElements: 0,
   totalPages: 0,

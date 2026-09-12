@@ -21,7 +21,7 @@ import { DeleteCompanyDialogComponent } from '../../ui/delete-company-dialog/del
 })
 export class CompanyList {
   companyService = inject(CompanyService);
-  private router = inject(Router);
+  private readonly router = inject(Router);
   private readonly dialog = inject(MatDialog);
   private readonly destroyRef = inject(DestroyRef);
 

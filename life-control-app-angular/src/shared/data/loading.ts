@@ -8,7 +8,7 @@ import { Injectable, signal, computed } from '@angular/core';
   providedIn: 'root',
 })
 export class LoadingService {
-  private loadingStates = signal<Set<string>>(new Set());
+  private readonly loadingStates = signal<Set<string>>(new Set());
 
   /**
    * Computed signal that returns true if any loading state is active

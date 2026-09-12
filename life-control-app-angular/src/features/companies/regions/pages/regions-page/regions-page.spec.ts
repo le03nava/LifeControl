@@ -117,7 +117,7 @@ describe('RegionsPage', () => {
   };
 
   class MockCompanyCountryService {
-    private _assignedCountries = signal<CompanyCountry[]>([]);
+    private readonly _assignedCountries = signal<CompanyCountry[]>([]);
 
     assignedCountries = this._assignedCountries.asReadonly();
     loading = signal(false).asReadonly();

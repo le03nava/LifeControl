@@ -59,12 +59,12 @@ import { ErrorBanner } from '@shared/ui';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PurchaseOrderEdit implements OnInit {
-  private route = inject(ActivatedRoute);
-  private router = inject(Router);
-  private fb = inject(NonNullableFormBuilder);
-  private purchaseOrderService = inject(PurchaseOrderService);
-  private productService = inject(ProductService);
-  private destroyRef = inject(DestroyRef);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly fb = inject(NonNullableFormBuilder);
+  private readonly purchaseOrderService = inject(PurchaseOrderService);
+  private readonly productService = inject(ProductService);
+  private readonly destroyRef = inject(DestroyRef);
 
   // ─── Route data ────────────────────────────────────────
   readonly orderId = signal<string | null>(
@@ -173,7 +173,7 @@ export class PurchaseOrderEdit implements OnInit {
   }
 
   /** Called by `<app-status-selector>` after a successful PATCH. */
-  onStatusChanged(statusId: string): void {
+  onStatusChanged(_statusId: string): void {
     const id = this.orderId();
     if (id) {
       // Reload the order to get the updated status from the backend

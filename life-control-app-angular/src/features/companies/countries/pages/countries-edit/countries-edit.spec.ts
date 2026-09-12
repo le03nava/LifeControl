@@ -34,8 +34,6 @@ import { Company, Page } from '../../../companies/models/company.models';
   ];
 
 describe('CountriesEdit', () => {
-  let component: CountriesEdit;
-  let fixture: ComponentFixture<CountriesEdit>;
   let companyCountryServiceMock: MockCompanyCountryService;
 
   let routeMock: {
@@ -48,7 +46,7 @@ describe('CountriesEdit', () => {
     navigate: ReturnType<typeof vi.fn>;
   };
   class MockCompanyCountryService {
-    private _assignedCountries = signal<CompanyCountry[]>([]);
+    private readonly _assignedCountries = signal<CompanyCountry[]>([]);
     _loading = signal(false);
     _error = signal<string | null>(null);
 
