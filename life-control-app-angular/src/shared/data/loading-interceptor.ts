@@ -1,5 +1,6 @@
 import { HttpInterceptorFn } from '@angular/common/http';
 import { inject } from '@angular/core';
+import { finalize } from 'rxjs/operators';
 import { LoadingService } from './loading';
 
 /**
@@ -14,5 +15,3 @@ export const loadingInterceptor: HttpInterceptorFn = (req, next) => {
 
   return next(req).pipe(finalize(() => loadingService.stopLoading(loadingKey)));
 };
-
-import { finalize } from 'rxjs/operators';
