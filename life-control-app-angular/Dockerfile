@@ -36,7 +36,7 @@ USER 1000:1000
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 --start-period=10s \
-  CMD wget -qO- http://localhost:3000/healthz >/dev/null || exit 1
+  CMD wget -qO- http://127.0.0.1:3000/healthz >/dev/null || exit 1
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["nginx", "-g", "daemon off;"]
