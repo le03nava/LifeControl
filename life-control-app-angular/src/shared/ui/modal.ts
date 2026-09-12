@@ -15,7 +15,12 @@ import { Button } from './button/button';
   imports: [Button],
   template: `
     @if (isOpen()) {
-      <div class="modal-backdrop" (click)="handleBackdropClick($event)" (keydown.escape)="close()" tabindex="-1">
+      <div
+        class="modal-backdrop"
+        (click)="handleBackdropClick($event)"
+        (keydown.escape)="close()"
+        tabindex="-1"
+      >
         <div
           class="modal-dialog"
           role="dialog"

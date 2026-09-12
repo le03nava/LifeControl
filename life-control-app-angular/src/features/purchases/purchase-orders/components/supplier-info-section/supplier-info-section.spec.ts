@@ -53,7 +53,12 @@ const mockSuppliersPage = {
 };
 
 const mockPaymentMethods = [
-  { id: 'pm-1', paymentMethodName: 'Transferencia', paymentMethodShortName: 'TRANSF', enabled: true },
+  {
+    id: 'pm-1',
+    paymentMethodName: 'Transferencia',
+    paymentMethodShortName: 'TRANSF',
+    enabled: true,
+  },
   { id: 'pm-2', paymentMethodName: 'Cheque', paymentMethodShortName: 'CHEQ', enabled: true },
   { id: 'pm-3', paymentMethodName: 'Efectivo', paymentMethodShortName: 'EFECT', enabled: true },
 ];
@@ -70,7 +75,10 @@ describe('SupplierInfoSection', () => {
     return new FormGroup<PurchaseOrderHeaderControl>({
       supplierId: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
       companyStoreId: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
-      paymentMethodId: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
+      paymentMethodId: new FormControl('', {
+        nonNullable: true,
+        validators: [Validators.required],
+      }),
       comments: new FormControl<string | null>(null),
     });
   }
@@ -129,7 +137,10 @@ describe('SupplierInfoSection', () => {
     });
   });
 
-  function createFixture(overrides?: { headerForm?: FormGroup<PurchaseOrderHeaderControl>; serverErrors?: Record<string, string> }) {
+  function createFixture(overrides?: {
+    headerForm?: FormGroup<PurchaseOrderHeaderControl>;
+    serverErrors?: Record<string, string>;
+  }) {
     const fixture = TestBed.createComponent(SupplierInfoSection);
     fixture.componentRef.setInput('headerForm', overrides?.headerForm ?? headerForm);
     if (overrides?.serverErrors) {
@@ -201,7 +212,9 @@ describe('SupplierInfoSection', () => {
     });
 
     it('should hide supplier details when selection is cleared', () => {
-      supplierServiceMock.getSupplierById = vi.fn().mockReturnValue(of(mockSuppliersPage.content[0]));
+      supplierServiceMock.getSupplierById = vi
+        .fn()
+        .mockReturnValue(of(mockSuppliersPage.content[0]));
 
       const { componentInstance: comp } = createFixture();
 
@@ -231,7 +244,9 @@ describe('SupplierInfoSection', () => {
     });
 
     it('serverFieldError should return server error for a field', () => {
-      const { componentInstance: comp } = createFixture({ serverErrors: { supplierId: 'Proveedor no disponible' } });
+      const { componentInstance: comp } = createFixture({
+        serverErrors: { supplierId: 'Proveedor no disponible' },
+      });
 
       expect(comp.serverFieldError('supplierId')).toBe('Proveedor no disponible');
     });

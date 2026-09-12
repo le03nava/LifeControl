@@ -9,23 +9,51 @@ describe('StoresList', () => {
 
   const mockStores: CompanyStore[] = [
     {
-      id: 'store-1', companyId: 'comp-1', companyCountryId: 'cc-1', regionId: 'reg-1', zoneId: 'zone-1',
-      storeName: 'Tienda Central', email: 'central@store.com', phoneNumber: '+525512345678',
+      id: 'store-1',
+      companyId: 'comp-1',
+      companyCountryId: 'cc-1',
+      regionId: 'reg-1',
+      zoneId: 'zone-1',
+      storeName: 'Tienda Central',
+      email: 'central@store.com',
+      phoneNumber: '+525512345678',
       address: {
-        street: 'Av. Reforma', streetNumber: '222', neighborhood: 'Juárez', zipCode: '06600',
-        city: 'CDMX', state: 'CDMX', countryId: 'MX',
+        street: 'Av. Reforma',
+        streetNumber: '222',
+        neighborhood: 'Juárez',
+        zipCode: '06600',
+        city: 'CDMX',
+        state: 'CDMX',
+        countryId: 'MX',
       },
-      enabled: true, createdAt: '2024-01-01', updatedAt: '2024-01-01',
+      enabled: true,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
     },
     {
-      id: 'store-2', companyId: 'comp-1', companyCountryId: 'cc-1', regionId: 'reg-1', zoneId: 'zone-1',
-      storeName: 'Tienda Norte', email: 'norte@store.com', enabled: false,
-      createdAt: '2024-01-01', updatedAt: '2024-01-01',
+      id: 'store-2',
+      companyId: 'comp-1',
+      companyCountryId: 'cc-1',
+      regionId: 'reg-1',
+      zoneId: 'zone-1',
+      storeName: 'Tienda Norte',
+      email: 'norte@store.com',
+      enabled: false,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
     },
     {
-      id: 'store-3', companyId: 'comp-1', companyCountryId: 'cc-1', regionId: 'reg-1', zoneId: 'zone-1',
-      storeName: 'Tienda Sur', email: '', phoneNumber: '', enabled: true,
-      createdAt: '2024-01-01', updatedAt: '2024-01-01',
+      id: 'store-3',
+      companyId: 'comp-1',
+      companyCountryId: 'cc-1',
+      regionId: 'reg-1',
+      zoneId: 'zone-1',
+      storeName: 'Tienda Sur',
+      email: '',
+      phoneNumber: '',
+      enabled: true,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
     },
   ];
 
@@ -96,7 +124,7 @@ describe('StoresList', () => {
       expect(allButtons.length).toBe(2);
 
       const btnTexts = [...allButtons].map((b: Element) => b.textContent?.trim() ?? '');
-      const editCount = btnTexts.filter(t => t === 'Editar').length;
+      const editCount = btnTexts.filter((t) => t === 'Editar').length;
       expect(editCount).toBe(2);
     });
 

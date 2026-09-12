@@ -1,4 +1,11 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal, OnInit } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  inject,
+  signal,
+  OnInit,
+} from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
@@ -46,7 +53,8 @@ export class CountriesPage implements OnInit {
     const companyId = this.route.snapshot.queryParamMap.get('companyId');
     if (companyId) {
       this.selectedCompanyId.set(companyId);
-      this.companyCountryService.getCountries(companyId)
+      this.companyCountryService
+        .getCountries(companyId)
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe();
     }
@@ -57,7 +65,8 @@ export class CountriesPage implements OnInit {
   onCompanyChange(companyId: string): void {
     this.selectedCompanyId.set(companyId);
     if (companyId) {
-      this.companyCountryService.getCountries(companyId)
+      this.companyCountryService
+        .getCountries(companyId)
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe();
     }
@@ -73,9 +82,7 @@ export class CountriesPage implements OnInit {
 
   /** Bridge: the card emits a country ID; look up the full CompanyCountry and delegate. */
   onCardEditCountry(ccId: string): void {
-    const cc = this.companyCountryService
-      .assignedCountries()
-      .find((c) => c.id === ccId);
+    const cc = this.companyCountryService.assignedCountries().find((c) => c.id === ccId);
     if (cc) {
       this.router.navigate(['/companies/countries/edit', cc.id], {
         state: { cc },

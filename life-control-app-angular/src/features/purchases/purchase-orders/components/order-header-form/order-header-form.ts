@@ -10,10 +10,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs/operators';
-import {
-  FormGroup,
-  ReactiveFormsModule,
-} from '@angular/forms';
+import { FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { ConfigService } from '@app/services/config.service';
 import { SupplierService } from '@features/products/suppliers/data/supplier.service';
@@ -108,9 +105,7 @@ export class OrderHeaderForm implements OnInit {
   readonly statusColor = PO_STATUS_COLORS;
   readonly statusLabel = PO_STATUS_LABELS;
 
-  readonly currentStatusName = computed(
-    () => this.loadedOrder()?.statusName ?? null,
-  );
+  readonly currentStatusName = computed(() => this.loadedOrder()?.statusName ?? null);
 
   // ─── FK dropdowns ──────────────────────────────────────
   readonly suppliers = signal<DropdownOption[]>([]);
@@ -173,9 +168,7 @@ export class OrderHeaderForm implements OnInit {
     this.companyService
       .getCompanies(0, 1000)
       .pipe(
-        map((p) =>
-          p.content.map((c) => ({ id: c.id, name: c.companyName })),
-        ),
+        map((p) => p.content.map((c) => ({ id: c.id, name: c.companyName }))),
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe({
@@ -184,9 +177,7 @@ export class OrderHeaderForm implements OnInit {
 
     // Load payment methods
     this.http
-      .get<PaymentMethod[]>(
-        `${this.configService.apiUrl}/payment-methods`,
-      )
+      .get<PaymentMethod[]>(`${this.configService.apiUrl}/payment-methods`)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (list) => this.paymentMethods.set(list),
@@ -286,9 +277,7 @@ export class OrderHeaderForm implements OnInit {
         .subscribe({
           next: (storeList) =>
             this.stores.set(
-              storeList
-                .filter((s) => s.enabled)
-                .map((s) => ({ id: s.id, name: s.storeName })),
+              storeList.filter((s) => s.enabled).map((s) => ({ id: s.id, name: s.storeName })),
             ),
         });
     }

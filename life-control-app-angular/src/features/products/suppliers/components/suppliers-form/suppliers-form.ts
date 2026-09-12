@@ -1,15 +1,5 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  effect,
-  input,
-  output,
-} from '@angular/core';
-import {
-  AbstractControl,
-  FormGroup,
-  ReactiveFormsModule,
-} from '@angular/forms';
+import { ChangeDetectionStrategy, Component, effect, input, output } from '@angular/core';
+import { AbstractControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
 import { Supplier, SupplierControl } from '../../models/supplier.models';
 import { AddressFormComponent } from '@shared/ui/address-form';
@@ -108,7 +98,7 @@ export class SuppliersForm {
       });
 
       onCleanup(() => {
-        subscriptions.forEach(sub => sub.unsubscribe());
+        subscriptions.forEach((sub) => sub.unsubscribe());
       });
     });
   }

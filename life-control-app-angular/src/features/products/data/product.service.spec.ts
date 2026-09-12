@@ -53,7 +53,7 @@ describe('ProductService', () => {
 
       const pagePromise = firstValueFrom(service.getProducts(0, 12));
 
-      const req = httpMock.expectOne(r => r.url === service.apiUrl && r.method === 'GET');
+      const req = httpMock.expectOne((r) => r.url === service.apiUrl && r.method === 'GET');
       expect(req.request.params.get('page')).toBe('0');
       expect(req.request.params.get('size')).toBe('12');
       expect(req.request.params.has('search')).toBe(false);
@@ -79,7 +79,7 @@ describe('ProductService', () => {
 
       const pagePromise = firstValueFrom(service.getProducts(0, 12, 'Test'));
 
-      const req = httpMock.expectOne(r => r.url === service.apiUrl && r.method === 'GET');
+      const req = httpMock.expectOne((r) => r.url === service.apiUrl && r.method === 'GET');
       expect(req.request.params.get('search')).toBe('Test');
       req.flush(mockPage);
 
@@ -101,7 +101,7 @@ describe('ProductService', () => {
 
       const pagePromise = firstValueFrom(service.getProducts(2, 24));
 
-      const req = httpMock.expectOne(r => r.url === service.apiUrl && r.method === 'GET');
+      const req = httpMock.expectOne((r) => r.url === service.apiUrl && r.method === 'GET');
       expect(req.request.params.get('page')).toBe('2');
       expect(req.request.params.get('size')).toBe('24');
       req.flush(mockPage);

@@ -14,32 +14,110 @@ describe('StoresForm', () => {
 
   const mockCompanies = [
     {
-      id: 'comp-1', companyKey: 'ACME', companyName: 'ACME Corp',
-      tipoPersonaId: 1, razonSocial: 'ACME Corp SA',
-      rfc: 'ACME010101', email: 'a@a.com', phone: '1234567890',
-      enabled: true, createdAt: '', updatedAt: '',
+      id: 'comp-1',
+      companyKey: 'ACME',
+      companyName: 'ACME Corp',
+      tipoPersonaId: 1,
+      razonSocial: 'ACME Corp SA',
+      rfc: 'ACME010101',
+      email: 'a@a.com',
+      phone: '1234567890',
+      enabled: true,
+      createdAt: '',
+      updatedAt: '',
     },
     {
-      id: 'comp-2', companyKey: 'BETA', companyName: 'Beta Inc',
-      tipoPersonaId: 2, razonSocial: 'Beta Inc SA',
-      rfc: 'BETA010101', email: 'b@b.com', phone: '0987654321',
-      enabled: true, createdAt: '', updatedAt: '',
+      id: 'comp-2',
+      companyKey: 'BETA',
+      companyName: 'Beta Inc',
+      tipoPersonaId: 2,
+      razonSocial: 'Beta Inc SA',
+      rfc: 'BETA010101',
+      email: 'b@b.com',
+      phone: '0987654321',
+      enabled: true,
+      createdAt: '',
+      updatedAt: '',
     },
   ];
 
   const mockCountries: CompanyCountry[] = [
-    { id: 'cc-1', companyId: 'comp-1', countryId: '1', countryCode: 'US', countryName: 'United States', localAlias: null, createdAt: '', updatedAt: '' },
-    { id: 'cc-2', companyId: 'comp-1', countryId: '2', countryCode: 'MX', countryName: 'Mexico', localAlias: null, createdAt: '', updatedAt: '' },
+    {
+      id: 'cc-1',
+      companyId: 'comp-1',
+      countryId: '1',
+      countryCode: 'US',
+      countryName: 'United States',
+      localAlias: null,
+      createdAt: '',
+      updatedAt: '',
+    },
+    {
+      id: 'cc-2',
+      companyId: 'comp-1',
+      countryId: '2',
+      countryCode: 'MX',
+      countryName: 'Mexico',
+      localAlias: null,
+      createdAt: '',
+      updatedAt: '',
+    },
   ];
 
   const mockRegions: CompanyRegion[] = [
-    { id: 'reg-1', companyCountryId: 'cc-1', companyId: 'comp-1', countryId: '1', regionCode: 'US-CA', regionName: 'California', enabled: true, createdAt: '', updatedAt: '' },
-    { id: 'reg-2', companyCountryId: 'cc-1', companyId: 'comp-1', countryId: '1', regionCode: 'US-TX', regionName: 'Texas', enabled: true, createdAt: '', updatedAt: '' },
+    {
+      id: 'reg-1',
+      companyCountryId: 'cc-1',
+      companyId: 'comp-1',
+      countryId: '1',
+      regionCode: 'US-CA',
+      regionName: 'California',
+      enabled: true,
+      createdAt: '',
+      updatedAt: '',
+    },
+    {
+      id: 'reg-2',
+      companyCountryId: 'cc-1',
+      companyId: 'comp-1',
+      countryId: '1',
+      regionCode: 'US-TX',
+      regionName: 'Texas',
+      enabled: true,
+      createdAt: '',
+      updatedAt: '',
+    },
   ];
 
   const mockZones: CompanyZone[] = [
-    { id: 'zone-1', companyRegionId: 'reg-1', companyCountryId: 'cc-1', companyId: 'comp-1', countryId: '1', zoneCode: 'US-CA-DT', zoneName: 'Downtown', description: 'Centro', displayOrder: 1, enabled: true, createdAt: '', updatedAt: '' },
-    { id: 'zone-2', companyRegionId: 'reg-1', companyCountryId: 'cc-1', companyId: 'comp-1', countryId: '1', zoneCode: 'US-CA-SF', zoneName: 'San Fernando', description: 'Norte', displayOrder: 2, enabled: true, createdAt: '', updatedAt: '' },
+    {
+      id: 'zone-1',
+      companyRegionId: 'reg-1',
+      companyCountryId: 'cc-1',
+      companyId: 'comp-1',
+      countryId: '1',
+      zoneCode: 'US-CA-DT',
+      zoneName: 'Downtown',
+      description: 'Centro',
+      displayOrder: 1,
+      enabled: true,
+      createdAt: '',
+      updatedAt: '',
+    },
+    {
+      id: 'zone-2',
+      companyRegionId: 'reg-1',
+      companyCountryId: 'cc-1',
+      companyId: 'comp-1',
+      countryId: '1',
+      zoneCode: 'US-CA-SF',
+      zoneName: 'San Fernando',
+      description: 'Norte',
+      displayOrder: 2,
+      enabled: true,
+      createdAt: '',
+      updatedAt: '',
+    },
   ];
 
   const mockStore: CompanyStore = {
@@ -121,7 +199,9 @@ describe('StoresForm', () => {
   describe('company selector', () => {
     it('should emit selectedCompanyChange when company is selected', () => {
       let emittedId = '';
-      component.selectedCompanyChange.subscribe((id: string) => { emittedId = id; });
+      component.selectedCompanyChange.subscribe((id: string) => {
+        emittedId = id;
+      });
 
       component.onCompanyChange('comp-1');
       expect(emittedId).toBe('comp-1');
@@ -153,7 +233,9 @@ describe('StoresForm', () => {
   describe('country selector', () => {
     it('should emit selectedCountryChange when country is selected', () => {
       let emitted: CompanyCountry | undefined = undefined;
-      component.selectedCountryChange.subscribe((cc: CompanyCountry) => { emitted = cc; });
+      component.selectedCountryChange.subscribe((cc: CompanyCountry) => {
+        emitted = cc;
+      });
 
       component.onCompanyChange('comp-1');
       fixture.componentRef.setInput('companyCountries', mockCountries);
@@ -185,7 +267,9 @@ describe('StoresForm', () => {
   describe('region selector', () => {
     it('should emit selectedRegionChange when region is selected', () => {
       let emitted: CompanyRegion | undefined = undefined;
-      component.selectedRegionChange.subscribe((r: CompanyRegion) => { emitted = r; });
+      component.selectedRegionChange.subscribe((r: CompanyRegion) => {
+        emitted = r;
+      });
 
       component.onCompanyChange('comp-1');
       fixture.componentRef.setInput('companyCountries', mockCountries);
@@ -198,7 +282,10 @@ describe('StoresForm', () => {
     });
 
     it('should load zones when region changes', () => {
-      const loadSpy = vi.spyOn(component as unknown as { loadZonesForRegion: (regionId: string) => void }, 'loadZonesForRegion');
+      const loadSpy = vi.spyOn(
+        component as unknown as { loadZonesForRegion: (regionId: string) => void },
+        'loadZonesForRegion',
+      );
 
       component.onCompanyChange('comp-1');
       fixture.componentRef.setInput('companyCountries', mockCountries);
@@ -228,7 +315,9 @@ describe('StoresForm', () => {
   describe('zone selector', () => {
     it('should emit selectedZoneChange when zone is selected', () => {
       let emittedId = '';
-      component.selectedZoneChange.subscribe((id: string) => { emittedId = id; });
+      component.selectedZoneChange.subscribe((id: string) => {
+        emittedId = id;
+      });
 
       component.onCompanyChange('comp-1');
       fixture.componentRef.setInput('companyCountries', mockCountries);
@@ -377,7 +466,9 @@ describe('StoresForm', () => {
       });
 
       let emitted: StoreSaveEvent | undefined;
-      component.save.subscribe((ev: StoreSaveEvent) => { emitted = ev; });
+      component.save.subscribe((ev: StoreSaveEvent) => {
+        emitted = ev;
+      });
 
       component.onSave();
 
@@ -392,7 +483,9 @@ describe('StoresForm', () => {
     it('should NOT emit save when form is invalid', () => {
       component.formGroup.controls.storeName.setValue('');
       let emitted = false;
-      component.save.subscribe(() => { emitted = true; });
+      component.save.subscribe(() => {
+        emitted = true;
+      });
       component.onSave();
       expect(emitted).toBe(false);
     });
@@ -400,7 +493,9 @@ describe('StoresForm', () => {
     it('should NOT emit save when no zone is selected', () => {
       component.selectedZoneId.set(null);
       let emitted = false;
-      component.save.subscribe(() => { emitted = true; });
+      component.save.subscribe(() => {
+        emitted = true;
+      });
       component.onSave();
       expect(emitted).toBe(false);
     });
@@ -416,7 +511,9 @@ describe('StoresForm', () => {
       fixture.detectChanges();
 
       let emitted: StoreSaveEvent | undefined;
-      component.save.subscribe((ev: StoreSaveEvent) => { emitted = ev; });
+      component.save.subscribe((ev: StoreSaveEvent) => {
+        emitted = ev;
+      });
 
       component.onSave();
 
@@ -429,7 +526,9 @@ describe('StoresForm', () => {
   describe('onCancel', () => {
     it('should emit cancel void', () => {
       let emitted = false;
-      component.cancelForm.subscribe(() => { emitted = true; });
+      component.cancelForm.subscribe(() => {
+        emitted = true;
+      });
       component.onCancel();
       expect(emitted).toBe(true);
     });

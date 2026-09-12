@@ -14,7 +14,11 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { map, catchError, throwError } from 'rxjs';
 import { ConfigService } from '@app/services/config.service';
 import { SalesOrderService } from '../../data/sales-order.service';
-import { SO_STATUS_TRANSITIONS, SO_STATUS_LABELS, SO_STATUS_COLORS } from '../../data/status-config';
+import {
+  SO_STATUS_TRANSITIONS,
+  SO_STATUS_LABELS,
+  SO_STATUS_COLORS,
+} from '../../data/status-config';
 import { NotificationService } from '@shared/data/notification';
 import type { SalesOrder } from '../../models/sales-order.models';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -53,12 +57,7 @@ interface TransitionOption {
 @Component({
   selector: 'app-status-transition',
   standalone: true,
-  imports: [
-    MatFormFieldModule,
-    MatSelectModule,
-    MatChipsModule,
-    MatIconModule,
-  ],
+  imports: [MatFormFieldModule, MatSelectModule, MatChipsModule, MatIconModule],
   templateUrl: './status-transition.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -126,9 +125,7 @@ export class StatusTransition implements OnInit {
       })
       .pipe(
         map((page) => {
-          const match = page.content.find(
-            (t) => t.statusTypeName.toUpperCase() === 'SALES_ORDER',
-          );
+          const match = page.content.find((t) => t.statusTypeName.toUpperCase() === 'SALES_ORDER');
           if (!match) {
             throw new Error('SALES_ORDER status type not found');
           }

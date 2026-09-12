@@ -3,10 +3,7 @@
   <div class="selector-row">
     <mat-form-field appearance="outline" subscriptSizing="dynamic">
       <mat-label>Empresa</mat-label>
-      <mat-select
-        [value]="selectedCompanyId()"
-        (selectionChange)="onCompanyChange($event.value)"
-      >
+      <mat-select [value]="selectedCompanyId()" (selectionChange)="onCompanyChange($event.value)">
         @for (company of companies(); track company.id) {
           <mat-option [value]="company.id">
             {{ company.companyName }}
@@ -38,10 +35,7 @@
     <!-- Header with toggle -->
     <div class="header-row">
       <h2>Regiones</h2>
-      <mat-slide-toggle
-        [checked]="showDisabled()"
-        (change)="showDisabled.set($event.checked)"
-      >
+      <mat-slide-toggle [checked]="showDisabled()" (change)="showDisabled.set($event.checked)">
         Mostrar deshabilitadas
       </mat-slide-toggle>
     </div>
@@ -74,10 +68,7 @@
         <ng-container matColumnDef="enabled">
           <th mat-header-cell *matHeaderCellDef>Estado</th>
           <td mat-cell *matCellDef="let region">
-            <mat-slide-toggle
-              [checked]="region.enabled"
-              (change)="onToggle(region)"
-            />
+            <mat-slide-toggle [checked]="region.enabled" (change)="onToggle(region)" />
           </td>
         </ng-container>
 
@@ -85,19 +76,8 @@
           <th mat-header-cell *matHeaderCellDef>Acciones</th>
           <td mat-cell *matCellDef="let region">
             <div class="action-buttons">
-              <button
-                mat-stroked-button
-                type="button"
-                (click)="onEdit(region)"
-              >
-                Editar
-              </button>
-              <button
-                mat-stroked-button
-                color="warn"
-                type="button"
-                (click)="onDelete(region.id)"
-              >
+              <button mat-stroked-button type="button" (click)="onEdit(region)">Editar</button>
+              <button mat-stroked-button color="warn" type="button" (click)="onDelete(region.id)">
                 Eliminar
               </button>
             </div>
@@ -105,7 +85,7 @@
         </ng-container>
 
         <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
-        <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
+        <tr mat-row *matRowDef="let row; columns: displayedColumns"></tr>
       </table>
     } @else {
       <!-- Empty state -->

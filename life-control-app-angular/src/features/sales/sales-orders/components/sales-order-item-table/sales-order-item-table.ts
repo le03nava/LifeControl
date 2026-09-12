@@ -1,10 +1,4 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  computed,
-  input,
-  output,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
 import { MatTableModule } from '@angular/material/table';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -93,10 +87,7 @@ export class SalesOrderItemTable {
   ];
 
   readonly lineItemsTotal = computed(() =>
-    this.items().reduce(
-      (sum, item) => sum + this.rowSubtotal(item),
-      0,
-    ),
+    this.items().reduce((sum, item) => sum + this.rowSubtotal(item), 0),
   );
 
   // ─── Mutations ─────────────────────────────────────────

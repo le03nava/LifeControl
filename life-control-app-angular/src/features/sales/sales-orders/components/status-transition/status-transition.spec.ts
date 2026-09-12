@@ -1,9 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
-import {
-  HttpClientTestingModule,
-  HttpTestingController,
-} from '@angular/common/http/testing';
+import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 import { of, throwError } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
 import { StatusTransition } from './status-transition';
@@ -89,17 +86,13 @@ describe('StatusTransition', () => {
 
     // Flush status type lookup
     const typeReq = httpMock.expectOne(
-      (r) =>
-        r.url === `${TEST_API}/status-types` &&
-        r.params.get('search') === 'SALES_ORDER',
+      (r) => r.url === `${TEST_API}/status-types` && r.params.get('search') === 'SALES_ORDER',
     );
     typeReq.flush(mockStatusTypesPage);
 
     // Flush statuses lookup
     const statusReq = httpMock.expectOne(
-      (r) =>
-        r.url === `${TEST_API}/statuses` &&
-        r.params.get('statusTypeId') === 'type-so',
+      (r) => r.url === `${TEST_API}/statuses` && r.params.get('statusTypeId') === 'type-so',
     );
     statusReq.flush(mockStatuses);
 
@@ -238,45 +231,37 @@ describe('StatusTransition', () => {
 
       comp.onStatusChange('st-pending');
 
-      expect(notificationService.showSuccess).toHaveBeenCalledWith(
-        'Status updated successfully.',
-      );
+      expect(notificationService.showSuccess).toHaveBeenCalledWith('Status updated successfully.');
     });
 
     it('should show error on 409 conflict', () => {
       const order = createOrder({ statusName: 'Draft' });
       const { comp } = setupWithOrder(order, httpMock);
 
-      salesOrderService.updateStatus = vi.fn().mockReturnValue(
-        throwError(
-          () =>
-            new HttpErrorResponse({ status: 409, statusText: 'Conflict' }),
-        ),
-      );
+      salesOrderService.updateStatus = vi
+        .fn()
+        .mockReturnValue(
+          throwError(() => new HttpErrorResponse({ status: 409, statusText: 'Conflict' })),
+        );
 
       comp.onStatusChange('st-cancelled');
 
-      expect(notificationService.showError).toHaveBeenCalledWith(
-        'Status transition not allowed.',
-      );
+      expect(notificationService.showError).toHaveBeenCalledWith('Status transition not allowed.');
     });
 
     it('should show error on 404', () => {
       const order = createOrder({ statusName: 'Draft' });
       const { comp } = setupWithOrder(order, httpMock);
 
-      salesOrderService.updateStatus = vi.fn().mockReturnValue(
-        throwError(
-          () =>
-            new HttpErrorResponse({ status: 404, statusText: 'Not Found' }),
-        ),
-      );
+      salesOrderService.updateStatus = vi
+        .fn()
+        .mockReturnValue(
+          throwError(() => new HttpErrorResponse({ status: 404, statusText: 'Not Found' })),
+        );
 
       comp.onStatusChange('st-pending');
 
-      expect(notificationService.showError).toHaveBeenCalledWith(
-        'Sales order not found.',
-      );
+      expect(notificationService.showError).toHaveBeenCalledWith('Sales order not found.');
     });
   });
 });

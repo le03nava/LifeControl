@@ -32,10 +32,7 @@ describe('OrderHeaderForm', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [
-        OrderHeaderForm,
-        NoopAnimationsModule,
-      ],
+      imports: [OrderHeaderForm, NoopAnimationsModule],
     }).compileComponents();
 
     fixture = TestBed.createComponent(OrderHeaderForm);

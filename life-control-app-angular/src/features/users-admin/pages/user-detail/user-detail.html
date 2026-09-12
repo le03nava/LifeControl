@@ -24,7 +24,11 @@
             <ng-container matColumnDef="scope">
               <th mat-header-cell *matHeaderCellDef>Scope</th>
               <td mat-cell *matCellDef="let role">
-                <span class="scope-badge" [class.realm]="role.scope === 'realm'" [class.client]="role.scope === 'client'">
+                <span
+                  class="scope-badge"
+                  [class.realm]="role.scope === 'realm'"
+                  [class.client]="role.scope === 'client'"
+                >
                   {{ role.scope }}
                 </span>
               </td>
@@ -38,7 +42,12 @@
             <ng-container matColumnDef="actions">
               <th mat-header-cell *matHeaderCellDef>Actions</th>
               <td mat-cell *matCellDef="let role">
-                <button mat-icon-button color="warn" (click)="onRemoveRole(role)" matTooltip="Remove role">
+                <button
+                  mat-icon-button
+                  color="warn"
+                  (click)="onRemoveRole(role)"
+                  matTooltip="Remove role"
+                >
                   <mat-icon fontIcon="remove_circle" />
                 </button>
               </td>
@@ -63,10 +72,7 @@
             <div class="assign-form">
               <mat-form-field appearance="outline">
                 <mat-label>Scope</mat-label>
-                <mat-select
-                  [ngModel]="assignScope()"
-                  (ngModelChange)="assignScope.set($event)"
-                >
+                <mat-select [ngModel]="assignScope()" (ngModelChange)="assignScope.set($event)">
                   <mat-option value="realm">Realm</mat-option>
                   <mat-option value="client">Client</mat-option>
                 </mat-select>
@@ -137,10 +143,20 @@
             <ng-container matColumnDef="actions">
               <th mat-header-cell *matHeaderCellDef>Actions</th>
               <td mat-cell *matCellDef="let attr">
-                <button mat-icon-button color="primary" (click)="onEditAttribute(attr.key, attr.values)" matTooltip="Edit attribute">
+                <button
+                  mat-icon-button
+                  color="primary"
+                  (click)="onEditAttribute(attr.key, attr.values)"
+                  matTooltip="Edit attribute"
+                >
                   <mat-icon fontIcon="edit" />
                 </button>
-                <button mat-icon-button color="warn" (click)="onDeleteAttribute(attr.key)" matTooltip="Delete attribute">
+                <button
+                  mat-icon-button
+                  color="warn"
+                  (click)="onDeleteAttribute(attr.key)"
+                  matTooltip="Delete attribute"
+                >
                   <mat-icon fontIcon="delete" />
                 </button>
               </td>
@@ -159,7 +175,9 @@
         <!-- Attribute Form -->
         <mat-card class="assign-card">
           <mat-card-header>
-            <mat-card-title>{{ editingAttr() ? 'Edit Attribute' : 'Add Attribute' }}</mat-card-title>
+            <mat-card-title>{{
+              editingAttr() ? 'Edit Attribute' : 'Add Attribute'
+            }}</mat-card-title>
           </mat-card-header>
           <mat-card-content>
             <div class="assign-form">
@@ -185,7 +203,11 @@
               </mat-form-field>
 
               <div class="attr-actions">
-                <button mat-stroked-button (click)="cancelAttributeEdit()" [disabled]="savingAttr()">
+                <button
+                  mat-stroked-button
+                  (click)="cancelAttributeEdit()"
+                  [disabled]="savingAttr()"
+                >
                   Cancel
                 </button>
                 <button

@@ -148,7 +148,9 @@ describe('StoresCard', () => {
       setStore(activeStore);
 
       let emittedId: string | undefined;
-      component.edit.subscribe((id) => { emittedId = id; });
+      component.edit.subscribe((id) => {
+        emittedId = id;
+      });
 
       const editBtn = fixture.nativeElement.querySelector('button[aria-label="Editar tienda"]');
       expect(editBtn).toBeTruthy();
@@ -161,7 +163,9 @@ describe('StoresCard', () => {
       setStore(activeStore);
 
       let emittedId: string | undefined;
-      component.storeToggle.subscribe((id) => { emittedId = id; });
+      component.storeToggle.subscribe((id) => {
+        emittedId = id;
+      });
 
       component.onToggle();
 

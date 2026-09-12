@@ -19,7 +19,8 @@ export const routes: Routes = [
   },
   {
     path: 'purchases',
-    loadChildren: () => import('@features/purchases/purchases.routes').then((m) => m.purchasesRoutes),
+    loadChildren: () =>
+      import('@features/purchases/purchases.routes').then((m) => m.purchasesRoutes),
   },
   {
     path: 'sales',
@@ -27,7 +28,8 @@ export const routes: Routes = [
   },
   {
     path: 'users-admin',
-    loadChildren: () => import('@features/users-admin/users-admin.routes').then((m) => m.usersAdminRoutes),
+    loadChildren: () =>
+      import('@features/users-admin/users-admin.routes').then((m) => m.usersAdminRoutes),
     canActivate: [keycloakRoleGuard],
     data: { role: 'admin' },
   },

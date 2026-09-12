@@ -17,14 +17,8 @@ import { map } from 'rxjs/operators';
 import { ConfigService } from '@app/services/config.service';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
-import {
-  MatAutocompleteModule,
-  MatAutocompleteTrigger,
-} from '@angular/material/autocomplete';
-import type {
-  ProductVariantOption,
-  Page,
-} from '../../models/sales-order.models';
+import { MatAutocompleteModule, MatAutocompleteTrigger } from '@angular/material/autocomplete';
+import type { ProductVariantOption, Page } from '../../models/sales-order.models';
 
 /**
  * Single-step variant search via barcode scan or text input.
@@ -39,12 +33,7 @@ import type {
 @Component({
   selector: 'app-product-variant-selector',
   standalone: true,
-  imports: [
-    CurrencyPipe,
-    MatFormFieldModule,
-    MatInputModule,
-    MatAutocompleteModule,
-  ],
+  imports: [CurrencyPipe, MatFormFieldModule, MatInputModule, MatAutocompleteModule],
   templateUrl: './product-variant-selector.html',
   styleUrl: './product-variant-selector.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -103,10 +92,9 @@ export class ProductVariantSelector {
 
       const params = { q: query.trim(), storeId, page: '0', size: '20' };
       this.http
-        .get<Page<ProductVariantOption>>(
-          `${this.configService.apiUrl}/product-variants/search`,
-          { params },
-        )
+        .get<Page<ProductVariantOption>>(`${this.configService.apiUrl}/product-variants/search`, {
+          params,
+        })
         .pipe(
           map((page) => page.content),
           takeUntilDestroyed(this.destroyRef),
@@ -147,10 +135,9 @@ export class ProductVariantSelector {
 
     const params = { q: query, storeId, page: '0', size: '20' };
     this.http
-      .get<Page<ProductVariantOption>>(
-        `${this.configService.apiUrl}/product-variants/search`,
-        { params },
-      )
+      .get<Page<ProductVariantOption>>(`${this.configService.apiUrl}/product-variants/search`, {
+        params,
+      })
       .pipe(
         map((page) => page.content),
         takeUntilDestroyed(this.destroyRef),

@@ -1,16 +1,5 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  computed,
-  effect,
-  input,
-  output,
-} from '@angular/core';
-import {
-  AbstractControl,
-  FormGroup,
-  ReactiveFormsModule,
-} from '@angular/forms';
+import { ChangeDetectionStrategy, Component, computed, effect, input, output } from '@angular/core';
+import { AbstractControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
 import { Product, ProductControl } from '../../models/product.models';
 import { MatButtonModule } from '@angular/material/button';
@@ -85,26 +74,18 @@ export class ProductsForm {
         const control = fg.get(key);
         if (control) {
           const currentErrors = control.errors || {};
-          control.setErrors(
-            { ...currentErrors, serverError: message },
-            { emitEvent: false },
-          );
+          control.setErrors({ ...currentErrors, serverError: message }, { emitEvent: false });
 
           const sub = control.valueChanges.subscribe(() => {
             if (control.errors && 'serverError' in control.errors) {
               const { serverError: _, ...otherErrors } = control.errors;
               const remainingKeys = Object.keys(otherErrors);
-              control.setErrors(
-                remainingKeys.length > 0 ? otherErrors : null,
-                { emitEvent: true },
-              );
+              control.setErrors(remainingKeys.length > 0 ? otherErrors : null, { emitEvent: true });
             }
           });
           subscriptions.push(sub);
         } else {
-          console.warn(
-            `[ProductsForm] No control found for server error key: "${key}"`,
-          );
+          console.warn(`[ProductsForm] No control found for server error key: "${key}"`);
         }
       });
 

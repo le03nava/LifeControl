@@ -1,4 +1,9 @@
-import { ApplicationConfig, inject, provideAppInitializer, provideZonelessChangeDetection } from '@angular/core';
+import {
+  ApplicationConfig,
+  inject,
+  provideAppInitializer,
+  provideZonelessChangeDetection,
+} from '@angular/core';
 import { provideHttpClient, withInterceptors, withFetch } from '@angular/common/http';
 import { provideRouter, withComponentInputBinding } from '@angular/router';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
@@ -22,19 +27,19 @@ export const appConfig: ApplicationConfig = {
     // 1. Core providers - HttpClient con interceptores personalizados
     provideHttpClient(
       withFetch(),
-      withInterceptors([loadingInterceptor, bearerTokenInterceptor, errorInterceptor])
+      withInterceptors([loadingInterceptor, bearerTokenInterceptor, errorInterceptor]),
     ),
-    
+
     // 2. Change detection
     provideZonelessChangeDetection(),
-    
+
     // 3. Router
     provideRouter(routes, withComponentInputBinding()),
-    
+
     // 4. App initializer
     provideAppInitializer(initializeApp),
     ConfigService,
-    
+
     // 5. Keycloak (después de inicialización)
     provideKeycloak({
       config: {

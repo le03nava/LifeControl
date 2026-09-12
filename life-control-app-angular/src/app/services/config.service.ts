@@ -24,7 +24,7 @@ export class ConfigService {
 
   async loadConfig(): Promise<void> {
     const envConfig = window.env;
-    
+
     if (envConfig) {
       const runtimeConfig: AppConfig = {
         keycloak: {

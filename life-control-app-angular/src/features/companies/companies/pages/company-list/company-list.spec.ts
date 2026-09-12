@@ -21,9 +21,45 @@ describe('CompanyList', () => {
   let router: Router;
 
   const mockCompanies: Company[] = [
-    { id: '1', companyKey: '1', companyName: 'Alpha Corp', tipoPersonaId: 1, razonSocial: 'Razon Alpha', rfc: 'RFC0000000001', email: 'alpha@test.com', phone: '5551112222', enabled: true, createdAt: '', updatedAt: '' },
-    { id: '2', companyKey: '2', companyName: 'Beta Inc', tipoPersonaId: 1, razonSocial: 'Razon Beta', rfc: 'RFC0000000002', email: 'beta@test.com', phone: '5553334444', enabled: true, createdAt: '', updatedAt: '' },
-    { id: '3', companyKey: '3', companyName: 'Gamma SA', tipoPersonaId: 1, razonSocial: 'Razon Gamma', rfc: 'RFC0000000003', email: 'gamma@test.com', phone: '5555556666', enabled: false, createdAt: '', updatedAt: '' },
+    {
+      id: '1',
+      companyKey: '1',
+      companyName: 'Alpha Corp',
+      tipoPersonaId: 1,
+      razonSocial: 'Razon Alpha',
+      rfc: 'RFC0000000001',
+      email: 'alpha@test.com',
+      phone: '5551112222',
+      enabled: true,
+      createdAt: '',
+      updatedAt: '',
+    },
+    {
+      id: '2',
+      companyKey: '2',
+      companyName: 'Beta Inc',
+      tipoPersonaId: 1,
+      razonSocial: 'Razon Beta',
+      rfc: 'RFC0000000002',
+      email: 'beta@test.com',
+      phone: '5553334444',
+      enabled: true,
+      createdAt: '',
+      updatedAt: '',
+    },
+    {
+      id: '3',
+      companyKey: '3',
+      companyName: 'Gamma SA',
+      tipoPersonaId: 1,
+      razonSocial: 'Razon Gamma',
+      rfc: 'RFC0000000003',
+      email: 'gamma@test.com',
+      phone: '5555556666',
+      enabled: false,
+      createdAt: '',
+      updatedAt: '',
+    },
   ];
 
   const createMockPage = (companies: Company[], page = 0, size = 12): Page<Company> => ({
@@ -44,11 +80,22 @@ describe('CompanyList', () => {
     };
 
     await TestBed.configureTestingModule({
-      imports: [CompanyList, MatIconModule, MatPaginatorModule, MatDialogModule, NoopAnimationsModule],
+      imports: [
+        CompanyList,
+        MatIconModule,
+        MatPaginatorModule,
+        MatDialogModule,
+        NoopAnimationsModule,
+      ],
       providers: [
         provideRouter([]),
         { provide: CompanyService, useValue: companyService },
-        { provide: MatDialog, useValue: { open: vi.fn().mockReturnValue({ afterClosed: vi.fn().mockReturnValue(of(false)) }) } },
+        {
+          provide: MatDialog,
+          useValue: {
+            open: vi.fn().mockReturnValue({ afterClosed: vi.fn().mockReturnValue(of(false)) }),
+          },
+        },
       ],
     }).compileComponents();
 
@@ -81,7 +128,9 @@ describe('CompanyList', () => {
   it('should delete company when dialog confirms', () => {
     const dialogRef = { afterClosed: vi.fn().mockReturnValue(of(true)) };
     const matDialog = TestBed.inject(MatDialog);
-    vi.spyOn(matDialog, 'open').mockReturnValue(dialogRef as unknown as ReturnType<typeof matDialog.open>);
+    vi.spyOn(matDialog, 'open').mockReturnValue(
+      dialogRef as unknown as ReturnType<typeof matDialog.open>,
+    );
     component.confirmDelete({ id: '1', name: 'Alpha Corp' });
     expect(companyService.deleteCompany).toHaveBeenCalledWith('1');
   });
@@ -89,7 +138,9 @@ describe('CompanyList', () => {
   it('should NOT delete company when dialog cancels', () => {
     const dialogRef = { afterClosed: vi.fn().mockReturnValue(of(false)) };
     const matDialog = TestBed.inject(MatDialog);
-    vi.spyOn(matDialog, 'open').mockReturnValue(dialogRef as unknown as ReturnType<typeof matDialog.open>);
+    vi.spyOn(matDialog, 'open').mockReturnValue(
+      dialogRef as unknown as ReturnType<typeof matDialog.open>,
+    );
     component.confirmDelete({ id: '1', name: 'Alpha Corp' });
     expect(companyService.deleteCompany).not.toHaveBeenCalled();
   });
@@ -164,7 +215,9 @@ describe('CompanyList', () => {
         addListener: vi.fn(),
         removeListener: vi.fn(),
       };
-      window.matchMedia = vi.fn().mockReturnValue(mql as unknown as MediaQueryList) as unknown as typeof window.matchMedia;
+      window.matchMedia = vi
+        .fn()
+        .mockReturnValue(mql as unknown as MediaQueryList) as unknown as typeof window.matchMedia;
       return { mql, listeners };
     }
 

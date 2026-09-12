@@ -129,11 +129,7 @@
   gap: var(--space-sm);
   padding: var(--space-sm) var(--space-md);
   margin-bottom: var(--space-md);
-  background-color: color-mix(
-    in srgb,
-    var(--mat-sys-primary) 10%,
-    transparent
-  );
+  background-color: color-mix(in srgb, var(--mat-sys-primary) 10%, transparent);
   color: var(--mat-sys-primary);
   border-radius: var(--radius-md);
   font-weight: 500;

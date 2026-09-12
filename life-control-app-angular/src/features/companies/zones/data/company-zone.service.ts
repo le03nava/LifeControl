@@ -23,41 +23,60 @@ export class CompanyZoneService {
     return `${this.configService.apiUrl}/companies/${companyId}/countries/${companyCountryId}/regions/${regionId}/zones`;
   }
 
-  getZones(companyId: string, countryId: string, regionId: string, includeDisabled = false): Observable<CompanyZone[]> {
+  getZones(
+    companyId: string,
+    countryId: string,
+    regionId: string,
+    includeDisabled = false,
+  ): Observable<CompanyZone[]> {
     this._loading.set(true);
     this._error.set(null);
     const params = { includeDisabled: String(includeDisabled) };
-    return this.http.get<CompanyZone[]>(this.zonesUrl(companyId, countryId, regionId), { params }).pipe(
-      tap(zones => this._zones.set(zones)),
-      catchError(err => {
-        this._error.set('Error al cargar las zonas');
-        return throwError(() => err);
-      }),
-      finalize(() => this._loading.set(false)),
-    );
+    return this.http
+      .get<CompanyZone[]>(this.zonesUrl(companyId, countryId, regionId), { params })
+      .pipe(
+        tap((zones) => this._zones.set(zones)),
+        catchError((err) => {
+          this._error.set('Error al cargar las zonas');
+          return throwError(() => err);
+        }),
+        finalize(() => this._loading.set(false)),
+      );
   }
 
-  getZone(companyId: string, countryId: string, regionId: string, id: string): Observable<CompanyZone> {
+  getZone(
+    companyId: string,
+    countryId: string,
+    regionId: string,
+    id: string,
+  ): Observable<CompanyZone> {
     this._loading.set(true);
     this._error.set(null);
-    return this.http.get<CompanyZone>(`${this.zonesUrl(companyId, countryId, regionId)}/${id}`).pipe(
-      catchError(err => {
-        this._error.set('Error al cargar la zona');
-        return throwError(() => err);
-      }),
-      finalize(() => this._loading.set(false)),
-    );
+    return this.http
+      .get<CompanyZone>(`${this.zonesUrl(companyId, countryId, regionId)}/${id}`)
+      .pipe(
+        catchError((err) => {
+          this._error.set('Error al cargar la zona');
+          return throwError(() => err);
+        }),
+        finalize(() => this._loading.set(false)),
+      );
   }
 
-  addZone(companyId: string, countryId: string, regionId: string, request: CompanyZoneRequest): Observable<CompanyZone> {
+  addZone(
+    companyId: string,
+    countryId: string,
+    regionId: string,
+    request: CompanyZoneRequest,
+  ): Observable<CompanyZone> {
     this._loading.set(true);
     this._error.set(null);
     return this.http.post<CompanyZone>(this.zonesUrl(companyId, countryId, regionId), request).pipe(
-      tap(zone => {
+      tap((zone) => {
         const current = this._zones();
         this._zones.set([...current, zone]);
       }),
-      catchError(err => {
+      catchError((err) => {
         if (err.status === 409) {
           this._error.set('Ya existe una zona con ese código');
         } else {
@@ -69,20 +88,28 @@ export class CompanyZoneService {
     );
   }
 
-  updateZone(companyId: string, countryId: string, regionId: string, id: string, request: CompanyZoneRequest): Observable<CompanyZone> {
+  updateZone(
+    companyId: string,
+    countryId: string,
+    regionId: string,
+    id: string,
+    request: CompanyZoneRequest,
+  ): Observable<CompanyZone> {
     this._loading.set(true);
     this._error.set(null);
-    return this.http.put<CompanyZone>(`${this.zonesUrl(companyId, countryId, regionId)}/${id}`, request).pipe(
-      tap(updated => {
-        const current = this._zones();
-        this._zones.set(current.map(z => (z.id === id ? updated : z)));
-      }),
-      catchError(err => {
-        this._error.set('Error al actualizar la zona');
-        return throwError(() => err);
-      }),
-      finalize(() => this._loading.set(false)),
-    );
+    return this.http
+      .put<CompanyZone>(`${this.zonesUrl(companyId, countryId, regionId)}/${id}`, request)
+      .pipe(
+        tap((updated) => {
+          const current = this._zones();
+          this._zones.set(current.map((z) => (z.id === id ? updated : z)));
+        }),
+        catchError((err) => {
+          this._error.set('Error al actualizar la zona');
+          return throwError(() => err);
+        }),
+        finalize(() => this._loading.set(false)),
+      );
   }
 
   removeZone(companyId: string, countryId: string, regionId: string, id: string): Observable<void> {
@@ -90,9 +117,9 @@ export class CompanyZoneService {
     return this.http.delete<void>(`${this.zonesUrl(companyId, countryId, regionId)}/${id}`).pipe(
       tap(() => {
         const current = this._zones();
-        this._zones.set(current.filter(z => z.id !== id));
+        this._zones.set(current.filter((z) => z.id !== id));
       }),
-      catchError(err => {
+      catchError((err) => {
         this._error.set('Error al eliminar la zona');
         return throwError(() => err);
       }),
@@ -100,20 +127,27 @@ export class CompanyZoneService {
     );
   }
 
-  enableZone(companyId: string, countryId: string, regionId: string, id: string): Observable<CompanyZone> {
+  enableZone(
+    companyId: string,
+    countryId: string,
+    regionId: string,
+    id: string,
+  ): Observable<CompanyZone> {
     this._loading.set(true);
     this._error.set(null);
-    return this.http.patch<CompanyZone>(`${this.zonesUrl(companyId, countryId, regionId)}/${id}`, {}).pipe(
-      tap(updated => {
-        const current = this._zones();
-        this._zones.set(current.map(z => (z.id === id ? updated : z)));
-      }),
-      catchError(err => {
-        this._error.set('Error al reactivar la zona');
-        return throwError(() => err);
-      }),
-      finalize(() => this._loading.set(false)),
-    );
+    return this.http
+      .patch<CompanyZone>(`${this.zonesUrl(companyId, countryId, regionId)}/${id}`, {})
+      .pipe(
+        tap((updated) => {
+          const current = this._zones();
+          this._zones.set(current.map((z) => (z.id === id ? updated : z)));
+        }),
+        catchError((err) => {
+          this._error.set('Error al reactivar la zona');
+          return throwError(() => err);
+        }),
+        finalize(() => this._loading.set(false)),
+      );
   }
 
   clearError(): void {

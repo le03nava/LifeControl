@@ -1,9 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
-import {
-  HttpClientTestingModule,
-  HttpTestingController,
-} from '@angular/common/http/testing';
+import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 import { of, throwError } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
 import { StatusSelector } from './status-selector';
@@ -109,17 +106,13 @@ describe('StatusSelector', () => {
 
     // Flush status type lookup
     const typeReq = httpMock.expectOne(
-      (r) =>
-        r.url === `${TEST_API}/status-types` &&
-        r.params.get('search') === 'PURCHASE_ORDER',
+      (r) => r.url === `${TEST_API}/status-types` && r.params.get('search') === 'PURCHASE_ORDER',
     );
     typeReq.flush(mockStatusTypesPage);
 
     // Flush statuses lookup
     const statusReq = httpMock.expectOne(
-      (r) =>
-        r.url === `${TEST_API}/statuses` &&
-        r.params.get('statusTypeId') === 'type-po',
+      (r) => r.url === `${TEST_API}/statuses` && r.params.get('statusTypeId') === 'type-po',
     );
     statusReq.flush(mockStatuses);
 
@@ -278,16 +271,13 @@ describe('StatusSelector', () => {
       const f = setupWithOrder(order, httpMock);
       const comp = f.componentInstance;
 
-      purchaseOrderService.updateStatus = vi
-        .fn()
-        .mockReturnValue(of(order));
+      purchaseOrderService.updateStatus = vi.fn().mockReturnValue(of(order));
 
       comp.onStatusChange('st-sent');
 
-      expect(purchaseOrderService.updateStatus).toHaveBeenCalledWith(
-        'po-1',
-        { statusId: 'st-sent' },
-      );
+      expect(purchaseOrderService.updateStatus).toHaveBeenCalledWith('po-1', {
+        statusId: 'st-sent',
+      });
     });
 
     it('should emit statusChanged on successful update', () => {
@@ -314,9 +304,7 @@ describe('StatusSelector', () => {
       const f = setupWithOrder(order, httpMock);
       const comp = f.componentInstance;
 
-      purchaseOrderService.updateStatus = vi
-        .fn()
-        .mockReturnValue(of(order));
+      purchaseOrderService.updateStatus = vi.fn().mockReturnValue(of(order));
 
       comp.onStatusChange('st-sent');
 
@@ -364,9 +352,7 @@ describe('StatusSelector', () => {
 
       comp.onStatusChange('st-sent');
 
-      expect(notificationService.showError).toHaveBeenCalledWith(
-        'Orden de compra no encontrada.',
-      );
+      expect(notificationService.showError).toHaveBeenCalledWith('Orden de compra no encontrada.');
     });
   });
 

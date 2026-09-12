@@ -90,7 +90,9 @@ describe('RegionsCard', () => {
       setRegion(activeRegion);
 
       let emittedId: string | undefined;
-      component.editRegion.subscribe((id) => { emittedId = id; });
+      component.editRegion.subscribe((id) => {
+        emittedId = id;
+      });
 
       const editBtn = fixture.nativeElement.querySelector('button[aria-label="Editar región"]');
       expect(editBtn).toBeTruthy();
@@ -103,7 +105,9 @@ describe('RegionsCard', () => {
       setRegion(activeRegion);
 
       let emittedId: string | undefined;
-      component.deleteRegion.subscribe((id) => { emittedId = id; });
+      component.deleteRegion.subscribe((id) => {
+        emittedId = id;
+      });
 
       const deleteBtn = fixture.nativeElement.querySelector('button[aria-label="Eliminar región"]');
       expect(deleteBtn).toBeTruthy();

@@ -21,7 +21,12 @@
 
     <mat-form-field appearance="outline">
       <mat-label>Description</mat-label>
-      <textarea matInput formControlName="description" rows="3" placeholder="Role description..."></textarea>
+      <textarea
+        matInput
+        formControlName="description"
+        rows="3"
+        placeholder="Role description..."
+      ></textarea>
     </mat-form-field>
 
     <mat-checkbox formControlName="composite" class="composite-checkbox">
@@ -32,12 +37,7 @@
       <button mat-stroked-button type="button" routerLink="../" [disabled]="saving()">
         Cancel
       </button>
-      <button
-        mat-flat-button
-        color="primary"
-        type="submit"
-        [disabled]="form.invalid || saving()"
-      >
+      <button mat-flat-button color="primary" type="submit" [disabled]="form.invalid || saving()">
         @if (saving()) {
           Saving...
         } @else {

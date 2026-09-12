@@ -55,7 +55,10 @@ export class PurchaseOrderService {
   }
 
   /** Add a new line item to an existing purchase order. */
-  addDetail(purchaseOrderId: string, request: PurchaseOrderDetailRequest): Observable<PurchaseOrder> {
+  addDetail(
+    purchaseOrderId: string,
+    request: PurchaseOrderDetailRequest,
+  ): Observable<PurchaseOrder> {
     return this.http.post<PurchaseOrder>(`${this.baseUrl}/${purchaseOrderId}/details`, request);
   }
 

@@ -1,4 +1,12 @@
-import { ChangeDetectionStrategy, Component, computed, DestroyRef, effect, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  DestroyRef,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
 import { rxResource, takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
@@ -112,11 +120,22 @@ export class StoresPage {
       const region = this.selectedRegion();
       const zone = this.selectedZone();
       if (!country || !region || !zone) return undefined;
-      return { companyId: country.companyId, countryId: country.id, regionId: region.id, zoneId: zone.id };
+      return {
+        companyId: country.companyId,
+        countryId: country.id,
+        regionId: region.id,
+        zoneId: zone.id,
+      };
     },
     stream: ({ params }) =>
       this.companyStoreService
-        .getStores(params.companyId, params.countryId, params.regionId, params.zoneId, this.showDisabled())
+        .getStores(
+          params.companyId,
+          params.countryId,
+          params.regionId,
+          params.zoneId,
+          this.showDisabled(),
+        )
         .pipe(catchError(() => of([] as CompanyStore[]))),
     defaultValue: [] as CompanyStore[],
   });
@@ -131,7 +150,10 @@ export class StoresPage {
   });
 
   /** compareWith for mat-select: both sides are CompanyCountry objects */
-  protected compareCompanyCountry = (a: CompanyCountry | null, b: CompanyCountry | null): boolean => {
+  protected compareCompanyCountry = (
+    a: CompanyCountry | null,
+    b: CompanyCountry | null,
+  ): boolean => {
     return a?.id === b?.id;
   };
 
@@ -215,7 +237,12 @@ export class StoresPage {
     const zone = this.selectedZone();
     if (!cc || !region || !zone) return;
     this.router.navigate(['/companies/stores/create'], {
-      queryParams: { companyId: cc.companyId, countryId: cc.id, regionId: region.id, zoneId: zone.id },
+      queryParams: {
+        companyId: cc.companyId,
+        countryId: cc.id,
+        regionId: region.id,
+        zoneId: zone.id,
+      },
     });
   }
 

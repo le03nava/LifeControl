@@ -16,10 +16,7 @@ import { CompanyStoreService } from '@features/companies/stores/data/company-sto
 import { ProfileService } from '@features/user/profile/data/profile.service';
 import { NotificationService } from '@shared/data/notification';
 import { ConfigService } from '@app/services/config.service';
-import type {
-  PurchaseOrder,
-  Page,
-} from '../../models/purchase-order.models';
+import type { PurchaseOrder, Page } from '../../models/purchase-order.models';
 
 const TEST_API = 'http://test/api';
 
@@ -76,9 +73,7 @@ function createActivatedRoute(params: { id?: string }) {
   return {
     snapshot: {
       paramMap: {
-        get: vi
-          .fn()
-          .mockReturnValue(params.id ?? null),
+        get: vi.fn().mockReturnValue(params.id ?? null),
       },
     },
   };
@@ -156,18 +151,20 @@ describe('PurchaseOrderEdit', () => {
     {
       provide: ProfileService,
       useValue: {
-        getProfile: vi.fn().mockReturnValue(of({
-          keycloakUserId: 'user-1',
-          username: 'testuser',
-          email: 'test@example.com',
-          firstName: 'Test',
-          lastName: 'User',
-          companyId: null,
-          companyCountryId: null,
-          companyRegionId: null,
-          companyZoneId: null,
-          companyStoreId: null,
-        })),
+        getProfile: vi.fn().mockReturnValue(
+          of({
+            keycloakUserId: 'user-1',
+            username: 'testuser',
+            email: 'test@example.com',
+            firstName: 'Test',
+            lastName: 'User',
+            companyId: null,
+            companyCountryId: null,
+            companyRegionId: null,
+            companyZoneId: null,
+            companyStoreId: null,
+          }),
+        ),
       },
     },
     {
@@ -190,11 +187,7 @@ describe('PurchaseOrderEdit', () => {
   describe('create mode', () => {
     beforeEach(async () => {
       await TestBed.configureTestingModule({
-        imports: [
-          PurchaseOrderEdit,
-          NoopAnimationsModule,
-          HttpClientTestingModule,
-        ],
+        imports: [PurchaseOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
         providers: baseProviders(null),
       }).compileComponents();
 
@@ -230,9 +223,7 @@ describe('PurchaseOrderEdit', () => {
     });
 
     it('should load supplier products when supplier changes', () => {
-      const mockProducts = [
-        { productId: 'prod-1', productName: 'Widget A', sku: 'SKU-001' },
-      ];
+      const mockProducts = [{ productId: 'prod-1', productName: 'Widget A', sku: 'SKU-001' }];
       productService.getProductsBySupplier = vi.fn().mockReturnValue(of(mockProducts));
 
       const form = component.headerForm();
@@ -264,9 +255,7 @@ describe('PurchaseOrderEdit', () => {
 
     it('should navigate to edit page after successful create', () => {
       const created: PurchaseOrder = { ...mockOrder, id: 'po-new' };
-      purchaseOrderService.create = vi
-        .fn()
-        .mockReturnValue(of(created));
+      purchaseOrderService.create = vi.fn().mockReturnValue(of(created));
 
       const form = component.headerForm();
       form.controls.supplierId.setValue('sup-1');
@@ -274,10 +263,7 @@ describe('PurchaseOrderEdit', () => {
       form.controls.paymentMethodId.setValue('pm-1');
       component.onSave();
 
-      expect(router.navigate).toHaveBeenCalledWith([
-        '/purchases/orders',
-        'po-new',
-      ]);
+      expect(router.navigate).toHaveBeenCalledWith(['/purchases/orders', 'po-new']);
     });
 
     it('should not save when form is invalid', () => {
@@ -348,11 +334,7 @@ describe('PurchaseOrderEdit', () => {
   describe('edit mode', () => {
     beforeEach(async () => {
       await TestBed.configureTestingModule({
-        imports: [
-          PurchaseOrderEdit,
-          NoopAnimationsModule,
-          HttpClientTestingModule,
-        ],
+        imports: [PurchaseOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
         providers: baseProviders('po-1'),
       }).compileComponents();
 
@@ -376,9 +358,7 @@ describe('PurchaseOrderEdit', () => {
     });
 
     it('should load order and populate form', () => {
-      expect(purchaseOrderService.getPurchaseOrder).toHaveBeenCalledWith(
-        'po-1',
-      );
+      expect(purchaseOrderService.getPurchaseOrder).toHaveBeenCalledWith('po-1');
 
       const form = component.headerForm();
       expect(form.controls.supplierId.value).toBe('sup-1');
@@ -481,11 +461,7 @@ describe('PurchaseOrderEdit', () => {
   describe('line items', () => {
     beforeEach(async () => {
       await TestBed.configureTestingModule({
-        imports: [
-          PurchaseOrderEdit,
-          NoopAnimationsModule,
-          HttpClientTestingModule,
-        ],
+        imports: [PurchaseOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
         providers: baseProviders('po-1'),
       }).compileComponents();
 
@@ -525,12 +501,9 @@ describe('PurchaseOrderEdit', () => {
       component.onSave();
 
       expect(purchaseOrderService.update).toHaveBeenCalled();
-      const callArgs = (purchaseOrderService.update as ReturnType<typeof vi.fn>)
-        .mock.calls[0];
+      const callArgs = (purchaseOrderService.update as ReturnType<typeof vi.fn>).mock.calls[0];
       const request = callArgs[1];
-      expect(request.details).toEqual([
-        { productId: 'prod-1', quantity: 20, unitPrice: 150 },
-      ]);
+      expect(request.details).toEqual([{ productId: 'prod-1', quantity: 20, unitPrice: 150 }]);
     });
   });
 
@@ -541,11 +514,7 @@ describe('PurchaseOrderEdit', () => {
   describe('onCancel', () => {
     it('should navigate back to order list', async () => {
       await TestBed.configureTestingModule({
-        imports: [
-          PurchaseOrderEdit,
-          NoopAnimationsModule,
-          HttpClientTestingModule,
-        ],
+        imports: [PurchaseOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
         providers: baseProviders(null),
       }).compileComponents();
 

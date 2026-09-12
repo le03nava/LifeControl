@@ -81,9 +81,16 @@ describe('ProductEdit', () => {
   });
 
   it('should be in edit mode when id param exists', () => {
-    productServiceMock.getProductById = vi.fn().mockReturnValue(of({
-      id: 'existing-id', sku: 'SKU', name: 'Test', enabled: true, createdAt: '', updatedAt: '',
-    }));
+    productServiceMock.getProductById = vi.fn().mockReturnValue(
+      of({
+        id: 'existing-id',
+        sku: 'SKU',
+        name: 'Test',
+        enabled: true,
+        createdAt: '',
+        updatedAt: '',
+      }),
+    );
 
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({

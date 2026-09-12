@@ -1,9 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
-import {
-  HttpClientTestingModule,
-  HttpTestingController,
-} from '@angular/common/http/testing';
+import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 import { ProductVariantSelector } from './product-variant-selector';
 import { ConfigService } from '@app/services/config.service';
 import type { ProductVariantOption } from '../../models/sales-order.models';
@@ -37,14 +34,8 @@ describe('ProductVariantSelector', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [
-        ProductVariantSelector,
-        NoopAnimationsModule,
-        HttpClientTestingModule,
-      ],
-      providers: [
-        { provide: ConfigService, useValue: { apiUrl: TEST_API } },
-      ],
+      imports: [ProductVariantSelector, NoopAnimationsModule, HttpClientTestingModule],
+      providers: [{ provide: ConfigService, useValue: { apiUrl: TEST_API } }],
     }).compileComponents();
 
     httpMock = TestBed.inject(HttpTestingController);
@@ -123,9 +114,7 @@ describe('ProductVariantSelector', () => {
       fixture.detectChanges();
 
       const req = httpMock.expectOne(
-        (r) =>
-          r.url === `${TEST_API}/product-variants/search` &&
-          r.params.get('q') === 'van',
+        (r) => r.url === `${TEST_API}/product-variants/search` && r.params.get('q') === 'van',
       );
       expect(req.request.method).toBe('GET');
 
@@ -178,9 +167,7 @@ describe('ProductVariantSelector', () => {
       await waitFor(DEBOUNCE_WAIT);
       fixture.detectChanges();
 
-      const req = httpMock.expectOne(
-        (r) => r.url === `${TEST_API}/product-variants/search`,
-      );
+      const req = httpMock.expectOne((r) => r.url === `${TEST_API}/product-variants/search`);
       req.flush(searchResponse([]));
       fixture.detectChanges();
 
@@ -212,9 +199,7 @@ describe('ProductVariantSelector', () => {
       fixture.detectChanges();
 
       const req = httpMock.expectOne(
-        (r) =>
-          r.url === `${TEST_API}/product-variants/search` &&
-          r.params.get('q') === 'lapto',
+        (r) => r.url === `${TEST_API}/product-variants/search` && r.params.get('q') === 'lapto',
       );
       expect(req.request.method).toBe('GET');
 
@@ -244,9 +229,7 @@ describe('ProductVariantSelector', () => {
       await waitFor(DEBOUNCE_WAIT);
       fixture.detectChanges();
 
-      const req = httpMock.expectOne(
-        (r) => r.url === `${TEST_API}/product-variants/search`,
-      );
+      const req = httpMock.expectOne((r) => r.url === `${TEST_API}/product-variants/search`);
 
       const results: ProductVariantOption[] = [
         {
@@ -295,9 +278,7 @@ describe('ProductVariantSelector', () => {
       await waitFor(DEBOUNCE_WAIT);
       fixture.detectChanges();
 
-      const req = httpMock.expectOne(
-        (r) => r.url === `${TEST_API}/product-variants/search`,
-      );
+      const req = httpMock.expectOne((r) => r.url === `${TEST_API}/product-variants/search`);
       req.flush('Server error', {
         status: 500,
         statusText: 'Internal Server Error',
@@ -389,9 +370,7 @@ describe('ProductVariantSelector', () => {
 
       component.onSearchEnter(new KeyboardEvent('keydown', { key: 'Enter' }));
 
-      const req = httpMock.expectOne(
-        (r) => r.url === `${TEST_API}/product-variants/search`,
-      );
+      const req = httpMock.expectOne((r) => r.url === `${TEST_API}/product-variants/search`);
 
       const variant: ProductVariantOption = {
         id: 'v1',
@@ -424,9 +403,7 @@ describe('ProductVariantSelector', () => {
 
       component.onSearchEnter(new KeyboardEvent('keydown', { key: 'Enter' }));
 
-      const req = httpMock.expectOne(
-        (r) => r.url === `${TEST_API}/product-variants/search`,
-      );
+      const req = httpMock.expectOne((r) => r.url === `${TEST_API}/product-variants/search`);
 
       const results: ProductVariantOption[] = [
         {
@@ -470,9 +447,7 @@ describe('ProductVariantSelector', () => {
 
       component.onSearchEnter(new KeyboardEvent('keydown', { key: 'Enter' }));
 
-      const req = httpMock.expectOne(
-        (r) => r.url === `${TEST_API}/product-variants/search`,
-      );
+      const req = httpMock.expectOne((r) => r.url === `${TEST_API}/product-variants/search`);
 
       let emitted = false;
       const sub = component.variantSelected.subscribe(() => (emitted = true));

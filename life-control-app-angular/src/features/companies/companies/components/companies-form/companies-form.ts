@@ -1,16 +1,5 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  computed,
-  effect,
-  input,
-  output,
-} from '@angular/core';
-import {
-  AbstractControl,
-  FormGroup,
-  ReactiveFormsModule,
-} from '@angular/forms';
+import { ChangeDetectionStrategy, Component, computed, effect, input, output } from '@angular/core';
+import { AbstractControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
 import { Company, CompanyControl } from '../../models/company.models';
 import { MatButtonModule } from '@angular/material/button';
@@ -26,12 +15,20 @@ import { Country } from '@features/companies/countries/models/country.models';
   selector: 'app-companies-form',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ReactiveFormsModule, MatFormFieldModule, MatInputModule, MatButtonModule, MatSelectModule, MatSlideToggleModule, MatIconModule, AddressFormComponent],
+  imports: [
+    ReactiveFormsModule,
+    MatFormFieldModule,
+    MatInputModule,
+    MatButtonModule,
+    MatSelectModule,
+    MatSlideToggleModule,
+    MatIconModule,
+    AddressFormComponent,
+  ],
   templateUrl: './companies-form.html',
   styleUrl: './companies-form.scss',
 })
 export class CompaniesForm {
-
   formGroup = input.required<FormGroup<CompanyControl>>();
   serverErrors = input<Record<string, string>>({});
   addressServerErrors = input<Record<string, string>>({});
@@ -117,7 +114,7 @@ export class CompaniesForm {
       });
 
       onCleanup(() => {
-        subscriptions.forEach(sub => sub.unsubscribe());
+        subscriptions.forEach((sub) => sub.unsubscribe());
       });
     });
   }
@@ -127,12 +124,16 @@ export class CompaniesForm {
 
     if (this.formGroup().valid) {
       const raw = this.formGroup().getRawValue();
-      const hasAddress = raw.address && (
-        raw.address.street || raw.address.streetNumber ||
-        raw.address.internalNumber || raw.address.neighborhood ||
-        raw.address.zipCode || raw.address.city ||
-        raw.address.state || raw.address.countryId
-      );
+      const hasAddress =
+        raw.address &&
+        (raw.address.street ||
+          raw.address.streetNumber ||
+          raw.address.internalNumber ||
+          raw.address.neighborhood ||
+          raw.address.zipCode ||
+          raw.address.city ||
+          raw.address.state ||
+          raw.address.countryId);
       const companyData: Company = {
         id: raw.id,
         companyKey: raw.companyKey ?? '',

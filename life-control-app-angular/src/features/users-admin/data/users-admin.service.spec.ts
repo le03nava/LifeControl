@@ -3,7 +3,14 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { provideHttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { UsersAdminService } from './users-admin.service';
-import { Role, RoleRequest, UserSearchResult, PageResponse, RoleAssignmentRequest, ChildRoleRequest } from '../models/users-admin.models';
+import {
+  Role,
+  RoleRequest,
+  UserSearchResult,
+  PageResponse,
+  RoleAssignmentRequest,
+  ChildRoleRequest,
+} from '../models/users-admin.models';
 import { ConfigService } from '@app/services/config.service';
 
 describe('UsersAdminService', () => {
@@ -96,7 +103,9 @@ describe('UsersAdminService', () => {
     it('should GET /roles/realm/{name}', async () => {
       const rolePromise = firstValueFrom(service.getRealmRole('admin-role'));
 
-      const req = httpMock.expectOne('http://localhost:9000/api/users-admin/roles/realm/admin-role');
+      const req = httpMock.expectOne(
+        'http://localhost:9000/api/users-admin/roles/realm/admin-role',
+      );
       expect(req.request.method).toBe('GET');
       req.flush(mockRole);
 
@@ -107,7 +116,9 @@ describe('UsersAdminService', () => {
     it('should encode special characters in role name', async () => {
       const rolePromise = firstValueFrom(service.getRealmRole('role with spaces'));
 
-      const req = httpMock.expectOne('http://localhost:9000/api/users-admin/roles/realm/role%20with%20spaces');
+      const req = httpMock.expectOne(
+        'http://localhost:9000/api/users-admin/roles/realm/role%20with%20spaces',
+      );
       expect(req.request.method).toBe('GET');
       req.flush(mockRole);
 
@@ -122,7 +133,9 @@ describe('UsersAdminService', () => {
 
       const rolePromise = firstValueFrom(service.updateRealmRole('admin-role', request));
 
-      const req = httpMock.expectOne('http://localhost:9000/api/users-admin/roles/realm/admin-role');
+      const req = httpMock.expectOne(
+        'http://localhost:9000/api/users-admin/roles/realm/admin-role',
+      );
       expect(req.request.method).toBe('PUT');
       expect(req.request.body).toEqual(request);
       req.flush(mockRole);
@@ -136,7 +149,9 @@ describe('UsersAdminService', () => {
     it('should DELETE /roles/realm/{name}', async () => {
       const deletePromise = firstValueFrom(service.deleteRealmRole('admin-role'));
 
-      const req = httpMock.expectOne('http://localhost:9000/api/users-admin/roles/realm/admin-role');
+      const req = httpMock.expectOne(
+        'http://localhost:9000/api/users-admin/roles/realm/admin-role',
+      );
       expect(req.request.method).toBe('DELETE');
       req.flush(null);
 
@@ -152,7 +167,9 @@ describe('UsersAdminService', () => {
 
       service.loadClientRoles('my-client');
 
-      const req = httpMock.expectOne('http://localhost:9000/api/users-admin/roles/client/my-client');
+      const req = httpMock.expectOne(
+        'http://localhost:9000/api/users-admin/roles/client/my-client',
+      );
       expect(req.request.method).toBe('GET');
       req.flush(mockRoles);
 
@@ -167,7 +184,9 @@ describe('UsersAdminService', () => {
 
       const rolePromise = firstValueFrom(service.createClientRole('my-client', request));
 
-      const req = httpMock.expectOne('http://localhost:9000/api/users-admin/roles/client/my-client');
+      const req = httpMock.expectOne(
+        'http://localhost:9000/api/users-admin/roles/client/my-client',
+      );
       expect(req.request.method).toBe('POST');
       expect(req.request.body).toEqual(request);
       req.flush(mockRole);
@@ -185,7 +204,9 @@ describe('UsersAdminService', () => {
 
       const addPromise = firstValueFrom(service.addChildRole('parent-role', request));
 
-      const req = httpMock.expectOne('http://localhost:9000/api/users-admin/roles/realm/parent-role/children');
+      const req = httpMock.expectOne(
+        'http://localhost:9000/api/users-admin/roles/realm/parent-role/children',
+      );
       expect(req.request.method).toBe('POST');
       expect(req.request.body).toEqual(request);
       req.flush(null);
@@ -198,7 +219,9 @@ describe('UsersAdminService', () => {
     it('should DELETE /roles/realm/{parentName}/children/{childName}', async () => {
       const removePromise = firstValueFrom(service.removeChildRole('parent-role', 'child-role'));
 
-      const req = httpMock.expectOne('http://localhost:9000/api/users-admin/roles/realm/parent-role/children/child-role');
+      const req = httpMock.expectOne(
+        'http://localhost:9000/api/users-admin/roles/realm/parent-role/children/child-role',
+      );
       expect(req.request.method).toBe('DELETE');
       req.flush(null);
 
@@ -257,7 +280,9 @@ describe('UsersAdminService', () => {
 
       const assignPromise = firstValueFrom(service.assignRealmRole('user-1', request));
 
-      const req = httpMock.expectOne('http://localhost:9000/api/users-admin/users/user-1/roles/realm');
+      const req = httpMock.expectOne(
+        'http://localhost:9000/api/users-admin/users/user-1/roles/realm',
+      );
       expect(req.request.method).toBe('POST');
       expect(req.request.body).toEqual(request);
       req.flush(null);
@@ -268,11 +293,19 @@ describe('UsersAdminService', () => {
 
   describe('assignClientRole', () => {
     it('should POST /users/{id}/roles/client/{clientId} with RoleAssignmentRequest', async () => {
-      const request: RoleAssignmentRequest = { roleName: 'client-role', scope: 'client', clientId: 'my-client' };
+      const request: RoleAssignmentRequest = {
+        roleName: 'client-role',
+        scope: 'client',
+        clientId: 'my-client',
+      };
 
-      const assignPromise = firstValueFrom(service.assignClientRole('user-1', 'my-client', request));
+      const assignPromise = firstValueFrom(
+        service.assignClientRole('user-1', 'my-client', request),
+      );
 
-      const req = httpMock.expectOne('http://localhost:9000/api/users-admin/users/user-1/roles/client/my-client');
+      const req = httpMock.expectOne(
+        'http://localhost:9000/api/users-admin/users/user-1/roles/client/my-client',
+      );
       expect(req.request.method).toBe('POST');
       expect(req.request.body).toEqual(request);
       req.flush(null);
@@ -285,7 +318,9 @@ describe('UsersAdminService', () => {
     it('should DELETE /users/{id}/roles/realm/{roleName}', async () => {
       const removePromise = firstValueFrom(service.removeRealmRole('user-1', 'admin-role'));
 
-      const req = httpMock.expectOne('http://localhost:9000/api/users-admin/users/user-1/roles/realm/admin-role');
+      const req = httpMock.expectOne(
+        'http://localhost:9000/api/users-admin/users/user-1/roles/realm/admin-role',
+      );
       expect(req.request.method).toBe('DELETE');
       req.flush(null);
 
@@ -295,7 +330,9 @@ describe('UsersAdminService', () => {
 
   describe('removeClientRole', () => {
     it('should DELETE /users/{id}/roles/client/{clientId}/{roleName}', async () => {
-      const removePromise = firstValueFrom(service.removeClientRole('user-1', 'my-client', 'client-role'));
+      const removePromise = firstValueFrom(
+        service.removeClientRole('user-1', 'my-client', 'client-role'),
+      );
 
       const req = httpMock.expectOne(
         'http://localhost:9000/api/users-admin/users/user-1/roles/client/my-client/client-role',
@@ -315,7 +352,9 @@ describe('UsersAdminService', () => {
 
       const attrsPromise = firstValueFrom(service.getUserAttributes('user-1'));
 
-      const req = httpMock.expectOne('http://localhost:9000/api/users-admin/users/user-1/attributes');
+      const req = httpMock.expectOne(
+        'http://localhost:9000/api/users-admin/users/user-1/attributes',
+      );
       expect(req.request.method).toBe('GET');
       req.flush(mockAttrs);
 
@@ -328,7 +367,9 @@ describe('UsersAdminService', () => {
     it('should PUT /users/{id}/attributes/{key} with values array', async () => {
       const values = ['value1', 'value2'];
 
-      const updatePromise = firstValueFrom(service.updateUserAttribute('user-1', 'custom-key', values));
+      const updatePromise = firstValueFrom(
+        service.updateUserAttribute('user-1', 'custom-key', values),
+      );
 
       const req = httpMock.expectOne(
         'http://localhost:9000/api/users-admin/users/user-1/attributes/custom-key',

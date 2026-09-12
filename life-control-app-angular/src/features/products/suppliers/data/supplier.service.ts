@@ -27,9 +27,7 @@ export class SupplierService {
   }
 
   getSuppliers(page = 0, size = 12, search?: string): Observable<Page<Supplier>> {
-    let params = new HttpParams()
-      .set('page', page.toString())
-      .set('size', size.toString());
+    let params = new HttpParams().set('page', page.toString()).set('size', size.toString());
 
     if (search) {
       params = params.set('search', search);
@@ -48,7 +46,7 @@ export class SupplierService {
 
     return this.http.post<Supplier>(this.apiUrl, data).pipe(
       finalize(() => this._loading.set(false)),
-      catchError(err => {
+      catchError((err) => {
         this._error.set('Error al crear el proveedor');
         return throwError(() => err);
       }),
@@ -61,7 +59,7 @@ export class SupplierService {
 
     return this.http.put<Supplier>(`${this.apiUrl}/${id}`, data).pipe(
       finalize(() => this._loading.set(false)),
-      catchError(err => {
+      catchError((err) => {
         this._error.set('Error al actualizar el proveedor');
         return throwError(() => err);
       }),
@@ -74,7 +72,7 @@ export class SupplierService {
 
     return this.http.delete<void>(`${this.apiUrl}/${id}`).pipe(
       finalize(() => this._loading.set(false)),
-      catchError(err => {
+      catchError((err) => {
         this._error.set('Error al eliminar el proveedor');
         return throwError(() => err);
       }),

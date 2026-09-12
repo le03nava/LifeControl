@@ -8,14 +8,53 @@ describe('CountrySelector', () => {
   let fixture: ComponentFixture<CountrySelector>;
 
   const mockCountries: Country[] = [
-    { id: '1', countryCode: 'MX', countryName: 'Mexico', enabled: true, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
-    { id: '2', countryCode: 'CO', countryName: 'Colombia', enabled: true, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
-    { id: '3', countryCode: 'BR', countryName: 'Brazil', enabled: true, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+    {
+      id: '1',
+      countryCode: 'MX',
+      countryName: 'Mexico',
+      enabled: true,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
+    },
+    {
+      id: '2',
+      countryCode: 'CO',
+      countryName: 'Colombia',
+      enabled: true,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
+    },
+    {
+      id: '3',
+      countryCode: 'BR',
+      countryName: 'Brazil',
+      enabled: true,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
+    },
   ];
 
   const mockAssigned: CompanyCountry[] = [
-    { id: 'cc-1', companyId: 'abc', countryId: '1', countryCode: 'MX', countryName: 'Mexico', localAlias: 'Oficina CDMX', createdAt: '2024-01-01', updatedAt: '2024-01-01' },
-    { id: 'cc-2', companyId: 'abc', countryId: '2', countryCode: 'CO', countryName: 'Colombia', localAlias: null, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+    {
+      id: 'cc-1',
+      companyId: 'abc',
+      countryId: '1',
+      countryCode: 'MX',
+      countryName: 'Mexico',
+      localAlias: 'Oficina CDMX',
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
+    },
+    {
+      id: 'cc-2',
+      companyId: 'abc',
+      countryId: '2',
+      countryCode: 'CO',
+      countryName: 'Colombia',
+      localAlias: null,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
+    },
   ];
 
   beforeEach(async () => {
@@ -34,7 +73,10 @@ describe('CountrySelector', () => {
     errorMessage?: string | null;
   }): void {
     fixture.componentRef.setInput('countries', overrides?.countries ?? mockCountries);
-    fixture.componentRef.setInput('assignedCountries', overrides?.assignedCountries ?? mockAssigned);
+    fixture.componentRef.setInput(
+      'assignedCountries',
+      overrides?.assignedCountries ?? mockAssigned,
+    );
     fixture.componentRef.setInput('loading', overrides?.loading ?? false);
     fixture.componentRef.setInput('errorMessage', overrides?.errorMessage ?? null);
     fixture.detectChanges();
@@ -75,7 +117,9 @@ describe('CountrySelector', () => {
       component.selectedCountryCode.set('');
       let emitted = false;
 
-      component.addCountry.subscribe(() => { emitted = true; });
+      component.addCountry.subscribe(() => {
+        emitted = true;
+      });
       component.onAdd();
 
       expect(emitted).toBe(false);
@@ -156,7 +200,9 @@ describe('CountrySelector', () => {
       component.selectedCountryCode.set('');
       fixture.detectChanges();
 
-      const addBtn = fixture.nativeElement.querySelector('button[mat-raised-button]') as HTMLButtonElement;
+      const addBtn = fixture.nativeElement.querySelector(
+        'button[mat-raised-button]',
+      ) as HTMLButtonElement;
       expect(addBtn.disabled).toBe(true);
     });
 
@@ -165,7 +211,9 @@ describe('CountrySelector', () => {
       component.selectedCountryCode.set('BR');
       fixture.detectChanges();
 
-      const addBtn = fixture.nativeElement.querySelector('button[mat-raised-button]') as HTMLButtonElement;
+      const addBtn = fixture.nativeElement.querySelector(
+        'button[mat-raised-button]',
+      ) as HTMLButtonElement;
       expect(addBtn.disabled).toBe(true);
     });
 

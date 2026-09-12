@@ -28,7 +28,7 @@
               min="1"
               [value]="row.quantity"
               [disabled]="isSaving() === i || isSaving() !== null"
-              (input)="onQuantityChange(i, +($any($event.target).value))"
+              (input)="onQuantityChange(i, +$any($event.target).value)"
               class="inline-input"
             />
           } @else {
@@ -49,7 +49,7 @@
               step="0.01"
               [value]="row.listPrice"
               [disabled]="isSaving() === i || isSaving() !== null"
-              (input)="onListPriceChange(i, +($any($event.target).value))"
+              (input)="onListPriceChange(i, +$any($event.target).value)"
               class="inline-input"
             />
           } @else {
@@ -70,7 +70,7 @@
               step="0.01"
               [value]="row.discountApplied"
               [disabled]="isSaving() === i || isSaving() !== null"
-              (input)="onDiscountChange(i, +($any($event.target).value))"
+              (input)="onDiscountChange(i, +$any($event.target).value)"
               class="inline-input"
             />
           } @else {
@@ -96,11 +96,7 @@
             color="warn"
             (click)="removeItem(i)"
             [disabled]="!isDraft() || isSaving() === i || isSaving() !== null"
-            [matTooltip]="
-              isDraft()
-                ? 'Remove item'
-                : 'Items cannot be modified in this status'
-            "
+            [matTooltip]="isDraft() ? 'Remove item' : 'Items cannot be modified in this status'"
             [attr.aria-label]="'Remove ' + row.productVariantName"
           >
             <mat-icon>delete</mat-icon>
@@ -111,7 +107,6 @@
       <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
       <tr mat-row *matRowDef="let row; columns: displayedColumns"></tr>
     </table>
-
   } @else {
     <div class="no-line-items">
       <mat-icon fontIcon="receipt_long" />
@@ -130,5 +125,4 @@
       <span class="summary-value">{{ lineItemsTotal() | currency }}</span>
     </div>
   </div>
-
 </div>

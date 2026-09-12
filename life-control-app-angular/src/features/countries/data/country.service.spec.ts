@@ -10,16 +10,28 @@ describe('CountryService', () => {
 
   const mockCountries: Country[] = [
     {
-      id: '1', countryCode: 'MX', countryName: 'Mexico',
-      enabled: true, createdAt: '2024-01-01', updatedAt: '2024-01-01',
+      id: '1',
+      countryCode: 'MX',
+      countryName: 'Mexico',
+      enabled: true,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
     },
     {
-      id: '2', countryCode: 'US', countryName: 'United States',
-      enabled: true, createdAt: '2024-01-01', updatedAt: '2024-01-01',
+      id: '2',
+      countryCode: 'US',
+      countryName: 'United States',
+      enabled: true,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
     },
     {
-      id: '3', countryCode: 'CO', countryName: 'Colombia',
-      enabled: true, createdAt: '2024-01-01', updatedAt: '2024-01-01',
+      id: '3',
+      countryCode: 'CO',
+      countryName: 'Colombia',
+      enabled: true,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
     },
   ];
 
@@ -44,7 +56,7 @@ describe('CountryService', () => {
     it('should fetch enabled countries from the API', async () => {
       const countriesPromise = firstValueFrom(service.getCountries());
 
-      const req = httpMock.expectOne(r => r.url === service.apiUrl && r.method === 'GET');
+      const req = httpMock.expectOne((r) => r.url === service.apiUrl && r.method === 'GET');
       expect(req.request.url).toContain('/countries');
       req.flush(mockCountries);
 
@@ -122,7 +134,9 @@ describe('CountryService', () => {
   describe('clearError', () => {
     it('should reset the error signal to null', () => {
       // Simulate setting an error by internal mechanism
-      (service as unknown as { _error: { set: (value: string | null) => void } })._error.set('Some error');
+      (service as unknown as { _error: { set: (value: string | null) => void } })._error.set(
+        'Some error',
+      );
       expect(service.error()).toBe('Some error');
 
       service.clearError();

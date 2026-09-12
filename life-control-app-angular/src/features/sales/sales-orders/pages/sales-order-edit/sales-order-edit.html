@@ -72,56 +72,55 @@
   <!-- Content (shown after loading or in create mode) -->
   @if (!isEditMode() || !loading()) {
     <form [formGroup]="headerForm()" (ngSubmit)="onSave()" novalidate>
+      <!-- Line Items Table (edit mode only — items require an existing order) -->
+      @if (isEditMode()) {
+        <app-sales-order-item-table
+          [items]="lineItems()"
+          [isDraft]="isDraft()"
+          [isSaving]="savingIndex()"
+          (itemRemoved)="onItemRemoved($event)"
+          (quantityChanged)="onQuantityChanged($event)"
+          (listPriceChanged)="onListPriceChanged($event)"
+          (discountChanged)="onDiscountChanged($event)"
+        >
+          <app-product-variant-selector
+            variant-selector
+            [storeId]="loadedOrder()?.companyStoreId ?? null"
+            [scanMode]="scanMode()"
+            (variantSelected)="onVariantSelected($event)"
+          />
+        </app-sales-order-item-table>
+      }
 
-    <!-- Line Items Table (edit mode only — items require an existing order) -->
-    @if (isEditMode()) {
-      <app-sales-order-item-table
-        [items]="lineItems()"
-        [isDraft]="isDraft()"
-        [isSaving]="savingIndex()"
-        (itemRemoved)="onItemRemoved($event)"
-        (quantityChanged)="onQuantityChanged($event)"
-        (listPriceChanged)="onListPriceChanged($event)"
-        (discountChanged)="onDiscountChanged($event)"
-      >
-        <app-product-variant-selector
-          variant-selector
-          [storeId]="loadedOrder()?.companyStoreId ?? null"
-          [scanMode]="scanMode()"
-          (variantSelected)="onVariantSelected($event)"
-        />
-      </app-sales-order-item-table>
-    }
-
-    <!-- Cobrar / Charge (edit mode only) -->
-    @if (isEditMode()) {
-      <div class="charge-section">
-        <span class="charge-label">Cobrar con:</span>
-        <div class="payment-buttons">
-          @for (pm of paymentMethods(); track pm.id) {
-            <button
-              mat-flat-button
-              color="primary"
-              [disabled]="charging() || lineItems().length === 0"
-              [matTooltip]="
-                lineItems().length === 0
-                  ? 'Add at least one product before charging'
-                  : 'Charge with ' + pm.paymentMethodName
-              "
-              (click)="onCharge(pm.id)"
-              [attr.aria-label]="'Charge with ' + pm.paymentMethodName"
-            >
-              @if (charging()) {
-                <mat-icon fontIcon="hourglass_empty" />
-              } @else {
-                <mat-icon fontIcon="payments" />
-              }
-              {{ pm.paymentMethodName }}
-            </button>
-          }
+      <!-- Cobrar / Charge (edit mode only) -->
+      @if (isEditMode()) {
+        <div class="charge-section">
+          <span class="charge-label">Cobrar con:</span>
+          <div class="payment-buttons">
+            @for (pm of paymentMethods(); track pm.id) {
+              <button
+                mat-flat-button
+                color="primary"
+                [disabled]="charging() || lineItems().length === 0"
+                [matTooltip]="
+                  lineItems().length === 0
+                    ? 'Add at least one product before charging'
+                    : 'Charge with ' + pm.paymentMethodName
+                "
+                (click)="onCharge(pm.id)"
+                [attr.aria-label]="'Charge with ' + pm.paymentMethodName"
+              >
+                @if (charging()) {
+                  <mat-icon fontIcon="hourglass_empty" />
+                } @else {
+                  <mat-icon fontIcon="payments" />
+                }
+                {{ pm.paymentMethodName }}
+              </button>
+            }
+          </div>
         </div>
-      </div>
-    }
-  </form>
+      }
+    </form>
   }
 </div>

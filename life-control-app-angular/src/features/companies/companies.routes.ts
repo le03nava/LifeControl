@@ -31,15 +31,18 @@ export const companyRoutes: Routes = [
         children: [
           {
             path: 'list',
-            loadComponent: () => import('./companies/pages/company-list/company-list').then((m) => m.CompanyList),
+            loadComponent: () =>
+              import('./companies/pages/company-list/company-list').then((m) => m.CompanyList),
           },
           {
             path: 'edit/:id',
-            loadComponent: () => import('./companies/pages/company-edit/company-edit').then((m) => m.CompanyEdit),
+            loadComponent: () =>
+              import('./companies/pages/company-edit/company-edit').then((m) => m.CompanyEdit),
           },
           {
             path: 'create',
-            loadComponent: () => import('./companies/pages/company-edit/company-edit').then((m) => m.CompanyEdit),
+            loadComponent: () =>
+              import('./companies/pages/company-edit/company-edit').then((m) => m.CompanyEdit),
           },
         ],
       },
@@ -52,17 +55,23 @@ export const companyRoutes: Routes = [
           {
             path: 'create',
             loadComponent: () =>
-              import('./countries/pages/countries-edit/countries-edit').then((m) => m.CountriesEdit),
+              import('./countries/pages/countries-edit/countries-edit').then(
+                (m) => m.CountriesEdit,
+              ),
           },
           {
             path: 'edit/:id',
             loadComponent: () =>
-              import('./countries/pages/countries-edit/countries-edit').then((m) => m.CountriesEdit),
+              import('./countries/pages/countries-edit/countries-edit').then(
+                (m) => m.CountriesEdit,
+              ),
           },
           {
             path: '',
             loadComponent: () =>
-              import('./countries/pages/countries-page/countries-page').then((m) => m.CountriesPage),
+              import('./countries/pages/countries-page/countries-page').then(
+                (m) => m.CountriesPage,
+              ),
           },
         ],
       },

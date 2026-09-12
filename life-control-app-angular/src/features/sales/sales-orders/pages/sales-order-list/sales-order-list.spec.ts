@@ -50,11 +50,7 @@ const mockOrders: SalesOrder[] = [
   },
 ];
 
-const createMockPage = (
-  orders: SalesOrder[],
-  page = 0,
-  size = 12,
-): Page<SalesOrder> => ({
+const createMockPage = (orders: SalesOrder[], page = 0, size = 12): Page<SalesOrder> => ({
   content: orders,
   totalElements: orders.length,
   totalPages: Math.ceil(orders.length / size) || 1,
@@ -73,9 +69,7 @@ describe('SalesOrderList', () => {
 
   beforeEach(async () => {
     salesOrderService = {
-      getSalesOrders: vi
-        .fn()
-        .mockReturnValue(of(createMockPage(mockOrders))),
+      getSalesOrders: vi.fn().mockReturnValue(of(createMockPage(mockOrders))),
     };
 
     await TestBed.configureTestingModule({
@@ -102,11 +96,7 @@ describe('SalesOrderList', () => {
   describe('data loading', () => {
     it('should call getSalesOrders with default params on init', () => {
       fixture.detectChanges();
-      expect(salesOrderService.getSalesOrders).toHaveBeenCalledWith(
-        0,
-        12,
-        undefined,
-      );
+      expect(salesOrderService.getSalesOrders).toHaveBeenCalledWith(0, 12, undefined);
     });
 
     it('should render table rows when data loads', async () => {
@@ -146,9 +136,7 @@ describe('SalesOrderList', () => {
 
   describe('empty state', () => {
     beforeEach(() => {
-      salesOrderService.getSalesOrders = vi
-        .fn()
-        .mockReturnValue(of(createMockPage([])));
+      salesOrderService.getSalesOrders = vi.fn().mockReturnValue(of(createMockPage([])));
     });
 
     it('should show empty state when no orders', async () => {
@@ -158,9 +146,7 @@ describe('SalesOrderList', () => {
       f.detectChanges();
 
       const emptyEl: HTMLElement = f.nativeElement;
-      expect(emptyEl.textContent).toContain(
-        'No sales orders registered',
-      );
+      expect(emptyEl.textContent).toContain('No sales orders registered');
     });
   });
 
@@ -183,9 +169,7 @@ describe('SalesOrderList', () => {
     });
 
     it('should call service again after onRetry reload', async () => {
-      salesOrderService.getSalesOrders = vi
-        .fn()
-        .mockReturnValue(of(createMockPage(mockOrders)));
+      salesOrderService.getSalesOrders = vi.fn().mockReturnValue(of(createMockPage(mockOrders)));
 
       const f = TestBed.createComponent(SalesOrderList);
       const comp = f.componentInstance;
@@ -194,9 +178,7 @@ describe('SalesOrderList', () => {
       f.detectChanges();
 
       salesOrderService.getSalesOrders.mockClear();
-      salesOrderService.getSalesOrders.mockReturnValue(
-        of(createMockPage(mockOrders)),
-      );
+      salesOrderService.getSalesOrders.mockReturnValue(of(createMockPage(mockOrders)));
 
       comp.onRetry();
       f.detectChanges();
@@ -229,11 +211,7 @@ describe('SalesOrderList', () => {
       vi.advanceTimersByTime(300);
       fixture.detectChanges();
 
-      expect(salesOrderService.getSalesOrders).toHaveBeenCalledWith(
-        0,
-        12,
-        'Juan',
-      );
+      expect(salesOrderService.getSalesOrders).toHaveBeenCalledWith(0, 12, 'Juan');
 
       vi.useRealTimers();
     });
@@ -271,11 +249,7 @@ describe('SalesOrderList', () => {
       fixture.detectChanges();
       vi.advanceTimersByTime(0);
 
-      expect(salesOrderService.getSalesOrders).toHaveBeenCalledWith(
-        1,
-        12,
-        undefined,
-      );
+      expect(salesOrderService.getSalesOrders).toHaveBeenCalledWith(1, 12, undefined);
 
       vi.useRealTimers();
     });
@@ -284,17 +258,12 @@ describe('SalesOrderList', () => {
   describe('navigation', () => {
     it('should navigate to edit page on editOrder', () => {
       component.editOrder('so-1');
-      expect(router.navigate).toHaveBeenCalledWith([
-        '/sales/orders',
-        'so-1',
-      ]);
+      expect(router.navigate).toHaveBeenCalledWith(['/sales/orders', 'so-1']);
     });
 
     it('should navigate to create page on createOrder', () => {
       component.createOrder();
-      expect(router.navigate).toHaveBeenCalledWith([
-        '/sales/orders/new',
-      ]);
+      expect(router.navigate).toHaveBeenCalledWith(['/sales/orders/new']);
     });
   });
 

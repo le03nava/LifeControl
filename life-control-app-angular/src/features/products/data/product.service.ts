@@ -33,9 +33,7 @@ export class ProductService {
   }
 
   getProducts(page = 0, size = 12, search?: string): Observable<Page<Product>> {
-    let params = new HttpParams()
-      .set('page', page.toString())
-      .set('size', size.toString());
+    let params = new HttpParams().set('page', page.toString()).set('size', size.toString());
 
     if (search) {
       params = params.set('search', search);
@@ -62,7 +60,7 @@ export class ProductService {
 
     return this.http.post<Product>(this.apiUrl, data).pipe(
       finalize(() => this._loading.set(false)),
-      catchError(err => {
+      catchError((err) => {
         this._error.set('Error al crear el producto');
         return throwError(() => err);
       }),
@@ -75,7 +73,7 @@ export class ProductService {
 
     return this.http.put<Product>(`${this.apiUrl}/${id}`, data).pipe(
       finalize(() => this._loading.set(false)),
-      catchError(err => {
+      catchError((err) => {
         this._error.set('Error al actualizar el producto');
         return throwError(() => err);
       }),
@@ -88,7 +86,7 @@ export class ProductService {
 
     return this.http.delete<void>(`${this.apiUrl}/${id}`).pipe(
       finalize(() => this._loading.set(false)),
-      catchError(err => {
+      catchError((err) => {
         this._error.set('Error al eliminar el producto');
         return throwError(() => err);
       }),

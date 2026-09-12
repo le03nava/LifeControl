@@ -53,16 +53,12 @@ describe('SalesAdminComponent', () => {
 
   describe('status badges', () => {
     it('should show "Coming soon" badge on the disabled Dashboard card', () => {
-      const badges = fixture.debugElement.queryAll(
-        By.css('.card-badge--coming-soon'),
-      );
+      const badges = fixture.debugElement.queryAll(By.css('.card-badge--coming-soon'));
       expect(badges.length).toBe(1);
     });
 
     it('should not show "Coming soon" badge on the active Ventas card', () => {
-      const activeCard = fixture.debugElement.queryAll(
-        By.css('.dashboard-card'),
-      )[0];
+      const activeCard = fixture.debugElement.queryAll(By.css('.dashboard-card'))[0];
       const badge = activeCard.query(By.css('.card-badge--coming-soon'));
       expect(badge).toBeNull();
     });

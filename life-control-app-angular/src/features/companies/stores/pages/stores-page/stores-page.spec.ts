@@ -22,66 +22,134 @@ describe('StoresPage', () => {
 
   const mockCompanies: Company[] = [
     {
-      id: 'company-1', companyKey: 'COMP001', companyName: 'Test Company One',
-      tipoPersonaId: 1, razonSocial: 'Test Company One SA',
-      rfc: 'ABC123456789', email: 'test@company1.com', phone: '+521234567890',
-      enabled: true, createdAt: '2024-01-01', updatedAt: '2024-01-01',
+      id: 'company-1',
+      companyKey: 'COMP001',
+      companyName: 'Test Company One',
+      tipoPersonaId: 1,
+      razonSocial: 'Test Company One SA',
+      rfc: 'ABC123456789',
+      email: 'test@company1.com',
+      phone: '+521234567890',
+      enabled: true,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
     },
   ];
 
   const mockCompaniesPage: Page<Company> = {
-    content: mockCompanies, totalElements: 1, totalPages: 1, size: 1000, number: 0,
-    first: true, last: true, empty: false,
+    content: mockCompanies,
+    totalElements: 1,
+    totalPages: 1,
+    size: 1000,
+    number: 0,
+    first: true,
+    last: true,
+    empty: false,
   };
 
   const mockAssignedCountries: CompanyCountry[] = [
     {
-      id: 'cc-1', companyId: 'company-1', countryId: 'c1', countryCode: 'MX',
-      countryName: 'Mexico', localAlias: 'Sucursal CDMX',
-      createdAt: '2024-01-01', updatedAt: '2024-01-01',
+      id: 'cc-1',
+      companyId: 'company-1',
+      countryId: 'c1',
+      countryCode: 'MX',
+      countryName: 'Mexico',
+      localAlias: 'Sucursal CDMX',
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
     },
   ];
 
   const mockRegions: CompanyRegion[] = [
     {
-      id: 'reg-1', companyCountryId: 'cc-1', companyId: 'company-1', countryId: 'c1',
-      regionCode: 'CENTRO', regionName: 'Zona Centro', enabled: true,
-      createdAt: '2024-01-01', updatedAt: '2024-01-01',
+      id: 'reg-1',
+      companyCountryId: 'cc-1',
+      companyId: 'company-1',
+      countryId: 'c1',
+      regionCode: 'CENTRO',
+      regionName: 'Zona Centro',
+      enabled: true,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
     },
     {
-      id: 'reg-2', companyCountryId: 'cc-1', companyId: 'company-1', countryId: 'c1',
-      regionCode: 'NORTE', regionName: 'Zona Norte', enabled: true,
-      createdAt: '2024-01-01', updatedAt: '2024-01-01',
+      id: 'reg-2',
+      companyCountryId: 'cc-1',
+      companyId: 'company-1',
+      countryId: 'c1',
+      regionCode: 'NORTE',
+      regionName: 'Zona Norte',
+      enabled: true,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
     },
   ];
 
   const mockZones: CompanyZone[] = [
     {
-      id: 'zone-1', companyRegionId: 'reg-1', companyCountryId: 'cc-1', companyId: 'company-1', countryId: 'c1',
-      zoneCode: 'CDMX-DT', zoneName: 'Downtown', description: 'Centro histórico', displayOrder: 1,
-      enabled: true, createdAt: '2024-01-01', updatedAt: '2024-01-01',
+      id: 'zone-1',
+      companyRegionId: 'reg-1',
+      companyCountryId: 'cc-1',
+      companyId: 'company-1',
+      countryId: 'c1',
+      zoneCode: 'CDMX-DT',
+      zoneName: 'Downtown',
+      description: 'Centro histórico',
+      displayOrder: 1,
+      enabled: true,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
     },
     {
-      id: 'zone-2', companyRegionId: 'reg-1', companyCountryId: 'cc-1', companyId: 'company-1', countryId: 'c1',
-      zoneCode: 'CDMX-NR', zoneName: 'Narvarte', description: 'Zona residencial', displayOrder: 2,
-      enabled: false, createdAt: '2024-01-01', updatedAt: '2024-01-01',
+      id: 'zone-2',
+      companyRegionId: 'reg-1',
+      companyCountryId: 'cc-1',
+      companyId: 'company-1',
+      countryId: 'c1',
+      zoneCode: 'CDMX-NR',
+      zoneName: 'Narvarte',
+      description: 'Zona residencial',
+      displayOrder: 2,
+      enabled: false,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
     },
   ];
 
   const mockStores: CompanyStore[] = [
     {
-      id: 'store-1', companyId: 'company-1', companyCountryId: 'cc-1', regionId: 'reg-1', zoneId: 'zone-1',
-      storeName: 'Tienda Central', email: 'central@store.com', phoneNumber: '+525512345678',
+      id: 'store-1',
+      companyId: 'company-1',
+      companyCountryId: 'cc-1',
+      regionId: 'reg-1',
+      zoneId: 'zone-1',
+      storeName: 'Tienda Central',
+      email: 'central@store.com',
+      phoneNumber: '+525512345678',
       address: {
-        street: 'Av. Reforma', streetNumber: '222', neighborhood: 'Juárez', zipCode: '06600',
-        city: 'Ciudad de México', state: 'CDMX', countryId: 'MX',
+        street: 'Av. Reforma',
+        streetNumber: '222',
+        neighborhood: 'Juárez',
+        zipCode: '06600',
+        city: 'Ciudad de México',
+        state: 'CDMX',
+        countryId: 'MX',
       },
-      enabled: true, createdAt: '2024-01-01', updatedAt: '2024-01-15',
+      enabled: true,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-15',
     },
     {
-      id: 'store-2', companyId: 'company-1', companyCountryId: 'cc-1', regionId: 'reg-1', zoneId: 'zone-1',
-      storeName: 'Tienda Norte', email: 'norte@store.com',
-      enabled: false, createdAt: '2024-01-01', updatedAt: '2024-01-15',
+      id: 'store-2',
+      companyId: 'company-1',
+      companyCountryId: 'cc-1',
+      regionId: 'reg-1',
+      zoneId: 'zone-1',
+      storeName: 'Tienda Norte',
+      email: 'norte@store.com',
+      enabled: false,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-15',
     },
   ];
 
@@ -227,14 +295,18 @@ describe('StoresPage', () => {
   });
 
   it('should load assigned countries when onCompanyChange is called with valid id', () => {
-    const countryService = TestBed.inject(CompanyCountryService) as unknown as MockCompanyCountryService;
+    const countryService = TestBed.inject(
+      CompanyCountryService,
+    ) as unknown as MockCompanyCountryService;
     component.onCompanyChange('company-1');
     fixture.detectChanges();
     expect(countryService.getCountries).toHaveBeenCalledWith('company-1');
   });
 
   it('should NOT load countries when onCompanyChange is called with empty string', () => {
-    const countryService = TestBed.inject(CompanyCountryService) as unknown as MockCompanyCountryService;
+    const countryService = TestBed.inject(
+      CompanyCountryService,
+    ) as unknown as MockCompanyCountryService;
     component.onCompanyChange('');
     fixture.detectChanges();
     expect(countryService.getCountries).not.toHaveBeenCalled();
@@ -248,7 +320,9 @@ describe('StoresPage', () => {
   });
 
   it('should load regions for the selected country', () => {
-    const regionService = TestBed.inject(CompanyRegionService) as unknown as MockCompanyRegionService;
+    const regionService = TestBed.inject(
+      CompanyRegionService,
+    ) as unknown as MockCompanyRegionService;
     component.onSelectCountry(mockAssignedCountries[0]);
     fixture.detectChanges();
     expect(regionService.getRegions).toHaveBeenCalledWith('company-1', 'cc-1');
@@ -309,7 +383,13 @@ describe('StoresPage', () => {
     component.onSelectZone(mockZones[0]);
     fixture.detectChanges();
 
-    expect(storeService.getStores).toHaveBeenCalledWith('company-1', 'cc-1', 'reg-1', 'zone-1', false);
+    expect(storeService.getStores).toHaveBeenCalledWith(
+      'company-1',
+      'cc-1',
+      'reg-1',
+      'zone-1',
+      false,
+    );
   });
 
   it('should NOT load stores when no region is selected on zone select', () => {
@@ -332,7 +412,12 @@ describe('StoresPage', () => {
     component.onCreateStore();
 
     expect(router.navigate).toHaveBeenCalledWith(['/companies/stores/create'], {
-      queryParams: { companyId: 'company-1', countryId: 'cc-1', regionId: 'reg-1', zoneId: 'zone-1' },
+      queryParams: {
+        companyId: 'company-1',
+        countryId: 'cc-1',
+        regionId: 'reg-1',
+        zoneId: 'zone-1',
+      },
     });
   });
 
@@ -385,7 +470,13 @@ describe('StoresPage', () => {
     await settle();
 
     component.onToggleStore('store-1'); // enabled: true
-    expect(storeService.removeStore).toHaveBeenCalledWith('company-1', 'cc-1', 'reg-1', 'zone-1', 'store-1');
+    expect(storeService.removeStore).toHaveBeenCalledWith(
+      'company-1',
+      'cc-1',
+      'reg-1',
+      'zone-1',
+      'store-1',
+    );
   });
 
   it('should call enableStore when toggling a disabled store ON', async () => {
@@ -397,7 +488,13 @@ describe('StoresPage', () => {
     await settle();
 
     component.onToggleStore('store-2'); // enabled: false
-    expect(storeService.enableStore).toHaveBeenCalledWith('company-1', 'cc-1', 'reg-1', 'zone-1', 'store-2');
+    expect(storeService.enableStore).toHaveBeenCalledWith(
+      'company-1',
+      'cc-1',
+      'reg-1',
+      'zone-1',
+      'store-2',
+    );
   });
 
   it('should NOT call service when no country is selected for toggle', () => {
@@ -470,8 +567,12 @@ describe('StoresPage', () => {
       component.onSelectZone(mockZones[0]);
       await settle();
 
-      const storeService = TestBed.inject(CompanyStoreService) as unknown as MockCompanyStoreService;
-      (storeService as unknown as { _error: WritableSignal<string | null> })._error.set('Error al cargar las tiendas');
+      const storeService = TestBed.inject(
+        CompanyStoreService,
+      ) as unknown as MockCompanyStoreService;
+      (storeService as unknown as { _error: WritableSignal<string | null> })._error.set(
+        'Error al cargar las tiendas',
+      );
       fixture.detectChanges();
 
       const errorEl = fixture.nativeElement.querySelector('.error-state');
@@ -480,7 +581,9 @@ describe('StoresPage', () => {
     });
 
     it('should display loading text when loading', () => {
-      const storeService = TestBed.inject(CompanyStoreService) as unknown as MockCompanyStoreService;
+      const storeService = TestBed.inject(
+        CompanyStoreService,
+      ) as unknown as MockCompanyStoreService;
       storeService.getStores = vi.fn().mockReturnValue(NEVER);
 
       component.onCompanyChange('company-1');
@@ -495,7 +598,9 @@ describe('StoresPage', () => {
     });
 
     it('should show empty message "No stores found for this zone" when no stores and not loading', async () => {
-      const storeService = TestBed.inject(CompanyStoreService) as unknown as MockCompanyStoreService;
+      const storeService = TestBed.inject(
+        CompanyStoreService,
+      ) as unknown as MockCompanyStoreService;
       storeService.getStores = vi.fn().mockReturnValue(of([]));
 
       component.onCompanyChange('company-1');
@@ -510,7 +615,9 @@ describe('StoresPage', () => {
     });
 
     it('should NOT show empty message when loading', () => {
-      const storeService = TestBed.inject(CompanyStoreService) as unknown as MockCompanyStoreService;
+      const storeService = TestBed.inject(
+        CompanyStoreService,
+      ) as unknown as MockCompanyStoreService;
       storeService.getStores = vi.fn().mockReturnValue(NEVER);
 
       component.onCompanyChange('company-1');

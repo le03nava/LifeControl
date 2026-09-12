@@ -11,7 +11,7 @@
     matInput
     type="text"
     [value]="searchQuery()"
-    (input)="onSearchChange(($any($event.target).value))"
+    (input)="onSearchChange($any($event.target).value)"
     (keydown.enter)="onSearchEnter($event)"
     [matAutocomplete]="variantAuto"
     [placeholder]="scanMode() ? 'Barcode, SKU, or scan' : 'Barcode, SKU, or name'"
@@ -29,9 +29,7 @@
       </mat-option>
     }
     @if (filteredVariants().length === 0 && searchQuery().length >= 2) {
-      <mat-option disabled>
-        No products found for "{{ searchQuery() }}"
-      </mat-option>
+      <mat-option disabled> No products found for "{{ searchQuery() }}" </mat-option>
     }
   </mat-autocomplete>
 </mat-form-field>

@@ -157,15 +157,10 @@ export class SupplierInfoSection implements OnInit {
     const addressParts: string[] = [];
 
     if (address) {
-      const street =
-        [address.street, address.streetNumber]
-          .filter(Boolean)
-          .join(' ') || '';
+      const street = [address.street, address.streetNumber].filter(Boolean).join(' ') || '';
       if (street) addressParts.push(street);
       if (address.neighborhood) addressParts.push(address.neighborhood);
-      const zipCity = [address.zipCode, address.city]
-        .filter(Boolean)
-        .join(' ');
+      const zipCity = [address.zipCode, address.city].filter(Boolean).join(' ');
       if (zipCity) addressParts.push(zipCity);
       if (address.state) addressParts.push(address.state);
     }

@@ -26,7 +26,12 @@
     <!-- Número Interior -->
     <mat-form-field appearance="outline">
       <mat-label>N° Interior</mat-label>
-      <input matInput type="text" formControlName="internalNumber" placeholder="N° interior (opcional)" />
+      <input
+        matInput
+        type="text"
+        formControlName="internalNumber"
+        placeholder="N° interior (opcional)"
+      />
       @if (getErrorMessage(addressFormGroup().controls.internalNumber); as msg) {
         <mat-error>{{ msg }}</mat-error>
       }

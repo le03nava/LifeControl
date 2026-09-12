@@ -30,8 +30,8 @@ export const bearerTokenInterceptor: HttpInterceptorFn = (req, next) => {
     if (keycloak.authenticated && keycloak.token) {
       const cloned = req.clone({
         setHeaders: {
-          Authorization: `Bearer ${keycloak.token}`
-        }
+          Authorization: `Bearer ${keycloak.token}`,
+        },
       });
       return next(cloned);
     }

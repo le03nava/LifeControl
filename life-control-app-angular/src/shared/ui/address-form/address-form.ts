@@ -1,14 +1,5 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  effect,
-  input,
-} from '@angular/core';
-import {
-  AbstractControl,
-  FormGroup,
-  ReactiveFormsModule,
-} from '@angular/forms';
+import { ChangeDetectionStrategy, Component, effect, input } from '@angular/core';
+import { AbstractControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
@@ -21,7 +12,14 @@ import { Country } from '../../../features/companies/countries/models/country.mo
 @Component({
   selector: 'app-address-form',
   standalone: true,
-  imports: [ReactiveFormsModule, MatFormFieldModule, MatInputModule, MatButtonModule, MatSelectModule, MatIconModule],
+  imports: [
+    ReactiveFormsModule,
+    MatFormFieldModule,
+    MatInputModule,
+    MatButtonModule,
+    MatSelectModule,
+    MatIconModule,
+  ],
   templateUrl: './address-form.html',
   styleUrl: './address-form.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -48,7 +46,10 @@ export class AddressFormComponent {
     required: () => 'Este campo es obligatorio.',
     email: () => 'El formato del correo electrónico no es válido.',
     minlength: (err) => {
-      const { requiredLength, actualLength } = err as { requiredLength?: number; actualLength?: number };
+      const { requiredLength, actualLength } = err as {
+        requiredLength?: number;
+        actualLength?: number;
+      };
       return `Debe tener al menos ${requiredLength} caracteres (llevas ${actualLength}).`;
     },
     maxlength: (err) =>
@@ -105,7 +106,7 @@ export class AddressFormComponent {
       });
 
       onCleanup(() => {
-        subscriptions.forEach(sub => sub.unsubscribe());
+        subscriptions.forEach((sub) => sub.unsubscribe());
       });
     });
   }

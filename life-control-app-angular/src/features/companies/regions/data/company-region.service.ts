@@ -23,13 +23,17 @@ export class CompanyRegionService {
     return `${this.configService.apiUrl}/companies/${companyId}/countries/${countryId}/regions`;
   }
 
-  getRegions(companyId: string, countryId: string, includeDisabled = false): Observable<CompanyRegion[]> {
+  getRegions(
+    companyId: string,
+    countryId: string,
+    includeDisabled = false,
+  ): Observable<CompanyRegion[]> {
     this._loading.set(true);
     this._error.set(null);
     const params = { includeDisabled: String(includeDisabled) };
     return this.http.get<CompanyRegion[]>(this.regionsUrl(companyId, countryId), { params }).pipe(
-      tap(regions => this._regions.set(regions)),
-      catchError(err => {
+      tap((regions) => this._regions.set(regions)),
+      catchError((err) => {
         this._error.set('Error al cargar las regiones');
         return throwError(() => err);
       }),
@@ -37,15 +41,19 @@ export class CompanyRegionService {
     );
   }
 
-  addRegion(companyId: string, countryId: string, request: CompanyRegionRequest): Observable<CompanyRegion> {
+  addRegion(
+    companyId: string,
+    countryId: string,
+    request: CompanyRegionRequest,
+  ): Observable<CompanyRegion> {
     this._loading.set(true);
     this._error.set(null);
     return this.http.post<CompanyRegion>(this.regionsUrl(companyId, countryId), request).pipe(
-      tap(region => {
+      tap((region) => {
         const current = this._regions();
         this._regions.set([...current, region]);
       }),
-      catchError(err => {
+      catchError((err) => {
         if (err.status === 409) {
           this._error.set('Ya existe una región con ese código');
         } else {
@@ -57,20 +65,27 @@ export class CompanyRegionService {
     );
   }
 
-  updateRegion(companyId: string, countryId: string, regionId: string, request: CompanyRegionRequest): Observable<CompanyRegion> {
+  updateRegion(
+    companyId: string,
+    countryId: string,
+    regionId: string,
+    request: CompanyRegionRequest,
+  ): Observable<CompanyRegion> {
     this._loading.set(true);
     this._error.set(null);
-    return this.http.put<CompanyRegion>(`${this.regionsUrl(companyId, countryId)}/${regionId}`, request).pipe(
-      tap(updated => {
-        const current = this._regions();
-        this._regions.set(current.map(r => (r.id === regionId ? updated : r)));
-      }),
-      catchError(err => {
-        this._error.set('Error al actualizar la región');
-        return throwError(() => err);
-      }),
-      finalize(() => this._loading.set(false)),
-    );
+    return this.http
+      .put<CompanyRegion>(`${this.regionsUrl(companyId, countryId)}/${regionId}`, request)
+      .pipe(
+        tap((updated) => {
+          const current = this._regions();
+          this._regions.set(current.map((r) => (r.id === regionId ? updated : r)));
+        }),
+        catchError((err) => {
+          this._error.set('Error al actualizar la región');
+          return throwError(() => err);
+        }),
+        finalize(() => this._loading.set(false)),
+      );
   }
 
   removeRegion(companyId: string, countryId: string, regionId: string): Observable<void> {
@@ -78,9 +93,9 @@ export class CompanyRegionService {
     return this.http.delete<void>(`${this.regionsUrl(companyId, countryId)}/${regionId}`).pipe(
       tap(() => {
         const current = this._regions();
-        this._regions.set(current.filter(r => r.id !== regionId));
+        this._regions.set(current.filter((r) => r.id !== regionId));
       }),
-      catchError(err => {
+      catchError((err) => {
         this._error.set('Error al eliminar la región');
         return throwError(() => err);
       }),
@@ -91,17 +106,19 @@ export class CompanyRegionService {
   enableRegion(companyId: string, countryId: string, regionId: string): Observable<CompanyRegion> {
     this._loading.set(true);
     this._error.set(null);
-    return this.http.patch<CompanyRegion>(`${this.regionsUrl(companyId, countryId)}/${regionId}`, {}).pipe(
-      tap(updated => {
-        const current = this._regions();
-        this._regions.set(current.map(r => (r.id === regionId ? updated : r)));
-      }),
-      catchError(err => {
-        this._error.set('Error al reactivar la región');
-        return throwError(() => err);
-      }),
-      finalize(() => this._loading.set(false)),
-    );
+    return this.http
+      .patch<CompanyRegion>(`${this.regionsUrl(companyId, countryId)}/${regionId}`, {})
+      .pipe(
+        tap((updated) => {
+          const current = this._regions();
+          this._regions.set(current.map((r) => (r.id === regionId ? updated : r)));
+        }),
+        catchError((err) => {
+          this._error.set('Error al reactivar la región');
+          return throwError(() => err);
+        }),
+        finalize(() => this._loading.set(false)),
+      );
   }
 
   clearError(): void {

@@ -22,7 +22,5 @@ export class OrderHeaderForm {
   readonly statusColor = SO_STATUS_COLORS;
   readonly statusLabel = SO_STATUS_LABELS;
 
-  readonly currentStatusName = computed(
-    () => this.loadedOrder()?.statusName ?? null,
-  );
+  readonly currentStatusName = computed(() => this.loadedOrder()?.statusName ?? null);
 }

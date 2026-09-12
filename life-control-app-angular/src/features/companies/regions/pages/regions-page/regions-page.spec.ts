@@ -272,10 +272,7 @@ describe('RegionsPage', () => {
     component.onSelectCountry(mockCC);
     fixture.detectChanges();
 
-    expect(companyRegionService.getRegions).toHaveBeenCalledWith(
-      mockCC.companyId,
-      mockCC.id,
-    );
+    expect(companyRegionService.getRegions).toHaveBeenCalledWith(mockCC.companyId, mockCC.id);
   });
 
   it('should switch selectedCountry when a different country is selected', () => {
@@ -291,10 +288,7 @@ describe('RegionsPage', () => {
     component.onSelectCountry(secondCC);
     fixture.detectChanges();
     expect(component.selectedCountry()).toBe(secondCC);
-    expect(companyRegionService.getRegions).toHaveBeenCalledWith(
-      secondCC.companyId,
-      secondCC.id,
-    );
+    expect(companyRegionService.getRegions).toHaveBeenCalledWith(secondCC.companyId, secondCC.id);
   });
 
   // ─── onCreateRegion ──────────────────────────────────────────
@@ -363,11 +357,7 @@ describe('RegionsPage', () => {
     component.onSelectCountry(mockAssignedCountries[0]);
     component.onRemoveRegion('r-1');
 
-    expect(companyRegionService.removeRegion).toHaveBeenCalledWith(
-      'company-1',
-      'cc-1',
-      'r-1',
-    );
+    expect(companyRegionService.removeRegion).toHaveBeenCalledWith('company-1', 'cc-1', 'r-1');
   });
 
   it('should NOT call removeRegion when no country is selected', () => {
@@ -390,11 +380,7 @@ describe('RegionsPage', () => {
     component.onSelectCountry(mockAssignedCountries[0]);
     component.onEnableRegion('r-1');
 
-    expect(companyRegionService.enableRegion).toHaveBeenCalledWith(
-      'company-1',
-      'cc-1',
-      'r-1',
-    );
+    expect(companyRegionService.enableRegion).toHaveBeenCalledWith('company-1', 'cc-1', 'r-1');
   });
 
   it('should NOT call enableRegion when no country is selected', () => {
@@ -417,11 +403,7 @@ describe('RegionsPage', () => {
     component.onSelectCountry(mockAssignedCountries[0]);
     component.onToggleRegion(mockRegions[0]); // enabled: true
 
-    expect(companyRegionService.removeRegion).toHaveBeenCalledWith(
-      'company-1',
-      'cc-1',
-      'r-1',
-    );
+    expect(companyRegionService.removeRegion).toHaveBeenCalledWith('company-1', 'cc-1', 'r-1');
   });
 
   it('should call onEnableRegion when toggling a disabled region ON', () => {
@@ -432,11 +414,7 @@ describe('RegionsPage', () => {
     component.onSelectCountry(mockAssignedCountries[0]);
     component.onToggleRegion(mockRegions[2]); // enabled: false
 
-    expect(companyRegionService.enableRegion).toHaveBeenCalledWith(
-      'company-1',
-      'cc-1',
-      'r-3',
-    );
+    expect(companyRegionService.enableRegion).toHaveBeenCalledWith('company-1', 'cc-1', 'r-3');
   });
 
   // ─── filteredRegions ─────────────────────────────────────────

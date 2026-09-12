@@ -27,8 +27,8 @@ export class CompanyCountryService {
     this._loading.set(true);
     this._error.set(null);
     return this.http.get<CompanyCountry[]>(this.countriesUrl(companyId)).pipe(
-      tap(countries => this._assignedCountries.set(countries)),
-      catchError(err => {
+      tap((countries) => this._assignedCountries.set(countries)),
+      catchError((err) => {
         this._error.set('Error al cargar los países de la empresa');
         return throwError(() => err);
       }),
@@ -40,11 +40,11 @@ export class CompanyCountryService {
     this._loading.set(true);
     this._error.set(null);
     return this.http.post<CompanyCountry>(this.countriesUrl(companyId), request).pipe(
-      tap(cc => {
+      tap((cc) => {
         const current = this._assignedCountries();
         this._assignedCountries.set([...current, cc]);
       }),
-      catchError(err => {
+      catchError((err) => {
         if (err.status === 409) {
           this._error.set('Este país ya está asignado a esta empresa');
         } else {
@@ -56,24 +56,32 @@ export class CompanyCountryService {
     );
   }
 
-  updateCountry(companyId: string, companyCountryId: string, request: CompanyCountryRequest): Observable<CompanyCountry> {
+  updateCountry(
+    companyId: string,
+    companyCountryId: string,
+    request: CompanyCountryRequest,
+  ): Observable<CompanyCountry> {
     this._loading.set(true);
     this._error.set(null);
-    return this.http.put<CompanyCountry>(`${this.countriesUrl(companyId)}/${companyCountryId}`, request).pipe(
-      tap(updated => {
-        const current = this._assignedCountries();
-        this._assignedCountries.set(current.map(cc => (cc.id === companyCountryId ? updated : cc)));
-      }),
-      catchError(err => {
-        if (err.status === 409) {
-          this._error.set('Este país ya está asignado a esta empresa');
-        } else {
-          this._error.set('Error al actualizar el país');
-        }
-        return throwError(() => err);
-      }),
-      finalize(() => this._loading.set(false)),
-    );
+    return this.http
+      .put<CompanyCountry>(`${this.countriesUrl(companyId)}/${companyCountryId}`, request)
+      .pipe(
+        tap((updated) => {
+          const current = this._assignedCountries();
+          this._assignedCountries.set(
+            current.map((cc) => (cc.id === companyCountryId ? updated : cc)),
+          );
+        }),
+        catchError((err) => {
+          if (err.status === 409) {
+            this._error.set('Este país ya está asignado a esta empresa');
+          } else {
+            this._error.set('Error al actualizar el país');
+          }
+          return throwError(() => err);
+        }),
+        finalize(() => this._loading.set(false)),
+      );
   }
 
   removeCountry(companyId: string, companyCountryId: string): Observable<void> {
@@ -81,9 +89,9 @@ export class CompanyCountryService {
     return this.http.delete<void>(`${this.countriesUrl(companyId)}/${companyCountryId}`).pipe(
       tap(() => {
         const current = this._assignedCountries();
-        this._assignedCountries.set(current.filter(cc => cc.id !== companyCountryId));
+        this._assignedCountries.set(current.filter((cc) => cc.id !== companyCountryId));
       }),
-      catchError(err => {
+      catchError((err) => {
         this._error.set('Error al eliminar país');
         return throwError(() => err);
       }),

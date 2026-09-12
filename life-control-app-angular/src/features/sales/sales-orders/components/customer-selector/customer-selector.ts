@@ -27,11 +27,7 @@ import type { CustomerOption, Page } from '../../models/sales-order.models';
 @Component({
   selector: 'app-customer-selector',
   standalone: true,
-  imports: [
-    MatFormFieldModule,
-    MatInputModule,
-    MatAutocompleteModule,
-  ],
+  imports: [MatFormFieldModule, MatInputModule, MatAutocompleteModule],
   templateUrl: './customer-selector.html',
   styleUrl: './customer-selector.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

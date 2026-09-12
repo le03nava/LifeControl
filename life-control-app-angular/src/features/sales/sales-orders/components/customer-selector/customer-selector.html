@@ -4,7 +4,7 @@
     matInput
     type="text"
     [value]="searchQuery()"
-    (input)="onSearchChange(($any($event.target).value))"
+    (input)="onSearchChange($any($event.target).value)"
     [matAutocomplete]="customerAuto"
     placeholder="Search by name or email"
   />
@@ -21,9 +21,7 @@
       </mat-option>
     }
     @if (filteredCustomers().length === 0 && searchQuery().length >= 2) {
-      <mat-option disabled>
-        No customers found for "{{ searchQuery() }}"
-      </mat-option>
+      <mat-option disabled> No customers found for "{{ searchQuery() }}" </mat-option>
     }
   </mat-autocomplete>
 </mat-form-field>

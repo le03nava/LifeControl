@@ -22,13 +22,11 @@ describe('SalesOrderItemTable', () => {
     }).compileComponents();
   });
 
-  function createFixture(
-    overrides?: {
-      items?: ItemTableRow[];
-      isDraft?: boolean;
-      isSaving?: number | null;
-    },
-  ): { fixture: ComponentFixture<SalesOrderItemTable>; comp: SalesOrderItemTable } {
+  function createFixture(overrides?: {
+    items?: ItemTableRow[];
+    isDraft?: boolean;
+    isSaving?: number | null;
+  }): { fixture: ComponentFixture<SalesOrderItemTable>; comp: SalesOrderItemTable } {
     const fixture = TestBed.createComponent(SalesOrderItemTable);
     const comp = fixture.componentInstance;
 
@@ -53,7 +51,9 @@ describe('SalesOrderItemTable', () => {
 
     it('should render table with items', () => {
       const { fixture } = createFixture({
-        items: [createItem({ productVariantName: 'Laptop Pro 16GB', quantity: 2, listPrice: 1200 })],
+        items: [
+          createItem({ productVariantName: 'Laptop Pro 16GB', quantity: 2, listPrice: 1200 }),
+        ],
       });
 
       const el: HTMLElement = fixture.nativeElement;
@@ -87,7 +87,13 @@ describe('SalesOrderItemTable', () => {
       const { comp } = createFixture({
         items: [
           createItem({ quantity: 2, listPrice: 100, discountApplied: 0 }),
-          createItem({ productVariantId: 'v2', productVariantName: 'Mouse', quantity: 1, listPrice: 50, discountApplied: 5 }),
+          createItem({
+            productVariantId: 'v2',
+            productVariantName: 'Mouse',
+            quantity: 1,
+            listPrice: 50,
+            discountApplied: 5,
+          }),
         ],
       });
 

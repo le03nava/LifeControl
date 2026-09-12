@@ -1,6 +1,8 @@
 .product-card {
   height: 100%;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
   &:hover {
     transform: translateY(-4px);
     box-shadow: var(--shadow-lg);
@@ -43,20 +45,47 @@
   font-size: 0.75rem;
   font-weight: 600;
   white-space: nowrap;
-  &.status.active { background-color: var(--mat-sys-success-container); color: var(--mat-sys-on-success-container); }
-  &.status.inactive { background-color: var(--mat-sys-error-container); color: var(--mat-sys-on-error-container); }
-  &.sku-badge { background-color: var(--mat-sys-secondary-container); color: var(--mat-sys-on-secondary-container); }
-  &.type-badge { background-color: var(--mat-sys-tertiary-container); color: var(--mat-sys-on-tertiary-container); }
+  &.status.active {
+    background-color: var(--mat-sys-success-container);
+    color: var(--mat-sys-on-success-container);
+  }
+  &.status.inactive {
+    background-color: var(--mat-sys-error-container);
+    color: var(--mat-sys-on-error-container);
+  }
+  &.sku-badge {
+    background-color: var(--mat-sys-secondary-container);
+    color: var(--mat-sys-on-secondary-container);
+  }
+  &.type-badge {
+    background-color: var(--mat-sys-tertiary-container);
+    color: var(--mat-sys-on-tertiary-container);
+  }
 }
-.badge-icon { font-size: 14px; width: 14px; height: 14px; }
+.badge-icon {
+  font-size: 14px;
+  width: 14px;
+  height: 14px;
+}
 .card-field {
   display: flex;
   align-items: flex-start;
   gap: 0.5rem;
   font-size: 0.875rem;
 }
-.field-label { color: var(--mat-sys-on-surface-variant); font-weight: 500; flex-shrink: 0; }
-.field-value { color: var(--mat-sys-on-surface); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.field-label {
+  color: var(--mat-sys-on-surface-variant);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+.field-value {
+  color: var(--mat-sys-on-surface);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 @media (max-width: 575.98px) {
-  .field-label { display: none; }
+  .field-label {
+    display: none;
+  }
 }

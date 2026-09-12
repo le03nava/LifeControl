@@ -9,12 +9,7 @@
   <form [formGroup]="formGroup()" (ngSubmit)="onSave()">
     <mat-form-field appearance="outline">
       <mat-label>SKU</mat-label>
-      <input
-        matInput
-        type="text"
-        formControlName="sku"
-        placeholder="Ingrese el SKU del producto"
-      />
+      <input matInput type="text" formControlName="sku" placeholder="Ingrese el SKU del producto" />
       @if (getErrorMessage(formGroup().controls.sku); as msg) {
         <mat-error>{{ msg }}</mat-error>
       }
@@ -45,12 +40,7 @@
 
     <mat-form-field appearance="outline">
       <mat-label>Código SAT</mat-label>
-      <input
-        matInput
-        type="text"
-        formControlName="satCode"
-        placeholder="Código SAT (opcional)"
-      />
+      <input matInput type="text" formControlName="satCode" placeholder="Código SAT (opcional)" />
     </mat-form-field>
 
     <mat-form-field appearance="outline">

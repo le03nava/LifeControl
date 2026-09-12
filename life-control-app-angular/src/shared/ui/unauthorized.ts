@@ -16,8 +16,8 @@ import { Button } from '@shared/ui/button/button';
         <div class="error-code">403</div>
         <h1 class="error-title">Access Denied</h1>
         <p class="error-description">
-          You don't have permission to access this page. Please contact your
-          administrator if you believe this is an error.
+          You don't have permission to access this page. Please contact your administrator if you
+          believe this is an error.
         </p>
         <div class="error-actions">
           <button app-button variant="primary" routerLink="/">Go to Home</button>

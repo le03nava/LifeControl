@@ -1,4 +1,11 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, effect, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
 import { PageHeader } from '@shared/ui';
@@ -99,18 +106,20 @@ export class RoleList {
     if (!confirmed) return;
 
     if (scope === 'realm') {
-      this.service.deleteRealmRole(role.name).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: () => {
-          this.notification.showSuccess(`Role "${role.name}" deleted`);
-          this.service.loadRealmRoles();
-        },
-        error: (err) => {
-          this.notification.showError(
-            err?.error?.message ?? `Failed to delete role "${role.name}"`,
-          );
-        },
-      });
+      this.service
+        .deleteRealmRole(role.name)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: () => {
+            this.notification.showSuccess(`Role "${role.name}" deleted`);
+            this.service.loadRealmRoles();
+          },
+          error: (err) => {
+            this.notification.showError(
+              err?.error?.message ?? `Failed to delete role "${role.name}"`,
+            );
+          },
+        });
     }
   }
-
 }

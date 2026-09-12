@@ -56,10 +56,7 @@ describe('CompanyStoreService', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [HttpClientTestingModule],
-      providers: [
-        CompanyStoreService,
-        { provide: ConfigService, useValue: { apiUrl: baseUrl } },
-      ],
+      providers: [CompanyStoreService, { provide: ConfigService, useValue: { apiUrl: baseUrl } }],
     });
     service = TestBed.inject(CompanyStoreService);
     httpMock = TestBed.inject(HttpTestingController);
@@ -77,11 +74,11 @@ describe('CompanyStoreService', () => {
     const expectedUrl = `${baseUrl}/companies/${companyId}/countries/${countryId}/regions/${regionId}/zones/${zoneId}/stores`;
 
     it('should fetch stores for a zone', async () => {
-      const storesPromise = firstValueFrom(service.getStores(companyId, countryId, regionId, zoneId));
-
-      const req = httpMock.expectOne(
-        r => r.url === expectedUrl && r.method === 'GET'
+      const storesPromise = firstValueFrom(
+        service.getStores(companyId, countryId, regionId, zoneId),
       );
+
+      const req = httpMock.expectOne((r) => r.url === expectedUrl && r.method === 'GET');
       expect(req.request.params.get('includeDisabled')).toBe('false');
       req.flush(mockStores);
 
@@ -91,11 +88,11 @@ describe('CompanyStoreService', () => {
     });
 
     it('should populate the stores signal', async () => {
-      const fetchPromise = firstValueFrom(service.getStores(companyId, countryId, regionId, zoneId));
-
-      const req = httpMock.expectOne(
-        r => r.url === expectedUrl && r.method === 'GET'
+      const fetchPromise = firstValueFrom(
+        service.getStores(companyId, countryId, regionId, zoneId),
       );
+
+      const req = httpMock.expectOne((r) => r.url === expectedUrl && r.method === 'GET');
       req.flush(mockStores);
 
       await fetchPromise;
@@ -105,11 +102,11 @@ describe('CompanyStoreService', () => {
     });
 
     it('should pass includeDisabled param when true', async () => {
-      const storesPromise = firstValueFrom(service.getStores(companyId, countryId, regionId, zoneId, true));
-
-      const req = httpMock.expectOne(
-        r => r.url === expectedUrl && r.method === 'GET'
+      const storesPromise = firstValueFrom(
+        service.getStores(companyId, countryId, regionId, zoneId, true),
       );
+
+      const req = httpMock.expectOne((r) => r.url === expectedUrl && r.method === 'GET');
       expect(req.request.params.get('includeDisabled')).toBe('true');
       req.flush(mockStores);
 
@@ -119,14 +116,14 @@ describe('CompanyStoreService', () => {
     it('should set loading true during fetch and false after', async () => {
       expect(service.loading()).toBe(false);
 
-      const fetchPromise = firstValueFrom(service.getStores(companyId, countryId, regionId, zoneId));
+      const fetchPromise = firstValueFrom(
+        service.getStores(companyId, countryId, regionId, zoneId),
+      );
 
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await new Promise((resolve) => setTimeout(resolve, 10));
       expect(service.loading()).toBe(true);
 
-      const req = httpMock.expectOne(
-        r => r.url === expectedUrl && r.method === 'GET'
-      );
+      const req = httpMock.expectOne((r) => r.url === expectedUrl && r.method === 'GET');
       req.flush(mockStores);
 
       await fetchPromise;
@@ -134,11 +131,11 @@ describe('CompanyStoreService', () => {
     });
 
     it('should set error signal on HTTP failure', async () => {
-      const errorPromise = firstValueFrom(service.getStores(companyId, countryId, regionId, zoneId));
-
-      const req = httpMock.expectOne(
-        r => r.url === expectedUrl && r.method === 'GET'
+      const errorPromise = firstValueFrom(
+        service.getStores(companyId, countryId, regionId, zoneId),
       );
+
+      const req = httpMock.expectOne((r) => r.url === expectedUrl && r.method === 'GET');
       req.flush('Server error', { status: 500, statusText: 'Internal Server Error' });
 
       await expect(errorPromise).rejects.toThrow();
@@ -151,11 +148,11 @@ describe('CompanyStoreService', () => {
     const expectedUrl = `${baseUrl}/companies/${companyId}/countries/${countryId}/regions/${regionId}/zones/${zoneId}/stores/${storeId}`;
 
     it('should fetch a single store by id', async () => {
-      const storePromise = firstValueFrom(service.getStore(companyId, countryId, regionId, zoneId, storeId));
-
-      const req = httpMock.expectOne(
-        r => r.url === expectedUrl && r.method === 'GET'
+      const storePromise = firstValueFrom(
+        service.getStore(companyId, countryId, regionId, zoneId, storeId),
       );
+
+      const req = httpMock.expectOne((r) => r.url === expectedUrl && r.method === 'GET');
       req.flush(mockStores[0]);
 
       const store = await storePromise;
@@ -164,7 +161,9 @@ describe('CompanyStoreService', () => {
     });
 
     it('should set error on fetch failure', async () => {
-      const storePromise = firstValueFrom(service.getStore(companyId, countryId, regionId, zoneId, storeId));
+      const storePromise = firstValueFrom(
+        service.getStore(companyId, countryId, regionId, zoneId, storeId),
+      );
 
       const req = httpMock.expectOne(expectedUrl);
       req.flush('Not found', { status: 404, statusText: 'Not Found' });
@@ -215,14 +214,16 @@ describe('CompanyStoreService', () => {
     };
 
     it('should POST and push the new store to the signal', async () => {
-      (service as unknown as { _stores: WritableSignal<CompanyStore[]> })._stores.set([mockStores[0]]);
+      (service as unknown as { _stores: WritableSignal<CompanyStore[]> })._stores.set([
+        mockStores[0],
+      ]);
       expect(service.stores().length).toBe(1);
 
-      const addPromise = firstValueFrom(service.addStore(companyId, countryId, regionId, zoneId, request));
-
-      const req = httpMock.expectOne(
-        r => r.url === expectedUrl && r.method === 'POST'
+      const addPromise = firstValueFrom(
+        service.addStore(companyId, countryId, regionId, zoneId, request),
       );
+
+      const req = httpMock.expectOne((r) => r.url === expectedUrl && r.method === 'POST');
       expect(req.request.body).toEqual(request);
       req.flush(response);
 
@@ -233,7 +234,9 @@ describe('CompanyStoreService', () => {
     });
 
     it('should set error on add failure', async () => {
-      const addPromise = firstValueFrom(service.addStore(companyId, countryId, regionId, zoneId, request));
+      const addPromise = firstValueFrom(
+        service.addStore(companyId, countryId, regionId, zoneId, request),
+      );
 
       const req = httpMock.expectOne(expectedUrl);
       req.flush('Error', { status: 500, statusText: 'Internal Server Error' });
@@ -243,9 +246,13 @@ describe('CompanyStoreService', () => {
     });
 
     it('should NOT modify signal on error', async () => {
-      (service as unknown as { _stores: WritableSignal<CompanyStore[]> })._stores.set([mockStores[0]]);
+      (service as unknown as { _stores: WritableSignal<CompanyStore[]> })._stores.set([
+        mockStores[0],
+      ]);
 
-      const addPromise = firstValueFrom(service.addStore(companyId, countryId, regionId, zoneId, request));
+      const addPromise = firstValueFrom(
+        service.addStore(companyId, countryId, regionId, zoneId, request),
+      );
 
       const req = httpMock.expectOne(expectedUrl);
       req.flush('Server error', { status: 500, statusText: 'Internal Server Error' });
@@ -278,11 +285,11 @@ describe('CompanyStoreService', () => {
       (service as unknown as { _stores: WritableSignal<CompanyStore[]> })._stores.set(mockStores);
       expect(service.stores().length).toBe(2);
 
-      const updatePromise = firstValueFrom(service.updateStore(companyId, countryId, regionId, zoneId, storeId, request));
-
-      const req = httpMock.expectOne(
-        r => r.url === expectedUrl && r.method === 'PUT'
+      const updatePromise = firstValueFrom(
+        service.updateStore(companyId, countryId, regionId, zoneId, storeId, request),
       );
+
+      const req = httpMock.expectOne((r) => r.url === expectedUrl && r.method === 'PUT');
       expect(req.request.body).toEqual(request);
       req.flush(updatedStore);
 
@@ -293,7 +300,9 @@ describe('CompanyStoreService', () => {
     });
 
     it('should set error on update failure', async () => {
-      const updatePromise = firstValueFrom(service.updateStore(companyId, countryId, regionId, zoneId, storeId, request));
+      const updatePromise = firstValueFrom(
+        service.updateStore(companyId, countryId, regionId, zoneId, storeId, request),
+      );
 
       const req = httpMock.expectOne(expectedUrl);
       req.flush('Error', { status: 500, statusText: 'Internal Server Error' });
@@ -311,23 +320,25 @@ describe('CompanyStoreService', () => {
       (service as unknown as { _stores: WritableSignal<CompanyStore[]> })._stores.set(mockStores);
       expect(service.stores().length).toBe(2);
 
-      const removePromise = firstValueFrom(service.removeStore(companyId, countryId, regionId, zoneId, storeId));
-
-      const req = httpMock.expectOne(
-        r => r.url === expectedUrl && r.method === 'DELETE'
+      const removePromise = firstValueFrom(
+        service.removeStore(companyId, countryId, regionId, zoneId, storeId),
       );
+
+      const req = httpMock.expectOne((r) => r.url === expectedUrl && r.method === 'DELETE');
       req.flush(null);
 
       await removePromise;
 
       expect(service.stores().length).toBe(2);
-      const store = service.stores().find(s => s.id === storeId);
+      const store = service.stores().find((s) => s.id === storeId);
       expect(store).toBeDefined();
       expect(store!.enabled).toBe(false);
     });
 
     it('should set error on remove failure', async () => {
-      const removePromise = firstValueFrom(service.removeStore(companyId, countryId, regionId, zoneId, storeId));
+      const removePromise = firstValueFrom(
+        service.removeStore(companyId, countryId, regionId, zoneId, storeId),
+      );
 
       const req = httpMock.expectOne(expectedUrl);
       req.flush('Error', { status: 500, statusText: 'Internal Server Error' });
@@ -356,21 +367,23 @@ describe('CompanyStoreService', () => {
       (service as unknown as { _stores: WritableSignal<CompanyStore[]> })._stores.set(mockStores);
       expect(service.stores().length).toBe(2);
 
-      const enablePromise = firstValueFrom(service.enableStore(companyId, countryId, regionId, zoneId, storeId));
-
-      const req = httpMock.expectOne(
-        r => r.url === expectedUrl && r.method === 'PATCH'
+      const enablePromise = firstValueFrom(
+        service.enableStore(companyId, countryId, regionId, zoneId, storeId),
       );
+
+      const req = httpMock.expectOne((r) => r.url === expectedUrl && r.method === 'PATCH');
       req.flush(enabledStore);
 
       const store = await enablePromise;
       expect(store).toEqual(enabledStore);
       expect(store.enabled).toBe(true);
-      expect(service.stores().find(s => s.id === storeId)?.enabled).toBe(true);
+      expect(service.stores().find((s) => s.id === storeId)?.enabled).toBe(true);
     });
 
     it('should set error on enable failure', async () => {
-      const enablePromise = firstValueFrom(service.enableStore(companyId, countryId, regionId, zoneId, storeId));
+      const enablePromise = firstValueFrom(
+        service.enableStore(companyId, countryId, regionId, zoneId, storeId),
+      );
 
       const req = httpMock.expectOne(expectedUrl);
       req.flush('Error', { status: 500, statusText: 'Internal Server Error' });

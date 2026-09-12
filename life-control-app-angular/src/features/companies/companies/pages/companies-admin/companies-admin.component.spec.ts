@@ -19,11 +19,12 @@ describe('CompaniesAdminComponent', () => {
    * @param clientRoles - roles inside resource_access['life-control-client'].roles
    */
   const setupWithRoles = (clientRoles: string[] = []) => {
-    const tokenParsed = clientRoles.length > 0
-      ? {
-          resource_access: { 'life-control-client': { roles: clientRoles } },
-        }
-      : undefined;
+    const tokenParsed =
+      clientRoles.length > 0
+        ? {
+            resource_access: { 'life-control-client': { roles: clientRoles } },
+          }
+        : undefined;
 
     const keycloakMock: Partial<Keycloak> = {
       tokenParsed: tokenParsed as Keycloak['tokenParsed'],
@@ -39,7 +40,13 @@ describe('CompaniesAdminComponent', () => {
     });
 
     TestBed.configureTestingModule({
-      imports: [CompaniesAdminComponent, PageHeader, MatCardModule, MatIconModule, NoopAnimationsModule],
+      imports: [
+        CompaniesAdminComponent,
+        PageHeader,
+        MatCardModule,
+        MatIconModule,
+        NoopAnimationsModule,
+      ],
       providers: [
         provideRouter([]),
         { provide: Keycloak, useValue: keycloakMock },
@@ -197,7 +204,8 @@ describe('CompaniesAdminComponent', () => {
     });
 
     it('should render card icons with correct Material icon names', () => {
-      const icons: NodeListOf<Element> = fixture.nativeElement.querySelectorAll('.card-icon mat-icon');
+      const icons: NodeListOf<Element> =
+        fixture.nativeElement.querySelectorAll('.card-icon mat-icon');
       expect(icons).toHaveLength(5);
 
       const iconNames = Array.from(icons).map((el: Element) =>

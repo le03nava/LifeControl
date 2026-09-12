@@ -19,7 +19,7 @@ export class CompaniesCard {
 
   // Computed para status badge
   readonly isActive = computed(() => this.company()?.enabled ?? true);
-  readonly statusLabel = computed(() => this.isActive() ? 'Activo' : 'Inactivo');
+  readonly statusLabel = computed(() => (this.isActive() ? 'Activo' : 'Inactivo'));
 
   onEditCompany(event?: Event): void {
     if (event) {

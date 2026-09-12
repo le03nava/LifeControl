@@ -50,12 +50,7 @@
     <mat-form-field appearance="outline">
       <mat-label>Correo Electrónico</mat-label>
       <mat-icon matPrefix>mail</mat-icon>
-      <input
-        matInput
-        type="email"
-        formControlName="email"
-        placeholder="correo@ejemplo.com"
-      />
+      <input matInput type="email" formControlName="email" placeholder="correo@ejemplo.com" />
       @if (getErrorMessage(formGroup().controls.email); as msg) {
         <mat-error>{{ msg }}</mat-error>
       }
@@ -64,12 +59,7 @@
     <mat-form-field appearance="outline">
       <mat-label>Teléfono</mat-label>
       <mat-icon matPrefix>phone</mat-icon>
-      <input
-        matInput
-        type="tel"
-        formControlName="phoneNumber"
-        placeholder="+52XXXXXXXXXX"
-      />
+      <input matInput type="tel" formControlName="phoneNumber" placeholder="+52XXXXXXXXXX" />
       @if (getErrorMessage(formGroup().controls.phoneNumber); as msg) {
         <mat-error>{{ msg }}</mat-error>
       }

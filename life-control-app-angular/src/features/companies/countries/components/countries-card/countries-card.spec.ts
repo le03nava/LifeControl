@@ -83,7 +83,9 @@ describe('CountriesCard', () => {
       setCc(mockCountry);
 
       let emittedId: string | undefined;
-      component.editCountry.subscribe((id) => { emittedId = id; });
+      component.editCountry.subscribe((id) => {
+        emittedId = id;
+      });
 
       const editBtn = fixture.nativeElement.querySelector('button[aria-label="Editar país"]');
       expect(editBtn).toBeTruthy();
@@ -96,7 +98,9 @@ describe('CountriesCard', () => {
       setCc(mockCountry);
 
       let emittedId: string | undefined;
-      component.deleteCountry.subscribe((id) => { emittedId = id; });
+      component.deleteCountry.subscribe((id) => {
+        emittedId = id;
+      });
 
       const deleteBtn = fixture.nativeElement.querySelector('button[aria-label="Eliminar país"]');
       expect(deleteBtn).toBeTruthy();

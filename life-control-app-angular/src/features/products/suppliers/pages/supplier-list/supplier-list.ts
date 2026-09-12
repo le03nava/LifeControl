@@ -1,4 +1,12 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, effect, inject, signal, computed } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  effect,
+  inject,
+  signal,
+  computed,
+} from '@angular/core';
 import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
 import { PageHeader } from '@shared/ui';
@@ -15,7 +23,16 @@ import { DeleteSupplierDialogComponent } from '../../ui/delete-supplier-dialog/d
 @Component({
   selector: 'app-supplier-list',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, PageHeader, SuppliersCard, MatIconModule, MatPaginatorModule, MatButtonModule, MatFormFieldModule, MatInputModule],
+  imports: [
+    RouterLink,
+    PageHeader,
+    SuppliersCard,
+    MatIconModule,
+    MatPaginatorModule,
+    MatButtonModule,
+    MatFormFieldModule,
+    MatInputModule,
+  ],
   templateUrl: './supplier-list.html',
   styleUrl: './supplier-list.scss',
 })
@@ -31,7 +48,7 @@ export class SupplierList {
 
   // Responsive: mobile detection via matchMedia
   readonly isMobile = signal(false);
-  readonly pageSizeOptions = computed(() => this.isMobile() ? [6, 12] : [6, 12, 24, 48]);
+  readonly pageSizeOptions = computed(() => (this.isMobile() ? [6, 12] : [6, 12, 24, 48]));
 
   // Search: raw input updated on each keystroke (for template binding)
   readonly searchQuery = signal('');
@@ -89,15 +106,19 @@ export class SupplierList {
     const dialogRef = this.dialog.open(DeleteSupplierDialogComponent, {
       data: { supplierName: supplierInfo.name },
     });
-    dialogRef.afterClosed().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((result: boolean) => {
-      if (result) {
-        this.supplierService.deleteSupplier(supplierInfo.id).pipe(
-          takeUntilDestroyed(this.destroyRef),
-        ).subscribe({
-          next: () => this.suppliersResource.reload(),
-        });
-      }
-    });
+    dialogRef
+      .afterClosed()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((result: boolean) => {
+        if (result) {
+          this.supplierService
+            .deleteSupplier(supplierInfo.id)
+            .pipe(takeUntilDestroyed(this.destroyRef))
+            .subscribe({
+              next: () => this.suppliersResource.reload(),
+            });
+        }
+      });
   }
 
   clearSearch(): void {

@@ -79,7 +79,9 @@
             <mat-icon>account_circle</mat-icon>
           </div>
           <mat-card-title>Edit Profile</mat-card-title>
-          <mat-card-subtitle>Update your personal information and location preferences</mat-card-subtitle>
+          <mat-card-subtitle
+            >Update your personal information and location preferences</mat-card-subtitle
+          >
         </mat-card-header>
 
         <mat-card-content>
@@ -98,7 +100,10 @@
                 <mat-form-field appearance="outline" class="form-field">
                   <mat-label>First Name</mat-label>
                   <input matInput formControlName="firstName" placeholder="First name" />
-                  @if (form().get('firstName')?.hasError('required') && form().get('firstName')?.touched) {
+                  @if (
+                    form().get('firstName')?.hasError('required') &&
+                    form().get('firstName')?.touched
+                  ) {
                     <mat-error>First name is required</mat-error>
                   }
                 </mat-form-field>
@@ -106,7 +111,9 @@
                 <mat-form-field appearance="outline" class="form-field">
                   <mat-label>Last Name</mat-label>
                   <input matInput formControlName="lastName" placeholder="Last name" />
-                  @if (form().get('lastName')?.hasError('required') && form().get('lastName')?.touched) {
+                  @if (
+                    form().get('lastName')?.hasError('required') && form().get('lastName')?.touched
+                  ) {
                     <mat-error>Last name is required</mat-error>
                   }
                 </mat-form-field>
@@ -128,7 +135,8 @@
             <section class="form-section">
               <h3 class="section-title">Location Preferences</h3>
               <p class="section-description">
-                Select your location hierarchy. Each selection filters the available options for the next level.
+                Select your location hierarchy. Each selection filters the available options for the
+                next level.
               </p>
 
               <!-- Company -->
@@ -242,12 +250,7 @@
 
             <!-- Actions -->
             <div class="form-actions">
-              <button
-                mat-stroked-button
-                type="button"
-                (click)="cancel()"
-                [disabled]="saving()"
-              >
+              <button mat-stroked-button type="button" (click)="cancel()" [disabled]="saving()">
                 Cancel
               </button>
               <button

@@ -1,4 +1,12 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, effect, inject, signal, computed } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  effect,
+  inject,
+  signal,
+  computed,
+} from '@angular/core';
 import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
 import { PageHeader } from '@shared/ui';
@@ -15,7 +23,16 @@ import { DeleteCompanyDialogComponent } from '../../ui/delete-company-dialog/del
 @Component({
   selector: 'app-company-list',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, PageHeader, CompaniesCard, MatIconModule, MatPaginatorModule, MatButtonModule, MatFormFieldModule, MatInputModule],
+  imports: [
+    RouterLink,
+    PageHeader,
+    CompaniesCard,
+    MatIconModule,
+    MatPaginatorModule,
+    MatButtonModule,
+    MatFormFieldModule,
+    MatInputModule,
+  ],
   templateUrl: './company-list.html',
   styleUrl: './company-list.scss',
 })
@@ -31,7 +48,7 @@ export class CompanyList {
 
   // Responsive: mobile detection via matchMedia
   readonly isMobile = signal(false);
-  readonly pageSizeOptions = computed(() => this.isMobile() ? [6, 12] : [6, 12, 24, 48]);
+  readonly pageSizeOptions = computed(() => (this.isMobile() ? [6, 12] : [6, 12, 24, 48]));
 
   // Search: el input actualiza searchQuery en cada keystroke (para el template)
   readonly searchQuery = signal('');
@@ -89,15 +106,19 @@ export class CompanyList {
     const dialogRef = this.dialog.open(DeleteCompanyDialogComponent, {
       data: { companyName: companyInfo.name },
     });
-    dialogRef.afterClosed().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((result: boolean) => {
-      if (result) {
-        this.companyService.deleteCompany(companyInfo.id).pipe(
-          takeUntilDestroyed(this.destroyRef),
-        ).subscribe({
-          next: () => this.companiesResource.reload(),
-        });
-      }
-    });
+    dialogRef
+      .afterClosed()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((result: boolean) => {
+        if (result) {
+          this.companyService
+            .deleteCompany(companyInfo.id)
+            .pipe(takeUntilDestroyed(this.destroyRef))
+            .subscribe({
+              next: () => this.companiesResource.reload(),
+            });
+        }
+      });
   }
 
   clearSearch(): void {

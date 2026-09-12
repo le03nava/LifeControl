@@ -1,4 +1,12 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, effect, inject, signal, OnInit } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  effect,
+  inject,
+  signal,
+  OnInit,
+} from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
@@ -19,7 +27,6 @@ import {
 } from '@angular/forms';
 import { CompaniesForm } from '@features/companies/companies/components/companies-form/companies-form';
 import { ErrorBanner } from '@shared/ui';
-
 
 @Component({
   selector: 'app-company-edit',
@@ -66,36 +73,61 @@ export class CompanyEdit implements OnInit {
   }
 
   private loadCompany(id: string): void {
-    this.companyService.getCompanyById(id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (company) => {
-        this.companyForm.set(
-          this.fb.group({
-            id: this.fb.control(company.id),
-            companyKey: this.fb.control(company.companyKey, Validators.required),
-            companyName: this.fb.control(company.companyName, Validators.required),
-            tipoPersonaId: this.fb.control(company.tipoPersonaId, Validators.required),
-            razonSocial: this.fb.control(company.razonSocial, Validators.required),
-            rfc: this.fb.control(company.rfc, [Validators.required, Validators.pattern(/^[A-Za-z0-9]{12,13}$/)]),
-            email: this.fb.control(company.email, Validators.email),
-            phone: this.fb.control(company.phone, Validators.pattern(/^(\+52\d{10}|\d{10})$/)),
-            address: new FormGroup<AddressControl>({
-              street: new FormControl<string | null>(company.address?.street ?? null, { nonNullable: false }),
-              streetNumber: new FormControl<string | null>(company.address?.streetNumber ?? null, { nonNullable: false }),
-              internalNumber: new FormControl<string | null>(company.address?.internalNumber ?? null, { nonNullable: false }),
-              neighborhood: new FormControl<string | null>(company.address?.neighborhood ?? null, { nonNullable: false }),
-              zipCode: new FormControl<string | null>(company.address?.zipCode ?? null, { nonNullable: false }),
-              city: new FormControl<string | null>(company.address?.city ?? null, { nonNullable: false }),
-              state: new FormControl<string | null>(company.address?.state ?? null, { nonNullable: false }),
-              countryId: new FormControl<string | null>(company.address?.countryId ?? null, { nonNullable: false }),
+    this.companyService
+      .getCompanyById(id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (company) => {
+          this.companyForm.set(
+            this.fb.group({
+              id: this.fb.control(company.id),
+              companyKey: this.fb.control(company.companyKey, Validators.required),
+              companyName: this.fb.control(company.companyName, Validators.required),
+              tipoPersonaId: this.fb.control(company.tipoPersonaId, Validators.required),
+              razonSocial: this.fb.control(company.razonSocial, Validators.required),
+              rfc: this.fb.control(company.rfc, [
+                Validators.required,
+                Validators.pattern(/^[A-Za-z0-9]{12,13}$/),
+              ]),
+              email: this.fb.control(company.email, Validators.email),
+              phone: this.fb.control(company.phone, Validators.pattern(/^(\+52\d{10}|\d{10})$/)),
+              address: new FormGroup<AddressControl>({
+                street: new FormControl<string | null>(company.address?.street ?? null, {
+                  nonNullable: false,
+                }),
+                streetNumber: new FormControl<string | null>(
+                  company.address?.streetNumber ?? null,
+                  { nonNullable: false },
+                ),
+                internalNumber: new FormControl<string | null>(
+                  company.address?.internalNumber ?? null,
+                  { nonNullable: false },
+                ),
+                neighborhood: new FormControl<string | null>(
+                  company.address?.neighborhood ?? null,
+                  { nonNullable: false },
+                ),
+                zipCode: new FormControl<string | null>(company.address?.zipCode ?? null, {
+                  nonNullable: false,
+                }),
+                city: new FormControl<string | null>(company.address?.city ?? null, {
+                  nonNullable: false,
+                }),
+                state: new FormControl<string | null>(company.address?.state ?? null, {
+                  nonNullable: false,
+                }),
+                countryId: new FormControl<string | null>(company.address?.countryId ?? null, {
+                  nonNullable: false,
+                }),
+              }),
+              enabled: this.fb.control(company.enabled),
             }),
-            enabled: this.fb.control(company.enabled),
-          })
-        );
-      },
-      error: (err) => {
-        console.error('[CompanyEdit] Error loading company:', err);
-      },
-    });
+          );
+        },
+        error: (err) => {
+          console.error('[CompanyEdit] Error loading company:', err);
+        },
+      });
   }
 
   private createForm(): FormGroup<CompanyControl> {
@@ -125,44 +157,58 @@ export class CompanyEdit implements OnInit {
   onSaveCompany(companyData: Company): void {
     if (companyData.id === '') {
       const { id: _id, address, ...rest } = companyData;
-      const hasAddress = address && (
-        address.street || address.streetNumber ||
-        address.internalNumber || address.neighborhood ||
-        address.zipCode || address.city ||
-        address.state || address.countryId
-      );
+      const hasAddress =
+        address &&
+        (address.street ||
+          address.streetNumber ||
+          address.internalNumber ||
+          address.neighborhood ||
+          address.zipCode ||
+          address.city ||
+          address.state ||
+          address.countryId);
       const payload = {
         ...rest,
         ...(hasAddress ? { address } : {}),
       };
-      this.companyService.createCompany(payload as unknown as Company).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: (createdCompany) => {
-          this.router.navigate(['/companies/edit', createdCompany.id]);
-        },
-        error: (err: HttpErrorResponse) => {
-          this.handleServerError(err);
-        },
-      });
+      this.companyService
+        .createCompany(payload as unknown as Company)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: (createdCompany) => {
+            this.router.navigate(['/companies/edit', createdCompany.id]);
+          },
+          error: (err: HttpErrorResponse) => {
+            this.handleServerError(err);
+          },
+        });
     } else {
       const { id: _id, address, ...rest } = companyData;
-      const hasAddress = address && (
-        address.street || address.streetNumber ||
-        address.internalNumber || address.neighborhood ||
-        address.zipCode || address.city ||
-        address.state || address.countryId
-      );
+      const hasAddress =
+        address &&
+        (address.street ||
+          address.streetNumber ||
+          address.internalNumber ||
+          address.neighborhood ||
+          address.zipCode ||
+          address.city ||
+          address.state ||
+          address.countryId);
       const payload = {
         ...rest,
         ...(hasAddress ? { address } : {}),
       };
-      this.companyService.updateCompany(companyData.id, payload as unknown as Company).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: () => {
-          this.router.navigate(['/companies']);
-        },
-        error: (err: HttpErrorResponse) => {
-          this.handleServerError(err);
-        },
-      });
+      this.companyService
+        .updateCompany(companyData.id, payload as unknown as Company)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: () => {
+            this.router.navigate(['/companies']);
+          },
+          error: (err: HttpErrorResponse) => {
+            this.handleServerError(err);
+          },
+        });
     }
   }
 
@@ -197,5 +243,4 @@ export class CompanyEdit implements OnInit {
   cancelForm(): void {
     this.router.navigate(['/companies']);
   }
-
 }

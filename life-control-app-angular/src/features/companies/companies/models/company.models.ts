@@ -1,5 +1,9 @@
 import { FormControl, FormGroup } from '@angular/forms';
-import type { Country, CompanyCountry, CompanyCountryRequest } from '../../countries/models/country.models';
+import type {
+  Country,
+  CompanyCountry,
+  CompanyCountryRequest,
+} from '../../countries/models/country.models';
 import type { AddressValue, AddressControl } from '@shared/models/address.models';
 
 export type { Country, CompanyCountry, CompanyCountryRequest };

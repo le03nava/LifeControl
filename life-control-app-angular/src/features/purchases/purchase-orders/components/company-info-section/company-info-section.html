@@ -53,10 +53,7 @@
           @if (zones().length > 0) {
             <mat-form-field appearance="outline" subscriptSizing="dynamic">
               <mat-label>Zona</mat-label>
-              <mat-select
-                [value]="selectedZoneId()"
-                (selectionChange)="onZoneChange($event.value)"
-              >
+              <mat-select [value]="selectedZoneId()" (selectionChange)="onZoneChange($event.value)">
                 @for (z of zones(); track z.id) {
                   <mat-option [value]="z.id">{{ z.name }}</mat-option>
                 }

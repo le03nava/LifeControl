@@ -65,7 +65,9 @@ export class SalesOrderService {
 
   /** Charge a sales order (Pending → Completed + items → Added, with payment method). */
   chargeSalesOrder(id: string, paymentMethodId: string): Observable<SalesOrder> {
-    return this.http.patch<SalesOrder>(`${this.baseUrl}/${id}/charge`, { paymentMethodId } satisfies ChargeSalesOrderRequest);
+    return this.http.patch<SalesOrder>(`${this.baseUrl}/${id}/charge`, {
+      paymentMethodId,
+    } satisfies ChargeSalesOrderRequest);
   }
 
   /** Soft-delete (disable) a sales order. */
@@ -91,10 +93,7 @@ export class SalesOrderService {
     itemId: string,
     request: SalesOrderItemRequest,
   ): Observable<SalesOrderItem> {
-    return this.http.put<SalesOrderItem>(
-      `${this.baseUrl}/${orderId}/items/${itemId}`,
-      request,
-    );
+    return this.http.put<SalesOrderItem>(`${this.baseUrl}/${orderId}/items/${itemId}`, request);
   }
 
   /** Remove a line item from a sales order (backend enforces Draft-only). */
@@ -103,14 +102,9 @@ export class SalesOrderService {
   }
 
   /** Update the status of a single line item. */
-  updateItemStatus(
-    orderId: string,
-    itemId: string,
-    statusId: string,
-  ): Observable<SalesOrderItem> {
-    return this.http.patch<SalesOrderItem>(
-      `${this.baseUrl}/${orderId}/items/${itemId}/status`,
-      { statusId },
-    );
+  updateItemStatus(orderId: string, itemId: string, statusId: string): Observable<SalesOrderItem> {
+    return this.http.patch<SalesOrderItem>(`${this.baseUrl}/${orderId}/items/${itemId}/status`, {
+      statusId,
+    });
   }
 }

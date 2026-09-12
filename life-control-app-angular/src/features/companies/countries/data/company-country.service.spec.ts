@@ -15,24 +15,31 @@ describe('CompanyCountryService', () => {
 
   const mockCountries: CompanyCountry[] = [
     {
-      id: 'cc-1', companyId: 'company-123', countryId: '1',
-      countryCode: 'MX', countryName: 'Mexico', localAlias: 'Sucursal CDMX',
-      createdAt: '2024-01-01', updatedAt: '2024-01-01',
+      id: 'cc-1',
+      companyId: 'company-123',
+      countryId: '1',
+      countryCode: 'MX',
+      countryName: 'Mexico',
+      localAlias: 'Sucursal CDMX',
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
     },
     {
-      id: 'cc-2', companyId: 'company-123', countryId: '2',
-      countryCode: 'US', countryName: 'United States', localAlias: null,
-      createdAt: '2024-01-01', updatedAt: '2024-01-01',
+      id: 'cc-2',
+      companyId: 'company-123',
+      countryId: '2',
+      countryCode: 'US',
+      countryName: 'United States',
+      localAlias: null,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
     },
   ];
 
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [HttpClientTestingModule],
-      providers: [
-        CompanyCountryService,
-        { provide: ConfigService, useValue: { apiUrl: baseUrl } },
-      ],
+      providers: [CompanyCountryService, { provide: ConfigService, useValue: { apiUrl: baseUrl } }],
     });
     service = TestBed.inject(CompanyCountryService);
     httpMock = TestBed.inject(HttpTestingController);
@@ -51,7 +58,7 @@ describe('CompanyCountryService', () => {
       const countriesPromise = firstValueFrom(service.getCountries(companyId));
 
       const req = httpMock.expectOne(
-        r => r.url === `${baseUrl}/companies/${companyId}/countries` && r.method === 'GET'
+        (r) => r.url === `${baseUrl}/companies/${companyId}/countries` && r.method === 'GET',
       );
       req.flush(mockCountries);
 
@@ -78,7 +85,7 @@ describe('CompanyCountryService', () => {
       const fetchPromise = firstValueFrom(service.getCountries(companyId));
 
       // Give time for the subscription to trigger
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await new Promise((resolve) => setTimeout(resolve, 10));
 
       // After subscribe triggers, loading should be true
       expect(service.loading()).toBe(true);
@@ -112,20 +119,27 @@ describe('CompanyCountryService', () => {
     };
 
     const response: CompanyCountry = {
-      id: 'cc-3', companyId: 'company-123', countryId: '3',
-      countryCode: 'CO', countryName: 'Colombia', localAlias: 'Sucursal Bogotá',
-      createdAt: '2024-01-01', updatedAt: '2024-01-01',
+      id: 'cc-3',
+      companyId: 'company-123',
+      countryId: '3',
+      countryCode: 'CO',
+      countryName: 'Colombia',
+      localAlias: 'Sucursal Bogotá',
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
     };
 
     it('should POST and push the new country to the signal', async () => {
       // Pre-seed the signal with existing data
-      (service as unknown as { _assignedCountries: WritableSignal<CompanyCountry[]> })._assignedCountries.set([mockCountries[0]]);
+      (
+        service as unknown as { _assignedCountries: WritableSignal<CompanyCountry[]> }
+      )._assignedCountries.set([mockCountries[0]]);
       expect(service.assignedCountries().length).toBe(1);
 
       const addPromise = firstValueFrom(service.addCountry(companyId, request));
 
       const req = httpMock.expectOne(
-        r => r.url === `${baseUrl}/companies/${companyId}/countries` && r.method === 'POST'
+        (r) => r.url === `${baseUrl}/companies/${companyId}/countries` && r.method === 'POST',
       );
       expect(req.request.body).toEqual(request);
       req.flush(response);
@@ -140,9 +154,14 @@ describe('CompanyCountryService', () => {
     it('should add country without localAlias', async () => {
       const requestNoAlias: CompanyCountryRequest = { countryCode: 'BR' };
       const responseNoAlias: CompanyCountry = {
-        id: 'cc-4', companyId: 'company-123', countryId: '4',
-        countryCode: 'BR', countryName: 'Brazil', localAlias: null,
-        createdAt: '2024-01-01', updatedAt: '2024-01-01',
+        id: 'cc-4',
+        companyId: 'company-123',
+        countryId: '4',
+        countryCode: 'BR',
+        countryName: 'Brazil',
+        localAlias: null,
+        createdAt: '2024-01-01',
+        updatedAt: '2024-01-01',
       };
 
       const addPromise = firstValueFrom(service.addCountry(companyId, requestNoAlias));
@@ -167,7 +186,9 @@ describe('CompanyCountryService', () => {
     });
 
     it('should NOT modify signal on error', async () => {
-      (service as unknown as { _assignedCountries: WritableSignal<CompanyCountry[]> })._assignedCountries.set([mockCountries[0]]);
+      (
+        service as unknown as { _assignedCountries: WritableSignal<CompanyCountry[]> }
+      )._assignedCountries.set([mockCountries[0]]);
 
       const addPromise = firstValueFrom(service.addCountry(companyId, request));
 
@@ -196,14 +217,17 @@ describe('CompanyCountryService', () => {
     const companyCountryId = 'cc-1';
 
     it('should DELETE and filter out the removed country', async () => {
-      (service as unknown as { _assignedCountries: WritableSignal<CompanyCountry[]> })._assignedCountries.set(mockCountries);
+      (
+        service as unknown as { _assignedCountries: WritableSignal<CompanyCountry[]> }
+      )._assignedCountries.set(mockCountries);
       expect(service.assignedCountries().length).toBe(2);
 
       const removePromise = firstValueFrom(service.removeCountry(companyId, companyCountryId));
 
       const req = httpMock.expectOne(
-        r => r.url === `${baseUrl}/companies/${companyId}/countries/${companyCountryId}`
-          && r.method === 'DELETE'
+        (r) =>
+          r.url === `${baseUrl}/companies/${companyId}/countries/${companyCountryId}` &&
+          r.method === 'DELETE',
       );
       req.flush(null);
 
@@ -217,7 +241,7 @@ describe('CompanyCountryService', () => {
       const removePromise = firstValueFrom(service.removeCountry(companyId, companyCountryId));
 
       const req = httpMock.expectOne(
-        `${baseUrl}/companies/${companyId}/countries/${companyCountryId}`
+        `${baseUrl}/companies/${companyId}/countries/${companyCountryId}`,
       );
       req.flush('Error', { status: 500, statusText: 'Internal Server Error' });
 

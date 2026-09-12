@@ -95,7 +95,10 @@ describe('CompanyEdit', () => {
       imports: [CompanyEdit, NoopAnimationsModule, ReactiveFormsModule],
       providers: [
         { provide: CompanyService, useValue: companyServiceMock },
-        { provide: CompanyContextService, useValue: { currentCompany: vi.fn().mockReturnValue(null) } },
+        {
+          provide: CompanyContextService,
+          useValue: { currentCompany: vi.fn().mockReturnValue(null) },
+        },
         {
           provide: CompanyCountryService,
           useValue: {

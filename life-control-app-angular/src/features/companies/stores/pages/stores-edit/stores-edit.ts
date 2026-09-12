@@ -45,10 +45,9 @@ export class StoresEdit implements OnInit {
   isEditMode = signal(false);
 
   // ─── Data signals ──────────────────────────────────────
-  companies = toSignal(
-    this.companyService.getCompanies(0, 1000).pipe(map(p => p.content)),
-    { initialValue: [] },
-  );
+  companies = toSignal(this.companyService.getCompanies(0, 1000).pipe(map((p) => p.content)), {
+    initialValue: [],
+  });
   companyCountries = this.companyCountryService.assignedCountries;
 
   regionList = signal<CompanyRegion[]>([]);
@@ -86,10 +85,10 @@ export class StoresEdit implements OnInit {
       if (storeFromState) {
         this.storeToEdit.set(storeFromState);
         // Load regions for the store's country
-        this.companyRegionService.getRegions(
-          storeFromState.companyId,
-          storeFromState.companyCountryId,
-        ).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(regions => this.regionList.set(regions));
+        this.companyRegionService
+          .getRegions(storeFromState.companyId, storeFromState.companyCountryId)
+          .pipe(takeUntilDestroyed(this.destroyRef))
+          .subscribe((regions) => this.regionList.set(regions));
       } else {
         // Fallback: redirect to stores list if no state
         this.router.navigate(['/companies/stores']);
@@ -108,10 +107,15 @@ export class StoresEdit implements OnInit {
         this.initialCountryId.set(countryId);
         this.initialRegionId.set(regionId);
         this.initialZoneId.set(zoneId);
-        this.companyCountryService.getCountries(companyId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
+        this.companyCountryService
+          .getCountries(companyId)
+          .pipe(takeUntilDestroyed(this.destroyRef))
+          .subscribe();
         if (countryId) {
-          this.companyRegionService.getRegions(companyId, countryId)
-            .pipe(takeUntilDestroyed(this.destroyRef)).subscribe(regions => this.regionList.set(regions));
+          this.companyRegionService
+            .getRegions(companyId, countryId)
+            .pipe(takeUntilDestroyed(this.destroyRef))
+            .subscribe((regions) => this.regionList.set(regions));
         }
       }
     }
@@ -119,14 +123,19 @@ export class StoresEdit implements OnInit {
 
   onSelectedCompanyChange(companyId: string): void {
     if (companyId) {
-      this.companyCountryService.getCountries(companyId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
+      this.companyCountryService
+        .getCountries(companyId)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe();
     }
   }
 
   onSelectedCountryChange(cc: CompanyCountry): void {
     if (cc?.companyId && cc?.id) {
-      this.companyRegionService.getRegions(cc.companyId, cc.id)
-        .pipe(takeUntilDestroyed(this.destroyRef)).subscribe(regions => this.regionList.set(regions));
+      this.companyRegionService
+        .getRegions(cc.companyId, cc.id)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe((regions) => this.regionList.set(regions));
     }
   }
 
@@ -138,25 +147,44 @@ export class StoresEdit implements OnInit {
     if (this.isEditMode()) {
       const storeId = this.storeId();
       if (!storeId) return;
-      this.companyStoreService.updateStore(
-        event.companyId, event.countryId, event.regionId, event.zoneId, storeId, event.request,
-      ).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: () =>
-          this.router.navigate(['/companies/stores'], {
-            queryParams: { companyId: event.companyId, countryId: event.countryId, regionId: event.regionId, zoneId: event.zoneId },
-          }),
-        error: (err: HttpErrorResponse) => this.handleError(err),
-      });
+      this.companyStoreService
+        .updateStore(
+          event.companyId,
+          event.countryId,
+          event.regionId,
+          event.zoneId,
+          storeId,
+          event.request,
+        )
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: () =>
+            this.router.navigate(['/companies/stores'], {
+              queryParams: {
+                companyId: event.companyId,
+                countryId: event.countryId,
+                regionId: event.regionId,
+                zoneId: event.zoneId,
+              },
+            }),
+          error: (err: HttpErrorResponse) => this.handleError(err),
+        });
     } else {
-      this.companyStoreService.addStore(
-        event.companyId, event.countryId, event.regionId, event.zoneId, event.request,
-      ).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: () =>
-          this.router.navigate(['/companies/stores'], {
-            queryParams: { companyId: event.companyId, countryId: event.countryId, regionId: event.regionId, zoneId: event.zoneId },
-          }),
-        error: (err: HttpErrorResponse) => this.handleError(err),
-      });
+      this.companyStoreService
+        .addStore(event.companyId, event.countryId, event.regionId, event.zoneId, event.request)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: () =>
+            this.router.navigate(['/companies/stores'], {
+              queryParams: {
+                companyId: event.companyId,
+                countryId: event.countryId,
+                regionId: event.regionId,
+                zoneId: event.zoneId,
+              },
+            }),
+          error: (err: HttpErrorResponse) => this.handleError(err),
+        });
     }
   }
 
