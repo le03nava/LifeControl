@@ -13,3 +13,4 @@ export * from './company-selector/company-selector';
 export * from './page-header/page-header';
 export * from './address-form';
 export * from './error-banner/error-banner';
+export * from './notification-toast/notification-toast';
