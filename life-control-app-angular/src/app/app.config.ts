@@ -4,6 +4,7 @@ import { provideRouter, withComponentInputBinding } from '@angular/router';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { provideKeycloak } from '@core/config/keycloak';
 import { errorInterceptor } from '@shared/data/error-interceptor';
+import { loadingInterceptor } from '@shared/data/loading-interceptor';
 import { bearerTokenInterceptor } from '@core/interceptors/bearer-token.interceptor';
 import { routes } from './app.routes';
 import { ConfigService } from '@app/services/config.service';
@@ -21,7 +22,7 @@ export const appConfig: ApplicationConfig = {
     // 1. Core providers - HttpClient con interceptores personalizados
     provideHttpClient(
       withFetch(),
-      withInterceptors([errorInterceptor, bearerTokenInterceptor])
+      withInterceptors([loadingInterceptor, bearerTokenInterceptor, errorInterceptor])
     ),
     
     // 2. Change detection
