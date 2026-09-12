@@ -1,5 +1,4 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { MatSelectModule } from '@angular/material/select';
 import { MatOptionModule } from '@angular/material/core';
 import { CompanyContextService } from '@shared/data/company-context.service';
@@ -8,7 +7,7 @@ import { CompanyContextService } from '@shared/data/company-context.service';
   selector: 'app-company-selector',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, MatSelectModule, MatOptionModule],
+  imports: [MatSelectModule, MatOptionModule],
   templateUrl: './company-selector.html',
   styleUrl: './company-selector.scss',
 })

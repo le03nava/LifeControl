@@ -1,30 +1,23 @@
-import { Routes, type CanActivateFn } from '@angular/router';
-import { inject } from '@angular/core';
-import Keycloak from 'keycloak-js';
+import { Routes } from '@angular/router';
+import { keycloakRoleGuard } from '@core/guards/auth-keycloak-guard';
 
 /**
  * Lazy routes for the Sales feature.
  *
- * Access requires either:
- * - `lc-sales` client role from `life-control-client`
- * - `lc-admin` client role from `life-control-client`
+ * Access requires client roles from `life-control-client`:
+ * - `lc-sales` client role
+ * - `lc-admin` client role
  *
- * Both roles are checked via `resource_access.life-control-client.roles`.
+ * Both roles are resolved via `resource_access.life-control-client.roles`
+ * using the shared `keycloakRoleGuard`.
  */
 
-/** Sales feature guard: checks both `lc-sales` and `lc-admin` from `life-control-client`. */
-const salesGuard: CanActivateFn = (_route, _state) => {
-  const keycloak = inject(Keycloak);
-  const token = keycloak.tokenParsed;
-  const hasLcSales = token?.resource_access?.['life-control-client']?.roles?.includes('lc-sales');
-  const hasLcAdmin = token?.resource_access?.['life-control-client']?.roles?.includes('lc-admin');
-  return (hasLcSales || hasLcAdmin) === true;
-};
-
+/** Sales routes with role-based access control using keycloakRoleGuard. */
 export const salesRoutes: Routes = [
   {
     path: '',
-    canActivate: [salesGuard],
+    canActivate: [keycloakRoleGuard],
+    data: { roles: ['lc-admin', 'lc-sales'], clientId: 'life-control-client' },
     children: [
       { path: '', loadComponent: () => import('./pages/sales-admin/sales-admin.component') },
       {

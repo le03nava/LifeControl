@@ -8,7 +8,6 @@ import {
   OnInit,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { CommonModule } from '@angular/common';
 import {
   FormGroup,
   FormControl,
@@ -44,7 +43,6 @@ import type { CompanyStore } from '@features/companies/stores/models/store.model
   selector: 'app-user-profile',
   standalone: true,
   imports: [
-    CommonModule,
     ReactiveFormsModule,
     RouterModule,
     ErrorBanner,

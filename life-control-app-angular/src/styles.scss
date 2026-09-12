@@ -259,7 +259,7 @@ h6 {
 }
 
 /* Reduced motion */
-/*@media (prefers-reduced-motion: reduce) {
+@media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
@@ -269,7 +269,6 @@ h6 {
     scroll-behavior: auto !important;
   }
 }
-*/
 /* Utility classes */
 .visually-hidden {
   position: absolute;

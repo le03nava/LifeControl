@@ -12,7 +12,7 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatCardModule } from '@angular/material/card';
 import { MatDialogModule } from '@angular/material/dialog';
 import { FormsModule } from '@angular/forms';
-import { UsersAdminService } from '../../services/users-admin.service';
+import { UsersAdminService } from '../../data/users-admin.service';
 import { NotificationService } from '@shared/data/notification';
 import { Role, RoleAssignmentRequest, RoleScope } from '../../models/users-admin.models';
 

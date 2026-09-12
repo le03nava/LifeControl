@@ -11,7 +11,7 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { FormsModule } from '@angular/forms';
-import { UsersAdminService } from '../../services/users-admin.service';
+import { UsersAdminService } from '../../data/users-admin.service';
 import { NotificationService } from '@shared/data/notification';
 import { Role } from '../../models/users-admin.models';
 

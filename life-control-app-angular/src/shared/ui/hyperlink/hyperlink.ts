@@ -1,5 +1,4 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { RouterModule } from '@angular/router';
 /**
  * Atom: Input component with signal-based API and form integration
@@ -14,7 +13,7 @@ import { RouterModule } from '@angular/router';
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: `./hyperlink.html`,
   styleUrl: `./hyperlink.scss`,
-  imports: [CommonModule, RouterModule],
+  imports: [RouterModule],
   host: {
     '[class.primary]': 'variant() === "primary"',
     '[class.secondary]': 'variant() === "secondary"',
