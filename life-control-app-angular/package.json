@@ -10,7 +10,20 @@
     "test:watch": "ng test --watch",
     "test:coverage": "ng test --code-coverage",
     "serve:ssr:life-control-app-angular": "node dist/life-control-app-angular/server/server.mjs",
-    "lint": "ng lint"
+    "lint": "ng lint",
+    "prepare": "node -e \"const fs=require('fs'),p=require('path'),cp=require('child_process');const D=String.fromCharCode(36);let root;try{root=cp.execSync('git rev-parse --show-toplevel',{stdio:['ignore','pipe','ignore']}).toString().trim()}catch{process.exit(0)}const base=p.resolve('.husky'),dest=p.join(base,'_');cp.execSync('git config core.hooksPath '+p.relative(root,dest));fs.mkdirSync(dest,{recursive:true});fs.writeFileSync(p.join(dest,'.gitignore'),'*');fs.copyFileSync(p.resolve('node_modules/husky/husky'),p.join(dest,'h'));for(const h of ['pre-commit','pre-merge-commit','prepare-commit-msg','commit-msg','post-commit','applypatch-msg','pre-applypatch','post-applypatch','pre-rebase','post-rewrite','post-checkout','post-merge','pre-push','pre-auto-gc']){fs.writeFileSync(p.join(dest,h),'#!/usr/bin/env sh\\n. \\\"'+D+'(dirname \\\"'+D+'0\\\")/h\\\"\\n',{mode:0o755})}console.log('husky: hooks installed in '+dest)\""
+  },
+  "lint-staged": {
+    "src/**/*.ts": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "src/**/*.html": [
+      "prettier --write"
+    ],
+    "src/**/*.scss": [
+      "prettier --write"
+    ]
   },
   "prettier": {
     "printWidth": 100,
@@ -53,7 +66,10 @@
     "@vitest/coverage-v8": "^3.1.4",
     "angular-eslint": "20.7.0",
     "eslint": "^9.39.1",
+    "husky": "^9.1.7",
     "jsdom": "^26.1.0",
+    "lint-staged": "^17.5.1",
+    "prettier": "^3.9.6",
     "typescript": "~5.9.2",
     "typescript-eslint": "8.46.4",
     "vitest": "^3.1.4",
