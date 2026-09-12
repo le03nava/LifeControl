@@ -9,12 +9,12 @@ import { ConfigService } from '@app/services/config.service';
   providedIn: 'root',
 })
 export class CountryService {
-  private configService = inject(ConfigService);
-  private http = inject(HttpClient);
-  private _countries = signal<Country[]>([]);
-  private _loading = signal(false);
-  private _loaded = signal(false);
-  private _error = signal<string | null>(null);
+  private readonly configService = inject(ConfigService);
+  private readonly http = inject(HttpClient);
+  private readonly _countries = signal<Country[]>([]);
+  private readonly _loading = signal(false);
+  private readonly _loaded = signal(false);
+  private readonly _error = signal<string | null>(null);
 
   readonly countries = this._countries.asReadonly();
   readonly loading = this._loading.asReadonly();

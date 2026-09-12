@@ -62,15 +62,15 @@ interface CompanyDetail {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CompanyInfoSection implements OnInit {
-  private destroyRef = inject(DestroyRef);
-  private http = inject(HttpClient);
-  private configService = inject(ConfigService);
-  private companyService = inject(CompanyService);
-  private companyCountryService = inject(CompanyCountryService);
-  private companyRegionService = inject(CompanyRegionService);
-  private companyZoneService = inject(CompanyZoneService);
-  private companyStoreService = inject(CompanyStoreService);
-  private profileService = inject(ProfileService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly http = inject(HttpClient);
+  private readonly configService = inject(ConfigService);
+  private readonly companyService = inject(CompanyService);
+  private readonly companyCountryService = inject(CompanyCountryService);
+  private readonly companyRegionService = inject(CompanyRegionService);
+  private readonly companyZoneService = inject(CompanyZoneService);
+  private readonly companyStoreService = inject(CompanyStoreService);
+  private readonly profileService = inject(ProfileService);
 
   /** The header form group from the parent component. */
   readonly headerForm = input.required<FormGroup<PurchaseOrderHeaderControl>>();

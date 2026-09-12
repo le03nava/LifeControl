@@ -1,7 +1,7 @@
 import { By } from '@angular/platform-browser';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
-import { signal } from '@angular/core';
+import { signal, WritableSignal } from '@angular/core';
 import { of } from 'rxjs';
 import { ActivatedRoute, Router } from '@angular/router';
 import { CountriesPage } from './countries-page';
@@ -66,7 +66,7 @@ describe('CountriesPage', () => {
   ];
 
   class MockCompanyCountryService {
-    private _assignedCountries = signal<CompanyCountry[]>([]);
+    private readonly _assignedCountries = signal<CompanyCountry[]>([]);
     _loading = signal(false);
     _error = signal<string | null>(null);
 
@@ -285,7 +285,7 @@ describe('CountriesPage', () => {
       CompanyCountryService,
     ) as unknown as MockCompanyCountryService;
     // Accessing private property for test - using type assertion
-    (svc as any)._assignedCountries.set([]);
+    (svc as unknown as { _assignedCountries: WritableSignal<CompanyCountry[]> })._assignedCountries.set([]);
     fixture.detectChanges();
 
     const emptyEl = fixture.nativeElement.querySelector('.empty-state');
@@ -299,7 +299,7 @@ describe('CountriesPage', () => {
       CompanyCountryService,
     ) as unknown as MockCompanyCountryService;
     // Accessing private property for test - using type assertion
-    (svc as any)._assignedCountries.set([]);
+    (svc as unknown as { _assignedCountries: WritableSignal<CompanyCountry[]> })._assignedCountries.set([]);
     svc._loading.set(true);
     fixture.detectChanges();
 

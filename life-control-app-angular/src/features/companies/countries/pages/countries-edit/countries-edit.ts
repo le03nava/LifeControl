@@ -19,12 +19,12 @@ import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CountriesEdit implements OnInit {
-  private route = inject(ActivatedRoute);
-  private router = inject(Router);
-  private companyService = inject(CompanyService);
-  private companyCountryService = inject(CompanyCountryService);
-  private countryService = inject(CountryService);
-  private destroyRef = inject(DestroyRef);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly companyService = inject(CompanyService);
+  private readonly companyCountryService = inject(CompanyCountryService);
+  private readonly countryService = inject(CountryService);
+  private readonly destroyRef = inject(DestroyRef);
 
   // ─── Route data ────────────────────────────────────────
   countryId = signal<string | null>(this.route.snapshot.paramMap.get('id'));

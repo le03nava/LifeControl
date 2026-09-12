@@ -47,15 +47,15 @@ export class ProductSupplierForm {
   saveSupplier = output<ProductSupplierRequest>();
   cancelForm = output<void>();
 
-  readonly defaultErrorMessages: Record<string, (error: any) => string> = {
+  readonly defaultErrorMessages: Record<string, (error: unknown) => string> = {
     required: () => 'This field is required.',
-    min: (err) => `Value must be at least ${err.min}.`,
-    serverError: (err) => err,
+    min: (err) => `Value must be at least ${(err as { min?: number }).min}.`,
+    serverError: (err) => err as string,
   };
 
   protected getErrorMessage(
     control: AbstractControl | null,
-    customMessages?: Record<string, (error: any) => string>,
+    customMessages?: Record<string, (error: unknown) => string>,
   ): string | null {
     if (!control || !control.errors || !control.touched) {
       return null;

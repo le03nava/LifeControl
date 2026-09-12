@@ -2,7 +2,6 @@ import { HttpInterceptorFn, HttpErrorResponse } from '@angular/common/http';
 import { inject } from '@angular/core';
 import { catchError, throwError } from 'rxjs';
 import { NotificationService } from './notification';
-import Keycloak from 'keycloak-js';
 
 /**
  * Functional HTTP interceptor for error handling
@@ -11,15 +10,6 @@ import Keycloak from 'keycloak-js';
  */
 export const errorInterceptor: HttpInterceptorFn = (req, next) => {
   const notificationService = inject(NotificationService);
-  
-  // Manejar caso donde Keycloak no está disponible
-  let keycloak: Keycloak | undefined;
-  try {
-    keycloak = inject(Keycloak);
-  } catch (e) {
-    // Keycloak no disponible aún, continuar sin él
-    console.warn('[errorInterceptor] Keycloak not available yet');
-  }
 
   return next(req).pipe(
     catchError((error: HttpErrorResponse) => {

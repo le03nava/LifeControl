@@ -7,7 +7,7 @@ export interface Product {
   shortName?: string;
   satCode?: string;
   productType?: string;
-  attributes?: Record<string, any>;
+  attributes?: Record<string, unknown>;
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
@@ -30,7 +30,7 @@ export interface ProductRequest {
   shortName?: string;
   satCode?: string;
   productType?: string;
-  attributes?: Record<string, any>;
+  attributes?: Record<string, unknown>;
 }
 
 export interface ProductControl {

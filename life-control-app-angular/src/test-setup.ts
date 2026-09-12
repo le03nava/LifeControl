@@ -13,16 +13,17 @@ getTestBed().initTestEnvironment(
 
 // Mock window.matchMedia for jsdom (not available by default)
 if (!window.matchMedia) {
+  const noop = (): void => undefined;
   Object.defineProperty(window, 'matchMedia', {
     writable: true,
     value: (query: string) => ({
       matches: false,
       media: query,
       onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
+      addListener: noop,
+      removeListener: noop,
+      addEventListener: noop,
+      removeEventListener: noop,
       dispatchEvent: () => false,
     }),
   });

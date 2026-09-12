@@ -1,4 +1,4 @@
-import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { of } from 'rxjs';
@@ -184,7 +184,7 @@ describe('CompanyInfoSection', () => {
     }
 
     it('should load companies and profile on init', () => {
-      const { componentInstance: comp } = createFixture();
+      createFixture();
 
       expect(companyServiceMock.getCompanies).toHaveBeenCalledWith(0, 1000);
       expect(profileServiceMock.getProfile).toHaveBeenCalled();

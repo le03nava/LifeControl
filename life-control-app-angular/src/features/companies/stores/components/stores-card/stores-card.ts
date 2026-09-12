@@ -17,7 +17,7 @@ export class StoresCard {
   store = input<CompanyStore | undefined>();
 
   edit = output<string>();
-  toggle = output<string>();
+  storeToggle = output<string>();
 
   readonly isEnabled = computed(() => this.store()?.enabled ?? true);
   readonly statusLabel = computed(() => (this.isEnabled() ? 'Activo' : 'Inactivo'));
@@ -48,7 +48,7 @@ export class StoresCard {
   onToggle(): void {
     const s = this.store();
     if (s?.id) {
-      this.toggle.emit(s.id);
+      this.storeToggle.emit(s.id);
     }
   }
 }

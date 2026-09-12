@@ -1,6 +1,8 @@
 import { TestBed } from '@angular/core/testing';
+import { WritableSignal } from '@angular/core';
 import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 import { firstValueFrom } from 'rxjs';
+import { ConfigService } from '@app/services/config.service';
 import { CompanyStoreService } from './company-store.service';
 import { CompanyStore, StoreRequest } from '../models/store.models';
 
@@ -54,11 +56,13 @@ describe('CompanyStoreService', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [HttpClientTestingModule],
-      providers: [CompanyStoreService],
+      providers: [
+        CompanyStoreService,
+        { provide: ConfigService, useValue: { apiUrl: baseUrl } },
+      ],
     });
     service = TestBed.inject(CompanyStoreService);
     httpMock = TestBed.inject(HttpTestingController);
-    (service as any).configService = { apiUrl: baseUrl };
   });
 
   afterEach(() => {
@@ -211,7 +215,7 @@ describe('CompanyStoreService', () => {
     };
 
     it('should POST and push the new store to the signal', async () => {
-      (service as any)._stores.set([mockStores[0]]);
+      (service as unknown as { _stores: WritableSignal<CompanyStore[]> })._stores.set([mockStores[0]]);
       expect(service.stores().length).toBe(1);
 
       const addPromise = firstValueFrom(service.addStore(companyId, countryId, regionId, zoneId, request));
@@ -239,7 +243,7 @@ describe('CompanyStoreService', () => {
     });
 
     it('should NOT modify signal on error', async () => {
-      (service as any)._stores.set([mockStores[0]]);
+      (service as unknown as { _stores: WritableSignal<CompanyStore[]> })._stores.set([mockStores[0]]);
 
       const addPromise = firstValueFrom(service.addStore(companyId, countryId, regionId, zoneId, request));
 
@@ -271,7 +275,7 @@ describe('CompanyStoreService', () => {
     };
 
     it('should PUT and replace the store in the signal', async () => {
-      (service as any)._stores.set(mockStores);
+      (service as unknown as { _stores: WritableSignal<CompanyStore[]> })._stores.set(mockStores);
       expect(service.stores().length).toBe(2);
 
       const updatePromise = firstValueFrom(service.updateStore(companyId, countryId, regionId, zoneId, storeId, request));
@@ -304,7 +308,7 @@ describe('CompanyStoreService', () => {
     const expectedUrl = `${baseUrl}/companies/${companyId}/countries/${countryId}/regions/${regionId}/zones/${zoneId}/stores/${storeId}`;
 
     it('should DELETE and set store enabled to false in signal', async () => {
-      (service as any)._stores.set(mockStores);
+      (service as unknown as { _stores: WritableSignal<CompanyStore[]> })._stores.set(mockStores);
       expect(service.stores().length).toBe(2);
 
       const removePromise = firstValueFrom(service.removeStore(companyId, countryId, regionId, zoneId, storeId));
@@ -349,7 +353,7 @@ describe('CompanyStoreService', () => {
     };
 
     it('should PATCH and update store enabled state in signal', async () => {
-      (service as any)._stores.set(mockStores);
+      (service as unknown as { _stores: WritableSignal<CompanyStore[]> })._stores.set(mockStores);
       expect(service.stores().length).toBe(2);
 
       const enablePromise = firstValueFrom(service.enableStore(companyId, countryId, regionId, zoneId, storeId));
@@ -378,7 +382,7 @@ describe('CompanyStoreService', () => {
 
   describe('clearError', () => {
     it('should reset the error signal to null', () => {
-      (service as any)._error.set('Some error');
+      (service as unknown as { _error: WritableSignal<string | null> })._error.set('Some error');
       expect(service.error()).toBe('Some error');
 
       service.clearError();

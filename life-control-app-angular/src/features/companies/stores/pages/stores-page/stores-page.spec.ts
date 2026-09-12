@@ -1,8 +1,7 @@
-import { By } from '@angular/platform-browser';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
-import { signal } from '@angular/core';
+import { signal, WritableSignal } from '@angular/core';
 import { NEVER, of } from 'rxjs';
 import { ActivatedRoute, Router } from '@angular/router';
 import { StoresPage } from './stores-page';
@@ -87,7 +86,7 @@ describe('StoresPage', () => {
   ];
 
   class MockCompanyCountryService {
-    private _assignedCountries = signal<CompanyCountry[]>([]);
+    private readonly _assignedCountries = signal<CompanyCountry[]>([]);
     readonly assignedCountries = this._assignedCountries.asReadonly();
     readonly loading = signal(false).asReadonly();
     readonly error = signal<string | null>(null).asReadonly();
@@ -126,9 +125,9 @@ describe('StoresPage', () => {
   }
 
   class MockCompanyStoreService {
-    private _stores = signal<CompanyStore[]>([]);
-    private _loading = signal(false);
-    private _error = signal<string | null>(null);
+    private readonly _stores = signal<CompanyStore[]>([]);
+    private readonly _loading = signal(false);
+    private readonly _error = signal<string | null>(null);
     readonly stores = this._stores.asReadonly();
     readonly loading = this._loading.asReadonly();
     readonly error = this._error.asReadonly();
@@ -472,7 +471,7 @@ describe('StoresPage', () => {
       await settle();
 
       const storeService = TestBed.inject(CompanyStoreService) as unknown as MockCompanyStoreService;
-      (storeService as any)._error.set('Error al cargar las tiendas');
+      (storeService as unknown as { _error: WritableSignal<string | null> })._error.set('Error al cargar las tiendas');
       fixture.detectChanges();
 
       const errorEl = fixture.nativeElement.querySelector('.error-state');

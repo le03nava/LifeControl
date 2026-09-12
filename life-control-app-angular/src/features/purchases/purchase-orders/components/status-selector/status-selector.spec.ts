@@ -103,7 +103,7 @@ describe('StatusSelector', () => {
     const comp = f.componentInstance;
 
     // Set the required input — use a function signal-like access
-    (comp as any).order = vi.fn(() => order) as any;
+    (comp as unknown as { order: () => PurchaseOrder }).order = vi.fn(() => order);
     // Manually call ngOnInit trigger
     f.detectChanges();
 
@@ -371,17 +371,11 @@ describe('StatusSelector', () => {
   });
 
   describe('loading states', () => {
-    let httpMock: HttpTestingController;
-
-    beforeEach(() => {
-      httpMock = TestBed.inject(HttpTestingController);
-    });
-
     it('should show loading text before statuses are fetched', () => {
       const order = createOrder({ statusName: 'Draft' });
       const f = TestBed.createComponent(StatusSelector);
       const comp = f.componentInstance;
-      (comp as any).order = vi.fn(() => order) as any;
+      (comp as unknown as { order: () => PurchaseOrder }).order = vi.fn(() => order);
       f.detectChanges();
 
       // Statuses not yet flushed — validTransitions is empty but not terminal

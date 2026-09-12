@@ -161,7 +161,7 @@ describe('StoresCard', () => {
       setStore(activeStore);
 
       let emittedId: string | undefined;
-      component.toggle.subscribe((id) => { emittedId = id; });
+      component.storeToggle.subscribe((id) => { emittedId = id; });
 
       component.onToggle();
 
@@ -216,9 +216,9 @@ describe('StoresCard', () => {
         address: {
           ...activeStore.address!,
           street: 'Calle 1',
-          streetNumber: undefined as any,
-          city: undefined as any,
-          state: undefined as any,
+          streetNumber: undefined,
+          city: undefined,
+          state: undefined,
         },
       };
       setStore(minimalStore);

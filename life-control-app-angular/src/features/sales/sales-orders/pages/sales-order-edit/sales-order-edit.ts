@@ -54,15 +54,15 @@ import { ErrorBanner } from '@shared/ui';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SalesOrderEdit implements OnInit {
-  private route = inject(ActivatedRoute);
-  private router = inject(Router);
-  private fb = inject(NonNullableFormBuilder);
-  private salesOrderService = inject(SalesOrderService);
-  private profileService = inject(ProfileService);
-  private http = inject(HttpClient);
-  private configService = inject(ConfigService);
-  private notificationService = inject(NotificationService);
-  private destroyRef = inject(DestroyRef);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly fb = inject(NonNullableFormBuilder);
+  private readonly salesOrderService = inject(SalesOrderService);
+  private readonly profileService = inject(ProfileService);
+  private readonly http = inject(HttpClient);
+  private readonly configService = inject(ConfigService);
+  private readonly notificationService = inject(NotificationService);
+  private readonly destroyRef = inject(DestroyRef);
 
   // ─── Route data ────────────────────────────────────────
   readonly orderId = signal<string | null>(

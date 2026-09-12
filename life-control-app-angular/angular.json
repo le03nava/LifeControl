@@ -32,7 +32,9 @@
                 "output": "/assets"
               }
             ],
-            "styles": ["src/styles.scss"]
+            "styles": [
+              "src/styles.scss"
+            ]
           },
           "configurations": {
             "production": {
@@ -73,26 +75,39 @@
         "extract-i18n": {
           "builder": "@angular/build:extract-i18n"
         },
-    "test": {
-      "builder": "@angular/build:unit-test",
-      "options": {
-        "tsConfig": "tsconfig.spec.json",
-        "buildTarget": "life-control-app-angular:build:development",
-        "runner": "vitest",
-        "include": [
-          "src/**/*.spec.ts"
-        ],
-        "codeCoverageReporters": [
-          "text",
-          "lcov"
-        ],
-        "setupFiles": [
-          "src/test-setup.ts"
-        ]
-      }
-    }
+        "test": {
+          "builder": "@angular/build:unit-test",
+          "options": {
+            "tsConfig": "tsconfig.spec.json",
+            "buildTarget": "life-control-app-angular:build:development",
+            "runner": "vitest",
+            "include": [
+              "src/**/*.spec.ts"
+            ],
+            "codeCoverageReporters": [
+              "text",
+              "lcov"
+            ],
+            "setupFiles": [
+              "src/test-setup.ts"
+            ]
+          }
+        },
+        "lint": {
+          "builder": "@angular-eslint/builder:lint",
+          "options": {
+            "lintFilePatterns": [
+              "src/**/*.ts",
+              "src/**/*.html"
+            ]
+          }
         }
       }
     }
+  },
+  "cli": {
+    "schematicCollections": [
+      "angular-eslint"
+    ]
   }
 }

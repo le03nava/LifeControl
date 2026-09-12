@@ -39,13 +39,13 @@ import { ErrorBanner, PageHeader } from '@shared/ui';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ProductSupplierEdit implements OnInit {
-  private route = inject(ActivatedRoute);
-  private router = inject(Router);
-  private fb = inject(NonNullableFormBuilder);
-  private productSupplierService = inject(ProductSupplierService);
-  private productService = inject(ProductService);
-  private supplierService = inject(SupplierService);
-  private destroyRef = inject(DestroyRef);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly fb = inject(NonNullableFormBuilder);
+  private readonly productSupplierService = inject(ProductSupplierService);
+  private readonly productService = inject(ProductService);
+  private readonly supplierService = inject(SupplierService);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly productId = signal<string | null>(
     this.route.snapshot.paramMap.get('id'),

@@ -1,10 +1,11 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal, OnInit } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { CompanyService } from '../../../companies/data/company.service';
+import { CompanyCountry } from '../../../countries/models/country.models';
 import { CompanyCountryService } from '../../../countries/data/company-country.service';
 import { CompanyRegionService } from '../../data/company-region.service';
 import { RegionsForm } from '../../components/regions-form/regions-form';
-import { CompanyRegion, CompanyRegionRequest, RegionSaveEvent } from '../../models/region.models';
+import { CompanyRegion, RegionSaveEvent } from '../../models/region.models';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ApiError } from '@shared/models';
 import { map } from 'rxjs/operators';
@@ -19,12 +20,12 @@ import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class RegionsEdit implements OnInit {
-  private route = inject(ActivatedRoute);
-  private router = inject(Router);
-  private companyService = inject(CompanyService);
-  private companyCountryService = inject(CompanyCountryService);
-  private companyRegionService = inject(CompanyRegionService);
-  private destroyRef = inject(DestroyRef);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly companyService = inject(CompanyService);
+  private readonly companyCountryService = inject(CompanyCountryService);
+  private readonly companyRegionService = inject(CompanyRegionService);
+  private readonly destroyRef = inject(DestroyRef);
 
   // ─── Route data ────────────────────────────────────────
   regionId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
@@ -79,7 +80,7 @@ export class RegionsEdit implements OnInit {
     }
   }
 
-  onSelectedCountryChange(_cc: any): void {
+  onSelectedCountryChange(_cc: CompanyCountry): void {
     // country selected — no need to load regions here
   }
 

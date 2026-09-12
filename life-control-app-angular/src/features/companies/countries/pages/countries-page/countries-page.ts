@@ -27,10 +27,10 @@ import { CountriesCard } from '../../components/countries-card/countries-card';
   styleUrl: './countries-page.scss',
 })
 export class CountriesPage implements OnInit {
-  private router = inject(Router);
-  private route = inject(ActivatedRoute);
-  private destroyRef = inject(DestroyRef);
-  private companyService = inject(CompanyService);
+  private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly companyService = inject(CompanyService);
   companyCountryService = inject(CompanyCountryService);
 
   companies = toSignal(

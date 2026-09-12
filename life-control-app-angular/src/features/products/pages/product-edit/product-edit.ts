@@ -25,11 +25,11 @@ import { ErrorBanner } from '@shared/ui';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ProductEdit implements OnInit {
-  private route = inject(ActivatedRoute);
-  private productService = inject(ProductService);
-  private fb = inject(NonNullableFormBuilder);
-  private router = inject(Router);
-  private destroyRef = inject(DestroyRef);
+  private readonly route = inject(ActivatedRoute);
+  private readonly productService = inject(ProductService);
+  private readonly fb = inject(NonNullableFormBuilder);
+  private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
 
   productId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
 
@@ -84,7 +84,7 @@ export class ProductEdit implements OnInit {
 
   onSaveProduct(productData: Product): void {
     if (productData.id === '') {
-      const { id, ...createData } = productData;
+      const { id: _id, ...createData } = productData;
       this.productService.createProduct(createData as Product).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (createdProduct) => {
           this.router.navigate(['/products/edit', createdProduct.id]);

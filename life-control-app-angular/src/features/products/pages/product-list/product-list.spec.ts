@@ -9,10 +9,10 @@ import { ProductService } from '../../data/product.service';
 import { Product, Page } from '../../models/product.models';
 import { of } from 'rxjs';
 
-type ProductServiceMock = {
+interface ProductServiceMock {
   getProducts: ReturnType<typeof vi.fn>;
   deleteProduct: ReturnType<typeof vi.fn>;
-};
+}
 
 describe('ProductList', () => {
   let component: ProductList;
@@ -26,7 +26,7 @@ describe('ProductList', () => {
     { id: '3', sku: 'SKU-003', name: 'Gamma Tool', enabled: false, createdAt: '', updatedAt: '' },
   ];
 
-  const createMockPage = (products: Product[], page: number = 0, size: number = 12): Page<Product> => ({
+  const createMockPage = (products: Product[], page = 0, size = 12): Page<Product> => ({
     content: products,
     totalElements: products.length,
     totalPages: Math.ceil(products.length / size),
@@ -80,14 +80,14 @@ describe('ProductList', () => {
 
   it('should delete product when dialog confirms', () => {
     const dialogRef = { afterClosed: vi.fn().mockReturnValue(of(true)) };
-    vi.spyOn(TestBed.inject(MatDialog), 'open').mockReturnValue(dialogRef as any);
+    vi.spyOn(TestBed.inject(MatDialog), 'open').mockReturnValue(dialogRef as unknown as ReturnType<MatDialog['open']>);
     component.confirmDelete({ id: '1', name: 'Alpha Widget' });
     expect(productService.deleteProduct).toHaveBeenCalledWith('1');
   });
 
   it('should NOT delete product when dialog cancels', () => {
     const dialogRef = { afterClosed: vi.fn().mockReturnValue(of(false)) };
-    vi.spyOn(TestBed.inject(MatDialog), 'open').mockReturnValue(dialogRef as any);
+    vi.spyOn(TestBed.inject(MatDialog), 'open').mockReturnValue(dialogRef as unknown as ReturnType<MatDialog['open']>);
     component.confirmDelete({ id: '1', name: 'Alpha Widget' });
     expect(productService.deleteProduct).not.toHaveBeenCalled();
   });
@@ -162,7 +162,7 @@ describe('ProductList', () => {
         addListener: vi.fn(),
         removeListener: vi.fn(),
       };
-      window.matchMedia = vi.fn().mockReturnValue(mql as any) as unknown as typeof window.matchMedia;
+      window.matchMedia = vi.fn().mockReturnValue(mql as unknown as MediaQueryList) as unknown as typeof window.matchMedia;
       return { mql, listeners };
     }
 

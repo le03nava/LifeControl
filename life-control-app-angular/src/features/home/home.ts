@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component } from '@angular/core';
 
 /**
  * Application header component
@@ -12,5 +12,6 @@ import { Component } from '@angular/core';
   imports: [],
   templateUrl: `home.html`,
   styleUrl: `home.scss`,
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class Home {}

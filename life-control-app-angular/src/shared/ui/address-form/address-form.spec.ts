@@ -93,7 +93,6 @@ describe('AddressFormComponent', () => {
       fixture.componentRef.setInput('countries', []);
       fixture.detectChanges();
 
-      const countrySelect = fixture.nativeElement.querySelector('[formControlName="countryId"]');
       // countryId input still exists as text input, but should NOT be a mat-select
       const matSelect = fixture.nativeElement.querySelector('mat-select');
       expect(matSelect).toBeFalsy();
@@ -115,11 +114,11 @@ describe('AddressFormComponent', () => {
       streetControl.setErrors({ serverError: 'La calle es inválida' });
       fixture.detectChanges();
 
-      const matErrors = fixture.nativeElement.querySelectorAll('mat-error');
+      const matErrors = Array.from(fixture.nativeElement.querySelectorAll('mat-error') as NodeListOf<Element>);
       expect(matErrors.length).toBeGreaterThan(0);
 
       const streetError = Array.from(matErrors).find(
-        (el: any) => el.textContent?.includes('La calle es inválida')
+        (el: Element) => el.textContent?.includes('La calle es inválida')
       );
       expect(streetError).toBeTruthy();
     });

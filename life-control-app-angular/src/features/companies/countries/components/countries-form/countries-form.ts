@@ -60,7 +60,7 @@ export class CountriesForm {
 
   // ─── Injected services ──────────────────────────────────────
   private readonly destroyRef = inject(DestroyRef);
-  private countryService = inject(CountryService);
+  private readonly countryService = inject(CountryService);
 
   // ─── Signals ────────────────────────────────────────────────
   readonly catalogCountries = this.countryService.countries;
@@ -77,16 +77,16 @@ export class CountriesForm {
   // ─── Error messages ─────────────────────────────────────────
   private readonly defaultErrorMessages: Record<
     string,
-    (error: any) => string
+    (error: unknown) => string
   > = {
     maxlength: (err) =>
-      `No puede superar los ${err.requiredLength} caracteres.`,
-    serverError: (err) => err,
+      `No puede superar los ${(err as { requiredLength?: number }).requiredLength} caracteres.`,
+    serverError: (err) => err as string,
   };
 
   protected getErrorMessage(
     control: AbstractControl | null,
-    customMessages?: Record<string, (error: any) => string>,
+    customMessages?: Record<string, (error: unknown) => string>,
   ): string | null {
     if (!control || !control.errors || !control.touched) {
       return null;

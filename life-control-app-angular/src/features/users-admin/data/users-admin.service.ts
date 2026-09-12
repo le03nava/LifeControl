@@ -7,7 +7,6 @@ import {
   RoleRequest,
   UserSearchResult,
   PageResponse,
-  UserAttribute,
   RoleAssignmentRequest,
   ChildRoleRequest,
 } from '../models/users-admin.models';

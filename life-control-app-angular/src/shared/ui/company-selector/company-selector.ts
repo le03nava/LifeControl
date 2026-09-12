@@ -12,7 +12,7 @@ import { CompanyContextService } from '@shared/data/company-context.service';
   styleUrl: './company-selector.scss',
 })
 export class CompanySelector {
-  private companyContext = inject(CompanyContextService);
+  private readonly companyContext = inject(CompanyContextService);
 
   readonly companies = this.companyContext.companies;
   readonly loading = this.companyContext.loading;

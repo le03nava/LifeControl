@@ -55,8 +55,8 @@ export class Input implements ControlValueAccessor, OnInit {
     // ✅ ¡El lugar correcto! El valor de miDato ya ha sido asignado por el padre.
     console.log('ngOnInit:', this.formControlName());
   }
-  private onChange = (_value: string) => {};
-  private onTouched = () => {};
+  private onChange: (value: string) => void = () => { void 0; };
+  private onTouched: () => void = () => { void 0; };
 
   handleInput(event: Event) {
     const target = event.target as HTMLInputElement;
@@ -88,6 +88,6 @@ export class Input implements ControlValueAccessor, OnInit {
   }
 
   setDisabledState(_isDisabled: boolean): void {
-    // Handled by signal input
+    void _isDisabled;
   }
 }

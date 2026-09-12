@@ -15,14 +15,14 @@ export interface SupplierProduct {
   providedIn: 'root',
 })
 export class ProductService {
-  private configService = inject(ConfigService);
-  private http = inject(HttpClient);
+  private readonly configService = inject(ConfigService);
+  private readonly http = inject(HttpClient);
 
   // Signal para estado de carga
-  private _loading = signal(false);
+  private readonly _loading = signal(false);
 
   // Signal para errores
-  private _error = signal<string | null>(null);
+  private readonly _error = signal<string | null>(null);
 
   // Signals de solo lectura para usar en componentes
   readonly loading = this._loading.asReadonly();
@@ -32,7 +32,7 @@ export class ProductService {
     return `${this.configService.apiUrl}/products`;
   }
 
-  getProducts(page: number = 0, size: number = 12, search?: string): Observable<Page<Product>> {
+  getProducts(page = 0, size = 12, search?: string): Observable<Page<Product>> {
     let params = new HttpParams()
       .set('page', page.toString())
       .set('size', size.toString());

@@ -62,7 +62,7 @@ describe('StoresEdit', () => {
   }
 
   class MockCompanyCountryService {
-    private _assignedCountries = signal<CompanyCountry[]>([]);
+    private readonly _assignedCountries = signal<CompanyCountry[]>([]);
     readonly assignedCountries = this._assignedCountries.asReadonly();
     readonly loading = signal(false).asReadonly();
     readonly error = signal<string | null>(null).asReadonly();
@@ -261,7 +261,7 @@ describe('StoresEdit', () => {
     });
 
     afterEach(() => {
-      delete (globalThis as any).history?.state;
+      delete (globalThis.history as { state?: unknown }).state;
     });
 
     it('should be in edit mode (isEditMode = true)', () => {
@@ -335,8 +335,8 @@ describe('StoresEdit', () => {
       component = edit.componentInstance;
 
       // Manually set storeToEdit to simulate edit mode
-      (component as any).storeToEdit.set(mockStore);
-      (component as any).isEditMode.set(true);
+      component.storeToEdit.set(mockStore);
+      component.isEditMode.set(true);
 
       component.onCancelForm();
 
@@ -363,10 +363,10 @@ describe('StoresEdit', () => {
       component = edit.componentInstance;
 
       // Manually set initial values to simulate create with query params
-      (component as any).initialCompanyId.set('company-1');
-      (component as any).initialCountryId.set('cc-1');
-      (component as any).initialRegionId.set('reg-1');
-      (component as any).initialZoneId.set('zone-1');
+      component.initialCompanyId.set('company-1');
+      component.initialCountryId.set('cc-1');
+      component.initialRegionId.set('reg-1');
+      component.initialZoneId.set('zone-1');
 
       component.onCancelForm();
 

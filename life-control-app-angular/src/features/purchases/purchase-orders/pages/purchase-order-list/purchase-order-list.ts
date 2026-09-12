@@ -34,8 +34,8 @@ import { MatCardModule } from '@angular/material/card';
   styleUrl: './purchase-order-list.scss',
 })
 export class PurchaseOrderList {
-  private purchaseOrderService = inject(PurchaseOrderService);
-  private router = inject(Router);
+  private readonly purchaseOrderService = inject(PurchaseOrderService);
+  private readonly router = inject(Router);
 
   // Pagination signals
   readonly pageSize = signal(12);

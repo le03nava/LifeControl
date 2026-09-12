@@ -122,7 +122,7 @@ describe('CountryService', () => {
   describe('clearError', () => {
     it('should reset the error signal to null', () => {
       // Simulate setting an error by internal mechanism
-      (service as any)._error.set('Some error');
+      (service as unknown as { _error: { set: (value: string | null) => void } })._error.set('Some error');
       expect(service.error()).toBe('Some error');
 
       service.clearError();

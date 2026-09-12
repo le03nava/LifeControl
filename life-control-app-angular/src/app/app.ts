@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { Header, Footer } from '@core/layout';
 import { LoadingIndicator } from '@shared/ui/loading-indicator';
@@ -17,5 +17,6 @@ import { LayoutModule } from '@angular/cdk/layout';
   imports: [RouterOutlet, Header, Footer, LoadingIndicator, LayoutModule],
   templateUrl: './app.html',
   styleUrl: './app.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class App {}

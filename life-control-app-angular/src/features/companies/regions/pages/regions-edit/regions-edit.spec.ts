@@ -8,14 +8,11 @@ import { RegionsEdit } from './regions-edit';
 import { CompanyService } from '../../../companies/data/company.service';
 import { CompanyCountryService } from '../../../countries/data/company-country.service';
 import { CompanyRegionService } from '../../data/company-region.service';
-import { CompanyRegion, CompanyRegionRequest, RegionSaveEvent } from '../../models/region.models';
+import { CompanyRegion, RegionSaveEvent } from '../../models/region.models';
 import { CompanyCountry } from '../../../countries/models/country.models';
 import { Company, Page } from '../../../companies/models/company.models';
 
 describe('RegionsEdit', () => {
-  let component: RegionsEdit;
-  let fixture: ComponentFixture<RegionsEdit>;
-
   let routeMock: {
     snapshot: {
       paramMap: { get: ReturnType<typeof vi.fn> };

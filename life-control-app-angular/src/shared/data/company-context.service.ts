@@ -4,11 +4,11 @@ import { Company, Page } from '@features/companies/companies/models/company.mode
 
 @Injectable({ providedIn: 'root' })
 export class CompanyContextService {
-  private companyService = inject(CompanyService);
+  private readonly companyService = inject(CompanyService);
 
-  private _companies = signal<Company[]>([]);
-  private _currentCompany = signal<Company | null>(null);
-  private _loading = signal(false);
+  private readonly _companies = signal<Company[]>([]);
+  private readonly _currentCompany = signal<Company | null>(null);
+  private readonly _loading = signal(false);
 
   readonly companies = this._companies.asReadonly();
   readonly currentCompany = this._currentCompany.asReadonly();

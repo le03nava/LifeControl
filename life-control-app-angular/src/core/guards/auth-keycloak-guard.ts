@@ -1,5 +1,5 @@
 import { inject } from '@angular/core';
-import { CanActivateFn, Router } from '@angular/router';
+import { CanActivateFn, Data, Router } from '@angular/router';
 import Keycloak from 'keycloak-js';
 
 /**
@@ -65,7 +65,7 @@ export const keycloakRoleGuard: CanActivateFn = async (route, state) => {
  * Normaliza los roles requeridos desde route.data.
  * Soporta tanto data['role'] (single string) como data['roles'] (array).
  */
-function normalizeRequiredRoles(data: any): string[] {
+function normalizeRequiredRoles(data: Data): string[] {
   const role = data['role'] as string | undefined;
   const roles = data['roles'] as string[] | undefined;
 

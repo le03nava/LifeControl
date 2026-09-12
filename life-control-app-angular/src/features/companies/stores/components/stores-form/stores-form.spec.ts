@@ -1,8 +1,12 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { WritableSignal } from '@angular/core';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { StoresForm } from './stores-form';
 import { CompanyStore, StoreSaveEvent } from '../../models/store.models';
+import { CompanyCountry } from '../../../countries/models/country.models';
+import { CompanyRegion } from '../../../regions/models/region.models';
+import { CompanyZone } from '../../../zones/models/zone.models';
 
 describe('StoresForm', () => {
   let component: StoresForm;
@@ -23,17 +27,17 @@ describe('StoresForm', () => {
     },
   ];
 
-  const mockCountries = [
+  const mockCountries: CompanyCountry[] = [
     { id: 'cc-1', companyId: 'comp-1', countryId: '1', countryCode: 'US', countryName: 'United States', localAlias: null, createdAt: '', updatedAt: '' },
     { id: 'cc-2', companyId: 'comp-1', countryId: '2', countryCode: 'MX', countryName: 'Mexico', localAlias: null, createdAt: '', updatedAt: '' },
   ];
 
-  const mockRegions = [
+  const mockRegions: CompanyRegion[] = [
     { id: 'reg-1', companyCountryId: 'cc-1', companyId: 'comp-1', countryId: '1', regionCode: 'US-CA', regionName: 'California', enabled: true, createdAt: '', updatedAt: '' },
     { id: 'reg-2', companyCountryId: 'cc-1', companyId: 'comp-1', countryId: '1', regionCode: 'US-TX', regionName: 'Texas', enabled: true, createdAt: '', updatedAt: '' },
   ];
 
-  const mockZones = [
+  const mockZones: CompanyZone[] = [
     { id: 'zone-1', companyRegionId: 'reg-1', companyCountryId: 'cc-1', companyId: 'comp-1', countryId: '1', zoneCode: 'US-CA-DT', zoneName: 'Downtown', description: 'Centro', displayOrder: 1, enabled: true, createdAt: '', updatedAt: '' },
     { id: 'zone-2', companyRegionId: 'reg-1', companyCountryId: 'cc-1', companyId: 'comp-1', countryId: '1', zoneCode: 'US-CA-SF', zoneName: 'San Fernando', description: 'Norte', displayOrder: 2, enabled: true, createdAt: '', updatedAt: '' },
   ];
@@ -148,8 +152,8 @@ describe('StoresForm', () => {
   // ─── Country selector ─────────────────────────────────────
   describe('country selector', () => {
     it('should emit selectedCountryChange when country is selected', () => {
-      let emitted: any;
-      component.selectedCountryChange.subscribe((cc: any) => { emitted = cc; });
+      let emitted: CompanyCountry | undefined = undefined;
+      component.selectedCountryChange.subscribe((cc: CompanyCountry) => { emitted = cc; });
 
       component.onCompanyChange('comp-1');
       fixture.componentRef.setInput('companyCountries', mockCountries);
@@ -180,8 +184,8 @@ describe('StoresForm', () => {
   // ─── Region selector ──────────────────────────────────────
   describe('region selector', () => {
     it('should emit selectedRegionChange when region is selected', () => {
-      let emitted: any;
-      component.selectedRegionChange.subscribe((r: any) => { emitted = r; });
+      let emitted: CompanyRegion | undefined = undefined;
+      component.selectedRegionChange.subscribe((r: CompanyRegion) => { emitted = r; });
 
       component.onCompanyChange('comp-1');
       fixture.componentRef.setInput('companyCountries', mockCountries);
@@ -194,7 +198,7 @@ describe('StoresForm', () => {
     });
 
     it('should load zones when region changes', () => {
-      const loadSpy = vi.spyOn(component as any, 'loadZonesForRegion');
+      const loadSpy = vi.spyOn(component as unknown as { loadZonesForRegion: (regionId: string) => void }, 'loadZonesForRegion');
 
       component.onCompanyChange('comp-1');
       fixture.componentRef.setInput('companyCountries', mockCountries);
@@ -231,7 +235,7 @@ describe('StoresForm', () => {
       component.onCountryChange(mockCountries[0]);
       fixture.componentRef.setInput('regions', mockRegions);
       component.onRegionChange(mockRegions[0]);
-      (component as any)._zones.set(mockZones);
+      (component as unknown as { _zones: WritableSignal<CompanyZone[]> })._zones.set(mockZones);
       fixture.detectChanges();
 
       component.onZoneChange('zone-1');
@@ -292,7 +296,7 @@ describe('StoresForm', () => {
       fixture.componentRef.setInput('regions', mockRegions);
       fixture.detectChanges();
       component.onRegionChange(mockRegions[0]);
-      (component as any)._zones.set(mockZones);
+      (component as unknown as { _zones: WritableSignal<CompanyZone[]> })._zones.set(mockZones);
       fixture.detectChanges();
       component.onZoneChange('zone-1');
       fixture.detectChanges();
@@ -353,7 +357,7 @@ describe('StoresForm', () => {
       fixture.componentRef.setInput('regions', mockRegions);
       fixture.detectChanges();
       component.onRegionChange(mockRegions[0]);
-      (component as any)._zones.set(mockZones);
+      (component as unknown as { _zones: WritableSignal<CompanyZone[]> })._zones.set(mockZones);
       fixture.detectChanges();
       component.onZoneChange('zone-1');
       fixture.detectChanges();
@@ -425,7 +429,7 @@ describe('StoresForm', () => {
   describe('onCancel', () => {
     it('should emit cancel void', () => {
       let emitted = false;
-      component.cancel.subscribe(() => { emitted = true; });
+      component.cancelForm.subscribe(() => { emitted = true; });
       component.onCancel();
       expect(emitted).toBe(true);
     });

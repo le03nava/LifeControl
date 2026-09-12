@@ -45,24 +45,24 @@ export class SuppliersForm {
   saveSupplier = output<Supplier>();
   cancelForm = output<void>();
 
-  protected readonly rfcErrorMessages: Record<string, (error: any) => string> = {
+  protected readonly rfcErrorMessages: Record<string, (error: unknown) => string> = {
     pattern: () => 'El RFC debe tener 12-13 caracteres alfanuméricos.',
   };
 
-  private readonly defaultErrorMessages: Record<string, (error: any) => string> = {
+  private readonly defaultErrorMessages: Record<string, (error: unknown) => string> = {
     required: () => 'Este campo es obligatorio.',
     email: () => 'El formato del correo electrónico no es válido.',
     minlength: (err) =>
-      `Debe tener al menos ${err.requiredLength} caracteres (llevas ${err.actualLength}).`,
+      `Debe tener al menos ${(err as { requiredLength?: number; actualLength?: number }).requiredLength} caracteres (llevas ${(err as { requiredLength?: number; actualLength?: number }).actualLength}).`,
     maxlength: (err) =>
-      `No puede superar los ${err.requiredLength} caracteres.`,
+      `No puede superar los ${(err as { requiredLength?: number }).requiredLength} caracteres.`,
     pattern: () => 'El formato ingresado no es válido.',
-    serverError: (err) => err,
+    serverError: (err) => err as string,
   };
 
   protected getErrorMessage(
     control: AbstractControl | null,
-    customMessages?: Record<string, (error: any) => string>,
+    customMessages?: Record<string, (error: unknown) => string>,
   ): string | null {
     if (!control || !control.errors || !control.touched) {
       return null;

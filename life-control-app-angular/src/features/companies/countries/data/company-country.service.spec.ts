@@ -1,7 +1,9 @@
 import { TestBed } from '@angular/core/testing';
 import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
+import { WritableSignal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { CompanyCountryService } from './company-country.service';
+import { ConfigService } from '@app/services/config.service';
 import { CompanyCountry, CompanyCountryRequest } from '../models/country.models';
 
 describe('CompanyCountryService', () => {
@@ -27,12 +29,13 @@ describe('CompanyCountryService', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [HttpClientTestingModule],
-      providers: [CompanyCountryService],
+      providers: [
+        CompanyCountryService,
+        { provide: ConfigService, useValue: { apiUrl: baseUrl } },
+      ],
     });
     service = TestBed.inject(CompanyCountryService);
     httpMock = TestBed.inject(HttpTestingController);
-    // Mock ConfigService apiUrl
-    (service as any).configService = { apiUrl: baseUrl };
   });
 
   afterEach(() => {
@@ -116,7 +119,7 @@ describe('CompanyCountryService', () => {
 
     it('should POST and push the new country to the signal', async () => {
       // Pre-seed the signal with existing data
-      (service as any)._assignedCountries.set([mockCountries[0]]);
+      (service as unknown as { _assignedCountries: WritableSignal<CompanyCountry[]> })._assignedCountries.set([mockCountries[0]]);
       expect(service.assignedCountries().length).toBe(1);
 
       const addPromise = firstValueFrom(service.addCountry(companyId, request));
@@ -164,7 +167,7 @@ describe('CompanyCountryService', () => {
     });
 
     it('should NOT modify signal on error', async () => {
-      (service as any)._assignedCountries.set([mockCountries[0]]);
+      (service as unknown as { _assignedCountries: WritableSignal<CompanyCountry[]> })._assignedCountries.set([mockCountries[0]]);
 
       const addPromise = firstValueFrom(service.addCountry(companyId, request));
 
@@ -193,7 +196,7 @@ describe('CompanyCountryService', () => {
     const companyCountryId = 'cc-1';
 
     it('should DELETE and filter out the removed country', async () => {
-      (service as any)._assignedCountries.set(mockCountries);
+      (service as unknown as { _assignedCountries: WritableSignal<CompanyCountry[]> })._assignedCountries.set(mockCountries);
       expect(service.assignedCountries().length).toBe(2);
 
       const removePromise = firstValueFrom(service.removeCountry(companyId, companyCountryId));
@@ -226,7 +229,7 @@ describe('CompanyCountryService', () => {
 
   describe('clearError', () => {
     it('should reset the error signal to null', () => {
-      (service as any)._error.set('Some error');
+      (service as unknown as { _error: WritableSignal<string | null> })._error.set('Some error');
       expect(service.error()).toBe('Some error');
 
       service.clearError();
