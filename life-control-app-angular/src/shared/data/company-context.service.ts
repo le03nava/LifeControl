@@ -35,4 +35,8 @@ export class CompanyContextService {
   setCurrentCompany(company: Company): void {
     this._currentCompany.set(company);
   }
+
+  clearSelection(): void {
+    this._currentCompany.set(null);
+  }
 }
