@@ -329,6 +329,23 @@ services:
     depends_on:
       - api-gateway
       - keycloak
+    healthcheck:
+      # nginx en este image escucha IPv4 (listen 3000) y el DNS del contenedor
+      # resuelve "localhost" a ::1, así que la probe debe usar 127.0.0.1.
+      # BusyBox wget soporta --spider (existe el endpoint) y no bumpea nginx.
+      test:
+        [
+          "CMD",
+          "wget",
+          "--quiet",
+          "--tries=1",
+          "--spider",
+          "http://127.0.0.1:3000/healthz",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     deploy:
       replicas: 2
       resources:
