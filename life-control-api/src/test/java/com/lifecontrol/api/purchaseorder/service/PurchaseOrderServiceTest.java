@@ -55,6 +55,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -85,6 +86,7 @@ class PurchaseOrderServiceTest {
     private PaymentMethod paymentMethod;
     private Product product;
     private Status draftStatus, sentStatus, pendingStatus, inProcessStatus;
+    private Status inTransitStatus, partialReceivedStatus, receivedStatus;
     private StatusType poStatusType, detailStatusType;
     private PurchaseOrder purchaseOrder;
     private PurchaseOrderDetail detail;
@@ -167,6 +169,21 @@ class PurchaseOrderServiceTest {
         inProcessStatus.setId(UUID.randomUUID());
         inProcessStatus.setStatusName("In Process");
         inProcessStatus.setStatusType(detailStatusType);
+
+        inTransitStatus = new Status();
+        inTransitStatus.setId(UUID.randomUUID());
+        inTransitStatus.setStatusName("In Transit");
+        inTransitStatus.setStatusType(detailStatusType);
+
+        partialReceivedStatus = new Status();
+        partialReceivedStatus.setId(UUID.randomUUID());
+        partialReceivedStatus.setStatusName("Partial Received");
+        partialReceivedStatus.setStatusType(detailStatusType);
+
+        receivedStatus = new Status();
+        receivedStatus.setId(UUID.randomUUID());
+        receivedStatus.setStatusName("Received");
+        receivedStatus.setStatusType(detailStatusType);
 
         purchaseOrder = PurchaseOrder.builder()
                 .id(poId)
@@ -690,6 +707,75 @@ class PurchaseOrderServiceTest {
             assertThatThrownBy(() -> service.updatePurchaseOrderDetailStatus(poId, detailId, request))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("PURCHASE_ORDER_DETAIL");
+        }
+
+        @Test
+        @DisplayName("should set receivedQuantity to the real partial amount on Partial Received")
+        void partialReceivedSetsPartialQuantity() {
+            detail.setStatus(inTransitStatus);
+            var request = new UpdatePurchaseOrderStatusRequest(partialReceivedStatus.getId(), 3);
+
+            when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
+            when(detailRepository.findById(detailId)).thenReturn(Optional.of(detail));
+            when(statusRepository.findById(partialReceivedStatus.getId())).thenReturn(Optional.of(partialReceivedStatus));
+            when(detailRepository.save(any(PurchaseOrderDetail.class))).thenReturn(detail);
+
+            var result = service.updatePurchaseOrderDetailStatus(poId, detailId, request);
+
+            assertThat(result.statusName()).isEqualTo("Partial Received");
+            // quantity=5, received partial = 3 → receivedQuantity reflects the real partial
+            assertThat(detail.getReceivedQuantity()).isEqualTo(3);
+        }
+
+        @Test
+        @DisplayName("should set receivedQuantity to the full quantity on Received")
+        void receivedSetsFullQuantity() {
+            detail.setStatus(partialReceivedStatus);
+            var request = new UpdatePurchaseOrderStatusRequest(receivedStatus.getId());
+
+            when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
+            when(detailRepository.findById(detailId)).thenReturn(Optional.of(detail));
+            when(statusRepository.findById(receivedStatus.getId())).thenReturn(Optional.of(receivedStatus));
+            when(detailRepository.save(any(PurchaseOrderDetail.class))).thenReturn(detail);
+
+            var result = service.updatePurchaseOrderDetailStatus(poId, detailId, request);
+
+            assertThat(result.statusName()).isEqualTo("Received");
+            assertThat(detail.getReceivedQuantity()).isEqualTo(5);
+        }
+
+        @Test
+        @DisplayName("should throw IllegalArgumentException when Partial Received without receivedQuantity")
+        void partialReceivedMissingQuantityThrows() {
+            detail.setStatus(inTransitStatus);
+            var request = new UpdatePurchaseOrderStatusRequest(partialReceivedStatus.getId());
+
+            when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
+            when(detailRepository.findById(detailId)).thenReturn(Optional.of(detail));
+            when(statusRepository.findById(partialReceivedStatus.getId())).thenReturn(Optional.of(partialReceivedStatus));
+
+            assertThatThrownBy(() -> service.updatePurchaseOrderDetailStatus(poId, detailId, request))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("receivedQuantity es requerido");
+
+            verify(detailRepository, never()).save(any(PurchaseOrderDetail.class));
+        }
+
+        @Test
+        @DisplayName("should throw IllegalArgumentException when receivedQuantity exceeds the detail quantity")
+        void partialReceivedExceedsQuantityThrows() {
+            detail.setStatus(inTransitStatus);
+            var request = new UpdatePurchaseOrderStatusRequest(partialReceivedStatus.getId(), 99);
+
+            when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
+            when(detailRepository.findById(detailId)).thenReturn(Optional.of(detail));
+            when(statusRepository.findById(partialReceivedStatus.getId())).thenReturn(Optional.of(partialReceivedStatus));
+
+            assertThatThrownBy(() -> service.updatePurchaseOrderDetailStatus(poId, detailId, request))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("no exceder la cantidad");
+
+            verify(detailRepository, never()).save(any(PurchaseOrderDetail.class));
         }
     }
 }

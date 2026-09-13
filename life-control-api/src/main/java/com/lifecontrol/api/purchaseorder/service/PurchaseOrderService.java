@@ -378,8 +378,19 @@ public class PurchaseOrderService {
         var newStatus = validateStatusExistsAndType(request.statusId(), "PURCHASE_ORDER_DETAIL");
         validateDetailTransition(detail.getStatus(), newStatus);
 
-        // Update received_quantity for Partial Received or Received transitions
-        if ("Partial Received".equals(newStatus.getStatusName()) || "Received".equals(newStatus.getStatusName())) {
+        // Update received_quantity reflecting the real quantity received
+        if ("Partial Received".equals(newStatus.getStatusName())) {
+            var received = request.receivedQuantity();
+            if (received == null) {
+                throw new IllegalArgumentException(
+                        "receivedQuantity es requerido para la transición a Partial Received");
+            }
+            if (received <= 0 || received > detail.getQuantity()) {
+                throw new IllegalArgumentException(
+                        "receivedQuantity debe ser mayor a 0 y no exceder la cantidad del detalle");
+            }
+            detail.setReceivedQuantity(received);
+        } else if ("Received".equals(newStatus.getStatusName())) {
             detail.setReceivedQuantity(detail.getQuantity());
         }
 
