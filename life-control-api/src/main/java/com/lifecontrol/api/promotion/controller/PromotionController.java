@@ -28,6 +28,9 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import java.util.UUID;
 
+import static com.lifecontrol.api.common.security.Roles.ADMIN;
+import static com.lifecontrol.api.common.security.Roles.SALES;
+
 @RestController
 @RequestMapping("/api/promotions")
 @Tag(name = "Promotion Management", description = "API for managing promotions and discounts")
@@ -40,7 +43,7 @@ public class PromotionController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Get all promotions", description = "Returns a paginated list of promotions")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Paginated list of promotions")
@@ -51,7 +54,7 @@ public class PromotionController {
     }
 
     @GetMapping("/active")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Get active promotions", description = "Returns promotions currently active for the given sales channel")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "List of active promotions")
@@ -62,7 +65,7 @@ public class PromotionController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Get promotion by ID", description = "Returns a single promotion")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Promotion found"),
@@ -73,7 +76,7 @@ public class PromotionController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Create a promotion", description = "Creates a new promotion")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "Promotion created"),
@@ -86,7 +89,7 @@ public class PromotionController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Update a promotion", description = "Updates an existing promotion")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Promotion updated"),
@@ -99,7 +102,7 @@ public class PromotionController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Delete a promotion", description = "Soft-deletes a promotion")
     @ApiResponses({
         @ApiResponse(responseCode = "204", description = "Promotion deleted"),
@@ -111,7 +114,7 @@ public class PromotionController {
     }
 
     @PatchMapping("/{id}/enable")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Re-enable a promotion", description = "Re-enables a soft-deleted promotion")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Promotion re-enabled"),

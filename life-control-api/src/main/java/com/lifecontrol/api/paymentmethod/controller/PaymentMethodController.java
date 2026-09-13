@@ -10,11 +10,15 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+
+import static com.lifecontrol.api.common.security.Roles.ADMIN;
+import static com.lifecontrol.api.common.security.Roles.PAYMENT_METHOD;
 
 @RestController
 @RequestMapping("/api/payment-methods")
@@ -28,6 +32,7 @@ public class PaymentMethodController {
     }
 
     @GetMapping
+    @PreAuthorize("isAuthenticated()")
     @Operation(summary = "Get all payment methods", description = "Returns a list of all payment methods sorted by name")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "List of payment methods")
@@ -37,6 +42,7 @@ public class PaymentMethodController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("isAuthenticated()")
     @Operation(summary = "Get payment method by ID", description = "Returns a single payment method by its UUID")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Payment method found"),
@@ -47,6 +53,7 @@ public class PaymentMethodController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + PAYMENT_METHOD + "')")
     @Operation(summary = "Create a new payment method", description = "Creates a new payment method with the provided details")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "Payment method created"),
@@ -59,6 +66,7 @@ public class PaymentMethodController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + PAYMENT_METHOD + "')")
     @Operation(summary = "Update a payment method", description = "Updates an existing payment method")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Payment method updated"),
@@ -74,6 +82,7 @@ public class PaymentMethodController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + PAYMENT_METHOD + "')")
     @Operation(summary = "Delete a payment method", description = "Hard-deletes a payment method")
     @ApiResponses({
         @ApiResponse(responseCode = "204", description = "Payment method deleted"),
@@ -85,6 +94,7 @@ public class PaymentMethodController {
     }
 
     @PatchMapping("/{id}/enable")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + PAYMENT_METHOD + "')")
     @Operation(summary = "Enable or disable a payment method", description = "Sets the enabled flag of a payment method")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Payment method status updated"),

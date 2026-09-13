@@ -18,6 +18,10 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import static com.lifecontrol.api.common.security.Roles.ADMIN;
+import static com.lifecontrol.api.common.security.Roles.LIFE_CONTROL_ADMIN;
+import static com.lifecontrol.api.common.security.Roles.LIFE_CONTROL_COUNTRY;
+
 /**
  * Request-scoped component that extracts and caches the current user's
  * company IDs and roles from the JWT token in the SecurityContext.
@@ -145,7 +149,7 @@ public class CurrentUserContext {
      */
     public boolean isAdmin() {
         if (admin == null) {
-            admin = hasAuthority("ROLE_life-control-admin") || hasAuthority("ROLE_lc-admin");
+            admin = hasAuthority("ROLE_" + LIFE_CONTROL_ADMIN) || hasAuthority("ROLE_" + ADMIN);
         }
         return admin;
     }
@@ -155,7 +159,7 @@ public class CurrentUserContext {
      */
     public boolean isCountryRole() {
         if (countryRole == null) {
-            countryRole = hasAuthority("ROLE_life-control-country");
+            countryRole = hasAuthority("ROLE_" + LIFE_CONTROL_COUNTRY);
         }
         return countryRole;
     }

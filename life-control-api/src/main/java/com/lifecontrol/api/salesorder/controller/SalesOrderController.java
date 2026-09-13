@@ -32,6 +32,9 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import java.util.UUID;
 
+import static com.lifecontrol.api.common.security.Roles.ADMIN;
+import static com.lifecontrol.api.common.security.Roles.SALES;
+
 @RestController
 @RequestMapping("/api/sales-orders")
 @Tag(name = "Sales Orders", description = "API for managing sales orders and their line items")
@@ -46,7 +49,7 @@ public class SalesOrderController {
     // ─── Sales Order CRUD ────────────────────────────────────────────────
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Get all sales orders", description = "Returns a paginated list, optionally filtered by search term on order number")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Paginated list of sales orders")
@@ -58,7 +61,7 @@ public class SalesOrderController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Get sales order by ID", description = "Returns a single sales order with its items")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Sales order found"),
@@ -69,7 +72,7 @@ public class SalesOrderController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Create a sales order", description = "Creates a new sales order with Draft status. Items can be added via the nested endpoint.")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "Sales order created"),
@@ -83,7 +86,7 @@ public class SalesOrderController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Update a sales order", description = "Updates an existing sales order header. Optionally accepts an inline items array to atomically add, update, or delete line items.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Sales order updated"),
@@ -97,7 +100,7 @@ public class SalesOrderController {
     }
 
     @PatchMapping("/{id}/enable")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Re-enable a sales order", description = "Re-enables a soft-deleted sales order")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Sales order re-enabled"),
@@ -108,7 +111,7 @@ public class SalesOrderController {
     }
 
     @PatchMapping("/{id}/status")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Update sales order status", description = "Updates the status of a sales order. Validates status type and allowed transitions (Draft → Active → Pending → Completed/Cancelled).")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Status updated"),
@@ -123,7 +126,7 @@ public class SalesOrderController {
     }
 
     @PatchMapping("/{id}/charge")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Charge a sales order", description = "Transitions an Active or Pending order to Completed, all non-Cancelled items to Added, and records the payment method. Active orders auto-promote to Pending first.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Sales order charged successfully"),
@@ -137,7 +140,7 @@ public class SalesOrderController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Delete a sales order", description = "Soft-deletes a sales order and all its items")
     @ApiResponses({
         @ApiResponse(responseCode = "204", description = "Sales order deleted"),
@@ -151,7 +154,7 @@ public class SalesOrderController {
     // ─── Item Nested Endpoints ────────────────────────────────────────
 
     @GetMapping("/{id}/items")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Get sales order items", description = "Returns all items for a sales order")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "List of items"),
@@ -162,7 +165,7 @@ public class SalesOrderController {
     }
 
     @PostMapping("/{id}/items")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Add an item to a sales order", description = "Adds a line item. finalPrice = listPrice - discountApplied. Auto-transitions Draft → Active on first item. Allowed in Draft and Active status.")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "Item created"),
@@ -178,7 +181,7 @@ public class SalesOrderController {
     }
 
     @PutMapping("/{id}/items/{itemId}")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Update an item", description = "Updates a sales order item. Only allowed when order is in Draft or Active status.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Item updated"),
@@ -194,7 +197,7 @@ public class SalesOrderController {
     }
 
     @DeleteMapping("/{id}/items/{itemId}")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Delete an item", description = "Soft-deletes a sales order item. Only allowed when order is in Draft or Active status.")
     @ApiResponses({
         @ApiResponse(responseCode = "204", description = "Item deleted"),
@@ -209,7 +212,7 @@ public class SalesOrderController {
     }
 
     @PatchMapping("/{id}/items/{itemId}/status")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Update item status", description = "Updates the status of a sales order item. Validates status type and allowed transitions (Pending → Added/Cancelled).")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Item status updated"),

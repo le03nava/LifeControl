@@ -19,6 +19,9 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.UUID;
 
+import static com.lifecontrol.api.common.security.Roles.ADMIN;
+import static com.lifecontrol.api.common.security.Roles.SALES;
+
 @RestController
 @RequestMapping("/api/shifts")
 @Tag(name = "Shift Management", description = "API for managing cash register shifts (turnos)")
@@ -31,7 +34,7 @@ public class ShiftController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Get all shifts", description = "Returns a paginated list of shifts")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Paginated list of shifts")
@@ -42,7 +45,7 @@ public class ShiftController {
     }
 
     @GetMapping("/open")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Get open shifts", description = "Returns all currently open shifts")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "List of open shifts")
@@ -52,7 +55,7 @@ public class ShiftController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Get shift by ID", description = "Returns a single shift")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Shift found"),
@@ -63,7 +66,7 @@ public class ShiftController {
     }
 
     @PostMapping("/open")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Open a new shift", description = "Opens a new shift for a store. A store can only have one open shift at a time.")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "Shift opened"),
@@ -76,7 +79,7 @@ public class ShiftController {
     }
 
     @PostMapping("/{id}/close")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Close a shift", description = "Closes an open shift by setting closedAt and changing status to CERRADO")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Shift closed"),
@@ -88,7 +91,7 @@ public class ShiftController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Update a shift", description = "Updates an existing shift")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Shift updated"),
@@ -101,7 +104,7 @@ public class ShiftController {
     }
 
     @PatchMapping("/{id}/enable")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Re-enable a shift", description = "Re-enables a soft-deleted shift")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Shift re-enabled"),
@@ -112,7 +115,7 @@ public class ShiftController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Delete a shift", description = "Soft-deletes a shift")
     @ApiResponses({
         @ApiResponse(responseCode = "204", description = "Shift deleted"),

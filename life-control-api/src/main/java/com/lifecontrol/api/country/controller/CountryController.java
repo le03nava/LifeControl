@@ -8,10 +8,14 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.UUID;
+
+import static com.lifecontrol.api.common.security.Roles.ADMIN;
+import static com.lifecontrol.api.common.security.Roles.COUNTRY;
 
 @RestController
 @RequestMapping("/api/countries")
@@ -25,6 +29,7 @@ public class CountryController {
     }
 
     @GetMapping
+    @PreAuthorize("isAuthenticated()")
     @Operation(summary = "Get all countries", description = "Returns a list of countries. Use ?includeDisabled=true to include soft-deleted countries.")
     public ResponseEntity<List<CountryResponse>> getAllCountries(
             @RequestParam(name = "includeDisabled", defaultValue = "false") boolean includeDisabled) {
@@ -32,12 +37,14 @@ public class CountryController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("isAuthenticated()")
     @Operation(summary = "Get country by ID", description = "Returns a single country by its UUID")
     public ResponseEntity<CountryResponse> getCountryById(@PathVariable UUID id) {
         return ResponseEntity.ok(countryService.getCountryById(id));
     }
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COUNTRY + "')")
     @Operation(summary = "Create a new country", description = "Creates a new country with the provided details")
     public ResponseEntity<CountryResponse> createCountry(@Valid @RequestBody CountryRequest request) {
         CountryResponse response = countryService.createCountry(request);
@@ -45,6 +52,7 @@ public class CountryController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COUNTRY + "')")
     @Operation(summary = "Update a country", description = "Updates an existing country")
     public ResponseEntity<CountryResponse> updateCountry(@PathVariable UUID id, @Valid @RequestBody CountryRequest request) {
         CountryResponse response = countryService.updateCountry(id, request);
@@ -52,6 +60,7 @@ public class CountryController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COUNTRY + "')")
     @Operation(summary = "Delete a country", description = "Soft-deletes a country by setting enabled to false")
     public ResponseEntity<Void> deleteCountry(@PathVariable UUID id) {
         countryService.deleteCountry(id);

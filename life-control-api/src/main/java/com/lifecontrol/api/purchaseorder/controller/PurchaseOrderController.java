@@ -31,6 +31,8 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import java.util.UUID;
 
+import static com.lifecontrol.api.common.security.Roles.LIFE_CONTROL_ADMIN;
+
 @RestController
 @RequestMapping("/api/purchase-orders")
 @Tag(name = "Purchase Orders", description = "API for managing purchase orders and their line items")
@@ -68,7 +70,7 @@ public class PurchaseOrderController {
     }
 
     @PostMapping
-    @PreAuthorize("hasRole('life-control-admin')")
+    @PreAuthorize("hasRole('" + LIFE_CONTROL_ADMIN + "')")
     @Operation(summary = "Create a purchase order", description = "Creates a new purchase order with Draft status. Detail totals are auto-calculated.")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "Purchase order created"),
@@ -82,7 +84,7 @@ public class PurchaseOrderController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('life-control-admin')")
+    @PreAuthorize("hasRole('" + LIFE_CONTROL_ADMIN + "')")
     @Operation(summary = "Update a purchase order", description = "Updates an existing purchase order header")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Purchase order updated"),
@@ -96,7 +98,7 @@ public class PurchaseOrderController {
     }
 
     @PatchMapping("/{id}/enable")
-    @PreAuthorize("hasRole('life-control-admin')")
+    @PreAuthorize("hasRole('" + LIFE_CONTROL_ADMIN + "')")
     @Operation(summary = "Re-enable a purchase order", description = "Re-enables a soft-deleted purchase order and all its details")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Purchase order re-enabled"),
@@ -107,7 +109,7 @@ public class PurchaseOrderController {
     }
 
     @PatchMapping("/{id}/status")
-    @PreAuthorize("hasRole('life-control-admin')")
+    @PreAuthorize("hasRole('" + LIFE_CONTROL_ADMIN + "')")
     @Operation(summary = "Update purchase order status", description = "Updates the status of a purchase order. Validates status type and allowed transitions.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Status updated"),
@@ -122,7 +124,7 @@ public class PurchaseOrderController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('life-control-admin')")
+    @PreAuthorize("hasRole('" + LIFE_CONTROL_ADMIN + "')")
     @Operation(summary = "Delete a purchase order", description = "Soft-deletes a purchase order and all its details")
     @ApiResponses({
         @ApiResponse(responseCode = "204", description = "Purchase order deleted"),
@@ -147,7 +149,7 @@ public class PurchaseOrderController {
     }
 
     @PostMapping("/{id}/details")
-    @PreAuthorize("hasRole('life-control-admin')")
+    @PreAuthorize("hasRole('" + LIFE_CONTROL_ADMIN + "')")
     @Operation(summary = "Add a detail to a purchase order", description = "Adds a line item to a purchase order. Only allowed when order is in Draft status.")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "Detail created"),
@@ -163,7 +165,7 @@ public class PurchaseOrderController {
     }
 
     @PutMapping("/{id}/details/{detailId}")
-    @PreAuthorize("hasRole('life-control-admin')")
+    @PreAuthorize("hasRole('" + LIFE_CONTROL_ADMIN + "')")
     @Operation(summary = "Update a detail", description = "Updates a purchase order detail. Only allowed when order is in Draft status.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Detail updated"),
@@ -179,7 +181,7 @@ public class PurchaseOrderController {
     }
 
     @DeleteMapping("/{id}/details/{detailId}")
-    @PreAuthorize("hasRole('life-control-admin')")
+    @PreAuthorize("hasRole('" + LIFE_CONTROL_ADMIN + "')")
     @Operation(summary = "Delete a detail", description = "Soft-deletes a purchase order detail. Only allowed when order is in Draft status.")
     @ApiResponses({
         @ApiResponse(responseCode = "204", description = "Detail deleted"),
@@ -194,7 +196,7 @@ public class PurchaseOrderController {
     }
 
     @PatchMapping("/{id}/details/{detailId}/status")
-    @PreAuthorize("hasRole('life-control-admin')")
+    @PreAuthorize("hasRole('" + LIFE_CONTROL_ADMIN + "')")
     @Operation(summary = "Update detail status", description = "Updates the status of a purchase order detail. Validates status type and allowed transitions.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Detail status updated"),

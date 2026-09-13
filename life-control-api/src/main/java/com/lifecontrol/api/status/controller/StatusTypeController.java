@@ -13,9 +13,13 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
+
+import static com.lifecontrol.api.common.security.Roles.ADMIN;
+import static com.lifecontrol.api.common.security.Roles.STATUS_TYPE;
 
 @RestController
 @RequestMapping("/api/status-types")
@@ -29,6 +33,7 @@ public class StatusTypeController {
     }
 
     @GetMapping
+    @PreAuthorize("isAuthenticated()")
     @Operation(summary = "Get all status types", description = "Returns a paginated list of status types. Use ?search= to filter by name.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Paginated list of status types")
@@ -40,6 +45,7 @@ public class StatusTypeController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("isAuthenticated()")
     @Operation(summary = "Get status type by ID", description = "Returns a single status type by its UUID")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Status type found"),
@@ -50,6 +56,7 @@ public class StatusTypeController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + STATUS_TYPE + "')")
     @Operation(summary = "Create a new status type", description = "Creates a new status type with the provided details")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "Status type created"),
@@ -62,6 +69,7 @@ public class StatusTypeController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + STATUS_TYPE + "')")
     @Operation(summary = "Update a status type", description = "Updates an existing status type")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Status type updated"),
@@ -77,6 +85,7 @@ public class StatusTypeController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + STATUS_TYPE + "')")
     @Operation(summary = "Delete a status type", description = "Soft-deletes a status type by setting enabled to false")
     @ApiResponses({
         @ApiResponse(responseCode = "204", description = "Status type deleted"),
@@ -88,6 +97,7 @@ public class StatusTypeController {
     }
 
     @PatchMapping("/{id}/enable")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + STATUS_TYPE + "')")
     @Operation(summary = "Enable a status type", description = "Re-enables a soft-deleted status type")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Status type enabled"),

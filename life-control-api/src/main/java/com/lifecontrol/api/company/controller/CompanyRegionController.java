@@ -16,6 +16,12 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.UUID;
 
+import static com.lifecontrol.api.common.security.Roles.ADMIN;
+import static com.lifecontrol.api.common.security.Roles.COMPANY;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_COUNTRY;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_REGION;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_REGION_READ;
+
 @RestController
 @RequestMapping("/api/companies/{companyId}/countries/{companyCountryId}/regions")
 @Tag(name = "Company Region Management", description = "API for managing regions within a company's country presence")
@@ -28,7 +34,7 @@ public class CompanyRegionController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-region','lc-company-region-read')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','" + COMPANY_REGION_READ + "')")
     @Operation(summary = "List all regions",
             description = "Returns regions for a company's country presence. For lc-company-region and lc-company-region-read roles, results are scoped to the company_region_id values in the JWT.")
     @ApiResponse(responseCode = "200", description = "List of regions")
@@ -40,7 +46,7 @@ public class CompanyRegionController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-region','lc-company-region-read')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','" + COMPANY_REGION_READ + "')")
     @Operation(summary = "Get a region by ID",
             description = "Returns a specific region. Access is verified via verifyCompanyRegionAccess which checks region ownership for scoped roles.")
     @ApiResponse(responseCode = "200", description = "Region found")
@@ -53,7 +59,7 @@ public class CompanyRegionController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-region')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "')")
     @Operation(summary = "Create a new region")
     @ApiResponse(responseCode = "201", description = "Region created")
     @ApiResponse(responseCode = "400", description = "Validation error")
@@ -67,7 +73,7 @@ public class CompanyRegionController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-region')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "')")
     @Operation(summary = "Update a region")
     @ApiResponse(responseCode = "200", description = "Region updated")
     @ApiResponse(responseCode = "400", description = "Validation error")
@@ -82,7 +88,7 @@ public class CompanyRegionController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-region')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "')")
     @Operation(summary = "Soft-delete a region")
     @ApiResponse(responseCode = "204", description = "Region deleted")
     @ApiResponse(responseCode = "404", description = "Region not found")
@@ -95,7 +101,7 @@ public class CompanyRegionController {
     }
 
     @PatchMapping("/{id}")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-country','lc-company-region')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "')")
     @Operation(summary = "Re-enable a soft-deleted region")
     @ApiResponse(responseCode = "200", description = "Region re-enabled")
     @ApiResponse(responseCode = "404", description = "Region not found")

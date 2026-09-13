@@ -1,12 +1,10 @@
-package com.lifecontrol.api.product.controller;
+package com.lifecontrol.api.measureunit.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifecontrol.api.config.ratelimit.RateLimitProperties;
-import com.lifecontrol.api.product.service.ProductService;
-import com.lifecontrol.api.product.service.ProductVariantService;
-import com.lifecontrol.api.product.supplier.dto.ProductSupplierRequest;
-import com.lifecontrol.api.product.supplier.dto.ProductSupplierResponse;
-import com.lifecontrol.api.product.supplier.service.ProductSupplierService;
+import com.lifecontrol.api.measureunit.dto.MeasureUnitRequest;
+import com.lifecontrol.api.measureunit.dto.MeasureUnitResponse;
+import com.lifecontrol.api.measureunit.service.MeasureUnitService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -25,7 +23,6 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -35,13 +32,14 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(ProductController.class)
-@DisplayName("ProductSupplier Security — @PreAuthorize method-level authorization on nested /suppliers endpoints")
-class ProductSupplierControllerSecurityTest {
+@WebMvcTest(MeasureUnitController.class)
+@DisplayName("MeasureUnit Controller Security — @PreAuthorize method-level authorization")
+class MeasureUnitControllerSecurityTest {
 
     /**
      * Minimal security configuration that enables method-level security
@@ -70,117 +68,75 @@ class ProductSupplierControllerSecurityTest {
     private ObjectMapper objectMapper;
 
     @MockitoBean
-    private ProductService productService;
-
-    @MockitoBean
-    private ProductSupplierService productSupplierService;
-
-    @MockitoBean
-    private ProductVariantService productVariantService;
+    private MeasureUnitService measureUnitService;
 
     @MockitoBean
     private RateLimitProperties rateLimitProperties;
 
-    private final UUID productId = UUID.randomUUID();
-    private final UUID relationId = UUID.randomUUID();
-    private final UUID supplierId = UUID.randomUUID();
+    private final UUID measureUnitId = UUID.randomUUID();
 
-    private ProductSupplierRequest buildRequest() {
-        return new ProductSupplierRequest(
-                supplierId,
-                new BigDecimal("150.00"),
-                true,
-                true
+    private MeasureUnitRequest buildRequest() {
+        return new MeasureUnitRequest("Kilogramo", "kg", "PRODUCT", "KGM", "Kilogramo");
+    }
+
+    private MeasureUnitResponse buildResponse() {
+        return new MeasureUnitResponse(
+                measureUnitId, "Kilogramo", "kg", "PRODUCT", "KGM", "Kilogramo",
+                true, LocalDateTime.now(), LocalDateTime.now()
         );
     }
 
-    private ProductSupplierResponse buildResponse() {
-        return new ProductSupplierResponse(
-                relationId, productId, supplierId, "Test Supplier Co",
-                new BigDecimal("150.00"), true, true,
-                LocalDateTime.now(), LocalDateTime.now()
-        );
-    }
-
-    // ─── GET /api/products/{productId}/suppliers ───────────────
+    // ─── GET /api/measure-units ───────────────────────────────────
 
     @Nested
-    @DisplayName("GET /api/products/{productId}/suppliers")
-    class GetProductSuppliersSecurity {
+    @DisplayName("GET /api/measure-units")
+    class GetMeasureUnitsSecurity {
 
         @Test
-        @WithMockUser(roles = {"lc-admin"})
-        @DisplayName("returns 200 OK for user with lc-admin role")
-        void adminCanGetSuppliers() throws Exception {
-            when(productSupplierService.listSuppliersByProductId(productId))
-                    .thenReturn(List.of(buildResponse()));
+        @WithMockUser(roles = {"other-role"})
+        @DisplayName("returns 200 OK for any authenticated user (reads are isAuthenticated)")
+        void anyAuthenticatedUserCanRead() throws Exception {
+            when(measureUnitService.getAllMeasureUnits(false)).thenReturn(List.of(buildResponse()));
 
-            mockMvc.perform(get("/api/products/{productId}/suppliers", productId))
-                    .andExpect(status().isOk());
-        }
-
-        @Test
-        @WithMockUser(roles = {"lc-product-supplier"})
-        @DisplayName("returns 200 OK for user with lc-product-supplier role")
-        void domainRoleCanGetSuppliers() throws Exception {
-            when(productSupplierService.listSuppliersByProductId(productId))
-                    .thenReturn(List.of(buildResponse()));
-
-            mockMvc.perform(get("/api/products/{productId}/suppliers", productId))
+            mockMvc.perform(get("/api/measure-units"))
                     .andExpect(status().isOk());
         }
 
         @Test
         @DisplayName("returns 401 Unauthorized for unauthenticated request")
         void unauthenticatedReturns401() throws Exception {
-            mockMvc.perform(get("/api/products/{productId}/suppliers", productId))
+            mockMvc.perform(get("/api/measure-units"))
                     .andExpect(status().isUnauthorized());
-        }
-
-        @Test
-        @WithMockUser
-        @DisplayName("returns 403 Forbidden for authenticated user with no roles")
-        void userWithNoRolesGetsForbidden() throws Exception {
-            mockMvc.perform(get("/api/products/{productId}/suppliers", productId))
-                    .andExpect(status().isForbidden());
-        }
-
-        @Test
-        @WithMockUser(roles = {"other-role"})
-        @DisplayName("returns 403 Forbidden for user with wrong role")
-        void userWithWrongRoleGetsForbidden() throws Exception {
-            mockMvc.perform(get("/api/products/{productId}/suppliers", productId))
-                    .andExpect(status().isForbidden());
         }
     }
 
-    // ─── POST /api/products/{productId}/suppliers ──────────────
+    // ─── POST /api/measure-units ──────────────────────────────────
 
     @Nested
-    @DisplayName("POST /api/products/{productId}/suppliers")
-    class PostProductSupplierSecurity {
+    @DisplayName("POST /api/measure-units")
+    class CreateMeasureUnitSecurity {
 
         @Test
         @WithMockUser(roles = {"lc-admin"})
         @DisplayName("returns 201 Created for user with lc-admin role")
-        void adminCanCreateRelation() throws Exception {
-            when(productSupplierService.addSupplierToProduct(eq(productId), any(ProductSupplierRequest.class)))
+        void adminCanCreate() throws Exception {
+            when(measureUnitService.createMeasureUnit(any(MeasureUnitRequest.class)))
                     .thenReturn(buildResponse());
 
-            mockMvc.perform(post("/api/products/{productId}/suppliers", productId)
+            mockMvc.perform(post("/api/measure-units")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(buildRequest())))
                     .andExpect(status().isCreated());
         }
 
         @Test
-        @WithMockUser(roles = {"lc-product-supplier"})
-        @DisplayName("returns 201 Created for user with lc-product-supplier role")
-        void domainRoleCanCreateRelation() throws Exception {
-            when(productSupplierService.addSupplierToProduct(eq(productId), any(ProductSupplierRequest.class)))
+        @WithMockUser(roles = {"lc-measure-unit"})
+        @DisplayName("returns 201 Created for user with lc-measure-unit role")
+        void domainRoleCanCreate() throws Exception {
+            when(measureUnitService.createMeasureUnit(any(MeasureUnitRequest.class)))
                     .thenReturn(buildResponse());
 
-            mockMvc.perform(post("/api/products/{productId}/suppliers", productId)
+            mockMvc.perform(post("/api/measure-units")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(buildRequest())))
                     .andExpect(status().isCreated());
@@ -189,7 +145,7 @@ class ProductSupplierControllerSecurityTest {
         @Test
         @DisplayName("returns 401 Unauthorized for unauthenticated request")
         void unauthenticatedReturns401() throws Exception {
-            mockMvc.perform(post("/api/products/{productId}/suppliers", productId)
+            mockMvc.perform(post("/api/measure-units")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(buildRequest())))
                     .andExpect(status().isUnauthorized());
@@ -199,7 +155,7 @@ class ProductSupplierControllerSecurityTest {
         @WithMockUser
         @DisplayName("returns 403 Forbidden for authenticated user with no roles")
         void userWithNoRolesGetsForbidden() throws Exception {
-            mockMvc.perform(post("/api/products/{productId}/suppliers", productId)
+            mockMvc.perform(post("/api/measure-units")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(buildRequest())))
                     .andExpect(status().isForbidden());
@@ -209,40 +165,40 @@ class ProductSupplierControllerSecurityTest {
         @WithMockUser(roles = {"other-role"})
         @DisplayName("returns 403 Forbidden for user with wrong role")
         void userWithWrongRoleGetsForbidden() throws Exception {
-            mockMvc.perform(post("/api/products/{productId}/suppliers", productId)
+            mockMvc.perform(post("/api/measure-units")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(buildRequest())))
                     .andExpect(status().isForbidden());
         }
     }
 
-    // ─── PUT /api/products/{productId}/suppliers/{id} ──────────
+    // ─── PUT /api/measure-units/{id} ──────────────────────────────
 
     @Nested
-    @DisplayName("PUT /api/products/{productId}/suppliers/{id}")
-    class PutProductSupplierSecurity {
+    @DisplayName("PUT /api/measure-units/{id}")
+    class UpdateMeasureUnitSecurity {
 
         @Test
         @WithMockUser(roles = {"lc-admin"})
         @DisplayName("returns 200 OK for user with lc-admin role")
-        void adminCanUpdateRelation() throws Exception {
-            when(productSupplierService.updateSupplier(eq(productId), eq(relationId), any(ProductSupplierRequest.class)))
+        void adminCanUpdate() throws Exception {
+            when(measureUnitService.updateMeasureUnit(eq(measureUnitId), any(MeasureUnitRequest.class)))
                     .thenReturn(buildResponse());
 
-            mockMvc.perform(put("/api/products/{productId}/suppliers/{id}", productId, relationId)
+            mockMvc.perform(put("/api/measure-units/{id}", measureUnitId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(buildRequest())))
                     .andExpect(status().isOk());
         }
 
         @Test
-        @WithMockUser(roles = {"lc-product-supplier"})
-        @DisplayName("returns 200 OK for user with lc-product-supplier role")
-        void domainRoleCanUpdateRelation() throws Exception {
-            when(productSupplierService.updateSupplier(eq(productId), eq(relationId), any(ProductSupplierRequest.class)))
+        @WithMockUser(roles = {"lc-measure-unit"})
+        @DisplayName("returns 200 OK for user with lc-measure-unit role")
+        void domainRoleCanUpdate() throws Exception {
+            when(measureUnitService.updateMeasureUnit(eq(measureUnitId), any(MeasureUnitRequest.class)))
                     .thenReturn(buildResponse());
 
-            mockMvc.perform(put("/api/products/{productId}/suppliers/{id}", productId, relationId)
+            mockMvc.perform(put("/api/measure-units/{id}", measureUnitId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(buildRequest())))
                     .andExpect(status().isOk());
@@ -251,75 +207,87 @@ class ProductSupplierControllerSecurityTest {
         @Test
         @DisplayName("returns 401 Unauthorized for unauthenticated request")
         void unauthenticatedReturns401() throws Exception {
-            mockMvc.perform(put("/api/products/{productId}/suppliers/{id}", productId, relationId)
+            mockMvc.perform(put("/api/measure-units/{id}", measureUnitId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(buildRequest())))
                     .andExpect(status().isUnauthorized());
         }
 
         @Test
-        @WithMockUser
-        @DisplayName("returns 403 Forbidden for authenticated user with no roles")
-        void userWithNoRolesGetsForbidden() throws Exception {
-            mockMvc.perform(put("/api/products/{productId}/suppliers/{id}", productId, relationId)
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(buildRequest())))
-                    .andExpect(status().isForbidden());
-        }
-
-        @Test
         @WithMockUser(roles = {"other-role"})
         @DisplayName("returns 403 Forbidden for user with wrong role")
         void userWithWrongRoleGetsForbidden() throws Exception {
-            mockMvc.perform(put("/api/products/{productId}/suppliers/{id}", productId, relationId)
+            mockMvc.perform(put("/api/measure-units/{id}", measureUnitId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(buildRequest())))
                     .andExpect(status().isForbidden());
         }
     }
 
-    // ─── DELETE /api/products/{productId}/suppliers/{id} ───────
+    // ─── DELETE /api/measure-units/{id} ───────────────────────────
 
     @Nested
-    @DisplayName("DELETE /api/products/{productId}/suppliers/{id}")
-    class DeleteProductSupplierSecurity {
+    @DisplayName("DELETE /api/measure-units/{id}")
+    class DeleteMeasureUnitSecurity {
 
         @Test
         @WithMockUser(roles = {"lc-admin"})
         @DisplayName("returns 204 No Content for user with lc-admin role")
-        void adminCanDeleteRelation() throws Exception {
-            mockMvc.perform(delete("/api/products/{productId}/suppliers/{id}", productId, relationId))
+        void adminCanDelete() throws Exception {
+            mockMvc.perform(delete("/api/measure-units/{id}", measureUnitId))
                     .andExpect(status().isNoContent());
         }
 
         @Test
-        @WithMockUser(roles = {"lc-product-supplier"})
-        @DisplayName("returns 204 No Content for user with lc-product-supplier role")
-        void domainRoleCanDeleteRelation() throws Exception {
-            mockMvc.perform(delete("/api/products/{productId}/suppliers/{id}", productId, relationId))
+        @WithMockUser(roles = {"lc-measure-unit"})
+        @DisplayName("returns 204 No Content for user with lc-measure-unit role")
+        void domainRoleCanDelete() throws Exception {
+            mockMvc.perform(delete("/api/measure-units/{id}", measureUnitId))
                     .andExpect(status().isNoContent());
-        }
-
-        @Test
-        @DisplayName("returns 401 Unauthorized for unauthenticated request")
-        void unauthenticatedReturns401() throws Exception {
-            mockMvc.perform(delete("/api/products/{productId}/suppliers/{id}", productId, relationId))
-                    .andExpect(status().isUnauthorized());
         }
 
         @Test
         @WithMockUser
         @DisplayName("returns 403 Forbidden for authenticated user with no roles")
         void userWithNoRolesGetsForbidden() throws Exception {
-            mockMvc.perform(delete("/api/products/{productId}/suppliers/{id}", productId, relationId))
+            mockMvc.perform(delete("/api/measure-units/{id}", measureUnitId))
                     .andExpect(status().isForbidden());
+        }
+    }
+
+    // ─── PATCH /api/measure-units/{id}/enable ─────────────────────
+
+    @Nested
+    @DisplayName("PATCH /api/measure-units/{id}/enable")
+    class EnableMeasureUnitSecurity {
+
+        @Test
+        @WithMockUser(roles = {"lc-admin"})
+        @DisplayName("returns 200 OK for user with lc-admin role")
+        void adminCanEnable() throws Exception {
+            when(measureUnitService.enableMeasureUnit(measureUnitId))
+                    .thenReturn(buildResponse());
+
+            mockMvc.perform(patch("/api/measure-units/{id}/enable", measureUnitId))
+                    .andExpect(status().isOk());
+        }
+
+        @Test
+        @WithMockUser(roles = {"lc-measure-unit"})
+        @DisplayName("returns 200 OK for user with lc-measure-unit role")
+        void domainRoleCanEnable() throws Exception {
+            when(measureUnitService.enableMeasureUnit(measureUnitId))
+                    .thenReturn(buildResponse());
+
+            mockMvc.perform(patch("/api/measure-units/{id}/enable", measureUnitId))
+                    .andExpect(status().isOk());
         }
 
         @Test
         @WithMockUser(roles = {"other-role"})
         @DisplayName("returns 403 Forbidden for user with wrong role")
         void userWithWrongRoleGetsForbidden() throws Exception {
-            mockMvc.perform(delete("/api/products/{productId}/suppliers/{id}", productId, relationId))
+            mockMvc.perform(patch("/api/measure-units/{id}/enable", measureUnitId))
                     .andExpect(status().isForbidden());
         }
     }

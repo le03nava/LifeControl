@@ -27,6 +27,9 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
 
+import static com.lifecontrol.api.common.security.Roles.ADMIN;
+import static com.lifecontrol.api.common.security.Roles.SALES;
+
 @RestController
 @RequestMapping("/api/customers")
 @Tag(name = "Customer Management", description = "API for managing customers")
@@ -39,7 +42,7 @@ public class CustomerController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Get all customers", description = "Returns a paginated list, optionally filtered by search term on name or email")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Paginated list of customers")
@@ -51,7 +54,7 @@ public class CustomerController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Get customer by ID", description = "Returns a single customer")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Customer found"),
@@ -62,7 +65,7 @@ public class CustomerController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Create a customer", description = "Creates a new customer")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "Customer created"),
@@ -75,7 +78,7 @@ public class CustomerController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Update a customer", description = "Updates an existing customer")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Customer updated"),
@@ -88,7 +91,7 @@ public class CustomerController {
     }
 
     @PatchMapping("/{id}/enable")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Re-enable a customer", description = "Re-enables a soft-deleted customer")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Customer re-enabled"),
@@ -99,7 +102,7 @@ public class CustomerController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Delete a customer", description = "Soft-deletes a customer")
     @ApiResponses({
         @ApiResponse(responseCode = "204", description = "Customer deleted"),
