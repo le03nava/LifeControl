@@ -57,7 +57,7 @@ LifeControl es un sistema de gestión consolidado en un monolito modular `life-c
 |-----------|----------|------------|--------|
 | API Gateway | `api-gateway/` | Spring Boot | Activo |
 | Life Control API | `life-control-api/` | Spring Boot, Java 21, PostgreSQL | **Activo** — núcleo del sistema |
-| Angular App | `life-control-app-angular/` | Angular 20.3.0, Material | Activo |
+| Angular App | `life-control-app-angular/` | Angular 20.3.0, Material, Vitest + Playwright, ESLint/Prettier | Activo |
 | Backstage | `backstage/` | Backstage framework | Activo |
 
 ---
@@ -151,9 +151,15 @@ Provisión idempotente del realm `life-control-realm`, los clients (`life-contro
 ```bash
 cd life-control-app-angular
 npm install
-npm start
+npm start                   # dev server (localhost:4200)
 npm run build
+npm run lint                # ESLint + Prettier
+npm test                    # unit tests (Vitest)
+npm run test:coverage:check # unit + enforcement de umbrales de cobertura (CI)
+npm run test:e2e            # E2E con Playwright (mocks de Keycloak y API)
 ```
+
+> CI: `.github/workflows/angular-ci.yml` corre `lint` + `build` + `test:coverage:check` en pushes a `main` y PRs que toquen `life-control-app-angular/`.
 
 ### Docker
 

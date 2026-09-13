@@ -805,6 +805,17 @@ npm run test:coverage:check  # Tests + enforcement de umbrales (CI)
 - CI corre `npm run test:coverage:check`; si baja del umbral, el job falla.
 - Subir un umbral: actualizar la constante y (si el valor supera el actual) subir también la table de arriba.
 
+### Tests E2E (Playwright)
+
+- **Runner**: Playwright (`@playwright/test`), config en `playwright.config.ts`.
+- **Tests**: en `e2e/`, con **mocks** de Keycloak y del API Gateway (sin backend real).
+- El `webServer` de Playwright levanta `ng serve` (port `E2E_PORT` o 4200).
+
+```bash
+npm run test:e2e            # Headless
+npm run test:e2e:headed     # Con navegador visible
+```
+
 ### Patrones de Test
 
 ```typescript

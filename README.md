@@ -19,7 +19,7 @@ Plataforma de gestión integral con backend Spring Boot y frontend Angular, cons
                                              │
                                     ┌────────▼────────┐        ┌──────────────────┐
                                     │  LifeControl     │        │  Angular App     │
-                                    │  API (Modular    │◄──────►│  (SSR + Material)│
+                                    │  API (Modular    │◄──────►│  (Material)      │
                                     │   Monolith)      │        └──────────────────┘
                                     │  PostgreSQL      │
                                     └─────────────────┘
@@ -38,7 +38,7 @@ El proyecto consolidó toda la lógica de negocio en el monolito modular `life-c
 
 | Capa                | Tecnología                                           |
 |---------------------|------------------------------------------------------|
-| **Frontend**        | Angular 20.3.0 (SSR), Angular Material, Keycloak Angular |
+| **Frontend**        | Angular 20.3.0 (SPA), Angular Material, Keycloak Angular |
 | **Backend**         | Spring Boot 3.4.0 (Java 21)                         |
 | **Base de datos**   | PostgreSQL (principal), Redis (caching)              |
 | **Auth**            | Keycloak 26 (OIDC/OAuth2)                            |
@@ -55,7 +55,7 @@ El proyecto consolidó toda la lógica de negocio en el monolito modular `life-c
 |---------------------|-------------------------|----------------------------------|----------------------------|
 | LifeControl API     | `life-control-api/`     | Spring Boot 3.4 + PostgreSQL     | **Módulo central** — compañías, países, regiones, zonas, usuarios, roles, productos, ventas, compras, auditoría |
 | API Gateway         | `api-gateway/`          | Spring Cloud Gateway             | Proxy, enrutamiento        |
-| Angular App         | `life-control-app-angular/` | Angular 20.3, SSR, Material | Frontend de gestión        |
+| Angular App         | `life-control-app-angular/` | Angular 20.3, SPA, Material | Frontend de gestión        |
 | Backstage           | `backstage/`            | Backstage framework              | Developer portal           |
 
 ---

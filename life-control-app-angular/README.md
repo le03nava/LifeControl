@@ -46,6 +46,12 @@ npm run test:coverage
 
 # Tests con coverage + verificación de umbrales (falla si baja del mínimo)
 npm run test:coverage:check
+
+# Lint (ESLint + Prettier)
+npm run lint
+
+# Tests E2E con Playwright (mocks de Keycloak y API)
+npm run test:e2e
 ```
 
 ## Arquitectura
