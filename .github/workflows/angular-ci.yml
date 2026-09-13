@@ -31,7 +31,9 @@ jobs:
           cache-dependency-path: life-control-app-angular/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        # --legacy-peer-deps: el proyecto fija zone.js ^0.16.2, fuera del peerOptional
+        # ~0.15.0 de @angular/core, así que el resolver estricto de npm fallaría.
+        run: npm ci --legacy-peer-deps
 
       - name: Lint
         run: npm run lint

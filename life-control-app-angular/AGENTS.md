@@ -16,7 +16,6 @@ Aplicación Angular principal del proyecto LifeControl (v20.3.0), construida con
 | Componentes            | 100% Standalone                                   |
 | Autenticación          | Keycloak v26 (`keycloak-angular`, `keycloak-js`) |
 | UI Library             | Angular Material 20 (M3 theme)                   |
-| SSR                   | `@angular/ssr` 20.3.6                            |
 | Testing                | Vitest via `@angular/build:unit-test`            |
 | Build System           | esbuild (`@angular/build`)                       |
 | Layout Utilities       | `@angular/cdk/layout` (BreakpointObserver)        |
@@ -32,7 +31,6 @@ Aplicación Angular principal del proyecto LifeControl (v20.3.0), construida con
 src/
 ├── app/                          # Config raíz de la app
 │   ├── app.config.ts             # Providers globales
-│   ├── app.config.server.ts      # Providers SSR
 │   ├── app.routes.ts             # Rutas raíz con lazy loading
 │   ├── app.ts                    # Root component
 │   ├── app.scss                  # Estilos del layout raíz
@@ -121,7 +119,6 @@ src/
 │       └── index.ts              # Barrel export
 ├── styles.scss                   # Estilos globales (M3 theme, dark mode)
 ├── main.ts                       # Entry point browser
-├── main.server.ts                # Entry point SSR
 └── test-setup.ts                 # Configuración de tests (Vitest)
 ```
 

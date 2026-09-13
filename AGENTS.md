@@ -57,7 +57,7 @@ LifeControl es un sistema de gestión consolidado en un monolito modular `life-c
 |-----------|----------|------------|--------|
 | API Gateway | `api-gateway/` | Spring Boot | Activo |
 | Life Control API | `life-control-api/` | Spring Boot, Java 21, PostgreSQL | **Activo** — núcleo del sistema |
-| Angular App | `life-control-app-angular/` | Angular 20.3.0, SSR + Material | Activo |
+| Angular App | `life-control-app-angular/` | Angular 20.3.0, Material | Activo |
 | Backstage | `backstage/` | Backstage framework | Activo |
 
 ---
