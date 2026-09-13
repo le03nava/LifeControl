@@ -467,15 +467,15 @@ class SalesOrderIntegrationTest {
         }
     }
 
-    // ─── 5.6 Cancel order → stock restored (incl soft-deleted) ───
+    // ─── 5.6 Cancel order → stock restored (enabled items only) ───
 
     @Nested
-    @DisplayName("5.6 Cancel order — stock restored including soft-deleted items")
+    @DisplayName("5.6 Cancel order — stock restored once, soft-deleted items excluded")
     class CancelOrderStockRestoreTests {
 
         @Test
-        @DisplayName("should restore all item stock on cancel, including soft-deleted")
-        void cancelOrder_RestoresAllStock_IncludingSoftDeleted() throws Exception {
+        @DisplayName("should restore stock only for enabled items on cancel, without double-restoring soft-deleted ones")
+        void cancelOrder_RestoresEnabledItemsOnly_NoDoubleRestore() throws Exception {
             var variant = createTestVariant(new BigDecimal("100.00"));
 
             // Create order with 2 items: qty 3 and qty 5 → stock becomes 92
@@ -510,12 +510,12 @@ class SalesOrderIntegrationTest {
                             .with(jwt().authorities(ROLE_LC_SALES)))
                     .andExpect(status().isNoContent());
 
-            // Stock after delete item1: 92 + 3 = 95
+            // Stock after delete item1: 92 + 3 = 95 (item1 already restored its stock)
             v = productVariantRepository.findById(variant.getId()).orElseThrow();
             assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("95.00"));
 
-            // Cancel order: restores item2(qty 5) + soft-deleted item1(qty 3) = restores 8
-            // Starting stock: 95. After cancel: 95 + 5 + 3 = 103
+            // Cancel order: restores ONLY the enabled item2(qty 5). The soft-deleted
+            // item1 was already restored when deleted, so it must NOT be restored again.
             var cancelRequest = new UpdateSalesOrderStatusRequest(cancelledStatusId);
 
             mockMvc.perform(patch("/api/sales-orders/{id}/status", orderId)
@@ -525,9 +525,9 @@ class SalesOrderIntegrationTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.statusName").value("Cancelled"));
 
-            // Stock should be: 95 + 5 (item2) + 3 (soft-deleted item1) = 103
+            // Stock should be: 95 + 5 (item2) = 100 — no double-restore of item1
             v = productVariantRepository.findById(variant.getId()).orElseThrow();
-            assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("103.00"));
+            assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
         }
     }
 

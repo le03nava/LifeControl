@@ -24,6 +24,8 @@ import com.lifecontrol.api.salesorder.model.SalesOrderItem;
 import com.lifecontrol.api.salesorder.repository.SalesOrderItemRepository;
 import com.lifecontrol.api.salesorder.repository.SalesOrderRepository;
 import com.lifecontrol.api.shift.exception.ShiftNotFoundException;
+import com.lifecontrol.api.shift.exception.ShiftNotOpenException;
+import com.lifecontrol.api.shift.model.Shift;
 import com.lifecontrol.api.shift.repository.ShiftRepository;
 import com.lifecontrol.api.status.exception.StatusNotFoundException;
 import com.lifecontrol.api.status.model.Status;
@@ -248,6 +250,16 @@ class SalesOrderServiceTest {
         testVariant.setStock(new BigDecimal("100.00"));
     }
 
+    private Shift openShift(String status) {
+        return Shift.builder()
+                .id(shiftId)
+                .companyStoreId(companyStoreId)
+                .userId("user123")
+                .status(status)
+                .enabled(true)
+                .build();
+    }
+
     // ─────────────────────────────────────────────
     // getAllSalesOrders
     // ─────────────────────────────────────────────
@@ -363,7 +375,7 @@ class SalesOrderServiceTest {
         void createSalesOrder_Success() {
             when(customerRepository.existsById(customerId)).thenReturn(true);
             when(companyStoreRepository.existsById(companyStoreId)).thenReturn(true);
-            when(shiftRepository.existsById(shiftId)).thenReturn(true);
+            when(shiftRepository.findById(shiftId)).thenReturn(Optional.of(openShift("ABIERTO")));
             when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER", "Draft"))
                     .thenReturn(Optional.of(borradorStatus));
             when(salesOrderRepository.findTopByOrderNumberStartingWithOrderByOrderNumberDesc(any()))
@@ -414,11 +426,26 @@ class SalesOrderServiceTest {
         void createSalesOrder_ShiftNotFound() {
             when(customerRepository.existsById(customerId)).thenReturn(true);
             when(companyStoreRepository.existsById(companyStoreId)).thenReturn(true);
-            when(shiftRepository.existsById(shiftId)).thenReturn(false);
+            when(shiftRepository.findById(shiftId)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> salesOrderService.createSalesOrder(testOrderRequest))
                     .isInstanceOf(ShiftNotFoundException.class)
                     .hasMessageContaining("Shift not found with id");
+
+            verify(salesOrderRepository, never()).save(any(SalesOrder.class));
+        }
+
+        @Test
+        @DisplayName("should throw ShiftNotOpenException when shift exists but is closed")
+        void createSalesOrder_ShiftClosed_ThrowsException() {
+            when(customerRepository.existsById(customerId)).thenReturn(true);
+            when(companyStoreRepository.existsById(companyStoreId)).thenReturn(true);
+            when(shiftRepository.findById(shiftId)).thenReturn(Optional.of(openShift("CERRADO")));
+
+            assertThatThrownBy(() -> salesOrderService.createSalesOrder(testOrderRequest))
+                    .isInstanceOf(ShiftNotOpenException.class)
+                    .hasMessageContaining(shiftId.toString())
+                    .hasMessageContaining("CERRADO");
 
             verify(salesOrderRepository, never()).save(any(SalesOrder.class));
         }
@@ -491,6 +518,8 @@ class SalesOrderServiceTest {
                     .build();
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of(testItem, item2));
             when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(testItem, item2));
             when(productVariantRepository.findByIdForUpdate(variantId)).thenReturn(Optional.of(testVariant));
             when(productVariantRepository.findByIdForUpdate(variantId2)).thenReturn(Optional.of(testVariant2));
@@ -506,6 +535,78 @@ class SalesOrderServiceTest {
             verify(productVariantRepository).save(testVariant2);
             assertThat(testVariant.getStock()).isEqualByComparingTo(new BigDecimal("102.00"));
             assertThat(testVariant2.getStock()).isEqualByComparingTo(new BigDecimal("203.00"));
+        }
+
+        @Test
+        @DisplayName("should not restore stock again when deleting an already-cancelled order")
+        void deleteSalesOrder_AlreadyCancelled_NoStockRestoration() {
+            var cancelledOrder = SalesOrder.builder()
+                    .id(orderId)
+                    .orderNumber(testOrder.getOrderNumber())
+                    .customerId(customerId)
+                    .companyStoreId(companyStoreId)
+                    .shiftId(shiftId)
+                    .userId("user123")
+                    .orderDate(testOrder.getOrderDate())
+                    .statusId(canceladaStatus.getId())
+                    .totalAmount(BigDecimal.ZERO)
+                    .enabled(true)
+                    .build();
+
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(cancelledOrder));
+            when(statusRepository.findById(canceladaStatus.getId())).thenReturn(Optional.of(canceladaStatus));
+            when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(testItem));
+
+            salesOrderService.deleteSalesOrder(orderId);
+
+            verify(salesOrderRepository).save(any(SalesOrder.class));
+            verify(itemRepository).save(any(SalesOrderItem.class));
+            // A cancelled order already restored its stock — delete must NOT restore again
+            verify(productVariantRepository, never()).findByIdForUpdate(any());
+            verify(productVariantRepository, never()).save(any(ProductVariant.class));
+        }
+
+        @Test
+        @DisplayName("should restore stock exactly once when cancelling then deleting the order")
+        void deleteSalesOrder_AfterCancel_RestoresStockOnce() {
+            var statusRequest = new UpdateSalesOrderStatusRequest(canceladaStatus.getId());
+
+            var cancelledOrder = SalesOrder.builder()
+                    .id(orderId)
+                    .orderNumber(testOrder.getOrderNumber())
+                    .customerId(customerId)
+                    .companyStoreId(companyStoreId)
+                    .shiftId(shiftId)
+                    .userId("user123")
+                    .orderDate(testOrder.getOrderDate())
+                    .statusId(canceladaStatus.getId())
+                    .totalAmount(BigDecimal.ZERO)
+                    .enabled(true)
+                    .build();
+
+            // ── Cancel transition ──
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
+            when(statusRepository.findById(canceladaStatus.getId())).thenReturn(Optional.of(canceladaStatus));
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId))
+                    .thenReturn(List.of(testItem))
+                    .thenReturn(List.of());
+            when(productVariantRepository.findByIdForUpdate(variantId)).thenReturn(Optional.of(testVariant));
+            when(salesOrderRepository.save(any(SalesOrder.class))).thenReturn(cancelledOrder);
+
+            salesOrderService.updateSalesOrderStatus(orderId, statusRequest);
+            assertThat(testVariant.getStock()).isEqualByComparingTo(new BigDecimal("102.00"));
+
+            // ── Delete after cancel ──
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(cancelledOrder));
+            when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(testItem));
+
+            salesOrderService.deleteSalesOrder(orderId);
+
+            // Stock restored exactly once (only during cancel), never again on delete
+            verify(productVariantRepository, times(1)).findByIdForUpdate(variantId);
+            verify(productVariantRepository, times(1)).save(testVariant);
+            assertThat(testVariant.getStock()).isEqualByComparingTo(new BigDecimal("102.00"));
         }
 
         @Test
@@ -626,8 +727,9 @@ class SalesOrderServiceTest {
                     .build();
 
             when(salesOrderRepository.save(any(SalesOrder.class))).thenReturn(updatedOrder);
-            when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(testItem));
-            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId))
+                    .thenReturn(List.of(testItem))
+                    .thenReturn(List.of());
             when(productVariantRepository.findByIdForUpdate(variantId)).thenReturn(Optional.of(testVariant));
             when(statusRepository.findById(canceladaStatus.getId())).thenReturn(Optional.of(canceladaStatus));
 
@@ -694,9 +796,10 @@ class SalesOrderServiceTest {
         }
 
         @Test
-        @DisplayName("should restore stock for all items including soft-deleted on cancel")
-        void updateStatus_CancelRestore_IncludesSoftDeletedItems() {
-            // Active item with variantId, qty 2.00
+        @DisplayName("should restore stock only for enabled items on cancel, not already-restored soft-deleted items")
+        void updateStatus_CancelRestore_EnabledItemsOnly() {
+            // Soft-deleted item (qty 3.00) already had its stock restored when it was
+            // individually deleted, so it must NOT be restored again on cancel.
             var softDeletedItem = SalesOrderItem.builder()
                     .id(UUID.randomUUID())
                     .salesOrderId(orderId)
@@ -731,10 +834,10 @@ class SalesOrderServiceTest {
                     .build();
 
             when(salesOrderRepository.save(any(SalesOrder.class))).thenReturn(updatedOrder);
-            // findBySalesOrderId returns ALL items including soft-deleted
-            when(itemRepository.findBySalesOrderId(orderId))
-                    .thenReturn(List.of(testItem, softDeletedItem));
-            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
+            // Only enabled items hold stock — a soft-deleted item was already restored
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId))
+                    .thenReturn(List.of(testItem))
+                    .thenReturn(List.of());
             when(productVariantRepository.findByIdForUpdate(variantId)).thenReturn(Optional.of(testVariant));
             when(statusRepository.findById(canceladaStatus.getId())).thenReturn(Optional.of(canceladaStatus));
 
@@ -742,9 +845,9 @@ class SalesOrderServiceTest {
 
             assertThat(result).isNotNull();
             assertThat(result.statusName()).isEqualTo("Cancelled");
-            // Stock restored: 100.00 + 2.00 (testItem) + 3.00 (softDeleted) = 105.00
+            // Stock restored: 100.00 + 2.00 = 102.00
             verify(productVariantRepository).save(testVariant);
-            assertThat(testVariant.getStock()).isEqualByComparingTo(new BigDecimal("105.00"));
+            assertThat(testVariant.getStock()).isEqualByComparingTo(new BigDecimal("102.00"));
         }
     }
 
@@ -1058,6 +1161,66 @@ class SalesOrderServiceTest {
             // findByIdForUpdate should NOT be called
             verify(productVariantRepository, never()).findByIdForUpdate(any());
             verify(productVariantRepository, never()).save(any(ProductVariant.class));
+        }
+
+        @Test
+        @DisplayName("should restore old variant stock and deduct new variant stock when productVariantId changes")
+        void updateSalesOrderItem_VariantChange_RestoresOldAndDeductsNew() {
+            var newVariantId = UUID.randomUUID();
+            var newVariant = new ProductVariant();
+            newVariant.setId(newVariantId);
+            newVariant.setStock(new BigDecimal("200.00"));
+
+            var request = new SalesOrderItemRequest(
+                    itemId, newVariantId,
+                    new BigDecimal("2.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
+
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
+            when(itemRepository.findById(itemId)).thenReturn(Optional.of(testItem));
+            when(productVariantRepository.existsById(newVariantId)).thenReturn(true);
+            when(productVariantRepository.findByIdForUpdate(variantId)).thenReturn(Optional.of(testVariant));
+            when(productVariantRepository.findByIdForUpdate(newVariantId)).thenReturn(Optional.of(newVariant));
+            when(itemRepository.save(any(SalesOrderItem.class))).thenReturn(testItem);
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of(testItem));
+            when(statusRepository.findById(pendienteItemStatus.getId())).thenReturn(Optional.of(pendienteItemStatus));
+
+            salesOrderService.updateSalesOrderItem(orderId, itemId, request);
+
+            // Old variant restored in full: 100 + 2 = 102; new variant deducted: 200 - 2 = 198
+            verify(productVariantRepository).save(testVariant);
+            verify(productVariantRepository).save(newVariant);
+            assertThat(testVariant.getStock()).isEqualByComparingTo(new BigDecimal("102.00"));
+            assertThat(newVariant.getStock()).isEqualByComparingTo(new BigDecimal("198.00"));
+        }
+
+        @Test
+        @DisplayName("should restore old variant full quantity and deduct new quantity when both variant and quantity change")
+        void updateSalesOrderItem_VariantChange_WithQuantityChange() {
+            var newVariantId = UUID.randomUUID();
+            var newVariant = new ProductVariant();
+            newVariant.setId(newVariantId);
+            newVariant.setStock(new BigDecimal("200.00"));
+
+            var request = new SalesOrderItemRequest(
+                    itemId, newVariantId,
+                    new BigDecimal("5.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
+
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
+            when(itemRepository.findById(itemId)).thenReturn(Optional.of(testItem));
+            when(productVariantRepository.existsById(newVariantId)).thenReturn(true);
+            when(productVariantRepository.findByIdForUpdate(variantId)).thenReturn(Optional.of(testVariant));
+            when(productVariantRepository.findByIdForUpdate(newVariantId)).thenReturn(Optional.of(newVariant));
+            when(itemRepository.save(any(SalesOrderItem.class))).thenReturn(testItem);
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of(testItem));
+            when(statusRepository.findById(pendienteItemStatus.getId())).thenReturn(Optional.of(pendienteItemStatus));
+
+            salesOrderService.updateSalesOrderItem(orderId, itemId, request);
+
+            // Old variant restored in full: 100 + 2 = 102; new variant deducted: 200 - 5 = 195
+            assertThat(testVariant.getStock()).isEqualByComparingTo(new BigDecimal("102.00"));
+            assertThat(newVariant.getStock()).isEqualByComparingTo(new BigDecimal("195.00"));
         }
 
         @Test
@@ -2199,6 +2362,47 @@ class SalesOrderServiceTest {
             assertThat(newVariant.getStock()).isEqualByComparingTo(new BigDecimal("44.00"));
             // deleted item: restore 4 → stock 30+4=34
             assertThat(oldVariant.getStock()).isEqualByComparingTo(new BigDecimal("34.00"));
+        }
+
+        @Test
+        @DisplayName("should restore old variant and deduct new variant when an item switches variants inline")
+        void deltaComputation_VariantChange_RestoresOldAndDeductsNew() {
+            var vidOld = UUID.randomUUID();
+            var oldVariant = new ProductVariant();
+            oldVariant.setId(vidOld);
+            oldVariant.setStock(new BigDecimal("30.00"));
+
+            var existingItem = SalesOrderItem.builder()
+                    .id(UUID.randomUUID()).salesOrderId(orderId).productVariantId(vidOld)
+                    .quantity(new BigDecimal("4.00")).listPrice(BigDecimal.TEN).finalPrice(BigDecimal.TEN)
+                    .statusId(pendienteItemStatus.getId()).enabled(true).build();
+
+            var reqItem = new SalesOrderItemRequest(
+                    existingItem.getId(), variantId,
+                    new BigDecimal("6.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
+            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123",
+                    List.of(reqItem));
+
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(customerRepository.existsById(customerId)).thenReturn(true);
+            when(companyStoreRepository.existsById(companyStoreId)).thenReturn(true);
+            when(shiftRepository.existsById(shiftId)).thenReturn(true);
+            when(salesOrderRepository.save(any(SalesOrder.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(existingItem));
+            when(itemRepository.findById(existingItem.getId())).thenReturn(Optional.of(existingItem));
+            when(itemRepository.save(any(SalesOrderItem.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
+            when(statusRepository.findById(any())).thenReturn(Optional.of(borradorStatus));
+            when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Pending"))
+                    .thenReturn(Optional.of(pendienteItemStatus));
+            when(productVariantRepository.findByIdForUpdate(variantId)).thenReturn(Optional.of(testVariant));
+            when(productVariantRepository.findByIdForUpdate(vidOld)).thenReturn(Optional.of(oldVariant));
+
+            salesOrderService.updateSalesOrder(orderId, request);
+
+            // Old variant restored in full: 30 + 4 = 34; new variant deducted: 100 - 6 = 94
+            assertThat(oldVariant.getStock()).isEqualByComparingTo(new BigDecimal("34.00"));
+            assertThat(testVariant.getStock()).isEqualByComparingTo(new BigDecimal("94.00"));
         }
 
         @Test

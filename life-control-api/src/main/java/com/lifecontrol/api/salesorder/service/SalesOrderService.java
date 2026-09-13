@@ -24,6 +24,7 @@ import com.lifecontrol.api.salesorder.model.SalesOrderItem;
 import com.lifecontrol.api.salesorder.repository.SalesOrderItemRepository;
 import com.lifecontrol.api.salesorder.repository.SalesOrderRepository;
 import com.lifecontrol.api.shift.exception.ShiftNotFoundException;
+import com.lifecontrol.api.shift.exception.ShiftNotOpenException;
 import com.lifecontrol.api.shift.repository.ShiftRepository;
 import com.lifecontrol.api.status.exception.StatusNotFoundException;
 import com.lifecontrol.api.status.model.Status;
@@ -69,6 +70,8 @@ public class SalesOrderService {
             Map.entry("Added", Set.of()),
             Map.entry("Cancelled", Set.of())
     );
+
+    private static final String SHIFT_STATUS_OPEN = "ABIERTO";
 
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd");
 
@@ -128,7 +131,7 @@ public class SalesOrderService {
         validateCustomerExists(request.customerId());
         validateCompanyStoreExists(request.companyStoreId());
         if (request.shiftId() != null) {
-            validateShiftExists(request.shiftId());
+            validateShiftOpen(request.shiftId());
         }
 
         var status = statusRepository.findByTypeNameAndStatusName("SALES_ORDER", "Draft")
@@ -381,9 +384,11 @@ public class SalesOrderService {
         var newStatus = validateStatusExistsAndType(request.statusId(), "SALES_ORDER");
         validateSOTransition(currentStatus, newStatus);
 
-        // Restore stock when transitioning to Cancelled
+        // Restore stock when transitioning to Cancelled. Only enabled items still
+        // hold stock: soft-deleted items were already restored when they were deleted,
+        // so restoring them again would duplicate stock.
         if ("Cancelled".equals(newStatus.getStatusName())) {
-            var allItems = itemRepository.findBySalesOrderId(id);
+            var allItems = itemRepository.findBySalesOrderIdAndEnabledTrue(id);
 
             // Group items by variantId and sort to prevent deadlocks
             var itemsByVariant = new HashMap<UUID, List<SalesOrderItem>>();
@@ -419,27 +424,34 @@ public class SalesOrderService {
         var so = salesOrderRepository.findById(id)
                 .orElseThrow(() -> new SalesOrderNotFoundException(id));
 
-        // Restore stock for all items BEFORE soft-deleting
-        var items = itemRepository.findBySalesOrderId(id);
-        if (!items.isEmpty()) {
-            // Group items by variantId and sort to prevent deadlocks
-            var itemsByVariant = new HashMap<UUID, List<SalesOrderItem>>();
-            for (var item : items) {
-                itemsByVariant.computeIfAbsent(item.getProductVariantId(), k -> new java.util.ArrayList<>())
-                        .add(item);
-            }
+        var currentStatus = statusRepository.findById(so.getStatusId())
+                .orElseThrow(() -> new StatusNotFoundException(so.getStatusId()));
 
-            var sortedVariantIds = itemsByVariant.keySet().stream().sorted().toList();
-            for (var variantId : sortedVariantIds) {
-                var variant = productVariantRepository.findByIdForUpdate(variantId)
-                        .orElseThrow(() -> new ProductVariantNotFoundException(variantId));
+        // Restore stock ONLY if the order was not already Cancelled: the cancel
+        // transition already restored it, and restoring again would duplicate stock.
+        // Only enabled items still hold stock (soft-deleted items were restored on delete).
+        if (!"Cancelled".equals(currentStatus.getStatusName())) {
+            var items = itemRepository.findBySalesOrderIdAndEnabledTrue(id);
+            if (!items.isEmpty()) {
+                // Group items by variantId and sort to prevent deadlocks
+                var itemsByVariant = new HashMap<UUID, List<SalesOrderItem>>();
+                for (var item : items) {
+                    itemsByVariant.computeIfAbsent(item.getProductVariantId(), k -> new java.util.ArrayList<>())
+                            .add(item);
+                }
 
-                var totalQty = itemsByVariant.get(variantId).stream()
-                        .map(SalesOrderItem::getQuantity)
-                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+                var sortedVariantIds = itemsByVariant.keySet().stream().sorted().toList();
+                for (var variantId : sortedVariantIds) {
+                    var variant = productVariantRepository.findByIdForUpdate(variantId)
+                            .orElseThrow(() -> new ProductVariantNotFoundException(variantId));
 
-                variant.setStock(variant.getStock().add(totalQty));
-                productVariantRepository.save(variant);
+                    var totalQty = itemsByVariant.get(variantId).stream()
+                            .map(SalesOrderItem::getQuantity)
+                            .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+                    variant.setStock(variant.getStock().add(totalQty));
+                    productVariantRepository.save(variant);
+                }
             }
         }
 
@@ -447,7 +459,7 @@ public class SalesOrderService {
         salesOrderRepository.save(so);
 
         // Soft-delete all items
-        for (var item : items) {
+        for (var item : itemRepository.findBySalesOrderId(id)) {
             item.setEnabled(false);
             itemRepository.save(item);
         }
@@ -487,7 +499,7 @@ public class SalesOrderService {
         var so = loadAndValidateModifiableSO(salesOrderId);
         validateProductVariantExists(request.productVariantId());
 
-        // Check if this will be the first item (triggers Draft → Pending transition)
+        // Check if this will be the first item (triggers Draft → Active transition)
         var existingItems = itemRepository.findBySalesOrderIdAndEnabledTrue(salesOrderId);
         var isFirstItem = existingItems.isEmpty();
 
@@ -554,26 +566,18 @@ public class SalesOrderService {
 
         validateProductVariantExists(request.productVariantId());
 
-        // Compute quantity diff and adjust stock BEFORE saving
-        var oldQty = item.getQuantity();
-        var newQty = request.quantity();
-        var diff = newQty.subtract(oldQty);
+        // Reconcile stock BEFORE saving. On variant change, applyStockChanges restores
+        // the old variant's full quantity and deducts the new variant's full quantity;
+        // on a simple quantity change the delta is applied to the current variant.
+        var variantChanged = !item.getProductVariantId().equals(request.productVariantId());
+        var quantityChanged = request.quantity().compareTo(item.getQuantity()) != 0;
 
-        if (diff.compareTo(BigDecimal.ZERO) != 0) {
-            var variant = productVariantRepository.findByIdForUpdate(request.productVariantId())
-                    .orElseThrow(() -> new ProductVariantNotFoundException(request.productVariantId()));
-
-            if (diff.compareTo(BigDecimal.ZERO) > 0) {
-                // Quantity increase — deduct additional stock
-                if (variant.getStock().compareTo(diff) < 0) {
-                    throw new InsufficientStockException(variant.getId(), diff, variant.getStock());
-                }
-                variant.setStock(variant.getStock().subtract(diff));
-            } else {
-                // Quantity decrease — restore stock
-                variant.setStock(variant.getStock().add(diff.negate()));
-            }
-            productVariantRepository.save(variant);
+        if (variantChanged || quantityChanged) {
+            applyStockChanges(
+                    List.of(request),
+                    Map.of(item.getId(), item.getQuantity()),
+                    Set.of(),
+                    Map.of(item.getId(), item.getProductVariantId()));
         }
 
         var discountApplied = request.discountApplied() != null ? request.discountApplied() : BigDecimal.ZERO;
@@ -683,6 +687,14 @@ public class SalesOrderService {
         }
     }
 
+    private void validateShiftOpen(UUID id) {
+        var shift = shiftRepository.findById(id)
+                .orElseThrow(() -> new ShiftNotFoundException(id));
+        if (!SHIFT_STATUS_OPEN.equals(shift.getStatus())) {
+            throw new ShiftNotOpenException(id, shift.getStatus());
+        }
+    }
+
     private void validateProductVariantExists(UUID id) {
         if (!productVariantRepository.existsById(id)) {
             throw new ProductVariantNotFoundException(id);
@@ -757,7 +769,9 @@ public class SalesOrderService {
      * @param newItems            items from the request (with variantId + quantity)
      * @param oldQuantities       map of existing item ID → quantity (empty for create/add)
      * @param deletedItemIds      set of item IDs being deleted (restore full quantity)
-     * @param itemIdToVariantId   map of deleted item ID → variant ID (empty for create/add)
+     * @param itemIdToVariantId   map of existing item ID → its current variant ID
+     *                            (used to restore the old variant on variant change
+     *                            and to restore stock for deleted items)
      */
     private void applyStockChanges(
             List<SalesOrderItemRequest> newItems,
@@ -765,10 +779,17 @@ public class SalesOrderService {
             Set<UUID> deletedItemIds,
             Map<UUID, UUID> itemIdToVariantId) {
 
-        // 1. Collect distinct variant IDs from new items and deleted items
+        // 1. Collect distinct variant IDs from new items (including the old variant of
+        //    items whose variant changes) and from deleted items
         var variantIds = new HashSet<UUID>();
         for (var item : newItems) {
             variantIds.add(item.productVariantId());
+            if (item.id() != null) {
+                var oldVid = itemIdToVariantId.get(item.id());
+                if (oldVid != null && !oldVid.equals(item.productVariantId())) {
+                    variantIds.add(oldVid);
+                }
+            }
         }
         for (var deletedId : deletedItemIds) {
             var vid = itemIdToVariantId.get(deletedId);
@@ -797,9 +818,24 @@ public class SalesOrderService {
         for (var item : newItems) {
             var vid = item.productVariantId();
             var newQty = item.quantity();
-            var oldQty = item.id() != null ? oldQuantities.getOrDefault(item.id(), BigDecimal.ZERO) : BigDecimal.ZERO;
-            var delta = newQty.subtract(oldQty); // positive = deduct, negative = restore
-            stockDelta.merge(vid, delta, BigDecimal::add);
+
+            if (item.id() != null) {
+                var oldQty = oldQuantities.getOrDefault(item.id(), BigDecimal.ZERO);
+                var oldVid = itemIdToVariantId.get(item.id());
+                if (oldVid != null && !oldVid.equals(vid)) {
+                    // Variant change: restore the old variant's full quantity and
+                    // deduct the new variant's full quantity
+                    stockDelta.merge(vid, newQty, BigDecimal::add);
+                    stockDelta.merge(oldVid, oldQty.negate(), BigDecimal::add);
+                } else {
+                    // Same variant (or old variant unknown): apply the quantity diff
+                    var delta = newQty.subtract(oldQty);
+                    stockDelta.merge(vid, delta, BigDecimal::add);
+                }
+            } else {
+                // New item: deduct the full quantity
+                stockDelta.merge(vid, newQty, BigDecimal::add);
+            }
         }
 
         // 5. Add restoration for deleted items
