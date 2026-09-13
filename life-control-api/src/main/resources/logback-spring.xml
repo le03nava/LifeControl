@@ -34,9 +34,12 @@
     <!-- Logbook HTTP request/response logging -->
     <logger name="org.zalando.logbook" level="WARN"/>
 
-    <!-- Debug logging for SQL -->
-    <logger name="org.hibernate.SQL" level="DEBUG"/>
-    <logger name="org.hibernate.type.descriptor.sql.BasicBinder" level="TRACE"/>
-    <logger name="org.hibernate.orm.jdbc.bind" level="TRACE"/>
-    <logger name="com.lifecontrol.api" level="DEBUG"/>
+    <!-- Debug logging for SQL — development profile only (avoids leaking
+         query parameter data in staging/prod logs) -->
+    <springProfile name="dev">
+        <logger name="org.hibernate.SQL" level="DEBUG"/>
+        <logger name="org.hibernate.type.descriptor.sql.BasicBinder" level="TRACE"/>
+        <logger name="org.hibernate.orm.jdbc.bind" level="TRACE"/>
+        <logger name="com.lifecontrol.api" level="DEBUG"/>
+    </springProfile>
 </configuration>
