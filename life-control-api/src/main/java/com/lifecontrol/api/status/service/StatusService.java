@@ -52,7 +52,7 @@ public class StatusService {
                 .orElseThrow(() -> new StatusNotFoundException(id));
     }
 
-    @Cacheable(value = "statuses", key = "#id")
+    @Cacheable(value = "statuses", key = "#id + '-' + #statusTypeId")
     @Transactional(readOnly = true)
     public StatusResponse getStatusByIdAndTypeId(UUID id, UUID statusTypeId) {
         return statusRepository.findByIdAndStatusTypeId(id, statusTypeId)
