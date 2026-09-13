@@ -9,6 +9,8 @@
     "test": "ng test",
     "test:watch": "ng test --watch",
     "test:coverage": "ng test --code-coverage",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
     "lint": "ng lint",
     "prepare": "node -e \"const fs=require('fs'),p=require('path'),cp=require('child_process');const D=String.fromCharCode(36);let root;try{root=cp.execSync('git rev-parse --show-toplevel',{stdio:['ignore','pipe','ignore']}).toString().trim()}catch{process.exit(0)}const base=p.resolve('.husky'),dest=p.join(base,'_');cp.execSync('git config core.hooksPath '+p.relative(root,dest));fs.mkdirSync(dest,{recursive:true});fs.writeFileSync(p.join(dest,'.gitignore'),'*');fs.copyFileSync(p.resolve('node_modules/husky/husky'),p.join(dest,'h'));for(const h of ['pre-commit','pre-merge-commit','prepare-commit-msg','commit-msg','post-commit','applypatch-msg','pre-applypatch','post-applypatch','pre-rebase','post-rewrite','post-checkout','post-merge','pre-push','pre-auto-gc']){fs.writeFileSync(p.join(dest,h),'#!/usr/bin/env sh\\n. \\\"'+D+'(dirname \\\"'+D+'0\\\")/h\\\"\\n',{mode:0o755})}console.log('husky: hooks installed in '+dest)\""
   },
@@ -57,6 +59,7 @@
     "@angular/build": "^20.3.6",
     "@angular/cli": "^20.3.6",
     "@angular/compiler-cli": "^20.3.0",
+    "@playwright/test": "^1.63.0",
     "@types/node": "^20.17.19",
     "@vitest/coverage-v8": "^3.1.4",
     "angular-eslint": "20.7.0",
