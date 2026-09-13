@@ -84,9 +84,11 @@
             "include": [
               "src/**/*.spec.ts"
             ],
+            "codeCoverage": true,
             "codeCoverageReporters": [
               "text",
-              "lcov"
+              "lcov",
+              "json-summary"
             ],
             "setupFiles": [
               "src/test-setup.ts"

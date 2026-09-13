@@ -43,6 +43,9 @@ npm run test:watch
 
 # Tests con coverage
 npm run test:coverage
+
+# Tests con coverage + verificación de umbrales (falla si baja del mínimo)
+npm run test:coverage:check
 ```
 
 ## Arquitectura

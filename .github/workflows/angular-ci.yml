@@ -42,7 +42,7 @@ jobs:
         run: npm run build
 
       - name: Test
-        run: npm test -- --code-coverage
+        run: npm run test:coverage:check
 
       - name: Upload coverage artifact
         if: always()

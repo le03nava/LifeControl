@@ -782,10 +782,28 @@ Todas las páginas de listado implementan estos estados con clases consistentes:
 - **Coverage**: `@vitest/coverage-v8`
 
 ```bash
-npm test              # Ejecutar tests
-npm run test:watch    # Modo watch
-npm run test:coverage # Con coverage
+npm test                # Ejecutar tests (coverage activo en angular.json)
+npm run test:watch      # Modo watch
+npm run test:coverage   # Con coverage
+npm run test:coverage:check  # Tests + enforcement de umbrales (CI)
 ```
+
+### Umbrales de Cobertura
+
+`@angular/build:unit-test` en Angular 20 **no soporta `codeCoverageThresholds`** (schema con `additionalProperties: false`; `coverageThresholds` llegó en versiones posteriores de Angular). El enforcement se hace vía `scripts/check-coverage.mjs`, que lee `coverage/coverage-summary.json` (reporter `json-summary` en `angular.json`).
+
+| Métrica | Actual | Umbral (floor) |
+|---------|--------|----------------|
+| Statements | 92.53% | 80% |
+| Branches | 72.56% | 60% |
+| Functions | 86.13% | 75% |
+| Lines | 92.53% | 80% |
+
+**Meta objetivo:** mantener la cobertura ≥ la línea actual (92.5/72.6/86.1/92.5). Los umbrales son guardrails con ~12 pts de margen sobre el baseline para absorber variación legítima.
+
+- Los umbrales se definen como constantes en `scripts/check-coverage.mjs`.
+- CI corre `npm run test:coverage:check`; si baja del umbral, el job falla.
+- Subir un umbral: actualizar la constante y (si el valor supera el actual) subir también la table de arriba.
 
 ### Patrones de Test
 
