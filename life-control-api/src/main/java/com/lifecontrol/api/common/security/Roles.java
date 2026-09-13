@@ -25,10 +25,12 @@ public final class Roles {
     /** Admin role for feature controllers. Client role of {@code life-control-client}. */
     public static final String ADMIN = "lc-admin";
 
-    /** Legacy admin realm role, still referenced by legacy endpoints and {@code CurrentUserContext}. */
+    /** Legacy admin realm role, kept only for backward compatibility in {@code CurrentUserContext}.
+     *  Retired once Keycloak is fully migrated to {@code lc-*} client roles. */
     public static final String LIFE_CONTROL_ADMIN = "life-control-admin";
 
-    /** Legacy country realm role (product catalog legacy). */
+    /** Legacy country realm role (product catalog legacy), kept only for backward compatibility
+     *  in {@code CurrentUserContext}. Retired once Keycloak is fully migrated to {@code lc-*} client roles. */
     public static final String LIFE_CONTROL_COUNTRY = "life-control-country";
 
     /** Keycloak admin role, enforced at URL level for {@code /api/users-admin/**}. */

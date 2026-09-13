@@ -135,7 +135,7 @@ class ActivityLogIntegrationTest {
                                     .jwt(builder -> builder
                                             .claim("sub", "user-123")
                                             .claim("preferred_username", "jdoe"))
-                                    .authorities(new SimpleGrantedAuthority("ROLE_life-control-admin"))))
+                                    .authorities(new SimpleGrantedAuthority("ROLE_lc-admin"))))
                     .andExpect(status().isOk());
 
             var logs = activityLogRepository.findAll();
@@ -160,7 +160,7 @@ class ActivityLogIntegrationTest {
                                     .jwt(builder -> builder
                                             .claim("sub", "user-456")
                                             .claim("preferred_username", "admin"))
-                                    .authorities(new SimpleGrantedAuthority("ROLE_life-control-admin"))))
+                                    .authorities(new SimpleGrantedAuthority("ROLE_lc-admin"))))
                     .andExpect(status().isCreated());
 
             var logs = activityLogRepository.findAll();
@@ -183,7 +183,7 @@ class ActivityLogIntegrationTest {
         void adminCanAccessActivityLogs() throws Exception {
             mockMvc.perform(get("/api/activity-logs")
                             .with(jwt()
-                                    .authorities(new SimpleGrantedAuthority("ROLE_life-control-admin"))))
+                                    .authorities(new SimpleGrantedAuthority("ROLE_lc-admin"))))
                     .andExpect(status().isOk());
         }
 
@@ -214,7 +214,7 @@ class ActivityLogIntegrationTest {
                                     .jwt(builder -> builder
                                             .claim("sub", "user-1")
                                             .claim("preferred_username", "admin"))
-                                    .authorities(new SimpleGrantedAuthority("ROLE_life-control-admin"))))
+                                    .authorities(new SimpleGrantedAuthority("ROLE_lc-admin"))))
                     .andExpect(status().isOk());
 
             var logs = activityLogRepository.findAll();
@@ -242,7 +242,7 @@ class ActivityLogIntegrationTest {
                                     .jwt(builder -> builder
                                             .claim("sub", "user-1")
                                             .claim("preferred_username", "admin"))
-                                    .authorities(new SimpleGrantedAuthority("ROLE_life-control-admin"))))
+                                    .authorities(new SimpleGrantedAuthority("ROLE_lc-admin"))))
                     .andExpect(status().is5xxServerError());
 
             var logs = activityLogRepository.findAll();

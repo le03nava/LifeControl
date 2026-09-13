@@ -18,17 +18,17 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
 
-import static com.lifecontrol.api.common.security.Roles.LIFE_CONTROL_ADMIN;
+import static com.lifecontrol.api.common.security.Roles.ADMIN;
 
 /**
  * REST controller for querying the activity audit trail.
  * <p>
- * Only accessible by users with the {@code life-control-admin} realm role.
+ * Only accessible by users with the {@code lc-admin} role.
  */
 @RestController
 @RequestMapping("/api/activity-logs")
 @Tag(name = "Activity Log", description = "Audit trail of user actions across all domains")
-@PreAuthorize("hasRole('" + LIFE_CONTROL_ADMIN + "')")
+@PreAuthorize("hasRole('" + ADMIN + "')")
 public class ActivityLogController {
 
     private final ActivityLogService activityLogService;

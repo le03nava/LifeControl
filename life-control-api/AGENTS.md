@@ -189,13 +189,18 @@ com.lifecontrol.api/
 
 | Prefix                                          | Access                    | Description                            |
 |-------------------------------------------------|---------------------------|----------------------------------------|
-| `/api/companies`                                | `life-control-admin\|lc-company\|lc-company-read` | Company CRUD + search (paginated; `lc-company-read` is read-only)  |
+| `/api/companies`                                | `lc-admin\|lc-company\|lc-company-read` | Company CRUD + search (paginated; `lc-company-read` is read-only)  |
 | `/api/companies/{id}/countries`                 | `lc-admin\|lc-company\|lc-company-country\|lc-company-country-read` (read) / `lc-admin\|lc-company\|lc-company-country` (write, method-level) | Company-country associations |
 | `/api/companies/{id}/countries/{cid}/regions`   | `lc-admin\|lc-company\|lc-company-country\|lc-company-region\|lc-company-region-read` (read) / `lc-admin\|lc-company\|lc-company-country\|lc-company-region` (write, method-level) | Regions within a company-country   |
 | `/api/companies/{id}/countries/{cid}/regions/{rid}/zones` | `lc-admin\|lc-company\|lc-company-country\|lc-company-region\|lc-company-zone\|lc-company-zone-read` (read) / `lc-admin\|lc-company\|lc-company-country\|lc-company-region\|lc-company-zone` (write, method-level) | Zones within a region              |
 | `/api/companies/{id}/countries/{cid}/regions/{rid}/zones/{zid}/stores` | `lc-admin\|lc-company\|lc-company-country\|lc-company-region\|lc-company-zone\|lc-company-store\|lc-company-store-read` (read) / `lc-admin\|lc-company\|lc-company-country\|lc-company-region\|lc-company-zone\|lc-company-store` (write, method-level) | Stores within a zone               |
 | `/api/countries, /api/measure-units, /api/payment-methods, /api/statuses, /api/status-types` | authenticated (read) / `lc-admin\|lc-country\|lc-measure-unit\|lc-payment-method\|lc-status\|lc-status-type` (write) | Catalog CRUD — method-level `@PreAuthorize` (`Roles.ADMIN` + domain role for writes) |
-| `/api/activity-logs`                            | `life-control-admin`      | Audit trail query (paginated, filterable) |
+| `/api/activity-logs`                            | `lc-admin`                 | Audit trail query (paginated, filterable) |
+| `/api/purchase-orders`                          | authenticated (read) / `lc-admin\|lc-sales` (write, method-level) | Purchase order CRUD + line items (sales "orders" domain) |
+| `/api/suppliers`                                | authenticated (read) / `lc-admin\|lc-product-supplier` (write, method-level) | Supplier CRUD (soft delete) |
+| `/api/products`                                 | authenticated (read) / `lc-admin\|lc-product-supplier` (supplier assignment) / `lc-admin\|lc-sales` (variants, method-level) | Product catalog, supplier assignments, product variants |
+| `/api/product-variants`                         | `lc-admin\|lc-sales`       | Product variant search |
+| `/api/customers, /api/sales-orders, /api/shifts, /api/promotions` | `lc-admin\|lc-sales` (method-level) | Sales domain — customers, sales orders, shifts, promotions |
 | `/api/users-admin/users`                        | `admin`                   | Keycloak user search, roles, attributes |
 | `/api/users-admin/roles`                        | `admin`                   | Keycloak realm/client role CRUD       |
 
@@ -479,7 +484,7 @@ Role-based access:
 
 | Role                   | Authority                          | Scope                          |
 |------------------------|------------------------------------|--------------------------------|
-| `lc-admin`             | `ROLE_lc-admin`                    | Full CRUD on companies, activity logs (replaces `life-control-admin`) |
+| `lc-admin`             | `ROLE_lc-admin`                    | Full CRUD on all domains, activity log access, purchase order writes (superseded `life-control-admin`) |
 | `lc-company`           | `ROLE_lc-company`                  | Scoped by `company_id` JWT claim, full CRUD on assigned companies |
 | `lc-company-read`      | `ROLE_lc-company-read`             | Read-only GET access to companies, scoped by `company_id` JWT claim |
 | `lc-company-country`   | `ROLE_lc-company-country`          | Scoped by `company_id`, CRUD on company-country associations |
@@ -495,10 +500,10 @@ Role-based access:
 | `lc-status-type`       | `ROLE_lc-status-type`              | Write access to status types (read requires any authenticated user) |
 | `lc-payment-method`    | `ROLE_lc-payment-method`           | Write access to payment methods (read requires any authenticated user) |
 | `lc-measure-unit`      | `ROLE_lc-measure-unit`             | Write access to measure units (read requires any authenticated user) |
-| `lc-product-supplier`  | `ROLE_lc-product-supplier`         | Product-supplier assignment endpoints (replaces `life-control-country`) |
-| `lc-sales`             | `ROLE_lc-sales`                    | Sales domain: customers, sales orders, shifts, promotions, product variants |
-| `life-control-admin`   | `ROLE_life-control-admin`          | Legacy realm role — purchase orders, suppliers, activity logs |
-| `life-control-country` | `ROLE_life-control-country`        | Legacy realm role — recognized by `CurrentUserContext#isCountryRole()` |
+| `lc-product-supplier`  | `ROLE_lc-product-supplier`         | Supplier CRUD (soft delete) and product-supplier assignment endpoints (supersedes `life-control-country`) |
+| `lc-sales`             | `ROLE_lc-sales`                    | Sales domain: customers, sales orders, purchase orders, shifts, promotions, product variants |
+| `life-control-admin`   | `ROLE_life-control-admin`          | **Legacy** — no new assignments, pending Keycloak migration; still accepted by `CurrentUserContext#isAdmin()` for backward compatibility |
+| `life-control-country` | `ROLE_life-control-country`        | **Legacy** — no new assignments, pending Keycloak migration; still accepted by `CurrentUserContext#isCountryRole()` for backward compatibility |
 | `admin`                | `ROLE_admin`                       | Users-admin endpoints (Keycloak admin) |
 
 ### Architecture
@@ -852,7 +857,7 @@ Client roles (`life-control-client`) are provisioned idempotently by
 
 **Client roles (provisioned by `keycloak-setup.sh`):**
 
-- **`lc-admin`** — Full CRUD on companies, activity log access (replaces `life-control-admin`)
+- **`lc-admin`** — Full CRUD on all domains, activity log access, purchase order writes (supersedes `life-control-admin`)
 - **`lc-company`** — Scoped company CRUD (filtered by `company_id` JWT claim)
 - **`lc-company-read`** — Read-only GET access to companies, scoped by `company_id` JWT claim
 - **`lc-company-country`** / **`lc-company-country-read`** — Company-country CRUD / read-only GET, scoped by `company_id` JWT claim
@@ -860,13 +865,13 @@ Client roles (`life-control-client`) are provisioned idempotently by
 - **`lc-company-zone`** / **`lc-company-zone-read`** — Zone CRUD / read-only GET, scoped by `company_id`
 - **`lc-company-store`** / **`lc-company-store-read`** — Store CRUD / read-only GET, scoped by `company_id`
 - **`lc-country`**, **`lc-status`**, **`lc-status-type`**, **`lc-payment-method`**, **`lc-measure-unit`** — write access to catalog domains (reads require any authenticated user)
-- **`lc-product-supplier`** — Product-supplier assignment endpoints (replaces `life-control-country`)
-- **`lc-sales`** — Sales domain: customers, sales orders, shifts, promotions, product variants
+- **`lc-product-supplier`** — Supplier CRUD and product-supplier assignment endpoints (supersedes `life-control-country`)
+- **`lc-sales`** — Sales domain: customers, sales orders, purchase orders, shifts, promotions, product variants
 
 **Realm roles (manual):**
 
-- **`life-control-admin`** — Legacy admin realm role (purchase orders, suppliers, activity logs)
-- **`life-control-country`** — Legacy country realm role (recognized by `CurrentUserContext#isCountryRole()`)
+- **`life-control-admin`** — **Legacy** — no new assignments; kept for backward compatibility via `CurrentUserContext#isAdmin()` until the Keycloak migration to `lc-*` client roles is complete
+- **`life-control-country`** — **Legacy** — no new assignments; kept for backward compatibility via `CurrentUserContext#isCountryRole()` until the Keycloak migration to `lc-*` client roles is complete
 - **`admin`** — Users-admin endpoints (role/user management)
 
 ### Company Groups (Auto-Created)

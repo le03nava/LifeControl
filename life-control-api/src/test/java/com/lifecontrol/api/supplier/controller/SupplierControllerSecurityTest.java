@@ -94,7 +94,7 @@ class SupplierControllerSecurityTest {
     class GetSuppliers {
 
         @Test
-        @WithMockUser(roles = {"life-control-admin"})
+        @WithMockUser(roles = {"lc-admin"})
         @DisplayName("returns 200 OK for admin user")
         void adminCanGetSuppliers() throws Exception {
             var response = new SupplierResponse(
@@ -152,9 +152,27 @@ class SupplierControllerSecurityTest {
     class PostSuppliers {
 
         @Test
-        @WithMockUser(roles = {"life-control-admin"})
+        @WithMockUser(roles = {"lc-admin"})
         @DisplayName("returns 201 Created for admin user")
         void adminCanCreateSupplier() throws Exception {
+            var response = new SupplierResponse(
+                    UUID.randomUUID(), "Test", "RS", "XAXX010101000",
+                    "e@e.com", "555", "INT-001",
+                    new AddressResponse(null, "Calle", "123", null, "Centro", "12345", "CdMx", "CDMX", null), true,
+                    LocalDateTime.now(), LocalDateTime.now()
+            );
+            when(supplierService.createSupplier(any())).thenReturn(response);
+
+            mockMvc.perform(post("/api/suppliers")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(buildSupplierRequest())))
+                    .andExpect(status().isCreated());
+        }
+
+        @Test
+        @WithMockUser(roles = {"lc-product-supplier"})
+        @DisplayName("returns 201 Created for lc-product-supplier user")
+        void productSupplierRoleCanCreateSupplier() throws Exception {
             var response = new SupplierResponse(
                     UUID.randomUUID(), "Test", "RS", "XAXX010101000",
                     "e@e.com", "555", "INT-001",
@@ -207,9 +225,27 @@ class SupplierControllerSecurityTest {
     class PutSuppliers {
 
         @Test
-        @WithMockUser(roles = {"life-control-admin"})
+        @WithMockUser(roles = {"lc-admin"})
         @DisplayName("returns 200 OK for admin user")
         void adminCanUpdateSupplier() throws Exception {
+            var response = new SupplierResponse(
+                    UUID.randomUUID(), "Test", "RS", "XAXX010101000",
+                    "e@e.com", "555", "INT-001",
+                    new AddressResponse(null, "Calle", "123", null, "Centro", "12345", "CdMx", "CDMX", null), true,
+                    LocalDateTime.now(), LocalDateTime.now()
+            );
+            when(supplierService.updateSupplier(any(), any())).thenReturn(response);
+
+            mockMvc.perform(put("/api/suppliers/{id}", UUID.randomUUID())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(buildSupplierRequest())))
+                    .andExpect(status().isOk());
+        }
+
+        @Test
+        @WithMockUser(roles = {"lc-product-supplier"})
+        @DisplayName("returns 200 OK for lc-product-supplier user")
+        void productSupplierRoleCanUpdateSupplier() throws Exception {
             var response = new SupplierResponse(
                     UUID.randomUUID(), "Test", "RS", "XAXX010101000",
                     "e@e.com", "555", "INT-001",
@@ -262,11 +298,19 @@ class SupplierControllerSecurityTest {
     class DeleteSuppliers {
 
         @Test
-        @WithMockUser(roles = {"life-control-admin"})
+        @WithMockUser(roles = {"lc-admin"})
         @DisplayName("returns 204 No Content for admin user")
         void adminCanDeleteSupplier() throws Exception {
             var id = UUID.randomUUID();
             mockMvc.perform(delete("/api/suppliers/{id}", id))
+                    .andExpect(status().isNoContent());
+        }
+
+        @Test
+        @WithMockUser(roles = {"lc-product-supplier"})
+        @DisplayName("returns 204 No Content for lc-product-supplier user")
+        void productSupplierRoleCanDeleteSupplier() throws Exception {
+            mockMvc.perform(delete("/api/suppliers/{id}", UUID.randomUUID()))
                     .andExpect(status().isNoContent());
         }
 
