@@ -150,7 +150,11 @@ else
 fi
 
 # ---- Client roles (hierarchical flat set, frontend RBAC) ----
-for role in lc-admin lc-company lc-company-country lc-company-region lc-company-zone lc-company-store; do
+for role in lc-admin lc-company lc-company-read lc-company-country lc-company-country-read \
+            lc-company-region lc-company-region-read lc-company-zone lc-company-zone-read \
+            lc-company-store lc-company-store-read \
+            lc-country lc-status lc-status-type lc-payment-method lc-measure-unit \
+            lc-product-supplier lc-sales; do
 	if client_role_exists "$APP_CID" "$role"; then
 		print_success "Client role $APP_CLIENT/$role exists"
 	else
