@@ -503,7 +503,7 @@ Role-based access:
 
 ### Architecture
 
-1. **JWT Decoder** (`JwtDecoderConfig`): Validates signature via JWK Set URI, timestamp only (no issuer validation — allows multi-env Keycloak URIs).
+1. **JWT Decoder** (`JwtDecoderConfig`): Validates signature via JWK Set URI, timestamp, and issuer (`JwtValidators.createDefaultWithIssuer`). Issuer is resolved from `keycloak.issuer`, which defaults to `keycloak.uri` (per-environment, via `KEYCLOAK_ISSUER`/`KEYCLOAK_URI`).
 2. **Role Mapping**: `realm_access.roles` → `ROLE_<name>` authorities via custom `JwtAuthenticationConverter`.
 3. **Company ID Claim**: `company_id` claim (single UUID or comma-separated) parsed by `CurrentUserContext` for scoped access.
 4. **Controller Guards**: `@PreAuthorize` at class level on CompanyController. Method-level `@PreAuthorize` on CompanyCountryController: write endpoints (`POST`, `PUT`, `DELETE`) require `lc-admin`/`lc-company`/`lc-company-country`; read endpoint (`GET`) also allows `lc-company-country-read`.
@@ -837,6 +837,7 @@ cd docker
 | `REDIS_PORT`                      | Redis port               | `6379`                                     |
 | `LOKI_URL`                        | Loki push URL            | `http://loki:3100/loki/api/v1/push`        |
 | `KEYCLOAK_URI`                    | Keycloak realm URL       | `http://lifecontrol-dev-keycloak:8080/realms/life-control-realm` |
+| `KEYCLOAK_ISSUER`                 | JWT issuer (defaults to `KEYCLOAK_URI`) | `<KEYCLOAK_URI>`    |
 | `KEYCLOAK_ADMIN_SERVER_URL`       | Keycloak admin URL       | `http://lifecontrol-dev-keycloak:8080`     |
 | `KEYCLOAK_ADMIN_CLIENT_SECRET`    | Admin client secret      | (required for admin ops)                   |
 

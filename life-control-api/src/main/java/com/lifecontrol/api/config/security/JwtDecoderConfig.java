@@ -1,44 +1,46 @@
 package com.lifecontrol.api.config.security;
 
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
-import org.springframework.security.oauth2.jwt.JwtTimestampValidator;
+import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 
 /**
  * Configuration for JWT decoding.
- * Uses Keycloak as the OAuth2 provider with JWK Set URI for signature validation.
+ * Uses Keycloak as the OAuth2 provider with JWK Set URI for signature validation
+ * and enforces the expected issuer to reject tokens minted by other providers/realms.
  */
 @Configuration
+@EnableConfigurationProperties(KeycloakJwtProperties.class)
 public class JwtDecoderConfig {
 
-    @Value("${keycloak.uri:http://lifecontrol-dev-keycloak:8080/realms/life-control-realm}")
-    private String keycloakUri;
+    private final KeycloakJwtProperties keycloakJwtProperties;
+
+    public JwtDecoderConfig(KeycloakJwtProperties keycloakJwtProperties) {
+        this.keycloakJwtProperties = keycloakJwtProperties;
+    }
 
     @Bean
     public JwtDecoder keycloakJwtDecoder() {
-        var jwkSetUri = keycloakUri + "/protocol/openid-connect/certs";
-        var decoder = NimbusJwtDecoder.withJwkSetUri(jwkSetUri).build();
-
-        // Only validate timestamps, not issuer (Keycloak may use different issuer URIs per environment)
-        var timestampValidator = new JwtTimestampValidator(Duration.ofSeconds(60));
-        OAuth2TokenValidator<Jwt> validator = new DelegatingOAuth2TokenValidator<>(timestampValidator);
-        decoder.setJwtValidator(validator);
+        var decoder = NimbusJwtDecoder.withJwkSetUri(keycloakJwtProperties.jwkSetUri()).build();
+        decoder.setJwtValidator(jwtValidator());
 
         return decoder;
+    }
+
+    OAuth2TokenValidator<Jwt> jwtValidator() {
+        return JwtValidators.createDefaultWithIssuer(keycloakJwtProperties.issuer());
     }
 
     @Bean

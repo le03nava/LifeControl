@@ -7,20 +7,27 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@DisplayName("JwtDecoderConfig — JwtAuthenticationConverter Tests")
+@DisplayName("JwtDecoderConfig Tests")
 class JwtDecoderConfigTest {
 
+    private static final String EXPECTED_ISSUER =
+            "http://lifecontrol-dev-keycloak:8080/realms/life-control-realm";
+    private static final String JWK_SET_URI = EXPECTED_ISSUER + "/protocol/openid-connect/certs";
+
+    private final JwtDecoderConfig config;
     private final JwtAuthenticationConverter converter;
 
     JwtDecoderConfigTest() {
-        var config = new JwtDecoderConfig();
-        // keycloakUri is null in plain instantiation, but decoder creation isn't needed for converter tests
+        this.config = new JwtDecoderConfig(
+                new KeycloakJwtProperties(EXPECTED_ISSUER, EXPECTED_ISSUER, JWK_SET_URI));
         this.converter = config.jwtAuthenticationConverter();
     }
 
@@ -140,6 +147,45 @@ class JwtDecoderConfigTest {
             var authorities = extractRoles(jwt);
 
             assertThat(authorities).isEmpty();
+        }
+    }
+
+    // ─── Issuer Validation ──────────────────────────────────
+
+    @Nested
+    @DisplayName("Issuer validation")
+    class IssuerValidation {
+
+        private Jwt jwtWithExpiringClaims(String issuer) {
+            var now = Instant.now();
+            return Jwt.withTokenValue("test-token")
+                    .header("alg", "RS256")
+                    .issuer(issuer)
+                    .issuedAt(now)
+                    .expiresAt(now.plus(5, ChronoUnit.MINUTES))
+                    .build();
+        }
+
+        @Test
+        @DisplayName("rejects token issued by a different issuer")
+        void rejectsTokenFromWrongIssuer() {
+            var jwt = jwtWithExpiringClaims("http://evil-keycloak:8080/realms/other-realm");
+
+            var result = config.jwtValidator().validate(jwt);
+
+            assertThat(result.hasErrors()).isTrue();
+            assertThat(result.getErrors())
+                    .anySatisfy(error -> assertThat(error.getDescription()).contains("iss"));
+        }
+
+        @Test
+        @DisplayName("accepts token issued by the expected issuer")
+        void acceptsTokenFromExpectedIssuer() {
+            var jwt = jwtWithExpiringClaims(EXPECTED_ISSUER);
+
+            var result = config.jwtValidator().validate(jwt);
+
+            assertThat(result.hasErrors()).isFalse();
         }
     }
 }
