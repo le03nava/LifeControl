@@ -194,10 +194,14 @@ com.lifecontrol.api/
 | `/api/companies/{id}/countries/{cid}/regions`   | `lc-admin\|lc-company\|lc-company-country\|lc-company-region\|lc-company-region-read` (read) / `lc-admin\|lc-company\|lc-company-country\|lc-company-region` (write, method-level) | Regions within a company-country   |
 | `/api/companies/{id}/countries/{cid}/regions/{rid}/zones` | `lc-admin\|lc-company\|lc-company-country\|lc-company-region\|lc-company-zone\|lc-company-zone-read` (read) / `lc-admin\|lc-company\|lc-company-country\|lc-company-region\|lc-company-zone` (write, method-level) | Zones within a region              |
 | `/api/companies/{id}/countries/{cid}/regions/{rid}/zones/{zid}/stores` | `lc-admin\|lc-company\|lc-company-country\|lc-company-region\|lc-company-zone\|lc-company-store\|lc-company-store-read` (read) / `lc-admin\|lc-company\|lc-company-country\|lc-company-region\|lc-company-zone\|lc-company-store` (write, method-level) | Stores within a zone               |
-| `/api/countries`                                | authenticated             | Country catalog CRUD                  |
+| `/api/countries, /api/measure-units, /api/payment-methods, /api/statuses, /api/status-types` | authenticated (read) / `lc-admin\|lc-country\|lc-measure-unit\|lc-payment-method\|lc-status\|lc-status-type` (write) | Catalog CRUD — method-level `@PreAuthorize` (`Roles.ADMIN` + domain role for writes) |
 | `/api/activity-logs`                            | `life-control-admin`      | Audit trail query (paginated, filterable) |
 | `/api/users-admin/users`                        | `admin`                   | Keycloak user search, roles, attributes |
 | `/api/users-admin/roles`                        | `admin`                   | Keycloak realm/client role CRUD       |
+
+> Role name literals live in `com.lifecontrol.api.common.security.Roles` and must be referenced from
+> `@PreAuthorize` (e.g. `Roles.COUNTRY`, `Roles.ADMIN`). Bare `lc-*` / `life-control-*`
+> literals must not appear in controller annotations.
 
 ### OpenAPI Documentation
 
@@ -471,15 +475,30 @@ Validates Mexican RFC format (3-4 letters + 6 digits + 3 alphanumeric). Accepts 
 
 ## Security & Authorization
 
-Three tiers of access:
+Role-based access:
 
 | Role                   | Authority                          | Scope                          |
 |------------------------|------------------------------------|--------------------------------|
 | `lc-admin`             | `ROLE_lc-admin`                    | Full CRUD on companies, activity logs (replaces `life-control-admin`) |
 | `lc-company`           | `ROLE_lc-company`                  | Scoped by `company_id` JWT claim, full CRUD on assigned companies |
+| `lc-company-read`      | `ROLE_lc-company-read`             | Read-only GET access to companies, scoped by `company_id` JWT claim |
 | `lc-company-country`   | `ROLE_lc-company-country`          | Scoped by `company_id`, CRUD on company-country associations |
 | `lc-company-country-read` | `ROLE_lc-company-country-read`  | Read-only GET on company-country associations, scoped by `company_id` |
-| `lc-company-read`      | `ROLE_lc-company-read`             | Read-only GET access to companies, scoped by `company_id` JWT claim |
+| `lc-company-region`    | `ROLE_lc-company-region`           | Scoped by `company_id`, CRUD on company-country regions |
+| `lc-company-region-read` | `ROLE_lc-company-region-read`   | Read-only GET on regions, scoped by `company_id` |
+| `lc-company-zone`      | `ROLE_lc-company-zone`             | Scoped by `company_id`, CRUD on company regions' zones |
+| `lc-company-zone-read` | `ROLE_lc-company-zone-read`        | Read-only GET on zones, scoped by `company_id` |
+| `lc-company-store`     | `ROLE_lc-company-store`            | Scoped by `company_id`, CRUD on company zones' stores |
+| `lc-company-store-read` | `ROLE_lc-company-store-read`     | Read-only GET on stores, scoped by `company_id` |
+| `lc-country`           | `ROLE_lc-country`                  | Write access to country catalog (read requires any authenticated user) |
+| `lc-status`            | `ROLE_lc-status`                   | Write access to status values (read requires any authenticated user) |
+| `lc-status-type`       | `ROLE_lc-status-type`              | Write access to status types (read requires any authenticated user) |
+| `lc-payment-method`    | `ROLE_lc-payment-method`           | Write access to payment methods (read requires any authenticated user) |
+| `lc-measure-unit`      | `ROLE_lc-measure-unit`             | Write access to measure units (read requires any authenticated user) |
+| `lc-product-supplier`  | `ROLE_lc-product-supplier`         | Product-supplier assignment endpoints (replaces `life-control-country`) |
+| `lc-sales`             | `ROLE_lc-sales`                    | Sales domain: customers, sales orders, shifts, promotions, product variants |
+| `life-control-admin`   | `ROLE_life-control-admin`          | Legacy realm role — purchase orders, suppliers, activity logs |
+| `life-control-country` | `ROLE_life-control-country`        | Legacy realm role — recognized by `CurrentUserContext#isCountryRole()` |
 | `admin`                | `ROLE_admin`                       | Users-admin endpoints (Keycloak admin) |
 
 ### Architecture
@@ -827,13 +846,26 @@ cd docker
 
 ### Required Roles
 
-Create these realm roles manually in Keycloak (`life-control-realm`):
+Client roles (`life-control-client`) are provisioned idempotently by
+`docker/scripts/keycloak-setup.sh`; realm roles must be created manually (`life-control-realm`):
+
+**Client roles (provisioned by `keycloak-setup.sh`):**
 
 - **`lc-admin`** — Full CRUD on companies, activity log access (replaces `life-control-admin`)
 - **`lc-company`** — Scoped company CRUD (filtered by `company_id` JWT claim)
-- **`lc-company-country`** — Scoped company-country CRUD
-- **`lc-company-country-read`** — Read-only GET on company-country associations, scoped by `company_id` JWT claim
 - **`lc-company-read`** — Read-only GET access to companies, scoped by `company_id` JWT claim
+- **`lc-company-country`** / **`lc-company-country-read`** — Company-country CRUD / read-only GET, scoped by `company_id` JWT claim
+- **`lc-company-region`** / **`lc-company-region-read`** — Region CRUD / read-only GET, scoped by `company_id`
+- **`lc-company-zone`** / **`lc-company-zone-read`** — Zone CRUD / read-only GET, scoped by `company_id`
+- **`lc-company-store`** / **`lc-company-store-read`** — Store CRUD / read-only GET, scoped by `company_id`
+- **`lc-country`**, **`lc-status`**, **`lc-status-type`**, **`lc-payment-method`**, **`lc-measure-unit`** — write access to catalog domains (reads require any authenticated user)
+- **`lc-product-supplier`** — Product-supplier assignment endpoints (replaces `life-control-country`)
+- **`lc-sales`** — Sales domain: customers, sales orders, shifts, promotions, product variants
+
+**Realm roles (manual):**
+
+- **`life-control-admin`** — Legacy admin realm role (purchase orders, suppliers, activity logs)
+- **`life-control-country`** — Legacy country realm role (recognized by `CurrentUserContext#isCountryRole()`)
 - **`admin`** — Users-admin endpoints (role/user management)
 
 ### Company Groups (Auto-Created)
