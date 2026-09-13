@@ -86,7 +86,7 @@ echo "[INFO] Keycloak origin: $KEYCLOAK_ORIGIN"
 
 # Política generada en runtime: los orígenes de API/Keycloak se inyectan en
 # connect-src y frame-src porque son dinámicos (desconocidos en build time).
-CONTENT_SECURITY_POLICY="default-src 'self'; script-src 'self' 'nonce-${CSP_NONCE}'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; connect-src 'self'${CSP_API_ORIGIN:+ ${CSP_API_ORIGIN}}${CSP_KEYCLOAK_ORIGIN:+ ${CSP_KEYCLOAK_ORIGIN}}; img-src 'self' data: https:; font-src 'self' https://fonts.gstatic.com; object-src 'none'; base-uri 'self'; frame-src 'self'${CSP_KEYCLOAK_ORIGIN:+ ${CSP_KEYCLOAK_ORIGIN}}"
+CONTENT_SECURITY_POLICY="default-src 'self'; script-src 'self' 'nonce-${CSP_NONCE}'; style-src 'self' 'unsafe-inline'; connect-src 'self'${CSP_API_ORIGIN:+ ${CSP_API_ORIGIN}}${CSP_KEYCLOAK_ORIGIN:+ ${CSP_KEYCLOAK_ORIGIN}}; img-src 'self' data: https:; font-src 'self'; object-src 'none'; base-uri 'self'; frame-src 'self'${CSP_KEYCLOAK_ORIGIN:+ ${CSP_KEYCLOAK_ORIGIN}}"
 
 # 1) Reemplazar la meta CSP por la política generada (con nonce y orígenes reales)
 sed -i "s|<meta http-equiv=\"Content-Security-Policy\" content=\"[^\"]*\">|<meta http-equiv=\"Content-Security-Policy\" content=\"${CONTENT_SECURITY_POLICY}\">|" "$HTML_DIR/index.html"
