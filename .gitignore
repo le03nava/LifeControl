@@ -124,6 +124,7 @@ Thumbs.db
 *.swo
 *~
 .opencode/
+.pi/
 .atl/
 openspec/
 .openspec/
