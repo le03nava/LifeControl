@@ -16,6 +16,9 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
 
+import static com.lifecontrol.api.common.security.Roles.ADMIN;
+import static com.lifecontrol.api.common.security.Roles.SALES;
+
 @RestController
 @RequestMapping("/api/product-variants")
 @Tag(name = "Product Variant Search", description = "API for searching product variants across stores")
@@ -28,7 +31,7 @@ public class ProductVariantSearchController {
     }
 
     @GetMapping("/search")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Search product variants",
                description = "Searches product variants by barcode, SKU, variant name, or product name, scoped to a company store. Returns paginated results enriched with product name and SKU.")
     public ResponseEntity<Page<ProductVariantSearchResponse>> searchVariants(

@@ -29,6 +29,12 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Keycloak user administration endpoints.
+ * <p>
+ * Access is enforced at URL level by {@code SecurityConfig}: {@code /api/users-admin/**} requires
+ * {@code ROLE_admin} (Keycloak admin realm role). No method-level {@code @PreAuthorize} is used.
+ */
 @RestController
 @RequestMapping("/api/users-admin/users")
 @Tag(name = "Users Admin - Users", description = "API for managing identity provider users")

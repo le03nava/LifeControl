@@ -24,6 +24,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
 
+import static com.lifecontrol.api.common.security.Roles.LIFE_CONTROL_ADMIN;
+
 @RestController
 @RequestMapping("/api/suppliers")
 @Tag(name = "Supplier Management", description = "API for managing suppliers")
@@ -52,7 +54,7 @@ public class SupplierController {
     }
 
     @PostMapping
-    @PreAuthorize("hasRole('life-control-admin')")
+    @PreAuthorize("hasRole('" + LIFE_CONTROL_ADMIN + "')")
     @Operation(summary = "Create a new supplier", description = "Creates a new supplier with the provided details")
     public ResponseEntity<SupplierResponse> createSupplier(@Valid @RequestBody SupplierRequest request) {
         var response = supplierService.createSupplier(request);
@@ -60,7 +62,7 @@ public class SupplierController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('life-control-admin')")
+    @PreAuthorize("hasRole('" + LIFE_CONTROL_ADMIN + "')")
     @Operation(summary = "Update a supplier", description = "Updates an existing supplier with the provided details")
     public ResponseEntity<SupplierResponse> updateSupplier(@PathVariable UUID id, @Valid @RequestBody SupplierRequest request) {
         var response = supplierService.updateSupplier(id, request);
@@ -68,7 +70,7 @@ public class SupplierController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('life-control-admin')")
+    @PreAuthorize("hasRole('" + LIFE_CONTROL_ADMIN + "')")
     @Operation(summary = "Delete a supplier", description = "Soft-deletes a supplier by setting enabled to false")
     public ResponseEntity<Void> deleteSupplier(@PathVariable UUID id) {
         supplierService.deleteSupplier(id);

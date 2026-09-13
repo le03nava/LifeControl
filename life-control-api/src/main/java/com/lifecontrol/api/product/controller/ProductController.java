@@ -24,6 +24,10 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.UUID;
 
+import static com.lifecontrol.api.common.security.Roles.ADMIN;
+import static com.lifecontrol.api.common.security.Roles.PRODUCT_SUPPLIER;
+import static com.lifecontrol.api.common.security.Roles.SALES;
+
 @RestController
 @RequestMapping("/api/products")
 @Tag(name = "Product Management", description = "API for managing products")
@@ -51,7 +55,7 @@ public class ProductController {
     }
 
     @GetMapping("/by-supplier/{supplierId}")
-    @PreAuthorize("hasAnyRole('life-control-admin','life-control-country')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + PRODUCT_SUPPLIER + "')")
     @Operation(summary = "Get products by supplier",
                description = "Returns all products associated with a supplier, optionally filtered by product name or SKU")
     public ResponseEntity<List<SupplierProductResponse>> getProductsBySupplier(
@@ -89,14 +93,14 @@ public class ProductController {
     // --- ProductSupplier nested endpoints ---
 
     @GetMapping("/{productId}/suppliers")
-    @PreAuthorize("hasAnyRole('life-control-admin','life-control-country')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + PRODUCT_SUPPLIER + "')")
     @Operation(summary = "Get suppliers by product", description = "Returns all suppliers associated with a product")
     public ResponseEntity<List<ProductSupplierResponse>> getProductSuppliers(@PathVariable UUID productId) {
         return ResponseEntity.ok(productSupplierService.listSuppliersByProductId(productId));
     }
 
     @PostMapping("/{productId}/suppliers")
-    @PreAuthorize("hasAnyRole('life-control-admin','life-control-country')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + PRODUCT_SUPPLIER + "')")
     @Operation(summary = "Add supplier to product", description = "Associates a supplier with a product including pricing metadata")
     public ResponseEntity<ProductSupplierResponse> addProductSupplier(
             @PathVariable UUID productId,
@@ -106,7 +110,7 @@ public class ProductController {
     }
 
     @PutMapping("/{productId}/suppliers/{id}")
-    @PreAuthorize("hasAnyRole('life-control-admin','life-control-country')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + PRODUCT_SUPPLIER + "')")
     @Operation(summary = "Update supplier assignment", description = "Updates pricing and main flag for a product-supplier relation")
     public ResponseEntity<ProductSupplierResponse> updateProductSupplier(
             @PathVariable UUID productId,
@@ -117,7 +121,7 @@ public class ProductController {
     }
 
     @DeleteMapping("/{productId}/suppliers/{id}")
-    @PreAuthorize("hasAnyRole('life-control-admin','life-control-country')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + PRODUCT_SUPPLIER + "')")
     @Operation(summary = "Remove supplier from product", description = "Removes a supplier association from a product (hard delete)")
     public ResponseEntity<Void> removeProductSupplier(
             @PathVariable UUID productId,
@@ -129,7 +133,7 @@ public class ProductController {
     // --- ProductVariant nested endpoints ---
 
     @GetMapping("/{productId}/variants")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "List variants for a product", description = "Returns a paginated list of variants for a given product")
     public ResponseEntity<Page<ProductVariantResponse>> listVariants(
             @PathVariable UUID productId,
@@ -138,7 +142,7 @@ public class ProductController {
     }
 
     @PostMapping("/{productId}/variants")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Create variant for a product", description = "Creates a new product variant for the specified product")
     public ResponseEntity<ProductVariantResponse> createVariant(
             @PathVariable UUID productId,
@@ -148,7 +152,7 @@ public class ProductController {
     }
 
     @GetMapping("/{productId}/variants/{variantId}")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Get variant by ID", description = "Returns a single product variant by its UUID, scoped to a product")
     public ResponseEntity<ProductVariantResponse> getVariant(
             @PathVariable UUID productId,
@@ -157,7 +161,7 @@ public class ProductController {
     }
 
     @PutMapping("/{productId}/variants/{variantId}")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Update variant", description = "Updates an existing product variant")
     public ResponseEntity<ProductVariantResponse> updateVariant(
             @PathVariable UUID productId,
@@ -167,7 +171,7 @@ public class ProductController {
     }
 
     @DeleteMapping("/{productId}/variants/{variantId}")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-sales')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Delete variant", description = "Soft-deletes a product variant by setting enabled to false")
     public ResponseEntity<Void> deleteVariant(
             @PathVariable UUID productId,

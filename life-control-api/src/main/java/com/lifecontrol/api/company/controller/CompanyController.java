@@ -24,6 +24,10 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
 
+import static com.lifecontrol.api.common.security.Roles.ADMIN;
+import static com.lifecontrol.api.common.security.Roles.COMPANY;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_READ;
+
 @RestController
 @RequestMapping("/api/companies")
 @Tag(name = "Company Management", description = "API for managing companies")
@@ -36,7 +40,7 @@ public class CompanyController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-read')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_READ + "')")
     @Operation(summary = "Get all companies", description = "Returns a paginated list of companies, optionally filtered by search term")
     public ResponseEntity<Page<CompanyResponse>> getAllCompanies(
             @PageableDefault(size = 12) Pageable pageable,
@@ -45,14 +49,14 @@ public class CompanyController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-company','lc-company-read')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_READ + "')")
     @Operation(summary = "Get company by ID", description = "Returns a single company by its UUID")
     public ResponseEntity<CompanyResponse> getCompanyById(@PathVariable UUID id) {
         return ResponseEntity.ok(companyService.getCompanyById(id));
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('lc-admin','lc-company')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "')")
     @Operation(summary = "Create a new company", description = "Creates a new company with the provided details")
     public ResponseEntity<CompanyResponse> createCompany(@Valid @RequestBody CompanyRequest request) {
         CompanyResponse response = companyService.createCompany(request);
@@ -60,7 +64,7 @@ public class CompanyController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-company')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "')")
     @Operation(summary = "Update a company", description = "Updates an existing company with the provided details")
     public ResponseEntity<CompanyResponse> updateCompany(@PathVariable UUID id, @Valid @RequestBody CompanyRequest request) {
         CompanyResponse response = companyService.updateCompany(id, request);
@@ -68,7 +72,7 @@ public class CompanyController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyRole('lc-admin','lc-company')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "')")
     @Operation(summary = "Delete a company", description = "Soft-deletes a company by setting enabled to false")
     public ResponseEntity<Void> deleteCompany(@PathVariable UUID id) {
         companyService.deleteCompany(id);

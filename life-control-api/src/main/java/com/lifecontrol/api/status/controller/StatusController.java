@@ -10,10 +10,14 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.UUID;
+
+import static com.lifecontrol.api.common.security.Roles.ADMIN;
+import static com.lifecontrol.api.common.security.Roles.STATUS;
 
 @RestController
 @RequestMapping("/api/statuses")
@@ -27,6 +31,7 @@ public class StatusController {
     }
 
     @GetMapping
+    @PreAuthorize("isAuthenticated()")
     @Operation(summary = "Get all statuses by type", description = "Returns a list of statuses for the given status type. ?statusTypeId= is required.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Statuses found"),
@@ -43,6 +48,7 @@ public class StatusController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("isAuthenticated()")
     @Operation(summary = "Get status by ID", description = "Returns a single status by its UUID. Optionally scope to a type with ?statusTypeId=")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Status found"),
@@ -58,6 +64,7 @@ public class StatusController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + STATUS + "')")
     @Operation(summary = "Create a new status", description = "Creates a new status value within a status type")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "Status created"),
@@ -71,6 +78,7 @@ public class StatusController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + STATUS + "')")
     @Operation(summary = "Update a status", description = "Updates an existing status value")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Status updated"),
@@ -86,6 +94,7 @@ public class StatusController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + STATUS + "')")
     @Operation(summary = "Delete a status", description = "Soft-deletes a status by setting enabled to false")
     @ApiResponses({
         @ApiResponse(responseCode = "204", description = "Status deleted"),
@@ -97,6 +106,7 @@ public class StatusController {
     }
 
     @PatchMapping("/{id}/enable")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + STATUS + "')")
     @Operation(summary = "Enable a status", description = "Re-enables a soft-deleted status value")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Status enabled"),
