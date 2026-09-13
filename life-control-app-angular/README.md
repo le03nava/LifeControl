@@ -12,7 +12,6 @@ Aplicación Angular 20 con Signals, Zoneless, Standalone components y Angular Ma
 | State Management  | Angular Signals + `rxResource`             |
 | UI                | Angular Material 20 (M3 theme)             |
 | Autenticación     | Keycloak v26 (`keycloak-angular`)          |
-| SSR               | `@angular/ssr`                             |
 | Testing           | Vitest via `@angular/build:unit-test`      |
 | Build             | esbuild (`@angular/build`)                 |
 | Layout            | `@angular/cdk/layout` (BreakpointObserver) |
@@ -33,9 +32,6 @@ npm start
 
 # Build de producción
 npm run build
-
-# Build con SSR
-npm run build:ssr
 ```
 
 ```bash
