@@ -1,8 +1,6 @@
 package com.lifecontrol.api.status.service;
 
 import com.lifecontrol.api.status.exception.StatusNotFoundException;
-import com.lifecontrol.api.purchaseorder.config.PurchaseOrderStatusInitializer;
-import com.lifecontrol.api.salesorder.config.SalesOrderStatusInitializer;
 import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.status.model.StatusType;
 import com.lifecontrol.api.status.repository.StatusRepository;
@@ -47,12 +45,6 @@ class StatusServiceCacheTest {
 
     @MockBean
     private StatusTypeRepository statusTypeRepository;
-
-    @MockBean
-    private SalesOrderStatusInitializer salesOrderStatusInitializer;
-
-    @MockBean
-    private PurchaseOrderStatusInitializer purchaseOrderStatusInitializer;
 
     @Autowired
     private CacheManager cacheManager;

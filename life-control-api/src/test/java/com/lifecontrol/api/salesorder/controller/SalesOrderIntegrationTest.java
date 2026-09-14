@@ -143,11 +143,32 @@ class SalesOrderIntegrationTest {
     /**
      * Ensures all reference data needed by sales order operations exists in the DB.
      * Uses find-or-create pattern: loads existing entities first, creates if missing.
-     * Status types/statuses are seeded by SalesOrderStatusInitializer at context startup,
-     * but company chain, customer, and shifts must be created manually.
+     * Sales-order status types/statuses are self-seeded here (Flyway V3 is disabled on
+     * H2), and the company chain, customer, and shifts are created manually.
      */
     private void seedReferenceData() {
-        // Load status IDs (seeded by SalesOrderStatusInitializer)
+        // Self-seed sales-order status types and statuses (Flyway V3 does not run on H2)
+        var salesOrderType = statusTypeRepository.findByStatusTypeNameIgnoreCase("SALES_ORDER")
+                .orElseGet(() -> statusTypeRepository.save(
+                        StatusType.builder().statusTypeName("SALES_ORDER").enabled(true).build()));
+
+        var salesOrderItemType = statusTypeRepository.findByStatusTypeNameIgnoreCase("SALES_ORDER_ITEM")
+                .orElseGet(() -> statusTypeRepository.save(
+                        StatusType.builder().statusTypeName("SALES_ORDER_ITEM").enabled(true).build()));
+
+        for (var name : List.of("Draft", "Active", "Pending", "Completed", "Cancelled")) {
+            if (!statusRepository.existsByStatusNameIgnoreCaseAndStatusTypeId(name, salesOrderType.getId())) {
+                statusRepository.save(Status.builder().statusName(name).statusType(salesOrderType).enabled(true).build());
+            }
+        }
+
+        for (var name : List.of("Pending", "Added", "Cancelled")) {
+            if (!statusRepository.existsByStatusNameIgnoreCaseAndStatusTypeId(name, salesOrderItemType.getId())) {
+                statusRepository.save(Status.builder().statusName(name).statusType(salesOrderItemType).enabled(true).build());
+            }
+        }
+
+        // Load status IDs (self-seeded above)
         draftStatusId = statusRepository.findByTypeNameAndStatusName("SALES_ORDER", "Draft").orElseThrow().getId();
         activeStatusId = statusRepository.findByTypeNameAndStatusName("SALES_ORDER", "Active").orElseThrow().getId();
         pendingStatusId = statusRepository.findByTypeNameAndStatusName("SALES_ORDER", "Pending").orElseThrow().getId();

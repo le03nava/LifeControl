@@ -34,8 +34,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * Integration tests for the activity log system.
  * <p>
  * Uses real repositories backed by H2. Reference data (processes and events)
- * is seeded by {@link com.lifecontrol.api.activity.config.ActivityLogInitializer}
- * during application startup and verified/repopulated in {@code setUp()}.
+ * is self-seeded in {@code setUp()} (Flyway V3 does not run on H2).
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -87,8 +86,7 @@ class ActivityLogIntegrationTest {
     void setUp() {
         activityLogRepository.deleteAll();
 
-        // Ensure reference data exists — the ApplicationRunner should have
-        // seeded this at startup, but we guarantee availability here too
+        // Ensure reference data exists (Flyway is disabled on H2 in tests)
         seedReferenceData();
     }
 
