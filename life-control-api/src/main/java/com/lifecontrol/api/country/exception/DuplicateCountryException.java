@@ -1,6 +1,8 @@
 package com.lifecontrol.api.country.exception;
 
-public class DuplicateCountryException extends RuntimeException {
+import com.lifecontrol.api.exception.DuplicateResourceException;
+
+public class DuplicateCountryException extends DuplicateResourceException {
 
     public DuplicateCountryException(String message) {
         super(message);

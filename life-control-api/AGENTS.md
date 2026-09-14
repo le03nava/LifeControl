@@ -165,7 +165,10 @@ com.lifecontrol.api/
 │   ├── RFCValidator.java
 │   └── ValidRFC.java
 ├── exception/
-│   └── GlobalExceptionHandler.java
+│   ├── GlobalExceptionHandler.java
+│   ├── ResourceNotFoundException.java    (generic 404 base)
+│   ├── ConflictException.java            (generic 409 base)
+│   └── DuplicateResourceException.java   (409 base for duplicates)
 └── LifeControlApiApplication.java
 ```
 
@@ -401,24 +404,50 @@ public class CompanyService {
 }
 ```
 
-### Exception Hierarchy (flat RuntimeException)
+### Exception Hierarchy (generic categories + domain subclasses)
+
+Exceptions live in `com.lifecontrol.api.exception` as three generic, parametrizable categories:
 
 ```java
-// ✅ CORRECTO — excepción base directa (no sealed)
-public class CompanyNotFoundException extends RuntimeException {
+public class ResourceNotFoundException extends RuntimeException {          // 404
+    public ResourceNotFoundException(String message) { super(message); }
+    public <T> ResourceNotFoundException(Class<T> resource, UUID id) {
+        super(resource.getSimpleName() + " not found with id: " + id);
+    }
+}
+
+public class ConflictException extends RuntimeException {                   // 409
+    public ConflictException(String message) { super(message); }
+}
+
+public class DuplicateResourceException extends ConflictException {        // 409
+    public DuplicateResourceException(String message) { super(message); }
+}
+```
+
+Domain exceptions extend the matching generic base and stay as thin, semantic aliases:
+
+```java
+public class CompanyNotFoundException extends ResourceNotFoundException {
     public CompanyNotFoundException(UUID id) {
         super("Company not found with id: " + id);
     }
 }
 
-public class DuplicateCompanyException extends RuntimeException {
-    public DuplicateCompanyException(String message) {
-        super(message);
+public class DuplicateCountryException extends DuplicateResourceException {
+    public DuplicateCountryException(String message) { super(message); }
+}
+
+public class InvalidStatusTransitionException extends ConflictException {
+    public InvalidStatusTransitionException(String from, String to) {
+        super("Invalid status transition: " + from + " → " + to);
     }
 }
 ```
 
-No sealed hierarchy needed — keep exceptions flat and specific per domain.
+`GlobalExceptionHandler` resolves them **by inheritance** — one handler per category, never one per class.
+The identity-provider hierarchy (`IdentityProviderException` + its sealed subtypes) is intentionally
+kept separate because those errors carry provider-specific semantics and status codes (404/409/503).
 
 ### CurrentUserContext for Auth-Aware Services
 
@@ -539,36 +568,60 @@ On company creation, a Keycloak group `company-<sanitized-name>` is auto-created
 
 ### GlobalExceptionHandler
 
-Standardized error responses with `status`, `message`, `path`, `timestamp`, and `correlationId` (trace ID from Micrometer Tracing).
+Standardized error responses with `status`, `message`, `path`, `timestamp`, and `correlationId` (trace ID from Micrometer Tracing). Handlers are declared **by category** and resolve domain exceptions by inheritance (no per-class handlers).
 
 ```java
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    @ExceptionHandler(CompanyNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleNotFound(CompanyNotFoundException ex) {
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(
-                new ErrorResponse(404, ex.getMessage(), getCurrentPath(), LocalDateTime.now(), getCorrelationId()));
+    @ExceptionHandler(ResourceNotFoundException.class)          // 404 — all *NotFoundException
+    public ResponseEntity<ErrorResponse> handleNotFound(ResourceNotFoundException ex) {
+        return buildErrorResponse(HttpStatus.NOT_FOUND, ex.getMessage());
     }
 
-    @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ValidationErrorResponse> handleValidation(MethodArgumentNotValidException ex) {
+    @ExceptionHandler(ConflictException.class)                   // 409 — duplicates + state conflicts
+    public ResponseEntity<ErrorResponse> handleConflict(ConflictException ex) {
+        return buildErrorResponse(HttpStatus.CONFLICT, ex.getMessage());
+    }
+
+    @ExceptionHandler({IllegalArgumentException.class, InvalidSalesOrderChargeException.class})
+    public ResponseEntity<ErrorResponse> handleBadRequest(RuntimeException ex) {   // 400
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
+    @ExceptionHandler(IdentityProviderNotFoundException.class)   // identity provider category
+    public ResponseEntity<ErrorResponse> handleIdentityProviderNotFound(IdentityProviderNotFoundException ex) {
+        return buildErrorResponse(HttpStatus.NOT_FOUND, ex.getMessage());
+    }
+
+    @ExceptionHandler(IdentityProviderConflictException.class)
+    public ResponseEntity<ErrorResponse> handleIdentityProviderConflict(IdentityProviderConflictException ex) {
+        return buildErrorResponse(HttpStatus.CONFLICT, ex.getMessage());
+    }
+
+    @ExceptionHandler(IdentityProviderConnectionException.class)
+    public ResponseEntity<ErrorResponse> handleIdentityProviderConnection(IdentityProviderConnectionException ex) {
+        logger.error("Identity provider connection failure", ex);
+        return buildErrorResponse(HttpStatus.SERVICE_UNAVAILABLE, "Identity provider temporarily unavailable");
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)       // 400 — validation
+    public ResponseEntity<ValidationErrorResponse> handleValidationErrors(MethodArgumentNotValidException ex) {
         var errors = new HashMap<String, String>();
         ex.getBindingResult().getFieldErrors().forEach(fe -> errors.put(fe.getField(), fe.getDefaultMessage()));
         return ResponseEntity.badRequest().body(
                 new ValidationErrorResponse(400, "Validation failed", errors, getCurrentPath(), LocalDateTime.now(), getCorrelationId()));
     }
 
-    @ExceptionHandler(AccessDeniedException.class)
+    @ExceptionHandler(AccessDeniedException.class)                // 403
     public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException ex) {
-        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(...);
+        return buildErrorResponse(HttpStatus.FORBIDDEN, "Access denied");
     }
 
-    // Generic fallback
-    @ExceptionHandler(Exception.class)
-    public ResponseEntity<ErrorResponse> handleGeneric(Exception ex) {
-        log.error("Unhandled exception", ex);
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(...);
+    @ExceptionHandler(Exception.class)                            // 500 — fallback
+    public ResponseEntity<ErrorResponse> handleGenericException(Exception ex) {
+        logger.error("Unhandled exception", ex);
+        return buildErrorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred");
     }
 
     public record ErrorResponse(int status, String message, String path, LocalDateTime timestamp, String correlationId) {}
@@ -576,7 +629,7 @@ public class GlobalExceptionHandler {
 }
 ```
 
-Handles: `CompanyNotFoundException`, `DuplicateCompanyException`, `CountryNotFoundException`, `CompanyRegionNotFoundException`, `CompanyZoneNotFoundException`, `CompanyCountryNotFoundException`, `IdentityProviderNotFoundException`, `IdentityProviderConflictException`, `IdentityProviderConnectionException`, `IllegalArgumentException`, `MethodArgumentNotValidException`, `AccessDeniedException`.
+Handler categories: NotFound (`ResourceNotFoundException`), Duplicate/Conflict (`ConflictException`, incl. `DuplicateResourceException`), BadRequest (`IllegalArgumentException`, `InvalidSalesOrderChargeException`), IdentityProvider (`IdentityProviderNotFoundException`, `IdentityProviderConflictException`, `IdentityProviderConnectionException`), Validation (`MethodArgumentNotValidException`), AccessDenied (`AccessDeniedException`), and the generic `Exception` fallback.
 
 ---
 

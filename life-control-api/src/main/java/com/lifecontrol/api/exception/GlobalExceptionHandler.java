@@ -1,49 +1,9 @@
 package com.lifecontrol.api.exception;
 
-import com.lifecontrol.api.company.exception.CompanyCountryNotFoundException;
-import com.lifecontrol.api.company.exception.CompanyNotFoundException;
-import com.lifecontrol.api.company.exception.CompanyRegionNotFoundException;
-import com.lifecontrol.api.company.exception.DuplicateCompanyCountryException;
-import com.lifecontrol.api.company.exception.DuplicateCompanyException;
-import com.lifecontrol.api.company.exception.DuplicateCompanyRegionException;
-import com.lifecontrol.api.company.exception.CompanyZoneNotFoundException;
-import com.lifecontrol.api.company.exception.DuplicateCompanyZoneException;
-import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
-import com.lifecontrol.api.store.exception.DuplicateCompanyStoreException;
-import com.lifecontrol.api.country.exception.CountryNotFoundException;
-import com.lifecontrol.api.country.exception.DuplicateCountryException;
-import com.lifecontrol.api.product.exception.DuplicateProductException;
-import com.lifecontrol.api.product.exception.ProductNotFoundException;
-import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
-import com.lifecontrol.api.product.supplier.exception.DuplicateProductSupplierException;
-import com.lifecontrol.api.product.supplier.exception.ProductSupplierNotFoundException;
-import com.lifecontrol.api.supplier.exception.DuplicateSupplierException;
-import com.lifecontrol.api.supplier.exception.SupplierNotFoundException;
-import com.lifecontrol.api.status.exception.DuplicateStatusException;
-import com.lifecontrol.api.status.exception.DuplicateStatusTypeException;
-import com.lifecontrol.api.status.exception.StatusNotFoundException;
-import com.lifecontrol.api.measureunit.exception.MeasureUnitNotFoundException;
-import com.lifecontrol.api.measureunit.exception.DuplicateMeasureUnitException;
-import com.lifecontrol.api.status.exception.StatusTypeNotFoundException;
-import com.lifecontrol.api.paymentmethod.exception.DuplicatePaymentMethodException;
-import com.lifecontrol.api.paymentmethod.exception.PaymentMethodNotFoundException;
-import com.lifecontrol.api.purchaseorder.exception.DuplicatePurchaseOrderException;
-import com.lifecontrol.api.purchaseorder.exception.InvalidStatusTransitionException;
-import com.lifecontrol.api.purchaseorder.exception.PurchaseOrderDetailNotFoundException;
-import com.lifecontrol.api.purchaseorder.exception.PurchaseOrderNotFoundException;
+import com.lifecontrol.api.salesorder.exception.InvalidSalesOrderChargeException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderConflictException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderConnectionException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderNotFoundException;
-import com.lifecontrol.api.customer.exception.CustomerNotFoundException;
-import com.lifecontrol.api.promotion.exception.PromotionNotFoundException;
-import com.lifecontrol.api.shift.exception.ShiftAlreadyOpenException;
-import com.lifecontrol.api.shift.exception.ShiftNotFoundException;
-import com.lifecontrol.api.shift.exception.ShiftNotOpenException;
-import com.lifecontrol.api.salesorder.exception.InsufficientStockException;
-import com.lifecontrol.api.salesorder.exception.SalesOrderAlreadyFinalizedException;
-import com.lifecontrol.api.salesorder.exception.SalesOrderItemNotFoundException;
-import com.lifecontrol.api.salesorder.exception.InvalidSalesOrderChargeException;
-import com.lifecontrol.api.salesorder.exception.SalesOrderNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -60,557 +20,65 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * Translates exceptions into the standard error envelope
+ * ({@code status}/{@code message}/{@code path}/{@code timestamp}/{@code correlationId}).
+ *
+ * <p>Handlers are declared by category and resolve domain exceptions through
+ * inheritance — {@link ResourceNotFoundException} covers every not-found subtype,
+ * {@link ConflictException} covers duplicates and invalid state transitions.
+ */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
     private static final Logger logger = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
-    @ExceptionHandler(DuplicateCompanyException.class)
-    public ResponseEntity<ErrorResponse> handleDuplicateCompany(DuplicateCompanyException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.CONFLICT.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
+    // ─── Not found (404) ────────────────────────────────────────────────
+
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleNotFound(ResourceNotFoundException ex) {
+        return buildErrorResponse(HttpStatus.NOT_FOUND, ex.getMessage());
     }
 
-    @ExceptionHandler(CompanyNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleCompanyNotFound(CompanyNotFoundException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.NOT_FOUND.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    // ─── Duplicate / Conflict (409) ─────────────────────────────────────
+
+    @ExceptionHandler(ConflictException.class)
+    public ResponseEntity<ErrorResponse> handleConflict(ConflictException ex) {
+        return buildErrorResponse(HttpStatus.CONFLICT, ex.getMessage());
     }
 
-    @ExceptionHandler(CountryNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleCountryNotFound(CountryNotFoundException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.NOT_FOUND.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    // ─── Bad request (400) ──────────────────────────────────────────────
+
+    @ExceptionHandler({IllegalArgumentException.class, InvalidSalesOrderChargeException.class})
+    public ResponseEntity<ErrorResponse> handleBadRequest(RuntimeException ex) {
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, ex.getMessage());
     }
 
-    @ExceptionHandler(DuplicateCountryException.class)
-    public ResponseEntity<ErrorResponse> handleDuplicateCountry(DuplicateCountryException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.CONFLICT.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
-    }
-
-    @ExceptionHandler(ProductNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleProductNotFound(ProductNotFoundException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.NOT_FOUND.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
-    }
-
-    @ExceptionHandler(DuplicateProductException.class)
-    public ResponseEntity<ErrorResponse> handleDuplicateProduct(DuplicateProductException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.CONFLICT.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
-    }
-
-    @ExceptionHandler(ProductVariantNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleProductVariantNotFound(ProductVariantNotFoundException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.NOT_FOUND.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
-    }
-
-    @ExceptionHandler(ProductSupplierNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleProductSupplierNotFound(ProductSupplierNotFoundException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.NOT_FOUND.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
-    }
-
-    @ExceptionHandler(DuplicateProductSupplierException.class)
-    public ResponseEntity<ErrorResponse> handleDuplicateProductSupplier(DuplicateProductSupplierException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.CONFLICT.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
-    }
-
-    @ExceptionHandler(SupplierNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleSupplierNotFound(SupplierNotFoundException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.NOT_FOUND.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
-    }
-
-    @ExceptionHandler(DuplicateSupplierException.class)
-    public ResponseEntity<ErrorResponse> handleDuplicateSupplier(DuplicateSupplierException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.CONFLICT.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
-    }
-
-    @ExceptionHandler(CompanyCountryNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleCompanyCountryNotFound(CompanyCountryNotFoundException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.NOT_FOUND.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
-    }
-
-    @ExceptionHandler(CompanyRegionNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleCompanyRegionNotFound(CompanyRegionNotFoundException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.NOT_FOUND.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
-    }
-
-    @ExceptionHandler(DuplicateCompanyRegionException.class)
-    public ResponseEntity<ErrorResponse> handleDuplicateCompanyRegion(DuplicateCompanyRegionException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.CONFLICT.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
-    }
-
-    @ExceptionHandler(CompanyZoneNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleCompanyZoneNotFound(CompanyZoneNotFoundException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.NOT_FOUND.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
-    }
-
-    @ExceptionHandler(DuplicateCompanyZoneException.class)
-    public ResponseEntity<ErrorResponse> handleDuplicateCompanyZone(DuplicateCompanyZoneException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.CONFLICT.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
-    }
-
-    @ExceptionHandler(CompanyStoreNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleCompanyStoreNotFound(CompanyStoreNotFoundException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.NOT_FOUND.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
-    }
-
-    @ExceptionHandler(DuplicateCompanyStoreException.class)
-    public ResponseEntity<ErrorResponse> handleDuplicateCompanyStore(DuplicateCompanyStoreException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.CONFLICT.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
-    }
-
-    @ExceptionHandler(PaymentMethodNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handlePaymentMethodNotFound(PaymentMethodNotFoundException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.NOT_FOUND.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
-    }
-
-    @ExceptionHandler(PurchaseOrderNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handlePurchaseOrderNotFound(PurchaseOrderNotFoundException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.NOT_FOUND.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
-    }
-
-    @ExceptionHandler(PurchaseOrderDetailNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handlePurchaseOrderDetailNotFound(PurchaseOrderDetailNotFoundException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.NOT_FOUND.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
-    }
-
-    @ExceptionHandler(InvalidStatusTransitionException.class)
-    public ResponseEntity<ErrorResponse> handleInvalidStatusTransition(InvalidStatusTransitionException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.CONFLICT.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
-    }
-
-    @ExceptionHandler(DuplicatePurchaseOrderException.class)
-    public ResponseEntity<ErrorResponse> handleDuplicatePurchaseOrder(DuplicatePurchaseOrderException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.CONFLICT.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
-    }
-
-    @ExceptionHandler(DuplicatePaymentMethodException.class)
-    public ResponseEntity<ErrorResponse> handleDuplicatePaymentMethod(DuplicatePaymentMethodException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.CONFLICT.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
-    }
-
-    @ExceptionHandler(DuplicateCompanyCountryException.class)
-    public ResponseEntity<ErrorResponse> handleDuplicateCompanyCountry(DuplicateCompanyCountryException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.CONFLICT.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
-    }
-
-    @ExceptionHandler(StatusTypeNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleStatusTypeNotFound(StatusTypeNotFoundException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.NOT_FOUND.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
-    }
-
-    @ExceptionHandler(DuplicateStatusTypeException.class)
-    public ResponseEntity<ErrorResponse> handleDuplicateStatusType(DuplicateStatusTypeException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.CONFLICT.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
-    }
-
-    @ExceptionHandler(StatusNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleStatusNotFound(StatusNotFoundException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.NOT_FOUND.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
-    }
-
-    @ExceptionHandler(MeasureUnitNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleMeasureUnitNotFound(MeasureUnitNotFoundException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.NOT_FOUND.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
-    }
-
-    @ExceptionHandler(DuplicateMeasureUnitException.class)
-    public ResponseEntity<ErrorResponse> handleDuplicateMeasureUnit(DuplicateMeasureUnitException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.CONFLICT.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
-    }
-
-    @ExceptionHandler(DuplicateStatusException.class)
-    public ResponseEntity<ErrorResponse> handleDuplicateStatus(DuplicateStatusException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.CONFLICT.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
-    }
+    // ─── Identity provider ──────────────────────────────────────────────
 
     @ExceptionHandler(IdentityProviderNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleIdentityProviderNotFound(IdentityProviderNotFoundException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.NOT_FOUND.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+        return buildErrorResponse(HttpStatus.NOT_FOUND, ex.getMessage());
     }
 
     @ExceptionHandler(IdentityProviderConflictException.class)
     public ResponseEntity<ErrorResponse> handleIdentityProviderConflict(IdentityProviderConflictException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.CONFLICT.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
+        return buildErrorResponse(HttpStatus.CONFLICT, ex.getMessage());
     }
 
     @ExceptionHandler(IdentityProviderConnectionException.class)
     public ResponseEntity<ErrorResponse> handleIdentityProviderConnection(IdentityProviderConnectionException ex) {
         logger.error("Identity provider connection failure", ex);
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.SERVICE_UNAVAILABLE.value(),
-                "Identity provider temporarily unavailable",
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(error);
+        return buildErrorResponse(HttpStatus.SERVICE_UNAVAILABLE, "Identity provider temporarily unavailable");
     }
 
-    @ExceptionHandler(CustomerNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleCustomerNotFound(CustomerNotFoundException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.NOT_FOUND.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
-    }
-
-    @ExceptionHandler(PromotionNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handlePromotionNotFound(PromotionNotFoundException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.NOT_FOUND.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
-    }
-
-    @ExceptionHandler(ShiftNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleShiftNotFound(ShiftNotFoundException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.NOT_FOUND.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
-    }
-
-    @ExceptionHandler(ShiftAlreadyOpenException.class)
-    public ResponseEntity<ErrorResponse> handleShiftAlreadyOpen(ShiftAlreadyOpenException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.CONFLICT.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
-    }
-
-    @ExceptionHandler(ShiftNotOpenException.class)
-    public ResponseEntity<ErrorResponse> handleShiftNotOpen(ShiftNotOpenException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.CONFLICT.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
-    }
-
-    @ExceptionHandler(SalesOrderNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleSalesOrderNotFound(SalesOrderNotFoundException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.NOT_FOUND.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
-    }
-
-    @ExceptionHandler(SalesOrderItemNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleSalesOrderItemNotFound(SalesOrderItemNotFoundException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.NOT_FOUND.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
-    }
-
-    @ExceptionHandler(SalesOrderAlreadyFinalizedException.class)
-    public ResponseEntity<ErrorResponse> handleSalesOrderAlreadyFinalized(SalesOrderAlreadyFinalizedException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.CONFLICT.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
-    }
-
-    @ExceptionHandler(InsufficientStockException.class)
-    public ResponseEntity<ErrorResponse> handleInsufficientStock(InsufficientStockException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.CONFLICT.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
-    }
-
-    @ExceptionHandler(InvalidSalesOrderChargeException.class)
-    public ResponseEntity<ErrorResponse> handleInvalidSalesOrderCharge(InvalidSalesOrderChargeException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.BAD_REQUEST.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
-    }
-
-    @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<ErrorResponse> handleIllegalArgument(IllegalArgumentException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.BAD_REQUEST.value(),
-                ex.getMessage(),
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
-    }
+    // ─── Validation (400) ───────────────────────────────────────────────
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ValidationErrorResponse> handleValidationErrors(MethodArgumentNotValidException ex) {
         Map<String, String> errors = new HashMap<>();
-        
-        ex.getBindingResult().getFieldErrors().forEach(fieldError -> 
+
+        ex.getBindingResult().getFieldErrors().forEach(fieldError ->
                 errors.put(fieldError.getField(), fieldError.getDefaultMessage())
         );
 
@@ -622,33 +90,34 @@ public class GlobalExceptionHandler {
                 LocalDateTime.now(),
                 getCorrelationId()
         );
-        
+
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
     }
 
+    // ─── Access denied (403) ────────────────────────────────────────────
+
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.FORBIDDEN.value(),
-                "Access denied",
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
-        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(error);
+        return buildErrorResponse(HttpStatus.FORBIDDEN, "Access denied");
     }
+
+    // ─── Fallback (500) ─────────────────────────────────────────────────
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGenericException(Exception ex) {
         logger.error("Unhandled exception", ex);
+        return buildErrorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred");
+    }
+
+    private ResponseEntity<ErrorResponse> buildErrorResponse(HttpStatus status, String message) {
         ErrorResponse error = new ErrorResponse(
-                HttpStatus.INTERNAL_SERVER_ERROR.value(),
-                "An unexpected error occurred",
+                status.value(),
+                message,
                 getCurrentPath(),
                 LocalDateTime.now(),
                 getCorrelationId()
         );
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
+        return ResponseEntity.status(status).body(error);
     }
 
     /**
