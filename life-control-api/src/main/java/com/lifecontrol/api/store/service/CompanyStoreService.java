@@ -91,10 +91,6 @@ public class CompanyStoreService {
         if (currentUserContext.hasCompanyStoreRole() || currentUserContext.hasCompanyStoreReadRole()) {
             var storeIds = currentUserContext.getCompanyStoreIds();
             stores = companyStoreRepository.findByIdInAndCompanyZoneId(storeIds, zone.getId());
-        } else if (currentUserContext.hasCompanyZoneRole()) {
-            stores = includeDisabled
-                    ? companyStoreRepository.findByCompanyZoneId(zone.getId())
-                    : companyStoreRepository.findByCompanyZoneIdAndEnabledTrue(zone.getId());
         } else {
             stores = includeDisabled
                     ? companyStoreRepository.findByCompanyZoneId(zone.getId())
