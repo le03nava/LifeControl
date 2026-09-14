@@ -37,9 +37,6 @@ RUN ls -la /app/app.jar && \
 RUN addgroup -g 1001 ${APP_GROUP} && \
     adduser -u 1001 -G ${APP_GROUP} -s /bin/sh -D ${APP_USER}
 
-# Intentar instalar curl para HEALTHCHECK; si falla DNS no bloquea el build
-RUN apk add --no-cache curl || true
-
 USER ${APP_USER}
 
 WORKDIR /app
@@ -54,4 +51,5 @@ HEALTHCHECK --interval=30s \
             --retries=3 \
   CMD wget -qO- http://localhost:${SERVER_PORT:-8082}/actuator/health || exit 1
 
-ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
+# exec para que java sea PID 1 y reciba SIGTERM (graceful shutdown)
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar app.jar"]
