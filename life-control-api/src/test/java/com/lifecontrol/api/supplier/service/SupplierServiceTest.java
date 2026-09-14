@@ -127,44 +127,44 @@ class SupplierServiceTest {
     class GetAllSuppliersTests {
 
         @Test
-        @DisplayName("getAllSuppliers - should return paginated results without search")
+        @DisplayName("getAllSuppliers - should return enabled-only paginated results without search")
         void getAllSuppliers_Paginated() {
             // Arrange
             var pageable = PageRequest.of(0, 12);
             var suppliers = List.of(testSupplier);
             var expectedPage = new PageImpl<>(suppliers, pageable, 1);
 
-            when(supplierRepository.findAll(pageable)).thenReturn(expectedPage);
+            when(supplierRepository.findByEnabledTrue(pageable)).thenReturn(expectedPage);
 
             // Act
-            Page<SupplierResponse> result = supplierService.getAllSuppliers(pageable, null);
+            Page<SupplierResponse> result = supplierService.getAllSuppliers(pageable, null, false);
 
             // Assert
             assertThat(result).isNotNull();
             assertThat(result.getContent()).hasSize(1);
             assertThat(result.getContent().get(0).supplierName()).isEqualTo("Test Supplier");
             assertThat(result.getTotalElements()).isEqualTo(1);
-            verify(supplierRepository).findAll(pageable);
+            verify(supplierRepository).findByEnabledTrue(pageable);
         }
 
         @Test
-        @DisplayName("getAllSuppliers - should search with term")
+        @DisplayName("getAllSuppliers - should search enabled-only with term")
         void getAllSuppliers_WithSearch() {
             // Arrange
             var pageable = PageRequest.of(0, 12);
             var suppliers = List.of(testSupplier);
             var expectedPage = new PageImpl<>(suppliers, pageable, 1);
 
-            when(supplierRepository.findBySearchTerm("Test", pageable)).thenReturn(expectedPage);
+            when(supplierRepository.findBySearchTermAndEnabledTrue("Test", pageable)).thenReturn(expectedPage);
 
             // Act
-            Page<SupplierResponse> result = supplierService.getAllSuppliers(pageable, "Test");
+            Page<SupplierResponse> result = supplierService.getAllSuppliers(pageable, "Test", false);
 
             // Assert
             assertThat(result).isNotNull();
             assertThat(result.getContent()).hasSize(1);
             assertThat(result.getContent().get(0).supplierName()).isEqualTo("Test Supplier");
-            verify(supplierRepository).findBySearchTerm("Test", pageable);
+            verify(supplierRepository).findBySearchTermAndEnabledTrue("Test", pageable);
         }
 
         @Test
@@ -174,21 +174,40 @@ class SupplierServiceTest {
             var pageable = PageRequest.of(0, 12);
             var expectedPage = new PageImpl<Supplier>(List.of(), pageable, 0);
 
-            when(supplierRepository.findBySearchTerm("NonExistent", pageable)).thenReturn(expectedPage);
+            when(supplierRepository.findBySearchTermAndEnabledTrue("NonExistent", pageable)).thenReturn(expectedPage);
 
             // Act
-            Page<SupplierResponse> result = supplierService.getAllSuppliers(pageable, "NonExistent");
+            Page<SupplierResponse> result = supplierService.getAllSuppliers(pageable, "NonExistent", false);
 
             // Assert
             assertThat(result).isNotNull();
             assertThat(result.getContent()).isEmpty();
             assertThat(result.getTotalElements()).isZero();
-            verify(supplierRepository).findBySearchTerm("NonExistent", pageable);
+            verify(supplierRepository).findBySearchTermAndEnabledTrue("NonExistent", pageable);
         }
 
         @Test
-        @DisplayName("getAllSuppliers - should ignore whitespace-only search and return all")
+        @DisplayName("getAllSuppliers - should ignore whitespace-only search and return enabled-only")
         void getAllSuppliers_BlankSearch() {
+            // Arrange
+            var pageable = PageRequest.of(0, 12);
+            var suppliers = List.of(testSupplier);
+            var expectedPage = new PageImpl<>(suppliers, pageable, 1);
+
+            when(supplierRepository.findByEnabledTrue(pageable)).thenReturn(expectedPage);
+
+            // Act
+            Page<SupplierResponse> result = supplierService.getAllSuppliers(pageable, "   ", false);
+
+            // Assert
+            assertThat(result).isNotNull();
+            assertThat(result.getContent()).hasSize(1);
+            verify(supplierRepository).findByEnabledTrue(pageable);
+        }
+
+        @Test
+        @DisplayName("getAllSuppliers - should include disabled suppliers when includeDisabled=true")
+        void getAllSuppliers_IncludeDisabled() {
             // Arrange
             var pageable = PageRequest.of(0, 12);
             var suppliers = List.of(testSupplier);
@@ -197,12 +216,31 @@ class SupplierServiceTest {
             when(supplierRepository.findAll(pageable)).thenReturn(expectedPage);
 
             // Act
-            Page<SupplierResponse> result = supplierService.getAllSuppliers(pageable, "   ");
+            Page<SupplierResponse> result = supplierService.getAllSuppliers(pageable, null, true);
 
             // Assert
             assertThat(result).isNotNull();
             assertThat(result.getContent()).hasSize(1);
             verify(supplierRepository).findAll(pageable);
+        }
+
+        @Test
+        @DisplayName("getAllSuppliers - should include disabled when searching with includeDisabled=true")
+        void getAllSuppliers_IncludeDisabledWithSearch() {
+            // Arrange
+            var pageable = PageRequest.of(0, 12);
+            var suppliers = List.of(testSupplier);
+            var expectedPage = new PageImpl<>(suppliers, pageable, 1);
+
+            when(supplierRepository.findBySearchTerm("Test", pageable)).thenReturn(expectedPage);
+
+            // Act
+            Page<SupplierResponse> result = supplierService.getAllSuppliers(pageable, "Test", true);
+
+            // Assert
+            assertThat(result).isNotNull();
+            assertThat(result.getContent()).hasSize(1);
+            verify(supplierRepository).findBySearchTerm("Test", pageable);
         }
     }
 

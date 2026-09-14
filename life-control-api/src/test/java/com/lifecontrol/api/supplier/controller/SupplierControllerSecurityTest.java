@@ -104,7 +104,7 @@ class SupplierControllerSecurityTest {
                     LocalDateTime.now(), LocalDateTime.now()
             );
             var page = new PageImpl<>(List.of(response), PageRequest.of(0, 12), 1);
-            when(supplierService.getAllSuppliers(any(), eq(null))).thenReturn(page);
+            when(supplierService.getAllSuppliers(any(), eq(null), eq(false))).thenReturn(page);
 
             mockMvc.perform(get("/api/suppliers"))
                     .andExpect(status().isOk());
@@ -121,7 +121,7 @@ class SupplierControllerSecurityTest {
                     LocalDateTime.now(), LocalDateTime.now()
             );
             var page = new PageImpl<>(List.of(response), PageRequest.of(0, 12), 1);
-            when(supplierService.getAllSuppliers(any(), eq(null))).thenReturn(page);
+            when(supplierService.getAllSuppliers(any(), eq(null), eq(false))).thenReturn(page);
 
             mockMvc.perform(get("/api/suppliers"))
                     .andExpect(status().isOk());
@@ -138,7 +138,7 @@ class SupplierControllerSecurityTest {
                     LocalDateTime.now(), LocalDateTime.now()
             );
             var page = new PageImpl<>(List.of(response), PageRequest.of(0, 12), 1);
-            when(supplierService.getAllSuppliers(any(), eq(null))).thenReturn(page);
+            when(supplierService.getAllSuppliers(any(), eq(null), eq(false))).thenReturn(page);
 
             mockMvc.perform(get("/api/suppliers"))
                     .andExpect(status().isOk());

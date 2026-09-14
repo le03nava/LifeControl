@@ -40,11 +40,12 @@ public class SupplierController {
 
     @GetMapping
     @PreAuthorize("isAuthenticated()")
-    @Operation(summary = "Get all suppliers", description = "Returns a paginated list of suppliers, optionally filtered by search term")
+    @Operation(summary = "Get all suppliers", description = "Returns a paginated list of suppliers. Use ?search=term to filter by name, RFC, razon social or email and ?includeDisabled=true to include soft-deleted suppliers.")
     public ResponseEntity<Page<SupplierResponse>> getAllSuppliers(
             @PageableDefault(size = 12) Pageable pageable,
-            @RequestParam(required = false) String search) {
-        return ResponseEntity.ok(supplierService.getAllSuppliers(pageable, search));
+            @RequestParam(required = false) String search,
+            @RequestParam(name = "includeDisabled", defaultValue = "false") boolean includeDisabled) {
+        return ResponseEntity.ok(supplierService.getAllSuppliers(pageable, search, includeDisabled));
     }
 
     @GetMapping("/{id}")
