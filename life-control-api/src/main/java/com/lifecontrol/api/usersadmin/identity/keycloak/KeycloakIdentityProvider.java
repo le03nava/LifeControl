@@ -435,20 +435,16 @@ public class KeycloakIdentityProvider implements IdentityProvider {
     @Override
     public PageResponse<UserSearchDto> searchUsers(String query, int page, int size) {
         try {
-            var allUsers = keycloak.realm(realm()).users().search(query, 0, 5000);
-            var total = allUsers.size();
+            // Keycloak performs the pagination server-side (firstResult / maxResults),
+            // so only the requested page is loaded and counted locally.
+            var users = keycloak.realm(realm()).users().search(query, page * size, size);
+            var total = keycloak.realm(realm()).users().count(query);
 
-            var start = page * size;
-            if (start >= total) {
-                return new PageResponse<>(List.of(), page, size, total);
-            }
-
-            var end = Math.min(start + size, total);
-            var content = allUsers.subList(start, end).stream()
+            var content = users.stream()
                     .map(this::toUserSearchDto)
                     .toList();
 
-            return new PageResponse<>(content, page, size, total);
+            return new PageResponse<>(content, page, size, total != null ? total : 0);
         } catch (ProcessingException e) {
             throw new IdentityProviderConnectionException(
                     "Failed to search users with query: " + query, e);
