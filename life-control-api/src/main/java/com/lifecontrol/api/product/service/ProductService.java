@@ -34,7 +34,7 @@ public class ProductService {
 
         if (productRepository.existsBySku(request.sku())) {
             throw new DuplicateProductException(
-                    "Ya existe un producto con SKU: " + request.sku());
+                    "Product with SKU '" + request.sku() + "' already exists");
         }
 
         var product = Product.builder()
@@ -64,7 +64,7 @@ public class ProductService {
         if (!product.getSku().equals(request.sku())
                 && productRepository.existsBySkuAndIdNot(request.sku(), id)) {
             throw new DuplicateProductException(
-                    "Ya existe un producto con SKU: " + request.sku());
+                    "Product with SKU '" + request.sku() + "' already exists");
         }
 
         // Update scalar fields

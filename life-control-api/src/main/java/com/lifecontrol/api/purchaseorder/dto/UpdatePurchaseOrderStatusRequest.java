@@ -6,7 +6,7 @@ import java.util.UUID;
 
 public record UpdatePurchaseOrderStatusRequest(
 
-    @NotNull(message = "statusId es requerido")
+    @NotNull(message = "statusId is required")
     UUID statusId,
 
     Integer receivedQuantity

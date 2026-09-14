@@ -242,7 +242,7 @@ class ProductSupplierControllerTest {
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.status").value(400))
                     .andExpect(jsonPath("$.message").value("Validation failed"))
-                    .andExpect(jsonPath("$.errors.supplierId").value("supplierId es requerido"));
+                    .andExpect(jsonPath("$.errors.supplierId").value("supplierId is required"));
         }
 
         @Test
@@ -256,7 +256,7 @@ class ProductSupplierControllerTest {
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.status").value(400))
                     .andExpect(jsonPath("$.message").value("Validation failed"))
-                    .andExpect(jsonPath("$.errors.purchaseCost").value("purchaseCost no puede ser negativo"));
+                    .andExpect(jsonPath("$.errors.purchaseCost").value("purchaseCost cannot be negative"));
         }
     }
 

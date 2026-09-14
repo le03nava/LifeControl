@@ -6,6 +6,6 @@ import java.util.UUID;
 public class PurchaseOrderNotFoundException extends ResourceNotFoundException {
 
     public PurchaseOrderNotFoundException(UUID id) {
-        super("Orden de compra no encontrada con id: " + id);
+        super("Purchase order not found with id: " + id);
     }
 }

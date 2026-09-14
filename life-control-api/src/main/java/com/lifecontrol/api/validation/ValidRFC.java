@@ -26,7 +26,7 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 public @interface ValidRFC {
 
-    String message() default "RFC inválido. Debe tener formato válido: 3-4 letras seguidas de 6 dígitos y 3 caracteres alfanuméricos";
+    String message() default "Invalid RFC. It must have a valid format: 3-4 letters followed by 6 digits and 3 alphanumeric characters";
 
     Class<?>[] groups() default {};
 

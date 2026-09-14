@@ -6,7 +6,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
 public record CreateCompanyStoreRequest(
-    @NotBlank(message = "storeName es requerido")
+    @NotBlank(message = "storeName is required")
     @Size(max = 255)
     String storeName,
 

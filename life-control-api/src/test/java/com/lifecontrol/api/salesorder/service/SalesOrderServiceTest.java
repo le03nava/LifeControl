@@ -753,7 +753,7 @@ class SalesOrderServiceTest {
 
             assertThatThrownBy(() -> salesOrderService.updateSalesOrderStatus(orderId, statusRequest))
                     .isInstanceOf(InvalidStatusTransitionException.class)
-                    .hasMessageContaining("inválida")
+                    .hasMessageContaining("Invalid status transition")
                     .hasMessageContaining("Draft")
                     .hasMessageContaining("Completed");
 
@@ -1483,7 +1483,7 @@ class SalesOrderServiceTest {
 
             assertThatThrownBy(() -> salesOrderService.updateSalesOrderItemStatus(orderId, itemId, statusRequest))
                     .isInstanceOf(InvalidStatusTransitionException.class)
-                    .hasMessageContaining("inválida")
+                    .hasMessageContaining("Invalid status transition")
                     .hasMessageContaining("Pending")
                     .hasMessageContaining("Completed");
 

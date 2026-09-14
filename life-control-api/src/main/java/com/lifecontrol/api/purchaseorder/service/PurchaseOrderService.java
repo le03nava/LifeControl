@@ -384,11 +384,11 @@ public class PurchaseOrderService {
             var received = request.receivedQuantity();
             if (received == null) {
                 throw new IllegalArgumentException(
-                        "receivedQuantity es requerido para la transición a Partial Received");
+                        "receivedQuantity is required for the transition to Partial Received");
             }
             if (received <= 0 || received > detail.getQuantity()) {
                 throw new IllegalArgumentException(
-                        "receivedQuantity debe ser mayor a 0 y no exceder la cantidad del detalle");
+                        "receivedQuantity must be greater than 0 and must not exceed the detail quantity");
             }
             detail.setReceivedQuantity(received);
         } else if ("Received".equals(newStatus.getStatusName())) {
@@ -409,7 +409,7 @@ public class PurchaseOrderService {
 
         if (!"Draft".equals(po.getStatus().getStatusName())) {
             throw new InvalidStatusTransitionException(
-                    po.getStatus().getStatusName(), "mutación de detalles");
+                    po.getStatus().getStatusName(), "detail mutation");
         }
         return po;
     }

@@ -82,11 +82,11 @@ public class CompanyService {
     public CompanyResponse createCompany(CompanyRequest request) {
         // Validate uniqueness
         if (companyRepository.existsByCompanyKey(request.companyKey())) {
-            throw new DuplicateCompanyException("Ya existe una compañía con companyKey: " + request.companyKey());
+            throw new DuplicateCompanyException("Company with companyKey '" + request.companyKey() + "' already exists");
         }
 
         if (companyRepository.existsByRfc(request.rfc())) {
-            throw new DuplicateCompanyException("Ya existe una compañía con RFC: " + request.rfc());
+            throw new DuplicateCompanyException("Company with RFC '" + request.rfc() + "' already exists");
         }
 
         // Build entity
@@ -121,7 +121,7 @@ public class CompanyService {
 
         // Validate uniqueness (excluding current company)
         if (companyRepository.existsByRfcAndIdNot(request.rfc(), id)) {
-            throw new DuplicateCompanyException("Ya existe una compañía con RFC: " + request.rfc());
+            throw new DuplicateCompanyException("Company with RFC '" + request.rfc() + "' already exists");
         }
 
         // Update fields (companyKey is immutable)

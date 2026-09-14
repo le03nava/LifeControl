@@ -5,17 +5,17 @@ import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 
 public record UpdateCompanyZoneRequest(
-    @NotBlank(message = "zoneCode es requerido")
-    @Size(max = 10, message = "zoneCode no puede exceder 10 caracteres")
+    @NotBlank(message = "zoneCode is required")
+    @Size(max = 10, message = "zoneCode must not exceed 10 characters")
     String zoneCode,
 
-    @NotBlank(message = "zoneName es requerido")
-    @Size(max = 100, message = "zoneName no puede exceder 100 caracteres")
+    @NotBlank(message = "zoneName is required")
+    @Size(max = 100, message = "zoneName must not exceed 100 characters")
     String zoneName,
 
-    @Size(max = 255, message = "description no puede exceder 255 caracteres")
+    @Size(max = 255, message = "description must not exceed 255 characters")
     String description,
 
-    @Positive(message = "displayOrder debe ser un número positivo")
+    @Positive(message = "displayOrder must be a positive number")
     Integer displayOrder
 ) {}

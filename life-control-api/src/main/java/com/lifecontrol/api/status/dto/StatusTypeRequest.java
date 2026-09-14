@@ -4,7 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 
 public record StatusTypeRequest(
 
-    @NotBlank(message = "statusTypeName es requerido")
+    @NotBlank(message = "statusTypeName is required")
     String statusTypeName,
 
     Boolean enabled

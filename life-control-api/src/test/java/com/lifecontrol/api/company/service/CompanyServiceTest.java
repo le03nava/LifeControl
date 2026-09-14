@@ -474,7 +474,7 @@ class CompanyServiceTest {
             // Act & Assert
             assertThatThrownBy(() -> companyService.updateCompany(testCompanyId, duplicateRfcRequest))
                     .isInstanceOf(DuplicateCompanyException.class)
-                    .hasMessageContaining("Ya existe una compañía con RFC");
+                    .hasMessageContaining("Company with RFC");
         }
 
         @Test

@@ -143,7 +143,7 @@ class GlobalExceptionHandlerTest {
         @DisplayName("should return 409 Conflict with error message")
         void handleConflict_Returns409() {
             // Arrange
-            DuplicateCountryException exception = new DuplicateCountryException("Ya existe un país con código: MX");
+            DuplicateCountryException exception = new DuplicateCountryException("Country with code 'MX' already exists");
 
             // Act
             ResponseEntity<GlobalExceptionHandler.ErrorResponse> response =
@@ -153,7 +153,7 @@ class GlobalExceptionHandlerTest {
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
             assertThat(response.getBody()).isNotNull();
             assertThat(response.getBody().status()).isEqualTo(409);
-            assertThat(response.getBody().message()).isEqualTo("Ya existe un país con código: MX");
+            assertThat(response.getBody().message()).isEqualTo("Country with code 'MX' already exists");
             assertThat(response.getBody().timestamp()).isNotNull();
         }
     }

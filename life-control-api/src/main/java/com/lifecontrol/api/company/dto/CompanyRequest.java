@@ -9,30 +9,30 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
 public record CompanyRequest(
-    @NotBlank(message = "companyKey es requerido")
-    @Size(max = 50, message = "companyKey no puede exceder 50 caracteres")
+    @NotBlank(message = "companyKey is required")
+    @Size(max = 50, message = "companyKey must not exceed 50 characters")
     String companyKey,
 
-    @NotBlank(message = "companyName es requerido")
-    @Size(max = 200, message = "companyName no puede exceder 200 caracteres")
+    @NotBlank(message = "companyName is required")
+    @Size(max = 200, message = "companyName must not exceed 200 characters")
     String companyName,
 
-    @Min(value = 1, message = "tipoPersonaId debe ser al menos 1")
-    @Max(value = 5, message = "tipoPersonaId no puede exceder 5")
+    @Min(value = 1, message = "tipoPersonaId must be at least 1")
+    @Max(value = 5, message = "tipoPersonaId must not exceed 5")
     Integer tipoPersonaId,
 
-    @Size(max = 300, message = "razonSocial no puede exceder 300 caracteres")
+    @Size(max = 300, message = "razonSocial must not exceed 300 characters")
     String razonSocial,
 
-    @NotBlank(message = "RFC es requerido")
+    @NotBlank(message = "RFC is required")
     @ValidRFC
     String rfc,
 
-    @Size(max = 20, message = "phone no puede exceder 20 caracteres")
+    @Size(max = 20, message = "phone must not exceed 20 characters")
     String phone,
 
-    @Email(message = "email debe tener formato válido")
-    @Size(max = 100, message = "email no puede exceder 100 caracteres")
+    @Email(message = "email must have a valid format")
+    @Size(max = 100, message = "email must not exceed 100 characters")
     String email,
 
     Boolean enabled,

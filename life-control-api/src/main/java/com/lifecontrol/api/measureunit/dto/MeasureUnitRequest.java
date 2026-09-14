@@ -5,19 +5,19 @@ import jakarta.validation.constraints.Size;
 
 public record MeasureUnitRequest(
 
-    @NotBlank(message = "measureUnitName es requerido")
-    @Size(max = 100, message = "measureUnitName no puede exceder 100 caracteres")
+    @NotBlank(message = "measureUnitName is required")
+    @Size(max = 100, message = "measureUnitName must not exceed 100 characters")
     String measureUnitName,
 
-    @NotBlank(message = "measureUnitShortName es requerido")
-    @Size(max = 10, message = "measureUnitShortName no puede exceder 10 caracteres")
+    @NotBlank(message = "measureUnitShortName is required")
+    @Size(max = 10, message = "measureUnitShortName must not exceed 10 characters")
     String measureUnitShortName,
 
-    @NotBlank(message = "unitType es requerido")
+    @NotBlank(message = "unitType is required")
     String unitType,
 
-    @NotBlank(message = "satCode es requerido")
-    @Size(max = 5, message = "satCode no puede exceder 5 caracteres")
+    @NotBlank(message = "satCode is required")
+    @Size(max = 5, message = "satCode must not exceed 5 characters")
     String satCode,
 
     @Size(max = 255)

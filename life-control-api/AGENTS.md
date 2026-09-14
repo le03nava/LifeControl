@@ -481,7 +481,7 @@ Use `jakarta.validation` constraints on record DTOs. Validation error responses 
 
 ```java
 public record CompanyRequest(
-    @NotBlank(message = "companyKey es requerido")
+    @NotBlank(message = "companyKey is required")
     @Size(max = 50) String companyKey,
 
     @NotBlank @ValidRFC String rfc,

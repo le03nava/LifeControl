@@ -183,7 +183,7 @@ class MeasureUnitControllerTest {
             var request = new MeasureUnitRequest("Kilogramo", "Kg", "PRODUCT", "KGM", "Description");
             when(measureUnitService.createMeasureUnit(any(MeasureUnitRequest.class)))
                     .thenThrow(new DuplicateMeasureUnitException(
-                            "Ya existe una unidad de medida con código SAT: KGM"));
+                            "Measure unit with SAT code 'KGM' already exists"));
 
             mockMvc.perform(post("/api/measure-units")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -233,7 +233,7 @@ class MeasureUnitControllerTest {
             var request = new MeasureUnitRequest("Kilogramo", "Kg", "PRODUCT", "KGM", "Description");
             when(measureUnitService.updateMeasureUnit(eq(testId), any(MeasureUnitRequest.class)))
                     .thenThrow(new DuplicateMeasureUnitException(
-                            "Ya existe una unidad de medida con código SAT: KGM"));
+                            "Measure unit with SAT code 'KGM' already exists"));
 
             mockMvc.perform(put("/api/measure-units/{id}", testId)
                             .contentType(MediaType.APPLICATION_JSON)

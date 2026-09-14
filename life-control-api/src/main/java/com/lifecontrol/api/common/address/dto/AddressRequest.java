@@ -5,25 +5,25 @@ import jakarta.validation.constraints.Size;
 import java.util.UUID;
 
 public record AddressRequest(
-    @Size(max = 255, message = "La calle no puede superar los {max} caracteres")
+    @Size(max = 255, message = "Street must not exceed {max} characters")
     String street,
 
-    @Size(max = 20, message = "El número exterior no puede superar los {max} caracteres")
+    @Size(max = 20, message = "Street number must not exceed {max} characters")
     String streetNumber,
 
-    @Size(max = 20, message = "El número interior no puede superar los {max} caracteres")
+    @Size(max = 20, message = "Internal number must not exceed {max} characters")
     String internalNumber,
 
-    @Size(max = 255, message = "La colonia no puede superar los {max} caracteres")
+    @Size(max = 255, message = "Neighborhood must not exceed {max} characters")
     String neighborhood,
 
-    @Size(max = 20, message = "El código postal no puede superar los {max} caracteres")
+    @Size(max = 20, message = "Zip code must not exceed {max} characters")
     String zipCode,
 
-    @Size(max = 255, message = "La ciudad no puede superar los {max} caracteres")
+    @Size(max = 255, message = "City must not exceed {max} characters")
     String city,
 
-    @Size(max = 255, message = "El estado no puede superar los {max} caracteres")
+    @Size(max = 255, message = "State must not exceed {max} characters")
     String state,
 
     UUID countryId

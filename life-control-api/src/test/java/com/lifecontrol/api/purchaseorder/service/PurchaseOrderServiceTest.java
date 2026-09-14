@@ -275,7 +275,7 @@ class PurchaseOrderServiceTest {
 
             assertThatThrownBy(() -> service.getPurchaseOrderById(poId))
                     .isInstanceOf(PurchaseOrderNotFoundException.class)
-                    .hasMessageContaining("Orden de compra no encontrada");
+                    .hasMessageContaining("Purchase order not found");
         }
     }
 
@@ -756,7 +756,7 @@ class PurchaseOrderServiceTest {
 
             assertThatThrownBy(() -> service.updatePurchaseOrderDetailStatus(poId, detailId, request))
                     .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("receivedQuantity es requerido");
+                    .hasMessageContaining("receivedQuantity is required");
 
             verify(detailRepository, never()).save(any(PurchaseOrderDetail.class));
         }
@@ -773,7 +773,7 @@ class PurchaseOrderServiceTest {
 
             assertThatThrownBy(() -> service.updatePurchaseOrderDetailStatus(poId, detailId, request))
                     .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("no exceder la cantidad");
+                    .hasMessageContaining("must not exceed the detail quantity");
 
             verify(detailRepository, never()).save(any(PurchaseOrderDetail.class));
         }

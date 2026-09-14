@@ -219,14 +219,14 @@ class CompanyControllerTest {
         void updateCompany_DuplicateRfc_Conflict() throws Exception {
             // Arrange
             when(companyService.updateCompany(eq(testCompanyId), any(CompanyRequest.class)))
-                    .thenThrow(new DuplicateCompanyException("Ya existe una compañía con RFC: XAXX010101000"));
+                    .thenThrow(new DuplicateCompanyException("Company with RFC 'XAXX010101000' already exists"));
 
             // Act & Assert
             mockMvc.perform(put("/api/companies/{id}", testCompanyId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(testCompanyRequest)))
                     .andExpect(status().isConflict())
-                    .andExpect(jsonPath("$.message").value("Ya existe una compañía con RFC: XAXX010101000"));
+                    .andExpect(jsonPath("$.message").value("Company with RFC 'XAXX010101000' already exists"));
         }
 
         @Test

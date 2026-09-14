@@ -7,10 +7,10 @@ import java.util.UUID;
 
 public record StatusRequest(
 
-    @NotBlank(message = "statusName es requerido")
+    @NotBlank(message = "statusName is required")
     String statusName,
 
-    @NotNull(message = "statusTypeId es requerido")
+    @NotNull(message = "statusTypeId is required")
     UUID statusTypeId,
 
     Boolean enabled

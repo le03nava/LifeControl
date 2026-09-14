@@ -9,15 +9,15 @@ import java.util.UUID;
 
 public record PurchaseOrderDetailRequest(
 
-    @NotNull(message = "productId es requerido")
+    @NotNull(message = "productId is required")
     UUID productId,
 
-    @NotNull(message = "quantity es requerido")
-    @Min(value = 1, message = "quantity debe ser mayor a 0")
+    @NotNull(message = "quantity is required")
+    @Min(value = 1, message = "quantity must be greater than 0")
     Integer quantity,
 
-    @NotNull(message = "unitPrice es requerido")
-    @DecimalMin(value = "0.01", message = "unitPrice debe ser mayor o igual a 0.01")
+    @NotNull(message = "unitPrice is required")
+    @DecimalMin(value = "0.01", message = "unitPrice must be greater than or equal to 0.01")
     BigDecimal unitPrice,
 
     String comments,

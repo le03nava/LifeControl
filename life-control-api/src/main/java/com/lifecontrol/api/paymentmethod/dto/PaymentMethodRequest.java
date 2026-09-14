@@ -5,11 +5,11 @@ import jakarta.validation.constraints.Size;
 
 public record PaymentMethodRequest(
 
-    @NotBlank(message = "paymentMethodName es requerido")
+    @NotBlank(message = "paymentMethodName is required")
     @Size(max = 100)
     String paymentMethodName,
 
-    @NotBlank(message = "paymentMethodShortName es requerido")
+    @NotBlank(message = "paymentMethodShortName is required")
     @Size(max = 50)
     String paymentMethodShortName,
 
