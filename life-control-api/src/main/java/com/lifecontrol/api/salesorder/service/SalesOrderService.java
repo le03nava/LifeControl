@@ -29,6 +29,7 @@ import com.lifecontrol.api.shift.repository.ShiftRepository;
 import com.lifecontrol.api.status.exception.StatusNotFoundException;
 import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.status.repository.StatusRepository;
+import com.lifecontrol.api.status.service.StatusValidator;
 import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import org.slf4j.Logger;
@@ -381,7 +382,7 @@ public class SalesOrderService {
         var currentStatus = statusRepository.findById(so.getStatusId())
                 .orElseThrow(() -> new StatusNotFoundException(so.getStatusId()));
 
-        var newStatus = validateStatusExistsAndType(request.statusId(), "SALES_ORDER");
+        var newStatus = StatusValidator.requireStatusOfType(statusRepository, request.statusId(), "SALES_ORDER");
         validateSOTransition(currentStatus, newStatus);
 
         // Restore stock when transitioning to Cancelled. Only enabled items still
@@ -644,7 +645,7 @@ public class SalesOrderService {
         var currentStatus = statusRepository.findById(item.getStatusId())
                 .orElseThrow(() -> new StatusNotFoundException(item.getStatusId()));
 
-        var newStatus = validateStatusExistsAndType(request.statusId(), "SALES_ORDER_ITEM");
+        var newStatus = StatusValidator.requireStatusOfType(statusRepository, request.statusId(), "SALES_ORDER_ITEM");
         validateSOItemTransition(currentStatus, newStatus);
 
         item.setStatusId(newStatus.getId());
@@ -699,19 +700,6 @@ public class SalesOrderService {
         if (!productVariantRepository.existsById(id)) {
             throw new ProductVariantNotFoundException(id);
         }
-    }
-
-    private Status validateStatusExistsAndType(UUID id, String expectedTypeName) {
-        var status = statusRepository.findById(id)
-                .orElseThrow(() -> new StatusNotFoundException(id));
-
-        var statusType = status.getStatusType();
-        if (!expectedTypeName.equalsIgnoreCase(statusType.getStatusTypeName())) {
-            throw new IllegalArgumentException(
-                    "El status proporcionado no corresponde al tipo " + expectedTypeName);
-        }
-
-        return status;
     }
 
     // ─── Status Transition Validation ───────────────────────────────────
