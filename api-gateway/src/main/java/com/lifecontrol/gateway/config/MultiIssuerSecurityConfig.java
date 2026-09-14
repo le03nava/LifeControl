@@ -24,15 +24,18 @@ import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 @Configuration
 public class MultiIssuerSecurityConfig {
 
-    // URI del Keycloak interno (alcanzable desde Docker)
-    private static final String KEYCLOAK_INTERNAL_URI = "http://lifecontrol-dev-keycloak:8080/realms/life-control-realm";
+    private final GatewayProperties props;
+
+    public MultiIssuerSecurityConfig(GatewayProperties props) {
+        this.props = props;
+    }
 
     @Bean
     public JwtDecoder keycloakJwtDecoder() {
         // Crear decoder que NO valida el issuer
         // Solo valida la firma usando las JWK del Keycloak interno
         NimbusJwtDecoder decoder = NimbusJwtDecoder
-            .withJwkSetUri(KEYCLOAK_INTERNAL_URI + "/protocol/openid-connect/certs")
+            .withJwkSetUri(props.keycloakInternalUri() + "/protocol/openid-connect/certs")
             .build();
         
         // Configurar validadores que NO incluyen el issuer
