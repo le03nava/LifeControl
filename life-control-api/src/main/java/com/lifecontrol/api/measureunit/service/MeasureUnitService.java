@@ -65,7 +65,7 @@ public class MeasureUnitService {
 
         if (measureUnitRepository.existsBySatCode(request.satCode())) {
             throw new DuplicateMeasureUnitException(
-                    "Ya existe una unidad de medida con código SAT: " + request.satCode());
+                    "Measure unit with SAT code '" + request.satCode() + "' already exists");
         }
 
         var type = MeasureUnitType.valueOf(request.unitType());
@@ -97,7 +97,7 @@ public class MeasureUnitService {
         if (!measureUnit.getSatCode().equals(request.satCode())
                 && measureUnitRepository.existsBySatCode(request.satCode())) {
             throw new DuplicateMeasureUnitException(
-                    "Ya existe una unidad de medida con código SAT: " + request.satCode());
+                    "Measure unit with SAT code '" + request.satCode() + "' already exists");
         }
 
         var type = MeasureUnitType.valueOf(request.unitType());

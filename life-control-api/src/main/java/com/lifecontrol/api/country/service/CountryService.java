@@ -55,7 +55,7 @@ public class CountryService {
 
         if (countryRepository.existsByCountryCode(request.countryCode())) {
             throw new DuplicateCountryException(
-                    "Ya existe un país con código: " + request.countryCode());
+                    "Country with code '" + request.countryCode() + "' already exists");
         }
 
         Country country = Country.builder()
@@ -82,7 +82,7 @@ public class CountryService {
         if (!country.getCountryCode().equals(request.countryCode())
                 && countryRepository.existsByCountryCode(request.countryCode())) {
             throw new DuplicateCountryException(
-                    "Ya existe un país con código: " + request.countryCode());
+                    "Country with code '" + request.countryCode() + "' already exists");
         }
 
         country.setCountryCode(request.countryCode().toUpperCase());

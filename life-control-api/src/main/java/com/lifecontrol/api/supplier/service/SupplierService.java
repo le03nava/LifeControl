@@ -60,7 +60,7 @@ public class SupplierService {
     public SupplierResponse createSupplier(SupplierRequest request) {
         // Validate RFC uniqueness
         if (supplierRepository.existsByRfc(request.rfc())) {
-            throw new DuplicateSupplierException("Ya existe un proveedor con RFC: " + request.rfc());
+            throw new DuplicateSupplierException("Supplier with RFC '" + request.rfc() + "' already exists");
         }
 
         // Build Address entity from nested DTO
@@ -94,7 +94,7 @@ public class SupplierService {
 
         // Validate RFC uniqueness (excluding current supplier)
         if (!supplier.getRfc().equals(request.rfc()) && supplierRepository.existsByRfcAndIdNot(request.rfc(), id)) {
-            throw new DuplicateSupplierException("Ya existe un proveedor con RFC: " + request.rfc());
+            throw new DuplicateSupplierException("Supplier with RFC '" + request.rfc() + "' already exists");
         }
 
         // Update fields

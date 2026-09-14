@@ -428,7 +428,7 @@ class SalesOrderControllerTest {
                             .content(objectMapper.writeValueAsString(testStatusRequest)))
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.status").value(409))
-                    .andExpect(jsonPath("$.message").value("Transición de estado inválida: Completed → Draft"))
+                    .andExpect(jsonPath("$.message").value("Invalid status transition: Completed → Draft"))
                     .andExpect(jsonPath("$.timestamp").exists());
         }
     }
@@ -840,7 +840,7 @@ class SalesOrderControllerTest {
                             .content(objectMapper.writeValueAsString(testStatusRequest)))
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.status").value(409))
-                    .andExpect(jsonPath("$.message").value("Transición de estado inválida: Cancelled → Pending"))
+                    .andExpect(jsonPath("$.message").value("Invalid status transition: Cancelled → Pending"))
                     .andExpect(jsonPath("$.timestamp").exists());
         }
     }

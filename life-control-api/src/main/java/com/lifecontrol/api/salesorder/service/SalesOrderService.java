@@ -708,7 +708,7 @@ public class SalesOrderService {
         var statusType = status.getStatusType();
         if (!expectedTypeName.equalsIgnoreCase(statusType.getStatusTypeName())) {
             throw new IllegalArgumentException(
-                    "El status proporcionado no corresponde al tipo " + expectedTypeName);
+                    "The provided status does not match type " + expectedTypeName);
         }
 
         return status;

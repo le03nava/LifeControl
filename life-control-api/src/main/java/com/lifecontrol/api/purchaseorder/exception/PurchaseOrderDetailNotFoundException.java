@@ -5,6 +5,6 @@ import java.util.UUID;
 public class PurchaseOrderDetailNotFoundException extends RuntimeException {
 
     public PurchaseOrderDetailNotFoundException(UUID id) {
-        super("Detalle de orden de compra no encontrado con id: " + id);
+        super("Purchase order detail not found with id: " + id);
     }
 }

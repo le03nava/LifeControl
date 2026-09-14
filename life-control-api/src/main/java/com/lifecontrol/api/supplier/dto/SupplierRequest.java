@@ -7,25 +7,25 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
 public record SupplierRequest(
-    @NotBlank(message = "supplierName es requerido")
-    @Size(max = 200, message = "supplierName no puede exceder 200 caracteres")
+    @NotBlank(message = "supplierName is required")
+    @Size(max = 200, message = "supplierName must not exceed 200 characters")
     String supplierName,
 
-    @Size(max = 300, message = "razonSocial no puede exceder 300 caracteres")
+    @Size(max = 300, message = "razonSocial must not exceed 300 characters")
     String razonSocial,
 
-    @NotBlank(message = "RFC es requerido")
+    @NotBlank(message = "RFC is required")
     @ValidRFC
     String rfc,
 
-    @Email(message = "email debe tener formato válido")
-    @Size(max = 100, message = "email no puede exceder 100 caracteres")
+    @Email(message = "email must have a valid format")
+    @Size(max = 100, message = "email must not exceed 100 characters")
     String email,
 
-    @Size(max = 20, message = "phoneNumber no puede exceder 20 caracteres")
+    @Size(max = 20, message = "phoneNumber must not exceed 20 characters")
     String phoneNumber,
 
-    @Size(max = 20, message = "internalNumber no puede exceder 20 caracteres")
+    @Size(max = 20, message = "internalNumber must not exceed 20 characters")
     String internalNumber,
 
     AddressRequest address,

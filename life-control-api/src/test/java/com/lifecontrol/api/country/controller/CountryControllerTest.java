@@ -157,7 +157,7 @@ class CountryControllerTest {
             // Arrange
             CountryRequest request = new CountryRequest("MX", "México");
             when(countryService.createCountry(any(CountryRequest.class)))
-                    .thenThrow(new DuplicateCountryException("Ya existe un país con código: MX"));
+                    .thenThrow(new DuplicateCountryException("Country with code 'MX' already exists"));
 
             // Act & Assert
             mockMvc.perform(post("/api/countries")

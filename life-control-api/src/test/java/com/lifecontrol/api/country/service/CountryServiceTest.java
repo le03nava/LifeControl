@@ -181,7 +181,7 @@ class CountryServiceTest {
             // Act & Assert
             assertThatThrownBy(() -> countryService.createCountry(testCountryRequest))
                     .isInstanceOf(DuplicateCountryException.class)
-                    .hasMessageContaining("Ya existe un país con código");
+                    .hasMessageContaining("Country with code");
             verify(countryRepository, never()).save(any());
         }
     }
@@ -230,7 +230,7 @@ class CountryServiceTest {
             // Act & Assert
             assertThatThrownBy(() -> countryService.updateCountry(testCountryId, newCodeRequest))
                     .isInstanceOf(DuplicateCountryException.class)
-                    .hasMessageContaining("Ya existe un país con código");
+                    .hasMessageContaining("Country with code");
         }
     }
 

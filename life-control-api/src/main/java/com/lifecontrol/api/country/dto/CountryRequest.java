@@ -5,12 +5,12 @@ import jakarta.validation.constraints.Size;
 
 public record CountryRequest(
 
-    @NotBlank(message = "countryCode es requerido")
-    @Size(min = 2, max = 2, message = "countryCode debe tener exactamente 2 caracteres (ISO 3166-1 alpha-2)")
+    @NotBlank(message = "countryCode is required")
+    @Size(min = 2, max = 2, message = "countryCode must have exactly 2 characters (ISO 3166-1 alpha-2)")
     String countryCode,
 
-    @NotBlank(message = "countryName es requerido")
-    @Size(max = 100, message = "countryName no puede exceder 100 caracteres")
+    @NotBlank(message = "countryName is required")
+    @Size(max = 100, message = "countryName must not exceed 100 characters")
     String countryName
 
 ) {}

@@ -139,14 +139,14 @@ class ProductControllerTest {
         @DisplayName("should return 409 Conflict when duplicate SKU")
         void createProduct_DuplicateSku_Returns409() throws Exception {
             when(productService.createProduct(any(ProductRequest.class)))
-                    .thenThrow(new DuplicateProductException("Ya existe un producto con SKU: SKU-001"));
+                    .thenThrow(new DuplicateProductException("Product with SKU 'SKU-001' already exists"));
 
             mockMvc.perform(post("/api/products")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(testProductRequest)))
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.status").value(409))
-                    .andExpect(jsonPath("$.message").value("Ya existe un producto con SKU: SKU-001"))
+                    .andExpect(jsonPath("$.message").value("Product with SKU 'SKU-001' already exists"))
                     .andExpect(jsonPath("$.timestamp").exists());
         }
 
@@ -419,7 +419,7 @@ class ProductControllerTest {
         @DisplayName("should return 409 Conflict when SKU conflicts with another product")
         void updateProduct_SkuConflict_Returns409() throws Exception {
             when(productService.updateProduct(eq(productId), any(ProductRequest.class)))
-                    .thenThrow(new DuplicateProductException("Ya existe un producto con SKU: SKU-CONFLICT"));
+                    .thenThrow(new DuplicateProductException("Product with SKU 'SKU-CONFLICT' already exists"));
 
             var request = new ProductRequest("SKU-CONFLICT", "Product", null, null, null, null);
 
@@ -428,7 +428,7 @@ class ProductControllerTest {
                             .content(objectMapper.writeValueAsString(request)))
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.status").value(409))
-                    .andExpect(jsonPath("$.message").value("Ya existe un producto con SKU: SKU-CONFLICT"))
+                    .andExpect(jsonPath("$.message").value("Product with SKU 'SKU-CONFLICT' already exists"))
                     .andExpect(jsonPath("$.timestamp").exists());
         }
     }
@@ -500,7 +500,7 @@ class ProductControllerTest {
         @DisplayName("should include correlationId, path, timestamp in 409 responses")
         void error409_ContainsContractFields() throws Exception {
             when(productService.createProduct(any(ProductRequest.class)))
-                    .thenThrow(new DuplicateProductException("Ya existe un producto con SKU: SKU-001"));
+                    .thenThrow(new DuplicateProductException("Product with SKU 'SKU-001' already exists"));
 
             mockMvc.perform(post("/api/products")
                             .contentType(MediaType.APPLICATION_JSON)

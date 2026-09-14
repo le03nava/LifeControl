@@ -4,11 +4,11 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
 public record CreateCompanyRegionRequest(
-    @NotBlank(message = "regionCode es requerido")
-    @Size(max = 10, message = "regionCode no puede exceder 10 caracteres")
+    @NotBlank(message = "regionCode is required")
+    @Size(max = 10, message = "regionCode must not exceed 10 characters")
     String regionCode,
 
-    @NotBlank(message = "regionName es requerido")
-    @Size(max = 100, message = "regionName no puede exceder 100 caracteres")
+    @NotBlank(message = "regionName is required")
+    @Size(max = 100, message = "regionName must not exceed 100 characters")
     String regionName
 ) {}

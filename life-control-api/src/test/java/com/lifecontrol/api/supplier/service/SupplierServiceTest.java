@@ -276,7 +276,7 @@ class SupplierServiceTest {
             // Act & Assert
             assertThatThrownBy(() -> supplierService.createSupplier(testSupplierRequest))
                     .isInstanceOf(DuplicateSupplierException.class)
-                    .hasMessageContaining("Ya existe un proveedor con RFC");
+                    .hasMessageContaining("Supplier with RFC");
             verify(supplierRepository).existsByRfc(testSupplierRequest.rfc());
             verify(supplierRepository, never()).save(any(Supplier.class));
         }
@@ -494,7 +494,7 @@ class SupplierServiceTest {
             // Act & Assert
             assertThatThrownBy(() -> supplierService.updateSupplier(testSupplierId, requestWithDifferentRfc))
                     .isInstanceOf(DuplicateSupplierException.class)
-                    .hasMessageContaining("Ya existe un proveedor con RFC");
+                    .hasMessageContaining("Supplier with RFC");
             verify(supplierRepository, never()).save(any(Supplier.class));
         }
 

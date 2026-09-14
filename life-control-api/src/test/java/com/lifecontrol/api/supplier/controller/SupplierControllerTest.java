@@ -277,14 +277,14 @@ class SupplierControllerTest {
         void createSupplier_DuplicateRfc() throws Exception {
             // Arrange
             when(supplierService.createSupplier(any(SupplierRequest.class)))
-                    .thenThrow(new DuplicateSupplierException("Ya existe un proveedor con RFC: XAXX010101000"));
+                    .thenThrow(new DuplicateSupplierException("Supplier with RFC 'XAXX010101000' already exists"));
 
             // Act & Assert
             mockMvc.perform(post("/api/suppliers")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(testSupplierRequest)))
                     .andExpect(status().isConflict())
-                    .andExpect(jsonPath("$.message").value("Ya existe un proveedor con RFC: XAXX010101000"));
+                    .andExpect(jsonPath("$.message").value("Supplier with RFC 'XAXX010101000' already exists"));
         }
     }
 
@@ -330,14 +330,14 @@ class SupplierControllerTest {
         void updateSupplier_DuplicateRfc() throws Exception {
             // Arrange
             when(supplierService.updateSupplier(eq(testSupplierId), any(SupplierRequest.class)))
-                    .thenThrow(new DuplicateSupplierException("Ya existe un proveedor con RFC: XAXX010101000"));
+                    .thenThrow(new DuplicateSupplierException("Supplier with RFC 'XAXX010101000' already exists"));
 
             // Act & Assert
             mockMvc.perform(put("/api/suppliers/{id}", testSupplierId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(testSupplierRequest)))
                     .andExpect(status().isConflict())
-                    .andExpect(jsonPath("$.message").value("Ya existe un proveedor con RFC: XAXX010101000"));
+                    .andExpect(jsonPath("$.message").value("Supplier with RFC 'XAXX010101000' already exists"));
         }
 
         @Test
