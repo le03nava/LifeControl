@@ -9,6 +9,8 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.servlet.function.*;
 
+import com.lifecontrol.gateway.config.GatewayProperties;
+
 import java.net.URI;
 
 import static org.springframework.cloud.gateway.server.mvc.handler.GatewayRouterFunctions.route;
@@ -16,10 +18,16 @@ import static org.springframework.cloud.gateway.server.mvc.handler.GatewayRouter
 @Configuration
 public class Routes {
 
+  private final GatewayProperties props;
+
+  public Routes(GatewayProperties props) {
+    this.props = props;
+  }
+
   @Bean
   public RouterFunction<ServerResponse> productServiceRoute() {
     return GatewayRouterFunctions.route("product_service")
-        .route(RequestPredicates.path("/api/products/**"), HandlerFunctions.http("http://lifecontrol-dev-lifecontrol-api:8082"))
+        .route(RequestPredicates.path("/api/products/**"), HandlerFunctions.http(props.lifeControlApiUri()))
         .filter(CircuitBreakerFilterFunctions.circuitBreaker("productServiceCircuitBreaker",
             URI.create("forward:/fallbackRoute")))
         .build();
@@ -28,7 +36,7 @@ public class Routes {
   @Bean
   public RouterFunction<ServerResponse> companyServiceRoute() {
     return GatewayRouterFunctions.route("company_service")
-        .route(RequestPredicates.path("/api/companies/**"), HandlerFunctions.http("http://lifecontrol-dev-lifecontrol-api:8082"))
+        .route(RequestPredicates.path("/api/companies/**"), HandlerFunctions.http(props.lifeControlApiUri()))
         .filter(CircuitBreakerFilterFunctions.circuitBreaker("companyServiceCircuitBreaker",
             URI.create("forward:/fallbackRoute")))
         .build();
@@ -38,7 +46,7 @@ public class Routes {
   public RouterFunction<ServerResponse> companyServiceSwaggerRoute() {
     return GatewayRouterFunctions.route("company_service_swagger")
         .route(RequestPredicates.GET("/aggregate/company-service/v3/api-docs"),
-            HandlerFunctions.http("http://lifecontrol-dev-lifecontrol-api:8082"))
+            HandlerFunctions.http(props.lifeControlApiUri()))
         .filter(CircuitBreakerFilterFunctions.circuitBreaker("companyServiceSwaggerCircuitBreaker",
             URI.create("forward:/fallbackRoute")))
         .filter(FilterFunctions.setPath("/api-docs"))
@@ -48,21 +56,21 @@ public class Routes {
   @Bean
   public RouterFunction<ServerResponse> lifeControlApiRoute() {
     return GatewayRouterFunctions.route("lifecontrol_api")
-        .route(RequestPredicates.path("/api/user/**"), HandlerFunctions.http("http://lifecontrol-dev-lifecontrol-api:8082"))
-        .route(RequestPredicates.path("/api/countries/**"), HandlerFunctions.http("http://lifecontrol-dev-lifecontrol-api:8082"))
-        .route(RequestPredicates.path("/api/users-admin/**"), HandlerFunctions.http("http://lifecontrol-dev-lifecontrol-api:8082"))
-        .route(RequestPredicates.path("/api/suppliers/**"), HandlerFunctions.http("http://lifecontrol-dev-lifecontrol-api:8082"))
-        .route(RequestPredicates.path("/api/purchase-orders/**"), HandlerFunctions.http("http://lifecontrol-dev-lifecontrol-api:8082"))
-        .route(RequestPredicates.path("/api/payment-methods/**"), HandlerFunctions.http("http://lifecontrol-dev-lifecontrol-api:8082"))
-        .route(RequestPredicates.path("/api/status-types/**"), HandlerFunctions.http("http://lifecontrol-dev-lifecontrol-api:8082"))
-        .route(RequestPredicates.path("/api/statuses/**"), HandlerFunctions.http("http://lifecontrol-dev-lifecontrol-api:8082"))
-        .route(RequestPredicates.path("/api/measure-units/**"), HandlerFunctions.http("http://lifecontrol-dev-lifecontrol-api:8082"))
-        .route(RequestPredicates.path("/api/customers/**"), HandlerFunctions.http("http://lifecontrol-dev-lifecontrol-api:8082"))
-        .route(RequestPredicates.path("/api/promotions/**"), HandlerFunctions.http("http://lifecontrol-dev-lifecontrol-api:8082"))
-        .route(RequestPredicates.path("/api/shifts/**"), HandlerFunctions.http("http://lifecontrol-dev-lifecontrol-api:8082"))
-        .route(RequestPredicates.path("/api/sales-orders/**"), HandlerFunctions.http("http://lifecontrol-dev-lifecontrol-api:8082"))
-        .route(RequestPredicates.path("/api/product-variants/**"), HandlerFunctions.http("http://lifecontrol-dev-lifecontrol-api:8082"))
-        .route(RequestPredicates.path("/api/profile/**"), HandlerFunctions.http("http://lifecontrol-dev-lifecontrol-api:8082"))
+        .route(RequestPredicates.path("/api/user/**"), HandlerFunctions.http(props.lifeControlApiUri()))
+        .route(RequestPredicates.path("/api/countries/**"), HandlerFunctions.http(props.lifeControlApiUri()))
+        .route(RequestPredicates.path("/api/users-admin/**"), HandlerFunctions.http(props.lifeControlApiUri()))
+        .route(RequestPredicates.path("/api/suppliers/**"), HandlerFunctions.http(props.lifeControlApiUri()))
+        .route(RequestPredicates.path("/api/purchase-orders/**"), HandlerFunctions.http(props.lifeControlApiUri()))
+        .route(RequestPredicates.path("/api/payment-methods/**"), HandlerFunctions.http(props.lifeControlApiUri()))
+        .route(RequestPredicates.path("/api/status-types/**"), HandlerFunctions.http(props.lifeControlApiUri()))
+        .route(RequestPredicates.path("/api/statuses/**"), HandlerFunctions.http(props.lifeControlApiUri()))
+        .route(RequestPredicates.path("/api/measure-units/**"), HandlerFunctions.http(props.lifeControlApiUri()))
+        .route(RequestPredicates.path("/api/customers/**"), HandlerFunctions.http(props.lifeControlApiUri()))
+        .route(RequestPredicates.path("/api/promotions/**"), HandlerFunctions.http(props.lifeControlApiUri()))
+        .route(RequestPredicates.path("/api/shifts/**"), HandlerFunctions.http(props.lifeControlApiUri()))
+        .route(RequestPredicates.path("/api/sales-orders/**"), HandlerFunctions.http(props.lifeControlApiUri()))
+        .route(RequestPredicates.path("/api/product-variants/**"), HandlerFunctions.http(props.lifeControlApiUri()))
+        .route(RequestPredicates.path("/api/profile/**"), HandlerFunctions.http(props.lifeControlApiUri()))
         .filter(CircuitBreakerFilterFunctions.circuitBreaker("lifeControlApiCircuitBreaker",
             URI.create("forward:/fallbackRoute")))
         .build();
@@ -72,7 +80,7 @@ public class Routes {
   public RouterFunction<ServerResponse> lifeControlApiSwaggerRoute() {
     return GatewayRouterFunctions.route("lifecontrol_api_swagger")
         .route(RequestPredicates.GET("/aggregate/lifecontrol-api/v3/api-docs"),
-            HandlerFunctions.http("http://lifecontrol-dev-lifecontrol-api:8082"))
+            HandlerFunctions.http(props.lifeControlApiUri()))
         .filter(CircuitBreakerFilterFunctions.circuitBreaker("lifeControlApiSwaggerCircuitBreaker",
             URI.create("forward:/fallbackRoute")))
         .filter(FilterFunctions.setPath("/api-docs"))
