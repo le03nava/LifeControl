@@ -137,8 +137,6 @@ com.lifecontrol.api/
 │   │   └── ActivityLog.java
 │   ├── listener/
 │   │   └── ActivityLogEventListener.java
-│   ├── config/
-│   │   └── ActivityLogInitializer.java
 │   └── util/
 │       └── PayloadSanitizer.java
 ├── common/                 # Shared utilities
@@ -768,13 +766,14 @@ SPRING_PROFILES_ACTIVE=test ./gradlew test
 
 ### Migrations (Flyway)
 
-The database schema and seed data are managed by **Flyway** — the single source of truth.
+The database schema is managed by **Flyway** — the single source of truth for DDL.
 Migrations live in `src/main/resources/db/migration/` and are versioned:
 
 | Migration | Description |
 |-----------|-------------|
 | `V1__baseline_schema.sql` | Full baseline schema (all tables in dependency order) |
 | `V2__seed_countries.sql`  | Seed data: MX/CO/US countries (idempotent) |
+| `V3__seed_reference_data.sql` | Seed data: status types/statuses, activity processes/events, measure units, payment methods, "Cliente General" customer (idempotent) |
 
 Key settings (`application.properties`):
 
@@ -784,6 +783,18 @@ Key settings (`application.properties`):
 - **Tests**: `spring.flyway.enabled=false` (tests use H2 `create-drop`)
 
 To add a schema change: create a new `V{n}__description.sql` file. Never edit an already-applied migration (Flyway checksums will fail).
+
+### Seed Data (catalog / reference rows)
+
+Reference/catalog data is seeded by **Flyway only** — a single source of truth:
+
+- **Flyway**: `countries` via `V2__seed_countries.sql`; all other reference domains (`status_types`/`statuses` for purchase + sales orders, `activity_processes`/`activity_events`, `measure_units`, `payment_methods`, and the default "Cliente General" customer) via `V3__seed_reference_data.sql`.
+- **No ApplicationRunner seeding**: the previous `*/config/*Initializer.java` beans and `customer/config/CustomerSeedRunner.java` were removed.
+
+V3 notes:
+- Every insert is `INSERT … SELECT … WHERE NOT EXISTS`-guarded on a natural key (the customer is guarded on its fixed id `00000000-0000-0000-0000-000000000001`), so it applies idempotently under `baseline-on-migrate=true`.
+- V3 also performs the legacy sales-order status rename (`Borrador`→`Draft`, `Enviada`→`Pending`, `Cerrada`→`Completed`, `Cancelada`→`Cancelled`, `Pendiente`→`Pending`, `Agregado`→`Added`, `Cancelado`→`Cancelled`) for both `SALES_ORDER` and `SALES_ORDER_ITEM`, deterministically, skipping when the target name already exists (never violating `UNIQUE(status_type_id, status_name)`).
+- V3 does not run on the H2 test stack (`spring.flyway.enabled=false`); `SalesOrderIntegrationTest` self-seeds the sales-order statuses it needs in `setUp()`.
 
 ### Schema
 
