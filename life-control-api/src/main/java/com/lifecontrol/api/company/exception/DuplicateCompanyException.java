@@ -1,6 +1,8 @@
 package com.lifecontrol.api.company.exception;
 
-public class DuplicateCompanyException extends RuntimeException {
+import com.lifecontrol.api.exception.DuplicateResourceException;
+
+public class DuplicateCompanyException extends DuplicateResourceException {
 
     public DuplicateCompanyException(String message) {
         super(message);

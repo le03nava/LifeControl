@@ -1,6 +1,8 @@
 package com.lifecontrol.api.status.exception;
 
-public class DuplicateStatusTypeException extends RuntimeException {
+import com.lifecontrol.api.exception.DuplicateResourceException;
+
+public class DuplicateStatusTypeException extends DuplicateResourceException {
 
     public DuplicateStatusTypeException(String name) {
         super("Status type with name '" + name + "' already exists");
