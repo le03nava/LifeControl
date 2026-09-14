@@ -20,6 +20,8 @@ public interface SupplierRepository extends JpaRepository<Supplier, UUID> {
 
     boolean existsByRfcAndIdNot(String rfc, UUID id);
 
+    Page<Supplier> findByEnabledTrue(Pageable pageable);
+
     @Query("""
             SELECT s FROM Supplier s
             WHERE LOWER(s.supplierName) LIKE LOWER(CONCAT('%', :search, '%'))
@@ -28,4 +30,14 @@ public interface SupplierRepository extends JpaRepository<Supplier, UUID> {
                OR LOWER(s.email) LIKE LOWER(CONCAT('%', :search, '%'))
             """)
     Page<Supplier> findBySearchTerm(@Param("search") String search, Pageable pageable);
+
+    @Query("""
+            SELECT s FROM Supplier s
+            WHERE (LOWER(s.supplierName) LIKE LOWER(CONCAT('%', :search, '%'))
+               OR LOWER(s.rfc) LIKE LOWER(CONCAT('%', :search, '%'))
+               OR LOWER(s.razonSocial) LIKE LOWER(CONCAT('%', :search, '%'))
+               OR LOWER(s.email) LIKE LOWER(CONCAT('%', :search, '%')))
+              AND s.enabled = true
+            """)
+    Page<Supplier> findBySearchTermAndEnabledTrue(@Param("search") String search, Pageable pageable);
 }
