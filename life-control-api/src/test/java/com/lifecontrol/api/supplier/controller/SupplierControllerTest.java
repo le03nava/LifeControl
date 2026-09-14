@@ -131,7 +131,7 @@ class SupplierControllerTest {
             var suppliers = List.of(testSupplierResponse);
             var page = new PageImpl<>(suppliers, pageable, 1);
 
-            when(supplierService.getAllSuppliers(any(Pageable.class), eq(null))).thenReturn(page);
+            when(supplierService.getAllSuppliers(any(Pageable.class), eq(null), eq(false))).thenReturn(page);
 
             // Act & Assert
             mockMvc.perform(get("/api/suppliers")
@@ -154,7 +154,7 @@ class SupplierControllerTest {
             var suppliers = List.of(testSupplierResponse);
             var page = new PageImpl<>(suppliers, pageable, 1);
 
-            when(supplierService.getAllSuppliers(any(Pageable.class), eq("Test"))).thenReturn(page);
+            when(supplierService.getAllSuppliers(any(Pageable.class), eq("Test"), eq(false))).thenReturn(page);
 
             // Act & Assert
             mockMvc.perform(get("/api/suppliers")
@@ -173,7 +173,7 @@ class SupplierControllerTest {
             var pageable = PageRequest.of(0, 12);
             var page = new PageImpl<SupplierResponse>(List.of(), pageable, 0);
 
-            when(supplierService.getAllSuppliers(any(Pageable.class), eq(null))).thenReturn(page);
+            when(supplierService.getAllSuppliers(any(Pageable.class), eq(null), eq(false))).thenReturn(page);
 
             // Act & Assert
             mockMvc.perform(get("/api/suppliers")
@@ -192,7 +192,7 @@ class SupplierControllerTest {
             var pageable = PageRequest.of(0, 12);
             var page = new PageImpl<>(List.of(testSupplierResponse), pageable, 1);
 
-            when(supplierService.getAllSuppliers(any(Pageable.class), eq(null))).thenReturn(page);
+            when(supplierService.getAllSuppliers(any(Pageable.class), eq(null), eq(false))).thenReturn(page);
 
             // Act & Assert
             mockMvc.perform(get("/api/suppliers"))

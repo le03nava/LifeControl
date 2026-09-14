@@ -1,9 +1,12 @@
 package com.lifecontrol.api.exception;
 
 import com.lifecontrol.api.company.exception.CompanyCountryNotFoundException;
+import com.lifecontrol.api.company.exception.CompanyNotFoundException;
+import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.exception.DuplicateCompanyCountryException;
 import com.lifecontrol.api.country.exception.CountryNotFoundException;
 import com.lifecontrol.api.country.exception.DuplicateCountryException;
+import com.lifecontrol.api.purchaseorder.exception.InvalidStatusTransitionException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -111,18 +114,18 @@ class GlobalExceptionHandlerTest {
     }
 
     @Nested
-    @DisplayName("handleCountryNotFound")
+    @DisplayName("handleNotFound (CountryNotFoundException)")
     class HandleCountryNotFoundTests {
 
         @Test
         @DisplayName("should return 404 with error message")
-        void handleCountryNotFound_Returns404() {
+        void handleNotFound_Returns404() {
             // Arrange
             CountryNotFoundException exception = new CountryNotFoundException(java.util.UUID.randomUUID());
 
             // Act
             ResponseEntity<GlobalExceptionHandler.ErrorResponse> response =
-                    globalExceptionHandler.handleCountryNotFound(exception);
+                    globalExceptionHandler.handleNotFound(exception);
 
             // Assert
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
@@ -133,18 +136,18 @@ class GlobalExceptionHandlerTest {
     }
 
     @Nested
-    @DisplayName("handleDuplicateCountry")
+    @DisplayName("handleConflict (DuplicateCountryException)")
     class HandleDuplicateCountryTests {
 
         @Test
         @DisplayName("should return 409 Conflict with error message")
-        void handleDuplicateCountry_Returns409() {
+        void handleConflict_Returns409() {
             // Arrange
             DuplicateCountryException exception = new DuplicateCountryException("Country with code 'MX' already exists");
 
             // Act
             ResponseEntity<GlobalExceptionHandler.ErrorResponse> response =
-                    globalExceptionHandler.handleDuplicateCountry(exception);
+                    globalExceptionHandler.handleConflict(exception);
 
             // Assert
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
@@ -156,18 +159,18 @@ class GlobalExceptionHandlerTest {
     }
 
     @Nested
-    @DisplayName("handleCompanyCountryNotFound")
+    @DisplayName("handleNotFound (CompanyCountryNotFoundException)")
     class HandleCompanyCountryNotFoundTests {
 
         @Test
         @DisplayName("should return 404 with error message")
-        void handleCompanyCountryNotFound_Returns404() {
+        void handleNotFound_Returns404_CompanyCountry() {
             // Arrange
             CompanyCountryNotFoundException exception = new CompanyCountryNotFoundException(java.util.UUID.randomUUID());
 
             // Act
             ResponseEntity<GlobalExceptionHandler.ErrorResponse> response =
-                    globalExceptionHandler.handleCompanyCountryNotFound(exception);
+                    globalExceptionHandler.handleNotFound(exception);
 
             // Assert
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
@@ -178,18 +181,18 @@ class GlobalExceptionHandlerTest {
     }
 
     @Nested
-    @DisplayName("handleDuplicateCompanyCountry")
+    @DisplayName("handleConflict (DuplicateCompanyCountryException)")
     class HandleDuplicateCompanyCountryTests {
 
         @Test
         @DisplayName("should return 409 Conflict with error message")
-        void handleDuplicateCompanyCountry_Returns409() {
+        void handleConflict_Returns409_CompanyCountry() {
             // Arrange
             DuplicateCompanyCountryException exception = new DuplicateCompanyCountryException("MX");
 
             // Act
             ResponseEntity<GlobalExceptionHandler.ErrorResponse> response =
-                    globalExceptionHandler.handleDuplicateCompanyCountry(exception);
+                    globalExceptionHandler.handleConflict(exception);
 
             // Assert
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
@@ -201,18 +204,18 @@ class GlobalExceptionHandlerTest {
     }
 
     @Nested
-    @DisplayName("handleIllegalArgument")
+    @DisplayName("handleBadRequest (IllegalArgumentException)")
     class HandleIllegalArgumentTests {
 
         @Test
         @DisplayName("should return 400 with error message")
-        void handleIllegalArgument_Returns400() {
+        void handleBadRequest_Returns400() {
             // Arrange
             IllegalArgumentException exception = new IllegalArgumentException("Invalid argument");
 
             // Act
             ResponseEntity<GlobalExceptionHandler.ErrorResponse> response =
-                    globalExceptionHandler.handleIllegalArgument(exception);
+                    globalExceptionHandler.handleBadRequest(exception);
 
             // Assert
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
@@ -279,6 +282,36 @@ class GlobalExceptionHandlerTest {
             assertThat(errorResponse.path()).isEqualTo("/api/companies");
             assertThat(errorResponse.timestamp()).isEqualTo(timestamp);
             assertThat(errorResponse.correlationId()).isEqualTo("trace-456");
+        }
+    }
+
+    @Nested
+    @DisplayName("generic exception hierarchy")
+    class GenericExceptionHierarchyTests {
+
+        @Test
+        @DisplayName("ResourceNotFoundException builds its message from resource class and id")
+        void resourceNotFound_BuildsMessageFromResourceAndId() {
+            // Arrange
+            var id = java.util.UUID.randomUUID();
+
+            // Act
+            var exception = new ResourceNotFoundException(Company.class, id);
+
+            // Assert
+            assertThat(exception.getMessage())
+                    .isEqualTo("Company not found with id: " + id);
+        }
+
+        @Test
+        @DisplayName("domain exceptions extend the generic category bases")
+        void domainExceptions_ExtendGenericCategories() {
+            assertThat(new CompanyNotFoundException(java.util.UUID.randomUUID()))
+                    .isInstanceOf(ResourceNotFoundException.class);
+            assertThat(new DuplicateCountryException("duplicate"))
+                    .isInstanceOf(DuplicateResourceException.class);
+            assertThat(new InvalidStatusTransitionException("Draft", "Received"))
+                    .isInstanceOf(ConflictException.class);
         }
     }
 }

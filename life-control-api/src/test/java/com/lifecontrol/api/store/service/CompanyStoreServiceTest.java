@@ -302,12 +302,11 @@ class CompanyStoreServiceTest {
         }
 
         @Test
-        @DisplayName("should filter by zone when user has zone role")
-        void getAllStores_ZoneRole_UsesZoneFilter() {
+        @DisplayName("should filter by zone when user has no store-scoped role")
+        void getAllStores_NoStoreRole_UsesZoneFilter() {
             // Arrange
             mockZoneResolution();
             when(currentUserContext.hasCompanyStoreRole()).thenReturn(false);
-            when(currentUserContext.hasCompanyZoneRole()).thenReturn(true);
 
             var store = CompanyStore.builder()
                     .id(storeId)

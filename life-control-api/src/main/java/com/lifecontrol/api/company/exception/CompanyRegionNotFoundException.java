@@ -1,6 +1,8 @@
 package com.lifecontrol.api.company.exception;
 
-public class CompanyRegionNotFoundException extends RuntimeException {
+import com.lifecontrol.api.exception.ResourceNotFoundException;
+
+public class CompanyRegionNotFoundException extends ResourceNotFoundException {
 
     public CompanyRegionNotFoundException(String message) {
         super(message);

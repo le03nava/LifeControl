@@ -25,6 +25,7 @@ import com.lifecontrol.api.purchaseorder.repository.PurchaseOrderRepository;
 import com.lifecontrol.api.status.exception.StatusNotFoundException;
 import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.status.repository.StatusRepository;
+import com.lifecontrol.api.status.service.StatusValidator;
 import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
@@ -130,7 +131,7 @@ public class PurchaseOrderService {
         var store = validateCompanyStoreExists(request.companyStoreId());
         var paymentMethod = validatePaymentMethodExists(request.paymentMethodId());
         var status = request.statusId() != null
-                ? validateStatusExistsAndType(request.statusId(), "PURCHASE_ORDER")
+                ? StatusValidator.requireStatusOfType(statusRepository, request.statusId(), "PURCHASE_ORDER")
                 : statusRepository.findByTypeNameAndStatusName("PURCHASE_ORDER", "Draft")
                         .orElseThrow(() -> new StatusNotFoundException(
                                 "Default status 'Draft' not found for PURCHASE_ORDER type"));
@@ -151,7 +152,7 @@ public class PurchaseOrderService {
         if (request.details() != null && !request.details().isEmpty()) {
             for (var detailReq : request.details()) {
                 var product = validateProductExists(detailReq.productId());
-                var detailStatus = validateStatusExistsAndType(detailReq.statusId(), "PURCHASE_ORDER_DETAIL");
+                var detailStatus = StatusValidator.requireStatusOfType(statusRepository, detailReq.statusId(), "PURCHASE_ORDER_DETAIL");
                 var total = detailReq.unitPrice().multiply(BigDecimal.valueOf(detailReq.quantity()));
 
                 var detail = PurchaseOrderDetail.builder()
@@ -186,7 +187,7 @@ public class PurchaseOrderService {
         var store = validateCompanyStoreExists(request.companyStoreId());
         var paymentMethod = validatePaymentMethodExists(request.paymentMethodId());
         var status = request.statusId() != null
-                ? validateStatusExistsAndType(request.statusId(), "PURCHASE_ORDER")
+                ? StatusValidator.requireStatusOfType(statusRepository, request.statusId(), "PURCHASE_ORDER")
                 : po.getStatus();
 
         po.setSupplier(supplier);
@@ -213,7 +214,7 @@ public class PurchaseOrderService {
                 for (var detailReq : request.details()) {
                     var product = validateProductExists(detailReq.productId());
                     var detailStatus = detailReq.statusId() != null
-                            ? validateStatusExistsAndType(detailReq.statusId(), "PURCHASE_ORDER_DETAIL")
+                            ? StatusValidator.requireStatusOfType(statusRepository, detailReq.statusId(), "PURCHASE_ORDER_DETAIL")
                             : defaultDetailStatus;
                     var total = detailReq.unitPrice().multiply(BigDecimal.valueOf(detailReq.quantity()));
 
@@ -244,7 +245,7 @@ public class PurchaseOrderService {
         var po = purchaseOrderRepository.findById(id)
                 .orElseThrow(() -> new PurchaseOrderNotFoundException(id));
 
-        var newStatus = validateStatusExistsAndType(request.statusId(), "PURCHASE_ORDER");
+        var newStatus = StatusValidator.requireStatusOfType(statusRepository, request.statusId(), "PURCHASE_ORDER");
         validatePOTransition(po.getStatus(), newStatus);
 
         po.setStatus(newStatus);
@@ -304,7 +305,7 @@ public class PurchaseOrderService {
 
         var po = loadAndValidateDraftPO(purchaseOrderId);
         var product = validateProductExists(request.productId());
-        var detailStatus = validateStatusExistsAndType(request.statusId(), "PURCHASE_ORDER_DETAIL");
+        var detailStatus = StatusValidator.requireStatusOfType(statusRepository, request.statusId(), "PURCHASE_ORDER_DETAIL");
         var total = request.unitPrice().multiply(BigDecimal.valueOf(request.quantity()));
 
         var detail = PurchaseOrderDetail.builder()
@@ -336,7 +337,7 @@ public class PurchaseOrderService {
                 .orElseThrow(() -> new PurchaseOrderDetailNotFoundException(detailId));
 
         var product = validateProductExists(request.productId());
-        var detailStatus = validateStatusExistsAndType(request.statusId(), "PURCHASE_ORDER_DETAIL");
+        var detailStatus = StatusValidator.requireStatusOfType(statusRepository, request.statusId(), "PURCHASE_ORDER_DETAIL");
         var total = request.unitPrice().multiply(BigDecimal.valueOf(request.quantity()));
 
         detail.setProduct(product);
@@ -375,7 +376,7 @@ public class PurchaseOrderService {
         var detail = detailRepository.findById(detailId)
                 .orElseThrow(() -> new PurchaseOrderDetailNotFoundException(detailId));
 
-        var newStatus = validateStatusExistsAndType(request.statusId(), "PURCHASE_ORDER_DETAIL");
+        var newStatus = StatusValidator.requireStatusOfType(statusRepository, request.statusId(), "PURCHASE_ORDER_DETAIL");
         validateDetailTransition(detail.getStatus(), newStatus);
 
         // Update received_quantity reflecting the real quantity received
@@ -435,19 +436,6 @@ public class PurchaseOrderService {
         return productRepository.findById(id)
                 .filter(Product::getEnabled)
                 .orElseThrow(() -> new ProductNotFoundException(id));
-    }
-
-    private Status validateStatusExistsAndType(UUID id, String expectedTypeName) {
-        var status = statusRepository.findById(id)
-                .orElseThrow(() -> new StatusNotFoundException(id));
-
-        var statusType = status.getStatusType();
-        if (!expectedTypeName.equalsIgnoreCase(statusType.getStatusTypeName())) {
-            throw new IllegalArgumentException(
-                    "The provided status does not match type " + expectedTypeName);
-        }
-
-        return status;
     }
 
     // ─── Status Transition Validation ───────────────────────────────────

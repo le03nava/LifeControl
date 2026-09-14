@@ -37,13 +37,17 @@ public class SupplierService {
     }
 
     @Transactional(readOnly = true)
-    public Page<SupplierResponse> getAllSuppliers(Pageable pageable, String search) {
+    public Page<SupplierResponse> getAllSuppliers(Pageable pageable, String search, boolean includeDisabled) {
         Page<Supplier> suppliers;
 
         if (StringUtils.hasText(search)) {
-            suppliers = supplierRepository.findBySearchTerm(search.trim(), pageable);
+            suppliers = includeDisabled
+                    ? supplierRepository.findBySearchTerm(search.trim(), pageable)
+                    : supplierRepository.findBySearchTermAndEnabledTrue(search.trim(), pageable);
         } else {
-            suppliers = supplierRepository.findAll(pageable);
+            suppliers = includeDisabled
+                    ? supplierRepository.findAll(pageable)
+                    : supplierRepository.findByEnabledTrue(pageable);
         }
 
         return suppliers.map(this::toResponse);

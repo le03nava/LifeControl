@@ -1,9 +1,10 @@
 package com.lifecontrol.api.salesorder.exception;
 
+import com.lifecontrol.api.exception.ConflictException;
 import java.math.BigDecimal;
 import java.util.UUID;
 
-public class InsufficientStockException extends RuntimeException {
+public class InsufficientStockException extends ConflictException {
 
     private final UUID variantId;
     private final BigDecimal requested;
