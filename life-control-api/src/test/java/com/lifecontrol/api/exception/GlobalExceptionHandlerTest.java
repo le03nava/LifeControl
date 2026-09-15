@@ -7,13 +7,21 @@ import com.lifecontrol.api.company.exception.DuplicateCompanyCountryException;
 import com.lifecontrol.api.country.exception.CountryNotFoundException;
 import com.lifecontrol.api.country.exception.DuplicateCountryException;
 import com.lifecontrol.api.purchaseorder.exception.InvalidStatusTransitionException;
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.ConstraintViolationException;
+import jakarta.validation.Path;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
 
@@ -21,6 +29,7 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -223,6 +232,146 @@ class GlobalExceptionHandlerTest {
             assertThat(response.getBody().status()).isEqualTo(400);
             assertThat(response.getBody().message()).isEqualTo("Invalid argument");
             assertThat(response.getBody().timestamp()).isNotNull();
+        }
+    }
+
+    @Nested
+    @DisplayName("handleDataIntegrityViolation")
+    class HandleDataIntegrityViolationTests {
+
+        @Test
+        @DisplayName("should return 409 without exposing SQL details")
+        void handleDataIntegrityViolation_Returns409() {
+            // Arrange
+            var exception = new DataIntegrityViolationException(
+                    "duplicate key value violates unique constraint \"companies_company_key_key\"");
+
+            // Act
+            ResponseEntity<GlobalExceptionHandler.ErrorResponse> response =
+                    globalExceptionHandler.handleDataIntegrityViolation(exception);
+
+            // Assert
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+            assertThat(response.getBody()).isNotNull();
+            assertThat(response.getBody().status()).isEqualTo(409);
+            assertThat(response.getBody().message())
+                    .doesNotContain("companies_company_key_key")
+                    .doesNotContain("duplicate key");
+        }
+    }
+
+    @Nested
+    @DisplayName("handleTypeMismatch")
+    class HandleTypeMismatchTests {
+
+        @Test
+        @DisplayName("should return 400 mentioning the offending parameter")
+        void handleTypeMismatch_Returns400() {
+            // Arrange
+            var exception = org.mockito.Mockito.mock(MethodArgumentTypeMismatchException.class);
+            org.mockito.Mockito.when(exception.getName()).thenReturn("id");
+
+            // Act
+            ResponseEntity<GlobalExceptionHandler.ErrorResponse> response =
+                    globalExceptionHandler.handleTypeMismatch(exception);
+
+            // Assert
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(response.getBody()).isNotNull();
+            assertThat(response.getBody().message()).contains("id");
+        }
+    }
+
+    @Nested
+    @DisplayName("handleUnreadableBody")
+    class HandleUnreadableBodyTests {
+
+        @Test
+        @DisplayName("should return 400 for malformed JSON")
+        void handleUnreadableBody_Returns400() {
+            // Arrange
+            var exception = new HttpMessageNotReadableException("Unexpected end-of-input");
+
+            // Act
+            ResponseEntity<GlobalExceptionHandler.ErrorResponse> response =
+                    globalExceptionHandler.handleUnreadableBody(exception);
+
+            // Assert
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(response.getBody()).isNotNull();
+            assertThat(response.getBody().message()).isEqualTo("Malformed or unreadable request body");
+        }
+    }
+
+    @Nested
+    @DisplayName("handleMissingParameter")
+    class HandleMissingParameterTests {
+
+        @Test
+        @DisplayName("should return 400 mentioning the missing parameter")
+        void handleMissingParameter_Returns400() {
+            // Arrange
+            var exception = new MissingServletRequestParameterException("size", "int");
+
+            // Act
+            ResponseEntity<GlobalExceptionHandler.ErrorResponse> response =
+                    globalExceptionHandler.handleMissingParameter(exception);
+
+            // Assert
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(response.getBody()).isNotNull();
+            assertThat(response.getBody().message()).contains("size");
+        }
+    }
+
+    @Nested
+    @DisplayName("handleConstraintViolation")
+    class HandleConstraintViolationTests {
+
+        @Test
+        @DisplayName("should return 400 with per-parameter errors map")
+        void handleConstraintViolation_Returns400() {
+            // Arrange
+            @SuppressWarnings("unchecked")
+            ConstraintViolation<Object> violation = org.mockito.Mockito.mock(ConstraintViolation.class);
+            Path path = org.mockito.Mockito.mock(Path.class);
+            org.mockito.Mockito.when(path.toString()).thenReturn("getById.id");
+            org.mockito.Mockito.when(violation.getPropertyPath()).thenReturn(path);
+            org.mockito.Mockito.when(violation.getMessage()).thenReturn("must be a valid UUID");
+
+            var exception = new ConstraintViolationException(Set.of(violation));
+
+            // Act
+            ResponseEntity<GlobalExceptionHandler.ValidationErrorResponse> response =
+                    globalExceptionHandler.handleConstraintViolation(exception);
+
+            // Assert
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(response.getBody()).isNotNull();
+            assertThat(response.getBody().message()).isEqualTo("Validation failed");
+            assertThat(response.getBody().errors()).containsEntry("getById.id", "must be a valid UUID");
+        }
+    }
+
+    @Nested
+    @DisplayName("handleMethodNotSupported")
+    class HandleMethodNotSupportedTests {
+
+        @Test
+        @DisplayName("should return 405 mentioning the HTTP method")
+        void handleMethodNotSupported_Returns405() {
+            // Arrange
+            var exception = new HttpRequestMethodNotSupportedException("PATCH");
+
+            // Act
+            ResponseEntity<GlobalExceptionHandler.ErrorResponse> response =
+                    globalExceptionHandler.handleMethodNotSupported(exception);
+
+            // Assert
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.METHOD_NOT_ALLOWED);
+            assertThat(response.getBody()).isNotNull();
+            assertThat(response.getBody().status()).isEqualTo(405);
+            assertThat(response.getBody().message()).contains("PATCH");
         }
     }
 
