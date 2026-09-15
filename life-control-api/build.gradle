@@ -74,7 +74,7 @@ dependencies {
     implementation 'io.zipkin.reporter2:zipkin-reporter-brave'
     implementation 'org.springframework.boot:spring-boot-starter-aop'
     implementation 'com.bucket4j:bucket4j-core:8.10.1'
-    implementation 'org.zalando:logbook-spring-boot-starter:3.11.0'
+    implementation 'org.zalando:logbook-spring-boot-starter:3.12.3'
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
     implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
     implementation 'org.keycloak:keycloak-admin-client:26.0.12'
