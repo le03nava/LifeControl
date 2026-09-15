@@ -154,4 +154,60 @@ class RateLimitFilterTest {
             assertThat(secondResponse.getContentAsString()).contains("\"message\"");
         }
     }
+
+    @Nested
+    @DisplayName("client IP trust")
+    class ClientIpTrustTests {
+
+        private RateLimitProperties properties;
+        private RateLimitFilter filter;
+
+        @BeforeEach
+        void setUp() {
+            properties = new RateLimitProperties();
+            properties.setEnabled(true);
+            // 127.0.0.1 is whitelisted and would bypass the limit if trusted
+            properties.setInternalIpWhitelist(List.of("127.0.0.1"));
+            var endpoints = new ConcurrentHashMap<String, EndpointLimit>();
+            endpoints.put("/api/users-admin/users", new EndpointLimit(1, Duration.ofMinutes(1)));
+            properties.setEndpoints(endpoints);
+
+            filter = new RateLimitFilter(properties);
+        }
+
+        @Test
+        @DisplayName("ignores spoofed X-Forwarded-For from an untrusted peer")
+        void spoofedForwardedHeader_FromUntrustedPeer_IsIgnored() throws Exception {
+            // Public client pretends to be the whitelisted loopback address
+            var first = new MockHttpServletRequest("GET", "/api/users-admin/users");
+            first.setRemoteAddr("203.0.113.5");
+            first.addHeader("X-Forwarded-For", "127.0.0.1");
+            filter.doFilterInternal(first, new MockHttpServletResponse(), mock(FilterChain.class));
+
+            var second = new MockHttpServletRequest("GET", "/api/users-admin/users");
+            second.setRemoteAddr("203.0.113.5");
+            second.addHeader("X-Forwarded-For", "127.0.0.1");
+            var secondResponse = new MockHttpServletResponse();
+            filter.doFilterInternal(second, secondResponse, mock(FilterChain.class));
+
+            assertThat(secondResponse.getStatus()).as("spoofed header must not whitelist the client").isEqualTo(429);
+        }
+
+        @Test
+        @DisplayName("honors X-Forwarded-For coming from a trusted proxy")
+        void forwardedHeader_FromTrustedProxy_IsHonored() throws Exception {
+            // Trusted private-range proxy forwards the whitelisted loopback client
+            for (var i = 0; i < 2; i++) {
+                var request = new MockHttpServletRequest("GET", "/api/users-admin/users");
+                request.setRemoteAddr("10.0.0.1");
+                request.addHeader("X-Forwarded-For", "127.0.0.1");
+                var response = new MockHttpServletResponse();
+                var chain = mock(FilterChain.class);
+                filter.doFilterInternal(request, response, chain);
+
+                assertThat(response.getStatus()).isEqualTo(200);
+                verify(chain).doFilter(request, response);
+            }
+        }
+    }
 }

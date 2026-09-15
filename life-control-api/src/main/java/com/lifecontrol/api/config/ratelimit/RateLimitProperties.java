@@ -30,6 +30,16 @@ public class RateLimitProperties {
 
     private List<String> internalIpWhitelist = List.of();
 
+    /**
+     * Addresses (IP or CIDR) whose {@code X-Forwarded-For} / {@code X-Real-IP}
+     * headers may be trusted. Only when the immediate peer matches one of these
+     * entries is the forwarded client address honored; otherwise the socket peer
+     * address is used, preventing clients from spoofing the whitelist.
+     */
+    private List<String> trustedProxies = List.of(
+            "127.0.0.1/32", "::1/128",
+            "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16");
+
     private Map<String, EndpointLimit> endpoints = new HashMap<>();
 
     public boolean isEnabled() {
@@ -46,6 +56,14 @@ public class RateLimitProperties {
 
     public void setInternalIpWhitelist(List<String> internalIpWhitelist) {
         this.internalIpWhitelist = internalIpWhitelist;
+    }
+
+    public List<String> getTrustedProxies() {
+        return trustedProxies;
+    }
+
+    public void setTrustedProxies(List<String> trustedProxies) {
+        this.trustedProxies = trustedProxies;
     }
 
     public Map<String, EndpointLimit> getEndpoints() {

@@ -4,17 +4,23 @@ import com.lifecontrol.api.salesorder.exception.InvalidSalesOrderChargeException
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderConflictException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderConnectionException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderNotFoundException;
+import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -47,11 +53,73 @@ public class GlobalExceptionHandler {
         return buildErrorResponse(HttpStatus.CONFLICT, ex.getMessage());
     }
 
+    /**
+     * Handles database constraint violations that were not caught by an explicit
+     * uniqueness check (e.g. a race between {@code existsBy…} and {@code save}).
+     * Returns 409 instead of leaking a 500, without exposing SQL details.
+     */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ErrorResponse> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
+        logger.warn("Data integrity violation", ex);
+        return buildErrorResponse(HttpStatus.CONFLICT,
+                "The operation conflicts with an existing resource or violates a data constraint");
+    }
+
     // ─── Bad request (400) ──────────────────────────────────────────────
 
     @ExceptionHandler({IllegalArgumentException.class, InvalidSalesOrderChargeException.class})
     public ResponseEntity<ErrorResponse> handleBadRequest(RuntimeException ex) {
         return buildErrorResponse(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
+    /**
+     * Handles invalid query/path parameters that cannot be converted to the expected
+     * type (e.g. a malformed UUID in a path variable).
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+        var message = "Invalid value for parameter '" + ex.getName() + "'";
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, message);
+    }
+
+    /**
+     * Handles malformed or unreadable request bodies (invalid JSON, wrong types).
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ErrorResponse> handleUnreadableBody(HttpMessageNotReadableException ex) {
+        logger.debug("Unreadable request body: {}", ex.getMessage());
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, "Malformed or unreadable request body");
+    }
+
+    /**
+     * Handles a missing required query parameter.
+     */
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ErrorResponse> handleMissingParameter(MissingServletRequestParameterException ex) {
+        return buildErrorResponse(HttpStatus.BAD_REQUEST,
+                "Missing required parameter '" + ex.getParameterName() + "'");
+    }
+
+    /**
+     * Handles bean-validation failures on method parameters (path/query params)
+     * instead of request bodies. Returns the same per-field error map as body validation.
+     */
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<ValidationErrorResponse> handleConstraintViolation(ConstraintViolationException ex) {
+        Map<String, String> errors = new HashMap<>();
+        ex.getConstraintViolations().forEach(violation ->
+                errors.put(violation.getPropertyPath().toString(), violation.getMessage()));
+
+        ValidationErrorResponse errorResponse = new ValidationErrorResponse(
+                HttpStatus.BAD_REQUEST.value(),
+                "Validation failed",
+                errors,
+                getCurrentPath(),
+                LocalDateTime.now(),
+                getCorrelationId()
+        );
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
     }
 
     // ─── Identity provider ──────────────────────────────────────────────
@@ -99,6 +167,14 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException ex) {
         return buildErrorResponse(HttpStatus.FORBIDDEN, "Access denied");
+    }
+
+    // ─── Method not allowed (405) ───────────────────────────────────────
+
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ErrorResponse> handleMethodNotSupported(HttpRequestMethodNotSupportedException ex) {
+        return buildErrorResponse(HttpStatus.METHOD_NOT_ALLOWED,
+                "HTTP method " + ex.getMethod() + " is not supported for this endpoint");
     }
 
     // ─── Fallback (500) ─────────────────────────────────────────────────

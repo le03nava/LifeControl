@@ -1,5 +1,7 @@
 package com.lifecontrol.api.config.ratelimit;
 
+import com.lifecontrol.api.common.net.CidrMatcher;
+import com.lifecontrol.api.common.net.ClientIpResolver;
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
 import io.github.bucket4j.ConsumptionProbe;
@@ -13,9 +15,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
-import java.net.InetAddress;
-import java.net.UnknownHostException;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -103,24 +102,22 @@ public class RateLimitFilter extends OncePerRequestFilter {
             response.setContentType(APPLICATION_JSON);
             response.getWriter().write(buildRateLimitExceededBody(retryAfterSeconds));
             log.warn("Rate limit exceeded for endpoint [{}] from IP [{}]",
-                    endpointKey, getClientIp(request));
+                    endpointKey, ClientIpResolver.resolve(request, properties.getTrustedProxies()));
         }
     }
 
     /**
      * Returns {@code true} if the request originates from a whitelisted internal IP.
+     * The client IP is resolved through {@link ClientIpResolver}, which only trusts
+     * forwarded headers coming from a trusted proxy.
      */
     private boolean isWhitelisted(HttpServletRequest request) {
-        var clientIp = getClientIp(request);
+        var clientIp = ClientIpResolver.resolve(request, properties.getTrustedProxies());
         if (clientIp == null) {
             return false;
         }
         for (var whitelisted : properties.getInternalIpWhitelist()) {
-            if (whitelisted.contains("/")) {
-                if (matchesCidr(clientIp, whitelisted)) {
-                    return true;
-                }
-            } else if (whitelisted.equals(clientIp)) {
+            if (CidrMatcher.matches(clientIp, whitelisted)) {
                 return true;
             }
         }
@@ -162,51 +159,6 @@ public class RateLimitFilter extends OncePerRequestFilter {
                     .build();
             return new RateLimitedEndpoint(bucket, limit.maxRequests());
         });
-    }
-
-    private String getClientIp(HttpServletRequest request) {
-        var forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            return forwarded.split(",")[0].trim();
-        }
-        return request.getRemoteAddr();
-    }
-
-    private boolean matchesCidr(String ip, String cidr) {
-        try {
-            var addr = InetAddress.getByName(ip);
-            var addrBytes = addr.getAddress();
-
-            var parts = cidr.split("/");
-            var cidrAddr = InetAddress.getByName(parts[0]);
-            var cidrBytes = cidrAddr.getAddress();
-            var prefixLen = Integer.parseInt(parts[1]);
-
-            if (addrBytes.length != cidrBytes.length) {
-                return false;
-            }
-
-            var fullBytes = prefixLen / 8;
-            var remainingBits = prefixLen % 8;
-
-            for (var i = 0; i < fullBytes; i++) {
-                if (addrBytes[i] != cidrBytes[i]) {
-                    return false;
-                }
-            }
-
-            if (remainingBits > 0) {
-                var mask = (byte) (0xFF << (8 - remainingBits));
-                if ((addrBytes[fullBytes] & mask) != (cidrBytes[fullBytes] & mask)) {
-                    return false;
-                }
-            }
-
-            return true;
-        } catch (UnknownHostException | NumberFormatException | ArrayIndexOutOfBoundsException e) {
-            log.warn("Failed to parse CIDR rule [{}] for IP [{}]", cidr, ip, e);
-            return false;
-        }
     }
 
     private String buildRateLimitExceededBody(long retryAfterSeconds) {
