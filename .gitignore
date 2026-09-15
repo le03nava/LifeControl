@@ -27,12 +27,16 @@ replay_pid*
 #Gradle
 HELP.md
 .gradle
-!gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/
 !**/src/test/**/build/
 /**/gradle/
 /**/gradlew
 /**/gradlew.bat
+
+# Gradle wrapper tracked for CI (life-control-api)
+!life-control-api/gradlew
+!life-control-api/gradle/
+!life-control-api/gradle/wrapper/gradle-wrapper.jar
 
 build/
 
