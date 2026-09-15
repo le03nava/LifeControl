@@ -100,16 +100,14 @@ class ProfileControllerTest {
 
             when(profileService.updateProfile(any(ProfileUpdateRequest.class))).thenReturn(response);
 
-            var body =
-                    """
+            var body = """
                     {
                         "firstName": "John",
                         "lastName": "Doe",
                         "email": "jdoe@example.com",
                         "companyCountryId": "%s"
                     }
-                    """
-                            .formatted(countryId.toString());
+                    """.formatted(countryId.toString());
 
             mockMvc.perform(put("/api/profile")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -122,8 +120,7 @@ class ProfileControllerTest {
         @Test
         @DisplayName("should return 400 when email is invalid")
         void shouldReturn400ForInvalidEmail() throws Exception {
-            var body =
-                    """
+            var body = """
                     {
                         "email": "not-an-email"
                     }
@@ -141,8 +138,7 @@ class ProfileControllerTest {
             when(profileService.updateProfile(any(ProfileUpdateRequest.class)))
                     .thenThrow(new IdentityProviderConnectionException("Keycloak unavailable", new RuntimeException()));
 
-            var body =
-                    """
+            var body = """
                     {
                         "firstName": "John"
                     }
@@ -160,8 +156,7 @@ class ProfileControllerTest {
             when(profileService.updateProfile(any(ProfileUpdateRequest.class)))
                     .thenThrow(new IdentityProviderNotFoundException("User not found: unknown"));
 
-            var body =
-                    """
+            var body = """
                     {
                         "firstName": "John"
                     }

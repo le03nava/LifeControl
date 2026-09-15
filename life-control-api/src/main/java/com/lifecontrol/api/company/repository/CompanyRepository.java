@@ -22,8 +22,7 @@ public interface CompanyRepository extends JpaRepository<Company, UUID> {
 
     boolean existsByRfcAndIdNot(String rfc, UUID id);
 
-    @Query(
-            """
+    @Query("""
             SELECT c FROM Company c
             WHERE LOWER(c.companyName) LIKE LOWER(CONCAT('%', :search, '%'))
                OR LOWER(c.rfc) LIKE LOWER(CONCAT('%', :search, '%'))
@@ -34,8 +33,7 @@ public interface CompanyRepository extends JpaRepository<Company, UUID> {
 
     Page<Company> findAllByIdIn(Set<UUID> ids, Pageable pageable);
 
-    @Query(
-            """
+    @Query("""
             SELECT c FROM Company c
             WHERE (LOWER(c.companyName) LIKE LOWER(CONCAT('%', :search, '%'))
                OR LOWER(c.rfc) LIKE LOWER(CONCAT('%', :search, '%'))

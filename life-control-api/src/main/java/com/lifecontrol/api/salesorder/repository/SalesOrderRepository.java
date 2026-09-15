@@ -24,8 +24,7 @@ public interface SalesOrderRepository extends JpaRepository<SalesOrder, UUID> {
 
     Page<SalesOrder> findByEnabledTrueOrderByCreatedAtDesc(Pageable pageable);
 
-    @Query(
-            """
+    @Query("""
         SELECT so FROM SalesOrder so
         WHERE so.enabled = true
           AND LOWER(so.orderNumber) LIKE LOWER(CONCAT('%', :search, '%'))

@@ -21,8 +21,7 @@ public interface SupplierRepository extends JpaRepository<Supplier, UUID> {
 
     Page<Supplier> findByEnabledTrue(Pageable pageable);
 
-    @Query(
-            """
+    @Query("""
             SELECT s FROM Supplier s
             WHERE LOWER(s.supplierName) LIKE LOWER(CONCAT('%', :search, '%'))
                OR LOWER(s.rfc) LIKE LOWER(CONCAT('%', :search, '%'))
@@ -31,8 +30,7 @@ public interface SupplierRepository extends JpaRepository<Supplier, UUID> {
             """)
     Page<Supplier> findBySearchTerm(@Param("search") String search, Pageable pageable);
 
-    @Query(
-            """
+    @Query("""
             SELECT s FROM Supplier s
             WHERE (LOWER(s.supplierName) LIKE LOWER(CONCAT('%', :search, '%'))
                OR LOWER(s.rfc) LIKE LOWER(CONCAT('%', :search, '%'))

@@ -16,8 +16,7 @@ public interface ProductSupplierRepository extends JpaRepository<ProductSupplier
 
     List<ProductSupplier> findBySupplierId(UUID supplierId);
 
-    @Query(
-            """
+    @Query("""
         SELECT ps FROM ProductSupplier ps
         JOIN FETCH ps.product p
         WHERE ps.supplier.id = :supplierId

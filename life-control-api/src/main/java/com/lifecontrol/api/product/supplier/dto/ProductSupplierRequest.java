@@ -7,7 +7,10 @@ import java.util.UUID;
 
 public record ProductSupplierRequest(
         @NotNull(message = "supplierId is required") UUID supplierId,
-        @DecimalMin(value = "0.00", message = "purchaseCost cannot be negative") BigDecimal purchaseCost,
+
+        @DecimalMin(value = "0.00", message = "purchaseCost cannot be negative")
+        BigDecimal purchaseCost,
+
         Boolean main,
         Boolean enabled) {
 

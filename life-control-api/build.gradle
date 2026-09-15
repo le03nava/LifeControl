@@ -32,7 +32,7 @@ ext {
 
 spotless {
     java {
-        palantirJavaFormat('2.50.0')
+        palantirJavaFormat('2.98.0')
         removeUnusedImports()
         trimTrailingWhitespace()
         endWithNewline()
