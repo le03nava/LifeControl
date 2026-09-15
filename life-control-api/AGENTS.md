@@ -681,6 +681,25 @@ app.rate-limit.endpoints./api/users-admin/users.duration=1m
 
 ## Testing Patterns
 
+### Integration Tests (Testcontainers PostgreSQL)
+
+Tests that validate real persistence or SQL constraints extend
+`com.lifecontrol.api.support.AbstractPostgresIntegrationTest`. It starts a shared
+`PostgreSQLContainer` per JVM, repoints the datasource, and enables Flyway so the
+schema is built from the production migrations (`V1`→`V3`).
+
+```java
+@SpringBootTest
+@AutoConfigureMockMvc
+@DisplayName("Sales Order Integration Tests")
+class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
+    // ...
+}
+```
+
+Requires a running Docker daemon. Use the H2 default stack for `@WebMvcTest`
+slices, unit tests, and AOP/cache tests backed by mocked repositories.
+
 ### Controller Tests (MockMvc Standalone)
 
 ```java
@@ -833,7 +852,7 @@ Key settings (`application.properties`):
 - **DDL**: `spring.jpa.hibernate.ddl-auto=none` (schema managed via Flyway migrations)
 - **SQL init**: `spring.sql.init.mode=never` (`schema.sql` no longer used)
 - **Baseline**: `spring.flyway.baseline-on-migrate=true` + `spring.flyway.baseline-version=1` — existing DBs with data are baselined at v1 (no recreation); only new migrations apply.
-- **Tests**: `spring.flyway.enabled=false` (tests use H2 `create-drop`)
+- **Tests**: default test stack (`application-test.properties`) uses H2 with `spring.flyway.enabled=false` + `create-drop` for pure slices (`@WebMvcTest`), unit tests, and AOP/cache tests with mocked repositories. Integration tests that exercise real persistence/constraints extend `AbstractPostgresIntegrationTest` (Testcontainers `PostgreSQLContainer`, shared singleton), which overrides the datasource and **enables Flyway** so the schema comes from `V1`→`V3` exactly as in production.
 
 To add a schema change: create a new `V{n}__description.sql` file. Never edit an already-applied migration (Flyway checksums will fail).
 
@@ -847,7 +866,7 @@ Reference/catalog data is seeded by **Flyway only** — a single source of truth
 V3 notes:
 - Every insert is `INSERT … SELECT … WHERE NOT EXISTS`-guarded on a natural key (the customer is guarded on its fixed id `00000000-0000-0000-0000-000000000001`), so it applies idempotently under `baseline-on-migrate=true`.
 - V3 also performs the legacy sales-order status rename (`Borrador`→`Draft`, `Enviada`→`Pending`, `Cerrada`→`Completed`, `Cancelada`→`Cancelled`, `Pendiente`→`Pending`, `Agregado`→`Added`, `Cancelado`→`Cancelled`) for both `SALES_ORDER` and `SALES_ORDER_ITEM`, deterministically, skipping when the target name already exists (never violating `UNIQUE(status_type_id, status_name)`).
-- V3 does not run on the H2 test stack (`spring.flyway.enabled=false`); `SalesOrderIntegrationTest` self-seeds the sales-order statuses it needs in `setUp()`.
+- V3 runs on the PostgreSQL Testcontainers stack used by `AbstractPostgresIntegrationTest` subclasses (Flyway enabled). On the H2 stack (`spring.flyway.enabled=false`) it does not run; `SalesOrderIntegrationTest` keeps idempotent find-or-create seeding in `setUp()` so it works on both.
 
 ### Schema
 

@@ -5,6 +5,7 @@ import com.lifecontrol.api.activity.model.ActivityProcess;
 import com.lifecontrol.api.activity.repository.ActivityEventRepository;
 import com.lifecontrol.api.activity.repository.ActivityLogRepository;
 import com.lifecontrol.api.activity.repository.ActivityProcessRepository;
+import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -16,7 +17,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -33,14 +33,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * Integration tests for the activity log system.
  * <p>
- * Uses real repositories backed by H2. Reference data (processes and events)
- * is self-seeded in {@code setUp()} (Flyway V3 does not run on H2).
+ * Uses real repositories backed by PostgreSQL (Testcontainers) with Flyway
+ * migrations applied. Reference data (processes and events) is seeded by Flyway
+ * V3; the find-or-create calls in {@code setUp()} remain idempotent.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
-@ActiveProfiles("test")
 @DisplayName("Activity Log Integration Tests")
-class ActivityLogIntegrationTest {
+class ActivityLogIntegrationTest extends AbstractPostgresIntegrationTest {
 
     /**
      * Test controller that the activity log aspect intercepts.
@@ -86,7 +86,7 @@ class ActivityLogIntegrationTest {
     void setUp() {
         activityLogRepository.deleteAll();
 
-        // Ensure reference data exists (Flyway is disabled on H2 in tests)
+        // Ensure reference data exists (Flyway V3 seeds most of it; find-or-create keeps it idempotent)
         seedReferenceData();
     }
 

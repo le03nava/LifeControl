@@ -15,7 +15,9 @@ import com.lifecontrol.api.paymentmethod.model.PaymentMethod;
 import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
 import com.lifecontrol.api.customer.model.Customer;
 import com.lifecontrol.api.customer.repository.CustomerRepository;
+import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.model.ProductVariant;
+import com.lifecontrol.api.product.repository.ProductRepository;
 import com.lifecontrol.api.product.repository.ProductVariantRepository;
 import com.lifecontrol.api.salesorder.dto.ChargeSalesOrderRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderItemRequest;
@@ -31,6 +33,7 @@ import com.lifecontrol.api.status.repository.StatusRepository;
 import com.lifecontrol.api.status.repository.StatusTypeRepository;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
+import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -40,7 +43,6 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
@@ -62,9 +64,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest
 @AutoConfigureMockMvc
-@ActiveProfiles("test")
 @DisplayName("Sales Order Integration Tests")
-class SalesOrderIntegrationTest {
+class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
@@ -80,6 +81,9 @@ class SalesOrderIntegrationTest {
 
     @Autowired
     private ProductVariantRepository productVariantRepository;
+
+    @Autowired
+    private ProductRepository productRepository;
 
     @Autowired
     private StatusRepository statusRepository;
@@ -134,6 +138,7 @@ class SalesOrderIntegrationTest {
         itemRepository.deleteAll();
         salesOrderRepository.deleteAll();
         productVariantRepository.deleteAll();
+        productRepository.deleteAll();
         shiftRepository.deleteAll();
 
         // Seed reference data (idempotent after first call — data persists across test methods)
@@ -143,11 +148,12 @@ class SalesOrderIntegrationTest {
     /**
      * Ensures all reference data needed by sales order operations exists in the DB.
      * Uses find-or-create pattern: loads existing entities first, creates if missing.
-     * Sales-order status types/statuses are self-seeded here (Flyway V3 is disabled on
-     * H2), and the company chain, customer, and shifts are created manually.
+     * Flyway V3 already seeds the sales-order status types/statuses on PostgreSQL;
+     * the find-or-create calls below are idempotent, and the company chain, customer,
+     * and shifts are created manually.
      */
     private void seedReferenceData() {
-        // Self-seed sales-order status types and statuses (Flyway V3 does not run on H2)
+        // Find-or-create sales-order status types and statuses (already seeded by Flyway V3)
         var salesOrderType = statusTypeRepository.findByStatusTypeNameIgnoreCase("SALES_ORDER")
                 .orElseGet(() -> statusTypeRepository.save(
                         StatusType.builder().statusTypeName("SALES_ORDER").enabled(true).build()));
@@ -234,11 +240,24 @@ class SalesOrderIntegrationTest {
     }
 
     /**
+     * Creates a real product backing a test variant. The PostgreSQL schema enforces
+     * {@code product_variants.product_id -> products.id}, so variants cannot be
+     * persisted against a fabricated product id.
+     */
+    private Product createTestProduct() {
+        return productRepository.save(Product.builder()
+                .sku("SKU-" + UUID.randomUUID().toString().substring(0, 12))
+                .name("Test Product")
+                .enabled(true)
+                .build());
+    }
+
+    /**
      * Creates a product variant with the given stock quantity for testing.
      */
     private ProductVariant createTestVariant(BigDecimal stock) {
         var variant = new ProductVariant();
-        variant.setProductId(UUID.randomUUID());
+        variant.setProductId(createTestProduct().getId());
         variant.setCompanyStoreId(companyStoreId);
         variant.setVariantName("Variant-" + UUID.randomUUID().toString().substring(0, 8));
         variant.setListPrice(new BigDecimal("100.00"));
@@ -253,7 +272,7 @@ class SalesOrderIntegrationTest {
      */
     private ProductVariant createTestVariantB(BigDecimal stock) {
         var variant = new ProductVariant();
-        variant.setProductId(UUID.randomUUID());
+        variant.setProductId(createTestProduct().getId());
         variant.setCompanyStoreId(companyStoreId);
         variant.setVariantName("VariantB-" + UUID.randomUUID().toString().substring(0, 8));
         variant.setListPrice(new BigDecimal("50.00"));
