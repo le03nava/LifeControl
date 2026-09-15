@@ -40,7 +40,7 @@ spotless {
 }
 
 spotbugs {
-    toolVersion = '4.9.3'
+    toolVersion = '4.9.8'
     effort.set(com.github.spotbugs.snom.Effort.MAX)
     reportLevel.set(com.github.spotbugs.snom.Confidence.valueOf('MEDIUM'))
     ignoreFailures = false
