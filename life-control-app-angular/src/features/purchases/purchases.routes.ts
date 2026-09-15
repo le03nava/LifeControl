@@ -5,7 +5,7 @@ export const purchasesRoutes: Routes = [
   {
     path: '',
     canActivate: [keycloakRoleGuard],
-    data: { roles: ['life-control-admin'] },
+    data: { roles: ['lc-admin'], clientId: 'life-control-client' },
     children: [
       {
         path: '',

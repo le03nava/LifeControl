@@ -31,7 +31,7 @@ export const routes: Routes = [
     loadChildren: () =>
       import('@features/users-admin/users-admin.routes').then((m) => m.usersAdminRoutes),
     canActivate: [keycloakRoleGuard],
-    data: { role: 'admin' },
+    data: { roles: ['lc-admin'], clientId: 'life-control-client' },
   },
   {
     path: 'profile',
