@@ -44,6 +44,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -328,16 +329,29 @@ public class SalesOrderService {
 
         // Transition non-Cancelled items to Added
         var items = itemRepository.findBySalesOrderId(id);
+
+        var itemStatusIds = items.stream()
+                .filter(SalesOrderItem::getEnabled)
+                .map(SalesOrderItem::getStatusId)
+                .collect(Collectors.toSet());
+
+        var itemStatusesById = statusRepository.findAllById(itemStatusIds).stream()
+                .collect(Collectors.toMap(Status::getId, status -> status));
+
+        var itemsToUpdate = new ArrayList<SalesOrderItem>();
         for (var item : items) {
             if (item.getEnabled()) {
-                var itemStatus = statusRepository.findById(item.getStatusId())
-                        .orElseThrow(() -> new StatusNotFoundException(item.getStatusId()));
+                var itemStatus = itemStatusesById.get(item.getStatusId());
+                if (itemStatus == null) {
+                    throw new StatusNotFoundException(item.getStatusId());
+                }
                 if (!"Cancelled".equals(itemStatus.getStatusName())) {
                     item.setStatusId(addedStatus.getId());
-                    itemRepository.save(item);
+                    itemsToUpdate.add(item);
                 }
             }
         }
+        itemRepository.saveAll(itemsToUpdate);
 
         logger.info("Sales order charged successfully: id={}", id);
 

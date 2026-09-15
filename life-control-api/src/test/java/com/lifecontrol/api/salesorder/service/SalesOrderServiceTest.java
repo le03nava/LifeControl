@@ -48,6 +48,7 @@ import org.springframework.data.domain.Pageable;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -1571,9 +1572,8 @@ class SalesOrderServiceTest {
             when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Added"))
                     .thenReturn(Optional.of(agregadoItemStatus));
             when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(item1, item2));
-            // Item status lookups (Pending → check not Cancelled)
-            when(statusRepository.findById(pendienteItemStatus.getId()))
-                    .thenReturn(Optional.of(pendienteItemStatus));
+            // Item status lookup: bulk fetch by the set of item statusIds
+            when(statusRepository.findAllById(any())).thenReturn(List.of(pendienteItemStatus));
             // toResponse mocks
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
             when(statusRepository.findById(cerradaStatus.getId())).thenReturn(Optional.of(cerradaStatus));
@@ -1586,9 +1586,13 @@ class SalesOrderServiceTest {
             verify(salesOrderRepository).save(argThat(so ->
                     so.getStatusId().equals(cerradaStatus.getId())
                             && paymentMethodId.equals(so.getPaymentMethodId())));
-            // Verify both items saved with Added status
-            verify(itemRepository, times(2)).save(argThat(item ->
-                    agregadoItemStatus.getId().equals(((SalesOrderItem) item).getStatusId())));
+            // Verify both items saved in a single batch with Added status
+            var itemsCaptor = ArgumentCaptor.forClass(Iterable.class);
+            verify(itemRepository).saveAll(itemsCaptor.capture());
+            var savedItems = new ArrayList<SalesOrderItem>();
+            itemsCaptor.getValue().forEach(i -> savedItems.add((SalesOrderItem) i));
+            assertThat(savedItems).hasSize(2)
+                    .allMatch(i -> agregadoItemStatus.getId().equals(i.getStatusId()));
         }
 
         @Test
@@ -1719,11 +1723,9 @@ class SalesOrderServiceTest {
                     .thenReturn(Optional.of(agregadoItemStatus));
             when(itemRepository.findBySalesOrderId(orderId))
                     .thenReturn(List.of(itemPending1, itemPending2, itemCancelled));
-            // Item status lookups: Pending (twice), Cancelled (once)
-            when(statusRepository.findById(pendienteItemStatus.getId()))
-                    .thenReturn(Optional.of(pendienteItemStatus));
-            when(statusRepository.findById(canceladoItemStatus.getId()))
-                    .thenReturn(Optional.of(canceladoItemStatus));
+            // Item status lookup: bulk fetch by the set of item statusIds
+            when(statusRepository.findAllById(any()))
+                    .thenReturn(List.of(pendienteItemStatus, canceladoItemStatus));
             // toResponse mocks
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
             when(statusRepository.findById(cerradaStatus.getId())).thenReturn(Optional.of(cerradaStatus));
@@ -1732,14 +1734,15 @@ class SalesOrderServiceTest {
 
             assertThat(result).isNotNull();
             assertThat(result.statusName()).isEqualTo("Completed");
-            // Only 2 items saved (the Pending ones → Added), Cancelled stays untouched
-            verify(itemRepository, times(2)).save(any(SalesOrderItem.class));
-            verify(itemRepository).save(argThat(item ->
-                    item.getId().equals(itemPending1.getId())
-                            && agregadoItemStatus.getId().equals(item.getStatusId())));
-            verify(itemRepository).save(argThat(item ->
-                    item.getId().equals(itemPending2.getId())
-                            && agregadoItemStatus.getId().equals(item.getStatusId())));
+            // Only the 2 Pending items are persisted (as Added); Cancelled stays untouched
+            var itemsCaptor = ArgumentCaptor.forClass(Iterable.class);
+            verify(itemRepository).saveAll(itemsCaptor.capture());
+            var savedItems = new ArrayList<SalesOrderItem>();
+            itemsCaptor.getValue().forEach(i -> savedItems.add((SalesOrderItem) i));
+            assertThat(savedItems).hasSize(2)
+                    .allMatch(i -> agregadoItemStatus.getId().equals(i.getStatusId()))
+                    .extracting(SalesOrderItem::getId)
+                    .containsExactlyInAnyOrder(itemPending1.getId(), itemPending2.getId());
         }
 
         @Test
@@ -1819,9 +1822,8 @@ class SalesOrderServiceTest {
             when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Added"))
                     .thenReturn(Optional.of(agregadoItemStatus));
             when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(item1, item2));
-            // Item status lookups (Pending → check not Cancelled)
-            when(statusRepository.findById(pendienteItemStatus.getId()))
-                    .thenReturn(Optional.of(pendienteItemStatus));
+            // Item status lookup: bulk fetch by the set of item statusIds
+            when(statusRepository.findAllById(any())).thenReturn(List.of(pendienteItemStatus));
             // toResponse mocks — items have been transitioned to Added
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
             when(statusRepository.findById(cerradaStatus.getId())).thenReturn(Optional.of(cerradaStatus));
@@ -1833,9 +1835,13 @@ class SalesOrderServiceTest {
             // Verify the order was saved twice: once by ensureOrderIsPending (Pending status)
             // and once by charge (Completed status + payment method)
             verify(salesOrderRepository, times(2)).save(any(SalesOrder.class));
-            // Verify both items saved with Added status
-            verify(itemRepository, times(2)).save(argThat(item ->
-                    agregadoItemStatus.getId().equals(((SalesOrderItem) item).getStatusId())));
+            // Verify both items saved in a single batch with Added status
+            var itemsCaptor = ArgumentCaptor.forClass(Iterable.class);
+            verify(itemRepository).saveAll(itemsCaptor.capture());
+            var savedItems = new ArrayList<SalesOrderItem>();
+            itemsCaptor.getValue().forEach(i -> savedItems.add((SalesOrderItem) i));
+            assertThat(savedItems).hasSize(2)
+                    .allMatch(i -> agregadoItemStatus.getId().equals(i.getStatusId()));
         }
 
         @Test
@@ -1915,9 +1921,8 @@ class SalesOrderServiceTest {
             when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Added"))
                     .thenReturn(Optional.of(agregadoItemStatus));
             when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(item1, item2));
-            // Item status lookups (Pending → check not Cancelled)
-            when(statusRepository.findById(pendienteItemStatus.getId()))
-                    .thenReturn(Optional.of(pendienteItemStatus));
+            // Item status lookup: bulk fetch by the set of item statusIds
+            when(statusRepository.findAllById(any())).thenReturn(List.of(pendienteItemStatus));
             // toResponse mocks
             // toResponse mocks — use fresh item copies since the originals were mutated in place
             var item1AfterCharge = SalesOrderItem.builder()
@@ -1960,9 +1965,13 @@ class SalesOrderServiceTest {
             var savedValues = saveCaptor.getAllValues();
             assertThat(savedValues.get(1).getStatusId()).isEqualTo(cerradaStatus.getId());
             assertThat(savedValues.get(1).getPaymentMethodId()).isEqualTo(paymentMethodId);
-            // Verify both items saved with Added status
-            verify(itemRepository, times(2)).save(argThat(item ->
-                    agregadoItemStatus.getId().equals(((SalesOrderItem) item).getStatusId())));
+            // Verify both items saved in a single batch with Added status
+            var itemsCaptor = ArgumentCaptor.forClass(Iterable.class);
+            verify(itemRepository).saveAll(itemsCaptor.capture());
+            var savedItems = new ArrayList<SalesOrderItem>();
+            itemsCaptor.getValue().forEach(i -> savedItems.add((SalesOrderItem) i));
+            assertThat(savedItems).hasSize(2)
+                    .allMatch(i -> agregadoItemStatus.getId().equals(i.getStatusId()));
         }
     }
 
