@@ -1,11 +1,10 @@
 package com.lifecontrol.api.usersadmin.identity;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DisplayName("IdentityProviderException sealed hierarchy")
 class IdentityProviderExceptionTest {
@@ -98,7 +97,8 @@ class IdentityProviderExceptionTest {
             var permitted = IdentityProviderException.class.getPermittedSubclasses();
 
             assertThat(permitted).isNotNull();
-            assertThat(permitted).extracting(Class::getSimpleName)
+            assertThat(permitted)
+                    .extracting(Class::getSimpleName)
                     .containsExactlyInAnyOrder(
                             "IdentityProviderNotFoundException",
                             "IdentityProviderConflictException",
@@ -108,12 +108,12 @@ class IdentityProviderExceptionTest {
         @Test
         @DisplayName("subclasses should be final")
         void subclassesShouldBeFinal() {
-            assertThat(java.lang.reflect.Modifier.isFinal(
-                    IdentityProviderNotFoundException.class.getModifiers())).isTrue();
-            assertThat(java.lang.reflect.Modifier.isFinal(
-                    IdentityProviderConflictException.class.getModifiers())).isTrue();
-            assertThat(java.lang.reflect.Modifier.isFinal(
-                    IdentityProviderConnectionException.class.getModifiers())).isTrue();
+            assertThat(java.lang.reflect.Modifier.isFinal(IdentityProviderNotFoundException.class.getModifiers()))
+                    .isTrue();
+            assertThat(java.lang.reflect.Modifier.isFinal(IdentityProviderConflictException.class.getModifiers()))
+                    .isTrue();
+            assertThat(java.lang.reflect.Modifier.isFinal(IdentityProviderConnectionException.class.getModifiers()))
+                    .isTrue();
         }
     }
 }

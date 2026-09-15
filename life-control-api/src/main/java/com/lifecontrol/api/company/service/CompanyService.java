@@ -14,6 +14,8 @@ import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.country.exception.CountryNotFoundException;
 import com.lifecontrol.api.country.model.Country;
 import com.lifecontrol.api.country.repository.CountryRepository;
+import java.util.Set;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
@@ -22,9 +24,6 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
-
-import java.util.Set;
-import java.util.UUID;
 
 @Service
 public class CompanyService {
@@ -36,10 +35,11 @@ public class CompanyService {
     private final CurrentUserContext currentUserContext;
     private final CountryRepository countryRepository;
 
-    public CompanyService(CompanyRepository companyRepository,
-                          ApplicationEventPublisher eventPublisher,
-                          CurrentUserContext currentUserContext,
-                          CountryRepository countryRepository) {
+    public CompanyService(
+            CompanyRepository companyRepository,
+            ApplicationEventPublisher eventPublisher,
+            CurrentUserContext currentUserContext,
+            CountryRepository countryRepository) {
         this.companyRepository = companyRepository;
         this.eventPublisher = eventPublisher;
         this.currentUserContext = currentUserContext;
@@ -73,16 +73,15 @@ public class CompanyService {
     @Transactional(readOnly = true)
     public CompanyResponse getCompanyById(UUID id) {
         currentUserContext.verifyCompanyAccess(id);
-        return companyRepository.findById(id)
-                .map(this::toResponse)
-                .orElseThrow(() -> new CompanyNotFoundException(id));
+        return companyRepository.findById(id).map(this::toResponse).orElseThrow(() -> new CompanyNotFoundException(id));
     }
 
     @Transactional
     public CompanyResponse createCompany(CompanyRequest request) {
         // Validate uniqueness
         if (companyRepository.existsByCompanyKey(request.companyKey())) {
-            throw new DuplicateCompanyException("Company with companyKey '" + request.companyKey() + "' already exists");
+            throw new DuplicateCompanyException(
+                    "Company with companyKey '" + request.companyKey() + "' already exists");
         }
 
         if (companyRepository.existsByRfc(request.rfc())) {
@@ -104,9 +103,13 @@ public class CompanyService {
 
         Company saved = companyRepository.save(company);
 
-        eventPublisher.publishEvent(new CompanyCreatedEvent(this, saved.getId(), saved.getCompanyKey(), saved.getCompanyName()));
-        logger.info("Company created and event published: id={}, companyKey={}, name={}",
-                saved.getId(), saved.getCompanyKey(), saved.getCompanyName());
+        eventPublisher.publishEvent(
+                new CompanyCreatedEvent(this, saved.getId(), saved.getCompanyKey(), saved.getCompanyName()));
+        logger.info(
+                "Company created and event published: id={}, companyKey={}, name={}",
+                saved.getId(),
+                saved.getCompanyKey(),
+                saved.getCompanyName());
 
         return toResponse(saved);
     }
@@ -116,8 +119,7 @@ public class CompanyService {
         currentUserContext.verifyCompanyAccess(id);
 
         // Fetch existing company
-        Company company = companyRepository.findById(id)
-                .orElseThrow(() -> new CompanyNotFoundException(id));
+        Company company = companyRepository.findById(id).orElseThrow(() -> new CompanyNotFoundException(id));
 
         // Validate uniqueness (excluding current company)
         if (companyRepository.existsByRfcAndIdNot(request.rfc(), id)) {
@@ -150,14 +152,16 @@ public class CompanyService {
     public void deleteCompany(UUID id) {
         currentUserContext.verifyCompanyAccess(id);
 
-        Company company = companyRepository.findById(id)
-                .orElseThrow(() -> new CompanyNotFoundException(id));
-        
+        Company company = companyRepository.findById(id).orElseThrow(() -> new CompanyNotFoundException(id));
+
         company.setEnabled(false);
         companyRepository.save(company);
-        
-        logger.info("Company soft-deleted: id={}, companyKey={}, timestamp={}", 
-                id, company.getCompanyKey(), java.time.LocalDateTime.now());
+
+        logger.info(
+                "Company soft-deleted: id={}, companyKey={}, timestamp={}",
+                id,
+                company.getCompanyKey(),
+                java.time.LocalDateTime.now());
     }
 
     private CompanyResponse toResponse(Company company) {
@@ -173,8 +177,7 @@ public class CompanyService {
                 company.getEnabled(),
                 company.getCreatedAt(),
                 company.getUpdatedAt(),
-                buildAddressResponse(company)
-        );
+                buildAddressResponse(company));
     }
 
     private AddressResponse buildAddressResponse(Company company) {
@@ -190,8 +193,7 @@ public class CompanyService {
                     addr.getZipCode(),
                     addr.getCity(),
                     addr.getState(),
-                    addr.getCountry() != null ? addr.getCountry().getId() : null
-            );
+                    addr.getCountry() != null ? addr.getCountry().getId() : null);
         } else if (company.getStreet() != null) {
             // LEGACY record: inline columns → map to AddressResponse
             return new AddressResponse(
@@ -203,8 +205,7 @@ public class CompanyService {
                     company.getZipCode(),
                     company.getCity(),
                     company.getState(),
-                    company.getCountryId()
-            );
+                    company.getCountryId());
         }
         return null;
     }
@@ -213,7 +214,8 @@ public class CompanyService {
         if (request == null) return null;
         Country country = null;
         if (request.countryId() != null) {
-            country = countryRepository.findById(request.countryId())
+            country = countryRepository
+                    .findById(request.countryId())
                     .orElseThrow(() -> new CountryNotFoundException(request.countryId()));
         }
         return Address.builder()
@@ -238,7 +240,8 @@ public class CompanyService {
         address.setCity(request.city());
         address.setState(request.state());
         if (request.countryId() != null) {
-            Country country = countryRepository.findById(request.countryId())
+            Country country = countryRepository
+                    .findById(request.countryId())
                     .orElseThrow(() -> new CountryNotFoundException(request.countryId()));
             address.setCountry(country);
         } else {

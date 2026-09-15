@@ -1,5 +1,11 @@
 package com.lifecontrol.api.company.controller;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifecontrol.api.company.dto.CompanyRegionResponse;
 import com.lifecontrol.api.company.dto.CreateCompanyRegionRequest;
@@ -8,6 +14,9 @@ import com.lifecontrol.api.company.exception.CompanyRegionNotFoundException;
 import com.lifecontrol.api.company.exception.DuplicateCompanyRegionException;
 import com.lifecontrol.api.company.service.CompanyRegionService;
 import com.lifecontrol.api.exception.GlobalExceptionHandler;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -19,16 +28,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.UUID;
-
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.*;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("CompanyRegionController Tests")
@@ -65,16 +64,7 @@ class CompanyRegionControllerTest {
         now = LocalDateTime.now();
 
         testRegionResponse = new CompanyRegionResponse(
-                testRegionId,
-                UUID.randomUUID(),
-                testCompanyId,
-                testCountryId,
-                "NORTE",
-                "Norte",
-                true,
-                now,
-                now
-        );
+                testRegionId, UUID.randomUUID(), testCompanyId, testCountryId, "NORTE", "Norte", true, now, now);
     }
 
     @Nested
@@ -105,8 +95,7 @@ class CompanyRegionControllerTest {
                     .thenReturn(List.of());
 
             // Act & Assert
-            mockMvc.perform(get(BASE_URL, testCompanyId, testCountryId)
-                            .param("includeDisabled", "true"))
+            mockMvc.perform(get(BASE_URL, testCompanyId, testCountryId).param("includeDisabled", "true"))
                     .andExpect(status().isOk());
             verify(companyRegionService).getAllRegions(testCompanyId, testCountryId, true);
         }
@@ -167,7 +156,8 @@ class CompanyRegionControllerTest {
         void createRegion_Success() throws Exception {
             // Arrange
             var request = new CreateCompanyRegionRequest("NORTE", "Norte");
-            when(companyRegionService.createRegion(eq(testCompanyId), eq(testCountryId), any(CreateCompanyRegionRequest.class)))
+            when(companyRegionService.createRegion(
+                            eq(testCompanyId), eq(testCountryId), any(CreateCompanyRegionRequest.class)))
                     .thenReturn(testRegionResponse);
 
             // Act & Assert
@@ -198,7 +188,8 @@ class CompanyRegionControllerTest {
         void createRegion_DuplicateCode() throws Exception {
             // Arrange
             var request = new CreateCompanyRegionRequest("NORTE", "Norte");
-            when(companyRegionService.createRegion(eq(testCompanyId), eq(testCountryId), any(CreateCompanyRegionRequest.class)))
+            when(companyRegionService.createRegion(
+                            eq(testCompanyId), eq(testCountryId), any(CreateCompanyRegionRequest.class)))
                     .thenThrow(new DuplicateCompanyRegionException(
                             "Company region with code 'NORTE' already exists for this country"));
 
@@ -207,7 +198,8 @@ class CompanyRegionControllerTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request)))
                     .andExpect(status().isConflict())
-                    .andExpect(jsonPath("$.message").value("Company region with code 'NORTE' already exists for this country"));
+                    .andExpect(jsonPath("$.message")
+                            .value("Company region with code 'NORTE' already exists for this country"));
         }
 
         @Test
@@ -231,10 +223,20 @@ class CompanyRegionControllerTest {
             // Arrange
             var request = new UpdateCompanyRegionRequest("NORTE", "Norte Actualizado");
             var updatedResponse = new CompanyRegionResponse(
-                    testRegionId, UUID.randomUUID(), testCompanyId, testCountryId,
-                    "NORTE", "Norte Actualizado", true, now, now);
-            when(companyRegionService.updateRegion(eq(testCompanyId), eq(testCountryId),
-                    eq(testRegionId), any(UpdateCompanyRegionRequest.class)))
+                    testRegionId,
+                    UUID.randomUUID(),
+                    testCompanyId,
+                    testCountryId,
+                    "NORTE",
+                    "Norte Actualizado",
+                    true,
+                    now,
+                    now);
+            when(companyRegionService.updateRegion(
+                            eq(testCompanyId),
+                            eq(testCountryId),
+                            eq(testRegionId),
+                            any(UpdateCompanyRegionRequest.class)))
                     .thenReturn(updatedResponse);
 
             // Act & Assert
@@ -260,8 +262,11 @@ class CompanyRegionControllerTest {
         @DisplayName("should return 404 when region not found on update")
         void updateRegion_NotFound() throws Exception {
             var request = new UpdateCompanyRegionRequest("NORTE", "Norte");
-            when(companyRegionService.updateRegion(eq(testCompanyId), eq(testCountryId),
-                    eq(testRegionId), any(UpdateCompanyRegionRequest.class)))
+            when(companyRegionService.updateRegion(
+                            eq(testCompanyId),
+                            eq(testCountryId),
+                            eq(testRegionId),
+                            any(UpdateCompanyRegionRequest.class)))
                     .thenThrow(new CompanyRegionNotFoundException("Company region not found with id: " + testRegionId));
 
             mockMvc.perform(put(BASE_URL + "/{id}", testCompanyId, testCountryId, testRegionId)
@@ -274,8 +279,11 @@ class CompanyRegionControllerTest {
         @DisplayName("should return 409 when update creates duplicate code")
         void updateRegion_DuplicateCode() throws Exception {
             var request = new UpdateCompanyRegionRequest("SUR", "Sur");
-            when(companyRegionService.updateRegion(eq(testCompanyId), eq(testCountryId),
-                    eq(testRegionId), any(UpdateCompanyRegionRequest.class)))
+            when(companyRegionService.updateRegion(
+                            eq(testCompanyId),
+                            eq(testCountryId),
+                            eq(testRegionId),
+                            any(UpdateCompanyRegionRequest.class)))
                     .thenThrow(new DuplicateCompanyRegionException(
                             "Company region with code 'SUR' already exists for this country"));
 
@@ -307,7 +315,8 @@ class CompanyRegionControllerTest {
         void deleteRegion_NotFound() throws Exception {
             // Arrange
             doThrow(new CompanyRegionNotFoundException("Company region not found with id: " + testRegionId))
-                    .when(companyRegionService).deleteRegion(testCompanyId, testCountryId, testRegionId);
+                    .when(companyRegionService)
+                    .deleteRegion(testCompanyId, testCountryId, testRegionId);
 
             // Act & Assert
             mockMvc.perform(delete(BASE_URL + "/{id}", testCompanyId, testCountryId, testRegionId))

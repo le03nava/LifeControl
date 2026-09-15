@@ -1,15 +1,14 @@
 package com.lifecontrol.api.supplier.repository;
 
 import com.lifecontrol.api.supplier.model.Supplier;
+import java.util.Optional;
+import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
-
-import java.util.Optional;
-import java.util.UUID;
 
 @Repository
 public interface SupplierRepository extends JpaRepository<Supplier, UUID> {
@@ -22,7 +21,8 @@ public interface SupplierRepository extends JpaRepository<Supplier, UUID> {
 
     Page<Supplier> findByEnabledTrue(Pageable pageable);
 
-    @Query("""
+    @Query(
+            """
             SELECT s FROM Supplier s
             WHERE LOWER(s.supplierName) LIKE LOWER(CONCAT('%', :search, '%'))
                OR LOWER(s.rfc) LIKE LOWER(CONCAT('%', :search, '%'))
@@ -31,7 +31,8 @@ public interface SupplierRepository extends JpaRepository<Supplier, UUID> {
             """)
     Page<Supplier> findBySearchTerm(@Param("search") String search, Pageable pageable);
 
-    @Query("""
+    @Query(
+            """
             SELECT s FROM Supplier s
             WHERE (LOWER(s.supplierName) LIKE LOWER(CONCAT('%', :search, '%'))
                OR LOWER(s.rfc) LIKE LOWER(CONCAT('%', :search, '%'))

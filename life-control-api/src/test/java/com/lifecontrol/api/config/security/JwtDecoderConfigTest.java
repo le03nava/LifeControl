@@ -1,5 +1,11 @@
 package com.lifecontrol.api.config.security;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -7,27 +13,17 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 
-import java.time.Instant;
-import java.time.temporal.ChronoUnit;
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
-
-import static org.assertj.core.api.Assertions.assertThat;
-
 @DisplayName("JwtDecoderConfig Tests")
 class JwtDecoderConfigTest {
 
-    private static final String EXPECTED_ISSUER =
-            "http://lifecontrol-dev-keycloak:8080/realms/life-control-realm";
+    private static final String EXPECTED_ISSUER = "http://lifecontrol-dev-keycloak:8080/realms/life-control-realm";
     private static final String JWK_SET_URI = EXPECTED_ISSUER + "/protocol/openid-connect/certs";
 
     private final JwtDecoderConfig config;
     private final JwtAuthenticationConverter converter;
 
     JwtDecoderConfigTest() {
-        this.config = new JwtDecoderConfig(
-                new KeycloakJwtProperties(EXPECTED_ISSUER, EXPECTED_ISSUER, JWK_SET_URI));
+        this.config = new JwtDecoderConfig(new KeycloakJwtProperties(EXPECTED_ISSUER, EXPECTED_ISSUER, JWK_SET_URI));
         this.converter = config.jwtAuthenticationConverter();
     }
 
@@ -56,25 +52,19 @@ class JwtDecoderConfigTest {
         @Test
         @DisplayName("extracts ROLE_admin and ROLE_user from realm_access.roles")
         void extractsRolesFromRealmAccess() {
-            var jwt = jwtWithClaims(Map.of(
-                    "realm_access", Map.of("roles", List.of("admin", "user"))
-            ));
+            var jwt = jwtWithClaims(Map.of("realm_access", Map.of("roles", List.of("admin", "user"))));
 
             var authorities = extractRoles(jwt);
 
             assertThat(authorities).hasSize(2);
-            assertThat(authorities).contains(
-                    new SimpleGrantedAuthority("ROLE_admin"),
-                    new SimpleGrantedAuthority("ROLE_user")
-            );
+            assertThat(authorities)
+                    .contains(new SimpleGrantedAuthority("ROLE_admin"), new SimpleGrantedAuthority("ROLE_user"));
         }
 
         @Test
         @DisplayName("extracts single role from realm_access.roles")
         void extractsSingleRole() {
-            var jwt = jwtWithClaims(Map.of(
-                    "realm_access", Map.of("roles", List.of("admin"))
-            ));
+            var jwt = jwtWithClaims(Map.of("realm_access", Map.of("roles", List.of("admin"))));
 
             var authorities = extractRoles(jwt);
 
@@ -85,17 +75,13 @@ class JwtDecoderConfigTest {
         @Test
         @DisplayName("maps custom role names with ROLE_ prefix")
         void mapsCustomRoleNames() {
-            var jwt = jwtWithClaims(Map.of(
-                    "realm_access", Map.of("roles", List.of("manager", "viewer"))
-            ));
+            var jwt = jwtWithClaims(Map.of("realm_access", Map.of("roles", List.of("manager", "viewer"))));
 
             var authorities = extractRoles(jwt);
 
             assertThat(authorities).hasSize(2);
-            assertThat(authorities).contains(
-                    new SimpleGrantedAuthority("ROLE_manager"),
-                    new SimpleGrantedAuthority("ROLE_viewer")
-            );
+            assertThat(authorities)
+                    .contains(new SimpleGrantedAuthority("ROLE_manager"), new SimpleGrantedAuthority("ROLE_viewer"));
         }
     }
 
@@ -130,7 +116,7 @@ class JwtDecoderConfigTest {
         void realmAccessWithoutRoles_returnsEmpty() {
             var jwt = jwtWithClaims(Map.of(
                     "realm_access", Map.of() // empty map, no "roles" key
-            ));
+                    ));
 
             var authorities = extractRoles(jwt);
 
@@ -140,9 +126,7 @@ class JwtDecoderConfigTest {
         @Test
         @DisplayName("returns empty authorities when roles array is empty")
         void emptyRolesArray_returnsEmpty() {
-            var jwt = jwtWithClaims(Map.of(
-                    "realm_access", Map.of("roles", List.of())
-            ));
+            var jwt = jwtWithClaims(Map.of("realm_access", Map.of("roles", List.of())));
 
             var authorities = extractRoles(jwt);
 

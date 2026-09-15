@@ -2,11 +2,11 @@ package com.lifecontrol.api.salesorder.service;
 
 import com.lifecontrol.api.customer.exception.CustomerNotFoundException;
 import com.lifecontrol.api.customer.repository.CustomerRepository;
+import com.lifecontrol.api.paymentmethod.exception.PaymentMethodNotFoundException;
+import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
 import com.lifecontrol.api.product.model.ProductVariant;
 import com.lifecontrol.api.product.repository.ProductVariantRepository;
-import com.lifecontrol.api.paymentmethod.exception.PaymentMethodNotFoundException;
-import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
 import com.lifecontrol.api.purchaseorder.exception.InvalidStatusTransitionException;
 import com.lifecontrol.api.salesorder.dto.ChargeSalesOrderRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderItemRequest;
@@ -14,8 +14,8 @@ import com.lifecontrol.api.salesorder.dto.SalesOrderItemResponse;
 import com.lifecontrol.api.salesorder.dto.SalesOrderRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderResponse;
 import com.lifecontrol.api.salesorder.dto.UpdateSalesOrderStatusRequest;
-import com.lifecontrol.api.salesorder.exception.InvalidSalesOrderChargeException;
 import com.lifecontrol.api.salesorder.exception.InsufficientStockException;
+import com.lifecontrol.api.salesorder.exception.InvalidSalesOrderChargeException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderAlreadyFinalizedException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderItemNotFoundException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderNotFoundException;
@@ -32,14 +32,6 @@ import com.lifecontrol.api.status.repository.StatusRepository;
 import com.lifecontrol.api.status.service.StatusValidator;
 import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
-
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -53,6 +45,13 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 @Service
 public class SalesOrderService {
@@ -64,14 +63,12 @@ public class SalesOrderService {
             Map.entry("Active", Set.of("Pending", "Cancelled")),
             Map.entry("Pending", Set.of("Completed", "Cancelled")),
             Map.entry("Completed", Set.of()),
-            Map.entry("Cancelled", Set.of())
-    );
+            Map.entry("Cancelled", Set.of()));
 
     private static final Map<String, Set<String>> SO_ITEM_TRANSITIONS = Map.ofEntries(
             Map.entry("Pending", Set.of("Added", "Cancelled")),
             Map.entry("Added", Set.of()),
-            Map.entry("Cancelled", Set.of())
-    );
+            Map.entry("Cancelled", Set.of()));
 
     private static final String SHIFT_STATUS_OPEN = "ABIERTO";
 
@@ -86,14 +83,15 @@ public class SalesOrderService {
     private final StatusRepository statusRepository;
     private final PaymentMethodRepository paymentMethodRepository;
 
-    public SalesOrderService(SalesOrderRepository salesOrderRepository,
-                              SalesOrderItemRepository itemRepository,
-                              CustomerRepository customerRepository,
-                              CompanyStoreRepository companyStoreRepository,
-                              ShiftRepository shiftRepository,
-                              ProductVariantRepository productVariantRepository,
-                              StatusRepository statusRepository,
-                              PaymentMethodRepository paymentMethodRepository) {
+    public SalesOrderService(
+            SalesOrderRepository salesOrderRepository,
+            SalesOrderItemRepository itemRepository,
+            CustomerRepository customerRepository,
+            CompanyStoreRepository companyStoreRepository,
+            ShiftRepository shiftRepository,
+            ProductVariantRepository productVariantRepository,
+            StatusRepository statusRepository,
+            PaymentMethodRepository paymentMethodRepository) {
         this.salesOrderRepository = salesOrderRepository;
         this.itemRepository = itemRepository;
         this.customerRepository = customerRepository;
@@ -121,14 +119,16 @@ public class SalesOrderService {
 
     @Transactional(readOnly = true)
     public SalesOrderResponse getSalesOrderById(UUID id) {
-        var so = salesOrderRepository.findById(id)
-                .orElseThrow(() -> new SalesOrderNotFoundException(id));
+        var so = salesOrderRepository.findById(id).orElseThrow(() -> new SalesOrderNotFoundException(id));
         return toResponse(so);
     }
 
     @Transactional
     public SalesOrderResponse createSalesOrder(SalesOrderRequest request) {
-        logger.info("Creating sales order: customerId={}, companyStoreId={}", request.customerId(), request.companyStoreId());
+        logger.info(
+                "Creating sales order: customerId={}, companyStoreId={}",
+                request.customerId(),
+                request.companyStoreId());
 
         validateCustomerExists(request.customerId());
         validateCompanyStoreExists(request.companyStoreId());
@@ -136,9 +136,10 @@ public class SalesOrderService {
             validateShiftOpen(request.shiftId());
         }
 
-        var status = statusRepository.findByTypeNameAndStatusName("SALES_ORDER", "Draft")
-                .orElseThrow(() -> new StatusNotFoundException(
-                        "Default status 'Draft' not found for SALES_ORDER type"));
+        var status = statusRepository
+                .findByTypeNameAndStatusName("SALES_ORDER", "Draft")
+                .orElseThrow(
+                        () -> new StatusNotFoundException("Default status 'Draft' not found for SALES_ORDER type"));
 
         var orderNumber = generateOrderNumber();
 
@@ -184,7 +185,8 @@ public class SalesOrderService {
 
             recalculateTotalAmount(saved.getId());
             var orderIdForReload = saved.getId();
-            saved = salesOrderRepository.findById(orderIdForReload)
+            saved = salesOrderRepository
+                    .findById(orderIdForReload)
                     .orElseThrow(() -> new SalesOrderNotFoundException(orderIdForReload));
         }
 
@@ -195,8 +197,7 @@ public class SalesOrderService {
     public SalesOrderResponse updateSalesOrder(UUID id, SalesOrderRequest request) {
         logger.info("Updating sales order: id={}", id);
 
-        var so = salesOrderRepository.findById(id)
-                .orElseThrow(() -> new SalesOrderNotFoundException(id));
+        var so = salesOrderRepository.findById(id).orElseThrow(() -> new SalesOrderNotFoundException(id));
 
         validateCustomerExists(request.customerId());
         validateCompanyStoreExists(request.companyStoreId());
@@ -256,7 +257,8 @@ public class SalesOrderService {
             for (var reqItem : request.items()) {
                 if (reqItem.id() != null) {
                     // UPDATE: find by id, update fields, re-enable
-                    var item = itemRepository.findById(reqItem.id())
+                    var item = itemRepository
+                            .findById(reqItem.id())
                             .orElseThrow(() -> new SalesOrderItemNotFoundException(reqItem.id()));
                     item.setProductVariantId(reqItem.productVariantId());
                     item.setQuantity(reqItem.quantity());
@@ -289,8 +291,7 @@ public class SalesOrderService {
             recalculateTotalAmount(id);
 
             // Reload to include updated items in response
-            updated = salesOrderRepository.findById(id)
-                    .orElseThrow(() -> new SalesOrderNotFoundException(id));
+            updated = salesOrderRepository.findById(id).orElseThrow(() -> new SalesOrderNotFoundException(id));
         }
 
         return toResponse(updated);
@@ -300,8 +301,7 @@ public class SalesOrderService {
     public SalesOrderResponse chargeSalesOrder(UUID id, ChargeSalesOrderRequest request) {
         logger.info("Charging sales order: id={}", id);
 
-        var so = salesOrderRepository.findById(id)
-                .orElseThrow(() -> new SalesOrderNotFoundException(id));
+        var so = salesOrderRepository.findById(id).orElseThrow(() -> new SalesOrderNotFoundException(id));
 
         // Ensure order is Pending (auto-promotes Active → Pending)
         ensureOrderIsPending(so);
@@ -356,8 +356,7 @@ public class SalesOrderService {
         logger.info("Sales order charged successfully: id={}", id);
 
         // Reload to include updated items in response
-        var updated = salesOrderRepository.findById(id)
-                .orElseThrow(() -> new SalesOrderNotFoundException(id));
+        var updated = salesOrderRepository.findById(id).orElseThrow(() -> new SalesOrderNotFoundException(id));
         return toResponse(updated);
     }
 
@@ -368,7 +367,8 @@ public class SalesOrderService {
      * Any other status throws InvalidSalesOrderChargeException.
      */
     private void ensureOrderIsPending(SalesOrder so) {
-        var currentStatus = statusRepository.findById(so.getStatusId())
+        var currentStatus = statusRepository
+                .findById(so.getStatusId())
                 .orElseThrow(() -> new StatusNotFoundException(so.getStatusId()));
         var name = currentStatus.getStatusName();
         if ("Pending".equals(name)) return;
@@ -390,10 +390,10 @@ public class SalesOrderService {
     public SalesOrderResponse updateSalesOrderStatus(UUID id, UpdateSalesOrderStatusRequest request) {
         logger.info("Updating sales order status: id={}", id);
 
-        var so = salesOrderRepository.findById(id)
-                .orElseThrow(() -> new SalesOrderNotFoundException(id));
+        var so = salesOrderRepository.findById(id).orElseThrow(() -> new SalesOrderNotFoundException(id));
 
-        var currentStatus = statusRepository.findById(so.getStatusId())
+        var currentStatus = statusRepository
+                .findById(so.getStatusId())
                 .orElseThrow(() -> new StatusNotFoundException(so.getStatusId()));
 
         var newStatus = StatusValidator.requireStatusOfType(statusRepository, request.statusId(), "SALES_ORDER");
@@ -408,13 +408,15 @@ public class SalesOrderService {
             // Group items by variantId and sort to prevent deadlocks
             var itemsByVariant = new HashMap<UUID, List<SalesOrderItem>>();
             for (var item : allItems) {
-                itemsByVariant.computeIfAbsent(item.getProductVariantId(), k -> new java.util.ArrayList<>())
+                itemsByVariant
+                        .computeIfAbsent(item.getProductVariantId(), k -> new java.util.ArrayList<>())
                         .add(item);
             }
 
             var sortedVariantIds = itemsByVariant.keySet().stream().sorted().toList();
             for (var variantId : sortedVariantIds) {
-                var variant = productVariantRepository.findByIdForUpdate(variantId)
+                var variant = productVariantRepository
+                        .findByIdForUpdate(variantId)
                         .orElseThrow(() -> new ProductVariantNotFoundException(variantId));
 
                 var totalQty = itemsByVariant.get(variantId).stream()
@@ -436,10 +438,10 @@ public class SalesOrderService {
     public void deleteSalesOrder(UUID id) {
         logger.info("Soft-deleting sales order: id={}", id);
 
-        var so = salesOrderRepository.findById(id)
-                .orElseThrow(() -> new SalesOrderNotFoundException(id));
+        var so = salesOrderRepository.findById(id).orElseThrow(() -> new SalesOrderNotFoundException(id));
 
-        var currentStatus = statusRepository.findById(so.getStatusId())
+        var currentStatus = statusRepository
+                .findById(so.getStatusId())
                 .orElseThrow(() -> new StatusNotFoundException(so.getStatusId()));
 
         // Restore stock ONLY if the order was not already Cancelled: the cancel
@@ -451,13 +453,15 @@ public class SalesOrderService {
                 // Group items by variantId and sort to prevent deadlocks
                 var itemsByVariant = new HashMap<UUID, List<SalesOrderItem>>();
                 for (var item : items) {
-                    itemsByVariant.computeIfAbsent(item.getProductVariantId(), k -> new java.util.ArrayList<>())
+                    itemsByVariant
+                            .computeIfAbsent(item.getProductVariantId(), k -> new java.util.ArrayList<>())
                             .add(item);
                 }
 
                 var sortedVariantIds = itemsByVariant.keySet().stream().sorted().toList();
                 for (var variantId : sortedVariantIds) {
-                    var variant = productVariantRepository.findByIdForUpdate(variantId)
+                    var variant = productVariantRepository
+                            .findByIdForUpdate(variantId)
                             .orElseThrow(() -> new ProductVariantNotFoundException(variantId));
 
                     var totalQty = itemsByVariant.get(variantId).stream()
@@ -486,8 +490,7 @@ public class SalesOrderService {
     public SalesOrderResponse enableSalesOrder(UUID id) {
         logger.info("Re-enabling sales order: id={}", id);
 
-        var so = salesOrderRepository.findById(id)
-                .orElseThrow(() -> new SalesOrderNotFoundException(id));
+        var so = salesOrderRepository.findById(id).orElseThrow(() -> new SalesOrderNotFoundException(id));
 
         so.setEnabled(true);
         var saved = salesOrderRepository.save(so);
@@ -498,11 +501,9 @@ public class SalesOrderService {
 
     @Transactional(readOnly = true)
     public java.util.List<SalesOrderItemResponse> getSalesOrderItems(UUID salesOrderId) {
-        salesOrderRepository.findById(salesOrderId)
-                .orElseThrow(() -> new SalesOrderNotFoundException(salesOrderId));
+        salesOrderRepository.findById(salesOrderId).orElseThrow(() -> new SalesOrderNotFoundException(salesOrderId));
 
-        return itemRepository.findBySalesOrderIdAndEnabledTrue(salesOrderId)
-                .stream()
+        return itemRepository.findBySalesOrderIdAndEnabledTrue(salesOrderId).stream()
                 .map(this::toItemResponse)
                 .toList();
     }
@@ -520,8 +521,8 @@ public class SalesOrderService {
 
         var defaultItemStatus = statusRepository
                 .findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Pending")
-                .orElseThrow(() -> new StatusNotFoundException(
-                        "Default status 'Pending' not found for SALES_ORDER_ITEM type"));
+                .orElseThrow(() ->
+                        new StatusNotFoundException("Default status 'Pending' not found for SALES_ORDER_ITEM type"));
 
         var discountApplied = request.discountApplied() != null ? request.discountApplied() : BigDecimal.ZERO;
         var finalPrice = request.listPrice().subtract(discountApplied);
@@ -551,9 +552,9 @@ public class SalesOrderService {
         if (isFirstItem) {
             var activeStatus = statusRepository
                     .findByTypeNameAndStatusName("SALES_ORDER", "Active")
-                    .orElseThrow(() -> new StatusNotFoundException(
-                            "Status 'Active' not found for SALES_ORDER type"));
-            var currentStatus = statusRepository.findById(so.getStatusId())
+                    .orElseThrow(() -> new StatusNotFoundException("Status 'Active' not found for SALES_ORDER type"));
+            var currentStatus = statusRepository
+                    .findById(so.getStatusId())
                     .orElseThrow(() -> new StatusNotFoundException(so.getStatusId()));
             validateSOTransition(currentStatus, activeStatus);
 
@@ -566,14 +567,12 @@ public class SalesOrderService {
     }
 
     @Transactional
-    public SalesOrderItemResponse updateSalesOrderItem(UUID salesOrderId, UUID itemId,
-                                                        SalesOrderItemRequest request) {
+    public SalesOrderItemResponse updateSalesOrderItem(UUID salesOrderId, UUID itemId, SalesOrderItemRequest request) {
         logger.info("Updating item: soId={}, itemId={}", salesOrderId, itemId);
 
         loadAndValidateModifiableSO(salesOrderId);
 
-        var item = itemRepository.findById(itemId)
-                .orElseThrow(() -> new SalesOrderItemNotFoundException(itemId));
+        var item = itemRepository.findById(itemId).orElseThrow(() -> new SalesOrderItemNotFoundException(itemId));
 
         if (!item.getSalesOrderId().equals(salesOrderId)) {
             throw new SalesOrderItemNotFoundException(itemId);
@@ -619,15 +618,15 @@ public class SalesOrderService {
 
         loadAndValidateModifiableSO(salesOrderId);
 
-        var item = itemRepository.findById(itemId)
-                .orElseThrow(() -> new SalesOrderItemNotFoundException(itemId));
+        var item = itemRepository.findById(itemId).orElseThrow(() -> new SalesOrderItemNotFoundException(itemId));
 
         if (!item.getSalesOrderId().equals(salesOrderId)) {
             throw new SalesOrderItemNotFoundException(itemId);
         }
 
         // Restore stock BEFORE soft-deleting the item
-        var variant = productVariantRepository.findByIdForUpdate(item.getProductVariantId())
+        var variant = productVariantRepository
+                .findByIdForUpdate(item.getProductVariantId())
                 .orElseThrow(() -> new ProductVariantNotFoundException(item.getProductVariantId()));
         variant.setStock(variant.getStock().add(item.getQuantity()));
         productVariantRepository.save(variant);
@@ -642,21 +641,20 @@ public class SalesOrderService {
     }
 
     @Transactional
-    public SalesOrderItemResponse updateSalesOrderItemStatus(UUID salesOrderId, UUID itemId,
-                                                              UpdateSalesOrderStatusRequest request) {
+    public SalesOrderItemResponse updateSalesOrderItemStatus(
+            UUID salesOrderId, UUID itemId, UpdateSalesOrderStatusRequest request) {
         logger.info("Updating item status: soId={}, itemId={}", salesOrderId, itemId);
 
-        salesOrderRepository.findById(salesOrderId)
-                .orElseThrow(() -> new SalesOrderNotFoundException(salesOrderId));
+        salesOrderRepository.findById(salesOrderId).orElseThrow(() -> new SalesOrderNotFoundException(salesOrderId));
 
-        var item = itemRepository.findById(itemId)
-                .orElseThrow(() -> new SalesOrderItemNotFoundException(itemId));
+        var item = itemRepository.findById(itemId).orElseThrow(() -> new SalesOrderItemNotFoundException(itemId));
 
         if (!item.getSalesOrderId().equals(salesOrderId)) {
             throw new SalesOrderItemNotFoundException(itemId);
         }
 
-        var currentStatus = statusRepository.findById(item.getStatusId())
+        var currentStatus = statusRepository
+                .findById(item.getStatusId())
                 .orElseThrow(() -> new StatusNotFoundException(item.getStatusId()));
 
         var newStatus = StatusValidator.requireStatusOfType(statusRepository, request.statusId(), "SALES_ORDER_ITEM");
@@ -671,10 +669,10 @@ public class SalesOrderService {
     // ─── FK Validation Helpers ──────────────────────────────────────────
 
     private SalesOrder loadAndValidateModifiableSO(UUID id) {
-        var so = salesOrderRepository.findById(id)
-                .orElseThrow(() -> new SalesOrderNotFoundException(id));
+        var so = salesOrderRepository.findById(id).orElseThrow(() -> new SalesOrderNotFoundException(id));
 
-        var status = statusRepository.findById(so.getStatusId())
+        var status = statusRepository
+                .findById(so.getStatusId())
                 .orElseThrow(() -> new StatusNotFoundException(so.getStatusId()));
 
         var name = status.getStatusName();
@@ -703,8 +701,7 @@ public class SalesOrderService {
     }
 
     private void validateShiftOpen(UUID id) {
-        var shift = shiftRepository.findById(id)
-                .orElseThrow(() -> new ShiftNotFoundException(id));
+        var shift = shiftRepository.findById(id).orElseThrow(() -> new ShiftNotFoundException(id));
         if (!SHIFT_STATUS_OPEN.equals(shift.getStatus())) {
             throw new ShiftNotOpenException(id, shift.getStatus());
         }
@@ -745,8 +742,7 @@ public class SalesOrderService {
         var dateStr = today.format(DATE_FORMAT);
         var prefix = "SO-" + dateStr + "-";
 
-        var maxOrder = salesOrderRepository
-                .findTopByOrderNumberStartingWithOrderByOrderNumberDesc(prefix);
+        var maxOrder = salesOrderRepository.findTopByOrderNumberStartingWithOrderByOrderNumberDesc(prefix);
 
         var nextSeq = 1;
         if (maxOrder.isPresent()) {
@@ -810,7 +806,8 @@ public class SalesOrderService {
         // 3. Acquire pessimistic write locks in sorted order
         var lockedVariants = new HashMap<UUID, ProductVariant>();
         for (var vid : sortedIds) {
-            var variant = productVariantRepository.findByIdForUpdate(vid)
+            var variant = productVariantRepository
+                    .findByIdForUpdate(vid)
                     .orElseThrow(() -> new ProductVariantNotFoundException(vid));
             lockedVariants.put(vid, variant);
         }
@@ -876,11 +873,10 @@ public class SalesOrderService {
 
     private void recalculateTotalAmount(UUID salesOrderId) {
         var items = itemRepository.findBySalesOrderIdAndEnabledTrue(salesOrderId);
-        var total = items.stream()
-                .map(SalesOrderItem::getFinalPrice)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        var total = items.stream().map(SalesOrderItem::getFinalPrice).reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        var so = salesOrderRepository.findById(salesOrderId)
+        var so = salesOrderRepository
+                .findById(salesOrderId)
                 .orElseThrow(() -> new SalesOrderNotFoundException(salesOrderId));
         so.setTotalAmount(total);
         salesOrderRepository.save(so);
@@ -889,12 +885,12 @@ public class SalesOrderService {
     // ─── Response Mappers ───────────────────────────────────────────────
 
     private SalesOrderResponse toResponse(SalesOrder so) {
-        var items = itemRepository.findBySalesOrderIdAndEnabledTrue(so.getId())
-                .stream()
+        var items = itemRepository.findBySalesOrderIdAndEnabledTrue(so.getId()).stream()
                 .map(this::toItemResponse)
                 .toList();
 
-        var statusName = statusRepository.findById(so.getStatusId())
+        var statusName = statusRepository
+                .findById(so.getStatusId())
                 .map(Status::getStatusName)
                 .orElse(null);
 
@@ -913,12 +909,12 @@ public class SalesOrderService {
                 so.getEnabled(),
                 so.getCreatedAt(),
                 so.getUpdatedAt(),
-                items
-        );
+                items);
     }
 
     private SalesOrderItemResponse toItemResponse(SalesOrderItem item) {
-        var statusName = statusRepository.findById(item.getStatusId())
+        var statusName = statusRepository
+                .findById(item.getStatusId())
                 .map(Status::getStatusName)
                 .orElse(null);
 
@@ -934,7 +930,6 @@ public class SalesOrderService {
                 item.getStatusId(),
                 statusName,
                 item.getCreatedAt(),
-                item.getUpdatedAt()
-        );
+                item.getUpdatedAt());
     }
 }

@@ -5,16 +5,15 @@ import com.lifecontrol.api.promotion.dto.PromotionResponse;
 import com.lifecontrol.api.promotion.exception.PromotionNotFoundException;
 import com.lifecontrol.api.promotion.model.Promotion;
 import com.lifecontrol.api.promotion.repository.PromotionRepository;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.UUID;
 
 @Service
 public class PromotionService {
@@ -35,8 +34,7 @@ public class PromotionService {
 
     @Transactional(readOnly = true)
     public PromotionResponse getPromotionById(UUID id) {
-        var promotion = promotionRepository.findById(id)
-                .orElseThrow(() -> new PromotionNotFoundException(id));
+        var promotion = promotionRepository.findById(id).orElseThrow(() -> new PromotionNotFoundException(id));
         return toResponse(promotion);
     }
 
@@ -44,9 +42,7 @@ public class PromotionService {
     public List<PromotionResponse> findActivePromotions(String channel) {
         var now = LocalDateTime.now();
         var activePromotions = promotionRepository.findActiveByChannelAndDate(channel, now);
-        return activePromotions.stream()
-                .map(this::toResponse)
-                .toList();
+        return activePromotions.stream().map(this::toResponse).toList();
     }
 
     @Transactional
@@ -75,8 +71,7 @@ public class PromotionService {
     public PromotionResponse updatePromotion(UUID id, PromotionRequest request) {
         logger.info("Updating promotion: id={}", id);
 
-        var promotion = promotionRepository.findById(id)
-                .orElseThrow(() -> new PromotionNotFoundException(id));
+        var promotion = promotionRepository.findById(id).orElseThrow(() -> new PromotionNotFoundException(id));
 
         promotion.setPromotionName(request.promotionName());
         promotion.setDiscountType(request.discountType());
@@ -98,8 +93,7 @@ public class PromotionService {
     public void deletePromotion(UUID id) {
         logger.info("Soft-deleting promotion: id={}", id);
 
-        var promotion = promotionRepository.findById(id)
-                .orElseThrow(() -> new PromotionNotFoundException(id));
+        var promotion = promotionRepository.findById(id).orElseThrow(() -> new PromotionNotFoundException(id));
 
         promotion.setEnabled(false);
         promotionRepository.save(promotion);
@@ -110,8 +104,7 @@ public class PromotionService {
     public PromotionResponse enablePromotion(UUID id) {
         logger.info("Re-enabling promotion: id={}", id);
 
-        var promotion = promotionRepository.findById(id)
-                .orElseThrow(() -> new PromotionNotFoundException(id));
+        var promotion = promotionRepository.findById(id).orElseThrow(() -> new PromotionNotFoundException(id));
 
         promotion.setEnabled(true);
         var saved = promotionRepository.save(promotion);
@@ -134,7 +127,6 @@ public class PromotionService {
                 promotion.getMinimumPurchaseAmount(),
                 promotion.getEnabled(),
                 promotion.getCreatedAt(),
-                promotion.getUpdatedAt()
-        );
+                promotion.getUpdatedAt());
     }
 }

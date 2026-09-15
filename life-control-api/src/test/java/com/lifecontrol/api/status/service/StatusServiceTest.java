@@ -1,5 +1,10 @@
 package com.lifecontrol.api.status.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
 import com.lifecontrol.api.status.dto.StatusRequest;
 import com.lifecontrol.api.status.dto.StatusResponse;
 import com.lifecontrol.api.status.exception.DuplicateStatusException;
@@ -9,6 +14,9 @@ import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.status.model.StatusType;
 import com.lifecontrol.api.status.repository.StatusRepository;
 import com.lifecontrol.api.status.repository.StatusTypeRepository;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -17,15 +25,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("StatusService Tests")
@@ -169,7 +168,8 @@ class StatusServiceTest {
         @DisplayName("should create status successfully")
         void createStatus_Success() {
             when(statusTypeRepository.findById(testStatusTypeId)).thenReturn(Optional.of(testStatusType));
-            when(statusRepository.existsByStatusNameIgnoreCaseAndStatusTypeId("PENDING", testStatusTypeId)).thenReturn(false);
+            when(statusRepository.existsByStatusNameIgnoreCaseAndStatusTypeId("PENDING", testStatusTypeId))
+                    .thenReturn(false);
             when(statusRepository.save(any(Status.class))).thenAnswer(inv -> {
                 Status s = inv.getArgument(0);
                 return Status.builder()
@@ -203,7 +203,8 @@ class StatusServiceTest {
         @DisplayName("should throw DuplicateStatusException when name exists within type")
         void createStatus_DuplicateName_ThrowsException() {
             when(statusTypeRepository.findById(testStatusTypeId)).thenReturn(Optional.of(testStatusType));
-            when(statusRepository.existsByStatusNameIgnoreCaseAndStatusTypeId("PENDING", testStatusTypeId)).thenReturn(true);
+            when(statusRepository.existsByStatusNameIgnoreCaseAndStatusTypeId("PENDING", testStatusTypeId))
+                    .thenReturn(true);
 
             assertThatThrownBy(() -> statusService.createStatus(testStatusRequest))
                     .isInstanceOf(DuplicateStatusException.class)
@@ -221,7 +222,8 @@ class StatusServiceTest {
         void updateStatus_Success() {
             StatusRequest updateRequest = new StatusRequest("WAITING", testStatusTypeId, true);
             when(statusRepository.findById(testStatusId)).thenReturn(Optional.of(testStatus));
-            when(statusRepository.existsByStatusNameIgnoreCaseAndStatusTypeId("WAITING", testStatusTypeId)).thenReturn(false);
+            when(statusRepository.existsByStatusNameIgnoreCaseAndStatusTypeId("WAITING", testStatusTypeId))
+                    .thenReturn(false);
             when(statusRepository.save(any(Status.class))).thenAnswer(inv -> inv.getArgument(0));
 
             StatusResponse result = statusService.updateStatus(testStatusId, updateRequest);
@@ -246,7 +248,8 @@ class StatusServiceTest {
         void updateStatus_DuplicateName_ThrowsException() {
             StatusRequest conflictRequest = new StatusRequest("SHIPPED", testStatusTypeId, true);
             when(statusRepository.findById(testStatusId)).thenReturn(Optional.of(testStatus));
-            when(statusRepository.existsByStatusNameIgnoreCaseAndStatusTypeId("SHIPPED", testStatusTypeId)).thenReturn(true);
+            when(statusRepository.existsByStatusNameIgnoreCaseAndStatusTypeId("SHIPPED", testStatusTypeId))
+                    .thenReturn(true);
 
             assertThatThrownBy(() -> statusService.updateStatus(testStatusId, conflictRequest))
                     .isInstanceOf(DuplicateStatusException.class)

@@ -1,5 +1,11 @@
 package com.lifecontrol.api.activity.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
 import com.lifecontrol.api.activity.model.ActivityEvent;
 import com.lifecontrol.api.activity.model.ActivityProcess;
 import com.lifecontrol.api.activity.repository.ActivityEventRepository;
@@ -23,12 +29,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * Integration tests for the activity log system.
@@ -129,10 +129,8 @@ class ActivityLogIntegrationTest extends AbstractPostgresIntegrationTest {
         @DisplayName("GET request creates an activity log row with user info from JWT")
         void getRequestCreatesLogRow() throws Exception {
             mockMvc.perform(get("/api/test-activity/hello")
-                            .with(jwt()
-                                    .jwt(builder -> builder
-                                            .claim("sub", "user-123")
-                                            .claim("preferred_username", "jdoe"))
+                            .with(jwt().jwt(builder ->
+                                            builder.claim("sub", "user-123").claim("preferred_username", "jdoe"))
                                     .authorities(new SimpleGrantedAuthority("ROLE_lc-admin"))))
                     .andExpect(status().isOk());
 
@@ -154,10 +152,8 @@ class ActivityLogIntegrationTest extends AbstractPostgresIntegrationTest {
             mockMvc.perform(post("/api/test-activity/create")
                             .contentType("application/json")
                             .content("{\"name\": \"test\"}")
-                            .with(jwt()
-                                    .jwt(builder -> builder
-                                            .claim("sub", "user-456")
-                                            .claim("preferred_username", "admin"))
+                            .with(jwt().jwt(builder ->
+                                            builder.claim("sub", "user-456").claim("preferred_username", "admin"))
                                     .authorities(new SimpleGrantedAuthority("ROLE_lc-admin"))))
                     .andExpect(status().isCreated());
 
@@ -180,17 +176,14 @@ class ActivityLogIntegrationTest extends AbstractPostgresIntegrationTest {
         @DisplayName("admin role gets 200 OK on GET /api/activity-logs")
         void adminCanAccessActivityLogs() throws Exception {
             mockMvc.perform(get("/api/activity-logs")
-                            .with(jwt()
-                                    .authorities(new SimpleGrantedAuthority("ROLE_lc-admin"))))
+                            .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_lc-admin"))))
                     .andExpect(status().isOk());
         }
 
         @Test
         @DisplayName("non-admin user gets 403 Forbidden on GET /api/activity-logs")
         void nonAdminGetsForbidden() throws Exception {
-            mockMvc.perform(get("/api/activity-logs")
-                            .with(jwt()))
-                    .andExpect(status().isForbidden());
+            mockMvc.perform(get("/api/activity-logs").with(jwt())).andExpect(status().isForbidden());
         }
     }
 
@@ -208,10 +201,8 @@ class ActivityLogIntegrationTest extends AbstractPostgresIntegrationTest {
             mockMvc.perform(post("/api/test-activity/hello")
                             .contentType("application/json")
                             .content(sensitiveBody)
-                            .with(jwt()
-                                    .jwt(builder -> builder
-                                            .claim("sub", "user-1")
-                                            .claim("preferred_username", "admin"))
+                            .with(jwt().jwt(builder ->
+                                            builder.claim("sub", "user-1").claim("preferred_username", "admin"))
                                     .authorities(new SimpleGrantedAuthority("ROLE_lc-admin"))))
                     .andExpect(status().isOk());
 
@@ -236,10 +227,8 @@ class ActivityLogIntegrationTest extends AbstractPostgresIntegrationTest {
             mockMvc.perform(post("/api/test-activity/error")
                             .contentType("application/json")
                             .content("{\"data\": \"test\"}")
-                            .with(jwt()
-                                    .jwt(builder -> builder
-                                            .claim("sub", "user-1")
-                                            .claim("preferred_username", "admin"))
+                            .with(jwt().jwt(builder ->
+                                            builder.claim("sub", "user-1").claim("preferred_username", "admin"))
                                     .authorities(new SimpleGrantedAuthority("ROLE_lc-admin"))))
                     .andExpect(status().is5xxServerError());
 

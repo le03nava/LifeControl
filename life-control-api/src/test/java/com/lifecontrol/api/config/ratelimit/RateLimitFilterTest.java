@@ -1,7 +1,14 @@
 package com.lifecontrol.api.config.ratelimit;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+
 import com.lifecontrol.api.config.ratelimit.RateLimitProperties.EndpointLimit;
 import jakarta.servlet.FilterChain;
+import java.time.Duration;
+import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -10,15 +17,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
-
-import java.time.Duration;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("RateLimitFilter Tests")
@@ -190,7 +188,9 @@ class RateLimitFilterTest {
             var secondResponse = new MockHttpServletResponse();
             filter.doFilterInternal(second, secondResponse, mock(FilterChain.class));
 
-            assertThat(secondResponse.getStatus()).as("spoofed header must not whitelist the client").isEqualTo(429);
+            assertThat(secondResponse.getStatus())
+                    .as("spoofed header must not whitelist the client")
+                    .isEqualTo(429);
         }
 
         @Test

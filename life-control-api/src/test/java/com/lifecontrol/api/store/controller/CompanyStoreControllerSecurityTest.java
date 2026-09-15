@@ -1,12 +1,21 @@
 package com.lifecontrol.api.store.controller;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifecontrol.api.config.ratelimit.RateLimitProperties;
 import com.lifecontrol.api.exception.GlobalExceptionHandler;
 import com.lifecontrol.api.store.dto.CompanyStoreResponse;
 import com.lifecontrol.api.store.dto.CreateCompanyStoreRequest;
 import com.lifecontrol.api.store.dto.UpdateCompanyStoreRequest;
 import com.lifecontrol.api.store.service.CompanyStoreService;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -27,16 +36,6 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.UUID;
-
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-
 @WebMvcTest(CompanyStoreController.class)
 @Import(GlobalExceptionHandler.class)
 @DisplayName("CompanyStoreController Security — @PreAuthorize class-level authorization")
@@ -48,8 +47,7 @@ class CompanyStoreControllerSecurityTest {
     static class TestSecurityConfig {
         @Bean
         SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-            return http
-                    .authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
+            return http.authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
                     .httpBasic(basic -> {})
                     .csrf(AbstractHttpConfigurer::disable)
                     .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -74,15 +72,23 @@ class CompanyStoreControllerSecurityTest {
     private final UUID regionId = UUID.randomUUID();
     private final UUID zoneId = UUID.randomUUID();
     private final UUID storeId = UUID.randomUUID();
-    private static final String BASE_URL = "/api/companies/{companyId}/countries/{companyCountryId}/regions/{regionId}/zones/{zoneId}/stores";
+    private static final String BASE_URL =
+            "/api/companies/{companyId}/countries/{companyCountryId}/regions/{regionId}/zones/{zoneId}/stores";
 
     private CompanyStoreResponse buildStoreResponse() {
         return new CompanyStoreResponse(
-                storeId, companyId, companyCountryId, regionId, zoneId,
-                "Tienda Test", "tienda@test.com", "555-0001",
+                storeId,
+                companyId,
+                companyCountryId,
+                regionId,
+                zoneId,
+                "Tienda Test",
+                "tienda@test.com",
+                "555-0001",
                 null,
-                true, LocalDateTime.now(), LocalDateTime.now()
-        );
+                true,
+                LocalDateTime.now(),
+                LocalDateTime.now());
     }
 
     // ─── GET /api/companies/{companyId}/countries/{companyCountryId}/regions/{regionId}/zones/{zoneId}/stores ──
@@ -296,7 +302,12 @@ class CompanyStoreControllerSecurityTest {
         @DisplayName("returns 201 Created for lc-admin")
         void lcAdminCanCreateStore() throws Exception {
             var request = new CreateCompanyStoreRequest("Nueva Tienda", "nueva@test.com", "555-0002", null);
-            when(companyStoreService.createStore(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId), any(CreateCompanyStoreRequest.class)))
+            when(companyStoreService.createStore(
+                            eq(companyId),
+                            eq(companyCountryId),
+                            eq(regionId),
+                            eq(zoneId),
+                            any(CreateCompanyStoreRequest.class)))
                     .thenReturn(buildStoreResponse());
 
             mockMvc.perform(post(BASE_URL, companyId, companyCountryId, regionId, zoneId)
@@ -310,7 +321,12 @@ class CompanyStoreControllerSecurityTest {
         @DisplayName("returns 201 Created for lc-company")
         void lcCompanyCanCreateStore() throws Exception {
             var request = new CreateCompanyStoreRequest("Nueva Tienda", "nueva@test.com", "555-0002", null);
-            when(companyStoreService.createStore(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId), any(CreateCompanyStoreRequest.class)))
+            when(companyStoreService.createStore(
+                            eq(companyId),
+                            eq(companyCountryId),
+                            eq(regionId),
+                            eq(zoneId),
+                            any(CreateCompanyStoreRequest.class)))
                     .thenReturn(buildStoreResponse());
 
             mockMvc.perform(post(BASE_URL, companyId, companyCountryId, regionId, zoneId)
@@ -324,7 +340,12 @@ class CompanyStoreControllerSecurityTest {
         @DisplayName("returns 201 Created for lc-company-country")
         void lcCompanyCountryCanCreateStore() throws Exception {
             var request = new CreateCompanyStoreRequest("Nueva Tienda", "nueva@test.com", "555-0002", null);
-            when(companyStoreService.createStore(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId), any(CreateCompanyStoreRequest.class)))
+            when(companyStoreService.createStore(
+                            eq(companyId),
+                            eq(companyCountryId),
+                            eq(regionId),
+                            eq(zoneId),
+                            any(CreateCompanyStoreRequest.class)))
                     .thenReturn(buildStoreResponse());
 
             mockMvc.perform(post(BASE_URL, companyId, companyCountryId, regionId, zoneId)
@@ -338,7 +359,12 @@ class CompanyStoreControllerSecurityTest {
         @DisplayName("returns 201 Created for lc-company-region")
         void lcCompanyRegionCanCreateStore() throws Exception {
             var request = new CreateCompanyStoreRequest("Nueva Tienda", "nueva@test.com", "555-0002", null);
-            when(companyStoreService.createStore(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId), any(CreateCompanyStoreRequest.class)))
+            when(companyStoreService.createStore(
+                            eq(companyId),
+                            eq(companyCountryId),
+                            eq(regionId),
+                            eq(zoneId),
+                            any(CreateCompanyStoreRequest.class)))
                     .thenReturn(buildStoreResponse());
 
             mockMvc.perform(post(BASE_URL, companyId, companyCountryId, regionId, zoneId)
@@ -352,7 +378,12 @@ class CompanyStoreControllerSecurityTest {
         @DisplayName("returns 201 Created for lc-company-zone")
         void lcCompanyZoneCanCreateStore() throws Exception {
             var request = new CreateCompanyStoreRequest("Nueva Tienda", "nueva@test.com", "555-0002", null);
-            when(companyStoreService.createStore(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId), any(CreateCompanyStoreRequest.class)))
+            when(companyStoreService.createStore(
+                            eq(companyId),
+                            eq(companyCountryId),
+                            eq(regionId),
+                            eq(zoneId),
+                            any(CreateCompanyStoreRequest.class)))
                     .thenReturn(buildStoreResponse());
 
             mockMvc.perform(post(BASE_URL, companyId, companyCountryId, regionId, zoneId)
@@ -366,7 +397,12 @@ class CompanyStoreControllerSecurityTest {
         @DisplayName("returns 403 for lc-company-store (create denied at service level)")
         void lcCompanyStoreCreateDenied() throws Exception {
             var request = new CreateCompanyStoreRequest("Nueva Tienda", "nueva@test.com", "555-0002", null);
-            when(companyStoreService.createStore(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId), any(CreateCompanyStoreRequest.class)))
+            when(companyStoreService.createStore(
+                            eq(companyId),
+                            eq(companyCountryId),
+                            eq(regionId),
+                            eq(zoneId),
+                            any(CreateCompanyStoreRequest.class)))
                     .thenThrow(new AccessDeniedException("Store-scoped users cannot create stores"));
 
             mockMvc.perform(post(BASE_URL, companyId, companyCountryId, regionId, zoneId)
@@ -409,8 +445,13 @@ class CompanyStoreControllerSecurityTest {
         @DisplayName("returns 200 OK for lc-admin")
         void lcAdminCanUpdateStore() throws Exception {
             var request = new UpdateCompanyStoreRequest("Tienda Updated", "updated@test.com", "555-0003", null);
-            when(companyStoreService.updateStore(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId), eq(storeId),
-                    any(UpdateCompanyStoreRequest.class)))
+            when(companyStoreService.updateStore(
+                            eq(companyId),
+                            eq(companyCountryId),
+                            eq(regionId),
+                            eq(zoneId),
+                            eq(storeId),
+                            any(UpdateCompanyStoreRequest.class)))
                     .thenReturn(buildStoreResponse());
 
             mockMvc.perform(put(BASE_URL + "/{id}", companyId, companyCountryId, regionId, zoneId, storeId)
@@ -424,8 +465,13 @@ class CompanyStoreControllerSecurityTest {
         @DisplayName("returns 200 OK for lc-company")
         void lcCompanyCanUpdateStore() throws Exception {
             var request = new UpdateCompanyStoreRequest("Tienda Updated", "updated@test.com", "555-0003", null);
-            when(companyStoreService.updateStore(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId), eq(storeId),
-                    any(UpdateCompanyStoreRequest.class)))
+            when(companyStoreService.updateStore(
+                            eq(companyId),
+                            eq(companyCountryId),
+                            eq(regionId),
+                            eq(zoneId),
+                            eq(storeId),
+                            any(UpdateCompanyStoreRequest.class)))
                     .thenReturn(buildStoreResponse());
 
             mockMvc.perform(put(BASE_URL + "/{id}", companyId, companyCountryId, regionId, zoneId, storeId)
@@ -439,8 +485,13 @@ class CompanyStoreControllerSecurityTest {
         @DisplayName("returns 200 OK for lc-company-country")
         void lcCompanyCountryCanUpdateStore() throws Exception {
             var request = new UpdateCompanyStoreRequest("Tienda Updated", "updated@test.com", "555-0003", null);
-            when(companyStoreService.updateStore(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId), eq(storeId),
-                    any(UpdateCompanyStoreRequest.class)))
+            when(companyStoreService.updateStore(
+                            eq(companyId),
+                            eq(companyCountryId),
+                            eq(regionId),
+                            eq(zoneId),
+                            eq(storeId),
+                            any(UpdateCompanyStoreRequest.class)))
                     .thenReturn(buildStoreResponse());
 
             mockMvc.perform(put(BASE_URL + "/{id}", companyId, companyCountryId, regionId, zoneId, storeId)
@@ -454,8 +505,13 @@ class CompanyStoreControllerSecurityTest {
         @DisplayName("returns 200 OK for lc-company-region")
         void lcCompanyRegionCanUpdateStore() throws Exception {
             var request = new UpdateCompanyStoreRequest("Tienda Updated", "updated@test.com", "555-0003", null);
-            when(companyStoreService.updateStore(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId), eq(storeId),
-                    any(UpdateCompanyStoreRequest.class)))
+            when(companyStoreService.updateStore(
+                            eq(companyId),
+                            eq(companyCountryId),
+                            eq(regionId),
+                            eq(zoneId),
+                            eq(storeId),
+                            any(UpdateCompanyStoreRequest.class)))
                     .thenReturn(buildStoreResponse());
 
             mockMvc.perform(put(BASE_URL + "/{id}", companyId, companyCountryId, regionId, zoneId, storeId)
@@ -469,8 +525,13 @@ class CompanyStoreControllerSecurityTest {
         @DisplayName("returns 200 OK for lc-company-zone")
         void lcCompanyZoneCanUpdateStore() throws Exception {
             var request = new UpdateCompanyStoreRequest("Tienda Updated", "updated@test.com", "555-0003", null);
-            when(companyStoreService.updateStore(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId), eq(storeId),
-                    any(UpdateCompanyStoreRequest.class)))
+            when(companyStoreService.updateStore(
+                            eq(companyId),
+                            eq(companyCountryId),
+                            eq(regionId),
+                            eq(zoneId),
+                            eq(storeId),
+                            any(UpdateCompanyStoreRequest.class)))
                     .thenReturn(buildStoreResponse());
 
             mockMvc.perform(put(BASE_URL + "/{id}", companyId, companyCountryId, regionId, zoneId, storeId)
@@ -484,8 +545,13 @@ class CompanyStoreControllerSecurityTest {
         @DisplayName("returns 200 OK for lc-company-store")
         void lcCompanyStoreCanUpdateStore() throws Exception {
             var request = new UpdateCompanyStoreRequest("Tienda Updated", "updated@test.com", "555-0003", null);
-            when(companyStoreService.updateStore(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId), eq(storeId),
-                    any(UpdateCompanyStoreRequest.class)))
+            when(companyStoreService.updateStore(
+                            eq(companyId),
+                            eq(companyCountryId),
+                            eq(regionId),
+                            eq(zoneId),
+                            eq(storeId),
+                            any(UpdateCompanyStoreRequest.class)))
                     .thenReturn(buildStoreResponse());
 
             mockMvc.perform(put(BASE_URL + "/{id}", companyId, companyCountryId, regionId, zoneId, storeId)
@@ -495,7 +561,8 @@ class CompanyStoreControllerSecurityTest {
         }
     }
 
-    // ─── DELETE /api/companies/{companyId}/countries/{companyCountryId}/regions/{regionId}/zones/{zoneId}/stores/{id} ──
+    // ─── DELETE /api/companies/{companyId}/countries/{companyCountryId}/regions/{regionId}/zones/{zoneId}/stores/{id}
+    // ──
 
     @Nested
     @DisplayName("DELETE " + BASE_URL + "/{id}")
@@ -566,7 +633,8 @@ class CompanyStoreControllerSecurityTest {
         }
     }
 
-    // ─── PATCH /api/companies/{companyId}/countries/{companyCountryId}/regions/{regionId}/zones/{zoneId}/stores/{id} ──
+    // ─── PATCH /api/companies/{companyId}/countries/{companyCountryId}/regions/{regionId}/zones/{zoneId}/stores/{id}
+    // ──
 
     @Nested
     @DisplayName("PATCH " + BASE_URL + "/{id}")

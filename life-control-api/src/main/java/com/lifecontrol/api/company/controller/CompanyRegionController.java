@@ -1,5 +1,11 @@
 package com.lifecontrol.api.company.controller;
 
+import static com.lifecontrol.api.common.security.Roles.ADMIN;
+import static com.lifecontrol.api.common.security.Roles.COMPANY;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_COUNTRY;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_REGION;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_REGION_READ;
+
 import com.lifecontrol.api.company.dto.CompanyRegionResponse;
 import com.lifecontrol.api.company.dto.CreateCompanyRegionRequest;
 import com.lifecontrol.api.company.dto.UpdateCompanyRegionRequest;
@@ -8,19 +14,12 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.List;
+import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
-import java.util.UUID;
-
-import static com.lifecontrol.api.common.security.Roles.ADMIN;
-import static com.lifecontrol.api.common.security.Roles.COMPANY;
-import static com.lifecontrol.api.common.security.Roles.COMPANY_COUNTRY;
-import static com.lifecontrol.api.common.security.Roles.COMPANY_REGION;
-import static com.lifecontrol.api.common.security.Roles.COMPANY_REGION_READ;
 
 @RestController
 @RequestMapping("/api/companies/{companyId}/countries/{companyCountryId}/regions")
@@ -34,9 +33,12 @@ public class CompanyRegionController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','" + COMPANY_REGION_READ + "')")
-    @Operation(summary = "List all regions",
-            description = "Returns regions for a company's country presence. For lc-company-region and lc-company-region-read roles, results are scoped to the company_region_id values in the JWT.")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','"
+            + COMPANY_REGION_READ + "')")
+    @Operation(
+            summary = "List all regions",
+            description =
+                    "Returns regions for a company's country presence. For lc-company-region and lc-company-region-read roles, results are scoped to the company_region_id values in the JWT.")
     @ApiResponse(responseCode = "200", description = "List of regions")
     public ResponseEntity<List<CompanyRegionResponse>> getAllRegions(
             @PathVariable UUID companyId,
@@ -46,15 +48,16 @@ public class CompanyRegionController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','" + COMPANY_REGION_READ + "')")
-    @Operation(summary = "Get a region by ID",
-            description = "Returns a specific region. Access is verified via verifyCompanyRegionAccess which checks region ownership for scoped roles.")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','"
+            + COMPANY_REGION_READ + "')")
+    @Operation(
+            summary = "Get a region by ID",
+            description =
+                    "Returns a specific region. Access is verified via verifyCompanyRegionAccess which checks region ownership for scoped roles.")
     @ApiResponse(responseCode = "200", description = "Region found")
     @ApiResponse(responseCode = "404", description = "Region not found")
     public ResponseEntity<CompanyRegionResponse> getRegionById(
-            @PathVariable UUID companyId,
-            @PathVariable UUID companyCountryId,
-            @PathVariable UUID id) {
+            @PathVariable UUID companyId, @PathVariable UUID companyCountryId, @PathVariable UUID id) {
         return ResponseEntity.ok(companyRegionService.getRegionById(companyId, companyCountryId, id));
     }
 
@@ -93,9 +96,7 @@ public class CompanyRegionController {
     @ApiResponse(responseCode = "204", description = "Region deleted")
     @ApiResponse(responseCode = "404", description = "Region not found")
     public ResponseEntity<Void> deleteRegion(
-            @PathVariable UUID companyId,
-            @PathVariable UUID companyCountryId,
-            @PathVariable UUID id) {
+            @PathVariable UUID companyId, @PathVariable UUID companyCountryId, @PathVariable UUID id) {
         companyRegionService.deleteRegion(companyId, companyCountryId, id);
         return ResponseEntity.noContent().build();
     }
@@ -106,9 +107,7 @@ public class CompanyRegionController {
     @ApiResponse(responseCode = "200", description = "Region re-enabled")
     @ApiResponse(responseCode = "404", description = "Region not found")
     public ResponseEntity<CompanyRegionResponse> enableRegion(
-            @PathVariable UUID companyId,
-            @PathVariable UUID companyCountryId,
-            @PathVariable UUID id) {
+            @PathVariable UUID companyId, @PathVariable UUID companyCountryId, @PathVariable UUID id) {
         return ResponseEntity.ok(companyRegionService.enableRegion(companyId, companyCountryId, id));
     }
 }

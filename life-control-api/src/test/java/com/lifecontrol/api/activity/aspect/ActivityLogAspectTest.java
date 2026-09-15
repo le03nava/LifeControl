@@ -1,5 +1,12 @@
 package com.lifecontrol.api.activity.aspect;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willReturn;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+
 import com.lifecontrol.api.activity.annotation.ActivityLog;
 import com.lifecontrol.api.activity.event.ActivityLogEvent;
 import com.lifecontrol.api.common.auth.CurrentUserContext;
@@ -22,13 +29,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.BDDMockito.given;
-import static org.mockito.BDDMockito.willReturn;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("ActivityLogAspect Tests")
@@ -82,8 +82,8 @@ class ActivityLogAspectTest {
         @DisplayName("should resolve COMPANY from company.controller package")
         void companyController() throws Throwable {
             given(methodSignature.getDeclaringType()).willReturn(CompanyController.class);
-            given(methodSignature.getMethod()).willReturn(
-                    CompanyController.class.getMethod("getAllCompanies", Pageable.class, String.class));
+            given(methodSignature.getMethod())
+                    .willReturn(CompanyController.class.getMethod("getAllCompanies", Pageable.class, String.class));
 
             aspect.logActivity(joinPoint);
 
@@ -96,8 +96,8 @@ class ActivityLogAspectTest {
         @DisplayName("should resolve COUNTRY from country.controller package")
         void countryController() throws Throwable {
             given(methodSignature.getDeclaringType()).willReturn(CountryController.class);
-            given(methodSignature.getMethod()).willReturn(
-                    CountryController.class.getMethod("getAllCountries", boolean.class));
+            given(methodSignature.getMethod())
+                    .willReturn(CountryController.class.getMethod("getAllCountries", boolean.class));
 
             aspect.logActivity(joinPoint);
 
@@ -116,8 +116,8 @@ class ActivityLogAspectTest {
         void setUp() throws Throwable {
             given(joinPoint.getSignature()).willReturn(methodSignature);
             given(methodSignature.getDeclaringType()).willReturn(CompanyController.class);
-            given(methodSignature.getMethod()).willReturn(
-                    CompanyController.class.getMethod("getAllCompanies", Pageable.class, String.class));
+            given(methodSignature.getMethod())
+                    .willReturn(CompanyController.class.getMethod("getAllCompanies", Pageable.class, String.class));
             willReturn(ResponseEntity.ok("OK")).given(joinPoint).proceed();
             given(currentUserContext.getUserId()).willReturn("user-1");
             given(currentUserContext.getUsername()).willReturn("testuser");
@@ -171,8 +171,7 @@ class ActivityLogAspectTest {
             mockRequest("GET", "/api/custom");
             given(joinPoint.getSignature()).willReturn(methodSignature);
             given(methodSignature.getDeclaringType()).willReturn(CustomController.class);
-            given(methodSignature.getMethod()).willReturn(
-                    CustomController.class.getMethod("customEndpoint"));
+            given(methodSignature.getMethod()).willReturn(CustomController.class.getMethod("customEndpoint"));
             willReturn(ResponseEntity.ok("OK")).given(joinPoint).proceed();
             given(currentUserContext.getUserId()).willReturn("user-1");
             given(currentUserContext.getUsername()).willReturn("testuser");
@@ -229,8 +228,8 @@ class ActivityLogAspectTest {
             mockRequest("GET", "/api/companies");
             given(joinPoint.getSignature()).willReturn(methodSignature);
             given(methodSignature.getDeclaringType()).willReturn(CompanyController.class);
-            given(methodSignature.getMethod()).willReturn(
-                    CompanyController.class.getMethod("getAllCompanies", Pageable.class, String.class));
+            given(methodSignature.getMethod())
+                    .willReturn(CompanyController.class.getMethod("getAllCompanies", Pageable.class, String.class));
             given(currentUserContext.getUserId()).willReturn("user-1");
             given(currentUserContext.getUsername()).willReturn("testuser");
         }
@@ -249,7 +248,9 @@ class ActivityLogAspectTest {
         @Test
         @DisplayName("should capture 201 from created ResponseEntity")
         void captures201() throws Throwable {
-            willReturn(ResponseEntity.status(201).body("Created")).given(joinPoint).proceed();
+            willReturn(ResponseEntity.status(201).body("Created"))
+                    .given(joinPoint)
+                    .proceed();
 
             aspect.logActivity(joinPoint);
 

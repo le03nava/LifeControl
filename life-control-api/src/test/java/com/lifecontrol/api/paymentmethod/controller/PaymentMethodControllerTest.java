@@ -1,5 +1,12 @@
 package com.lifecontrol.api.paymentmethod.controller;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifecontrol.api.exception.GlobalExceptionHandler;
 import com.lifecontrol.api.paymentmethod.dto.PaymentMethodRequest;
@@ -7,6 +14,10 @@ import com.lifecontrol.api.paymentmethod.dto.PaymentMethodResponse;
 import com.lifecontrol.api.paymentmethod.exception.DuplicatePaymentMethodException;
 import com.lifecontrol.api.paymentmethod.exception.PaymentMethodNotFoundException;
 import com.lifecontrol.api.paymentmethod.service.PaymentMethodService;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -18,18 +29,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("PaymentMethodController Tests")
@@ -57,9 +56,7 @@ class PaymentMethodControllerTest {
 
         testPaymentMethodId = UUID.randomUUID();
         testPaymentMethodResponse = new PaymentMethodResponse(
-                testPaymentMethodId, "Efectivo", "EFECTIVO", true,
-                LocalDateTime.now(), LocalDateTime.now()
-        );
+                testPaymentMethodId, "Efectivo", "EFECTIVO", true, LocalDateTime.now(), LocalDateTime.now());
     }
 
     @Nested
@@ -69,8 +66,7 @@ class PaymentMethodControllerTest {
         @Test
         @DisplayName("should return 200 with list of payment methods")
         void getAllPaymentMethods_Returns200() throws Exception {
-            when(paymentMethodService.getAllPaymentMethods())
-                    .thenReturn(List.of(testPaymentMethodResponse));
+            when(paymentMethodService.getAllPaymentMethods()).thenReturn(List.of(testPaymentMethodResponse));
 
             mockMvc.perform(get("/api/payment-methods"))
                     .andExpect(status().isOk())
@@ -81,8 +77,7 @@ class PaymentMethodControllerTest {
         @Test
         @DisplayName("should return 200 with empty list when no payment methods")
         void getAllPaymentMethods_EmptyList_Returns200() throws Exception {
-            when(paymentMethodService.getAllPaymentMethods())
-                    .thenReturn(List.of());
+            when(paymentMethodService.getAllPaymentMethods()).thenReturn(List.of());
 
             mockMvc.perform(get("/api/payment-methods"))
                     .andExpect(status().isOk())
@@ -97,8 +92,7 @@ class PaymentMethodControllerTest {
         @Test
         @DisplayName("should return 200 when payment method exists")
         void getPaymentMethodById_Returns200() throws Exception {
-            when(paymentMethodService.getPaymentMethodById(testPaymentMethodId))
-                    .thenReturn(testPaymentMethodResponse);
+            when(paymentMethodService.getPaymentMethodById(testPaymentMethodId)).thenReturn(testPaymentMethodResponse);
 
             mockMvc.perform(get("/api/payment-methods/{id}", testPaymentMethodId))
                     .andExpect(status().isOk())
@@ -168,8 +162,12 @@ class PaymentMethodControllerTest {
         void updatePaymentMethod_Returns200() throws Exception {
             var request = new PaymentMethodRequest("Transferencia", "TRANSFERENCIA", true);
             var updatedResponse = new PaymentMethodResponse(
-                    testPaymentMethodId, "Transferencia", "TRANSFERENCIA", true,
-                    LocalDateTime.now(), LocalDateTime.now());
+                    testPaymentMethodId,
+                    "Transferencia",
+                    "TRANSFERENCIA",
+                    true,
+                    LocalDateTime.now(),
+                    LocalDateTime.now());
             when(paymentMethodService.updatePaymentMethod(eq(testPaymentMethodId), any(PaymentMethodRequest.class)))
                     .thenReturn(updatedResponse);
 
@@ -222,7 +220,8 @@ class PaymentMethodControllerTest {
         @DisplayName("should return 404 when payment method not found")
         void deletePaymentMethod_NotFound_Returns404() throws Exception {
             doThrow(new PaymentMethodNotFoundException(testPaymentMethodId))
-                    .when(paymentMethodService).deletePaymentMethod(testPaymentMethodId);
+                    .when(paymentMethodService)
+                    .deletePaymentMethod(testPaymentMethodId);
 
             mockMvc.perform(delete("/api/payment-methods/{id}", testPaymentMethodId))
                     .andExpect(status().isNotFound());
@@ -250,8 +249,7 @@ class PaymentMethodControllerTest {
         @DisplayName("should return 200 when disabled successfully")
         void setPaymentMethodEnabled_Disable_Returns200() throws Exception {
             var disabledResponse = new PaymentMethodResponse(
-                    testPaymentMethodId, "Efectivo", "EFECTIVO", false,
-                    LocalDateTime.now(), LocalDateTime.now());
+                    testPaymentMethodId, "Efectivo", "EFECTIVO", false, LocalDateTime.now(), LocalDateTime.now());
             when(paymentMethodService.setPaymentMethodEnabled(eq(testPaymentMethodId), eq(false)))
                     .thenReturn(disabledResponse);
 

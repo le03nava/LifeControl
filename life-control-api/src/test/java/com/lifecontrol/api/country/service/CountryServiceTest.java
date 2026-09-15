@@ -1,11 +1,19 @@
 package com.lifecontrol.api.country.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
 import com.lifecontrol.api.country.dto.CountryRequest;
 import com.lifecontrol.api.country.dto.CountryResponse;
 import com.lifecontrol.api.country.exception.CountryNotFoundException;
 import com.lifecontrol.api.country.exception.DuplicateCountryException;
 import com.lifecontrol.api.country.model.Country;
 import com.lifecontrol.api.country.repository.CountryRepository;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -14,15 +22,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("CountryService Tests")
@@ -60,8 +59,18 @@ class CountryServiceTest {
         @DisplayName("should return only enabled countries by default")
         void getAllCountries_Default_FiltersDisabled() {
             // Arrange
-            var enabled = Country.builder().id(UUID.randomUUID()).countryCode("MX").countryName("México").enabled(true).build();
-            var disabled = Country.builder().id(UUID.randomUUID()).countryCode("US").countryName("USA").enabled(false).build();
+            var enabled = Country.builder()
+                    .id(UUID.randomUUID())
+                    .countryCode("MX")
+                    .countryName("México")
+                    .enabled(true)
+                    .build();
+            var disabled = Country.builder()
+                    .id(UUID.randomUUID())
+                    .countryCode("US")
+                    .countryName("USA")
+                    .enabled(false)
+                    .build();
             when(countryRepository.findByEnabledTrue()).thenReturn(List.of(enabled));
 
             // Act
@@ -78,8 +87,18 @@ class CountryServiceTest {
         @DisplayName("should return all countries when includeDisabled is true")
         void getAllCountries_IncludeDisabled_ReturnsAll() {
             // Arrange
-            var enabled = Country.builder().id(UUID.randomUUID()).countryCode("MX").countryName("México").enabled(true).build();
-            var disabled = Country.builder().id(UUID.randomUUID()).countryCode("US").countryName("USA").enabled(false).build();
+            var enabled = Country.builder()
+                    .id(UUID.randomUUID())
+                    .countryCode("MX")
+                    .countryName("México")
+                    .enabled(true)
+                    .build();
+            var disabled = Country.builder()
+                    .id(UUID.randomUUID())
+                    .countryCode("US")
+                    .countryName("USA")
+                    .enabled(false)
+                    .build();
             when(countryRepository.findAll()).thenReturn(List.of(enabled, disabled));
 
             // Act
@@ -162,7 +181,12 @@ class CountryServiceTest {
             when(countryRepository.existsByCountryCode("mx")).thenReturn(false);
             when(countryRepository.save(any(Country.class))).thenAnswer(inv -> {
                 Country c = inv.getArgument(0);
-                return Country.builder().id(UUID.randomUUID()).countryCode(c.getCountryCode()).countryName(c.getCountryName()).enabled(true).build();
+                return Country.builder()
+                        .id(UUID.randomUUID())
+                        .countryCode(c.getCountryCode())
+                        .countryName(c.getCountryName())
+                        .enabled(true)
+                        .build();
             });
 
             // Act

@@ -4,14 +4,12 @@ import com.lifecontrol.api.common.model.Auditable;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.supplier.model.Supplier;
 import jakarta.persistence.*;
-
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "product_suppliers",
-       uniqueConstraints = @UniqueConstraint(columnNames = {"product_id", "supplier_id"}))
+@Table(name = "product_suppliers", uniqueConstraints = @UniqueConstraint(columnNames = {"product_id", "supplier_id"}))
 public class ProductSupplier extends Auditable {
 
     @Id

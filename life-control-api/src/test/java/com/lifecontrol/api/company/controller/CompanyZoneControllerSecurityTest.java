@@ -1,12 +1,21 @@
 package com.lifecontrol.api.company.controller;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifecontrol.api.company.dto.CompanyZoneResponse;
 import com.lifecontrol.api.company.dto.CreateCompanyZoneRequest;
 import com.lifecontrol.api.company.dto.UpdateCompanyZoneRequest;
 import com.lifecontrol.api.company.service.CompanyZoneService;
 import com.lifecontrol.api.config.ratelimit.RateLimitProperties;
 import com.lifecontrol.api.exception.GlobalExceptionHandler;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -27,16 +36,6 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.UUID;
-
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-
 @WebMvcTest(CompanyZoneController.class)
 @Import(GlobalExceptionHandler.class)
 @DisplayName("CompanyZoneController Security — @PreAuthorize class-level authorization")
@@ -48,8 +47,7 @@ class CompanyZoneControllerSecurityTest {
     static class TestSecurityConfig {
         @Bean
         SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-            return http
-                    .authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
+            return http.authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
                     .httpBasic(basic -> {})
                     .csrf(AbstractHttpConfigurer::disable)
                     .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -73,14 +71,23 @@ class CompanyZoneControllerSecurityTest {
     private final UUID companyCountryId = UUID.randomUUID();
     private final UUID regionId = UUID.randomUUID();
     private final UUID zoneId = UUID.randomUUID();
-    private static final String BASE_URL = "/api/companies/{companyId}/countries/{companyCountryId}/regions/{regionId}/zones";
+    private static final String BASE_URL =
+            "/api/companies/{companyId}/countries/{companyCountryId}/regions/{regionId}/zones";
 
     private CompanyZoneResponse buildZoneResponse() {
         return new CompanyZoneResponse(
-                zoneId, regionId, companyCountryId, companyId, UUID.randomUUID(),
-                "CEN", "Centro", null, null, true,
-                LocalDateTime.now(), LocalDateTime.now()
-        );
+                zoneId,
+                regionId,
+                companyCountryId,
+                companyId,
+                UUID.randomUUID(),
+                "CEN",
+                "Centro",
+                null,
+                null,
+                true,
+                LocalDateTime.now(),
+                LocalDateTime.now());
     }
 
     // ─── GET /api/companies/{companyId}/countries/{companyCountryId}/regions/{regionId}/zones ──
@@ -272,7 +279,8 @@ class CompanyZoneControllerSecurityTest {
         @DisplayName("returns 201 Created for lc-admin")
         void lcAdminCanCreateZone() throws Exception {
             var request = new CreateCompanyZoneRequest("CEN", "Centro", null, null);
-            when(companyZoneService.createZone(eq(companyId), eq(companyCountryId), eq(regionId), any(CreateCompanyZoneRequest.class)))
+            when(companyZoneService.createZone(
+                            eq(companyId), eq(companyCountryId), eq(regionId), any(CreateCompanyZoneRequest.class)))
                     .thenReturn(buildZoneResponse());
 
             mockMvc.perform(post(BASE_URL, companyId, companyCountryId, regionId)
@@ -286,7 +294,8 @@ class CompanyZoneControllerSecurityTest {
         @DisplayName("returns 201 Created for lc-company")
         void lcCompanyCanCreateZone() throws Exception {
             var request = new CreateCompanyZoneRequest("CEN", "Centro", null, null);
-            when(companyZoneService.createZone(eq(companyId), eq(companyCountryId), eq(regionId), any(CreateCompanyZoneRequest.class)))
+            when(companyZoneService.createZone(
+                            eq(companyId), eq(companyCountryId), eq(regionId), any(CreateCompanyZoneRequest.class)))
                     .thenReturn(buildZoneResponse());
 
             mockMvc.perform(post(BASE_URL, companyId, companyCountryId, regionId)
@@ -300,7 +309,8 @@ class CompanyZoneControllerSecurityTest {
         @DisplayName("returns 201 Created for lc-company-country")
         void lcCompanyCountryCanCreateZone() throws Exception {
             var request = new CreateCompanyZoneRequest("CEN", "Centro", null, null);
-            when(companyZoneService.createZone(eq(companyId), eq(companyCountryId), eq(regionId), any(CreateCompanyZoneRequest.class)))
+            when(companyZoneService.createZone(
+                            eq(companyId), eq(companyCountryId), eq(regionId), any(CreateCompanyZoneRequest.class)))
                     .thenReturn(buildZoneResponse());
 
             mockMvc.perform(post(BASE_URL, companyId, companyCountryId, regionId)
@@ -314,7 +324,8 @@ class CompanyZoneControllerSecurityTest {
         @DisplayName("returns 201 Created for lc-company-region")
         void lcCompanyRegionCanCreateZone() throws Exception {
             var request = new CreateCompanyZoneRequest("CEN", "Centro", null, null);
-            when(companyZoneService.createZone(eq(companyId), eq(companyCountryId), eq(regionId), any(CreateCompanyZoneRequest.class)))
+            when(companyZoneService.createZone(
+                            eq(companyId), eq(companyCountryId), eq(regionId), any(CreateCompanyZoneRequest.class)))
                     .thenReturn(buildZoneResponse());
 
             mockMvc.perform(post(BASE_URL, companyId, companyCountryId, regionId)
@@ -328,7 +339,8 @@ class CompanyZoneControllerSecurityTest {
         @DisplayName("returns 403 for lc-company-zone (create denied at service level)")
         void lcCompanyZoneCreateDenied() throws Exception {
             var request = new CreateCompanyZoneRequest("CEN", "Centro", null, null);
-            when(companyZoneService.createZone(eq(companyId), eq(companyCountryId), eq(regionId), any(CreateCompanyZoneRequest.class)))
+            when(companyZoneService.createZone(
+                            eq(companyId), eq(companyCountryId), eq(regionId), any(CreateCompanyZoneRequest.class)))
                     .thenThrow(new AccessDeniedException("Zone-scoped users cannot create zones"));
 
             mockMvc.perform(post(BASE_URL, companyId, companyCountryId, regionId)
@@ -371,8 +383,12 @@ class CompanyZoneControllerSecurityTest {
         @DisplayName("returns 200 OK for lc-admin")
         void lcAdminCanUpdateZone() throws Exception {
             var request = new UpdateCompanyZoneRequest("CEN", "Centro Actualizado", null, null);
-            when(companyZoneService.updateZone(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId),
-                    any(UpdateCompanyZoneRequest.class)))
+            when(companyZoneService.updateZone(
+                            eq(companyId),
+                            eq(companyCountryId),
+                            eq(regionId),
+                            eq(zoneId),
+                            any(UpdateCompanyZoneRequest.class)))
                     .thenReturn(buildZoneResponse());
 
             mockMvc.perform(put(BASE_URL + "/{id}", companyId, companyCountryId, regionId, zoneId)
@@ -386,8 +402,12 @@ class CompanyZoneControllerSecurityTest {
         @DisplayName("returns 200 OK for lc-company")
         void lcCompanyCanUpdateZone() throws Exception {
             var request = new UpdateCompanyZoneRequest("CEN", "Centro Actualizado", null, null);
-            when(companyZoneService.updateZone(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId),
-                    any(UpdateCompanyZoneRequest.class)))
+            when(companyZoneService.updateZone(
+                            eq(companyId),
+                            eq(companyCountryId),
+                            eq(regionId),
+                            eq(zoneId),
+                            any(UpdateCompanyZoneRequest.class)))
                     .thenReturn(buildZoneResponse());
 
             mockMvc.perform(put(BASE_URL + "/{id}", companyId, companyCountryId, regionId, zoneId)
@@ -401,8 +421,12 @@ class CompanyZoneControllerSecurityTest {
         @DisplayName("returns 200 OK for lc-company-country")
         void lcCompanyCountryCanUpdateZone() throws Exception {
             var request = new UpdateCompanyZoneRequest("CEN", "Centro Actualizado", null, null);
-            when(companyZoneService.updateZone(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId),
-                    any(UpdateCompanyZoneRequest.class)))
+            when(companyZoneService.updateZone(
+                            eq(companyId),
+                            eq(companyCountryId),
+                            eq(regionId),
+                            eq(zoneId),
+                            any(UpdateCompanyZoneRequest.class)))
                     .thenReturn(buildZoneResponse());
 
             mockMvc.perform(put(BASE_URL + "/{id}", companyId, companyCountryId, regionId, zoneId)
@@ -416,8 +440,12 @@ class CompanyZoneControllerSecurityTest {
         @DisplayName("returns 200 OK for lc-company-region")
         void lcCompanyRegionCanUpdateZone() throws Exception {
             var request = new UpdateCompanyZoneRequest("CEN", "Centro Actualizado", null, null);
-            when(companyZoneService.updateZone(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId),
-                    any(UpdateCompanyZoneRequest.class)))
+            when(companyZoneService.updateZone(
+                            eq(companyId),
+                            eq(companyCountryId),
+                            eq(regionId),
+                            eq(zoneId),
+                            any(UpdateCompanyZoneRequest.class)))
                     .thenReturn(buildZoneResponse());
 
             mockMvc.perform(put(BASE_URL + "/{id}", companyId, companyCountryId, regionId, zoneId)
@@ -431,8 +459,12 @@ class CompanyZoneControllerSecurityTest {
         @DisplayName("returns 200 OK for lc-company-zone")
         void lcCompanyZoneCanUpdateZone() throws Exception {
             var request = new UpdateCompanyZoneRequest("CEN", "Centro Actualizado", null, null);
-            when(companyZoneService.updateZone(eq(companyId), eq(companyCountryId), eq(regionId), eq(zoneId),
-                    any(UpdateCompanyZoneRequest.class)))
+            when(companyZoneService.updateZone(
+                            eq(companyId),
+                            eq(companyCountryId),
+                            eq(regionId),
+                            eq(zoneId),
+                            any(UpdateCompanyZoneRequest.class)))
                     .thenReturn(buildZoneResponse());
 
             mockMvc.perform(put(BASE_URL + "/{id}", companyId, companyCountryId, regionId, zoneId)

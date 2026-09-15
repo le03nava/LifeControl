@@ -7,15 +7,14 @@ import com.lifecontrol.api.measureunit.exception.MeasureUnitNotFoundException;
 import com.lifecontrol.api.measureunit.model.MeasureUnit;
 import com.lifecontrol.api.measureunit.model.MeasureUnitType;
 import com.lifecontrol.api.measureunit.repository.MeasureUnitRepository;
+import java.util.List;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.List;
-import java.util.UUID;
 
 @Service
 public class MeasureUnitService {
@@ -44,7 +43,8 @@ public class MeasureUnitService {
     @Cacheable(value = "measureUnits", key = "#id")
     @Transactional(readOnly = true)
     public MeasureUnitResponse getMeasureUnitById(UUID id) {
-        return measureUnitRepository.findById(id)
+        return measureUnitRepository
+                .findById(id)
                 .map(this::toResponse)
                 .orElseThrow(() -> new MeasureUnitNotFoundException(id));
     }
@@ -90,8 +90,7 @@ public class MeasureUnitService {
     public MeasureUnitResponse updateMeasureUnit(UUID id, MeasureUnitRequest request) {
         logger.info("Updating measure unit with id: {}", id);
 
-        var measureUnit = measureUnitRepository.findById(id)
-                .orElseThrow(() -> new MeasureUnitNotFoundException(id));
+        var measureUnit = measureUnitRepository.findById(id).orElseThrow(() -> new MeasureUnitNotFoundException(id));
 
         // Validate uniqueness of satCode (excluding current)
         if (!measureUnit.getSatCode().equals(request.satCode())
@@ -119,8 +118,7 @@ public class MeasureUnitService {
     public void deleteMeasureUnit(UUID id) {
         logger.info("Soft-deleting measure unit with id: {}", id);
 
-        var measureUnit = measureUnitRepository.findById(id)
-                .orElseThrow(() -> new MeasureUnitNotFoundException(id));
+        var measureUnit = measureUnitRepository.findById(id).orElseThrow(() -> new MeasureUnitNotFoundException(id));
 
         measureUnit.setEnabled(false);
         measureUnitRepository.save(measureUnit);
@@ -133,8 +131,7 @@ public class MeasureUnitService {
     public MeasureUnitResponse enableMeasureUnit(UUID id) {
         logger.info("Enabling measure unit with id: {}", id);
 
-        var measureUnit = measureUnitRepository.findById(id)
-                .orElseThrow(() -> new MeasureUnitNotFoundException(id));
+        var measureUnit = measureUnitRepository.findById(id).orElseThrow(() -> new MeasureUnitNotFoundException(id));
 
         if (measureUnit.getEnabled()) {
             logger.warn("Measure unit is already enabled: id={}", id);
@@ -158,7 +155,6 @@ public class MeasureUnitService {
                 measureUnit.getDescription(),
                 measureUnit.getEnabled(),
                 measureUnit.getCreatedAt(),
-                measureUnit.getUpdatedAt()
-        );
+                measureUnit.getUpdatedAt());
     }
 }

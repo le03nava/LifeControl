@@ -1,6 +1,15 @@
 package com.lifecontrol.api.config.ratelimit;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
 import com.lifecontrol.api.config.ratelimit.RateLimitProperties.EndpointLimit;
+import java.time.Duration;
+import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -14,17 +23,6 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.time.Duration;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * Integration tests for rate limiting using MockMvc with the actual filter.
@@ -106,11 +104,9 @@ class RateLimitIntegrationTest {
         @Test
         @DisplayName("should show decreasing remaining tokens")
         void decreasingRemainingTokens() throws Exception {
-            mockMvc.perform(get("/api/users-admin/users"))
-                    .andExpect(header().string("X-RateLimit-Remaining", "1"));
+            mockMvc.perform(get("/api/users-admin/users")).andExpect(header().string("X-RateLimit-Remaining", "1"));
 
-            mockMvc.perform(get("/api/users-admin/users"))
-                    .andExpect(header().string("X-RateLimit-Remaining", "0"));
+            mockMvc.perform(get("/api/users-admin/users")).andExpect(header().string("X-RateLimit-Remaining", "0"));
         }
     }
 
@@ -126,8 +122,7 @@ class RateLimitIntegrationTest {
             mockMvc.perform(get("/api/users-admin/users")).andExpect(status().isOk());
 
             // Users endpoint should now be blocked
-            mockMvc.perform(get("/api/users-admin/users"))
-                    .andExpect(status().isTooManyRequests());
+            mockMvc.perform(get("/api/users-admin/users")).andExpect(status().isTooManyRequests());
 
             // Roles endpoint (5 req/min) should still work
             mockMvc.perform(get("/api/users-admin/roles"))

@@ -5,15 +5,14 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 public record SupplierResponse(
-    UUID id,
-    String supplierName,
-    String razonSocial,
-    String rfc,
-    String email,
-    String phoneNumber,
-    String internalNumber,
-    AddressResponse address,
-    Boolean enabled,
-    LocalDateTime createdAt,
-    LocalDateTime updatedAt
-) {}
+        UUID id,
+        String supplierName,
+        String razonSocial,
+        String rfc,
+        String email,
+        String phoneNumber,
+        String internalNumber,
+        AddressResponse address,
+        Boolean enabled,
+        LocalDateTime createdAt,
+        LocalDateTime updatedAt) {}

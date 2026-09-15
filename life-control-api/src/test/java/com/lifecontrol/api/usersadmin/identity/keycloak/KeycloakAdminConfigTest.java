@@ -1,10 +1,10 @@
 package com.lifecontrol.api.usersadmin.identity.keycloak;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 @DisplayName("KeycloakAdminConfig")
 class KeycloakAdminConfigTest {
@@ -17,11 +17,7 @@ class KeycloakAdminConfigTest {
         @DisplayName("should bind all keycloak.admin properties")
         void shouldBindAllProperties() {
             var properties = new KeycloakAdminProperties(
-                    "http://keycloak:8080",
-                    "life-control-realm",
-                    "life-control-admin-client",
-                    "secret-value"
-            );
+                    "http://keycloak:8080", "life-control-realm", "life-control-admin-client", "secret-value");
 
             assertThat(properties.serverUrl()).isEqualTo("http://keycloak:8080");
             assertThat(properties.realm()).isEqualTo("life-control-realm");
@@ -32,12 +28,7 @@ class KeycloakAdminConfigTest {
         @Test
         @DisplayName("should support construction with null optional values")
         void shouldSupportNullValues() {
-            var properties = new KeycloakAdminProperties(
-                    "http://localhost:8080",
-                    "my-realm",
-                    "my-client",
-                    null
-            );
+            var properties = new KeycloakAdminProperties("http://localhost:8080", "my-realm", "my-client", null);
 
             assertThat(properties.serverUrl()).isEqualTo("http://localhost:8080");
             assertThat(properties.clientSecret()).isNull();

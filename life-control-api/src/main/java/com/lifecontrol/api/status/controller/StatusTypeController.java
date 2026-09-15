@@ -1,5 +1,8 @@
 package com.lifecontrol.api.status.controller;
 
+import static com.lifecontrol.api.common.security.Roles.ADMIN;
+import static com.lifecontrol.api.common.security.Roles.STATUS_TYPE;
+
 import com.lifecontrol.api.status.dto.StatusTypeRequest;
 import com.lifecontrol.api.status.dto.StatusTypeResponse;
 import com.lifecontrol.api.status.service.StatusTypeService;
@@ -8,6 +11,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -15,11 +19,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.UUID;
-
-import static com.lifecontrol.api.common.security.Roles.ADMIN;
-import static com.lifecontrol.api.common.security.Roles.STATUS_TYPE;
 
 @RestController
 @RequestMapping("/api/status-types")
@@ -34,13 +33,12 @@ public class StatusTypeController {
 
     @GetMapping
     @PreAuthorize("isAuthenticated()")
-    @Operation(summary = "Get all status types", description = "Returns a paginated list of status types. Use ?search= to filter by name.")
-    @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "Paginated list of status types")
-    })
+    @Operation(
+            summary = "Get all status types",
+            description = "Returns a paginated list of status types. Use ?search= to filter by name.")
+    @ApiResponses({@ApiResponse(responseCode = "200", description = "Paginated list of status types")})
     public ResponseEntity<Page<StatusTypeResponse>> getAllStatusTypes(
-            @PageableDefault(size = 12) Pageable pageable,
-            @RequestParam(required = false) String search) {
+            @PageableDefault(size = 12) Pageable pageable, @RequestParam(required = false) String search) {
         return ResponseEntity.ok(statusTypeService.getAllStatusTypes(pageable, search));
     }
 
@@ -57,7 +55,9 @@ public class StatusTypeController {
 
     @PostMapping
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + STATUS_TYPE + "')")
-    @Operation(summary = "Create a new status type", description = "Creates a new status type with the provided details")
+    @Operation(
+            summary = "Create a new status type",
+            description = "Creates a new status type with the provided details")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "Status type created"),
         @ApiResponse(responseCode = "400", description = "Validation error"),
@@ -78,8 +78,7 @@ public class StatusTypeController {
         @ApiResponse(responseCode = "409", description = "Status type name already exists")
     })
     public ResponseEntity<StatusTypeResponse> updateStatusType(
-            @PathVariable UUID id,
-            @Valid @RequestBody StatusTypeRequest request) {
+            @PathVariable UUID id, @Valid @RequestBody StatusTypeRequest request) {
         var response = statusTypeService.updateStatusType(id, request);
         return ResponseEntity.ok(response);
     }

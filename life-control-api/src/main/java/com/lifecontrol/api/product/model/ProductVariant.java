@@ -2,7 +2,6 @@ package com.lifecontrol.api.product.model;
 
 import com.lifecontrol.api.common.model.Auditable;
 import jakarta.persistence.*;
-
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;

@@ -1,5 +1,13 @@
 package com.lifecontrol.api.purchaseorder.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
@@ -31,6 +39,11 @@ import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.supplier.exception.SupplierNotFoundException;
 import com.lifecontrol.api.supplier.model.Supplier;
 import com.lifecontrol.api.supplier.repository.SupplierRepository;
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -40,37 +53,36 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
-
-import java.math.BigDecimal;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("PurchaseOrderService Tests")
 class PurchaseOrderServiceTest {
 
-    @Mock private PurchaseOrderRepository purchaseOrderRepository;
-    @Mock private PurchaseOrderDetailRepository detailRepository;
-    @Mock private SupplierRepository supplierRepository;
-    @Mock private CompanyStoreRepository companyStoreRepository;
-    @Mock private ProductRepository productRepository;
-    @Mock private PaymentMethodRepository paymentMethodRepository;
-    @Mock private StatusRepository statusRepository;
-    @Mock private StatusTypeRepository statusTypeRepository;
+    @Mock
+    private PurchaseOrderRepository purchaseOrderRepository;
+
+    @Mock
+    private PurchaseOrderDetailRepository detailRepository;
+
+    @Mock
+    private SupplierRepository supplierRepository;
+
+    @Mock
+    private CompanyStoreRepository companyStoreRepository;
+
+    @Mock
+    private ProductRepository productRepository;
+
+    @Mock
+    private PaymentMethodRepository paymentMethodRepository;
+
+    @Mock
+    private StatusRepository statusRepository;
+
+    @Mock
+    private StatusTypeRepository statusTypeRepository;
 
     @InjectMocks
     private PurchaseOrderService service;
@@ -221,7 +233,8 @@ class PurchaseOrderServiceTest {
         void returnsPaginatedResults() {
             var pageable = PageRequest.of(0, 10);
             var page = new PageImpl<>(List.of(purchaseOrder), pageable, 1);
-            when(purchaseOrderRepository.findByEnabledTrueOrderByCreatedAtDesc(pageable)).thenReturn(page);
+            when(purchaseOrderRepository.findByEnabledTrueOrderByCreatedAtDesc(pageable))
+                    .thenReturn(page);
 
             var result = service.getAllPurchaseOrders(pageable, null);
 
@@ -288,9 +301,7 @@ class PurchaseOrderServiceTest {
         @Test
         @DisplayName("should create PO with Draft status and auto-generated order_number")
         void createsPOWithDraftAndOrderNumber() {
-            var request = new PurchaseOrderRequest(
-                    supplierId, storeId, pmId, draftStatusId, "Comments", List.of()
-            );
+            var request = new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, "Comments", List.of());
 
             when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(supplier));
             when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
@@ -317,10 +328,10 @@ class PurchaseOrderServiceTest {
         @Test
         @DisplayName("should compute detail totals automatically")
         void computesDetailTotals() {
-            var detailReq = new PurchaseOrderDetailRequest(productId, 3, new BigDecimal("150.00"), "Detail comments", pendingStatus.getId());
-            var request = new PurchaseOrderRequest(
-                    supplierId, storeId, pmId, draftStatusId, "Comments", List.of(detailReq)
-            );
+            var detailReq = new PurchaseOrderDetailRequest(
+                    productId, 3, new BigDecimal("150.00"), "Detail comments", pendingStatus.getId());
+            var request =
+                    new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, "Comments", List.of(detailReq));
 
             when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(supplier));
             when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
@@ -348,9 +359,7 @@ class PurchaseOrderServiceTest {
         @Test
         @DisplayName("should throw SupplierNotFoundException when supplier missing")
         void throwsWhenSupplierMissing() {
-            var request = new PurchaseOrderRequest(
-                    supplierId, storeId, pmId, draftStatusId, null, List.of()
-            );
+            var request = new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, null, List.of());
             when(supplierRepository.findById(supplierId)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> service.createPurchaseOrder(request))
@@ -360,9 +369,7 @@ class PurchaseOrderServiceTest {
         @Test
         @DisplayName("should throw CompanyStoreNotFoundException when store missing")
         void throwsWhenStoreMissing() {
-            var request = new PurchaseOrderRequest(
-                    supplierId, storeId, pmId, draftStatusId, null, List.of()
-            );
+            var request = new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, null, List.of());
             when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(supplier));
             when(companyStoreRepository.findById(storeId)).thenReturn(Optional.empty());
 
@@ -373,9 +380,7 @@ class PurchaseOrderServiceTest {
         @Test
         @DisplayName("should throw PaymentMethodNotFoundException when payment method missing")
         void throwsWhenPaymentMethodMissing() {
-            var request = new PurchaseOrderRequest(
-                    supplierId, storeId, pmId, draftStatusId, null, List.of()
-            );
+            var request = new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, null, List.of());
             when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(supplier));
             when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.empty());
@@ -387,24 +392,19 @@ class PurchaseOrderServiceTest {
         @Test
         @DisplayName("should throw StatusNotFoundException when status missing")
         void throwsWhenStatusMissing() {
-            var request = new PurchaseOrderRequest(
-                    supplierId, storeId, pmId, draftStatusId, null, List.of()
-            );
+            var request = new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, null, List.of());
             when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(supplier));
             when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
             when(statusRepository.findById(draftStatusId)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> service.createPurchaseOrder(request))
-                    .isInstanceOf(StatusNotFoundException.class);
+            assertThatThrownBy(() -> service.createPurchaseOrder(request)).isInstanceOf(StatusNotFoundException.class);
         }
 
         @Test
         @DisplayName("should throw when status has wrong type")
         void throwsWhenWrongStatusType() {
-            var request = new PurchaseOrderRequest(
-                    supplierId, storeId, pmId, pendingStatus.getId(), null, List.of()
-            );
+            var request = new PurchaseOrderRequest(supplierId, storeId, pmId, pendingStatus.getId(), null, List.of());
             when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(supplier));
             when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
@@ -425,9 +425,8 @@ class PurchaseOrderServiceTest {
         @Test
         @DisplayName("should update PO fields")
         void updatesPOFields() {
-            var request = new PurchaseOrderRequest(
-                    supplierId, storeId, pmId, draftStatusId, "Updated comments", List.of()
-            );
+            var request =
+                    new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, "Updated comments", List.of());
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
             when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(supplier));
             when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
@@ -445,9 +444,7 @@ class PurchaseOrderServiceTest {
         @Test
         @DisplayName("should throw PurchaseOrderNotFoundException when PO missing")
         void throwsWhenPOMissing() {
-            var request = new PurchaseOrderRequest(
-                    supplierId, storeId, pmId, draftStatusId, null, List.of()
-            );
+            var request = new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, null, List.of());
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> service.updatePurchaseOrder(poId, request))
@@ -478,9 +475,14 @@ class PurchaseOrderServiceTest {
         @DisplayName("should throw InvalidStatusTransitionException on invalid transition")
         void invalidTransitionThrows() {
             var alreadySent = PurchaseOrder.builder()
-                    .id(poId).orderNumber("PO-001")
-                    .supplier(supplier).companyStore(store).paymentMethod(paymentMethod)
-                    .status(sentStatus).enabled(true).build();
+                    .id(poId)
+                    .orderNumber("PO-001")
+                    .supplier(supplier)
+                    .companyStore(store)
+                    .paymentMethod(paymentMethod)
+                    .status(sentStatus)
+                    .enabled(true)
+                    .build();
 
             var request = new UpdatePurchaseOrderStatusRequest(draftStatusId);
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(alreadySent));
@@ -560,7 +562,8 @@ class PurchaseOrderServiceTest {
         @Test
         @DisplayName("should add detail when PO is Draft")
         void addsDetailWhenDraft() {
-            var detailReq = new PurchaseOrderDetailRequest(productId, 2, new BigDecimal("50.00"), "Note", pendingStatus.getId());
+            var detailReq = new PurchaseOrderDetailRequest(
+                    productId, 2, new BigDecimal("50.00"), "Note", pendingStatus.getId());
 
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
@@ -581,7 +584,8 @@ class PurchaseOrderServiceTest {
         @Test
         @DisplayName("should throw ProductNotFoundException when product missing")
         void throwsWhenProductMissing() {
-            var detailReq = new PurchaseOrderDetailRequest(productId, 2, new BigDecimal("50.00"), "Note", pendingStatus.getId());
+            var detailReq = new PurchaseOrderDetailRequest(
+                    productId, 2, new BigDecimal("50.00"), "Note", pendingStatus.getId());
 
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
             when(productRepository.findById(productId)).thenReturn(Optional.empty());
@@ -600,7 +604,8 @@ class PurchaseOrderServiceTest {
         @Test
         @DisplayName("should update detail fields and recompute total")
         void updatesDetailAndRecomputesTotal() {
-            var updatedReq = new PurchaseOrderDetailRequest(productId, 10, new BigDecimal("25.00"), "Updated", pendingStatus.getId());
+            var updatedReq = new PurchaseOrderDetailRequest(
+                    productId, 10, new BigDecimal("25.00"), "Updated", pendingStatus.getId());
 
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
             when(detailRepository.findById(detailId)).thenReturn(Optional.of(detail));
@@ -617,7 +622,8 @@ class PurchaseOrderServiceTest {
         @Test
         @DisplayName("should throw PurchaseOrderDetailNotFoundException when detail missing")
         void throwsWhenDetailMissing() {
-            var updatedReq = new PurchaseOrderDetailRequest(productId, 10, new BigDecimal("25.00"), "Updated", pendingStatus.getId());
+            var updatedReq = new PurchaseOrderDetailRequest(
+                    productId, 10, new BigDecimal("25.00"), "Updated", pendingStatus.getId());
 
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
             when(detailRepository.findById(detailId)).thenReturn(Optional.empty());
@@ -717,7 +723,8 @@ class PurchaseOrderServiceTest {
 
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
             when(detailRepository.findById(detailId)).thenReturn(Optional.of(detail));
-            when(statusRepository.findById(partialReceivedStatus.getId())).thenReturn(Optional.of(partialReceivedStatus));
+            when(statusRepository.findById(partialReceivedStatus.getId()))
+                    .thenReturn(Optional.of(partialReceivedStatus));
             when(detailRepository.save(any(PurchaseOrderDetail.class))).thenReturn(detail);
 
             var result = service.updatePurchaseOrderDetailStatus(poId, detailId, request);
@@ -752,7 +759,8 @@ class PurchaseOrderServiceTest {
 
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
             when(detailRepository.findById(detailId)).thenReturn(Optional.of(detail));
-            when(statusRepository.findById(partialReceivedStatus.getId())).thenReturn(Optional.of(partialReceivedStatus));
+            when(statusRepository.findById(partialReceivedStatus.getId()))
+                    .thenReturn(Optional.of(partialReceivedStatus));
 
             assertThatThrownBy(() -> service.updatePurchaseOrderDetailStatus(poId, detailId, request))
                     .isInstanceOf(IllegalArgumentException.class)
@@ -769,7 +777,8 @@ class PurchaseOrderServiceTest {
 
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
             when(detailRepository.findById(detailId)).thenReturn(Optional.of(detail));
-            when(statusRepository.findById(partialReceivedStatus.getId())).thenReturn(Optional.of(partialReceivedStatus));
+            when(statusRepository.findById(partialReceivedStatus.getId()))
+                    .thenReturn(Optional.of(partialReceivedStatus));
 
             assertThatThrownBy(() -> service.updatePurchaseOrderDetailStatus(poId, detailId, request))
                     .isInstanceOf(IllegalArgumentException.class)

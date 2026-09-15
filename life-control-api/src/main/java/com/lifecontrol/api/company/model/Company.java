@@ -3,7 +3,6 @@ package com.lifecontrol.api.company.model;
 import com.lifecontrol.api.common.address.model.Address;
 import com.lifecontrol.api.common.model.Auditable;
 import jakarta.persistence.*;
-
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -61,7 +60,9 @@ public class Company extends Auditable {
     @Column(name = "country_id")
     private UUID countryId;
 
-    @OneToOne(cascade = {CascadeType.PERSIST, CascadeType.MERGE}, fetch = FetchType.LAZY)
+    @OneToOne(
+            cascade = {CascadeType.PERSIST, CascadeType.MERGE},
+            fetch = FetchType.LAZY)
     @JoinColumn(name = "address_id")
     private Address address;
 

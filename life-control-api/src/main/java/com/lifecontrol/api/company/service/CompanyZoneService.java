@@ -16,17 +16,16 @@ import com.lifecontrol.api.company.repository.CompanyCountryRepository;
 import com.lifecontrol.api.company.repository.CompanyRegionRepository;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.company.repository.CompanyZoneRepository;
+import java.util.List;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.List;
-import java.util.UUID;
 
 @Service
 public class CompanyZoneService {
@@ -40,12 +39,13 @@ public class CompanyZoneService {
     private final CurrentUserContext currentUserContext;
     private final ApplicationEventPublisher eventPublisher;
 
-    public CompanyZoneService(CompanyZoneRepository companyZoneRepository,
-                              CompanyRegionRepository companyRegionRepository,
-                              CompanyRepository companyRepository,
-                              CompanyCountryRepository companyCountryRepository,
-                              CurrentUserContext currentUserContext,
-                              ApplicationEventPublisher eventPublisher) {
+    public CompanyZoneService(
+            CompanyZoneRepository companyZoneRepository,
+            CompanyRegionRepository companyRegionRepository,
+            CompanyRepository companyRepository,
+            CompanyCountryRepository companyCountryRepository,
+            CurrentUserContext currentUserContext,
+            ApplicationEventPublisher eventPublisher) {
         this.companyZoneRepository = companyZoneRepository;
         this.companyRegionRepository = companyRegionRepository;
         this.companyRepository = companyRepository;
@@ -55,15 +55,18 @@ public class CompanyZoneService {
     }
 
     private CompanyRegion resolveCompanyRegion(UUID companyId, UUID companyCountryId, UUID regionId) {
-        var companyCountry = companyCountryRepository.findByCompanyIdAndId(companyId, companyCountryId)
+        var companyCountry = companyCountryRepository
+                .findByCompanyIdAndId(companyId, companyCountryId)
                 .orElseThrow(() -> new CompanyCountryNotFoundException(companyCountryId));
-        return companyRegionRepository.findByIdAndCompanyCountryId(regionId, companyCountry.getId())
+        return companyRegionRepository
+                .findByIdAndCompanyCountryId(regionId, companyCountry.getId())
                 .orElseThrow(() -> new CompanyRegionNotFoundException("Company region not found with id: " + regionId));
     }
 
     @Cacheable(value = "companyZones", key = "'all-' + #regionId + '-' + #includeDisabled")
     @Transactional(readOnly = true)
-    public List<CompanyZoneResponse> getAllZones(UUID companyId, UUID companyCountryId, UUID regionId, boolean includeDisabled) {
+    public List<CompanyZoneResponse> getAllZones(
+            UUID companyId, UUID companyCountryId, UUID regionId, boolean includeDisabled) {
         currentUserContext.verifyCompanyZoneAccess(companyId, companyCountryId, regionId, null);
         var region = resolveCompanyRegion(companyId, companyCountryId, regionId);
 
@@ -72,8 +75,7 @@ public class CompanyZoneService {
             if (zoneIds.isEmpty()) {
                 return List.of();
             }
-            List<CompanyZone> zones = companyZoneRepository
-                    .findByIdInAndCompanyRegionId(zoneIds, region.getId());
+            List<CompanyZone> zones = companyZoneRepository.findByIdInAndCompanyRegionId(zoneIds, region.getId());
             return zones.stream()
                     .filter(z -> includeDisabled || z.getEnabled())
                     .map(this::toResponse)
@@ -92,20 +94,21 @@ public class CompanyZoneService {
     public CompanyZoneResponse getZoneById(UUID companyId, UUID companyCountryId, UUID regionId, UUID id) {
         currentUserContext.verifyCompanyZoneAccess(companyId, companyCountryId, regionId, id);
         var region = resolveCompanyRegion(companyId, companyCountryId, regionId);
-        CompanyZone zone = companyZoneRepository.findByIdAndCompanyRegionId(id, region.getId())
+        CompanyZone zone = companyZoneRepository
+                .findByIdAndCompanyRegionId(id, region.getId())
                 .orElseThrow(() -> new CompanyZoneNotFoundException("Company zone not found with id: " + id));
         return toResponse(zone);
     }
 
     @CacheEvict(value = "companyZones", allEntries = true)
     @Transactional
-    public CompanyZoneResponse createZone(UUID companyId, UUID companyCountryId, UUID regionId, CreateCompanyZoneRequest request) {
+    public CompanyZoneResponse createZone(
+            UUID companyId, UUID companyCountryId, UUID regionId, CreateCompanyZoneRequest request) {
         if (currentUserContext.hasCompanyZoneRole()) {
             throw new AccessDeniedException("Zone-scoped users cannot create zones");
         }
         currentUserContext.verifyCompanyZoneAccess(companyId, companyCountryId, regionId, null);
-        companyRepository.findById(companyId)
-                .orElseThrow(() -> new CompanyNotFoundException(companyId));
+        companyRepository.findById(companyId).orElseThrow(() -> new CompanyNotFoundException(companyId));
 
         var region = resolveCompanyRegion(companyId, companyCountryId, regionId);
 
@@ -125,27 +128,28 @@ public class CompanyZoneService {
 
         CompanyZone saved = companyZoneRepository.save(zone);
         eventPublisher.publishEvent(new CompanyZoneCreatedEvent(
-                this, saved.getId(), companyId, saved.getZoneName(),
-                region.getRegionName()));
+                this, saved.getId(), companyId, saved.getZoneName(), region.getRegionName()));
         logger.info("CompanyZone created: code={}, regionId={}", saved.getZoneCode(), region.getId());
         return toResponse(saved);
     }
 
     @CacheEvict(value = "companyZones", allEntries = true)
     @Transactional
-    public CompanyZoneResponse updateZone(UUID companyId, UUID companyCountryId, UUID regionId, UUID id, UpdateCompanyZoneRequest request) {
+    public CompanyZoneResponse updateZone(
+            UUID companyId, UUID companyCountryId, UUID regionId, UUID id, UpdateCompanyZoneRequest request) {
         currentUserContext.verifyCompanyZoneAccess(companyId, companyCountryId, regionId, id);
-        companyRepository.findById(companyId)
-                .orElseThrow(() -> new CompanyNotFoundException(companyId));
+        companyRepository.findById(companyId).orElseThrow(() -> new CompanyNotFoundException(companyId));
 
         var region = resolveCompanyRegion(companyId, companyCountryId, regionId);
 
-        CompanyZone zone = companyZoneRepository.findByIdAndCompanyRegionId(id, region.getId())
+        CompanyZone zone = companyZoneRepository
+                .findByIdAndCompanyRegionId(id, region.getId())
                 .orElseThrow(() -> new CompanyZoneNotFoundException("Company zone not found with id: " + id));
 
         boolean codeChanged = !zone.getZoneCode().equals(request.zoneCode());
-        if (codeChanged && companyZoneRepository.existsByCompanyRegionIdAndZoneCodeAndIdNot(
-                region.getId(), request.zoneCode(), id)) {
+        if (codeChanged
+                && companyZoneRepository.existsByCompanyRegionIdAndZoneCodeAndIdNot(
+                        region.getId(), request.zoneCode(), id)) {
             throw new DuplicateCompanyZoneException(
                     "Company zone with code '" + request.zoneCode() + "' already exists for this region");
         }
@@ -164,12 +168,12 @@ public class CompanyZoneService {
     @Transactional
     public void deleteZone(UUID companyId, UUID companyCountryId, UUID regionId, UUID id) {
         currentUserContext.verifyCompanyZoneAccess(companyId, companyCountryId, regionId, id);
-        companyRepository.findById(companyId)
-                .orElseThrow(() -> new CompanyNotFoundException(companyId));
+        companyRepository.findById(companyId).orElseThrow(() -> new CompanyNotFoundException(companyId));
 
         var region = resolveCompanyRegion(companyId, companyCountryId, regionId);
 
-        CompanyZone zone = companyZoneRepository.findByIdAndCompanyRegionId(id, region.getId())
+        CompanyZone zone = companyZoneRepository
+                .findByIdAndCompanyRegionId(id, region.getId())
                 .orElseThrow(() -> new CompanyZoneNotFoundException("Company zone not found with id: " + id));
 
         zone.setEnabled(false);
@@ -182,12 +186,12 @@ public class CompanyZoneService {
     @Transactional
     public CompanyZoneResponse enableZone(UUID companyId, UUID companyCountryId, UUID regionId, UUID id) {
         currentUserContext.verifyCompanyZoneAccess(companyId, companyCountryId, regionId, id);
-        companyRepository.findById(companyId)
-                .orElseThrow(() -> new CompanyNotFoundException(companyId));
+        companyRepository.findById(companyId).orElseThrow(() -> new CompanyNotFoundException(companyId));
 
         var region = resolveCompanyRegion(companyId, companyCountryId, regionId);
 
-        CompanyZone zone = companyZoneRepository.findByIdAndCompanyRegionId(id, region.getId())
+        CompanyZone zone = companyZoneRepository
+                .findByIdAndCompanyRegionId(id, region.getId())
                 .orElseThrow(() -> new CompanyZoneNotFoundException("Company zone not found with id: " + id));
 
         zone.setEnabled(true);
@@ -210,7 +214,6 @@ public class CompanyZoneService {
                 zone.getDisplayOrder(),
                 zone.getEnabled(),
                 zone.getCreatedAt(),
-                zone.getUpdatedAt()
-        );
+                zone.getUpdatedAt());
     }
 }

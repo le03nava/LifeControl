@@ -1,5 +1,18 @@
 package com.lifecontrol.api.usersadmin.controller;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifecontrol.api.exception.GlobalExceptionHandler;
 import com.lifecontrol.api.usersadmin.dto.AttributeValueRequest;
@@ -14,6 +27,8 @@ import com.lifecontrol.api.usersadmin.identity.RoleDto;
 import com.lifecontrol.api.usersadmin.identity.RoleScope;
 import com.lifecontrol.api.usersadmin.identity.UserSearchDto;
 import com.lifecontrol.api.usersadmin.service.UsersAdminService;
+import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -25,23 +40,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-
-import java.util.List;
-import java.util.Map;
-
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("UsersAdminController Tests")
@@ -128,9 +126,11 @@ class UsersAdminControllerTest {
         @Test
         @DisplayName("POST /api/users-admin/users missing username returns 400")
         void createUser_missingUsername_returns400() throws Exception {
-            mockMvc.perform(post("/api/users-admin/users")
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content("""
+            mockMvc.perform(
+                            post("/api/users-admin/users")
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .content(
+                                            """
                                     {"email": "test@example.com"}
                                     """))
                     .andExpect(status().isBadRequest())
@@ -140,9 +140,11 @@ class UsersAdminControllerTest {
         @Test
         @DisplayName("POST /api/users-admin/users with invalid email returns 400")
         void createUser_invalidEmail_returns400() throws Exception {
-            mockMvc.perform(post("/api/users-admin/users")
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content("""
+            mockMvc.perform(
+                            post("/api/users-admin/users")
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .content(
+                                            """
                                     {"username": "jdoe", "email": "not-an-email"}
                                     """))
                     .andExpect(status().isBadRequest())
@@ -168,9 +170,11 @@ class UsersAdminControllerTest {
         void createUser_enabledFalse_returns201() throws Exception {
             when(service.createUser(any())).thenReturn(new CreateUserResponse("kc-user-id-123"));
 
-            mockMvc.perform(post("/api/users-admin/users")
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content("""
+            mockMvc.perform(
+                            post("/api/users-admin/users")
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .content(
+                                            """
                                     {"username": "jdoe", "email": "jdoe@example.com", "enabled": false}
                                     """))
                     .andExpect(status().isCreated())
@@ -181,9 +185,11 @@ class UsersAdminControllerTest {
         @DisplayName("POST /api/users-admin/users with username longer than 255 chars returns 400")
         void createUser_usernameTooLong_returns400() throws Exception {
             var longUsername = "a".repeat(256);
-            var json = String.format("""
+            var json = String.format(
+                    """
                     {"username": "%s", "email": "test@example.com"}
-                    """, longUsername);
+                    """,
+                    longUsername);
 
             mockMvc.perform(post("/api/users-admin/users")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -198,8 +204,7 @@ class UsersAdminControllerTest {
         @DisplayName("POST /api/users-admin/users when Keycloak unavailable returns 503")
         void createUser_keycloakUnavailable_returns503() throws Exception {
             var request = new CreateUserRequest("jdoe", "jdoe@example.com", "John", "Doe", true);
-            when(service.createUser(request))
-                    .thenThrow(new IdentityProviderConnectionException("Connection refused"));
+            when(service.createUser(request)).thenThrow(new IdentityProviderConnectionException("Connection refused"));
 
             mockMvc.perform(post("/api/users-admin/users")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -231,13 +236,10 @@ class UsersAdminControllerTest {
         @Test
         @DisplayName("GET /api/users-admin/users/{id}/roles?clientId=X returns filtered roles")
         void getUserRoles_withClientId_returns200() throws Exception {
-            var clientRoles = List.of(
-                new RoleDto("client-role", "Client role", false, RoleScope.CLIENT, "my-client")
-            );
+            var clientRoles = List.of(new RoleDto("client-role", "Client role", false, RoleScope.CLIENT, "my-client"));
             when(service.getUserRoles("user-1", "my-client")).thenReturn(clientRoles);
 
-            mockMvc.perform(get("/api/users-admin/users/user-1/roles")
-                            .param("clientId", "my-client"))
+            mockMvc.perform(get("/api/users-admin/users/user-1/roles").param("clientId", "my-client"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$[0].scope").value("CLIENT"))
                     .andExpect(jsonPath("$[0].clientId").value("my-client"));
@@ -310,7 +312,8 @@ class UsersAdminControllerTest {
         void assignRole_unknownUser_returns404() throws Exception {
             var request = new UserAssignmentRequest("admin-role");
             doThrow(new IdentityProviderNotFoundException("User not found: unknown"))
-                    .when(service).assignRoleToUser(eq("unknown"), anyString(), any(RoleScope.class), any());
+                    .when(service)
+                    .assignRoleToUser(eq("unknown"), anyString(), any(RoleScope.class), any());
 
             mockMvc.perform(post("/api/users-admin/users/unknown/roles/realm")
                             .contentType(MediaType.APPLICATION_JSON)

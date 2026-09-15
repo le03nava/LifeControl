@@ -1,5 +1,14 @@
 package com.lifecontrol.api.product.controller;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifecontrol.api.config.ratelimit.RateLimitProperties;
 import com.lifecontrol.api.product.service.ProductService;
@@ -7,6 +16,10 @@ import com.lifecontrol.api.product.service.ProductVariantService;
 import com.lifecontrol.api.product.supplier.dto.ProductSupplierRequest;
 import com.lifecontrol.api.product.supplier.dto.ProductSupplierResponse;
 import com.lifecontrol.api.product.supplier.service.ProductSupplierService;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -25,20 +38,6 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.UUID;
-
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-
 @WebMvcTest(ProductController.class)
 @DisplayName("ProductSupplier Security — @PreAuthorize method-level authorization on nested /suppliers endpoints")
 class ProductSupplierControllerSecurityTest {
@@ -54,8 +53,7 @@ class ProductSupplierControllerSecurityTest {
     static class TestSecurityConfig {
         @Bean
         SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-            return http
-                    .authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
+            return http.authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
                     .httpBasic(basic -> {})
                     .csrf(AbstractHttpConfigurer::disable)
                     .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -86,20 +84,20 @@ class ProductSupplierControllerSecurityTest {
     private final UUID supplierId = UUID.randomUUID();
 
     private ProductSupplierRequest buildRequest() {
-        return new ProductSupplierRequest(
-                supplierId,
-                new BigDecimal("150.00"),
-                true,
-                true
-        );
+        return new ProductSupplierRequest(supplierId, new BigDecimal("150.00"), true, true);
     }
 
     private ProductSupplierResponse buildResponse() {
         return new ProductSupplierResponse(
-                relationId, productId, supplierId, "Test Supplier Co",
-                new BigDecimal("150.00"), true, true,
-                LocalDateTime.now(), LocalDateTime.now()
-        );
+                relationId,
+                productId,
+                supplierId,
+                "Test Supplier Co",
+                new BigDecimal("150.00"),
+                true,
+                true,
+                LocalDateTime.now(),
+                LocalDateTime.now());
     }
 
     // ─── GET /api/products/{productId}/suppliers ───────────────
@@ -112,8 +110,7 @@ class ProductSupplierControllerSecurityTest {
         @WithMockUser(roles = {"lc-admin"})
         @DisplayName("returns 200 OK for user with lc-admin role")
         void adminCanGetSuppliers() throws Exception {
-            when(productSupplierService.listSuppliersByProductId(productId))
-                    .thenReturn(List.of(buildResponse()));
+            when(productSupplierService.listSuppliersByProductId(productId)).thenReturn(List.of(buildResponse()));
 
             mockMvc.perform(get("/api/products/{productId}/suppliers", productId))
                     .andExpect(status().isOk());
@@ -123,8 +120,7 @@ class ProductSupplierControllerSecurityTest {
         @WithMockUser(roles = {"lc-product-supplier"})
         @DisplayName("returns 200 OK for user with lc-product-supplier role")
         void domainRoleCanGetSuppliers() throws Exception {
-            when(productSupplierService.listSuppliersByProductId(productId))
-                    .thenReturn(List.of(buildResponse()));
+            when(productSupplierService.listSuppliersByProductId(productId)).thenReturn(List.of(buildResponse()));
 
             mockMvc.perform(get("/api/products/{productId}/suppliers", productId))
                     .andExpect(status().isOk());
@@ -226,7 +222,8 @@ class ProductSupplierControllerSecurityTest {
         @WithMockUser(roles = {"lc-admin"})
         @DisplayName("returns 200 OK for user with lc-admin role")
         void adminCanUpdateRelation() throws Exception {
-            when(productSupplierService.updateSupplier(eq(productId), eq(relationId), any(ProductSupplierRequest.class)))
+            when(productSupplierService.updateSupplier(
+                            eq(productId), eq(relationId), any(ProductSupplierRequest.class)))
                     .thenReturn(buildResponse());
 
             mockMvc.perform(put("/api/products/{productId}/suppliers/{id}", productId, relationId)
@@ -239,7 +236,8 @@ class ProductSupplierControllerSecurityTest {
         @WithMockUser(roles = {"lc-product-supplier"})
         @DisplayName("returns 200 OK for user with lc-product-supplier role")
         void domainRoleCanUpdateRelation() throws Exception {
-            when(productSupplierService.updateSupplier(eq(productId), eq(relationId), any(ProductSupplierRequest.class)))
+            when(productSupplierService.updateSupplier(
+                            eq(productId), eq(relationId), any(ProductSupplierRequest.class)))
                     .thenReturn(buildResponse());
 
             mockMvc.perform(put("/api/products/{productId}/suppliers/{id}", productId, relationId)

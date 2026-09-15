@@ -23,12 +23,18 @@ public class ActivityLogEvent extends ApplicationEvent {
     private final String userAgent;
     private final String payloadJson;
 
-    public ActivityLogEvent(Object source,
-                            String userId, String username,
-                            String processName, String eventName,
-                            String httpMethod, int httpStatus,
-                            String requestPath, String ipAddress,
-                            String userAgent, String payloadJson) {
+    public ActivityLogEvent(
+            Object source,
+            String userId,
+            String username,
+            String processName,
+            String eventName,
+            String httpMethod,
+            int httpStatus,
+            String requestPath,
+            String ipAddress,
+            String userAgent,
+            String payloadJson) {
         super(source);
         this.userId = userId;
         this.username = username;

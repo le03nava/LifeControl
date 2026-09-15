@@ -1,5 +1,11 @@
 package com.lifecontrol.api.company.controller;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifecontrol.api.company.dto.CompanyZoneResponse;
 import com.lifecontrol.api.company.dto.CreateCompanyZoneRequest;
@@ -8,6 +14,9 @@ import com.lifecontrol.api.company.exception.CompanyZoneNotFoundException;
 import com.lifecontrol.api.company.exception.DuplicateCompanyZoneException;
 import com.lifecontrol.api.company.service.CompanyZoneService;
 import com.lifecontrol.api.exception.GlobalExceptionHandler;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -19,16 +28,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.UUID;
-
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.*;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("CompanyZoneController Tests")
@@ -50,7 +49,8 @@ class CompanyZoneControllerTest {
     private CompanyZoneResponse testZoneResponse;
     private LocalDateTime now;
 
-    private static final String BASE_URL = "/api/companies/{companyId}/countries/{companyCountryId}/regions/{regionId}/zones";
+    private static final String BASE_URL =
+            "/api/companies/{companyId}/countries/{companyCountryId}/regions/{regionId}/zones";
 
     @BeforeEach
     void setUp() {
@@ -78,8 +78,7 @@ class CompanyZoneControllerTest {
                 null,
                 true,
                 now,
-                now
-        );
+                now);
     }
 
     @Nested
@@ -172,7 +171,11 @@ class CompanyZoneControllerTest {
         void createZone_Success() throws Exception {
             // Arrange
             var request = new CreateCompanyZoneRequest("CEN", "Centro", null, null);
-            when(companyZoneService.createZone(eq(testCompanyId), eq(testCompanyCountryId), eq(testRegionId), any(CreateCompanyZoneRequest.class)))
+            when(companyZoneService.createZone(
+                            eq(testCompanyId),
+                            eq(testCompanyCountryId),
+                            eq(testRegionId),
+                            any(CreateCompanyZoneRequest.class)))
                     .thenReturn(testZoneResponse);
 
             // Act & Assert
@@ -203,7 +206,11 @@ class CompanyZoneControllerTest {
         void createZone_DuplicateCode() throws Exception {
             // Arrange
             var request = new CreateCompanyZoneRequest("CEN", "Centro", null, null);
-            when(companyZoneService.createZone(eq(testCompanyId), eq(testCompanyCountryId), eq(testRegionId), any(CreateCompanyZoneRequest.class)))
+            when(companyZoneService.createZone(
+                            eq(testCompanyId),
+                            eq(testCompanyCountryId),
+                            eq(testRegionId),
+                            any(CreateCompanyZoneRequest.class)))
                     .thenThrow(new DuplicateCompanyZoneException(
                             "Company zone with code 'CEN' already exists for this region"));
 
@@ -212,7 +219,8 @@ class CompanyZoneControllerTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request)))
                     .andExpect(status().isConflict())
-                    .andExpect(jsonPath("$.message").value("Company zone with code 'CEN' already exists for this region"));
+                    .andExpect(
+                            jsonPath("$.message").value("Company zone with code 'CEN' already exists for this region"));
         }
 
         @Test
@@ -236,10 +244,24 @@ class CompanyZoneControllerTest {
             // Arrange
             var request = new UpdateCompanyZoneRequest("CEN", "Centro Actualizado", null, null);
             var updatedResponse = new CompanyZoneResponse(
-                    testZoneId, testRegionId, testCompanyCountryId, testCompanyId, UUID.randomUUID(),
-                    "CEN", "Centro Actualizado", null, null, true, now, now);
-            when(companyZoneService.updateZone(eq(testCompanyId), eq(testCompanyCountryId),
-                    eq(testRegionId), eq(testZoneId), any(UpdateCompanyZoneRequest.class)))
+                    testZoneId,
+                    testRegionId,
+                    testCompanyCountryId,
+                    testCompanyId,
+                    UUID.randomUUID(),
+                    "CEN",
+                    "Centro Actualizado",
+                    null,
+                    null,
+                    true,
+                    now,
+                    now);
+            when(companyZoneService.updateZone(
+                            eq(testCompanyId),
+                            eq(testCompanyCountryId),
+                            eq(testRegionId),
+                            eq(testZoneId),
+                            any(UpdateCompanyZoneRequest.class)))
                     .thenReturn(updatedResponse);
 
             // Act & Assert
@@ -265,8 +287,12 @@ class CompanyZoneControllerTest {
         @DisplayName("should return 404 when zone not found on update")
         void updateZone_NotFound() throws Exception {
             var request = new UpdateCompanyZoneRequest("CEN", "Centro", null, null);
-            when(companyZoneService.updateZone(eq(testCompanyId), eq(testCompanyCountryId),
-                    eq(testRegionId), eq(testZoneId), any(UpdateCompanyZoneRequest.class)))
+            when(companyZoneService.updateZone(
+                            eq(testCompanyId),
+                            eq(testCompanyCountryId),
+                            eq(testRegionId),
+                            eq(testZoneId),
+                            any(UpdateCompanyZoneRequest.class)))
                     .thenThrow(new CompanyZoneNotFoundException("Company zone not found with id: " + testZoneId));
 
             mockMvc.perform(put(BASE_URL + "/{id}", testCompanyId, testCompanyCountryId, testRegionId, testZoneId)
@@ -279,8 +305,12 @@ class CompanyZoneControllerTest {
         @DisplayName("should return 409 when update creates duplicate code")
         void updateZone_DuplicateCode() throws Exception {
             var request = new UpdateCompanyZoneRequest("SUR", "Sur", null, null);
-            when(companyZoneService.updateZone(eq(testCompanyId), eq(testCompanyCountryId),
-                    eq(testRegionId), eq(testZoneId), any(UpdateCompanyZoneRequest.class)))
+            when(companyZoneService.updateZone(
+                            eq(testCompanyId),
+                            eq(testCompanyCountryId),
+                            eq(testRegionId),
+                            eq(testZoneId),
+                            any(UpdateCompanyZoneRequest.class)))
                     .thenThrow(new DuplicateCompanyZoneException(
                             "Company zone with code 'SUR' already exists for this region"));
 
@@ -299,7 +329,9 @@ class CompanyZoneControllerTest {
         @DisplayName("should return 204 when zone soft-deleted")
         void deleteZone_Success() throws Exception {
             // Arrange
-            doNothing().when(companyZoneService).deleteZone(testCompanyId, testCompanyCountryId, testRegionId, testZoneId);
+            doNothing()
+                    .when(companyZoneService)
+                    .deleteZone(testCompanyId, testCompanyCountryId, testRegionId, testZoneId);
 
             // Act & Assert
             mockMvc.perform(delete(BASE_URL + "/{id}", testCompanyId, testCompanyCountryId, testRegionId, testZoneId))
@@ -312,7 +344,8 @@ class CompanyZoneControllerTest {
         void deleteZone_NotFound() throws Exception {
             // Arrange
             doThrow(new CompanyZoneNotFoundException("Company zone not found with id: " + testZoneId))
-                    .when(companyZoneService).deleteZone(testCompanyId, testCompanyCountryId, testRegionId, testZoneId);
+                    .when(companyZoneService)
+                    .deleteZone(testCompanyId, testCompanyCountryId, testRegionId, testZoneId);
 
             // Act & Assert
             mockMvc.perform(delete(BASE_URL + "/{id}", testCompanyId, testCompanyCountryId, testRegionId, testZoneId))
@@ -330,8 +363,18 @@ class CompanyZoneControllerTest {
         void enableZone_Success() throws Exception {
             // Arrange
             var enabledResponse = new CompanyZoneResponse(
-                    testZoneId, testRegionId, testCompanyCountryId, testCompanyId, UUID.randomUUID(),
-                    "CEN", "Centro", null, null, true, now, now);
+                    testZoneId,
+                    testRegionId,
+                    testCompanyCountryId,
+                    testCompanyId,
+                    UUID.randomUUID(),
+                    "CEN",
+                    "Centro",
+                    null,
+                    null,
+                    true,
+                    now,
+                    now);
             when(companyZoneService.enableZone(testCompanyId, testCompanyCountryId, testRegionId, testZoneId))
                     .thenReturn(enabledResponse);
 

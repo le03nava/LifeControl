@@ -1,11 +1,16 @@
 package com.lifecontrol.api.company.controller;
 
+import static com.lifecontrol.api.common.security.Roles.ADMIN;
+import static com.lifecontrol.api.common.security.Roles.COMPANY;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_READ;
+
 import com.lifecontrol.api.company.dto.CompanyRequest;
 import com.lifecontrol.api.company.dto.CompanyResponse;
 import com.lifecontrol.api.company.service.CompanyService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -22,12 +27,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.UUID;
-
-import static com.lifecontrol.api.common.security.Roles.ADMIN;
-import static com.lifecontrol.api.common.security.Roles.COMPANY;
-import static com.lifecontrol.api.common.security.Roles.COMPANY_READ;
-
 @RestController
 @RequestMapping("/api/companies")
 @Tag(name = "Company Management", description = "API for managing companies")
@@ -41,10 +40,11 @@ public class CompanyController {
 
     @GetMapping
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_READ + "')")
-    @Operation(summary = "Get all companies", description = "Returns a paginated list of companies, optionally filtered by search term")
+    @Operation(
+            summary = "Get all companies",
+            description = "Returns a paginated list of companies, optionally filtered by search term")
     public ResponseEntity<Page<CompanyResponse>> getAllCompanies(
-            @PageableDefault(size = 12) Pageable pageable,
-            @RequestParam(required = false) String search) {
+            @PageableDefault(size = 12) Pageable pageable, @RequestParam(required = false) String search) {
         return ResponseEntity.ok(companyService.getAllCompanies(pageable, search));
     }
 
@@ -66,7 +66,8 @@ public class CompanyController {
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "')")
     @Operation(summary = "Update a company", description = "Updates an existing company with the provided details")
-    public ResponseEntity<CompanyResponse> updateCompany(@PathVariable UUID id, @Valid @RequestBody CompanyRequest request) {
+    public ResponseEntity<CompanyResponse> updateCompany(
+            @PathVariable UUID id, @Valid @RequestBody CompanyRequest request) {
         CompanyResponse response = companyService.updateCompany(id, request);
         return ResponseEntity.ok(response);
     }
@@ -78,5 +79,4 @@ public class CompanyController {
         companyService.deleteCompany(id);
         return ResponseEntity.noContent().build();
     }
-
 }

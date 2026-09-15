@@ -1,10 +1,9 @@
 package com.lifecontrol.api.common.net;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Utility for matching an IP address against a CIDR block or an exact IP.
@@ -16,8 +15,7 @@ public final class CidrMatcher {
 
     private static final Logger log = LoggerFactory.getLogger(CidrMatcher.class);
 
-    private CidrMatcher() {
-    }
+    private CidrMatcher() {}
 
     /**
      * Returns {@code true} if {@code ip} belongs to {@code rule}, which may be either

@@ -1,5 +1,14 @@
 package com.lifecontrol.api.usersadmin.identity.keycloak;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderConflictException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderConnectionException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderNotFoundException;
@@ -7,6 +16,10 @@ import jakarta.ws.rs.ClientErrorException;
 import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.ProcessingException;
 import jakarta.ws.rs.core.Response;
+import java.net.URI;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -18,26 +31,11 @@ import org.keycloak.admin.client.resource.GroupsResource;
 import org.keycloak.admin.client.resource.RealmResource;
 import org.keycloak.admin.client.resource.UserResource;
 import org.keycloak.admin.client.resource.UsersResource;
-import org.keycloak.representations.idm.CredentialRepresentation;
 import org.keycloak.representations.idm.GroupRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-
-import java.net.URI;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.lenient;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("KeycloakIdentityProvider Tests")
@@ -45,12 +43,16 @@ class KeycloakIdentityProviderTest {
 
     @Mock
     private Keycloak keycloak;
+
     @Mock
     private RealmResource realmResource;
+
     @Mock
     private GroupsResource groupsResource;
+
     @Mock
     private GroupResource groupResource;
+
     @Mock
     private UsersResource usersResource;
 
@@ -85,8 +87,7 @@ class KeycloakIdentityProviderTest {
             groupRep.setId(GROUP_ID);
             groupRep.setName(GROUP_NAME);
             when(realmResource.groups()).thenReturn(groupsResource);
-            when(groupsResource.groups(GROUP_NAME, 0, Integer.MAX_VALUE))
-                    .thenReturn(List.of(groupRep));
+            when(groupsResource.groups(GROUP_NAME, 0, Integer.MAX_VALUE)).thenReturn(List.of(groupRep));
 
             var result = provider.findGroupIdByName(GROUP_NAME);
 
@@ -101,12 +102,10 @@ class KeycloakIdentityProviderTest {
             otherGroup.setId("other-id");
             otherGroup.setName("lc-company-other");
             when(realmResource.groups()).thenReturn(groupsResource);
-            when(groupsResource.groups(GROUP_NAME, 0, Integer.MAX_VALUE))
-                    .thenReturn(List.of(otherGroup));
+            when(groupsResource.groups(GROUP_NAME, 0, Integer.MAX_VALUE)).thenReturn(List.of(otherGroup));
             // Stub sub-group lookup — findInTree recurses into sub-groups
             when(groupsResource.group("other-id")).thenReturn(groupResource);
-            when(groupResource.getSubGroups(0, Integer.MAX_VALUE, false))
-                    .thenReturn(List.of());
+            when(groupResource.getSubGroups(0, Integer.MAX_VALUE, false)).thenReturn(List.of());
 
             var result = provider.findGroupIdByName(GROUP_NAME);
 
@@ -117,8 +116,7 @@ class KeycloakIdentityProviderTest {
         @DisplayName("should return empty when search returns empty list")
         void shouldReturnEmptyWhenEmptyList() {
             when(realmResource.groups()).thenReturn(groupsResource);
-            when(groupsResource.groups("nonexistent", 0, Integer.MAX_VALUE))
-                    .thenReturn(List.of());
+            when(groupsResource.groups("nonexistent", 0, Integer.MAX_VALUE)).thenReturn(List.of());
 
             var result = provider.findGroupIdByName("nonexistent");
 
@@ -142,8 +140,7 @@ class KeycloakIdentityProviderTest {
             verify(groupsResource).add(groupCaptor.capture());
             var captured = groupCaptor.getValue();
             assertThat(captured.getName()).isEqualTo(GROUP_NAME);
-            assertThat(captured.getAttributes())
-                    .containsEntry("company_country_id", List.of("uuid-123"));
+            assertThat(captured.getAttributes()).containsEntry("company_country_id", List.of("uuid-123"));
         }
 
         @Test
@@ -173,8 +170,7 @@ class KeycloakIdentityProviderTest {
             verify(groupResource).subGroup(groupCaptor.capture());
             var captured = groupCaptor.getValue();
             assertThat(captured.getName()).isEqualTo(GROUP_NAME);
-            assertThat(captured.getAttributes())
-                    .containsEntry("company_country_id", List.of("uuid-123"));
+            assertThat(captured.getAttributes()).containsEntry("company_country_id", List.of("uuid-123"));
         }
 
         @Test
@@ -213,8 +209,8 @@ class KeycloakIdentityProviderTest {
             when(realmResource.users()).thenReturn(usersResource);
             var response = mock(Response.class);
             when(response.getStatus()).thenReturn(201);
-            when(response.getLocation()).thenReturn(
-                    URI.create("http://keycloak:8080/admin/realms/life-control-realm/users/" + USER_ID));
+            when(response.getLocation())
+                    .thenReturn(URI.create("http://keycloak:8080/admin/realms/life-control-realm/users/" + USER_ID));
             when(usersResource.create(any(UserRepresentation.class))).thenReturn(response);
 
             var result = provider.createUser(buildUser());
@@ -226,8 +222,8 @@ class KeycloakIdentityProviderTest {
         @DisplayName("should map 409 to IdentityProviderConflictException")
         void shouldMap409ToConflictException() {
             when(realmResource.users()).thenReturn(usersResource);
-            var e409 = new ClientErrorException(
-                    "Conflict", jakarta.ws.rs.core.Response.Status.CONFLICT.getStatusCode());
+            var e409 =
+                    new ClientErrorException("Conflict", jakarta.ws.rs.core.Response.Status.CONFLICT.getStatusCode());
             when(usersResource.create(any(UserRepresentation.class))).thenThrow(e409);
 
             assertThatThrownBy(() -> provider.createUser(buildUser()))
@@ -277,8 +273,7 @@ class KeycloakIdentityProviderTest {
         @DisplayName("should map NotFoundException to IdentityProviderNotFoundException")
         void shouldMapNotFoundException() {
             var userRep = new UserRepresentation();
-            doThrow(new NotFoundException("User not found"))
-                    .when(userResource).update(any(UserRepresentation.class));
+            doThrow(new NotFoundException("User not found")).when(userResource).update(any(UserRepresentation.class));
 
             assertThatThrownBy(() -> provider.updateUser(USER_ID, userRep))
                     .isInstanceOf(IdentityProviderNotFoundException.class)
@@ -290,7 +285,8 @@ class KeycloakIdentityProviderTest {
         void shouldMapProcessingException() {
             var userRep = new UserRepresentation();
             doThrow(new ProcessingException("Connection refused"))
-                    .when(userResource).update(any(UserRepresentation.class));
+                    .when(userResource)
+                    .update(any(UserRepresentation.class));
 
             assertThatThrownBy(() -> provider.updateUser(USER_ID, userRep))
                     .isInstanceOf(IdentityProviderConnectionException.class)

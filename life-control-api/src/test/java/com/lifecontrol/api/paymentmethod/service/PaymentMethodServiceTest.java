@@ -1,11 +1,18 @@
 package com.lifecontrol.api.paymentmethod.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
 import com.lifecontrol.api.paymentmethod.dto.PaymentMethodRequest;
-import com.lifecontrol.api.paymentmethod.dto.PaymentMethodResponse;
 import com.lifecontrol.api.paymentmethod.exception.DuplicatePaymentMethodException;
 import com.lifecontrol.api.paymentmethod.exception.PaymentMethodNotFoundException;
 import com.lifecontrol.api.paymentmethod.model.PaymentMethod;
 import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -14,15 +21,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("PaymentMethodService Tests")
@@ -59,8 +57,7 @@ class PaymentMethodServiceTest {
         @Test
         @DisplayName("should return sorted list of payment methods")
         void getAllPaymentMethods_ReturnsList() {
-            when(paymentMethodRepository.findAllByOrderByPaymentMethodNameAsc())
-                    .thenReturn(List.of(testPaymentMethod));
+            when(paymentMethodRepository.findAllByOrderByPaymentMethodNameAsc()).thenReturn(List.of(testPaymentMethod));
 
             var result = paymentMethodService.getAllPaymentMethods();
 
@@ -73,8 +70,7 @@ class PaymentMethodServiceTest {
         @Test
         @DisplayName("should return empty list when no payment methods exist")
         void getAllPaymentMethods_EmptyList_ReturnsEmpty() {
-            when(paymentMethodRepository.findAllByOrderByPaymentMethodNameAsc())
-                    .thenReturn(List.of());
+            when(paymentMethodRepository.findAllByOrderByPaymentMethodNameAsc()).thenReturn(List.of());
 
             var result = paymentMethodService.getAllPaymentMethods();
 
@@ -90,8 +86,7 @@ class PaymentMethodServiceTest {
         @Test
         @DisplayName("should return payment method when exists")
         void getPaymentMethodById_Success() {
-            when(paymentMethodRepository.findById(testPaymentMethodId))
-                    .thenReturn(Optional.of(testPaymentMethod));
+            when(paymentMethodRepository.findById(testPaymentMethodId)).thenReturn(Optional.of(testPaymentMethod));
 
             var result = paymentMethodService.getPaymentMethodById(testPaymentMethodId);
 
@@ -103,8 +98,7 @@ class PaymentMethodServiceTest {
         @Test
         @DisplayName("should throw PaymentMethodNotFoundException when not exists")
         void getPaymentMethodById_NotFound_ThrowsException() {
-            when(paymentMethodRepository.findById(testPaymentMethodId))
-                    .thenReturn(Optional.empty());
+            when(paymentMethodRepository.findById(testPaymentMethodId)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> paymentMethodService.getPaymentMethodById(testPaymentMethodId))
                     .isInstanceOf(PaymentMethodNotFoundException.class)
@@ -121,16 +115,15 @@ class PaymentMethodServiceTest {
         void createPaymentMethod_Success() {
             when(paymentMethodRepository.existsByPaymentMethodNameIgnoreCase("Efectivo"))
                     .thenReturn(false);
-            when(paymentMethodRepository.save(any(PaymentMethod.class)))
-                    .thenAnswer(inv -> {
-                        PaymentMethod pm = inv.getArgument(0);
-                        return PaymentMethod.builder()
-                                .id(testPaymentMethodId)
-                                .paymentMethodName(pm.getPaymentMethodName())
-                                .paymentMethodShortName(pm.getPaymentMethodShortName())
-                                .enabled(true)
-                                .build();
-                    });
+            when(paymentMethodRepository.save(any(PaymentMethod.class))).thenAnswer(inv -> {
+                PaymentMethod pm = inv.getArgument(0);
+                return PaymentMethod.builder()
+                        .id(testPaymentMethodId)
+                        .paymentMethodName(pm.getPaymentMethodName())
+                        .paymentMethodShortName(pm.getPaymentMethodShortName())
+                        .enabled(true)
+                        .build();
+            });
 
             var result = paymentMethodService.createPaymentMethod(testPaymentMethodRequest);
 
@@ -161,12 +154,10 @@ class PaymentMethodServiceTest {
         @DisplayName("should update payment method successfully")
         void updatePaymentMethod_Success() {
             var updateRequest = new PaymentMethodRequest("Transferencia", "TRANSFERENCIA", true);
-            when(paymentMethodRepository.findById(testPaymentMethodId))
-                    .thenReturn(Optional.of(testPaymentMethod));
+            when(paymentMethodRepository.findById(testPaymentMethodId)).thenReturn(Optional.of(testPaymentMethod));
             when(paymentMethodRepository.findByPaymentMethodNameIgnoreCase("Transferencia"))
                     .thenReturn(Optional.empty());
-            when(paymentMethodRepository.save(any(PaymentMethod.class)))
-                    .thenAnswer(inv -> inv.getArgument(0));
+            when(paymentMethodRepository.save(any(PaymentMethod.class))).thenAnswer(inv -> inv.getArgument(0));
 
             var result = paymentMethodService.updatePaymentMethod(testPaymentMethodId, updateRequest);
 
@@ -178,10 +169,10 @@ class PaymentMethodServiceTest {
         @Test
         @DisplayName("should throw PaymentMethodNotFoundException when ID not exists")
         void updatePaymentMethod_NotFound_ThrowsException() {
-            when(paymentMethodRepository.findById(testPaymentMethodId))
-                    .thenReturn(Optional.empty());
+            when(paymentMethodRepository.findById(testPaymentMethodId)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> paymentMethodService.updatePaymentMethod(testPaymentMethodId, testPaymentMethodRequest))
+            assertThatThrownBy(() ->
+                            paymentMethodService.updatePaymentMethod(testPaymentMethodId, testPaymentMethodRequest))
                     .isInstanceOf(PaymentMethodNotFoundException.class)
                     .hasMessageContaining("Payment method not found with id");
         }
@@ -196,13 +187,12 @@ class PaymentMethodServiceTest {
                     .paymentMethodShortName("TRANSFERENCIA")
                     .enabled(true)
                     .build();
-            when(paymentMethodRepository.findById(testPaymentMethodId))
-                    .thenReturn(Optional.of(testPaymentMethod));
+            when(paymentMethodRepository.findById(testPaymentMethodId)).thenReturn(Optional.of(testPaymentMethod));
             when(paymentMethodRepository.findByPaymentMethodNameIgnoreCase("Transferencia"))
                     .thenReturn(Optional.of(other));
 
             assertThatThrownBy(() -> paymentMethodService.updatePaymentMethod(
-                    testPaymentMethodId, new PaymentMethodRequest("Transferencia", "TRANSFERENCIA", true)))
+                            testPaymentMethodId, new PaymentMethodRequest("Transferencia", "TRANSFERENCIA", true)))
                     .isInstanceOf(DuplicatePaymentMethodException.class)
                     .hasMessageContaining("Payment method with name 'Transferencia' already exists");
         }
@@ -215,8 +205,7 @@ class PaymentMethodServiceTest {
         @Test
         @DisplayName("should delete payment method when exists")
         void deletePaymentMethod_Success() {
-            when(paymentMethodRepository.findById(testPaymentMethodId))
-                    .thenReturn(Optional.of(testPaymentMethod));
+            when(paymentMethodRepository.findById(testPaymentMethodId)).thenReturn(Optional.of(testPaymentMethod));
 
             paymentMethodService.deletePaymentMethod(testPaymentMethodId);
 
@@ -227,8 +216,7 @@ class PaymentMethodServiceTest {
         @Test
         @DisplayName("should throw PaymentMethodNotFoundException when not exists")
         void deletePaymentMethod_NotFound_ThrowsException() {
-            when(paymentMethodRepository.findById(testPaymentMethodId))
-                    .thenReturn(Optional.empty());
+            when(paymentMethodRepository.findById(testPaymentMethodId)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> paymentMethodService.deletePaymentMethod(testPaymentMethodId))
                     .isInstanceOf(PaymentMethodNotFoundException.class)
@@ -245,10 +233,8 @@ class PaymentMethodServiceTest {
         @DisplayName("should enable a disabled payment method")
         void setPaymentMethodEnabled_Enable_Success() {
             testPaymentMethod.setEnabled(false);
-            when(paymentMethodRepository.findById(testPaymentMethodId))
-                    .thenReturn(Optional.of(testPaymentMethod));
-            when(paymentMethodRepository.save(any(PaymentMethod.class)))
-                    .thenAnswer(inv -> inv.getArgument(0));
+            when(paymentMethodRepository.findById(testPaymentMethodId)).thenReturn(Optional.of(testPaymentMethod));
+            when(paymentMethodRepository.save(any(PaymentMethod.class))).thenAnswer(inv -> inv.getArgument(0));
 
             var result = paymentMethodService.setPaymentMethodEnabled(testPaymentMethodId, true);
 
@@ -261,10 +247,8 @@ class PaymentMethodServiceTest {
         @DisplayName("should disable an enabled payment method")
         void setPaymentMethodEnabled_Disable_Success() {
             testPaymentMethod.setEnabled(true);
-            when(paymentMethodRepository.findById(testPaymentMethodId))
-                    .thenReturn(Optional.of(testPaymentMethod));
-            when(paymentMethodRepository.save(any(PaymentMethod.class)))
-                    .thenAnswer(inv -> inv.getArgument(0));
+            when(paymentMethodRepository.findById(testPaymentMethodId)).thenReturn(Optional.of(testPaymentMethod));
+            when(paymentMethodRepository.save(any(PaymentMethod.class))).thenAnswer(inv -> inv.getArgument(0));
 
             var result = paymentMethodService.setPaymentMethodEnabled(testPaymentMethodId, false);
 
@@ -276,8 +260,7 @@ class PaymentMethodServiceTest {
         @Test
         @DisplayName("should throw PaymentMethodNotFoundException when not exists")
         void setPaymentMethodEnabled_NotFound_ThrowsException() {
-            when(paymentMethodRepository.findById(testPaymentMethodId))
-                    .thenReturn(Optional.empty());
+            when(paymentMethodRepository.findById(testPaymentMethodId)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> paymentMethodService.setPaymentMethodEnabled(testPaymentMethodId, true))
                     .isInstanceOf(PaymentMethodNotFoundException.class)

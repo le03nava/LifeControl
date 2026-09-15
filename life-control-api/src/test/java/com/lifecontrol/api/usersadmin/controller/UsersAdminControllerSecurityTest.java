@@ -1,5 +1,10 @@
 package com.lifecontrol.api.usersadmin.controller;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifecontrol.api.config.ratelimit.RateLimitProperties;
 import com.lifecontrol.api.usersadmin.dto.CreateUserRequest;
@@ -24,11 +29,6 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-
 @WebMvcTest(UsersAdminController.class)
 @DisplayName("UsersAdminController Security — filter-chain authorization")
 class UsersAdminControllerSecurityTest {
@@ -39,15 +39,15 @@ class UsersAdminControllerSecurityTest {
     static class TestSecurityConfig {
         @Bean
         SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-            return http
-                    .authorizeHttpRequests(auth -> auth
-                            .requestMatchers("/api/users-admin/**").hasAuthority("ROLE_admin")
-                            .requestMatchers("/api/**").authenticated()
-                            .anyRequest().permitAll())
+            return http.authorizeHttpRequests(auth -> auth.requestMatchers("/api/users-admin/**")
+                            .hasAuthority("ROLE_admin")
+                            .requestMatchers("/api/**")
+                            .authenticated()
+                            .anyRequest()
+                            .permitAll())
                     .httpBasic(basic -> {})
                     .csrf(AbstractHttpConfigurer::disable)
-                    .sessionManagement(session ->
-                            session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                    .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                     .build();
         }
     }

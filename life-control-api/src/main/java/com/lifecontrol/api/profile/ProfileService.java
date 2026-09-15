@@ -28,9 +28,10 @@ public class ProfileService {
     private final IdentityProvider identityProvider;
     private final UserPreferencesRepository userPreferencesRepository;
 
-    public ProfileService(CurrentUserContext currentUserContext,
-                          IdentityProvider identityProvider,
-                          UserPreferencesRepository userPreferencesRepository) {
+    public ProfileService(
+            CurrentUserContext currentUserContext,
+            IdentityProvider identityProvider,
+            UserPreferencesRepository userPreferencesRepository) {
         this.currentUserContext = currentUserContext;
         this.identityProvider = identityProvider;
         this.userPreferencesRepository = userPreferencesRepository;
@@ -47,14 +48,11 @@ public class ProfileService {
 
         var claims = extractJwtClaims();
 
-        var preferences = userPreferencesRepository.findByKeycloakUserId(userId)
-                .orElseGet(() -> {
-                    log.info("No preferences row for user {}, creating empty one", userId);
-                    var newPrefs = UserPreferences.builder()
-                            .keycloakUserId(userId)
-                            .build();
-                    return userPreferencesRepository.save(newPrefs);
-                });
+        var preferences = userPreferencesRepository.findByKeycloakUserId(userId).orElseGet(() -> {
+            log.info("No preferences row for user {}, creating empty one", userId);
+            var newPrefs = UserPreferences.builder().keycloakUserId(userId).build();
+            return userPreferencesRepository.save(newPrefs);
+        });
 
         return new ProfileResponse(
                 userId,
@@ -66,8 +64,7 @@ public class ProfileService {
                 preferences.getCompanyId(),
                 preferences.getCompanyRegionId(),
                 preferences.getCompanyZoneId(),
-                preferences.getCompanyStoreId()
-        );
+                preferences.getCompanyStoreId());
     }
 
     /**
@@ -97,10 +94,10 @@ public class ProfileService {
         }
 
         // 2. Create or update user_preferences
-        var preferences = userPreferencesRepository.findByKeycloakUserId(userId)
-                .orElseGet(() -> UserPreferences.builder()
-                        .keycloakUserId(userId)
-                        .build());
+        var preferences = userPreferencesRepository
+                .findByKeycloakUserId(userId)
+                .orElseGet(
+                        () -> UserPreferences.builder().keycloakUserId(userId).build());
 
         if (request.companyCountryId() != null) {
             preferences.setCompanyCountryId(request.companyCountryId());
@@ -134,8 +131,7 @@ public class ProfileService {
                 preferences.getCompanyId(),
                 preferences.getCompanyRegionId(),
                 preferences.getCompanyZoneId(),
-                preferences.getCompanyStoreId()
-        );
+                preferences.getCompanyStoreId());
     }
 
     // ── Private helpers ──────────────────────────────────────
@@ -146,8 +142,7 @@ public class ProfileService {
             return new JwtClaims(
                     jwt.getClaimAsString("email"),
                     jwt.getClaimAsString("given_name"),
-                    jwt.getClaimAsString("family_name")
-            );
+                    jwt.getClaimAsString("family_name"));
         }
         return new JwtClaims(null, null, null);
     }

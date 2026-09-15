@@ -24,19 +24,14 @@ public final class PayloadSanitizer {
             "client_secret",
             "api_key",
             "secret_key",
-            "private_key"
-    );
+            "private_key");
 
     private static final Pattern SENSITIVE_FIELD_PATTERN;
 
     static {
-        var fieldPattern = SENSITIVE_BODY_FIELDS.stream()
-                .map(Pattern::quote)
-                .collect(Collectors.joining("|"));
-        SENSITIVE_FIELD_PATTERN = Pattern.compile(
-                "\"(" + fieldPattern + ")\"\\s*:\\s*\"([^\"]*)\"",
-                Pattern.CASE_INSENSITIVE
-        );
+        var fieldPattern = SENSITIVE_BODY_FIELDS.stream().map(Pattern::quote).collect(Collectors.joining("|"));
+        SENSITIVE_FIELD_PATTERN =
+                Pattern.compile("\"(" + fieldPattern + ")\"\\s*:\\s*\"([^\"]*)\"", Pattern.CASE_INSENSITIVE);
     }
 
     private PayloadSanitizer() {
@@ -57,7 +52,6 @@ public final class PayloadSanitizer {
         if (payload == null || payload.isBlank()) {
             return payload;
         }
-        return SENSITIVE_FIELD_PATTERN.matcher(payload)
-                .replaceAll(mr -> "\"" + mr.group(1) + "\": \"[REDACTED]\"");
+        return SENSITIVE_FIELD_PATTERN.matcher(payload).replaceAll(mr -> "\"" + mr.group(1) + "\": \"[REDACTED]\"");
     }
 }

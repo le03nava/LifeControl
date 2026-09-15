@@ -1,10 +1,18 @@
 package com.lifecontrol.api.profile;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
 import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.profile.dto.ProfileUpdateRequest;
 import com.lifecontrol.api.usersadmin.identity.IdentityProvider;
 import com.lifecontrol.api.usersadmin.model.UserPreferences;
 import com.lifecontrol.api.usersadmin.repository.UserPreferencesRepository;
+import java.util.Optional;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -18,15 +26,6 @@ import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 
-import java.util.Optional;
-import java.util.UUID;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
-
 @ExtendWith(MockitoExtension.class)
 @DisplayName("ProfileService Tests")
 class ProfileServiceTest {
@@ -39,14 +38,19 @@ class ProfileServiceTest {
 
     @Mock
     private CurrentUserContext currentUserContext;
+
     @Mock
     private IdentityProvider identityProvider;
+
     @Mock
     private UserPreferencesRepository userPreferencesRepository;
+
     @Mock
     private SecurityContext securityContext;
+
     @Mock
     private Authentication authentication;
+
     @Mock
     private Jwt jwt;
 
@@ -84,8 +88,7 @@ class ProfileServiceTest {
                     .companyCountryId(countryId)
                     .companyId(companyId)
                     .build();
-            when(userPreferencesRepository.findByKeycloakUserId(USER_ID))
-                    .thenReturn(Optional.of(prefs));
+            when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
 
             var result = profileService.getProfile();
 
@@ -101,13 +104,9 @@ class ProfileServiceTest {
         @Test
         @DisplayName("should create empty preferences when none exist")
         void shouldCreateEmptyPreferencesWhenNoneExist() {
-            when(userPreferencesRepository.findByKeycloakUserId(USER_ID))
-                    .thenReturn(Optional.empty());
-            var savedPrefs = UserPreferences.builder()
-                    .keycloakUserId(USER_ID)
-                    .build();
-            when(userPreferencesRepository.save(any(UserPreferences.class)))
-                    .thenReturn(savedPrefs);
+            when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.empty());
+            var savedPrefs = UserPreferences.builder().keycloakUserId(USER_ID).build();
+            when(userPreferencesRepository.save(any(UserPreferences.class))).thenReturn(savedPrefs);
 
             var result = profileService.getProfile();
 
@@ -128,8 +127,7 @@ class ProfileServiceTest {
             when(jwt.getClaimAsString("family_name")).thenReturn(null);
 
             var prefs = UserPreferences.builder().keycloakUserId(USER_ID).build();
-            when(userPreferencesRepository.findByKeycloakUserId(USER_ID))
-                    .thenReturn(Optional.of(prefs));
+            when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
 
             var result = profileService.getProfile();
 
@@ -149,14 +147,12 @@ class ProfileServiceTest {
         @DisplayName("should update Keycloak and preferences when all fields provided")
         void shouldUpdateKeycloakAndPreferences() {
             var countryId = UUID.randomUUID();
-            var request = new ProfileUpdateRequest("NewFirst", "NewLast",
-                    "new@example.com", countryId, null, null, null, null);
+            var request = new ProfileUpdateRequest(
+                    "NewFirst", "NewLast", "new@example.com", countryId, null, null, null, null);
 
             var prefs = UserPreferences.builder().keycloakUserId(USER_ID).build();
-            when(userPreferencesRepository.findByKeycloakUserId(USER_ID))
-                    .thenReturn(Optional.of(prefs));
-            when(userPreferencesRepository.save(any(UserPreferences.class)))
-                    .thenReturn(prefs);
+            when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
+            when(userPreferencesRepository.save(any(UserPreferences.class))).thenReturn(prefs);
 
             var result = profileService.updateProfile(request);
 
@@ -169,14 +165,11 @@ class ProfileServiceTest {
         @DisplayName("should skip Keycloak update when no identity fields provided")
         void shouldSkipKeycloakUpdateWhenNoIdentityFields() {
             var countryId = UUID.randomUUID();
-            var request = new ProfileUpdateRequest(null, null, null,
-                    countryId, null, null, null, null);
+            var request = new ProfileUpdateRequest(null, null, null, countryId, null, null, null, null);
 
             var prefs = UserPreferences.builder().keycloakUserId(USER_ID).build();
-            when(userPreferencesRepository.findByKeycloakUserId(USER_ID))
-                    .thenReturn(Optional.of(prefs));
-            when(userPreferencesRepository.save(any(UserPreferences.class)))
-                    .thenReturn(prefs);
+            when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
+            when(userPreferencesRepository.save(any(UserPreferences.class))).thenReturn(prefs);
 
             profileService.updateProfile(request);
 
@@ -188,18 +181,15 @@ class ProfileServiceTest {
         @DisplayName("should create preferences row when none exists on update")
         void shouldCreatePreferencesWhenNoneExists() {
             var countryId = UUID.randomUUID();
-            var request = new ProfileUpdateRequest("First", null, null,
-                    countryId, null, null, null, null);
+            var request = new ProfileUpdateRequest("First", null, null, countryId, null, null, null, null);
 
-            when(userPreferencesRepository.findByKeycloakUserId(USER_ID))
-                    .thenReturn(Optional.empty());
+            when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.empty());
 
             var savedPrefs = UserPreferences.builder()
                     .keycloakUserId(USER_ID)
                     .companyCountryId(countryId)
                     .build();
-            when(userPreferencesRepository.save(any(UserPreferences.class)))
-                    .thenReturn(savedPrefs);
+            when(userPreferencesRepository.save(any(UserPreferences.class))).thenReturn(savedPrefs);
 
             var result = profileService.updateProfile(request);
 
@@ -216,14 +206,11 @@ class ProfileServiceTest {
             var regionId = UUID.randomUUID();
             var zoneId = UUID.randomUUID();
             var storeId = UUID.randomUUID();
-            var request = new ProfileUpdateRequest(null, null, null,
-                    countryId, companyId, regionId, zoneId, storeId);
+            var request = new ProfileUpdateRequest(null, null, null, countryId, companyId, regionId, zoneId, storeId);
 
             var prefs = UserPreferences.builder().keycloakUserId(USER_ID).build();
-            when(userPreferencesRepository.findByKeycloakUserId(USER_ID))
-                    .thenReturn(Optional.of(prefs));
-            when(userPreferencesRepository.save(any(UserPreferences.class)))
-                    .thenReturn(prefs);
+            when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
+            when(userPreferencesRepository.save(any(UserPreferences.class))).thenReturn(prefs);
 
             var result = profileService.updateProfile(request);
 

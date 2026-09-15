@@ -1,10 +1,23 @@
 package com.lifecontrol.api.paymentmethod.controller;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifecontrol.api.config.ratelimit.RateLimitProperties;
 import com.lifecontrol.api.paymentmethod.dto.PaymentMethodRequest;
 import com.lifecontrol.api.paymentmethod.dto.PaymentMethodResponse;
 import com.lifecontrol.api.paymentmethod.service.PaymentMethodService;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -23,20 +36,6 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.UUID;
-
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-
 @WebMvcTest(PaymentMethodController.class)
 @DisplayName("PaymentMethod Controller Security — @PreAuthorize method-level authorization")
 class PaymentMethodControllerSecurityTest {
@@ -52,8 +51,7 @@ class PaymentMethodControllerSecurityTest {
     static class TestSecurityConfig {
         @Bean
         SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-            return http
-                    .authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
+            return http.authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
                     .httpBasic(basic -> {})
                     .csrf(AbstractHttpConfigurer::disable)
                     .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -81,9 +79,7 @@ class PaymentMethodControllerSecurityTest {
 
     private PaymentMethodResponse buildResponse() {
         return new PaymentMethodResponse(
-                paymentMethodId, "Efectivo", "EFE", true,
-                LocalDateTime.now(), LocalDateTime.now()
-        );
+                paymentMethodId, "Efectivo", "EFE", true, LocalDateTime.now(), LocalDateTime.now());
     }
 
     // ─── GET /api/payment-methods ─────────────────────────────────
@@ -98,15 +94,13 @@ class PaymentMethodControllerSecurityTest {
         void anyAuthenticatedUserCanRead() throws Exception {
             when(paymentMethodService.getAllPaymentMethods()).thenReturn(List.of(buildResponse()));
 
-            mockMvc.perform(get("/api/payment-methods"))
-                    .andExpect(status().isOk());
+            mockMvc.perform(get("/api/payment-methods")).andExpect(status().isOk());
         }
 
         @Test
         @DisplayName("returns 401 Unauthorized for unauthenticated request")
         void unauthenticatedReturns401() throws Exception {
-            mockMvc.perform(get("/api/payment-methods"))
-                    .andExpect(status().isUnauthorized());
+            mockMvc.perform(get("/api/payment-methods")).andExpect(status().isUnauthorized());
         }
     }
 

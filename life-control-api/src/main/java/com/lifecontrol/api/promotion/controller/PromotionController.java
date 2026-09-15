@@ -1,5 +1,8 @@
 package com.lifecontrol.api.promotion.controller;
 
+import static com.lifecontrol.api.common.security.Roles.ADMIN;
+import static com.lifecontrol.api.common.security.Roles.SALES;
+
 import com.lifecontrol.api.promotion.dto.PromotionRequest;
 import com.lifecontrol.api.promotion.dto.PromotionResponse;
 import com.lifecontrol.api.promotion.service.PromotionService;
@@ -8,6 +11,8 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.List;
+import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -25,12 +30,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
-import java.util.UUID;
-
-import static com.lifecontrol.api.common.security.Roles.ADMIN;
-import static com.lifecontrol.api.common.security.Roles.SALES;
-
 @RestController
 @RequestMapping("/api/promotions")
 @Tag(name = "Promotion Management", description = "API for managing promotions and discounts")
@@ -45,22 +44,18 @@ public class PromotionController {
     @GetMapping
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Get all promotions", description = "Returns a paginated list of promotions")
-    @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "Paginated list of promotions")
-    })
-    public ResponseEntity<Page<PromotionResponse>> getAllPromotions(
-            @PageableDefault(size = 12) Pageable pageable) {
+    @ApiResponses({@ApiResponse(responseCode = "200", description = "Paginated list of promotions")})
+    public ResponseEntity<Page<PromotionResponse>> getAllPromotions(@PageableDefault(size = 12) Pageable pageable) {
         return ResponseEntity.ok(promotionService.getAllPromotions(pageable));
     }
 
     @GetMapping("/active")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
-    @Operation(summary = "Get active promotions", description = "Returns promotions currently active for the given sales channel")
-    @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "List of active promotions")
-    })
-    public ResponseEntity<List<PromotionResponse>> getActivePromotions(
-            @RequestParam String channel) {
+    @Operation(
+            summary = "Get active promotions",
+            description = "Returns promotions currently active for the given sales channel")
+    @ApiResponses({@ApiResponse(responseCode = "200", description = "List of active promotions")})
+    public ResponseEntity<List<PromotionResponse>> getActivePromotions(@RequestParam String channel) {
         return ResponseEntity.ok(promotionService.findActivePromotions(channel));
     }
 
@@ -82,8 +77,7 @@ public class PromotionController {
         @ApiResponse(responseCode = "201", description = "Promotion created"),
         @ApiResponse(responseCode = "400", description = "Validation error")
     })
-    public ResponseEntity<PromotionResponse> createPromotion(
-            @Valid @RequestBody PromotionRequest request) {
+    public ResponseEntity<PromotionResponse> createPromotion(@Valid @RequestBody PromotionRequest request) {
         var response = promotionService.createPromotion(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
@@ -96,8 +90,7 @@ public class PromotionController {
         @ApiResponse(responseCode = "404", description = "Promotion not found")
     })
     public ResponseEntity<PromotionResponse> updatePromotion(
-            @PathVariable UUID id,
-            @Valid @RequestBody PromotionRequest request) {
+            @PathVariable UUID id, @Valid @RequestBody PromotionRequest request) {
         return ResponseEntity.ok(promotionService.updatePromotion(id, request));
     }
 

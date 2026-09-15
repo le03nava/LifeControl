@@ -1,20 +1,16 @@
 package com.lifecontrol.api.company.dto;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
 import jakarta.validation.ValidatorFactory;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EmptySource;
-import org.junit.jupiter.params.provider.NullAndEmptySource;
-
-import java.util.Set;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 @DisplayName("CompanyRegion DTO Validation Tests")
 class CompanyRegionDtoValidationTest {
@@ -46,8 +42,7 @@ class CompanyRegionDtoValidationTest {
             var request = new CreateCompanyRegionRequest("", "Norte");
             Set<ConstraintViolation<CreateCompanyRegionRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
-            assertThat(violations)
-                    .anyMatch(v -> v.getPropertyPath().toString().equals("regionCode"));
+            assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("regionCode"));
         }
 
         @Test
@@ -56,8 +51,7 @@ class CompanyRegionDtoValidationTest {
             var request = new CreateCompanyRegionRequest(null, "Norte");
             Set<ConstraintViolation<CreateCompanyRegionRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
-            assertThat(violations)
-                    .anyMatch(v -> v.getPropertyPath().toString().equals("regionCode"));
+            assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("regionCode"));
         }
 
         @Test
@@ -66,8 +60,7 @@ class CompanyRegionDtoValidationTest {
             var request = new CreateCompanyRegionRequest("TOO_LONG_CODE", "Norte");
             Set<ConstraintViolation<CreateCompanyRegionRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
-            assertThat(violations)
-                    .anyMatch(v -> v.getPropertyPath().toString().equals("regionCode"));
+            assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("regionCode"));
         }
 
         @Test
@@ -76,8 +69,7 @@ class CompanyRegionDtoValidationTest {
             var request = new CreateCompanyRegionRequest("NORTE", "");
             Set<ConstraintViolation<CreateCompanyRegionRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
-            assertThat(violations)
-                    .anyMatch(v -> v.getPropertyPath().toString().equals("regionName"));
+            assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("regionName"));
         }
 
         @Test
@@ -86,8 +78,7 @@ class CompanyRegionDtoValidationTest {
             var request = new CreateCompanyRegionRequest("NORTE", null);
             Set<ConstraintViolation<CreateCompanyRegionRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
-            assertThat(violations)
-                    .anyMatch(v -> v.getPropertyPath().toString().equals("regionName"));
+            assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("regionName"));
         }
 
         @Test
@@ -97,8 +88,7 @@ class CompanyRegionDtoValidationTest {
             var request = new CreateCompanyRegionRequest("NORTE", hundredOneChars);
             Set<ConstraintViolation<CreateCompanyRegionRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
-            assertThat(violations)
-                    .anyMatch(v -> v.getPropertyPath().toString().equals("regionName"));
+            assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("regionName"));
         }
 
         @Test
@@ -128,8 +118,7 @@ class CompanyRegionDtoValidationTest {
             var request = new UpdateCompanyRegionRequest("", "Sur");
             Set<ConstraintViolation<UpdateCompanyRegionRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
-            assertThat(violations)
-                    .anyMatch(v -> v.getPropertyPath().toString().equals("regionCode"));
+            assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("regionCode"));
         }
 
         @Test
@@ -138,8 +127,7 @@ class CompanyRegionDtoValidationTest {
             var request = new UpdateCompanyRegionRequest(null, "Sur");
             Set<ConstraintViolation<UpdateCompanyRegionRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
-            assertThat(violations)
-                    .anyMatch(v -> v.getPropertyPath().toString().equals("regionCode"));
+            assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("regionCode"));
         }
 
         @Test
@@ -148,8 +136,7 @@ class CompanyRegionDtoValidationTest {
             var request = new UpdateCompanyRegionRequest("TOO_LONG_CODE", "Sur");
             Set<ConstraintViolation<UpdateCompanyRegionRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
-            assertThat(violations)
-                    .anyMatch(v -> v.getPropertyPath().toString().equals("regionCode"));
+            assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("regionCode"));
         }
 
         @Test
@@ -158,8 +145,7 @@ class CompanyRegionDtoValidationTest {
             var request = new UpdateCompanyRegionRequest("SUR", "");
             Set<ConstraintViolation<UpdateCompanyRegionRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
-            assertThat(violations)
-                    .anyMatch(v -> v.getPropertyPath().toString().equals("regionName"));
+            assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("regionName"));
         }
 
         @Test
@@ -168,8 +154,7 @@ class CompanyRegionDtoValidationTest {
             var request = new UpdateCompanyRegionRequest("SUR", null);
             Set<ConstraintViolation<UpdateCompanyRegionRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
-            assertThat(violations)
-                    .anyMatch(v -> v.getPropertyPath().toString().equals("regionName"));
+            assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("regionName"));
         }
 
         @Test
@@ -179,8 +164,7 @@ class CompanyRegionDtoValidationTest {
             var request = new UpdateCompanyRegionRequest("SUR", hundredOneChars);
             Set<ConstraintViolation<UpdateCompanyRegionRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
-            assertThat(violations)
-                    .anyMatch(v -> v.getPropertyPath().toString().equals("regionName"));
+            assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("regionName"));
         }
     }
 }

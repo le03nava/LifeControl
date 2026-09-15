@@ -2,7 +2,6 @@ package com.lifecontrol.api.validation;
 
 import jakarta.validation.Constraint;
 import jakarta.validation.Payload;
-
 import java.lang.annotation.Documented;
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
@@ -26,7 +25,8 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 public @interface ValidRFC {
 
-    String message() default "Invalid RFC. It must have a valid format: 3-4 letters followed by 6 digits and 3 alphanumeric characters";
+    String message() default
+            "Invalid RFC. It must have a valid format: 3-4 letters followed by 6 digits and 3 alphanumeric characters";
 
     Class<?>[] groups() default {};
 

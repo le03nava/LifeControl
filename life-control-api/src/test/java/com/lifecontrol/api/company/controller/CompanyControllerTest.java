@@ -1,34 +1,5 @@
 package com.lifecontrol.api.company.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.lifecontrol.api.common.address.dto.AddressRequest;
-import com.lifecontrol.api.company.dto.CompanyRequest;
-import com.lifecontrol.api.company.dto.CompanyResponse;
-import com.lifecontrol.api.company.exception.CompanyNotFoundException;
-import com.lifecontrol.api.company.exception.DuplicateCompanyException;
-import com.lifecontrol.api.company.service.CompanyService;
-import com.lifecontrol.api.exception.GlobalExceptionHandler;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Nested;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.web.PageableHandlerMethodArgumentResolver;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.UUID;
-
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
@@ -40,6 +11,32 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lifecontrol.api.company.dto.CompanyRequest;
+import com.lifecontrol.api.company.dto.CompanyResponse;
+import com.lifecontrol.api.company.exception.CompanyNotFoundException;
+import com.lifecontrol.api.company.exception.DuplicateCompanyException;
+import com.lifecontrol.api.company.service.CompanyService;
+import com.lifecontrol.api.exception.GlobalExceptionHandler;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableHandlerMethodArgumentResolver;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("CompanyController Tests")
@@ -82,8 +79,7 @@ class CompanyControllerTest {
                 true,
                 now,
                 now,
-                null
-        );
+                null);
 
         testCompanyRequest = new CompanyRequest(
                 "1",
@@ -94,8 +90,7 @@ class CompanyControllerTest {
                 "+9876543210",
                 "updated@company.com",
                 false,
-                null
-        );
+                null);
     }
 
     @Nested
@@ -113,9 +108,7 @@ class CompanyControllerTest {
             when(companyService.getAllCompanies(any(Pageable.class), eq(null))).thenReturn(page);
 
             // Act & Assert
-            mockMvc.perform(get("/api/companies")
-                            .param("page", "0")
-                            .param("size", "12"))
+            mockMvc.perform(get("/api/companies").param("page", "0").param("size", "12"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content").isArray())
                     .andExpect(jsonPath("$.content[0].companyName").value("Test Company"))
@@ -133,7 +126,8 @@ class CompanyControllerTest {
             var companies = List.of(testCompanyResponse);
             var page = new PageImpl<>(companies, pageable, 1);
 
-            when(companyService.getAllCompanies(any(Pageable.class), eq("Test"))).thenReturn(page);
+            when(companyService.getAllCompanies(any(Pageable.class), eq("Test")))
+                    .thenReturn(page);
 
             // Act & Assert
             mockMvc.perform(get("/api/companies")
@@ -155,9 +149,7 @@ class CompanyControllerTest {
             when(companyService.getAllCompanies(any(Pageable.class), eq(null))).thenReturn(page);
 
             // Act & Assert
-            mockMvc.perform(get("/api/companies")
-                            .param("page", "0")
-                            .param("size", "12"))
+            mockMvc.perform(get("/api/companies").param("page", "0").param("size", "12"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content").isEmpty())
                     .andExpect(jsonPath("$.totalElements").value(0))
@@ -235,15 +227,14 @@ class CompanyControllerTest {
             // Arrange - missing required field companyName
             CompanyRequest invalidRequest = new CompanyRequest(
                     "1",
-                    null,  // companyName is required but missing
+                    null, // companyName is required but missing
                     null,
                     null,
                     "XAXX010101000",
                     null,
                     null,
                     null,
-                    null
-            );
+                    null);
 
             // Act & Assert
             mockMvc.perform(put("/api/companies/{id}", testCompanyId)
@@ -264,8 +255,7 @@ class CompanyControllerTest {
             doNothing().when(companyService).deleteCompany(testCompanyId);
 
             // Act & Assert
-            mockMvc.perform(delete("/api/companies/{id}", testCompanyId))
-                    .andExpect(status().isNoContent());
+            mockMvc.perform(delete("/api/companies/{id}", testCompanyId)).andExpect(status().isNoContent());
             verify(companyService).deleteCompany(testCompanyId);
         }
 
@@ -274,7 +264,8 @@ class CompanyControllerTest {
         void deleteCompany_NotFound() throws Exception {
             // Arrange
             doThrow(new CompanyNotFoundException(testCompanyId))
-                    .when(companyService).deleteCompany(testCompanyId);
+                    .when(companyService)
+                    .deleteCompany(testCompanyId);
 
             // Act & Assert
             mockMvc.perform(delete("/api/companies/{id}", testCompanyId))

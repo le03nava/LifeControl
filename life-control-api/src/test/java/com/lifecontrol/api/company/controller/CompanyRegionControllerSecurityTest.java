@@ -1,11 +1,23 @@
 package com.lifecontrol.api.company.controller;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifecontrol.api.company.dto.CompanyRegionResponse;
 import com.lifecontrol.api.company.dto.CreateCompanyRegionRequest;
 import com.lifecontrol.api.company.dto.UpdateCompanyRegionRequest;
 import com.lifecontrol.api.company.service.CompanyRegionService;
 import com.lifecontrol.api.config.ratelimit.RateLimitProperties;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -24,19 +36,6 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.UUID;
-
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-
 @WebMvcTest(CompanyRegionController.class)
 @DisplayName("CompanyRegionController Security — @PreAuthorize class-level authorization")
 class CompanyRegionControllerSecurityTest {
@@ -47,8 +46,7 @@ class CompanyRegionControllerSecurityTest {
     static class TestSecurityConfig {
         @Bean
         SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-            return http
-                    .authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
+            return http.authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
                     .httpBasic(basic -> {})
                     .csrf(AbstractHttpConfigurer::disable)
                     .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -75,10 +73,15 @@ class CompanyRegionControllerSecurityTest {
 
     private CompanyRegionResponse buildRegionResponse() {
         return new CompanyRegionResponse(
-                regionId, UUID.randomUUID(), companyId, UUID.randomUUID(),
-                "NORTE", "Norte", true,
-                LocalDateTime.now(), LocalDateTime.now()
-        );
+                regionId,
+                UUID.randomUUID(),
+                companyId,
+                UUID.randomUUID(),
+                "NORTE",
+                "Norte",
+                true,
+                LocalDateTime.now(),
+                LocalDateTime.now());
     }
 
     // ─── GET /api/companies/{companyId}/countries/{companyCountryId}/regions ──
@@ -94,8 +97,7 @@ class CompanyRegionControllerSecurityTest {
             when(companyRegionService.getAllRegions(companyId, companyCountryId, false))
                     .thenReturn(List.of(buildRegionResponse()));
 
-            mockMvc.perform(get(BASE_URL, companyId, companyCountryId))
-                    .andExpect(status().isOk());
+            mockMvc.perform(get(BASE_URL, companyId, companyCountryId)).andExpect(status().isOk());
         }
 
         @Test
@@ -105,8 +107,7 @@ class CompanyRegionControllerSecurityTest {
             when(companyRegionService.getAllRegions(companyId, companyCountryId, false))
                     .thenReturn(List.of(buildRegionResponse()));
 
-            mockMvc.perform(get(BASE_URL, companyId, companyCountryId))
-                    .andExpect(status().isOk());
+            mockMvc.perform(get(BASE_URL, companyId, companyCountryId)).andExpect(status().isOk());
         }
 
         @Test
@@ -116,8 +117,7 @@ class CompanyRegionControllerSecurityTest {
             when(companyRegionService.getAllRegions(companyId, companyCountryId, false))
                     .thenReturn(List.of(buildRegionResponse()));
 
-            mockMvc.perform(get(BASE_URL, companyId, companyCountryId))
-                    .andExpect(status().isOk());
+            mockMvc.perform(get(BASE_URL, companyId, companyCountryId)).andExpect(status().isOk());
         }
 
         @Test
@@ -127,24 +127,21 @@ class CompanyRegionControllerSecurityTest {
             when(companyRegionService.getAllRegions(companyId, companyCountryId, false))
                     .thenReturn(List.of(buildRegionResponse()));
 
-            mockMvc.perform(get(BASE_URL, companyId, companyCountryId))
-                    .andExpect(status().isOk());
+            mockMvc.perform(get(BASE_URL, companyId, companyCountryId)).andExpect(status().isOk());
         }
 
         @Test
         @WithMockUser
         @DisplayName("returns 403 for user with no roles")
         void userWithNoRolesGetsForbidden() throws Exception {
-            mockMvc.perform(get(BASE_URL, companyId, companyCountryId))
-                    .andExpect(status().isForbidden());
+            mockMvc.perform(get(BASE_URL, companyId, companyCountryId)).andExpect(status().isForbidden());
         }
 
         @Test
         @WithMockUser(roles = {"other-role"})
         @DisplayName("returns 403 for user with wrong role")
         void userWithWrongRoleGetsForbidden() throws Exception {
-            mockMvc.perform(get(BASE_URL, companyId, companyCountryId))
-                    .andExpect(status().isForbidden());
+            mockMvc.perform(get(BASE_URL, companyId, companyCountryId)).andExpect(status().isForbidden());
         }
     }
 
@@ -159,7 +156,8 @@ class CompanyRegionControllerSecurityTest {
         @DisplayName("returns 201 Created for lc-admin")
         void lcAdminCanCreateRegion() throws Exception {
             var request = new CreateCompanyRegionRequest("NORTE", "Norte");
-            when(companyRegionService.createRegion(eq(companyId), eq(companyCountryId), any(CreateCompanyRegionRequest.class)))
+            when(companyRegionService.createRegion(
+                            eq(companyId), eq(companyCountryId), any(CreateCompanyRegionRequest.class)))
                     .thenReturn(buildRegionResponse());
 
             mockMvc.perform(post(BASE_URL, companyId, companyCountryId)
@@ -173,7 +171,8 @@ class CompanyRegionControllerSecurityTest {
         @DisplayName("returns 201 Created for lc-company")
         void lcCompanyCanCreateRegion() throws Exception {
             var request = new CreateCompanyRegionRequest("NORTE", "Norte");
-            when(companyRegionService.createRegion(eq(companyId), eq(companyCountryId), any(CreateCompanyRegionRequest.class)))
+            when(companyRegionService.createRegion(
+                            eq(companyId), eq(companyCountryId), any(CreateCompanyRegionRequest.class)))
                     .thenReturn(buildRegionResponse());
 
             mockMvc.perform(post(BASE_URL, companyId, companyCountryId)
@@ -187,7 +186,8 @@ class CompanyRegionControllerSecurityTest {
         @DisplayName("returns 201 Created for lc-company-country")
         void lcCompanyCountryCanCreateRegion() throws Exception {
             var request = new CreateCompanyRegionRequest("NORTE", "Norte");
-            when(companyRegionService.createRegion(eq(companyId), eq(companyCountryId), any(CreateCompanyRegionRequest.class)))
+            when(companyRegionService.createRegion(
+                            eq(companyId), eq(companyCountryId), any(CreateCompanyRegionRequest.class)))
                     .thenReturn(buildRegionResponse());
 
             mockMvc.perform(post(BASE_URL, companyId, companyCountryId)
@@ -202,7 +202,8 @@ class CompanyRegionControllerSecurityTest {
         void lcCompanyRegionCannotCreate() throws Exception {
             var request = new CreateCompanyRegionRequest("NORTE", "Norte");
             // lc-company-region passes @PreAuthorize but service layer denies
-            when(companyRegionService.createRegion(eq(companyId), eq(companyCountryId), any(CreateCompanyRegionRequest.class)))
+            when(companyRegionService.createRegion(
+                            eq(companyId), eq(companyCountryId), any(CreateCompanyRegionRequest.class)))
                     .thenThrow(new org.springframework.security.access.AccessDeniedException(
                             "Access denied to company region"));
 

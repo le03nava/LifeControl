@@ -2,7 +2,6 @@ package com.lifecontrol.api.usersadmin.model;
 
 import com.lifecontrol.api.common.model.Auditable;
 import jakarta.persistence.*;
-
 import java.time.LocalDateTime;
 import java.util.UUID;
 

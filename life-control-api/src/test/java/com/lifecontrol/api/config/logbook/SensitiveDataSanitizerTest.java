@@ -1,15 +1,14 @@
 package com.lifecontrol.api.config.logbook;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.zalando.logbook.HttpHeaders;
-
-import java.util.List;
-import java.util.Map;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 @DisplayName("SensitiveDataSanitizer Tests")
 class SensitiveDataSanitizerTest {
@@ -30,14 +29,11 @@ class SensitiveDataSanitizerTest {
         void shouldRedactAuthorizationHeader() {
             // Logbook's authorization() filter matches "Authorization" (standard HTTP case)
             // and replaces the value with "XXX" (Logbook's built-in replacement)
-            var headers = HttpHeaders.of(Map.of(
-                    "Authorization", List.of("Bearer eyJhbGciOiJIUzI1NiJ9.test")
-            ));
+            var headers = HttpHeaders.of(Map.of("Authorization", List.of("Bearer eyJhbGciOiJIUzI1NiJ9.test")));
 
             var result = sanitizer.authorizationHeaderFilter().filter(headers);
 
-            assertThat(result.get("Authorization"))
-                    .containsExactly("XXX");
+            assertThat(result.get("Authorization")).containsExactly("XXX");
         }
 
         @Test
@@ -45,13 +41,11 @@ class SensitiveDataSanitizerTest {
         void shouldNotModifyOtherHeaders() {
             var headers = HttpHeaders.of(Map.of(
                     "Authorization", List.of("Bearer token123"),
-                    "Content-Type", List.of("application/json")
-            ));
+                    "Content-Type", List.of("application/json")));
 
             var result = sanitizer.authorizationHeaderFilter().filter(headers);
 
-            assertThat(result.get("Content-Type"))
-                    .containsExactly("application/json");
+            assertThat(result.get("Content-Type")).containsExactly("application/json");
         }
     }
 
@@ -66,8 +60,7 @@ class SensitiveDataSanitizerTest {
             var headers = HttpHeaders.of(Map.of(
                     "Cookie", List.of("sessionId=abc123"),
                     "X-CSRF-Token", List.of("csrf-token-value"),
-                    "X-Api-Key", List.of("secret-api-key-123")
-            ));
+                    "X-Api-Key", List.of("secret-api-key-123")));
 
             // Act
             var result = sanitizer.sensitiveHeadersFilter().filter(headers);
@@ -84,8 +77,7 @@ class SensitiveDataSanitizerTest {
             // Arrange
             var headers = HttpHeaders.of(Map.of(
                     "Content-Type", List.of("application/json"),
-                    "Accept", List.of("*/*")
-            ));
+                    "Accept", List.of("*/*")));
 
             // Act
             var result = sanitizer.sensitiveHeadersFilter().filter(headers);

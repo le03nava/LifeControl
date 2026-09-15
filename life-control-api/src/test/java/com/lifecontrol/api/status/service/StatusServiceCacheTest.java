@@ -1,10 +1,17 @@
 package com.lifecontrol.api.status.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.*;
+
 import com.lifecontrol.api.status.exception.StatusNotFoundException;
 import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.status.model.StatusType;
 import com.lifecontrol.api.status.repository.StatusRepository;
 import com.lifecontrol.api.status.repository.StatusTypeRepository;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -14,14 +21,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.cache.CacheManager;
 import org.springframework.test.context.ActiveProfiles;
-
-import java.util.Objects;
-import java.util.Optional;
-import java.util.UUID;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.Mockito.*;
 
 /**
  * Integration tests for {@link StatusService} caching behavior.
@@ -130,11 +129,7 @@ class StatusServiceCacheTest {
     }
 
     private StatusType buildStatusType(UUID id, String name) {
-        return StatusType.builder()
-                .id(id)
-                .statusTypeName(name)
-                .enabled(true)
-                .build();
+        return StatusType.builder().id(id).statusTypeName(name).enabled(true).build();
     }
 
     private Status buildStatus(UUID id, String name, StatusType statusType) {

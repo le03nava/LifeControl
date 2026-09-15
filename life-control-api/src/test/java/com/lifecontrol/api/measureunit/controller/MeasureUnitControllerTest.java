@@ -1,5 +1,12 @@
 package com.lifecontrol.api.measureunit.controller;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.lifecontrol.api.exception.GlobalExceptionHandler;
@@ -8,6 +15,9 @@ import com.lifecontrol.api.measureunit.dto.MeasureUnitResponse;
 import com.lifecontrol.api.measureunit.exception.DuplicateMeasureUnitException;
 import com.lifecontrol.api.measureunit.exception.MeasureUnitNotFoundException;
 import com.lifecontrol.api.measureunit.service.MeasureUnitService;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -19,17 +29,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.UUID;
-
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("MeasureUnitController Tests")
@@ -65,8 +64,7 @@ class MeasureUnitControllerTest {
                 "Para alimentos, materiales a granel, insumos industriales.",
                 true,
                 LocalDateTime.now(),
-                LocalDateTime.now()
-        );
+                LocalDateTime.now());
     }
 
     @Nested
@@ -113,11 +111,9 @@ class MeasureUnitControllerTest {
         @Test
         @DisplayName("should return 404 when measure unit not found")
         void getMeasureUnitById_NotFound_Returns404() throws Exception {
-            when(measureUnitService.getMeasureUnitById(testId))
-                    .thenThrow(new MeasureUnitNotFoundException(testId));
+            when(measureUnitService.getMeasureUnitById(testId)).thenThrow(new MeasureUnitNotFoundException(testId));
 
-            mockMvc.perform(get("/api/measure-units/{id}", testId))
-                    .andExpect(status().isNotFound());
+            mockMvc.perform(get("/api/measure-units/{id}", testId)).andExpect(status().isNotFound());
         }
     }
 
@@ -143,8 +139,7 @@ class MeasureUnitControllerTest {
                     .thenThrow(new IllegalArgumentException(
                             "No enum constant com.lifecontrol.api.measureunit.model.MeasureUnitType.INVALID"));
 
-            mockMvc.perform(get("/api/measure-units/type/INVALID"))
-                    .andExpect(status().isBadRequest());
+            mockMvc.perform(get("/api/measure-units/type/INVALID")).andExpect(status().isBadRequest());
         }
     }
 
@@ -156,7 +151,8 @@ class MeasureUnitControllerTest {
         @DisplayName("should return 201 when created successfully")
         void createMeasureUnit_Returns201() throws Exception {
             var request = new MeasureUnitRequest("Kilogramo", "Kg", "PRODUCT", "KGM", "Description");
-            when(measureUnitService.createMeasureUnit(any(MeasureUnitRequest.class))).thenReturn(testResponse);
+            when(measureUnitService.createMeasureUnit(any(MeasureUnitRequest.class)))
+                    .thenReturn(testResponse);
 
             mockMvc.perform(post("/api/measure-units")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -182,8 +178,7 @@ class MeasureUnitControllerTest {
         void createMeasureUnit_DuplicateSatCode_Returns409() throws Exception {
             var request = new MeasureUnitRequest("Kilogramo", "Kg", "PRODUCT", "KGM", "Description");
             when(measureUnitService.createMeasureUnit(any(MeasureUnitRequest.class)))
-                    .thenThrow(new DuplicateMeasureUnitException(
-                            "Measure unit with SAT code 'KGM' already exists"));
+                    .thenThrow(new DuplicateMeasureUnitException("Measure unit with SAT code 'KGM' already exists"));
 
             mockMvc.perform(post("/api/measure-units")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -199,11 +194,18 @@ class MeasureUnitControllerTest {
         @Test
         @DisplayName("should return 200 when updated successfully")
         void updateMeasureUnit_Returns200() throws Exception {
-            var request = new MeasureUnitRequest("Kilogramo actualizado", "Kg", "PRODUCT", "KGM", "Updated description");
+            var request =
+                    new MeasureUnitRequest("Kilogramo actualizado", "Kg", "PRODUCT", "KGM", "Updated description");
             var updatedResponse = new MeasureUnitResponse(
-                    testId, "Kilogramo actualizado", "Kg", "PRODUCT", "KGM",
-                    "Updated description", true,
-                    LocalDateTime.now(), LocalDateTime.now());
+                    testId,
+                    "Kilogramo actualizado",
+                    "Kg",
+                    "PRODUCT",
+                    "KGM",
+                    "Updated description",
+                    true,
+                    LocalDateTime.now(),
+                    LocalDateTime.now());
             when(measureUnitService.updateMeasureUnit(eq(testId), any(MeasureUnitRequest.class)))
                     .thenReturn(updatedResponse);
 
@@ -232,8 +234,7 @@ class MeasureUnitControllerTest {
         void updateMeasureUnit_DuplicateSatCode_Returns409() throws Exception {
             var request = new MeasureUnitRequest("Kilogramo", "Kg", "PRODUCT", "KGM", "Description");
             when(measureUnitService.updateMeasureUnit(eq(testId), any(MeasureUnitRequest.class)))
-                    .thenThrow(new DuplicateMeasureUnitException(
-                            "Measure unit with SAT code 'KGM' already exists"));
+                    .thenThrow(new DuplicateMeasureUnitException("Measure unit with SAT code 'KGM' already exists"));
 
             mockMvc.perform(put("/api/measure-units/{id}", testId)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -249,18 +250,17 @@ class MeasureUnitControllerTest {
         @Test
         @DisplayName("should return 204 when deleted successfully")
         void deleteMeasureUnit_Returns204() throws Exception {
-            mockMvc.perform(delete("/api/measure-units/{id}", testId))
-                    .andExpect(status().isNoContent());
+            mockMvc.perform(delete("/api/measure-units/{id}", testId)).andExpect(status().isNoContent());
         }
 
         @Test
         @DisplayName("should return 404 when measure unit not found")
         void deleteMeasureUnit_NotFound_Returns404() throws Exception {
             doThrow(new MeasureUnitNotFoundException(testId))
-                    .when(measureUnitService).deleteMeasureUnit(testId);
+                    .when(measureUnitService)
+                    .deleteMeasureUnit(testId);
 
-            mockMvc.perform(delete("/api/measure-units/{id}", testId))
-                    .andExpect(status().isNotFound());
+            mockMvc.perform(delete("/api/measure-units/{id}", testId)).andExpect(status().isNotFound());
         }
     }
 
@@ -282,11 +282,9 @@ class MeasureUnitControllerTest {
         @Test
         @DisplayName("should return 404 when measure unit not found")
         void enableMeasureUnit_NotFound_Returns404() throws Exception {
-            when(measureUnitService.enableMeasureUnit(testId))
-                    .thenThrow(new MeasureUnitNotFoundException(testId));
+            when(measureUnitService.enableMeasureUnit(testId)).thenThrow(new MeasureUnitNotFoundException(testId));
 
-            mockMvc.perform(patch("/api/measure-units/{id}/enable", testId))
-                    .andExpect(status().isNotFound());
+            mockMvc.perform(patch("/api/measure-units/{id}/enable", testId)).andExpect(status().isNotFound());
         }
     }
 }

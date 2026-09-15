@@ -1,12 +1,13 @@
 package com.lifecontrol.api.store.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
 import com.lifecontrol.api.common.address.dto.AddressRequest;
-import com.lifecontrol.api.common.address.dto.AddressResponse;
 import com.lifecontrol.api.common.address.model.Address;
 import com.lifecontrol.api.common.auth.CurrentUserContext;
-import com.lifecontrol.api.company.exception.CompanyCountryNotFoundException;
-import com.lifecontrol.api.company.exception.CompanyNotFoundException;
-import com.lifecontrol.api.company.exception.CompanyRegionNotFoundException;
 import com.lifecontrol.api.company.exception.CompanyZoneNotFoundException;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
@@ -26,8 +27,12 @@ import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.exception.DuplicateCompanyStoreException;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
-import org.springframework.context.ApplicationEventPublisher;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -35,19 +40,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.access.AccessDeniedException;
-
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Optional;
-import java.util.Set;
-import java.util.UUID;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("CompanyStoreService Tests")
@@ -55,18 +49,25 @@ class CompanyStoreServiceTest {
 
     @Mock
     private CompanyStoreRepository companyStoreRepository;
+
     @Mock
     private CompanyZoneRepository companyZoneRepository;
+
     @Mock
     private CompanyRegionRepository companyRegionRepository;
+
     @Mock
     private CompanyCountryRepository companyCountryRepository;
+
     @Mock
     private CompanyRepository companyRepository;
+
     @Mock
     private CountryRepository countryRepository;
+
     @Mock
     private CurrentUserContext currentUserContext;
+
     @Mock
     private ApplicationEventPublisher eventPublisher;
 
@@ -162,18 +163,21 @@ class CompanyStoreServiceTest {
                 .build();
 
         createWithAddressRequest = new CreateCompanyStoreRequest(
-                "Tienda Nueva", "nueva@example.com", "555-5678",
-                new AddressRequest("Otra Calle", "456", "A", "Colonia Nueva", "67890",
-                        "Monterrey", "NL", testCountry.getId()));
+                "Tienda Nueva",
+                "nueva@example.com",
+                "555-5678",
+                new AddressRequest(
+                        "Otra Calle", "456", "A", "Colonia Nueva", "67890", "Monterrey", "NL", testCountry.getId()));
 
-        createWithoutAddressRequest = new CreateCompanyStoreRequest(
-                "Tienda Nueva", "nueva@example.com", "555-5678",
-                null);
+        createWithoutAddressRequest =
+                new CreateCompanyStoreRequest("Tienda Nueva", "nueva@example.com", "555-5678", null);
 
         updateRequest = new UpdateCompanyStoreRequest(
-                "Tienda Actualizada", "actualizada@example.com", "555-9999",
-                new AddressRequest("Calle Nueva", "789", null, "Col Nueva", "54321",
-                        "Guadalajara", "JAL", testCountry.getId()));
+                "Tienda Actualizada",
+                "actualizada@example.com",
+                "555-9999",
+                new AddressRequest(
+                        "Calle Nueva", "789", null, "Col Nueva", "54321", "Guadalajara", "JAL", testCountry.getId()));
     }
 
     private void mockZoneResolution() {
@@ -182,8 +186,7 @@ class CompanyStoreServiceTest {
                 .thenReturn(Optional.of(testCompanyCountry));
         when(companyRegionRepository.findByIdAndCompanyCountryId(regionId, companyCountryId))
                 .thenReturn(Optional.of(testRegion));
-        when(companyZoneRepository.findByIdAndCompanyRegionId(zoneId, regionId))
-                .thenReturn(Optional.of(testZone));
+        when(companyZoneRepository.findByIdAndCompanyRegionId(zoneId, regionId)).thenReturn(Optional.of(testZone));
     }
 
     @Nested
@@ -213,8 +216,8 @@ class CompanyStoreServiceTest {
                     .thenReturn(List.of(enabledStore));
 
             // Act
-            List<CompanyStoreResponse> result = companyStoreService.getAllStores(
-                    companyId, companyCountryId, regionId, zoneId, false);
+            List<CompanyStoreResponse> result =
+                    companyStoreService.getAllStores(companyId, companyCountryId, regionId, zoneId, false);
 
             // Assert
             assertThat(result).hasSize(1);
@@ -242,12 +245,11 @@ class CompanyStoreServiceTest {
                     .enabled(false)
                     .build();
 
-            when(companyStoreRepository.findByCompanyZoneId(zoneId))
-                    .thenReturn(List.of(enabledStore, disabledStore));
+            when(companyStoreRepository.findByCompanyZoneId(zoneId)).thenReturn(List.of(enabledStore, disabledStore));
 
             // Act
-            List<CompanyStoreResponse> result = companyStoreService.getAllStores(
-                    companyId, companyCountryId, regionId, zoneId, true);
+            List<CompanyStoreResponse> result =
+                    companyStoreService.getAllStores(companyId, companyCountryId, regionId, zoneId, true);
 
             // Assert
             assertThat(result).hasSize(2);
@@ -267,8 +269,8 @@ class CompanyStoreServiceTest {
                     .thenReturn(Optional.empty());
 
             // Act & Assert
-            assertThatThrownBy(() -> companyStoreService.getAllStores(
-                    companyId, companyCountryId, regionId, zoneId, false))
+            assertThatThrownBy(() ->
+                            companyStoreService.getAllStores(companyId, companyCountryId, regionId, zoneId, false))
                     .isInstanceOf(CompanyZoneNotFoundException.class);
         }
 
@@ -291,8 +293,8 @@ class CompanyStoreServiceTest {
                     .thenReturn(List.of(store));
 
             // Act
-            List<CompanyStoreResponse> result = companyStoreService.getAllStores(
-                    companyId, companyCountryId, regionId, zoneId, false);
+            List<CompanyStoreResponse> result =
+                    companyStoreService.getAllStores(companyId, companyCountryId, regionId, zoneId, false);
 
             // Assert
             assertThat(result).hasSize(1);
@@ -318,8 +320,8 @@ class CompanyStoreServiceTest {
                     .thenReturn(List.of(store));
 
             // Act
-            List<CompanyStoreResponse> result = companyStoreService.getAllStores(
-                    companyId, companyCountryId, regionId, zoneId, false);
+            List<CompanyStoreResponse> result =
+                    companyStoreService.getAllStores(companyId, companyCountryId, regionId, zoneId, false);
 
             // Assert
             assertThat(result).hasSize(1);
@@ -341,8 +343,8 @@ class CompanyStoreServiceTest {
                     .thenReturn(Optional.of(testStore));
 
             // Act
-            CompanyStoreResponse result = companyStoreService.getStoreById(
-                    companyId, companyCountryId, regionId, zoneId, storeId);
+            CompanyStoreResponse result =
+                    companyStoreService.getStoreById(companyId, companyCountryId, regionId, zoneId, storeId);
 
             // Assert
             assertThat(result).isNotNull();
@@ -365,8 +367,8 @@ class CompanyStoreServiceTest {
                     .thenReturn(Optional.empty());
 
             // Act & Assert
-            assertThatThrownBy(() -> companyStoreService.getStoreById(
-                    companyId, companyCountryId, regionId, zoneId, storeId))
+            assertThatThrownBy(() ->
+                            companyStoreService.getStoreById(companyId, companyCountryId, regionId, zoneId, storeId))
                     .isInstanceOf(CompanyStoreNotFoundException.class);
         }
     }
@@ -380,8 +382,7 @@ class CompanyStoreServiceTest {
         void createStore_WithAddress_Success() {
             // Arrange
             mockZoneResolution();
-            when(companyStoreRepository.existsByStoreNameAndCompanyZoneId(
-                    createWithAddressRequest.storeName(), zoneId))
+            when(companyStoreRepository.existsByStoreNameAndCompanyZoneId(createWithAddressRequest.storeName(), zoneId))
                     .thenReturn(false);
             when(countryRepository.findById(createWithAddressRequest.address().countryId()))
                     .thenReturn(Optional.of(testCountry));
@@ -410,7 +411,7 @@ class CompanyStoreServiceTest {
             // Arrange
             mockZoneResolution();
             when(companyStoreRepository.existsByStoreNameAndCompanyZoneId(
-                    createWithoutAddressRequest.storeName(), zoneId))
+                            createWithoutAddressRequest.storeName(), zoneId))
                     .thenReturn(false);
             when(companyStoreRepository.save(any(CompanyStore.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -432,13 +433,12 @@ class CompanyStoreServiceTest {
         void createStore_DuplicateName_ThrowsException() {
             // Arrange
             mockZoneResolution();
-            when(companyStoreRepository.existsByStoreNameAndCompanyZoneId(
-                    createWithAddressRequest.storeName(), zoneId))
+            when(companyStoreRepository.existsByStoreNameAndCompanyZoneId(createWithAddressRequest.storeName(), zoneId))
                     .thenReturn(true);
 
             // Act & Assert
             assertThatThrownBy(() -> companyStoreService.createStore(
-                    companyId, companyCountryId, regionId, zoneId, createWithAddressRequest))
+                            companyId, companyCountryId, regionId, zoneId, createWithAddressRequest))
                     .isInstanceOf(DuplicateCompanyStoreException.class);
             verify(companyStoreRepository, never()).save(any());
             verify(eventPublisher, never()).publishEvent(any());
@@ -458,7 +458,7 @@ class CompanyStoreServiceTest {
 
             // Act & Assert
             assertThatThrownBy(() -> companyStoreService.createStore(
-                    companyId, companyCountryId, regionId, zoneId, createWithAddressRequest))
+                            companyId, companyCountryId, regionId, zoneId, createWithAddressRequest))
                     .isInstanceOf(CompanyZoneNotFoundException.class);
             verify(companyStoreRepository, never()).save(any());
             verify(eventPublisher, never()).publishEvent(any());
@@ -472,7 +472,7 @@ class CompanyStoreServiceTest {
 
             // Act & Assert
             assertThatThrownBy(() -> companyStoreService.createStore(
-                    companyId, companyCountryId, regionId, zoneId, createWithAddressRequest))
+                            companyId, companyCountryId, regionId, zoneId, createWithAddressRequest))
                     .isInstanceOf(AccessDeniedException.class)
                     .hasMessage("Store-scoped users cannot create stores");
             verify(companyStoreRepository, never()).save(any());
@@ -493,7 +493,7 @@ class CompanyStoreServiceTest {
                     .thenReturn(Optional.of(testStore));
             // storeName changes from "Tienda Principal" to "Tienda Actualizada" — check duplicate
             when(companyStoreRepository.existsByStoreNameAndCompanyZoneIdAndIdNot(
-                    updateRequest.storeName(), zoneId, storeId))
+                            updateRequest.storeName(), zoneId, storeId))
                     .thenReturn(false);
             when(countryRepository.findById(updateRequest.address().countryId()))
                     .thenReturn(Optional.of(testCountry));
@@ -524,7 +524,7 @@ class CompanyStoreServiceTest {
 
             // Act & Assert
             assertThatThrownBy(() -> companyStoreService.updateStore(
-                    companyId, companyCountryId, regionId, zoneId, storeId, updateRequest))
+                            companyId, companyCountryId, regionId, zoneId, storeId, updateRequest))
                     .isInstanceOf(CompanyStoreNotFoundException.class);
             verify(companyStoreRepository, never()).save(any());
         }
@@ -537,12 +537,12 @@ class CompanyStoreServiceTest {
             when(companyStoreRepository.findByIdAndCompanyZoneId(storeId, zoneId))
                     .thenReturn(Optional.of(testStore));
             when(companyStoreRepository.existsByStoreNameAndCompanyZoneIdAndIdNot(
-                    updateRequest.storeName(), zoneId, storeId))
+                            updateRequest.storeName(), zoneId, storeId))
                     .thenReturn(true);
 
             // Act & Assert
             assertThatThrownBy(() -> companyStoreService.updateStore(
-                    companyId, companyCountryId, regionId, zoneId, storeId, updateRequest))
+                            companyId, companyCountryId, regionId, zoneId, storeId, updateRequest))
                     .isInstanceOf(DuplicateCompanyStoreException.class);
             verify(companyStoreRepository, never()).save(any());
         }
@@ -578,8 +578,8 @@ class CompanyStoreServiceTest {
                     .thenReturn(Optional.empty());
 
             // Act & Assert
-            assertThatThrownBy(() -> companyStoreService.deleteStore(
-                    companyId, companyCountryId, regionId, zoneId, storeId))
+            assertThatThrownBy(() ->
+                            companyStoreService.deleteStore(companyId, companyCountryId, regionId, zoneId, storeId))
                     .isInstanceOf(CompanyStoreNotFoundException.class);
             verify(companyStoreRepository, never()).save(any());
         }
@@ -600,8 +600,8 @@ class CompanyStoreServiceTest {
             when(companyStoreRepository.save(any(CompanyStore.class))).thenAnswer(inv -> inv.getArgument(0));
 
             // Act
-            CompanyStoreResponse result = companyStoreService.enableStore(
-                    companyId, companyCountryId, regionId, zoneId, storeId);
+            CompanyStoreResponse result =
+                    companyStoreService.enableStore(companyId, companyCountryId, regionId, zoneId, storeId);
 
             // Assert
             assertThat(result).isNotNull();
@@ -619,8 +619,8 @@ class CompanyStoreServiceTest {
                     .thenReturn(Optional.empty());
 
             // Act & Assert
-            assertThatThrownBy(() -> companyStoreService.enableStore(
-                    companyId, companyCountryId, regionId, zoneId, storeId))
+            assertThatThrownBy(() ->
+                            companyStoreService.enableStore(companyId, companyCountryId, regionId, zoneId, storeId))
                     .isInstanceOf(CompanyStoreNotFoundException.class);
             verify(companyStoreRepository, never()).save(any());
         }

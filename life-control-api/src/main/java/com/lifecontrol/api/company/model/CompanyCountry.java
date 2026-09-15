@@ -3,13 +3,11 @@ package com.lifecontrol.api.company.model;
 import com.lifecontrol.api.common.model.Auditable;
 import com.lifecontrol.api.country.model.Country;
 import jakarta.persistence.*;
-
 import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "company_countries",
-       uniqueConstraints = @UniqueConstraint(columnNames = {"company_id", "country_id"}))
+@Table(name = "company_countries", uniqueConstraints = @UniqueConstraint(columnNames = {"company_id", "country_id"}))
 public class CompanyCountry extends Auditable {
 
     @Id

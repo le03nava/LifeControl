@@ -1,5 +1,15 @@
 package com.lifecontrol.api.common.auth;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.when;
+
+import java.util.Collection;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -8,24 +18,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
-
-import java.util.Collection;
-import java.util.List;
-import java.util.Set;
-import java.util.UUID;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.mockito.Mockito.lenient;
-import static org.mockito.Mockito.when;
-
-import org.springframework.security.access.AccessDeniedException;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("CurrentUserContext Tests")
@@ -507,10 +505,8 @@ class CurrentUserContextTest {
         @Test
         @DisplayName("both roles return true for both checks")
         void bothRoles() {
-            mockAuthorities(List.of(
-                    (GrantedAuthority) () -> "ROLE_life-control-admin",
-                    (GrantedAuthority) () -> "ROLE_life-control-country"
-            ));
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_life-control-admin", (GrantedAuthority)
+                    () -> "ROLE_life-control-country"));
 
             assertThat(currentUserContext.isAdmin()).isTrue();
             assertThat(currentUserContext.isCountryRole()).isTrue();
@@ -649,8 +645,7 @@ class CurrentUserContextTest {
 
             org.junit.jupiter.api.Assertions.assertThrows(
                     org.springframework.security.access.AccessDeniedException.class,
-                    () -> currentUserContext.verifyCompanyAccess(otherId)
-            );
+                    () -> currentUserContext.verifyCompanyAccess(otherId));
         }
 
         @Test
@@ -674,8 +669,7 @@ class CurrentUserContextTest {
 
             org.junit.jupiter.api.Assertions.assertThrows(
                     org.springframework.security.access.AccessDeniedException.class,
-                    () -> currentUserContext.verifyCompanyAccess(otherId)
-            );
+                    () -> currentUserContext.verifyCompanyAccess(otherId));
         }
     }
 
@@ -693,8 +687,8 @@ class CurrentUserContextTest {
         void adminCanAccessAnyCompanyCountry() {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_life-control-admin"));
 
-            assertDoesNotThrow(() ->
-                    currentUserContext.verifyCompanyCountryAccess(UUID.randomUUID(), UUID.randomUUID()));
+            assertDoesNotThrow(
+                    () -> currentUserContext.verifyCompanyCountryAccess(UUID.randomUUID(), UUID.randomUUID()));
         }
 
         @Test
@@ -704,8 +698,7 @@ class CurrentUserContextTest {
             UUID companyId = UUID.randomUUID();
             when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
 
-            assertDoesNotThrow(() ->
-                    currentUserContext.verifyCompanyCountryAccess(companyId, UUID.randomUUID()));
+            assertDoesNotThrow(() -> currentUserContext.verifyCompanyCountryAccess(companyId, UUID.randomUUID()));
         }
 
         @Test
@@ -716,7 +709,8 @@ class CurrentUserContextTest {
             UUID otherId = UUID.randomUUID();
             when(jwt.getClaim("company_id")).thenReturn(assignedId.toString());
 
-            assertThrows(AccessDeniedException.class,
+            assertThrows(
+                    AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyCountryAccess(otherId, UUID.randomUUID()));
         }
 
@@ -729,8 +723,7 @@ class CurrentUserContextTest {
             when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
             when(jwt.getClaim("company_country_id")).thenReturn(countryId.toString());
 
-            assertDoesNotThrow(() ->
-                    currentUserContext.verifyCompanyCountryAccess(companyId, countryId));
+            assertDoesNotThrow(() -> currentUserContext.verifyCompanyCountryAccess(companyId, countryId));
         }
 
         @Test
@@ -743,7 +736,8 @@ class CurrentUserContextTest {
             when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
             when(jwt.getClaim("company_country_id")).thenReturn(assignedCountryId.toString());
 
-            assertThrows(AccessDeniedException.class,
+            assertThrows(
+                    AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyCountryAccess(companyId, otherCountryId));
         }
 
@@ -757,7 +751,8 @@ class CurrentUserContextTest {
             when(jwt.getClaim("company_id")).thenReturn(assignedCompanyId.toString());
             // company_country_id claim not needed — verifyCompanyAccess throws first
 
-            assertThrows(AccessDeniedException.class,
+            assertThrows(
+                    AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyCountryAccess(wrongCompanyId, countryId));
         }
 
@@ -769,8 +764,8 @@ class CurrentUserContextTest {
             when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
             // company_country_id claim not needed — null check fires before claim parsing
 
-            assertThrows(AccessDeniedException.class,
-                    () -> currentUserContext.verifyCompanyCountryAccess(companyId, null));
+            assertThrows(
+                    AccessDeniedException.class, () -> currentUserContext.verifyCompanyCountryAccess(companyId, null));
         }
 
         @Test
@@ -782,7 +777,8 @@ class CurrentUserContextTest {
             when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
             when(jwt.getClaim("company_country_id")).thenReturn(null);
 
-            assertThrows(AccessDeniedException.class,
+            assertThrows(
+                    AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyCountryAccess(companyId, countryId));
         }
 
@@ -791,7 +787,8 @@ class CurrentUserContextTest {
         void noRecognizedRoleThrows() {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_other"));
 
-            assertThrows(AccessDeniedException.class,
+            assertThrows(
+                    AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyCountryAccess(UUID.randomUUID(), UUID.randomUUID()));
         }
     }
@@ -812,9 +809,8 @@ class CurrentUserContextTest {
         void adminCanAccessAnyRegion() {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_life-control-admin"));
 
-            assertDoesNotThrow(() ->
-                    currentUserContext.verifyCompanyRegionAccess(
-                            UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
+            assertDoesNotThrow(() -> currentUserContext.verifyCompanyRegionAccess(
+                    UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
         }
 
         // ── 3.4: lc-company delegates to verifyCompanyAccess ──
@@ -838,7 +834,8 @@ class CurrentUserContextTest {
             UUID otherId = UUID.randomUUID();
             when(jwt.getClaim("company_id")).thenReturn(assignedId.toString());
 
-            assertThrows(AccessDeniedException.class,
+            assertThrows(
+                    AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyRegionAccess(otherId, UUID.randomUUID(), UUID.randomUUID()));
         }
 
@@ -853,8 +850,8 @@ class CurrentUserContextTest {
             when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
             when(jwt.getClaim("company_country_id")).thenReturn(countryId.toString());
 
-            assertDoesNotThrow(() ->
-                    currentUserContext.verifyCompanyRegionAccess(companyId, countryId, UUID.randomUUID()));
+            assertDoesNotThrow(
+                    () -> currentUserContext.verifyCompanyRegionAccess(companyId, countryId, UUID.randomUUID()));
         }
 
         @Test
@@ -867,7 +864,8 @@ class CurrentUserContextTest {
             when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
             when(jwt.getClaim("company_country_id")).thenReturn(assignedCountryId.toString());
 
-            assertThrows(AccessDeniedException.class,
+            assertThrows(
+                    AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyRegionAccess(companyId, otherCountryId, UUID.randomUUID()));
         }
 
@@ -879,8 +877,10 @@ class CurrentUserContextTest {
             UUID wrongCompanyId = UUID.randomUUID();
             when(jwt.getClaim("company_id")).thenReturn(assignedCompanyId.toString());
 
-            assertThrows(AccessDeniedException.class,
-                    () -> currentUserContext.verifyCompanyRegionAccess(wrongCompanyId, UUID.randomUUID(), UUID.randomUUID()));
+            assertThrows(
+                    AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyRegionAccess(
+                            wrongCompanyId, UUID.randomUUID(), UUID.randomUUID()));
         }
 
         // ── 3.6: lc-company-region ──
@@ -896,8 +896,7 @@ class CurrentUserContextTest {
             when(jwt.getClaim("company_country_id")).thenReturn(countryId.toString());
             when(jwt.getClaim("company_region_id")).thenReturn(regionId.toString());
 
-            assertDoesNotThrow(() ->
-                    currentUserContext.verifyCompanyRegionAccess(companyId, countryId, regionId));
+            assertDoesNotThrow(() -> currentUserContext.verifyCompanyRegionAccess(companyId, countryId, regionId));
         }
 
         @Test
@@ -912,7 +911,8 @@ class CurrentUserContextTest {
             when(jwt.getClaim("company_country_id")).thenReturn(countryId.toString());
             when(jwt.getClaim("company_region_id")).thenReturn(assignedRegionId.toString());
 
-            assertThrows(AccessDeniedException.class,
+            assertThrows(
+                    AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyRegionAccess(companyId, countryId, otherRegionId));
         }
 
@@ -926,7 +926,8 @@ class CurrentUserContextTest {
             when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
             when(jwt.getClaim("company_country_id")).thenReturn(assignedCountryId.toString());
 
-            assertThrows(AccessDeniedException.class,
+            assertThrows(
+                    AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyRegionAccess(companyId, otherCountryId, UUID.randomUUID()));
         }
 
@@ -938,8 +939,10 @@ class CurrentUserContextTest {
             UUID wrongCompanyId = UUID.randomUUID();
             when(jwt.getClaim("company_id")).thenReturn(assignedCompanyId.toString());
 
-            assertThrows(AccessDeniedException.class,
-                    () -> currentUserContext.verifyCompanyRegionAccess(wrongCompanyId, UUID.randomUUID(), UUID.randomUUID()));
+            assertThrows(
+                    AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyRegionAccess(
+                            wrongCompanyId, UUID.randomUUID(), UUID.randomUUID()));
         }
 
         // ── 3.7: Unrecognized role ──
@@ -949,7 +952,8 @@ class CurrentUserContextTest {
         void noRecognizedRoleThrows() {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_other"));
 
-            assertThrows(AccessDeniedException.class,
+            assertThrows(
+                    AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyRegionAccess(
                             UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
         }
@@ -971,9 +975,8 @@ class CurrentUserContextTest {
         void adminCanAccessAnyZone() {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_life-control-admin"));
 
-            assertDoesNotThrow(() ->
-                    currentUserContext.verifyCompanyZoneAccess(
-                            UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
+            assertDoesNotThrow(() -> currentUserContext.verifyCompanyZoneAccess(
+                    UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
         }
 
         // ── lc-company delegates to verifyCompanyAccess ──
@@ -985,8 +988,8 @@ class CurrentUserContextTest {
             UUID companyId = UUID.randomUUID();
             when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
 
-            assertDoesNotThrow(() ->
-                    currentUserContext.verifyCompanyZoneAccess(companyId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
+            assertDoesNotThrow(() -> currentUserContext.verifyCompanyZoneAccess(
+                    companyId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
         }
 
         @Test
@@ -997,8 +1000,10 @@ class CurrentUserContextTest {
             UUID otherId = UUID.randomUUID();
             when(jwt.getClaim("company_id")).thenReturn(assignedId.toString());
 
-            assertThrows(AccessDeniedException.class,
-                    () -> currentUserContext.verifyCompanyZoneAccess(otherId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
+            assertThrows(
+                    AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyZoneAccess(
+                            otherId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
         }
 
         // ── lc-company-country ──
@@ -1012,8 +1017,8 @@ class CurrentUserContextTest {
             when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
             when(jwt.getClaim("company_country_id")).thenReturn(countryId.toString());
 
-            assertDoesNotThrow(() ->
-                    currentUserContext.verifyCompanyZoneAccess(companyId, countryId, UUID.randomUUID(), UUID.randomUUID()));
+            assertDoesNotThrow(() -> currentUserContext.verifyCompanyZoneAccess(
+                    companyId, countryId, UUID.randomUUID(), UUID.randomUUID()));
         }
 
         @Test
@@ -1026,8 +1031,10 @@ class CurrentUserContextTest {
             when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
             when(jwt.getClaim("company_country_id")).thenReturn(assignedCountryId.toString());
 
-            assertThrows(AccessDeniedException.class,
-                    () -> currentUserContext.verifyCompanyZoneAccess(companyId, otherCountryId, UUID.randomUUID(), UUID.randomUUID()));
+            assertThrows(
+                    AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyZoneAccess(
+                            companyId, otherCountryId, UUID.randomUUID(), UUID.randomUUID()));
         }
 
         // ── lc-company-region ──
@@ -1059,8 +1066,10 @@ class CurrentUserContextTest {
             when(jwt.getClaim("company_country_id")).thenReturn(countryId.toString());
             when(jwt.getClaim("company_region_id")).thenReturn(assignedRegionId.toString());
 
-            assertThrows(AccessDeniedException.class,
-                    () -> currentUserContext.verifyCompanyZoneAccess(companyId, countryId, otherRegionId, UUID.randomUUID()));
+            assertThrows(
+                    AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyZoneAccess(
+                            companyId, countryId, otherRegionId, UUID.randomUUID()));
         }
 
         // ── lc-company-zone ──
@@ -1078,8 +1087,8 @@ class CurrentUserContextTest {
             when(jwt.getClaim("company_region_id")).thenReturn(regionId.toString());
             when(jwt.getClaim("company_zone_id")).thenReturn(zoneId.toString());
 
-            assertDoesNotThrow(() ->
-                    currentUserContext.verifyCompanyZoneAccess(companyId, countryId, regionId, zoneId));
+            assertDoesNotThrow(
+                    () -> currentUserContext.verifyCompanyZoneAccess(companyId, countryId, regionId, zoneId));
         }
 
         @Test
@@ -1096,7 +1105,8 @@ class CurrentUserContextTest {
             when(jwt.getClaim("company_region_id")).thenReturn(regionId.toString());
             when(jwt.getClaim("company_zone_id")).thenReturn(assignedZoneId.toString());
 
-            assertThrows(AccessDeniedException.class,
+            assertThrows(
+                    AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyZoneAccess(companyId, countryId, regionId, otherZoneId));
         }
 
@@ -1112,8 +1122,7 @@ class CurrentUserContextTest {
             when(jwt.getClaim("company_region_id")).thenReturn(regionId.toString());
             // company_zone_id claim is not stubbed — it won't be read when zoneId is null
 
-            assertDoesNotThrow(() ->
-                    currentUserContext.verifyCompanyZoneAccess(companyId, countryId, regionId, null));
+            assertDoesNotThrow(() -> currentUserContext.verifyCompanyZoneAccess(companyId, countryId, regionId, null));
         }
 
         // ── Unrecognized role ──
@@ -1123,7 +1132,8 @@ class CurrentUserContextTest {
         void noRecognizedRoleThrows() {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_other"));
 
-            assertThrows(AccessDeniedException.class,
+            assertThrows(
+                    AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyZoneAccess(
                             UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
         }
@@ -1237,9 +1247,8 @@ class CurrentUserContextTest {
         void adminCanAccessAnyStore() {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_life-control-admin"));
 
-            assertDoesNotThrow(() ->
-                    currentUserContext.verifyCompanyStoreAccess(
-                            UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
+            assertDoesNotThrow(() -> currentUserContext.verifyCompanyStoreAccess(
+                    UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
         }
 
         // ── lc-company delegates to verifyCompanyAccess ──
@@ -1251,8 +1260,8 @@ class CurrentUserContextTest {
             UUID companyId = UUID.randomUUID();
             when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
 
-            assertDoesNotThrow(() ->
-                    currentUserContext.verifyCompanyStoreAccess(companyId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
+            assertDoesNotThrow(() -> currentUserContext.verifyCompanyStoreAccess(
+                    companyId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
         }
 
         @Test
@@ -1263,8 +1272,10 @@ class CurrentUserContextTest {
             UUID otherId = UUID.randomUUID();
             when(jwt.getClaim("company_id")).thenReturn(assignedId.toString());
 
-            assertThrows(AccessDeniedException.class,
-                    () -> currentUserContext.verifyCompanyStoreAccess(otherId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
+            assertThrows(
+                    AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyStoreAccess(
+                            otherId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
         }
 
         // ── lc-company-country ──
@@ -1278,8 +1289,8 @@ class CurrentUserContextTest {
             when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
             when(jwt.getClaim("company_country_id")).thenReturn(countryId.toString());
 
-            assertDoesNotThrow(() ->
-                    currentUserContext.verifyCompanyStoreAccess(companyId, countryId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
+            assertDoesNotThrow(() -> currentUserContext.verifyCompanyStoreAccess(
+                    companyId, countryId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
         }
 
         @Test
@@ -1292,8 +1303,10 @@ class CurrentUserContextTest {
             when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
             when(jwt.getClaim("company_country_id")).thenReturn(assignedCountryId.toString());
 
-            assertThrows(AccessDeniedException.class,
-                    () -> currentUserContext.verifyCompanyStoreAccess(companyId, otherCountryId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
+            assertThrows(
+                    AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyStoreAccess(
+                            companyId, otherCountryId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
         }
 
         // ── lc-company-region ──
@@ -1309,8 +1322,8 @@ class CurrentUserContextTest {
             when(jwt.getClaim("company_country_id")).thenReturn(countryId.toString());
             when(jwt.getClaim("company_region_id")).thenReturn(regionId.toString());
 
-            assertDoesNotThrow(() ->
-                    currentUserContext.verifyCompanyStoreAccess(companyId, countryId, regionId, UUID.randomUUID(), UUID.randomUUID()));
+            assertDoesNotThrow(() -> currentUserContext.verifyCompanyStoreAccess(
+                    companyId, countryId, regionId, UUID.randomUUID(), UUID.randomUUID()));
         }
 
         @Test
@@ -1325,8 +1338,10 @@ class CurrentUserContextTest {
             when(jwt.getClaim("company_country_id")).thenReturn(countryId.toString());
             when(jwt.getClaim("company_region_id")).thenReturn(assignedRegionId.toString());
 
-            assertThrows(AccessDeniedException.class,
-                    () -> currentUserContext.verifyCompanyStoreAccess(companyId, countryId, otherRegionId, UUID.randomUUID(), UUID.randomUUID()));
+            assertThrows(
+                    AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyStoreAccess(
+                            companyId, countryId, otherRegionId, UUID.randomUUID(), UUID.randomUUID()));
         }
 
         // ── lc-company-zone ──
@@ -1344,8 +1359,8 @@ class CurrentUserContextTest {
             when(jwt.getClaim("company_region_id")).thenReturn(regionId.toString());
             when(jwt.getClaim("company_zone_id")).thenReturn(zoneId.toString());
 
-            assertDoesNotThrow(() ->
-                    currentUserContext.verifyCompanyStoreAccess(companyId, countryId, regionId, zoneId, UUID.randomUUID()));
+            assertDoesNotThrow(() -> currentUserContext.verifyCompanyStoreAccess(
+                    companyId, countryId, regionId, zoneId, UUID.randomUUID()));
         }
 
         @Test
@@ -1362,8 +1377,10 @@ class CurrentUserContextTest {
             when(jwt.getClaim("company_region_id")).thenReturn(regionId.toString());
             when(jwt.getClaim("company_zone_id")).thenReturn(assignedZoneId.toString());
 
-            assertThrows(AccessDeniedException.class,
-                    () -> currentUserContext.verifyCompanyStoreAccess(companyId, countryId, regionId, otherZoneId, UUID.randomUUID()));
+            assertThrows(
+                    AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyStoreAccess(
+                            companyId, countryId, regionId, otherZoneId, UUID.randomUUID()));
         }
 
         // ── lc-company-store ──
@@ -1383,8 +1400,8 @@ class CurrentUserContextTest {
             when(jwt.getClaim("company_zone_id")).thenReturn(zoneId.toString());
             when(jwt.getClaim("company_store_id")).thenReturn(storeId.toString());
 
-            assertDoesNotThrow(() ->
-                    currentUserContext.verifyCompanyStoreAccess(companyId, countryId, regionId, zoneId, storeId));
+            assertDoesNotThrow(
+                    () -> currentUserContext.verifyCompanyStoreAccess(companyId, countryId, regionId, zoneId, storeId));
         }
 
         @Test
@@ -1403,8 +1420,10 @@ class CurrentUserContextTest {
             when(jwt.getClaim("company_zone_id")).thenReturn(zoneId.toString());
             when(jwt.getClaim("company_store_id")).thenReturn(assignedStoreId.toString());
 
-            assertThrows(AccessDeniedException.class,
-                    () -> currentUserContext.verifyCompanyStoreAccess(companyId, countryId, regionId, zoneId, otherStoreId));
+            assertThrows(
+                    AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyStoreAccess(
+                            companyId, countryId, regionId, zoneId, otherStoreId));
         }
 
         @Test
@@ -1420,8 +1439,8 @@ class CurrentUserContextTest {
             when(jwt.getClaim("company_region_id")).thenReturn(regionId.toString());
             when(jwt.getClaim("company_zone_id")).thenReturn(zoneId.toString());
 
-            assertDoesNotThrow(() ->
-                    currentUserContext.verifyCompanyStoreAccess(companyId, countryId, regionId, zoneId, null));
+            assertDoesNotThrow(
+                    () -> currentUserContext.verifyCompanyStoreAccess(companyId, countryId, regionId, zoneId, null));
         }
 
         @Test
@@ -1432,8 +1451,14 @@ class CurrentUserContextTest {
             UUID otherCompanyId = UUID.randomUUID();
             when(jwt.getClaim("company_id")).thenReturn(assignedCompanyId.toString());
 
-            assertThrows(AccessDeniedException.class,
-                    () -> currentUserContext.verifyCompanyStoreAccess(otherCompanyId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
+            assertThrows(
+                    AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyStoreAccess(
+                            otherCompanyId,
+                            UUID.randomUUID(),
+                            UUID.randomUUID(),
+                            UUID.randomUUID(),
+                            UUID.randomUUID()));
         }
 
         @Test
@@ -1446,8 +1471,10 @@ class CurrentUserContextTest {
             when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
             when(jwt.getClaim("company_country_id")).thenReturn(assignedCountryId.toString());
 
-            assertThrows(AccessDeniedException.class,
-                    () -> currentUserContext.verifyCompanyStoreAccess(companyId, otherCountryId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
+            assertThrows(
+                    AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyStoreAccess(
+                            companyId, otherCountryId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
         }
 
         @Test
@@ -1464,8 +1491,10 @@ class CurrentUserContextTest {
             when(jwt.getClaim("company_region_id")).thenReturn(regionId.toString());
             when(jwt.getClaim("company_zone_id")).thenReturn(assignedZoneId.toString());
 
-            assertThrows(AccessDeniedException.class,
-                    () -> currentUserContext.verifyCompanyStoreAccess(companyId, countryId, regionId, otherZoneId, UUID.randomUUID()));
+            assertThrows(
+                    AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyStoreAccess(
+                            companyId, countryId, regionId, otherZoneId, UUID.randomUUID()));
         }
 
         // ── Unrecognized role ──
@@ -1475,10 +1504,14 @@ class CurrentUserContextTest {
         void noRecognizedRoleThrows() {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_other"));
 
-            assertThrows(AccessDeniedException.class,
+            assertThrows(
+                    AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyStoreAccess(
-                            UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
+                            UUID.randomUUID(),
+                            UUID.randomUUID(),
+                            UUID.randomUUID(),
+                            UUID.randomUUID(),
+                            UUID.randomUUID()));
         }
     }
 }
-

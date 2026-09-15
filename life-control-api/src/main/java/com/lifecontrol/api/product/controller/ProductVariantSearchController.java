@@ -1,9 +1,13 @@
 package com.lifecontrol.api.product.controller;
 
+import static com.lifecontrol.api.common.security.Roles.ADMIN;
+import static com.lifecontrol.api.common.security.Roles.SALES;
+
 import com.lifecontrol.api.product.dto.ProductVariantSearchResponse;
 import com.lifecontrol.api.product.service.ProductVariantService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -13,11 +17,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.UUID;
-
-import static com.lifecontrol.api.common.security.Roles.ADMIN;
-import static com.lifecontrol.api.common.security.Roles.SALES;
 
 @RestController
 @RequestMapping("/api/product-variants")
@@ -32,12 +31,12 @@ public class ProductVariantSearchController {
 
     @GetMapping("/search")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
-    @Operation(summary = "Search product variants",
-               description = "Searches product variants by barcode, SKU, variant name, or product name, scoped to a company store. Returns paginated results enriched with product name and SKU.")
+    @Operation(
+            summary = "Search product variants",
+            description =
+                    "Searches product variants by barcode, SKU, variant name, or product name, scoped to a company store. Returns paginated results enriched with product name and SKU.")
     public ResponseEntity<Page<ProductVariantSearchResponse>> searchVariants(
-            @RequestParam String q,
-            @RequestParam UUID storeId,
-            @PageableDefault(size = 20) Pageable pageable) {
+            @RequestParam String q, @RequestParam UUID storeId, @PageableDefault(size = 20) Pageable pageable) {
         var result = productVariantService.searchVariants(q, storeId, pageable);
         return ResponseEntity.ok(result);
     }

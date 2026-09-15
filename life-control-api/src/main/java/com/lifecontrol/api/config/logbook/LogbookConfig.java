@@ -1,13 +1,12 @@
 package com.lifecontrol.api.config.logbook;
 
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.zalando.logbook.Logbook;
-
-import java.util.List;
 
 /**
  * Configures the Zalando Logbook HTTP request/response logging with
@@ -31,9 +30,7 @@ public class LogbookConfig {
     public Logbook logbook(SensitiveDataSanitizer sanitizer) {
         log.debug("Initializing Logbook with sensitive data sanitization");
         return Logbook.builder()
-                .headerFilters(List.of(
-                        sanitizer.authorizationHeaderFilter(),
-                        sanitizer.sensitiveHeadersFilter()))
+                .headerFilters(List.of(sanitizer.authorizationHeaderFilter(), sanitizer.sensitiveHeadersFilter()))
                 .bodyFilter(sanitizer.bodyFilter())
                 .requestFilter(sanitizer.requestFilter())
                 .responseFilter(sanitizer.responseFilter())

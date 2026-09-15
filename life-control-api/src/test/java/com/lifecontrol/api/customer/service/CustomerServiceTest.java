@@ -1,10 +1,22 @@
 package com.lifecontrol.api.customer.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
 import com.lifecontrol.api.customer.dto.CustomerRequest;
 import com.lifecontrol.api.customer.dto.CustomerResponse;
 import com.lifecontrol.api.customer.exception.CustomerNotFoundException;
 import com.lifecontrol.api.customer.model.Customer;
 import com.lifecontrol.api.customer.repository.CustomerRepository;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -16,20 +28,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("CustomerService Tests")
@@ -62,14 +60,8 @@ class CustomerServiceTest {
                 .updatedAt(now)
                 .build();
 
-        testCustomerRequest = new CustomerRequest(
-                "Juan Pérez",
-                "juan@example.com",
-                "+525512345678",
-                "PEGJ800101ABC",
-                "TIENDA",
-                true
-        );
+        testCustomerRequest =
+                new CustomerRequest("Juan Pérez", "juan@example.com", "+525512345678", "PEGJ800101ABC", "TIENDA", true);
     }
 
     // ─────────────────────────────────────────────
@@ -86,7 +78,8 @@ class CustomerServiceTest {
             var customers = List.of(testCustomer);
             var expectedPage = new PageImpl<>(customers, pageable, 1);
 
-            when(customerRepository.findByEnabledTrueOrderByCreatedAtDesc(pageable)).thenReturn(expectedPage);
+            when(customerRepository.findByEnabledTrueOrderByCreatedAtDesc(pageable))
+                    .thenReturn(expectedPage);
 
             Page<CustomerResponse> result = customerService.getAllCustomers(pageable, null);
 
@@ -123,7 +116,8 @@ class CustomerServiceTest {
             var pageable = PageRequest.of(0, 12);
             var expectedPage = new PageImpl<Customer>(List.of(), pageable, 0);
 
-            when(customerRepository.findBySearchTerm(eq("nonexistent"), eq(pageable))).thenReturn(expectedPage);
+            when(customerRepository.findBySearchTerm(eq("nonexistent"), eq(pageable)))
+                    .thenReturn(expectedPage);
 
             Page<CustomerResponse> result = customerService.getAllCustomers(pageable, "nonexistent");
 
@@ -195,9 +189,8 @@ class CustomerServiceTest {
         @Test
         @DisplayName("should default enabled to true when not provided")
         void createCustomer_DefaultsEnabledToTrue() {
-            var requestWithoutEnabled = new CustomerRequest(
-                    "María López", "maria@example.com", null, null, "ONLINE", null
-            );
+            var requestWithoutEnabled =
+                    new CustomerRequest("María López", "maria@example.com", null, null, "ONLINE", null);
             var savedCustomer = Customer.builder()
                     .id(UUID.randomUUID())
                     .name("María López")
@@ -230,9 +223,7 @@ class CustomerServiceTest {
         @DisplayName("should update customer fields and return response")
         void updateCustomer_Success() {
             var updateRequest = new CustomerRequest(
-                    "Juan Actualizado", "updated@example.com", "+525599999999",
-                    "RFC-UPDATED", "ONLINE", false
-            );
+                    "Juan Actualizado", "updated@example.com", "+525599999999", "RFC-UPDATED", "ONLINE", false);
 
             when(customerRepository.findById(testCustomerId)).thenReturn(Optional.of(testCustomer));
             when(customerRepository.save(any(Customer.class))).thenAnswer(inv -> inv.getArgument(0));

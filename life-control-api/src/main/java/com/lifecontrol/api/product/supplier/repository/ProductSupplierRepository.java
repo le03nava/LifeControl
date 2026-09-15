@@ -1,14 +1,13 @@
 package com.lifecontrol.api.product.supplier.repository;
 
 import com.lifecontrol.api.product.supplier.model.ProductSupplier;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
-
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
 
 @Repository
 public interface ProductSupplierRepository extends JpaRepository<ProductSupplier, UUID> {
@@ -17,7 +16,8 @@ public interface ProductSupplierRepository extends JpaRepository<ProductSupplier
 
     List<ProductSupplier> findBySupplierId(UUID supplierId);
 
-    @Query("""
+    @Query(
+            """
         SELECT ps FROM ProductSupplier ps
         JOIN FETCH ps.product p
         WHERE ps.supplier.id = :supplierId
@@ -27,8 +27,7 @@ public interface ProductSupplierRepository extends JpaRepository<ProductSupplier
              OR LOWER(p.sku) LIKE LOWER(CONCAT('%', :search, '%')))
         """)
     List<ProductSupplier> findBySupplierIdWithSearch(
-            @Param("supplierId") UUID supplierId,
-            @Param("search") String search);
+            @Param("supplierId") UUID supplierId, @Param("search") String search);
 
     boolean existsByProductIdAndSupplierId(UUID productId, UUID supplierId);
 

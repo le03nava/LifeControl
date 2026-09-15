@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.jsontype.BasicPolymorphicTypeValidator;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import java.time.Duration;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -21,9 +23,6 @@ import org.springframework.data.redis.cache.RedisCacheManager;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
 import org.springframework.data.redis.serializer.RedisSerializationContext;
-
-import java.time.Duration;
-import java.util.Set;
 
 /**
  * Configures Spring Cache abstraction for the application.
@@ -120,8 +119,7 @@ public class CacheConfig {
                 new ConcurrentMapCache("statusTypes"),
                 new ConcurrentMapCache("statuses"),
                 new ConcurrentMapCache("measureUnits"),
-                new ConcurrentMapCache("paymentMethods")
-        ));
+                new ConcurrentMapCache("paymentMethods")));
         return cacheManager;
     }
 }

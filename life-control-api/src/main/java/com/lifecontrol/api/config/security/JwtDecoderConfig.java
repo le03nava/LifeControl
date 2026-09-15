@@ -3,7 +3,6 @@ package com.lifecontrol.api.config.security;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -33,7 +32,8 @@ public class JwtDecoderConfig {
 
     @Bean
     public JwtDecoder keycloakJwtDecoder() {
-        var decoder = NimbusJwtDecoder.withJwkSetUri(keycloakJwtProperties.jwkSetUri()).build();
+        var decoder = NimbusJwtDecoder.withJwkSetUri(keycloakJwtProperties.jwkSetUri())
+                .build();
         decoder.setJwtValidator(jwtValidator());
 
         return decoder;
@@ -61,8 +61,8 @@ public class JwtDecoderConfig {
                 var realmRoles = (List<String>) realmAccess.get("roles");
                 if (realmRoles != null) {
                     realmRoles.stream()
-                        .map(role -> new SimpleGrantedAuthority("ROLE_" + role))
-                        .forEach(authorities::add);
+                            .map(role -> new SimpleGrantedAuthority("ROLE_" + role))
+                            .forEach(authorities::add);
                 }
             }
 
@@ -83,8 +83,8 @@ public class JwtDecoderConfig {
                         var clientRoles = (List<String>) clientAccess.get("roles");
                         if (clientRoles != null) {
                             clientRoles.stream()
-                                .map(role -> new SimpleGrantedAuthority("ROLE_" + role))
-                                .forEach(authorities::add);
+                                    .map(role -> new SimpleGrantedAuthority("ROLE_" + role))
+                                    .forEach(authorities::add);
                         }
                     }
                 }

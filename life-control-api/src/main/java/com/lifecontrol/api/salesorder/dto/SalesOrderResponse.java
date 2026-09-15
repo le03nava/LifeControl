@@ -20,5 +20,4 @@ public record SalesOrderResponse(
         Boolean enabled,
         LocalDateTime createdAt,
         LocalDateTime updatedAt,
-        List<SalesOrderItemResponse> items
-) {}
+        List<SalesOrderItemResponse> items) {}

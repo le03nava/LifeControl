@@ -1,5 +1,12 @@
 package com.lifecontrol.api.status.controller;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifecontrol.api.exception.GlobalExceptionHandler;
 import com.lifecontrol.api.status.dto.StatusRequest;
@@ -8,6 +15,9 @@ import com.lifecontrol.api.status.exception.DuplicateStatusException;
 import com.lifecontrol.api.status.exception.StatusNotFoundException;
 import com.lifecontrol.api.status.exception.StatusTypeNotFoundException;
 import com.lifecontrol.api.status.service.StatusService;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -19,17 +29,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.UUID;
-
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("StatusController Tests")
@@ -59,9 +58,7 @@ class StatusControllerTest {
         testStatusId = UUID.randomUUID();
         testStatusTypeId = UUID.randomUUID();
         testStatusResponse = new StatusResponse(
-                testStatusId, "PENDING", testStatusTypeId, "ORDER",
-                true, LocalDateTime.now(), LocalDateTime.now()
-        );
+                testStatusId, "PENDING", testStatusTypeId, "ORDER", true, LocalDateTime.now(), LocalDateTime.now());
     }
 
     @Nested
@@ -82,8 +79,7 @@ class StatusControllerTest {
         @Test
         @DisplayName("should return 400 when statusTypeId is missing")
         void getStatusesByTypeId_MissingParam_Returns400() throws Exception {
-            mockMvc.perform(get("/api/statuses"))
-                    .andExpect(status().isBadRequest());
+            mockMvc.perform(get("/api/statuses")).andExpect(status().isBadRequest());
         }
 
         @Test
@@ -125,11 +121,9 @@ class StatusControllerTest {
         @Test
         @DisplayName("should return 404 when status not found")
         void getStatusById_NotFound_Returns404() throws Exception {
-            when(statusService.getStatusById(testStatusId))
-                    .thenThrow(new StatusNotFoundException(testStatusId));
+            when(statusService.getStatusById(testStatusId)).thenThrow(new StatusNotFoundException(testStatusId));
 
-            mockMvc.perform(get("/api/statuses/{id}", testStatusId))
-                    .andExpect(status().isNotFound());
+            mockMvc.perform(get("/api/statuses/{id}", testStatusId)).andExpect(status().isNotFound());
         }
     }
 
@@ -208,9 +202,9 @@ class StatusControllerTest {
         void updateStatus_Returns200() throws Exception {
             StatusRequest request = new StatusRequest("WAITING", testStatusTypeId, true);
             StatusResponse updatedResponse = new StatusResponse(
-                    testStatusId, "WAITING", testStatusTypeId, "ORDER",
-                    true, LocalDateTime.now(), LocalDateTime.now());
-            when(statusService.updateStatus(eq(testStatusId), any(StatusRequest.class))).thenReturn(updatedResponse);
+                    testStatusId, "WAITING", testStatusTypeId, "ORDER", true, LocalDateTime.now(), LocalDateTime.now());
+            when(statusService.updateStatus(eq(testStatusId), any(StatusRequest.class)))
+                    .thenReturn(updatedResponse);
 
             mockMvc.perform(put("/api/statuses/{id}", testStatusId)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -240,18 +234,17 @@ class StatusControllerTest {
         @Test
         @DisplayName("should return 204 when deleted successfully")
         void deleteStatus_Returns204() throws Exception {
-            mockMvc.perform(delete("/api/statuses/{id}", testStatusId))
-                    .andExpect(status().isNoContent());
+            mockMvc.perform(delete("/api/statuses/{id}", testStatusId)).andExpect(status().isNoContent());
         }
 
         @Test
         @DisplayName("should return 404 when status not found")
         void deleteStatus_NotFound_Returns404() throws Exception {
             doThrow(new StatusNotFoundException(testStatusId))
-                    .when(statusService).deleteStatus(testStatusId);
+                    .when(statusService)
+                    .deleteStatus(testStatusId);
 
-            mockMvc.perform(delete("/api/statuses/{id}", testStatusId))
-                    .andExpect(status().isNotFound());
+            mockMvc.perform(delete("/api/statuses/{id}", testStatusId)).andExpect(status().isNotFound());
         }
     }
 
@@ -272,11 +265,9 @@ class StatusControllerTest {
         @Test
         @DisplayName("should return 404 when status not found")
         void enableStatus_NotFound_Returns404() throws Exception {
-            when(statusService.enableStatus(testStatusId))
-                    .thenThrow(new StatusNotFoundException(testStatusId));
+            when(statusService.enableStatus(testStatusId)).thenThrow(new StatusNotFoundException(testStatusId));
 
-            mockMvc.perform(patch("/api/statuses/{id}/enable", testStatusId))
-                    .andExpect(status().isNotFound());
+            mockMvc.perform(patch("/api/statuses/{id}/enable", testStatusId)).andExpect(status().isNotFound());
         }
     }
 }

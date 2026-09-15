@@ -1,5 +1,12 @@
 package com.lifecontrol.api.country.controller;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.lifecontrol.api.country.dto.CountryRequest;
@@ -8,6 +15,9 @@ import com.lifecontrol.api.country.exception.CountryNotFoundException;
 import com.lifecontrol.api.country.exception.DuplicateCountryException;
 import com.lifecontrol.api.country.service.CountryService;
 import com.lifecontrol.api.exception.GlobalExceptionHandler;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -19,17 +29,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.UUID;
-
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("CountryController Tests")
@@ -56,10 +55,8 @@ class CountryControllerTest {
         objectMapper.registerModule(new JavaTimeModule());
 
         testCountryId = UUID.randomUUID();
-        testCountryResponse = new CountryResponse(
-                testCountryId, "MX", "México", true,
-                LocalDateTime.now(), LocalDateTime.now()
-        );
+        testCountryResponse =
+                new CountryResponse(testCountryId, "MX", "México", true, LocalDateTime.now(), LocalDateTime.now());
     }
 
     @Nested
@@ -86,8 +83,7 @@ class CountryControllerTest {
             when(countryService.getAllCountries(true)).thenReturn(List.of(testCountryResponse));
 
             // Act & Assert
-            mockMvc.perform(get("/api/countries?includeDisabled=true"))
-                    .andExpect(status().isOk());
+            mockMvc.perform(get("/api/countries?includeDisabled=true")).andExpect(status().isOk());
         }
     }
 
@@ -114,8 +110,7 @@ class CountryControllerTest {
             when(countryService.getCountryById(testCountryId)).thenThrow(new CountryNotFoundException(testCountryId));
 
             // Act & Assert
-            mockMvc.perform(get("/api/countries/{id}", testCountryId))
-                    .andExpect(status().isNotFound());
+            mockMvc.perform(get("/api/countries/{id}", testCountryId)).andExpect(status().isNotFound());
         }
     }
 
@@ -177,8 +172,7 @@ class CountryControllerTest {
             // Arrange
             CountryRequest request = new CountryRequest("MX", "México actualizado");
             CountryResponse updatedResponse = new CountryResponse(
-                    testCountryId, "MX", "México actualizado", true,
-                    LocalDateTime.now(), LocalDateTime.now());
+                    testCountryId, "MX", "México actualizado", true, LocalDateTime.now(), LocalDateTime.now());
             when(countryService.updateCountry(eq(testCountryId), any(CountryRequest.class)))
                     .thenReturn(updatedResponse);
 
@@ -214,8 +208,7 @@ class CountryControllerTest {
         @DisplayName("should return 204 when deleted successfully")
         void deleteCountry_Returns204() throws Exception {
             // Act & Assert
-            mockMvc.perform(delete("/api/countries/{id}", testCountryId))
-                    .andExpect(status().isNoContent());
+            mockMvc.perform(delete("/api/countries/{id}", testCountryId)).andExpect(status().isNoContent());
         }
 
         @Test
@@ -223,11 +216,11 @@ class CountryControllerTest {
         void deleteCountry_NotFound_Returns404() throws Exception {
             // Arrange
             doThrow(new CountryNotFoundException(testCountryId))
-                    .when(countryService).deleteCountry(testCountryId);
+                    .when(countryService)
+                    .deleteCountry(testCountryId);
 
             // Act & Assert
-            mockMvc.perform(delete("/api/countries/{id}", testCountryId))
-                    .andExpect(status().isNotFound());
+            mockMvc.perform(delete("/api/countries/{id}", testCountryId)).andExpect(status().isNotFound());
         }
     }
 }

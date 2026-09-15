@@ -8,7 +8,5 @@ import org.springframework.boot.test.context.SpringBootTest;
 class LifeControlApiApplicationTests extends AbstractPostgresIntegrationTest {
 
     @Test
-    void contextLoads() {
-    }
-
+    void contextLoads() {}
 }

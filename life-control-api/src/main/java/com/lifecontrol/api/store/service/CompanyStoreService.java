@@ -24,16 +24,14 @@ import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.exception.DuplicateCompanyStoreException;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
+import java.util.List;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.List;
-import java.util.Set;
-import java.util.UUID;
 
 @Service
 public class CompanyStoreService {
@@ -49,14 +47,15 @@ public class CompanyStoreService {
     private final CurrentUserContext currentUserContext;
     private final ApplicationEventPublisher eventPublisher;
 
-    public CompanyStoreService(CompanyStoreRepository companyStoreRepository,
-                               CompanyZoneRepository companyZoneRepository,
-                               CompanyRegionRepository companyRegionRepository,
-                               CompanyCountryRepository companyCountryRepository,
-                               CompanyRepository companyRepository,
-                               CountryRepository countryRepository,
-                               CurrentUserContext currentUserContext,
-                               ApplicationEventPublisher eventPublisher) {
+    public CompanyStoreService(
+            CompanyStoreRepository companyStoreRepository,
+            CompanyZoneRepository companyZoneRepository,
+            CompanyRegionRepository companyRegionRepository,
+            CompanyCountryRepository companyCountryRepository,
+            CompanyRepository companyRepository,
+            CountryRepository countryRepository,
+            CurrentUserContext currentUserContext,
+            ApplicationEventPublisher eventPublisher) {
         this.companyStoreRepository = companyStoreRepository;
         this.companyZoneRepository = companyZoneRepository;
         this.companyRegionRepository = companyRegionRepository;
@@ -70,21 +69,24 @@ public class CompanyStoreService {
     private CompanyZone resolveCompanyZone(UUID companyId, UUID companyCountryId, UUID regionId, UUID zoneId) {
         currentUserContext.verifyCompanyStoreAccess(companyId, companyCountryId, regionId, zoneId, null);
 
-        companyRepository.findById(companyId)
-                .orElseThrow(() -> new CompanyNotFoundException(companyId));
+        companyRepository.findById(companyId).orElseThrow(() -> new CompanyNotFoundException(companyId));
 
-        var companyCountry = companyCountryRepository.findByCompanyIdAndId(companyId, companyCountryId)
+        var companyCountry = companyCountryRepository
+                .findByCompanyIdAndId(companyId, companyCountryId)
                 .orElseThrow(() -> new CompanyCountryNotFoundException(companyCountryId));
 
-        var region = companyRegionRepository.findByIdAndCompanyCountryId(regionId, companyCountry.getId())
+        var region = companyRegionRepository
+                .findByIdAndCompanyCountryId(regionId, companyCountry.getId())
                 .orElseThrow(() -> new CompanyRegionNotFoundException("Company region not found with id: " + regionId));
 
-        return companyZoneRepository.findByIdAndCompanyRegionId(zoneId, region.getId())
+        return companyZoneRepository
+                .findByIdAndCompanyRegionId(zoneId, region.getId())
                 .orElseThrow(() -> new CompanyZoneNotFoundException("Company zone not found with id: " + zoneId));
     }
 
     @Transactional(readOnly = true)
-    public List<CompanyStoreResponse> getAllStores(UUID companyId, UUID companyCountryId, UUID regionId, UUID zoneId, boolean includeDisabled) {
+    public List<CompanyStoreResponse> getAllStores(
+            UUID companyId, UUID companyCountryId, UUID regionId, UUID zoneId, boolean includeDisabled) {
         var zone = resolveCompanyZone(companyId, companyCountryId, regionId, zoneId);
 
         List<CompanyStore> stores;
@@ -97,23 +99,24 @@ public class CompanyStoreService {
                     : companyStoreRepository.findByCompanyZoneIdAndEnabledTrue(zone.getId());
         }
 
-        return stores.stream()
-                .map(this::toResponse)
-                .toList();
+        return stores.stream().map(this::toResponse).toList();
     }
 
     @Transactional(readOnly = true)
-    public CompanyStoreResponse getStoreById(UUID companyId, UUID companyCountryId, UUID regionId, UUID zoneId, UUID storeId) {
+    public CompanyStoreResponse getStoreById(
+            UUID companyId, UUID companyCountryId, UUID regionId, UUID zoneId, UUID storeId) {
         var zone = resolveCompanyZone(companyId, companyCountryId, regionId, zoneId);
 
-        var store = companyStoreRepository.findByIdAndCompanyZoneId(storeId, zone.getId())
+        var store = companyStoreRepository
+                .findByIdAndCompanyZoneId(storeId, zone.getId())
                 .orElseThrow(() -> new CompanyStoreNotFoundException(storeId));
 
         return toResponse(store);
     }
 
     @Transactional
-    public CompanyStoreResponse createStore(UUID companyId, UUID companyCountryId, UUID regionId, UUID zoneId, CreateCompanyStoreRequest request) {
+    public CompanyStoreResponse createStore(
+            UUID companyId, UUID companyCountryId, UUID regionId, UUID zoneId, CreateCompanyStoreRequest request) {
         if (currentUserContext.hasCompanyStoreRole()) {
             throw new AccessDeniedException("Store-scoped users cannot create stores");
         }
@@ -136,23 +139,31 @@ public class CompanyStoreService {
                 .build();
 
         var saved = companyStoreRepository.save(store);
-        eventPublisher.publishEvent(new CompanyStoreCreatedEvent(
-                this, saved.getId(), companyId, saved.getStoreName(),
-                zone.getZoneName()));
+        eventPublisher.publishEvent(
+                new CompanyStoreCreatedEvent(this, saved.getId(), companyId, saved.getStoreName(), zone.getZoneName()));
         logger.info("CompanyStore created: name={}, zoneId={}", saved.getStoreName(), zone.getId());
         return toResponse(saved);
     }
 
     @Transactional
-    public CompanyStoreResponse updateStore(UUID companyId, UUID companyCountryId, UUID regionId, UUID zoneId, UUID storeId, UpdateCompanyStoreRequest request) {
+    public CompanyStoreResponse updateStore(
+            UUID companyId,
+            UUID companyCountryId,
+            UUID regionId,
+            UUID zoneId,
+            UUID storeId,
+            UpdateCompanyStoreRequest request) {
         var zone = resolveCompanyZone(companyId, companyCountryId, regionId, zoneId);
 
-        var store = companyStoreRepository.findByIdAndCompanyZoneId(storeId, zone.getId())
+        var store = companyStoreRepository
+                .findByIdAndCompanyZoneId(storeId, zone.getId())
                 .orElseThrow(() -> new CompanyStoreNotFoundException(storeId));
 
         // Check uniqueness if storeName changed
-        if (request.storeName() != null && !store.getStoreName().equals(request.storeName())
-                && companyStoreRepository.existsByStoreNameAndCompanyZoneIdAndIdNot(request.storeName(), zone.getId(), storeId)) {
+        if (request.storeName() != null
+                && !store.getStoreName().equals(request.storeName())
+                && companyStoreRepository.existsByStoreNameAndCompanyZoneIdAndIdNot(
+                        request.storeName(), zone.getId(), storeId)) {
             throw new DuplicateCompanyStoreException(
                     "Store with name '" + request.storeName() + "' already exists in this zone");
         }
@@ -187,7 +198,8 @@ public class CompanyStoreService {
     public void deleteStore(UUID companyId, UUID companyCountryId, UUID regionId, UUID zoneId, UUID storeId) {
         var zone = resolveCompanyZone(companyId, companyCountryId, regionId, zoneId);
 
-        var store = companyStoreRepository.findByIdAndCompanyZoneId(storeId, zone.getId())
+        var store = companyStoreRepository
+                .findByIdAndCompanyZoneId(storeId, zone.getId())
                 .orElseThrow(() -> new CompanyStoreNotFoundException(storeId));
 
         store.setEnabled(false);
@@ -197,10 +209,12 @@ public class CompanyStoreService {
     }
 
     @Transactional
-    public CompanyStoreResponse enableStore(UUID companyId, UUID companyCountryId, UUID regionId, UUID zoneId, UUID storeId) {
+    public CompanyStoreResponse enableStore(
+            UUID companyId, UUID companyCountryId, UUID regionId, UUID zoneId, UUID storeId) {
         var zone = resolveCompanyZone(companyId, companyCountryId, regionId, zoneId);
 
-        var store = companyStoreRepository.findByIdAndCompanyZoneId(storeId, zone.getId())
+        var store = companyStoreRepository
+                .findByIdAndCompanyZoneId(storeId, zone.getId())
                 .orElseThrow(() -> new CompanyStoreNotFoundException(storeId));
 
         store.setEnabled(true);
@@ -227,8 +241,7 @@ public class CompanyStoreService {
                 buildAddressResponse(store),
                 store.getEnabled(),
                 store.getCreatedAt(),
-                store.getUpdatedAt()
-        );
+                store.getUpdatedAt());
     }
 
     private AddressResponse buildAddressResponse(CompanyStore store) {
@@ -243,8 +256,7 @@ public class CompanyStoreService {
                     address.getZipCode(),
                     address.getCity(),
                     address.getState(),
-                    address.getCountry() != null ? address.getCountry().getId() : null
-            );
+                    address.getCountry() != null ? address.getCountry().getId() : null);
         }
         // Legacy CompanyStoreAddress fallback — for migrated data, check here
         // For now, return null (address was not migrated)
@@ -255,7 +267,8 @@ public class CompanyStoreService {
         if (request == null) return null;
         Country country = null;
         if (request.countryId() != null) {
-            country = countryRepository.findById(request.countryId())
+            country = countryRepository
+                    .findById(request.countryId())
                     .orElseThrow(() -> new CountryNotFoundException(request.countryId()));
         }
         return Address.builder()
@@ -280,7 +293,8 @@ public class CompanyStoreService {
         address.setCity(request.city());
         address.setState(request.state());
         if (request.countryId() != null) {
-            Country country = countryRepository.findById(request.countryId())
+            Country country = countryRepository
+                    .findById(request.countryId())
                     .orElseThrow(() -> new CountryNotFoundException(request.countryId()));
             address.setCountry(country);
         } else {

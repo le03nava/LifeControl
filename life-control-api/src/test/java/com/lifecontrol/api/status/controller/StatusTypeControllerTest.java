@@ -1,5 +1,12 @@
 package com.lifecontrol.api.status.controller;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifecontrol.api.exception.GlobalExceptionHandler;
 import com.lifecontrol.api.status.dto.StatusTypeRequest;
@@ -7,6 +14,9 @@ import com.lifecontrol.api.status.dto.StatusTypeResponse;
 import com.lifecontrol.api.status.exception.DuplicateStatusTypeException;
 import com.lifecontrol.api.status.exception.StatusTypeNotFoundException;
 import com.lifecontrol.api.status.service.StatusTypeService;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -21,17 +31,6 @@ import org.springframework.data.web.PageableHandlerMethodArgumentResolver;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.UUID;
-
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("StatusTypeController Tests")
@@ -59,10 +58,8 @@ class StatusTypeControllerTest {
         objectMapper.findAndRegisterModules();
 
         testStatusTypeId = UUID.randomUUID();
-        testStatusTypeResponse = new StatusTypeResponse(
-                testStatusTypeId, "ORDER", true,
-                LocalDateTime.now(), LocalDateTime.now()
-        );
+        testStatusTypeResponse =
+                new StatusTypeResponse(testStatusTypeId, "ORDER", true, LocalDateTime.now(), LocalDateTime.now());
     }
 
     @Nested
@@ -113,8 +110,7 @@ class StatusTypeControllerTest {
             when(statusTypeService.getStatusTypeById(testStatusTypeId))
                     .thenThrow(new StatusTypeNotFoundException(testStatusTypeId));
 
-            mockMvc.perform(get("/api/status-types/{id}", testStatusTypeId))
-                    .andExpect(status().isNotFound());
+            mockMvc.perform(get("/api/status-types/{id}", testStatusTypeId)).andExpect(status().isNotFound());
         }
     }
 
@@ -126,7 +122,8 @@ class StatusTypeControllerTest {
         @DisplayName("should return 201 when created successfully")
         void createStatusType_Returns201() throws Exception {
             StatusTypeRequest request = new StatusTypeRequest("ORDER", true);
-            when(statusTypeService.createStatusType(any(StatusTypeRequest.class))).thenReturn(testStatusTypeResponse);
+            when(statusTypeService.createStatusType(any(StatusTypeRequest.class)))
+                    .thenReturn(testStatusTypeResponse);
 
             mockMvc.perform(post("/api/status-types")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -169,8 +166,7 @@ class StatusTypeControllerTest {
         void updateStatusType_Returns200() throws Exception {
             StatusTypeRequest request = new StatusTypeRequest("ORDER_V2", true);
             StatusTypeResponse updatedResponse = new StatusTypeResponse(
-                    testStatusTypeId, "ORDER_V2", true,
-                    LocalDateTime.now(), LocalDateTime.now());
+                    testStatusTypeId, "ORDER_V2", true, LocalDateTime.now(), LocalDateTime.now());
             when(statusTypeService.updateStatusType(eq(testStatusTypeId), any(StatusTypeRequest.class)))
                     .thenReturn(updatedResponse);
 
@@ -213,18 +209,17 @@ class StatusTypeControllerTest {
         @Test
         @DisplayName("should return 204 when deleted successfully")
         void deleteStatusType_Returns204() throws Exception {
-            mockMvc.perform(delete("/api/status-types/{id}", testStatusTypeId))
-                    .andExpect(status().isNoContent());
+            mockMvc.perform(delete("/api/status-types/{id}", testStatusTypeId)).andExpect(status().isNoContent());
         }
 
         @Test
         @DisplayName("should return 404 when status type not found")
         void deleteStatusType_NotFound_Returns404() throws Exception {
             doThrow(new StatusTypeNotFoundException(testStatusTypeId))
-                    .when(statusTypeService).deleteStatusType(testStatusTypeId);
+                    .when(statusTypeService)
+                    .deleteStatusType(testStatusTypeId);
 
-            mockMvc.perform(delete("/api/status-types/{id}", testStatusTypeId))
-                    .andExpect(status().isNotFound());
+            mockMvc.perform(delete("/api/status-types/{id}", testStatusTypeId)).andExpect(status().isNotFound());
         }
     }
 

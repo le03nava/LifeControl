@@ -1,7 +1,6 @@
 package com.lifecontrol.api.common.net;
 
 import jakarta.servlet.http.HttpServletRequest;
-
 import java.util.List;
 
 /**
@@ -14,8 +13,7 @@ import java.util.List;
  */
 public final class ClientIpResolver {
 
-    private ClientIpResolver() {
-    }
+    private ClientIpResolver() {}
 
     /**
      * Resolves the client IP for the given request.
@@ -53,7 +51,6 @@ public final class ClientIpResolver {
         if (ip == null || trustedProxies == null) {
             return false;
         }
-        return trustedProxies.stream()
-                .anyMatch(rule -> CidrMatcher.matches(ip, rule));
+        return trustedProxies.stream().anyMatch(rule -> CidrMatcher.matches(ip, rule));
     }
 }

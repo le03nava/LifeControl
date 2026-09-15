@@ -1,10 +1,21 @@
 package com.lifecontrol.api.company.controller;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifecontrol.api.company.dto.CompanyCountryRequest;
 import com.lifecontrol.api.company.dto.CompanyCountryResponse;
 import com.lifecontrol.api.company.service.CompanyCountryService;
 import com.lifecontrol.api.config.ratelimit.RateLimitProperties;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -23,19 +34,6 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.UUID;
-
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-
 @WebMvcTest(CompanyCountryController.class)
 @DisplayName("CompanyCountryController Security — @PreAuthorize authorization")
 class CompanyCountryControllerSecurityTest {
@@ -46,8 +44,7 @@ class CompanyCountryControllerSecurityTest {
     static class TestSecurityConfig {
         @Bean
         SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-            return http
-                    .authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
+            return http.authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
                     .httpBasic(basic -> {})
                     .csrf(AbstractHttpConfigurer::disable)
                     .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -77,10 +74,14 @@ class CompanyCountryControllerSecurityTest {
 
     private CompanyCountryResponse buildCountryResponse() {
         return new CompanyCountryResponse(
-                countryRelationId, companyId, UUID.randomUUID(),
-                "MX", "México", "Mexican market",
-                LocalDateTime.now(), LocalDateTime.now()
-        );
+                countryRelationId,
+                companyId,
+                UUID.randomUUID(),
+                "MX",
+                "México",
+                "Mexican market",
+                LocalDateTime.now(),
+                LocalDateTime.now());
     }
 
     // ─── GET /api/companies/{companyId}/countries ────────────────
@@ -93,68 +94,57 @@ class CompanyCountryControllerSecurityTest {
         @WithMockUser(roles = {"lc-admin"})
         @DisplayName("returns 200 OK for lc-admin")
         void lcAdminCanGet() throws Exception {
-            when(companyCountryService.getCountriesByCompanyId(companyId))
-                    .thenReturn(List.of(buildCountryResponse()));
+            when(companyCountryService.getCountriesByCompanyId(companyId)).thenReturn(List.of(buildCountryResponse()));
 
-            mockMvc.perform(get(BASE_URL, companyId))
-                    .andExpect(status().isOk());
+            mockMvc.perform(get(BASE_URL, companyId)).andExpect(status().isOk());
         }
 
         @Test
         @WithMockUser(roles = {"lc-company"})
         @DisplayName("returns 200 OK for lc-company")
         void lcCompanyCanGet() throws Exception {
-            when(companyCountryService.getCountriesByCompanyId(companyId))
-                    .thenReturn(List.of(buildCountryResponse()));
+            when(companyCountryService.getCountriesByCompanyId(companyId)).thenReturn(List.of(buildCountryResponse()));
 
-            mockMvc.perform(get(BASE_URL, companyId))
-                    .andExpect(status().isOk());
+            mockMvc.perform(get(BASE_URL, companyId)).andExpect(status().isOk());
         }
 
         @Test
         @WithMockUser(roles = {"lc-company-country"})
         @DisplayName("returns 200 OK for lc-company-country")
         void lcCompanyCountryCanGet() throws Exception {
-            when(companyCountryService.getCountriesByCompanyId(companyId))
-                    .thenReturn(List.of(buildCountryResponse()));
+            when(companyCountryService.getCountriesByCompanyId(companyId)).thenReturn(List.of(buildCountryResponse()));
 
-            mockMvc.perform(get(BASE_URL, companyId))
-                    .andExpect(status().isOk());
+            mockMvc.perform(get(BASE_URL, companyId)).andExpect(status().isOk());
         }
 
         @Test
         @WithMockUser(roles = {"lc-company-country-read"})
         @DisplayName("returns 200 OK for lc-company-country-read")
         void lcCompanyCountryReadCanGet() throws Exception {
-            when(companyCountryService.getCountriesByCompanyId(companyId))
-                    .thenReturn(List.of(buildCountryResponse()));
+            when(companyCountryService.getCountriesByCompanyId(companyId)).thenReturn(List.of(buildCountryResponse()));
 
-            mockMvc.perform(get(BASE_URL, companyId))
-                    .andExpect(status().isOk());
+            mockMvc.perform(get(BASE_URL, companyId)).andExpect(status().isOk());
         }
 
         @Test
         @WithMockUser(roles = {"lc-company-read"})
         @DisplayName("returns 403 Forbidden for lc-company-read (no longer allowed)")
         void lcCompanyReadGetIsDenied() throws Exception {
-            mockMvc.perform(get(BASE_URL, companyId))
-                    .andExpect(status().isForbidden());
+            mockMvc.perform(get(BASE_URL, companyId)).andExpect(status().isForbidden());
         }
 
         @Test
         @WithMockUser(roles = {"other-role"})
         @DisplayName("returns 403 Forbidden for wrong role")
         void wrongRoleGetsForbidden() throws Exception {
-            mockMvc.perform(get(BASE_URL, companyId))
-                    .andExpect(status().isForbidden());
+            mockMvc.perform(get(BASE_URL, companyId)).andExpect(status().isForbidden());
         }
 
         @Test
         @WithMockUser
         @DisplayName("returns 403 Forbidden for authenticated user with no roles")
         void noRoleGetsForbidden() throws Exception {
-            mockMvc.perform(get(BASE_URL, companyId))
-                    .andExpect(status().isForbidden());
+            mockMvc.perform(get(BASE_URL, companyId)).andExpect(status().isForbidden());
         }
     }
 
@@ -168,8 +158,7 @@ class CompanyCountryControllerSecurityTest {
         @WithMockUser(roles = {"lc-admin"})
         @DisplayName("returns 201 Created for lc-admin")
         void lcAdminCanPost() throws Exception {
-            when(companyCountryService.addCountryToCompany(any(), any()))
-                    .thenReturn(buildCountryResponse());
+            when(companyCountryService.addCountryToCompany(any(), any())).thenReturn(buildCountryResponse());
 
             mockMvc.perform(post(BASE_URL, companyId)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -181,8 +170,7 @@ class CompanyCountryControllerSecurityTest {
         @WithMockUser(roles = {"lc-company"})
         @DisplayName("returns 201 Created for lc-company")
         void lcCompanyCanPost() throws Exception {
-            when(companyCountryService.addCountryToCompany(any(), any()))
-                    .thenReturn(buildCountryResponse());
+            when(companyCountryService.addCountryToCompany(any(), any())).thenReturn(buildCountryResponse());
 
             mockMvc.perform(post(BASE_URL, companyId)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -194,8 +182,7 @@ class CompanyCountryControllerSecurityTest {
         @WithMockUser(roles = {"lc-company-country"})
         @DisplayName("returns 201 Created for lc-company-country")
         void lcCompanyCountryCanPost() throws Exception {
-            when(companyCountryService.addCountryToCompany(any(), any()))
-                    .thenReturn(buildCountryResponse());
+            when(companyCountryService.addCountryToCompany(any(), any())).thenReturn(buildCountryResponse());
 
             mockMvc.perform(post(BASE_URL, companyId)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -254,8 +241,7 @@ class CompanyCountryControllerSecurityTest {
         @WithMockUser(roles = {"lc-admin"})
         @DisplayName("returns 200 OK for lc-admin")
         void lcAdminCanPut() throws Exception {
-            when(companyCountryService.updateCountry(any(), any(), any()))
-                    .thenReturn(buildCountryResponse());
+            when(companyCountryService.updateCountry(any(), any(), any())).thenReturn(buildCountryResponse());
 
             mockMvc.perform(put(BASE_URL + "/{id}", companyId, countryRelationId)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -267,8 +253,7 @@ class CompanyCountryControllerSecurityTest {
         @WithMockUser(roles = {"lc-company"})
         @DisplayName("returns 200 OK for lc-company")
         void lcCompanyCanPut() throws Exception {
-            when(companyCountryService.updateCountry(any(), any(), any()))
-                    .thenReturn(buildCountryResponse());
+            when(companyCountryService.updateCountry(any(), any(), any())).thenReturn(buildCountryResponse());
 
             mockMvc.perform(put(BASE_URL + "/{id}", companyId, countryRelationId)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -280,8 +265,7 @@ class CompanyCountryControllerSecurityTest {
         @WithMockUser(roles = {"lc-company-country"})
         @DisplayName("returns 200 OK for lc-company-country")
         void lcCompanyCountryCanPut() throws Exception {
-            when(companyCountryService.updateCountry(any(), any(), any()))
-                    .thenReturn(buildCountryResponse());
+            when(companyCountryService.updateCountry(any(), any(), any())).thenReturn(buildCountryResponse());
 
             mockMvc.perform(put(BASE_URL + "/{id}", companyId, countryRelationId)
                             .contentType(MediaType.APPLICATION_JSON)

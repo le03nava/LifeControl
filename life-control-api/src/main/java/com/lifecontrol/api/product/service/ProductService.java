@@ -6,16 +6,15 @@ import com.lifecontrol.api.product.exception.DuplicateProductException;
 import com.lifecontrol.api.product.exception.ProductNotFoundException;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.repository.ProductRepository;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
 
 @Service
 public class ProductService {
@@ -33,8 +32,7 @@ public class ProductService {
         logger.info("Creating product with SKU: {}", request.sku());
 
         if (productRepository.existsBySku(request.sku())) {
-            throw new DuplicateProductException(
-                    "Product with SKU '" + request.sku() + "' already exists");
+            throw new DuplicateProductException("Product with SKU '" + request.sku() + "' already exists");
         }
 
         var product = Product.builder()
@@ -57,14 +55,11 @@ public class ProductService {
     public ProductResponse updateProduct(UUID id, ProductRequest request) {
         logger.info("Updating product with id: {}", id);
 
-        var product = productRepository.findById(id)
-                .orElseThrow(() -> new ProductNotFoundException(id));
+        var product = productRepository.findById(id).orElseThrow(() -> new ProductNotFoundException(id));
 
         // Check SKU uniqueness only if SKU changed
-        if (!product.getSku().equals(request.sku())
-                && productRepository.existsBySkuAndIdNot(request.sku(), id)) {
-            throw new DuplicateProductException(
-                    "Product with SKU '" + request.sku() + "' already exists");
+        if (!product.getSku().equals(request.sku()) && productRepository.existsBySkuAndIdNot(request.sku(), id)) {
+            throw new DuplicateProductException("Product with SKU '" + request.sku() + "' already exists");
         }
 
         // Update scalar fields
@@ -82,9 +77,7 @@ public class ProductService {
                 product.setAttributes(new HashMap<>());
             } else {
                 Map<String, Object> existingAttrs = product.getAttributes();
-                Map<String, Object> merged = existingAttrs != null
-                        ? new HashMap<>(existingAttrs)
-                        : new HashMap<>();
+                Map<String, Object> merged = existingAttrs != null ? new HashMap<>(existingAttrs) : new HashMap<>();
                 merged.putAll(request.attributes());
                 product.setAttributes(merged);
             }
@@ -101,8 +94,7 @@ public class ProductService {
     public void deleteProduct(UUID id) {
         logger.info("Soft-deleting product with id: {}", id);
 
-        var product = productRepository.findById(id)
-                .orElseThrow(() -> new ProductNotFoundException(id));
+        var product = productRepository.findById(id).orElseThrow(() -> new ProductNotFoundException(id));
 
         if (!product.getEnabled()) {
             throw new ProductNotFoundException(id);
@@ -116,8 +108,7 @@ public class ProductService {
 
     @Transactional(readOnly = true)
     public ProductResponse findProduct(UUID id) {
-        var product = productRepository.findById(id)
-                .orElseThrow(() -> new ProductNotFoundException(id));
+        var product = productRepository.findById(id).orElseThrow(() -> new ProductNotFoundException(id));
 
         if (!product.getEnabled()) {
             throw new ProductNotFoundException(id);
@@ -158,7 +149,6 @@ public class ProductService {
                 product.getAttributes(),
                 product.getEnabled(),
                 product.getCreatedAt(),
-                product.getUpdatedAt()
-        );
+                product.getUpdatedAt());
     }
 }

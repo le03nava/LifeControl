@@ -6,15 +6,14 @@ import com.lifecontrol.api.paymentmethod.exception.DuplicatePaymentMethodExcepti
 import com.lifecontrol.api.paymentmethod.exception.PaymentMethodNotFoundException;
 import com.lifecontrol.api.paymentmethod.model.PaymentMethod;
 import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
+import java.util.List;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.List;
-import java.util.UUID;
 
 @Service
 public class PaymentMethodService {
@@ -30,8 +29,7 @@ public class PaymentMethodService {
     @Cacheable(value = "paymentMethods")
     @Transactional(readOnly = true)
     public List<PaymentMethodResponse> getAllPaymentMethods() {
-        return repository.findAllByOrderByPaymentMethodNameAsc()
-                .stream()
+        return repository.findAllByOrderByPaymentMethodNameAsc().stream()
                 .map(this::toResponse)
                 .toList();
     }
@@ -39,9 +37,7 @@ public class PaymentMethodService {
     @Cacheable(value = "paymentMethods", key = "#id")
     @Transactional(readOnly = true)
     public PaymentMethodResponse getPaymentMethodById(UUID id) {
-        return repository.findById(id)
-                .map(this::toResponse)
-                .orElseThrow(() -> new PaymentMethodNotFoundException(id));
+        return repository.findById(id).map(this::toResponse).orElseThrow(() -> new PaymentMethodNotFoundException(id));
     }
 
     @CacheEvict(value = "paymentMethods", allEntries = true)
@@ -65,8 +61,7 @@ public class PaymentMethodService {
     public PaymentMethodResponse updatePaymentMethod(UUID id, PaymentMethodRequest request) {
         logger.info("Updating payment method with id: {}", id);
 
-        var paymentMethod = repository.findById(id)
-                .orElseThrow(() -> new PaymentMethodNotFoundException(id));
+        var paymentMethod = repository.findById(id).orElseThrow(() -> new PaymentMethodNotFoundException(id));
 
         // Check duplicate name excluding current entity
         var existing = repository.findByPaymentMethodNameIgnoreCase(request.paymentMethodName());
@@ -89,8 +84,7 @@ public class PaymentMethodService {
     public void deletePaymentMethod(UUID id) {
         logger.info("Deleting payment method with id: {}", id);
 
-        var paymentMethod = repository.findById(id)
-                .orElseThrow(() -> new PaymentMethodNotFoundException(id));
+        var paymentMethod = repository.findById(id).orElseThrow(() -> new PaymentMethodNotFoundException(id));
 
         repository.delete(paymentMethod);
         logger.info("Payment method deleted: id={}, name={}", id, paymentMethod.getPaymentMethodName());
@@ -101,8 +95,7 @@ public class PaymentMethodService {
     public PaymentMethodResponse setPaymentMethodEnabled(UUID id, boolean enabled) {
         logger.info("Setting payment method enabled={} for id: {}", enabled, id);
 
-        var paymentMethod = repository.findById(id)
-                .orElseThrow(() -> new PaymentMethodNotFoundException(id));
+        var paymentMethod = repository.findById(id).orElseThrow(() -> new PaymentMethodNotFoundException(id));
 
         paymentMethod.setEnabled(enabled);
         var saved = repository.save(paymentMethod);
@@ -125,7 +118,6 @@ public class PaymentMethodService {
                 paymentMethod.getPaymentMethodShortName(),
                 paymentMethod.getEnabled(),
                 paymentMethod.getCreatedAt(),
-                paymentMethod.getUpdatedAt()
-        );
+                paymentMethod.getUpdatedAt());
     }
 }

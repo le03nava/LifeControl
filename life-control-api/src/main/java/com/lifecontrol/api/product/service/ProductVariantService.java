@@ -8,14 +8,13 @@ import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
 import com.lifecontrol.api.product.model.ProductVariant;
 import com.lifecontrol.api.product.repository.ProductRepository;
 import com.lifecontrol.api.product.repository.ProductVariantRepository;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.UUID;
 
 @Service
 public class ProductVariantService {
@@ -25,8 +24,8 @@ public class ProductVariantService {
     private final ProductVariantRepository productVariantRepository;
     private final ProductRepository productRepository;
 
-    public ProductVariantService(ProductVariantRepository productVariantRepository,
-                                  ProductRepository productRepository) {
+    public ProductVariantService(
+            ProductVariantRepository productVariantRepository, ProductRepository productRepository) {
         this.productVariantRepository = productVariantRepository;
         this.productRepository = productRepository;
     }
@@ -35,7 +34,8 @@ public class ProductVariantService {
     public Page<ProductVariantResponse> listVariants(UUID productId, Pageable pageable) {
         validateProductExists(productId);
 
-        return productVariantRepository.findByProductIdAndEnabledTrueOrderByCreatedAtDesc(productId, pageable)
+        return productVariantRepository
+                .findByProductIdAndEnabledTrueOrderByCreatedAtDesc(productId, pageable)
                 .map(this::toResponse);
     }
 
@@ -43,7 +43,8 @@ public class ProductVariantService {
     public ProductVariantResponse getVariant(UUID productId, UUID variantId) {
         validateProductExists(productId);
 
-        var variant = productVariantRepository.findById(variantId)
+        var variant = productVariantRepository
+                .findById(variantId)
                 .filter(v -> v.getProductId().equals(productId))
                 .orElseThrow(() -> new ProductVariantNotFoundException(variantId));
 
@@ -54,8 +55,11 @@ public class ProductVariantService {
     public ProductVariantResponse createVariant(UUID productId, ProductVariantRequest request) {
         validateProductExists(productId);
 
-        logger.info("Creating product variant: productId={}, barCode={}, sku={}",
-                productId, request.barCode(), request.sku());
+        logger.info(
+                "Creating product variant: productId={}, barCode={}, sku={}",
+                productId,
+                request.barCode(),
+                request.sku());
 
         var variant = ProductVariant.builder()
                 .productId(productId)
@@ -81,7 +85,8 @@ public class ProductVariantService {
 
         logger.info("Updating product variant: variantId={}, productId={}", variantId, productId);
 
-        var variant = productVariantRepository.findById(variantId)
+        var variant = productVariantRepository
+                .findById(variantId)
                 .filter(v -> v.getProductId().equals(productId))
                 .orElseThrow(() -> new ProductVariantNotFoundException(variantId));
 
@@ -106,7 +111,8 @@ public class ProductVariantService {
 
         logger.info("Soft-deleting product variant: variantId={}, productId={}", variantId, productId);
 
-        var variant = productVariantRepository.findById(variantId)
+        var variant = productVariantRepository
+                .findById(variantId)
                 .filter(v -> v.getProductId().equals(productId))
                 .orElseThrow(() -> new ProductVariantNotFoundException(variantId));
 
@@ -146,7 +152,6 @@ public class ProductVariantService {
                 variant.getStock(),
                 variant.getEnabled(),
                 variant.getCreatedAt(),
-                variant.getUpdatedAt()
-        );
+                variant.getUpdatedAt());
     }
 }

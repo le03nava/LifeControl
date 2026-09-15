@@ -1,5 +1,8 @@
 package com.lifecontrol.api.purchaseorder.controller;
 
+import static com.lifecontrol.api.common.security.Roles.ADMIN;
+import static com.lifecontrol.api.common.security.Roles.SALES;
+
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderDetailRequest;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderDetailResponse;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderRequest;
@@ -11,6 +14,8 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.List;
+import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -28,12 +33,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
-import java.util.UUID;
-
-import static com.lifecontrol.api.common.security.Roles.ADMIN;
-import static com.lifecontrol.api.common.security.Roles.SALES;
-
 @RestController
 @RequestMapping("/api/purchase-orders")
 @Tag(name = "Purchase Orders", description = "API for managing purchase orders and their line items")
@@ -49,13 +48,12 @@ public class PurchaseOrderController {
 
     @GetMapping
     @PreAuthorize("isAuthenticated()")
-    @Operation(summary = "Get all purchase orders", description = "Returns a paginated list, optionally filtered by search term on supplier or store name")
-    @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "Paginated list of purchase orders")
-    })
+    @Operation(
+            summary = "Get all purchase orders",
+            description = "Returns a paginated list, optionally filtered by search term on supplier or store name")
+    @ApiResponses({@ApiResponse(responseCode = "200", description = "Paginated list of purchase orders")})
     public ResponseEntity<Page<PurchaseOrderResponse>> getAllPurchaseOrders(
-            @PageableDefault(size = 12) Pageable pageable,
-            @RequestParam(required = false) String search) {
+            @PageableDefault(size = 12) Pageable pageable, @RequestParam(required = false) String search) {
         return ResponseEntity.ok(purchaseOrderService.getAllPurchaseOrders(pageable, search));
     }
 
@@ -72,14 +70,15 @@ public class PurchaseOrderController {
 
     @PostMapping
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
-    @Operation(summary = "Create a purchase order", description = "Creates a new purchase order with Draft status. Detail totals are auto-calculated.")
+    @Operation(
+            summary = "Create a purchase order",
+            description = "Creates a new purchase order with Draft status. Detail totals are auto-calculated.")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "Purchase order created"),
         @ApiResponse(responseCode = "400", description = "Validation error"),
         @ApiResponse(responseCode = "404", description = "Referenced entity not found")
     })
-    public ResponseEntity<PurchaseOrderResponse> createPurchaseOrder(
-            @Valid @RequestBody PurchaseOrderRequest request) {
+    public ResponseEntity<PurchaseOrderResponse> createPurchaseOrder(@Valid @RequestBody PurchaseOrderRequest request) {
         var response = purchaseOrderService.createPurchaseOrder(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
@@ -93,14 +92,15 @@ public class PurchaseOrderController {
         @ApiResponse(responseCode = "404", description = "Purchase order or FK entity not found")
     })
     public ResponseEntity<PurchaseOrderResponse> updatePurchaseOrder(
-            @PathVariable UUID id,
-            @Valid @RequestBody PurchaseOrderRequest request) {
+            @PathVariable UUID id, @Valid @RequestBody PurchaseOrderRequest request) {
         return ResponseEntity.ok(purchaseOrderService.updatePurchaseOrder(id, request));
     }
 
     @PatchMapping("/{id}/enable")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
-    @Operation(summary = "Re-enable a purchase order", description = "Re-enables a soft-deleted purchase order and all its details")
+    @Operation(
+            summary = "Re-enable a purchase order",
+            description = "Re-enables a soft-deleted purchase order and all its details")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Purchase order re-enabled"),
         @ApiResponse(responseCode = "404", description = "Purchase order not found")
@@ -111,7 +111,9 @@ public class PurchaseOrderController {
 
     @PatchMapping("/{id}/status")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
-    @Operation(summary = "Update purchase order status", description = "Updates the status of a purchase order. Validates status type and allowed transitions.")
+    @Operation(
+            summary = "Update purchase order status",
+            description = "Updates the status of a purchase order. Validates status type and allowed transitions.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Status updated"),
         @ApiResponse(responseCode = "400", description = "Wrong status type"),
@@ -119,8 +121,7 @@ public class PurchaseOrderController {
         @ApiResponse(responseCode = "409", description = "Invalid status transition")
     })
     public ResponseEntity<PurchaseOrderResponse> updatePurchaseOrderStatus(
-            @PathVariable UUID id,
-            @Valid @RequestBody UpdatePurchaseOrderStatusRequest request) {
+            @PathVariable UUID id, @Valid @RequestBody UpdatePurchaseOrderStatusRequest request) {
         return ResponseEntity.ok(purchaseOrderService.updatePurchaseOrderStatus(id, request));
     }
 
@@ -151,7 +152,9 @@ public class PurchaseOrderController {
 
     @PostMapping("/{id}/details")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
-    @Operation(summary = "Add a detail to a purchase order", description = "Adds a line item to a purchase order. Only allowed when order is in Draft status.")
+    @Operation(
+            summary = "Add a detail to a purchase order",
+            description = "Adds a line item to a purchase order. Only allowed when order is in Draft status.")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "Detail created"),
         @ApiResponse(responseCode = "400", description = "Validation error"),
@@ -159,15 +162,16 @@ public class PurchaseOrderController {
         @ApiResponse(responseCode = "409", description = "Purchase order is not in Draft status")
     })
     public ResponseEntity<PurchaseOrderDetailResponse> addDetail(
-            @PathVariable UUID id,
-            @Valid @RequestBody PurchaseOrderDetailRequest request) {
+            @PathVariable UUID id, @Valid @RequestBody PurchaseOrderDetailRequest request) {
         var response = purchaseOrderService.addPurchaseOrderDetail(id, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @PutMapping("/{id}/details/{detailId}")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
-    @Operation(summary = "Update a detail", description = "Updates a purchase order detail. Only allowed when order is in Draft status.")
+    @Operation(
+            summary = "Update a detail",
+            description = "Updates a purchase order detail. Only allowed when order is in Draft status.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Detail updated"),
         @ApiResponse(responseCode = "400", description = "Validation error"),
@@ -183,22 +187,25 @@ public class PurchaseOrderController {
 
     @DeleteMapping("/{id}/details/{detailId}")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
-    @Operation(summary = "Delete a detail", description = "Soft-deletes a purchase order detail. Only allowed when order is in Draft status.")
+    @Operation(
+            summary = "Delete a detail",
+            description = "Soft-deletes a purchase order detail. Only allowed when order is in Draft status.")
     @ApiResponses({
         @ApiResponse(responseCode = "204", description = "Detail deleted"),
         @ApiResponse(responseCode = "404", description = "Purchase order or detail not found"),
         @ApiResponse(responseCode = "409", description = "Purchase order is not in Draft status")
     })
-    public ResponseEntity<Void> deleteDetail(
-            @PathVariable UUID id,
-            @PathVariable UUID detailId) {
+    public ResponseEntity<Void> deleteDetail(@PathVariable UUID id, @PathVariable UUID detailId) {
         purchaseOrderService.deletePurchaseOrderDetail(id, detailId);
         return ResponseEntity.noContent().build();
     }
 
     @PatchMapping("/{id}/details/{detailId}/status")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
-    @Operation(summary = "Update detail status", description = "Updates the status of a purchase order detail. Validates status type and allowed transitions.")
+    @Operation(
+            summary = "Update detail status",
+            description =
+                    "Updates the status of a purchase order detail. Validates status type and allowed transitions.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Detail status updated"),
         @ApiResponse(responseCode = "400", description = "Wrong status type"),

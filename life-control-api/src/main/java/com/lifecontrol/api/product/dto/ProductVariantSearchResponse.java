@@ -18,5 +18,4 @@ public record ProductVariantSearchResponse(
         String productName,
         String productSku,
         LocalDateTime createdAt,
-        LocalDateTime updatedAt
-) {}
+        LocalDateTime updatedAt) {}

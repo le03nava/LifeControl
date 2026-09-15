@@ -8,10 +8,4 @@ import java.time.LocalDate;
  * All fields are optional — only non-null values are applied as query filters.
  */
 public record ActivityLogFilter(
-    LocalDate from,
-    LocalDate to,
-    String process,
-    String event,
-    String userId,
-    String httpMethod
-) {}
+        LocalDate from, LocalDate to, String process, String event, String userId, String httpMethod) {}

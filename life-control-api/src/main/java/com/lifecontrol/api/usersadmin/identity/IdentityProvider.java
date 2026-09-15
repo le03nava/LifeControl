@@ -2,11 +2,10 @@ package com.lifecontrol.api.usersadmin.identity;
 
 import com.lifecontrol.api.usersadmin.dto.PageResponse;
 import com.lifecontrol.api.usersadmin.dto.RoleRequest;
-import org.keycloak.representations.idm.UserRepresentation;
-
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.keycloak.representations.idm.UserRepresentation;
 
 /**
  * Abstraction for identity provider operations (role CRUD, user assignment,

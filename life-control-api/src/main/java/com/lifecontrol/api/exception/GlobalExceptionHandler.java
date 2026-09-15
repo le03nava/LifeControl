@@ -5,6 +5,9 @@ import com.lifecontrol.api.usersadmin.identity.IdentityProviderConflictException
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderConnectionException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderNotFoundException;
 import jakarta.validation.ConstraintViolationException;
+import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -21,10 +24,6 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
-
-import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * Translates exceptions into the standard error envelope
@@ -61,8 +60,8 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ErrorResponse> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
         logger.warn("Data integrity violation", ex);
-        return buildErrorResponse(HttpStatus.CONFLICT,
-                "The operation conflicts with an existing resource or violates a data constraint");
+        return buildErrorResponse(
+                HttpStatus.CONFLICT, "The operation conflicts with an existing resource or violates a data constraint");
     }
 
     // ─── Bad request (400) ──────────────────────────────────────────────
@@ -96,8 +95,7 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(MissingServletRequestParameterException.class)
     public ResponseEntity<ErrorResponse> handleMissingParameter(MissingServletRequestParameterException ex) {
-        return buildErrorResponse(HttpStatus.BAD_REQUEST,
-                "Missing required parameter '" + ex.getParameterName() + "'");
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, "Missing required parameter '" + ex.getParameterName() + "'");
     }
 
     /**
@@ -107,8 +105,8 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ConstraintViolationException.class)
     public ResponseEntity<ValidationErrorResponse> handleConstraintViolation(ConstraintViolationException ex) {
         Map<String, String> errors = new HashMap<>();
-        ex.getConstraintViolations().forEach(violation ->
-                errors.put(violation.getPropertyPath().toString(), violation.getMessage()));
+        ex.getConstraintViolations()
+                .forEach(violation -> errors.put(violation.getPropertyPath().toString(), violation.getMessage()));
 
         ValidationErrorResponse errorResponse = new ValidationErrorResponse(
                 HttpStatus.BAD_REQUEST.value(),
@@ -116,8 +114,7 @@ public class GlobalExceptionHandler {
                 errors,
                 getCurrentPath(),
                 LocalDateTime.now(),
-                getCorrelationId()
-        );
+                getCorrelationId());
 
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
     }
@@ -146,9 +143,9 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ValidationErrorResponse> handleValidationErrors(MethodArgumentNotValidException ex) {
         Map<String, String> errors = new HashMap<>();
 
-        ex.getBindingResult().getFieldErrors().forEach(fieldError ->
-                errors.put(fieldError.getField(), fieldError.getDefaultMessage())
-        );
+        ex.getBindingResult()
+                .getFieldErrors()
+                .forEach(fieldError -> errors.put(fieldError.getField(), fieldError.getDefaultMessage()));
 
         ValidationErrorResponse errorResponse = new ValidationErrorResponse(
                 HttpStatus.BAD_REQUEST.value(),
@@ -156,8 +153,7 @@ public class GlobalExceptionHandler {
                 errors,
                 getCurrentPath(),
                 LocalDateTime.now(),
-                getCorrelationId()
-        );
+                getCorrelationId());
 
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
     }
@@ -173,8 +169,8 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
     public ResponseEntity<ErrorResponse> handleMethodNotSupported(HttpRequestMethodNotSupportedException ex) {
-        return buildErrorResponse(HttpStatus.METHOD_NOT_ALLOWED,
-                "HTTP method " + ex.getMethod() + " is not supported for this endpoint");
+        return buildErrorResponse(
+                HttpStatus.METHOD_NOT_ALLOWED, "HTTP method " + ex.getMethod() + " is not supported for this endpoint");
     }
 
     // ─── Fallback (500) ─────────────────────────────────────────────────
@@ -186,13 +182,8 @@ public class GlobalExceptionHandler {
     }
 
     private ResponseEntity<ErrorResponse> buildErrorResponse(HttpStatus status, String message) {
-        ErrorResponse error = new ErrorResponse(
-                status.value(),
-                message,
-                getCurrentPath(),
-                LocalDateTime.now(),
-                getCorrelationId()
-        );
+        ErrorResponse error =
+                new ErrorResponse(status.value(), message, getCurrentPath(), LocalDateTime.now(), getCorrelationId());
         return ResponseEntity.status(status).body(error);
     }
 
@@ -217,7 +208,14 @@ public class GlobalExceptionHandler {
         return MDC.get("traceId");
     }
 
-    public record ErrorResponse(int status, String message, String path, LocalDateTime timestamp, String correlationId) {}
+    public record ErrorResponse(
+            int status, String message, String path, LocalDateTime timestamp, String correlationId) {}
 
-    public record ValidationErrorResponse(int status, String message, Map<String, String> errors, String path, LocalDateTime timestamp, String correlationId) {}
+    public record ValidationErrorResponse(
+            int status,
+            String message,
+            Map<String, String> errors,
+            String path,
+            LocalDateTime timestamp,
+            String correlationId) {}
 }

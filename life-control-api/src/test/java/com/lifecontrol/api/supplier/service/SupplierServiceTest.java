@@ -1,5 +1,12 @@
 package com.lifecontrol.api.supplier.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
 import com.lifecontrol.api.common.address.dto.AddressRequest;
 import com.lifecontrol.api.common.address.model.Address;
 import com.lifecontrol.api.country.model.Country;
@@ -10,6 +17,10 @@ import com.lifecontrol.api.supplier.exception.DuplicateSupplierException;
 import com.lifecontrol.api.supplier.exception.SupplierNotFoundException;
 import com.lifecontrol.api.supplier.model.Supplier;
 import com.lifecontrol.api.supplier.repository.SupplierRepository;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -21,19 +32,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("SupplierService Tests")
@@ -98,8 +96,7 @@ class SupplierServiceTest {
                 "+1234567890",
                 "INT-001",
                 null,
-                true
-        );
+                true);
 
         testSupplierRequestWithAddress = new SupplierRequest(
                 "Supplier With Address",
@@ -109,17 +106,8 @@ class SupplierServiceTest {
                 "+9876543210",
                 "INT-002",
                 new AddressRequest(
-                        "Av. Reforma",
-                        "456",
-                        "B",
-                        "Juarez",
-                        "67890",
-                        "Guadalajara",
-                        "Jalisco",
-                        testCountryId
-                ),
-                true
-        );
+                        "Av. Reforma", "456", "B", "Juarez", "67890", "Guadalajara", "Jalisco", testCountryId),
+                true);
     }
 
     @Nested
@@ -155,7 +143,8 @@ class SupplierServiceTest {
             var suppliers = List.of(testSupplier);
             var expectedPage = new PageImpl<>(suppliers, pageable, 1);
 
-            when(supplierRepository.findBySearchTermAndEnabledTrue("Test", pageable)).thenReturn(expectedPage);
+            when(supplierRepository.findBySearchTermAndEnabledTrue("Test", pageable))
+                    .thenReturn(expectedPage);
 
             // Act
             Page<SupplierResponse> result = supplierService.getAllSuppliers(pageable, "Test", false);
@@ -174,7 +163,8 @@ class SupplierServiceTest {
             var pageable = PageRequest.of(0, 12);
             var expectedPage = new PageImpl<Supplier>(List.of(), pageable, 0);
 
-            when(supplierRepository.findBySearchTermAndEnabledTrue("NonExistent", pageable)).thenReturn(expectedPage);
+            when(supplierRepository.findBySearchTermAndEnabledTrue("NonExistent", pageable))
+                    .thenReturn(expectedPage);
 
             // Act
             Page<SupplierResponse> result = supplierService.getAllSuppliers(pageable, "NonExistent", false);
@@ -328,9 +318,11 @@ class SupplierServiceTest {
                     "Razon Social",
                     "ABCD123456XYZ",
                     "new@supplier.com",
-                    null, null, null,
-                    null  // enabled = null
-            );
+                    null,
+                    null,
+                    null,
+                    null // enabled = null
+                    );
 
             var savedSupplier = Supplier.builder()
                     .id(UUID.randomUUID())
@@ -365,7 +357,8 @@ class SupplierServiceTest {
                     .enabled(true)
                     .build();
 
-            when(supplierRepository.existsByRfc(testSupplierRequestWithAddress.rfc())).thenReturn(false);
+            when(supplierRepository.existsByRfc(testSupplierRequestWithAddress.rfc()))
+                    .thenReturn(false);
             when(countryRepository.findById(testCountryId)).thenReturn(Optional.of(country));
             when(supplierRepository.save(any(Supplier.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -430,8 +423,7 @@ class SupplierServiceTest {
                     "+9876543210",
                     "INT-003",
                     null,
-                    false
-            );
+                    false);
 
             when(supplierRepository.findById(testSupplierId)).thenReturn(Optional.of(testSupplier));
             when(supplierRepository.save(any(Supplier.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -460,17 +452,8 @@ class SupplierServiceTest {
                     null,
                     "INT-004",
                     new AddressRequest(
-                            "Calle Nueva",
-                            "999",
-                            "1",
-                            "Col Nueva",
-                            "54321",
-                            "Monterrey",
-                            "Nuevo Leon",
-                            testCountryId
-                    ),
-                    null
-            );
+                            "Calle Nueva", "999", "1", "Col Nueva", "54321", "Monterrey", "Nuevo Leon", testCountryId),
+                    null);
 
             var country = Country.builder()
                     .id(testCountryId)
@@ -515,19 +498,16 @@ class SupplierServiceTest {
         }
 
         @Test
-        @DisplayName("updateSupplier - should throw DuplicateSupplierException when RFC conflicts with another supplier")
+        @DisplayName(
+                "updateSupplier - should throw DuplicateSupplierException when RFC conflicts with another supplier")
         void updateSupplier_DuplicateRfc() {
             // Arrange
             var requestWithDifferentRfc = new SupplierRequest(
-                    "Test Supplier",
-                    "Test Razon Social",
-                    "DIFFERENTRFC123",
-                    null, null, null, null,
-                    true
-            );
+                    "Test Supplier", "Test Razon Social", "DIFFERENTRFC123", null, null, null, null, true);
 
             when(supplierRepository.findById(testSupplierId)).thenReturn(Optional.of(testSupplier));
-            when(supplierRepository.existsByRfcAndIdNot("DIFFERENTRFC123", testSupplierId)).thenReturn(true);
+            when(supplierRepository.existsByRfcAndIdNot("DIFFERENTRFC123", testSupplierId))
+                    .thenReturn(true);
 
             // Act & Assert
             assertThatThrownBy(() -> supplierService.updateSupplier(testSupplierId, requestWithDifferentRfc))
@@ -543,10 +523,12 @@ class SupplierServiceTest {
             var requestWithSameRfc = new SupplierRequest(
                     "Updated Name",
                     "Updated Razon",
-                    "XAXX010101000",  // Same RFC as existing
-                    null, null, null, null,
-                    true
-            );
+                    "XAXX010101000", // Same RFC as existing
+                    null,
+                    null,
+                    null,
+                    null,
+                    true);
 
             when(supplierRepository.findById(testSupplierId)).thenReturn(Optional.of(testSupplier));
             when(supplierRepository.save(any(Supplier.class))).thenAnswer(inv -> inv.getArgument(0));

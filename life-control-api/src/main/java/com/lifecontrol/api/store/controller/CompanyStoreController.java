@@ -1,5 +1,13 @@
 package com.lifecontrol.api.store.controller;
 
+import static com.lifecontrol.api.common.security.Roles.ADMIN;
+import static com.lifecontrol.api.common.security.Roles.COMPANY;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_COUNTRY;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_REGION;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_STORE;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_STORE_READ;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_ZONE;
+
 import com.lifecontrol.api.store.dto.CompanyStoreResponse;
 import com.lifecontrol.api.store.dto.CreateCompanyStoreRequest;
 import com.lifecontrol.api.store.dto.UpdateCompanyStoreRequest;
@@ -8,21 +16,12 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.List;
+import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
-import java.util.UUID;
-
-import static com.lifecontrol.api.common.security.Roles.ADMIN;
-import static com.lifecontrol.api.common.security.Roles.COMPANY;
-import static com.lifecontrol.api.common.security.Roles.COMPANY_COUNTRY;
-import static com.lifecontrol.api.common.security.Roles.COMPANY_REGION;
-import static com.lifecontrol.api.common.security.Roles.COMPANY_STORE;
-import static com.lifecontrol.api.common.security.Roles.COMPANY_STORE_READ;
-import static com.lifecontrol.api.common.security.Roles.COMPANY_ZONE;
 
 @RestController
 @RequestMapping("/api/companies/{companyId}/countries/{companyCountryId}/regions/{regionId}/zones/{zoneId}/stores")
@@ -36,9 +35,12 @@ public class CompanyStoreController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','" + COMPANY_ZONE + "','" + COMPANY_STORE + "','" + COMPANY_STORE_READ + "')")
-    @Operation(summary = "List all stores",
-            description = "Returns stores for a company's zone. For lc-company-store and lc-company-store-read roles, results are scoped to the company_store_id values in the JWT.")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','"
+            + COMPANY_ZONE + "','" + COMPANY_STORE + "','" + COMPANY_STORE_READ + "')")
+    @Operation(
+            summary = "List all stores",
+            description =
+                    "Returns stores for a company's zone. For lc-company-store and lc-company-store-read roles, results are scoped to the company_store_id values in the JWT.")
     @ApiResponse(responseCode = "200", description = "List of stores")
     public ResponseEntity<List<CompanyStoreResponse>> getAllStores(
             @PathVariable UUID companyId,
@@ -46,13 +48,17 @@ public class CompanyStoreController {
             @PathVariable UUID regionId,
             @PathVariable UUID zoneId,
             @RequestParam(defaultValue = "false") boolean includeDisabled) {
-        return ResponseEntity.ok(companyStoreService.getAllStores(companyId, companyCountryId, regionId, zoneId, includeDisabled));
+        return ResponseEntity.ok(
+                companyStoreService.getAllStores(companyId, companyCountryId, regionId, zoneId, includeDisabled));
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','" + COMPANY_ZONE + "','" + COMPANY_STORE + "','" + COMPANY_STORE_READ + "')")
-    @Operation(summary = "Get a store by ID",
-            description = "Returns a specific store. Access is verified via verifyCompanyStoreAccess which checks store ownership for scoped roles.")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','"
+            + COMPANY_ZONE + "','" + COMPANY_STORE + "','" + COMPANY_STORE_READ + "')")
+    @Operation(
+            summary = "Get a store by ID",
+            description =
+                    "Returns a specific store. Access is verified via verifyCompanyStoreAccess which checks store ownership for scoped roles.")
     @ApiResponse(responseCode = "200", description = "Store found")
     @ApiResponse(responseCode = "404", description = "Store not found")
     public ResponseEntity<CompanyStoreResponse> getStoreById(
@@ -65,7 +71,8 @@ public class CompanyStoreController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','" + COMPANY_ZONE + "','" + COMPANY_STORE + "')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','"
+            + COMPANY_ZONE + "','" + COMPANY_STORE + "')")
     @Operation(summary = "Create a new store")
     @ApiResponse(responseCode = "201", description = "Store created")
     @ApiResponse(responseCode = "400", description = "Validation error")
@@ -81,7 +88,8 @@ public class CompanyStoreController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','" + COMPANY_ZONE + "','" + COMPANY_STORE + "')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','"
+            + COMPANY_ZONE + "','" + COMPANY_STORE + "')")
     @Operation(summary = "Update a store")
     @ApiResponse(responseCode = "200", description = "Store updated")
     @ApiResponse(responseCode = "400", description = "Validation error")
@@ -94,11 +102,13 @@ public class CompanyStoreController {
             @PathVariable UUID zoneId,
             @PathVariable UUID id,
             @Valid @RequestBody UpdateCompanyStoreRequest request) {
-        return ResponseEntity.ok(companyStoreService.updateStore(companyId, companyCountryId, regionId, zoneId, id, request));
+        return ResponseEntity.ok(
+                companyStoreService.updateStore(companyId, companyCountryId, regionId, zoneId, id, request));
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','" + COMPANY_ZONE + "','" + COMPANY_STORE + "')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','"
+            + COMPANY_ZONE + "','" + COMPANY_STORE + "')")
     @Operation(summary = "Soft-delete a store")
     @ApiResponse(responseCode = "204", description = "Store deleted")
     @ApiResponse(responseCode = "404", description = "Store not found")
@@ -113,7 +123,8 @@ public class CompanyStoreController {
     }
 
     @PatchMapping("/{id}")
-    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','" + COMPANY_ZONE + "','" + COMPANY_STORE + "')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','"
+            + COMPANY_ZONE + "','" + COMPANY_STORE + "')")
     @Operation(summary = "Re-enable a soft-deleted store")
     @ApiResponse(responseCode = "200", description = "Store re-enabled")
     @ApiResponse(responseCode = "404", description = "Store not found")

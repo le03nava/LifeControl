@@ -1,11 +1,15 @@
 package com.lifecontrol.api.product.supplier.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
 import com.lifecontrol.api.product.exception.ProductNotFoundException;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.repository.ProductRepository;
 import com.lifecontrol.api.product.supplier.dto.ProductSupplierRequest;
 import com.lifecontrol.api.product.supplier.dto.ProductSupplierResponse;
-import com.lifecontrol.api.product.supplier.dto.SupplierProductResponse;
 import com.lifecontrol.api.product.supplier.exception.DuplicateProductSupplierException;
 import com.lifecontrol.api.product.supplier.exception.ProductSupplierNotFoundException;
 import com.lifecontrol.api.product.supplier.model.ProductSupplier;
@@ -13,6 +17,11 @@ import com.lifecontrol.api.product.supplier.repository.ProductSupplierRepository
 import com.lifecontrol.api.supplier.exception.SupplierNotFoundException;
 import com.lifecontrol.api.supplier.model.Supplier;
 import com.lifecontrol.api.supplier.repository.SupplierRepository;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -22,25 +31,16 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
-
 @ExtendWith(MockitoExtension.class)
 @DisplayName("ProductSupplierService Tests")
 class ProductSupplierServiceTest {
 
     @Mock
     private ProductSupplierRepository productSupplierRepository;
+
     @Mock
     private ProductRepository productRepository;
+
     @Mock
     private SupplierRepository supplierRepository;
 
@@ -106,8 +106,7 @@ class ProductSupplierServiceTest {
         @DisplayName("should return list of suppliers for existing product")
         void listSuppliersByProductId_Success() {
             when(productRepository.existsById(productId)).thenReturn(true);
-            when(productSupplierRepository.findByProductId(productId))
-                    .thenReturn(List.of(testRelation));
+            when(productSupplierRepository.findByProductId(productId)).thenReturn(List.of(testRelation));
 
             List<ProductSupplierResponse> result = service.listSuppliersByProductId(productId);
 
@@ -223,7 +222,8 @@ class ProductSupplierServiceTest {
 
             when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
             when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(testSupplier));
-            when(productSupplierRepository.existsByProductIdAndSupplierId(productId, supplierId)).thenReturn(false);
+            when(productSupplierRepository.existsByProductIdAndSupplierId(productId, supplierId))
+                    .thenReturn(false);
             when(productSupplierRepository.save(any(ProductSupplier.class))).thenAnswer(inv -> {
                 var ps = (ProductSupplier) inv.getArgument(0);
                 return ProductSupplier.builder()
@@ -268,7 +268,8 @@ class ProductSupplierServiceTest {
 
             when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
             when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(testSupplier));
-            when(productSupplierRepository.existsByProductIdAndSupplierId(productId, supplierId)).thenReturn(false);
+            when(productSupplierRepository.existsByProductIdAndSupplierId(productId, supplierId))
+                    .thenReturn(false);
             when(productSupplierRepository.findMainByProductId(productId)).thenReturn(Optional.of(existingMain));
             when(productSupplierRepository.save(any(ProductSupplier.class))).thenAnswer(inv -> {
                 var ps = (ProductSupplier) inv.getArgument(0);
@@ -303,7 +304,8 @@ class ProductSupplierServiceTest {
 
             when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
             when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(testSupplier));
-            when(productSupplierRepository.existsByProductIdAndSupplierId(productId, supplierId)).thenReturn(false);
+            when(productSupplierRepository.existsByProductIdAndSupplierId(productId, supplierId))
+                    .thenReturn(false);
             when(productSupplierRepository.findMainByProductId(productId)).thenReturn(Optional.empty());
             when(productSupplierRepository.save(any(ProductSupplier.class))).thenAnswer(inv -> {
                 var ps = (ProductSupplier) inv.getArgument(0);
@@ -355,7 +357,8 @@ class ProductSupplierServiceTest {
 
             when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
             when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(testSupplier));
-            when(productSupplierRepository.existsByProductIdAndSupplierId(productId, supplierId)).thenReturn(true);
+            when(productSupplierRepository.existsByProductIdAndSupplierId(productId, supplierId))
+                    .thenReturn(true);
 
             assertThatThrownBy(() -> service.addSupplierToProduct(productId, request))
                     .isInstanceOf(DuplicateProductSupplierException.class)

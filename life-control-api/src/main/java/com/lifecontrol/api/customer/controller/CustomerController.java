@@ -1,5 +1,8 @@
 package com.lifecontrol.api.customer.controller;
 
+import static com.lifecontrol.api.common.security.Roles.ADMIN;
+import static com.lifecontrol.api.common.security.Roles.SALES;
+
 import com.lifecontrol.api.customer.dto.CustomerRequest;
 import com.lifecontrol.api.customer.dto.CustomerResponse;
 import com.lifecontrol.api.customer.service.CustomerService;
@@ -8,6 +11,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -25,11 +29,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.UUID;
-
-import static com.lifecontrol.api.common.security.Roles.ADMIN;
-import static com.lifecontrol.api.common.security.Roles.SALES;
-
 @RestController
 @RequestMapping("/api/customers")
 @Tag(name = "Customer Management", description = "API for managing customers")
@@ -43,13 +42,12 @@ public class CustomerController {
 
     @GetMapping
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
-    @Operation(summary = "Get all customers", description = "Returns a paginated list, optionally filtered by search term on name or email")
-    @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "Paginated list of customers")
-    })
+    @Operation(
+            summary = "Get all customers",
+            description = "Returns a paginated list, optionally filtered by search term on name or email")
+    @ApiResponses({@ApiResponse(responseCode = "200", description = "Paginated list of customers")})
     public ResponseEntity<Page<CustomerResponse>> getAllCustomers(
-            @PageableDefault(size = 12) Pageable pageable,
-            @RequestParam(required = false) String search) {
+            @PageableDefault(size = 12) Pageable pageable, @RequestParam(required = false) String search) {
         return ResponseEntity.ok(customerService.getAllCustomers(pageable, search));
     }
 
@@ -71,8 +69,7 @@ public class CustomerController {
         @ApiResponse(responseCode = "201", description = "Customer created"),
         @ApiResponse(responseCode = "400", description = "Validation error")
     })
-    public ResponseEntity<CustomerResponse> createCustomer(
-            @Valid @RequestBody CustomerRequest request) {
+    public ResponseEntity<CustomerResponse> createCustomer(@Valid @RequestBody CustomerRequest request) {
         var response = customerService.createCustomer(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
@@ -85,8 +82,7 @@ public class CustomerController {
         @ApiResponse(responseCode = "404", description = "Customer not found")
     })
     public ResponseEntity<CustomerResponse> updateCustomer(
-            @PathVariable UUID id,
-            @Valid @RequestBody CustomerRequest request) {
+            @PathVariable UUID id, @Valid @RequestBody CustomerRequest request) {
         return ResponseEntity.ok(customerService.updateCustomer(id, request));
     }
 

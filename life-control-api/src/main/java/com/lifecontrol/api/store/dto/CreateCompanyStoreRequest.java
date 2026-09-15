@@ -6,16 +6,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
 public record CreateCompanyStoreRequest(
-    @NotBlank(message = "storeName is required")
-    @Size(max = 255)
-    String storeName,
-
-    @Email
-    @Size(max = 255)
-    String email,
-
-    @Size(max = 50)
-    String phoneNumber,
-
-    AddressRequest address
-) {}
+        @NotBlank(message = "storeName is required") @Size(max = 255) String storeName,
+        @Email @Size(max = 255) String email,
+        @Size(max = 50) String phoneNumber,
+        AddressRequest address) {}

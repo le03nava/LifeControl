@@ -1,5 +1,14 @@
 package com.lifecontrol.api.salesorder.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
@@ -11,10 +20,10 @@ import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.company.repository.CompanyZoneRepository;
 import com.lifecontrol.api.country.model.Country;
 import com.lifecontrol.api.country.repository.CountryRepository;
-import com.lifecontrol.api.paymentmethod.model.PaymentMethod;
-import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
 import com.lifecontrol.api.customer.model.Customer;
 import com.lifecontrol.api.customer.repository.CustomerRepository;
+import com.lifecontrol.api.paymentmethod.model.PaymentMethod;
+import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.model.ProductVariant;
 import com.lifecontrol.api.product.repository.ProductRepository;
@@ -34,6 +43,13 @@ import com.lifecontrol.api.status.repository.StatusTypeRepository;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -44,23 +60,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
-
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -154,71 +153,136 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
      */
     private void seedReferenceData() {
         // Find-or-create sales-order status types and statuses (already seeded by Flyway V3)
-        var salesOrderType = statusTypeRepository.findByStatusTypeNameIgnoreCase("SALES_ORDER")
-                .orElseGet(() -> statusTypeRepository.save(
-                        StatusType.builder().statusTypeName("SALES_ORDER").enabled(true).build()));
+        var salesOrderType = statusTypeRepository
+                .findByStatusTypeNameIgnoreCase("SALES_ORDER")
+                .orElseGet(() -> statusTypeRepository.save(StatusType.builder()
+                        .statusTypeName("SALES_ORDER")
+                        .enabled(true)
+                        .build()));
 
-        var salesOrderItemType = statusTypeRepository.findByStatusTypeNameIgnoreCase("SALES_ORDER_ITEM")
-                .orElseGet(() -> statusTypeRepository.save(
-                        StatusType.builder().statusTypeName("SALES_ORDER_ITEM").enabled(true).build()));
+        var salesOrderItemType = statusTypeRepository
+                .findByStatusTypeNameIgnoreCase("SALES_ORDER_ITEM")
+                .orElseGet(() -> statusTypeRepository.save(StatusType.builder()
+                        .statusTypeName("SALES_ORDER_ITEM")
+                        .enabled(true)
+                        .build()));
 
         for (var name : List.of("Draft", "Active", "Pending", "Completed", "Cancelled")) {
             if (!statusRepository.existsByStatusNameIgnoreCaseAndStatusTypeId(name, salesOrderType.getId())) {
-                statusRepository.save(Status.builder().statusName(name).statusType(salesOrderType).enabled(true).build());
+                statusRepository.save(Status.builder()
+                        .statusName(name)
+                        .statusType(salesOrderType)
+                        .enabled(true)
+                        .build());
             }
         }
 
         for (var name : List.of("Pending", "Added", "Cancelled")) {
             if (!statusRepository.existsByStatusNameIgnoreCaseAndStatusTypeId(name, salesOrderItemType.getId())) {
-                statusRepository.save(Status.builder().statusName(name).statusType(salesOrderItemType).enabled(true).build());
+                statusRepository.save(Status.builder()
+                        .statusName(name)
+                        .statusType(salesOrderItemType)
+                        .enabled(true)
+                        .build());
             }
         }
 
         // Load status IDs (self-seeded above)
-        draftStatusId = statusRepository.findByTypeNameAndStatusName("SALES_ORDER", "Draft").orElseThrow().getId();
-        activeStatusId = statusRepository.findByTypeNameAndStatusName("SALES_ORDER", "Active").orElseThrow().getId();
-        pendingStatusId = statusRepository.findByTypeNameAndStatusName("SALES_ORDER", "Pending").orElseThrow().getId();
-        completedStatusId = statusRepository.findByTypeNameAndStatusName("SALES_ORDER", "Completed").orElseThrow().getId();
-        cancelledStatusId = statusRepository.findByTypeNameAndStatusName("SALES_ORDER", "Cancelled").orElseThrow().getId();
-        pendingItemStatusId = statusRepository.findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Pending").orElseThrow().getId();
-        addedItemStatusId = statusRepository.findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Added").orElseThrow().getId();
-        cancelledItemStatusId = statusRepository.findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Cancelled").orElseThrow().getId();
+        draftStatusId = statusRepository
+                .findByTypeNameAndStatusName("SALES_ORDER", "Draft")
+                .orElseThrow()
+                .getId();
+        activeStatusId = statusRepository
+                .findByTypeNameAndStatusName("SALES_ORDER", "Active")
+                .orElseThrow()
+                .getId();
+        pendingStatusId = statusRepository
+                .findByTypeNameAndStatusName("SALES_ORDER", "Pending")
+                .orElseThrow()
+                .getId();
+        completedStatusId = statusRepository
+                .findByTypeNameAndStatusName("SALES_ORDER", "Completed")
+                .orElseThrow()
+                .getId();
+        cancelledStatusId = statusRepository
+                .findByTypeNameAndStatusName("SALES_ORDER", "Cancelled")
+                .orElseThrow()
+                .getId();
+        pendingItemStatusId = statusRepository
+                .findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Pending")
+                .orElseThrow()
+                .getId();
+        addedItemStatusId = statusRepository
+                .findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Added")
+                .orElseThrow()
+                .getId();
+        cancelledItemStatusId = statusRepository
+                .findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Cancelled")
+                .orElseThrow()
+                .getId();
 
-        // Company chain: find or create (Country → Company → CompanyCountry → CompanyRegion → CompanyZone → CompanyStore)
-        var country = countryRepository.findByCountryCode("MX")
-                .orElseGet(() -> countryRepository.save(
-                        Country.builder().countryCode("MX").countryName("Mexico").enabled(true).build()));
+        // Company chain: find or create (Country → Company → CompanyCountry → CompanyRegion → CompanyZone →
+        // CompanyStore)
+        var country = countryRepository
+                .findByCountryCode("MX")
+                .orElseGet(() -> countryRepository.save(Country.builder()
+                        .countryCode("MX")
+                        .countryName("Mexico")
+                        .enabled(true)
+                        .build()));
 
-        var company = companyRepository.findByCompanyKey("TEST-KEY")
-                .orElseGet(() -> companyRepository.save(
-                        Company.builder().companyKey("TEST-KEY").companyName("Test Company").rfc("TEST123456ABC").enabled(true).build()));
+        var company = companyRepository
+                .findByCompanyKey("TEST-KEY")
+                .orElseGet(() -> companyRepository.save(Company.builder()
+                        .companyKey("TEST-KEY")
+                        .companyName("Test Company")
+                        .rfc("TEST123456ABC")
+                        .enabled(true)
+                        .build()));
 
-        var companyCountry = companyCountryRepository.findByCompanyIdAndCountryId(company.getId(), country.getId())
-                .orElseGet(() -> companyCountryRepository.save(
-                        CompanyCountry.builder().company(company).country(country).build()));
+        var companyCountry = companyCountryRepository
+                .findByCompanyIdAndCountryId(company.getId(), country.getId())
+                .orElseGet(() -> companyCountryRepository.save(CompanyCountry.builder()
+                        .company(company)
+                        .country(country)
+                        .build()));
 
-        var region = companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId())
-                .stream().findFirst()
-                .orElseGet(() -> companyRegionRepository.save(
-                        CompanyRegion.builder().companyCountry(companyCountry).regionCode("01").regionName("Test Region").enabled(true).build()));
+        var region = companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId()).stream()
+                .findFirst()
+                .orElseGet(() -> companyRegionRepository.save(CompanyRegion.builder()
+                        .companyCountry(companyCountry)
+                        .regionCode("01")
+                        .regionName("Test Region")
+                        .enabled(true)
+                        .build()));
 
-        var zone = companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(region.getId())
-                .stream().findFirst()
-                .orElseGet(() -> companyZoneRepository.save(
-                        CompanyZone.builder().companyRegion(region).zoneCode("01").zoneName("Test Zone").enabled(true).build()));
+        var zone = companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(region.getId()).stream()
+                .findFirst()
+                .orElseGet(() -> companyZoneRepository.save(CompanyZone.builder()
+                        .companyRegion(region)
+                        .zoneCode("01")
+                        .zoneName("Test Zone")
+                        .enabled(true)
+                        .build()));
 
-        var store = companyStoreRepository.findByCompanyZoneId(zone.getId())
-                .stream().findFirst()
-                .orElseGet(() -> companyStoreRepository.save(
-                        CompanyStore.builder().companyZone(zone).storeName("Test Store").enabled(true).build()));
+        var store = companyStoreRepository.findByCompanyZoneId(zone.getId()).stream()
+                .findFirst()
+                .orElseGet(() -> companyStoreRepository.save(CompanyStore.builder()
+                        .companyZone(zone)
+                        .storeName("Test Store")
+                        .enabled(true)
+                        .build()));
 
         companyStoreId = store.getId();
 
         // Customer: find or create
-        var customer = customerRepository.findBySalesChannel("TEST")
-                .stream().findFirst()
-                .orElseGet(() -> customerRepository.save(
-                        Customer.builder().name("Test Customer").salesChannel("TEST").enabled(true).build()));
+        var customer = customerRepository.findBySalesChannel("TEST").stream()
+                .findFirst()
+                .orElseGet(() -> customerRepository.save(Customer.builder()
+                        .name("Test Customer")
+                        .salesChannel("TEST")
+                        .enabled(true)
+                        .build()));
 
         customerId = customer.getId();
 
@@ -294,11 +358,9 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var variant = createTestVariant(new BigDecimal("100.00"));
 
             var itemRequest = new SalesOrderItemRequest(
-                    null, variant.getId(),
-                    new BigDecimal("5.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
+                    null, variant.getId(), new BigDecimal("5.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
 
-            var request = new SalesOrderRequest(
-                    customerId, companyStoreId, shiftId, "user123", List.of(itemRequest));
+            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(itemRequest));
 
             mockMvc.perform(post("/api/sales-orders")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -311,7 +373,8 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(jsonPath("$.items.length()").value(1));
 
             // Verify stock was deducted: 100 - 5 = 95
-            var updatedVariant = productVariantRepository.findById(variant.getId()).orElseThrow();
+            var updatedVariant =
+                    productVariantRepository.findById(variant.getId()).orElseThrow();
             assertThat(updatedVariant.getStock()).isEqualByComparingTo(new BigDecimal("95.00"));
         }
     }
@@ -328,11 +391,9 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var variant = createTestVariant(new BigDecimal("5.00"));
 
             var itemRequest = new SalesOrderItemRequest(
-                    null, variant.getId(),
-                    new BigDecimal("10.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
+                    null, variant.getId(), new BigDecimal("10.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
 
-            var request = new SalesOrderRequest(
-                    customerId, companyStoreId, shiftId, "user123", List.of(itemRequest));
+            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(itemRequest));
 
             mockMvc.perform(post("/api/sales-orders")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -346,7 +407,8 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(salesOrderRepository.findAll()).isEmpty();
 
             // Verify variant stock unchanged
-            var updatedVariant = productVariantRepository.findById(variant.getId()).orElseThrow();
+            var updatedVariant =
+                    productVariantRepository.findById(variant.getId()).orElseThrow();
             assertThat(updatedVariant.getStock()).isEqualByComparingTo(new BigDecimal("5.00"));
         }
     }
@@ -361,8 +423,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
         @DisplayName("should deduct stock when item added to existing order")
         void addItem_StockDeducted() throws Exception {
             // Create an order without items
-            var request = new SalesOrderRequest(
-                    customerId, companyStoreId, shiftId, "user123", null);
+            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", null);
 
             var createResult = mockMvc.perform(post("/api/sales-orders")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -371,16 +432,17 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(status().isCreated())
                     .andReturn();
 
-            var orderId = objectMapper.readTree(createResult.getResponse().getContentAsString())
-                    .get("id").asText();
+            var orderId = objectMapper
+                    .readTree(createResult.getResponse().getContentAsString())
+                    .get("id")
+                    .asText();
 
             // Create variant with stock 50
             var variant = createTestVariant(new BigDecimal("50.00"));
 
             // Add item with quantity 3
             var itemRequest = new SalesOrderItemRequest(
-                    null, variant.getId(),
-                    new BigDecimal("3.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
+                    null, variant.getId(), new BigDecimal("3.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
 
             mockMvc.perform(post("/api/sales-orders/{id}/items", orderId)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -391,7 +453,8 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(jsonPath("$.quantity").value(3.00));
 
             // Verify stock: 50 - 3 = 47
-            var updatedVariant = productVariantRepository.findById(variant.getId()).orElseThrow();
+            var updatedVariant =
+                    productVariantRepository.findById(variant.getId()).orElseThrow();
             assertThat(updatedVariant.getStock()).isEqualByComparingTo(new BigDecimal("47.00"));
         }
     }
@@ -409,11 +472,10 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
             // Create order with item (qty 5 → stock becomes 95)
             var createItem = new SalesOrderItemRequest(
-                    null, variant.getId(),
-                    new BigDecimal("5.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
+                    null, variant.getId(), new BigDecimal("5.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
 
-            var createRequest = new SalesOrderRequest(
-                    customerId, companyStoreId, shiftId, "user123", List.of(createItem));
+            var createRequest =
+                    new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(createItem));
 
             var createResult = mockMvc.perform(post("/api/sales-orders")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -432,8 +494,12 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
             // Update quantity to 8 (increase by 3 → stock becomes 92)
             var increaseRequest = new SalesOrderItemRequest(
-                    UUID.fromString(itemId), variant.getId(),
-                    new BigDecimal("8.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
+                    UUID.fromString(itemId),
+                    variant.getId(),
+                    new BigDecimal("8.00"),
+                    new BigDecimal("100.00"),
+                    BigDecimal.ZERO,
+                    null);
 
             mockMvc.perform(put("/api/sales-orders/{id}/items/{itemId}", orderId, itemId)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -447,8 +513,12 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
             // Update quantity to 2 (decrease by 6 → stock becomes 98)
             var decreaseRequest = new SalesOrderItemRequest(
-                    UUID.fromString(itemId), variant.getId(),
-                    new BigDecimal("2.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
+                    UUID.fromString(itemId),
+                    variant.getId(),
+                    new BigDecimal("2.00"),
+                    new BigDecimal("100.00"),
+                    BigDecimal.ZERO,
+                    null);
 
             mockMvc.perform(put("/api/sales-orders/{id}/items/{itemId}", orderId, itemId)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -475,11 +545,10 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
             // Create order with item (qty 7 → stock becomes 93)
             var createItem = new SalesOrderItemRequest(
-                    null, variant.getId(),
-                    new BigDecimal("7.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
+                    null, variant.getId(), new BigDecimal("7.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
 
-            var createRequest = new SalesOrderRequest(
-                    customerId, companyStoreId, shiftId, "user123", List.of(createItem));
+            var createRequest =
+                    new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(createItem));
 
             var createResult = mockMvc.perform(post("/api/sales-orders")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -514,20 +583,19 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
     class CancelOrderStockRestoreTests {
 
         @Test
-        @DisplayName("should restore stock only for enabled items on cancel, without double-restoring soft-deleted ones")
+        @DisplayName(
+                "should restore stock only for enabled items on cancel, without double-restoring soft-deleted ones")
         void cancelOrder_RestoresEnabledItemsOnly_NoDoubleRestore() throws Exception {
             var variant = createTestVariant(new BigDecimal("100.00"));
 
             // Create order with 2 items: qty 3 and qty 5 → stock becomes 92
             var item1 = new SalesOrderItemRequest(
-                    null, variant.getId(),
-                    new BigDecimal("3.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
+                    null, variant.getId(), new BigDecimal("3.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
             var item2 = new SalesOrderItemRequest(
-                    null, variant.getId(),
-                    new BigDecimal("5.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
+                    null, variant.getId(), new BigDecimal("5.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
 
-            var createRequest = new SalesOrderRequest(
-                    customerId, companyStoreId, shiftId, "user123", List.of(item1, item2));
+            var createRequest =
+                    new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(item1, item2));
 
             var createResult = mockMvc.perform(post("/api/sales-orders")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -584,11 +652,10 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
             // Create order with item (qty 4 → stock becomes 96)
             var createItem = new SalesOrderItemRequest(
-                    null, variant.getId(),
-                    new BigDecimal("4.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
+                    null, variant.getId(), new BigDecimal("4.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
 
-            var createRequest = new SalesOrderRequest(
-                    customerId, companyStoreId, shiftId, "user123", List.of(createItem));
+            var createRequest =
+                    new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(createItem));
 
             var createResult = mockMvc.perform(post("/api/sales-orders")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -597,16 +664,17 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(status().isCreated())
                     .andReturn();
 
-            var orderId = objectMapper.readTree(createResult.getResponse().getContentAsString())
-                    .get("id").asText();
+            var orderId = objectMapper
+                    .readTree(createResult.getResponse().getContentAsString())
+                    .get("id")
+                    .asText();
 
             // Verify stock after create: 96
             var v = productVariantRepository.findById(variant.getId()).orElseThrow();
             assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("96.00"));
 
             // Soft-delete the entire order
-            mockMvc.perform(delete("/api/sales-orders/{id}", orderId)
-                            .with(jwt().authorities(ROLE_LC_SALES)))
+            mockMvc.perform(delete("/api/sales-orders/{id}", orderId).with(jwt().authorities(ROLE_LC_SALES)))
                     .andExpect(status().isNoContent());
 
             // Verify stock restored to 100
@@ -628,11 +696,10 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
             // Create order with item (qty 6 → stock becomes 94)
             var createItem = new SalesOrderItemRequest(
-                    null, variant.getId(),
-                    new BigDecimal("6.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
+                    null, variant.getId(), new BigDecimal("6.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
 
-            var createRequest = new SalesOrderRequest(
-                    customerId, companyStoreId, shiftId, "user123", List.of(createItem));
+            var createRequest =
+                    new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(createItem));
 
             var createResult = mockMvc.perform(post("/api/sales-orders")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -641,8 +708,10 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(status().isCreated())
                     .andReturn();
 
-            var orderId = objectMapper.readTree(createResult.getResponse().getContentAsString())
-                    .get("id").asText();
+            var orderId = objectMapper
+                    .readTree(createResult.getResponse().getContentAsString())
+                    .get("id")
+                    .asText();
 
             // Verify stock: 94
             var v = productVariantRepository.findById(variant.getId()).orElseThrow();
@@ -696,16 +765,12 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var startSignal = new CountDownLatch(1);
 
             var itemRequest1 = new SalesOrderItemRequest(
-                    null, variant.getId(),
-                    new BigDecimal("8.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
-            var request1 = new SalesOrderRequest(
-                    customerId, companyStoreId, shiftId, "user123", List.of(itemRequest1));
+                    null, variant.getId(), new BigDecimal("8.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
+            var request1 = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(itemRequest1));
 
             var itemRequest2 = new SalesOrderItemRequest(
-                    null, variant.getId(),
-                    new BigDecimal("5.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
-            var request2 = new SalesOrderRequest(
-                    customerId, companyStoreId, shiftId, "user123", List.of(itemRequest2));
+                    null, variant.getId(), new BigDecimal("5.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
+            var request2 = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(itemRequest2));
 
             var results = new int[2];
 
@@ -756,7 +821,9 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
             // At least one request succeeded
             boolean hasSuccess = (results[0] == 201 || results[1] == 201);
-            assertThat(hasSuccess).as("At least one concurrent order should succeed").isTrue();
+            assertThat(hasSuccess)
+                    .as("At least one concurrent order should succeed")
+                    .isTrue();
 
             // Stock must reflect one successful deduction — either 2 or 5 depending on race winner
             if (hasSuccess) {
@@ -779,14 +846,11 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
             // Order: A qty 5 (sufficient), B qty 10 (insufficient — only 2 available)
             var itemA = new SalesOrderItemRequest(
-                    null, variantA.getId(),
-                    new BigDecimal("5.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
+                    null, variantA.getId(), new BigDecimal("5.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
             var itemB = new SalesOrderItemRequest(
-                    null, variantB.getId(),
-                    new BigDecimal("10.00"), new BigDecimal("50.00"), BigDecimal.ZERO, null);
+                    null, variantB.getId(), new BigDecimal("10.00"), new BigDecimal("50.00"), BigDecimal.ZERO, null);
 
-            var request = new SalesOrderRequest(
-                    customerId, companyStoreId, shiftId, "user123", List.of(itemA, itemB));
+            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(itemA, itemB));
 
             mockMvc.perform(post("/api/sales-orders")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -820,8 +884,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var variant = createTestVariant(new BigDecimal("100.00"));
 
             // Step 1: Create empty Draft order
-            var createRequest = new SalesOrderRequest(
-                    customerId, companyStoreId, shiftId, "user123", null);
+            var createRequest = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", null);
 
             var createResult = mockMvc.perform(post("/api/sales-orders")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -832,13 +895,14 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(jsonPath("$.items").isEmpty())
                     .andReturn();
 
-            var orderId = objectMapper.readTree(createResult.getResponse().getContentAsString())
-                    .get("id").asText();
+            var orderId = objectMapper
+                    .readTree(createResult.getResponse().getContentAsString())
+                    .get("id")
+                    .asText();
 
             // Step 2: Add first item → auto-transitions Draft → Active
             var firstItem = new SalesOrderItemRequest(
-                    null, variant.getId(),
-                    new BigDecimal("3.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
+                    null, variant.getId(), new BigDecimal("3.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
 
             mockMvc.perform(post("/api/sales-orders/{id}/items", orderId)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -849,8 +913,10 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(jsonPath("$.quantity").value(3.00));
 
             // Verify order is now Active (status updated in DB)
-            var orderAfterFirstItem = salesOrderRepository.findById(UUID.fromString(orderId)).orElseThrow();
-            var statusAfterFirstItem = statusRepository.findById(orderAfterFirstItem.getStatusId()).orElseThrow();
+            var orderAfterFirstItem =
+                    salesOrderRepository.findById(UUID.fromString(orderId)).orElseThrow();
+            var statusAfterFirstItem =
+                    statusRepository.findById(orderAfterFirstItem.getStatusId()).orElseThrow();
             assertThat(statusAfterFirstItem.getStatusName()).isEqualTo("Active");
 
             // Verify stock deducted: 100 - 3 = 97
@@ -859,8 +925,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
             // Step 3: Add second item → stays Active
             var secondItem = new SalesOrderItemRequest(
-                    null, variant.getId(),
-                    new BigDecimal("2.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
+                    null, variant.getId(), new BigDecimal("2.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
 
             mockMvc.perform(post("/api/sales-orders/{id}/items", orderId)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -871,8 +936,11 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(jsonPath("$.quantity").value(2.00));
 
             // Verify order is still Active (not re-transitioned)
-            var orderAfterSecondItem = salesOrderRepository.findById(UUID.fromString(orderId)).orElseThrow();
-            var statusAfterSecondItem = statusRepository.findById(orderAfterSecondItem.getStatusId()).orElseThrow();
+            var orderAfterSecondItem =
+                    salesOrderRepository.findById(UUID.fromString(orderId)).orElseThrow();
+            var statusAfterSecondItem = statusRepository
+                    .findById(orderAfterSecondItem.getStatusId())
+                    .orElseThrow();
             assertThat(statusAfterSecondItem.getStatusName()).isEqualTo("Active");
 
             // Verify stock deducted: 97 - 2 = 95
@@ -898,8 +966,10 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(jsonPath("$.paymentMethodId").value(paymentMethodId.toString()));
 
             // Verify final order status is Completed
-            var finalOrder = salesOrderRepository.findById(UUID.fromString(orderId)).orElseThrow();
-            var finalStatus = statusRepository.findById(finalOrder.getStatusId()).orElseThrow();
+            var finalOrder =
+                    salesOrderRepository.findById(UUID.fromString(orderId)).orElseThrow();
+            var finalStatus =
+                    statusRepository.findById(finalOrder.getStatusId()).orElseThrow();
             assertThat(finalStatus.getStatusName()).isEqualTo("Completed");
             assertThat(finalOrder.getPaymentMethodId()).isEqualTo(paymentMethodId);
 
@@ -911,7 +981,8 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var items = itemRepository.findBySalesOrderId(UUID.fromString(orderId));
             for (var item : items) {
                 if (item.getEnabled()) {
-                    var itemStatus = statusRepository.findById(item.getStatusId()).orElseThrow();
+                    var itemStatus =
+                            statusRepository.findById(item.getStatusId()).orElseThrow();
                     assertThat(itemStatus.getStatusName()).isEqualTo("Added");
                 }
             }

@@ -1,5 +1,10 @@
 package com.lifecontrol.api.company.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
 import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.company.dto.CompanyZoneResponse;
 import com.lifecontrol.api.company.dto.CreateCompanyZoneRequest;
@@ -19,6 +24,11 @@ import com.lifecontrol.api.company.repository.CompanyRegionRepository;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.company.repository.CompanyZoneRepository;
 import com.lifecontrol.api.country.model.Country;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -30,31 +40,25 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.access.AccessDeniedException;
 
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Optional;
-import java.util.Set;
-import java.util.UUID;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
-
 @ExtendWith(MockitoExtension.class)
 @DisplayName("CompanyZoneService Tests")
 class CompanyZoneServiceTest {
 
     @Mock
     private CompanyZoneRepository companyZoneRepository;
+
     @Mock
     private CompanyRegionRepository companyRegionRepository;
+
     @Mock
     private CompanyRepository companyRepository;
+
     @Mock
     private CompanyCountryRepository companyCountryRepository;
+
     @Mock
     private CurrentUserContext currentUserContext;
+
     @Mock
     private ApplicationEventPublisher eventPublisher;
 
@@ -156,7 +160,8 @@ class CompanyZoneServiceTest {
                     .thenReturn(List.of(enabledZone, disabledZone));
 
             // Act
-            List<CompanyZoneResponse> result = companyZoneService.getAllZones(companyId, companyCountryId, regionId, false);
+            List<CompanyZoneResponse> result =
+                    companyZoneService.getAllZones(companyId, companyCountryId, regionId, false);
 
             // Assert
             assertThat(result).hasSize(1);
@@ -192,7 +197,8 @@ class CompanyZoneServiceTest {
                     .thenReturn(List.of(enabledZone, disabledZone));
 
             // Act
-            List<CompanyZoneResponse> result = companyZoneService.getAllZones(companyId, companyCountryId, regionId, true);
+            List<CompanyZoneResponse> result =
+                    companyZoneService.getAllZones(companyId, companyCountryId, regionId, true);
 
             // Assert
             assertThat(result).hasSize(2);
@@ -298,7 +304,8 @@ class CompanyZoneServiceTest {
             });
 
             // Act
-            CompanyZoneResponse result = companyZoneService.createZone(companyId, companyCountryId, regionId, createRequest);
+            CompanyZoneResponse result =
+                    companyZoneService.createZone(companyId, companyCountryId, regionId, createRequest);
 
             // Assert
             assertThat(result).isNotNull();
@@ -308,13 +315,15 @@ class CompanyZoneServiceTest {
             verify(companyZoneRepository).save(any(CompanyZone.class));
             verify(eventPublisher).publishEvent(any(CompanyZoneCreatedEvent.class));
         }
+
         @DisplayName("should throw CompanyNotFoundException when company not found")
         void createZone_CompanyNotFound_ThrowsException() {
             // Arrange
             when(companyRepository.findById(companyId)).thenReturn(Optional.empty());
 
             // Act & Assert
-            assertThatThrownBy(() -> companyZoneService.createZone(companyId, companyCountryId, regionId, createRequest))
+            assertThatThrownBy(
+                            () -> companyZoneService.createZone(companyId, companyCountryId, regionId, createRequest))
                     .isInstanceOf(CompanyNotFoundException.class);
         }
 
@@ -331,7 +340,8 @@ class CompanyZoneServiceTest {
                     .thenReturn(true);
 
             // Act & Assert
-            assertThatThrownBy(() -> companyZoneService.createZone(companyId, companyCountryId, regionId, createRequest))
+            assertThatThrownBy(
+                            () -> companyZoneService.createZone(companyId, companyCountryId, regionId, createRequest))
                     .isInstanceOf(DuplicateCompanyZoneException.class);
             verify(companyZoneRepository, never()).save(any());
         }
@@ -347,7 +357,8 @@ class CompanyZoneServiceTest {
                     .thenReturn(Optional.empty());
 
             // Act & Assert
-            assertThatThrownBy(() -> companyZoneService.createZone(companyId, companyCountryId, regionId, createRequest))
+            assertThatThrownBy(
+                            () -> companyZoneService.createZone(companyId, companyCountryId, regionId, createRequest))
                     .isInstanceOf(CompanyRegionNotFoundException.class);
             verify(companyZoneRepository, never()).save(any());
         }
@@ -372,7 +383,8 @@ class CompanyZoneServiceTest {
             when(companyZoneRepository.save(any(CompanyZone.class))).thenAnswer(inv -> inv.getArgument(0));
 
             // Act
-            CompanyZoneResponse result = companyZoneService.updateZone(companyId, companyCountryId, regionId, zoneId, updateRequest);
+            CompanyZoneResponse result =
+                    companyZoneService.updateZone(companyId, companyCountryId, regionId, zoneId, updateRequest);
 
             // Assert
             assertThat(result).isNotNull();
@@ -396,12 +408,12 @@ class CompanyZoneServiceTest {
             when(companyZoneRepository.findByIdAndCompanyRegionId(zoneId, regionId))
                     .thenReturn(Optional.of(testZone));
             // Code changed from CEN to SUR
-            when(companyZoneRepository.existsByCompanyRegionIdAndZoneCodeAndIdNot(
-                    regionId, "SUR", zoneId))
+            when(companyZoneRepository.existsByCompanyRegionIdAndZoneCodeAndIdNot(regionId, "SUR", zoneId))
                     .thenReturn(true);
 
             // Act & Assert
-            assertThatThrownBy(() -> companyZoneService.updateZone(companyId, companyCountryId, regionId, zoneId, changeCodeRequest))
+            assertThatThrownBy(() -> companyZoneService.updateZone(
+                            companyId, companyCountryId, regionId, zoneId, changeCodeRequest))
                     .isInstanceOf(DuplicateCompanyZoneException.class);
             verify(companyZoneRepository, never()).save(any());
         }
@@ -421,7 +433,8 @@ class CompanyZoneServiceTest {
             when(companyZoneRepository.save(any(CompanyZone.class))).thenAnswer(inv -> inv.getArgument(0));
 
             // Act
-            CompanyZoneResponse result = companyZoneService.updateZone(companyId, companyCountryId, regionId, zoneId, updateRequest);
+            CompanyZoneResponse result =
+                    companyZoneService.updateZone(companyId, companyCountryId, regionId, zoneId, updateRequest);
 
             // Assert
             assertThat(result).isNotNull();
@@ -442,7 +455,8 @@ class CompanyZoneServiceTest {
                     .thenReturn(Optional.empty());
 
             // Act & Assert
-            assertThatThrownBy(() -> companyZoneService.updateZone(companyId, companyCountryId, regionId, zoneId, updateRequest))
+            assertThatThrownBy(() ->
+                            companyZoneService.updateZone(companyId, companyCountryId, regionId, zoneId, updateRequest))
                     .isInstanceOf(CompanyZoneNotFoundException.class);
             verify(companyZoneRepository, never()).save(any());
         }
@@ -575,7 +589,8 @@ class CompanyZoneServiceTest {
             when(companyZoneRepository.findByIdInAndCompanyRegionId(Set.of(userZoneId), regionId))
                     .thenReturn(List.of(matchingZone));
 
-            List<CompanyZoneResponse> result = companyZoneService.getAllZones(companyId, companyCountryId, regionId, false);
+            List<CompanyZoneResponse> result =
+                    companyZoneService.getAllZones(companyId, companyCountryId, regionId, false);
 
             assertThat(result).hasSize(1);
             assertThat(result.get(0).zoneCode()).isEqualTo("CEN");
@@ -595,7 +610,8 @@ class CompanyZoneServiceTest {
             when(companyZoneRepository.findByCompanyRegionIdOrderByZoneNameAsc(regionId))
                     .thenReturn(List.of(testZone));
 
-            List<CompanyZoneResponse> result = companyZoneService.getAllZones(companyId, companyCountryId, regionId, false);
+            List<CompanyZoneResponse> result =
+                    companyZoneService.getAllZones(companyId, companyCountryId, regionId, false);
 
             assertThat(result).hasSize(1);
             verify(companyZoneRepository).findByCompanyRegionIdOrderByZoneNameAsc(regionId);
@@ -612,7 +628,8 @@ class CompanyZoneServiceTest {
         void createZone_Denied_WhenZoneRole() {
             when(currentUserContext.hasCompanyZoneRole()).thenReturn(true);
 
-            assertThatThrownBy(() -> companyZoneService.createZone(companyId, companyCountryId, regionId, createRequest))
+            assertThatThrownBy(
+                            () -> companyZoneService.createZone(companyId, companyCountryId, regionId, createRequest))
                     .isInstanceOf(AccessDeniedException.class)
                     .hasMessageContaining("cannot create zones");
             verify(companyZoneRepository, never()).save(any());
@@ -627,7 +644,8 @@ class CompanyZoneServiceTest {
                     .thenReturn(Optional.of(testCompanyCountry));
             when(companyRegionRepository.findByIdAndCompanyCountryId(regionId, companyCountryId))
                     .thenReturn(Optional.of(testRegion));
-            when(companyZoneRepository.existsByCompanyRegionIdAndZoneCode(regionId, "CEN")).thenReturn(false);
+            when(companyZoneRepository.existsByCompanyRegionIdAndZoneCode(regionId, "CEN"))
+                    .thenReturn(false);
             when(companyZoneRepository.save(any(CompanyZone.class))).thenAnswer(inv -> {
                 CompanyZone saved = inv.getArgument(0);
                 return CompanyZone.builder()
@@ -639,7 +657,8 @@ class CompanyZoneServiceTest {
                         .build();
             });
 
-            CompanyZoneResponse result = companyZoneService.createZone(companyId, companyCountryId, regionId, createRequest);
+            CompanyZoneResponse result =
+                    companyZoneService.createZone(companyId, companyCountryId, regionId, createRequest);
 
             assertThat(result).isNotNull();
             assertThat(result.zoneCode()).isEqualTo("CEN");

@@ -1,11 +1,22 @@
 package com.lifecontrol.api.product.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.*;
+
 import com.lifecontrol.api.product.dto.ProductRequest;
-import com.lifecontrol.api.product.dto.ProductResponse;
 import com.lifecontrol.api.product.exception.DuplicateProductException;
 import com.lifecontrol.api.product.exception.ProductNotFoundException;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.repository.ProductRepository;
+import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -14,23 +25,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-
-import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.UUID;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("ProductService Tests")
@@ -68,8 +65,8 @@ class ProductServiceTest {
         @Test
         @DisplayName("should create product with all fields and return response")
         void shouldCreateProduct_WithAllFields() {
-            var request = new ProductRequest("SKU-NEW", "New Product", "NP", "SAT-NEW", "GOODS",
-                    Map.of("color", "red", "weight", "2kg"));
+            var request = new ProductRequest(
+                    "SKU-NEW", "New Product", "NP", "SAT-NEW", "GOODS", Map.of("color", "red", "weight", "2kg"));
             when(productRepository.existsBySku("SKU-NEW")).thenReturn(false);
             when(productRepository.save(any(Product.class))).thenAnswer(inv -> {
                 var p = (Product) inv.getArgument(0);
@@ -164,8 +161,7 @@ class ProductServiceTest {
                     .enabled(true)
                     .attributes(new HashMap<>(Map.of("color", "red", "size", "L")))
                     .build();
-            var request = new ProductRequest("SKU-001", "Product", null, null, null,
-                    Map.of("weight", "2kg"));
+            var request = new ProductRequest("SKU-001", "Product", null, null, null, Map.of("weight", "2kg"));
 
             when(productRepository.findById(productId)).thenReturn(Optional.of(existing));
             when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -418,7 +414,8 @@ class ProductServiceTest {
         void shouldSearchEnabledProducts_WithSearchTerm() {
             var products = List.of(testProduct);
             var page = new PageImpl<>(products, pageable, 1);
-            when(productRepository.findBySearchTermAndEnabledTrue("widget", pageable)).thenReturn(page);
+            when(productRepository.findBySearchTermAndEnabledTrue("widget", pageable))
+                    .thenReturn(page);
 
             var result = productService.listProducts(pageable, "widget", false);
 
@@ -432,7 +429,8 @@ class ProductServiceTest {
         void shouldSearchAllProducts_WithSearchTerm() {
             var products = List.of(testProduct);
             var page = new PageImpl<>(products, pageable, 25);
-            when(productRepository.findBySearchTerm(eq("widget"), any(Pageable.class))).thenReturn(page);
+            when(productRepository.findBySearchTerm(eq("widget"), any(Pageable.class)))
+                    .thenReturn(page);
 
             var result = productService.listProducts(pageable, "widget", true);
 

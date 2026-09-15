@@ -1,5 +1,9 @@
 package com.lifecontrol.api.product.controller;
 
+import static com.lifecontrol.api.common.security.Roles.ADMIN;
+import static com.lifecontrol.api.common.security.Roles.PRODUCT_SUPPLIER;
+import static com.lifecontrol.api.common.security.Roles.SALES;
+
 import com.lifecontrol.api.product.dto.ProductRequest;
 import com.lifecontrol.api.product.dto.ProductResponse;
 import com.lifecontrol.api.product.dto.ProductVariantRequest;
@@ -13,6 +17,8 @@ import com.lifecontrol.api.product.supplier.service.ProductSupplierService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.List;
+import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -20,13 +26,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
-import java.util.UUID;
-
-import static com.lifecontrol.api.common.security.Roles.ADMIN;
-import static com.lifecontrol.api.common.security.Roles.PRODUCT_SUPPLIER;
-import static com.lifecontrol.api.common.security.Roles.SALES;
 
 @RestController
 @RequestMapping("/api/products")
@@ -37,16 +36,20 @@ public class ProductController {
     private final ProductSupplierService productSupplierService;
     private final ProductVariantService productVariantService;
 
-    public ProductController(ProductService productService,
-                             ProductSupplierService productSupplierService,
-                             ProductVariantService productVariantService) {
+    public ProductController(
+            ProductService productService,
+            ProductSupplierService productSupplierService,
+            ProductVariantService productVariantService) {
         this.productService = productService;
         this.productSupplierService = productSupplierService;
         this.productVariantService = productVariantService;
     }
 
     @GetMapping
-    @Operation(summary = "Get all products", description = "Returns a paginated list of products. Use ?search=term to filter by name or SKU and ?includeDisabled=true to include soft-deleted products.")
+    @Operation(
+            summary = "Get all products",
+            description =
+                    "Returns a paginated list of products. Use ?search=term to filter by name or SKU and ?includeDisabled=true to include soft-deleted products.")
     public ResponseEntity<Page<ProductResponse>> listProducts(
             @PageableDefault(size = 12) Pageable pageable,
             @RequestParam(required = false) String search,
@@ -56,11 +59,11 @@ public class ProductController {
 
     @GetMapping("/by-supplier/{supplierId}")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + PRODUCT_SUPPLIER + "')")
-    @Operation(summary = "Get products by supplier",
-               description = "Returns all products associated with a supplier, optionally filtered by product name or SKU")
+    @Operation(
+            summary = "Get products by supplier",
+            description = "Returns all products associated with a supplier, optionally filtered by product name or SKU")
     public ResponseEntity<List<SupplierProductResponse>> getProductsBySupplier(
-            @PathVariable UUID supplierId,
-            @RequestParam(required = false) String search) {
+            @PathVariable UUID supplierId, @RequestParam(required = false) String search) {
         return ResponseEntity.ok(productSupplierService.listProductsBySupplier(supplierId, search));
     }
 
@@ -71,15 +74,21 @@ public class ProductController {
     }
 
     @PostMapping
-    @Operation(summary = "Create a new product", description = "Creates a new product with the provided details. SKU must be unique.")
+    @Operation(
+            summary = "Create a new product",
+            description = "Creates a new product with the provided details. SKU must be unique.")
     public ResponseEntity<ProductResponse> createProduct(@Valid @RequestBody ProductRequest request) {
         var response = productService.createProduct(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @PutMapping("/{id}")
-    @Operation(summary = "Update a product", description = "Updates an existing product. Attributes are partially merged — only provided keys are updated.")
-    public ResponseEntity<ProductResponse> updateProduct(@PathVariable UUID id, @Valid @RequestBody ProductRequest request) {
+    @Operation(
+            summary = "Update a product",
+            description =
+                    "Updates an existing product. Attributes are partially merged — only provided keys are updated.")
+    public ResponseEntity<ProductResponse> updateProduct(
+            @PathVariable UUID id, @Valid @RequestBody ProductRequest request) {
         return ResponseEntity.ok(productService.updateProduct(id, request));
     }
 
@@ -101,31 +110,32 @@ public class ProductController {
 
     @PostMapping("/{productId}/suppliers")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + PRODUCT_SUPPLIER + "')")
-    @Operation(summary = "Add supplier to product", description = "Associates a supplier with a product including pricing metadata")
+    @Operation(
+            summary = "Add supplier to product",
+            description = "Associates a supplier with a product including pricing metadata")
     public ResponseEntity<ProductSupplierResponse> addProductSupplier(
-            @PathVariable UUID productId,
-            @Valid @RequestBody ProductSupplierRequest request) {
+            @PathVariable UUID productId, @Valid @RequestBody ProductSupplierRequest request) {
         var response = productSupplierService.addSupplierToProduct(productId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @PutMapping("/{productId}/suppliers/{id}")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + PRODUCT_SUPPLIER + "')")
-    @Operation(summary = "Update supplier assignment", description = "Updates pricing and main flag for a product-supplier relation")
+    @Operation(
+            summary = "Update supplier assignment",
+            description = "Updates pricing and main flag for a product-supplier relation")
     public ResponseEntity<ProductSupplierResponse> updateProductSupplier(
-            @PathVariable UUID productId,
-            @PathVariable UUID id,
-            @Valid @RequestBody ProductSupplierRequest request) {
+            @PathVariable UUID productId, @PathVariable UUID id, @Valid @RequestBody ProductSupplierRequest request) {
         var response = productSupplierService.updateSupplier(productId, id, request);
         return ResponseEntity.ok(response);
     }
 
     @DeleteMapping("/{productId}/suppliers/{id}")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + PRODUCT_SUPPLIER + "')")
-    @Operation(summary = "Remove supplier from product", description = "Removes a supplier association from a product (hard delete)")
-    public ResponseEntity<Void> removeProductSupplier(
-            @PathVariable UUID productId,
-            @PathVariable UUID id) {
+    @Operation(
+            summary = "Remove supplier from product",
+            description = "Removes a supplier association from a product (hard delete)")
+    public ResponseEntity<Void> removeProductSupplier(@PathVariable UUID productId, @PathVariable UUID id) {
         productSupplierService.removeSupplierFromProduct(productId, id);
         return ResponseEntity.noContent().build();
     }
@@ -134,29 +144,32 @@ public class ProductController {
 
     @GetMapping("/{productId}/variants")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
-    @Operation(summary = "List variants for a product", description = "Returns a paginated list of variants for a given product")
+    @Operation(
+            summary = "List variants for a product",
+            description = "Returns a paginated list of variants for a given product")
     public ResponseEntity<Page<ProductVariantResponse>> listVariants(
-            @PathVariable UUID productId,
-            @PageableDefault(size = 12) Pageable pageable) {
+            @PathVariable UUID productId, @PageableDefault(size = 12) Pageable pageable) {
         return ResponseEntity.ok(productVariantService.listVariants(productId, pageable));
     }
 
     @PostMapping("/{productId}/variants")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
-    @Operation(summary = "Create variant for a product", description = "Creates a new product variant for the specified product")
+    @Operation(
+            summary = "Create variant for a product",
+            description = "Creates a new product variant for the specified product")
     public ResponseEntity<ProductVariantResponse> createVariant(
-            @PathVariable UUID productId,
-            @Valid @RequestBody ProductVariantRequest request) {
+            @PathVariable UUID productId, @Valid @RequestBody ProductVariantRequest request) {
         var response = productVariantService.createVariant(productId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @GetMapping("/{productId}/variants/{variantId}")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
-    @Operation(summary = "Get variant by ID", description = "Returns a single product variant by its UUID, scoped to a product")
+    @Operation(
+            summary = "Get variant by ID",
+            description = "Returns a single product variant by its UUID, scoped to a product")
     public ResponseEntity<ProductVariantResponse> getVariant(
-            @PathVariable UUID productId,
-            @PathVariable UUID variantId) {
+            @PathVariable UUID productId, @PathVariable UUID variantId) {
         return ResponseEntity.ok(productVariantService.getVariant(productId, variantId));
     }
 
@@ -173,9 +186,7 @@ public class ProductController {
     @DeleteMapping("/{productId}/variants/{variantId}")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Delete variant", description = "Soft-deletes a product variant by setting enabled to false")
-    public ResponseEntity<Void> deleteVariant(
-            @PathVariable UUID productId,
-            @PathVariable UUID variantId) {
+    public ResponseEntity<Void> deleteVariant(@PathVariable UUID productId, @PathVariable UUID variantId) {
         productVariantService.deleteVariant(productId, variantId);
         return ResponseEntity.noContent().build();
     }

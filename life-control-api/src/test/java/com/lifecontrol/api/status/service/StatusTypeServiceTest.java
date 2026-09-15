@@ -1,11 +1,20 @@
 package com.lifecontrol.api.status.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.*;
+
 import com.lifecontrol.api.status.dto.StatusTypeRequest;
 import com.lifecontrol.api.status.dto.StatusTypeResponse;
 import com.lifecontrol.api.status.exception.DuplicateStatusTypeException;
 import com.lifecontrol.api.status.exception.StatusTypeNotFoundException;
 import com.lifecontrol.api.status.model.StatusType;
 import com.lifecontrol.api.status.repository.StatusTypeRepository;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -18,16 +27,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("StatusTypeService Tests")
@@ -73,7 +72,8 @@ class StatusTypeServiceTest {
             assertThat(result.getContent()).hasSize(1);
             assertThat(result.getContent().get(0).statusTypeName()).isEqualTo("ORDER");
             verify(statusTypeRepository).findByEnabledTrue(pageable);
-            verify(statusTypeRepository, never()).findByEnabledTrueAndStatusTypeNameContainingIgnoreCase(anyString(), any());
+            verify(statusTypeRepository, never())
+                    .findByEnabledTrueAndStatusTypeNameContainingIgnoreCase(anyString(), any());
         }
 
         @Test
@@ -95,7 +95,8 @@ class StatusTypeServiceTest {
         void getAllStatusTypes_EmptySearch_ReturnsEmptyPage() {
             Pageable pageable = PageRequest.of(0, 12);
             Page<StatusType> emptyPage = new PageImpl<>(List.of(), pageable, 0);
-            when(statusTypeRepository.findByEnabledTrueAndStatusTypeNameContainingIgnoreCase(eq("NONEXISTENT"), eq(pageable)))
+            when(statusTypeRepository.findByEnabledTrueAndStatusTypeNameContainingIgnoreCase(
+                            eq("NONEXISTENT"), eq(pageable)))
                     .thenReturn(emptyPage);
 
             var result = statusTypeService.getAllStatusTypes(pageable, "NONEXISTENT");
@@ -177,7 +178,8 @@ class StatusTypeServiceTest {
         void updateStatusType_Success() {
             StatusTypeRequest updateRequest = new StatusTypeRequest("ORDER_V2", true);
             when(statusTypeRepository.findById(testStatusTypeId)).thenReturn(Optional.of(testStatusType));
-            when(statusTypeRepository.findByStatusTypeNameIgnoreCase("ORDER_V2")).thenReturn(Optional.empty());
+            when(statusTypeRepository.findByStatusTypeNameIgnoreCase("ORDER_V2"))
+                    .thenReturn(Optional.empty());
             when(statusTypeRepository.save(any(StatusType.class))).thenAnswer(inv -> inv.getArgument(0));
 
             StatusTypeResponse result = statusTypeService.updateStatusType(testStatusTypeId, updateRequest);
@@ -201,11 +203,16 @@ class StatusTypeServiceTest {
         @DisplayName("should throw DuplicateStatusTypeException when new name conflicts")
         void updateStatusType_DuplicateName_ThrowsException() {
             UUID otherId = UUID.randomUUID();
-            StatusType other = StatusType.builder().id(otherId).statusTypeName("PRODUCT").enabled(true).build();
+            StatusType other = StatusType.builder()
+                    .id(otherId)
+                    .statusTypeName("PRODUCT")
+                    .enabled(true)
+                    .build();
             when(statusTypeRepository.findById(testStatusTypeId)).thenReturn(Optional.of(testStatusType));
             when(statusTypeRepository.findByStatusTypeNameIgnoreCase("PRODUCT")).thenReturn(Optional.of(other));
 
-            assertThatThrownBy(() -> statusTypeService.updateStatusType(testStatusTypeId, new StatusTypeRequest("PRODUCT", true)))
+            assertThatThrownBy(() -> statusTypeService.updateStatusType(
+                            testStatusTypeId, new StatusTypeRequest("PRODUCT", true)))
                     .isInstanceOf(DuplicateStatusTypeException.class)
                     .hasMessageContaining("Status type with name 'PRODUCT' already exists");
         }

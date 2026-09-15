@@ -6,15 +6,14 @@ import com.lifecontrol.api.country.exception.CountryNotFoundException;
 import com.lifecontrol.api.country.exception.DuplicateCountryException;
 import com.lifecontrol.api.country.model.Country;
 import com.lifecontrol.api.country.repository.CountryRepository;
+import java.util.List;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.List;
-import java.util.UUID;
 
 @Service
 public class CountryService {
@@ -31,9 +30,7 @@ public class CountryService {
     @Transactional(readOnly = true)
     public List<CountryResponse> getAllCountries(boolean includeDisabled) {
         if (includeDisabled) {
-            return countryRepository.findAll().stream()
-                    .map(this::toResponse)
-                    .toList();
+            return countryRepository.findAll().stream().map(this::toResponse).toList();
         }
         return countryRepository.findByEnabledTrue().stream()
                 .map(this::toResponse)
@@ -43,9 +40,7 @@ public class CountryService {
     @Cacheable(value = "countries", key = "#id")
     @Transactional(readOnly = true)
     public CountryResponse getCountryById(UUID id) {
-        return countryRepository.findById(id)
-                .map(this::toResponse)
-                .orElseThrow(() -> new CountryNotFoundException(id));
+        return countryRepository.findById(id).map(this::toResponse).orElseThrow(() -> new CountryNotFoundException(id));
     }
 
     @CacheEvict(value = "countries", allEntries = true)
@@ -54,8 +49,7 @@ public class CountryService {
         logger.info("Creating country with code: {}", request.countryCode());
 
         if (countryRepository.existsByCountryCode(request.countryCode())) {
-            throw new DuplicateCountryException(
-                    "Country with code '" + request.countryCode() + "' already exists");
+            throw new DuplicateCountryException("Country with code '" + request.countryCode() + "' already exists");
         }
 
         Country country = Country.builder()
@@ -75,14 +69,12 @@ public class CountryService {
     public CountryResponse updateCountry(UUID id, CountryRequest request) {
         logger.info("Updating country with id: {}", id);
 
-        Country country = countryRepository.findById(id)
-                .orElseThrow(() -> new CountryNotFoundException(id));
+        Country country = countryRepository.findById(id).orElseThrow(() -> new CountryNotFoundException(id));
 
         // Validate uniqueness of countryCode (excluding current)
         if (!country.getCountryCode().equals(request.countryCode())
                 && countryRepository.existsByCountryCode(request.countryCode())) {
-            throw new DuplicateCountryException(
-                    "Country with code '" + request.countryCode() + "' already exists");
+            throw new DuplicateCountryException("Country with code '" + request.countryCode() + "' already exists");
         }
 
         country.setCountryCode(request.countryCode().toUpperCase());
@@ -99,8 +91,7 @@ public class CountryService {
     public void deleteCountry(UUID id) {
         logger.info("Soft-deleting country with id: {}", id);
 
-        Country country = countryRepository.findById(id)
-                .orElseThrow(() -> new CountryNotFoundException(id));
+        Country country = countryRepository.findById(id).orElseThrow(() -> new CountryNotFoundException(id));
 
         country.setEnabled(false);
         countryRepository.save(country);
@@ -115,7 +106,6 @@ public class CountryService {
                 country.getCountryName(),
                 country.getEnabled(),
                 country.getCreatedAt(),
-                country.getUpdatedAt()
-        );
+                country.getUpdatedAt());
     }
 }

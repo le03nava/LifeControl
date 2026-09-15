@@ -3,7 +3,6 @@ package com.lifecontrol.api.common.address.model;
 import com.lifecontrol.api.common.model.Auditable;
 import com.lifecontrol.api.country.model.Country;
 import jakarta.persistence.*;
-
 import java.time.LocalDateTime;
 import java.util.UUID;
 

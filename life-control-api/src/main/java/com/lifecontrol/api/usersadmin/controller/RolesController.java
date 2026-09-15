@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -20,8 +21,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.List;
 
 /**
  * Keycloak role administration endpoints (realm and client roles).
@@ -59,23 +58,20 @@ public class RolesController {
 
     @GetMapping("/realm/{name}")
     @Operation(summary = "Get realm role", description = "Returns a single realm role by name")
-    public ResponseEntity<RoleDto> getRealmRole(
-            @Parameter(description = "Role name") @PathVariable String name) {
+    public ResponseEntity<RoleDto> getRealmRole(@Parameter(description = "Role name") @PathVariable String name) {
         return ResponseEntity.ok(service.getRealmRole(name));
     }
 
     @PutMapping("/realm/{name}")
     @Operation(summary = "Update realm role", description = "Updates an existing realm role")
     public ResponseEntity<RoleDto> updateRealmRole(
-            @Parameter(description = "Role name") @PathVariable String name,
-            @Valid @RequestBody RoleRequest request) {
+            @Parameter(description = "Role name") @PathVariable String name, @Valid @RequestBody RoleRequest request) {
         return ResponseEntity.ok(service.updateRealmRole(name, request));
     }
 
     @DeleteMapping("/realm/{name}")
     @Operation(summary = "Delete realm role", description = "Deletes a realm role by name")
-    public ResponseEntity<Void> deleteRealmRole(
-            @Parameter(description = "Role name") @PathVariable String name) {
+    public ResponseEntity<Void> deleteRealmRole(@Parameter(description = "Role name") @PathVariable String name) {
         service.deleteRealmRole(name);
         return ResponseEntity.noContent().build();
     }
@@ -123,12 +119,15 @@ public class RolesController {
     }
 
     @DeleteMapping("/realm/{name}/children/{childRole}")
-    @Operation(summary = "Remove child role from composite", description = "Removes a child role from a composite realm role")
+    @Operation(
+            summary = "Remove child role from composite",
+            description = "Removes a child role from a composite realm role")
     public ResponseEntity<Void> removeChildRole(
             @Parameter(description = "Parent realm role name") @PathVariable String name,
             @Parameter(description = "Child role name") @PathVariable String childRole,
             @Parameter(description = "Role scope (REALM or CLIENT)") @RequestParam RoleScope scope,
-            @Parameter(description = "Client ID (required when scope is CLIENT)") @RequestParam(required = false) String clientId) {
+            @Parameter(description = "Client ID (required when scope is CLIENT)") @RequestParam(required = false)
+                    String clientId) {
         service.removeChildRole(name, childRole, scope, clientId);
         return ResponseEntity.noContent().build();
     }

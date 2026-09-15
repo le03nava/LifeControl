@@ -1,5 +1,12 @@
 package com.lifecontrol.api.activity.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
 import com.lifecontrol.api.activity.dto.ActivityLogFilter;
 import com.lifecontrol.api.activity.dto.ActivityLogResponse;
 import com.lifecontrol.api.activity.event.ActivityLogEvent;
@@ -9,6 +16,10 @@ import com.lifecontrol.api.activity.model.ActivityProcess;
 import com.lifecontrol.api.activity.repository.ActivityEventRepository;
 import com.lifecontrol.api.activity.repository.ActivityLogRepository;
 import com.lifecontrol.api.activity.repository.ActivityProcessRepository;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -23,19 +34,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.jpa.domain.Specification;
-
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("ActivityLogService Tests")
@@ -67,12 +65,17 @@ class ActivityLogServiceTest {
         testEvent = ActivityEvent.builder().name("READ").build();
 
         testLogEvent = new ActivityLogEvent(
-                this, "user-1", "testuser",
-                "COMPANY", "READ",
-                "GET", 200,
-                "/api/companies", "127.0.0.1",
-                "TestAgent", "{\"name\": \"test\"}"
-        );
+                this,
+                "user-1",
+                "testuser",
+                "COMPANY",
+                "READ",
+                "GET",
+                200,
+                "/api/companies",
+                "127.0.0.1",
+                "TestAgent",
+                "{\"name\": \"test\"}");
     }
 
     @Nested
@@ -108,13 +111,17 @@ class ActivityLogServiceTest {
             when(eventRepository.findByName("READ")).thenReturn(Optional.of(testEvent));
 
             var sensitiveEvent = new ActivityLogEvent(
-                    this, "user-1", "testuser",
-                    "COMPANY", "READ",
-                    "POST", 201,
-                    "/api/login", "127.0.0.1",
+                    this,
+                    "user-1",
+                    "testuser",
+                    "COMPANY",
+                    "READ",
+                    "POST",
+                    201,
+                    "/api/login",
+                    "127.0.0.1",
                     "TestAgent",
-                    "{\"username\": \"admin\", \"password\": \"secret123\"}"
-            );
+                    "{\"username\": \"admin\", \"password\": \"secret123\"}");
 
             service.save(sensitiveEvent);
 
@@ -158,15 +165,11 @@ class ActivityLogServiceTest {
 
             var pageable = PageRequest.of(0, 20);
             var page = new PageImpl<>(List.of(logEntry), pageable, 1);
-            when(activityLogRepository.findAll(
-                    ArgumentMatchers.<Specification<ActivityLog>>any(), eq(pageable)))
+            when(activityLogRepository.findAll(ArgumentMatchers.<Specification<ActivityLog>>any(), eq(pageable)))
                     .thenReturn(page);
 
             var filter = new ActivityLogFilter(
-                    LocalDate.of(2025, 1, 1),
-                    LocalDate.of(2025, 12, 31),
-                    "COMPANY", "READ", "user-1", "GET"
-            );
+                    LocalDate.of(2025, 1, 1), LocalDate.of(2025, 12, 31), "COMPANY", "READ", "user-1", "GET");
 
             Page<ActivityLogResponse> result = service.findAll(filter, pageable);
 

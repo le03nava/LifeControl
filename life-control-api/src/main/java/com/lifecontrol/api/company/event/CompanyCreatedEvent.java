@@ -1,8 +1,7 @@
 package com.lifecontrol.api.company.event;
 
-import org.springframework.context.ApplicationEvent;
-
 import java.util.UUID;
+import org.springframework.context.ApplicationEvent;
 
 /**
  * Event published after a company has been successfully persisted.

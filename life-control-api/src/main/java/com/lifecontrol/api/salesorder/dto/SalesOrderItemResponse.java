@@ -16,5 +16,4 @@ public record SalesOrderItemResponse(
         UUID statusId,
         String statusName,
         LocalDateTime createdAt,
-        LocalDateTime updatedAt
-) {}
+        LocalDateTime updatedAt) {}

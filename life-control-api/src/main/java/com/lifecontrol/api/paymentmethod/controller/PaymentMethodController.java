@@ -1,5 +1,8 @@
 package com.lifecontrol.api.paymentmethod.controller;
 
+import static com.lifecontrol.api.common.security.Roles.ADMIN;
+import static com.lifecontrol.api.common.security.Roles.PAYMENT_METHOD;
+
 import com.lifecontrol.api.paymentmethod.dto.PaymentMethodRequest;
 import com.lifecontrol.api.paymentmethod.dto.PaymentMethodResponse;
 import com.lifecontrol.api.paymentmethod.service.PaymentMethodService;
@@ -8,17 +11,13 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-
-import static com.lifecontrol.api.common.security.Roles.ADMIN;
-import static com.lifecontrol.api.common.security.Roles.PAYMENT_METHOD;
 
 @RestController
 @RequestMapping("/api/payment-methods")
@@ -33,10 +32,10 @@ public class PaymentMethodController {
 
     @GetMapping
     @PreAuthorize("isAuthenticated()")
-    @Operation(summary = "Get all payment methods", description = "Returns a list of all payment methods sorted by name")
-    @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "List of payment methods")
-    })
+    @Operation(
+            summary = "Get all payment methods",
+            description = "Returns a list of all payment methods sorted by name")
+    @ApiResponses({@ApiResponse(responseCode = "200", description = "List of payment methods")})
     public ResponseEntity<List<PaymentMethodResponse>> getAllPaymentMethods() {
         return ResponseEntity.ok(paymentMethodService.getAllPaymentMethods());
     }
@@ -54,7 +53,9 @@ public class PaymentMethodController {
 
     @PostMapping
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + PAYMENT_METHOD + "')")
-    @Operation(summary = "Create a new payment method", description = "Creates a new payment method with the provided details")
+    @Operation(
+            summary = "Create a new payment method",
+            description = "Creates a new payment method with the provided details")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "Payment method created"),
         @ApiResponse(responseCode = "400", description = "Validation error"),
@@ -75,8 +76,7 @@ public class PaymentMethodController {
         @ApiResponse(responseCode = "409", description = "Payment method name already exists")
     })
     public ResponseEntity<PaymentMethodResponse> updatePaymentMethod(
-            @PathVariable UUID id,
-            @Valid @RequestBody PaymentMethodRequest request) {
+            @PathVariable UUID id, @Valid @RequestBody PaymentMethodRequest request) {
         var response = paymentMethodService.updatePaymentMethod(id, request);
         return ResponseEntity.ok(response);
     }
@@ -95,14 +95,15 @@ public class PaymentMethodController {
 
     @PatchMapping("/{id}/enable")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + PAYMENT_METHOD + "')")
-    @Operation(summary = "Enable or disable a payment method", description = "Sets the enabled flag of a payment method")
+    @Operation(
+            summary = "Enable or disable a payment method",
+            description = "Sets the enabled flag of a payment method")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Payment method status updated"),
         @ApiResponse(responseCode = "404", description = "Payment method not found")
     })
     public ResponseEntity<PaymentMethodResponse> setPaymentMethodEnabled(
-            @PathVariable UUID id,
-            @RequestBody Map<String, Boolean> body) {
+            @PathVariable UUID id, @RequestBody Map<String, Boolean> body) {
         var enabled = body.getOrDefault("enabled", true);
         return ResponseEntity.ok(paymentMethodService.setPaymentMethodEnabled(id, enabled));
     }

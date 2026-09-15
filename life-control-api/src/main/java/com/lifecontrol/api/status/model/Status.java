@@ -2,13 +2,11 @@ package com.lifecontrol.api.status.model;
 
 import com.lifecontrol.api.common.model.Auditable;
 import jakarta.persistence.*;
-
 import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "statuses",
-       uniqueConstraints = @UniqueConstraint(columnNames = {"status_type_id", "status_name"}))
+@Table(name = "statuses", uniqueConstraints = @UniqueConstraint(columnNames = {"status_type_id", "status_name"}))
 public class Status extends Auditable {
 
     @Id

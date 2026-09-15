@@ -2,12 +2,12 @@ package com.lifecontrol.api.company.model;
 
 import com.lifecontrol.api.common.model.Auditable;
 import jakarta.persistence.*;
-
 import java.util.UUID;
 
 @Entity
-@Table(name = "company_regions",
-       uniqueConstraints = @UniqueConstraint(columnNames = {"company_country_id", "region_code"}))
+@Table(
+        name = "company_regions",
+        uniqueConstraints = @UniqueConstraint(columnNames = {"company_country_id", "region_code"}))
 public class CompanyRegion extends Auditable {
 
     @Id

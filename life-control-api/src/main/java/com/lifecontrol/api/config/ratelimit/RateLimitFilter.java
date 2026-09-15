@@ -4,20 +4,18 @@ import com.lifecontrol.api.common.net.CidrMatcher;
 import com.lifecontrol.api.common.net.ClientIpResolver;
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
-import io.github.bucket4j.ConsumptionProbe;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Component;
-import org.springframework.web.filter.OncePerRequestFilter;
-
 import java.io.IOException;
 import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
+import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
  * Once-per-request filter that enforces rate limits on {@code /api/users-admin/**} endpoints.
@@ -63,9 +61,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
     }
 
     @Override
-    protected void doFilterInternal(HttpServletRequest request,
-                                    HttpServletResponse response,
-                                    FilterChain filterChain)
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
 
         if (isWhitelisted(request)) {
@@ -87,7 +83,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
         response.setHeader(HEADER_LIMIT, String.valueOf(endpoint.maxRequests()));
         response.setHeader(HEADER_REMAINING, String.valueOf(probe.getRemainingTokens()));
-        response.setHeader(HEADER_RESET, String.valueOf(nowEpochSecond + probe.getNanosToWaitForReset() / 1_000_000_000L));
+        response.setHeader(
+                HEADER_RESET, String.valueOf(nowEpochSecond + probe.getNanosToWaitForReset() / 1_000_000_000L));
 
         if (probe.isConsumed()) {
             filterChain.doFilter(request, response);
@@ -101,8 +98,10 @@ public class RateLimitFilter extends OncePerRequestFilter {
             response.setStatus(429);
             response.setContentType(APPLICATION_JSON);
             response.getWriter().write(buildRateLimitExceededBody(retryAfterSeconds));
-            log.warn("Rate limit exceeded for endpoint [{}] from IP [{}]",
-                    endpointKey, ClientIpResolver.resolve(request, properties.getTrustedProxies()));
+            log.warn(
+                    "Rate limit exceeded for endpoint [{}] from IP [{}]",
+                    endpointKey,
+                    ClientIpResolver.resolve(request, properties.getTrustedProxies()));
         }
     }
 
@@ -154,9 +153,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
                     .capacity(limit.maxRequests())
                     .refillIntervally(limit.maxRequests(), limit.duration())
                     .build();
-            var bucket = Bucket.builder()
-                    .addLimit(bandwidth)
-                    .build();
+            var bucket = Bucket.builder().addLimit(bandwidth).build();
             return new RateLimitedEndpoint(bucket, limit.maxRequests());
         });
     }

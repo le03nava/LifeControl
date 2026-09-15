@@ -1,5 +1,7 @@
 package com.lifecontrol.api.validation;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import jakarta.validation.ConstraintValidatorContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -10,8 +12,6 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("RFCValidator Tests")
@@ -33,25 +33,14 @@ class RFCValidatorTest {
 
         @ParameterizedTest
         @DisplayName("should accept valid persona física RFC (4 letters + 6 digits + 3 alphanumeric)")
-        @ValueSource(strings = {
-                "GOML850101XXX",
-                "HEPA880101ABC",
-                "MOLA920101XYZ",
-                "JIML7501011A2",
-                "PERE010101B3C"
-        })
+        @ValueSource(strings = {"GOML850101XXX", "HEPA880101ABC", "MOLA920101XYZ", "JIML7501011A2", "PERE010101B3C"})
         void validPersonaFisica_ReturnsTrue(String rfc) {
             assertThat(validator.isValid(rfc, context)).isTrue();
         }
 
         @ParameterizedTest
         @DisplayName("should accept valid persona moral RFC (3 letters + 6 digits + 3 alphanumeric)")
-        @ValueSource(strings = {
-                "ABC850101XXX",
-                "XYZ880101ABC",
-                "EMP920101XYZ",
-                "SERV7501011A2"
-        })
+        @ValueSource(strings = {"ABC850101XXX", "XYZ880101ABC", "EMP920101XYZ", "SERV7501011A2"})
         void validPersonaMoral_ReturnsTrue(String rfc) {
             assertThat(validator.isValid(rfc, context)).isTrue();
         }
@@ -82,14 +71,7 @@ class RFCValidatorTest {
 
         @ParameterizedTest
         @DisplayName("should reject RFC with invalid format")
-        @ValueSource(strings = {
-                "",
-                "INVALID123",
-                "SHORT1",
-                "1234567890123",
-                "ABCD12345",
-                "AAAAAA000000AAA"
-        })
+        @ValueSource(strings = {"", "INVALID123", "SHORT1", "1234567890123", "ABCD12345", "AAAAAA000000AAA"})
         void invalidFormat_ReturnsFalse(String rfc) {
             assertThat(validator.isValid(rfc, context)).isFalse();
         }

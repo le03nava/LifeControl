@@ -1,10 +1,23 @@
 package com.lifecontrol.api.promotion.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
 import com.lifecontrol.api.promotion.dto.PromotionRequest;
 import com.lifecontrol.api.promotion.dto.PromotionResponse;
 import com.lifecontrol.api.promotion.exception.PromotionNotFoundException;
 import com.lifecontrol.api.promotion.model.Promotion;
 import com.lifecontrol.api.promotion.repository.PromotionRepository;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -16,21 +29,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("PromotionService Tests")
@@ -75,8 +73,7 @@ class PromotionServiceTest {
                 now.plusDays(30),
                 "TIENDA",
                 new BigDecimal("100.00"),
-                true
-        );
+                true);
     }
 
     // ─────────────────────────────────────────────
@@ -93,7 +90,8 @@ class PromotionServiceTest {
             var promotions = List.of(testPromotion);
             var expectedPage = new PageImpl<>(promotions, pageable, 1);
 
-            when(promotionRepository.findByEnabledTrueOrderByCreatedAtDesc(pageable)).thenReturn(expectedPage);
+            when(promotionRepository.findByEnabledTrueOrderByCreatedAtDesc(pageable))
+                    .thenReturn(expectedPage);
 
             Page<PromotionResponse> result = promotionService.getAllPromotions(pageable);
 
@@ -116,7 +114,8 @@ class PromotionServiceTest {
             var pageable = PageRequest.of(0, 12);
             var expectedPage = new PageImpl<Promotion>(List.of(), pageable, 0);
 
-            when(promotionRepository.findByEnabledTrueOrderByCreatedAtDesc(pageable)).thenReturn(expectedPage);
+            when(promotionRepository.findByEnabledTrueOrderByCreatedAtDesc(pageable))
+                    .thenReturn(expectedPage);
 
             Page<PromotionResponse> result = promotionService.getAllPromotions(pageable);
 
@@ -237,8 +236,7 @@ class PromotionServiceTest {
                     now.plusDays(1),
                     "ONLINE",
                     null,
-                    null
-            );
+                    null);
             var savedPromotion = Promotion.builder()
                     .id(UUID.randomUUID())
                     .promotionName("Flash Deal")
@@ -281,8 +279,7 @@ class PromotionServiceTest {
                     LocalDateTime.now().plusDays(20),
                     "ONLINE",
                     new BigDecimal("200.00"),
-                    false
-            );
+                    false);
 
             when(promotionRepository.findById(testPromotionId)).thenReturn(Optional.of(testPromotion));
             when(promotionRepository.save(any(Promotion.class))).thenAnswer(inv -> inv.getArgument(0));

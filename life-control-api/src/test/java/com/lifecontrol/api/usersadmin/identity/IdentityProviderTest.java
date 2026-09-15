@@ -1,20 +1,19 @@
 package com.lifecontrol.api.usersadmin.identity;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.lifecontrol.api.usersadmin.dto.PageResponse;
 import com.lifecontrol.api.usersadmin.dto.RoleRequest;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Nested;
-import org.junit.jupiter.api.Test;
-import org.keycloak.representations.idm.UserRepresentation;
-
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+import org.keycloak.representations.idm.UserRepresentation;
 
 @DisplayName("IdentityProvider interface contract")
 class IdentityProviderTest {
@@ -41,8 +40,7 @@ class IdentityProviderTest {
             "searchUsers",
             "companyGroupExists",
             "findGroupIdByName",
-            "deleteClientRole"
-    );
+            "deleteClientRole");
 
     @Nested
     @DisplayName("interface existence and structure")

@@ -2,7 +2,6 @@ package com.lifecontrol.api.validation;
 
 import jakarta.validation.ConstraintValidator;
 import jakarta.validation.ConstraintValidatorContext;
-
 import java.util.regex.Pattern;
 
 /**
@@ -29,9 +28,7 @@ public class RFCValidator implements ConstraintValidator<ValidRFC, String> {
      *   <li>{@code [A-Za-z0-9]{3}} — 3 alphanumeric characters (homoclave + verification digit)</li>
      * </ul>
      */
-    private static final Pattern RFC_PATTERN = Pattern.compile(
-            "^[A-ZÑ&]{3,4}\\d{6}[A-Za-z0-9]{3}$"
-    );
+    private static final Pattern RFC_PATTERN = Pattern.compile("^[A-ZÑ&]{3,4}\\d{6}[A-Za-z0-9]{3}$");
 
     @Override
     public boolean isValid(String value, ConstraintValidatorContext context) {

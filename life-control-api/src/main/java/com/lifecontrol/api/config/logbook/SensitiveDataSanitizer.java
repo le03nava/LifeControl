@@ -1,5 +1,6 @@
 package com.lifecontrol.api.config.logbook;
 
+import java.util.Set;
 import org.springframework.stereotype.Component;
 import org.zalando.logbook.BodyFilter;
 import org.zalando.logbook.HeaderFilter;
@@ -7,8 +8,6 @@ import org.zalando.logbook.RequestFilter;
 import org.zalando.logbook.ResponseFilter;
 import org.zalando.logbook.core.HeaderFilters;
 import org.zalando.logbook.json.JsonBodyFilters;
-
-import java.util.Set;
 
 /**
  * Provides reusable sanitization strategies for Logbook.
@@ -23,13 +22,8 @@ public class SensitiveDataSanitizer {
     /**
      * Header names (case-insensitive) whose values MUST be fully redacted.
      */
-    private static final Set<String> SENSITIVE_HEADERS = Set.of(
-            "cookie",
-            "set-cookie",
-            "x-csrf-token",
-            "x-xsrf-token",
-            "x-api-key"
-    );
+    private static final Set<String> SENSITIVE_HEADERS =
+            Set.of("cookie", "set-cookie", "x-csrf-token", "x-xsrf-token", "x-api-key");
 
     /**
      * JSON body field names (case-insensitive) whose string values MUST be redacted.
@@ -43,8 +37,7 @@ public class SensitiveDataSanitizer {
             "client_secret",
             "api_key",
             "secret_key",
-            "private_key"
-    );
+            "private_key");
 
     /**
      * Returns the default built-in {@link HeaderFilter} that redacts the
@@ -59,9 +52,7 @@ public class SensitiveDataSanitizer {
      * (cookies, CSRF tokens, API keys).
      */
     public HeaderFilter sensitiveHeadersFilter() {
-        return HeaderFilters.replaceHeaders(
-                name -> SENSITIVE_HEADERS.contains(name.toLowerCase()),
-                "[REDACTED]");
+        return HeaderFilters.replaceHeaders(name -> SENSITIVE_HEADERS.contains(name.toLowerCase()), "[REDACTED]");
     }
 
     /**
@@ -70,8 +61,7 @@ public class SensitiveDataSanitizer {
      */
     public BodyFilter bodyFilter() {
         return JsonBodyFilters.replaceJsonStringProperty(
-                name -> SENSITIVE_BODY_FIELDS.contains(name.toLowerCase()),
-                "[REDACTED]");
+                name -> SENSITIVE_BODY_FIELDS.contains(name.toLowerCase()), "[REDACTED]");
     }
 
     /**

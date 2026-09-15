@@ -1,13 +1,8 @@
 package com.lifecontrol.api.common.auth;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.context.annotation.Scope;
-import org.springframework.context.annotation.ScopedProxyMode;
-import org.springframework.security.access.AccessDeniedException;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.oauth2.jwt.Jwt;
-import org.springframework.stereotype.Component;
+import static com.lifecontrol.api.common.security.Roles.ADMIN;
+import static com.lifecontrol.api.common.security.Roles.LIFE_CONTROL_ADMIN;
+import static com.lifecontrol.api.common.security.Roles.LIFE_CONTROL_COUNTRY;
 
 import java.util.Collections;
 import java.util.HashSet;
@@ -17,10 +12,14 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-
-import static com.lifecontrol.api.common.security.Roles.ADMIN;
-import static com.lifecontrol.api.common.security.Roles.LIFE_CONTROL_ADMIN;
-import static com.lifecontrol.api.common.security.Roles.LIFE_CONTROL_COUNTRY;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.context.annotation.Scope;
+import org.springframework.context.annotation.ScopedProxyMode;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.stereotype.Component;
 
 /**
  * Request-scoped component that extracts and caches the current user's
@@ -449,7 +448,8 @@ public class CurrentUserContext {
      * @param storeId          the company-store UUID to verify (store-level check), nullable for create ops
      * @throws AccessDeniedException if access is denied for any reason
      */
-    public void verifyCompanyStoreAccess(UUID companyId, UUID companyCountryId, UUID regionId, UUID zoneId, UUID storeId) {
+    public void verifyCompanyStoreAccess(
+            UUID companyId, UUID companyCountryId, UUID regionId, UUID zoneId, UUID storeId) {
         if (isAdmin()) {
             return;
         }
@@ -541,19 +541,14 @@ public class CurrentUserContext {
         Stream<String> rawValues;
         if (claim instanceof List<?> list) {
             // JWT claim is a JSON array — e.g. ["id1", "id2"]
-            rawValues = list.stream()
-                    .map(Object::toString)
-                    .map(String::trim)
-                    .filter(s -> !s.isEmpty());
+            rawValues = list.stream().map(Object::toString).map(String::trim).filter(s -> !s.isEmpty());
         } else {
             // String format: single UUID or comma-separated — e.g. "id1,id2"
             String claimStr = claim.toString().trim();
             if (claimStr.isBlank()) {
                 return Collections.emptySet();
             }
-            rawValues = Stream.of(claimStr.split(","))
-                    .map(String::trim)
-                    .filter(s -> !s.isEmpty());
+            rawValues = Stream.of(claimStr.split(",")).map(String::trim).filter(s -> !s.isEmpty());
         }
 
         Set<UUID> ids = rawValues
@@ -562,8 +557,7 @@ public class CurrentUserContext {
                 .collect(Collectors.toCollection(HashSet::new));
 
         if (ids.isEmpty()) {
-            log.warn("JWT contains {} claim but no valid UUIDs could be parsed: '{}'",
-                    claimName, claim);
+            log.warn("JWT contains {} claim but no valid UUIDs could be parsed: '{}'", claimName, claim);
         }
 
         return Collections.unmodifiableSet(ids);
@@ -583,8 +577,7 @@ public class CurrentUserContext {
         if (authentication == null) {
             return false;
         }
-        return authentication.getAuthorities().stream()
-                .anyMatch(a -> authority.equals(a.getAuthority()));
+        return authentication.getAuthorities().stream().anyMatch(a -> authority.equals(a.getAuthority()));
     }
 
     /**

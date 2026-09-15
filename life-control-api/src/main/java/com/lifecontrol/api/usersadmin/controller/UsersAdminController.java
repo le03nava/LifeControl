@@ -14,6 +14,8 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.List;
+import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -25,9 +27,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.List;
-import java.util.Map;
 
 /**
  * Keycloak user administration endpoints.
@@ -57,10 +56,8 @@ public class UsersAdminController {
     @ApiResponse(responseCode = "403", description = "Insufficient permissions")
     @ApiResponse(responseCode = "409", description = "User already exists")
     @ApiResponse(responseCode = "503", description = "Identity provider unavailable")
-    public ResponseEntity<CreateUserResponse> createUser(
-            @Valid @RequestBody CreateUserRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(service.createUser(request));
+    public ResponseEntity<CreateUserResponse> createUser(@Valid @RequestBody CreateUserRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(service.createUser(request));
     }
 
     // ---------------------------------------------------------------
@@ -71,7 +68,8 @@ public class UsersAdminController {
     @Operation(summary = "Search users", description = "Searches users by username, email, or name")
     public ResponseEntity<PageResponse<UserSearchDto>> searchUsers(
             @Parameter(description = "Search query") @RequestParam(required = false, defaultValue = "") String search,
-            @Parameter(description = "Page number (0-based)") @RequestParam(required = false, defaultValue = "0") int page,
+            @Parameter(description = "Page number (0-based)") @RequestParam(required = false, defaultValue = "0")
+                    int page,
             @Parameter(description = "Page size") @RequestParam(required = false, defaultValue = "20") int size) {
         return ResponseEntity.ok(service.searchUsers(search, page, size));
     }

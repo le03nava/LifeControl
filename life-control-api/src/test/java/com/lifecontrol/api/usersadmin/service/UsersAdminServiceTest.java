@@ -1,7 +1,14 @@
 package com.lifecontrol.api.usersadmin.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
 import com.lifecontrol.api.usersadmin.dto.CreateUserRequest;
-import com.lifecontrol.api.usersadmin.dto.CreateUserResponse;
 import com.lifecontrol.api.usersadmin.dto.PageResponse;
 import com.lifecontrol.api.usersadmin.dto.RoleRequest;
 import com.lifecontrol.api.usersadmin.identity.IdentityProvider;
@@ -9,8 +16,9 @@ import com.lifecontrol.api.usersadmin.identity.IdentityProviderConflictException
 import com.lifecontrol.api.usersadmin.identity.RoleDto;
 import com.lifecontrol.api.usersadmin.identity.RoleScope;
 import com.lifecontrol.api.usersadmin.identity.UserSearchDto;
-import com.lifecontrol.api.usersadmin.model.UserPreferences;
 import com.lifecontrol.api.usersadmin.repository.UserPreferencesRepository;
+import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -20,19 +28,6 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-
-import java.util.List;
-import java.util.Map;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("UsersAdminService Tests")
@@ -133,9 +128,8 @@ class UsersAdminServiceTest {
         @Test
         @DisplayName("listClientRoles delegates to IdentityProvider with clientId")
         void listClientRoles_shouldDelegate() {
-            var clientRoles = List.of(
-                new RoleDto("client-role", "Client role desc", false, RoleScope.CLIENT, "my-client")
-            );
+            var clientRoles =
+                    List.of(new RoleDto("client-role", "Client role desc", false, RoleScope.CLIENT, "my-client"));
             when(identityProvider.listClientRoles("my-client")).thenReturn(clientRoles);
 
             var result = service.listClientRoles("my-client");
@@ -150,7 +144,8 @@ class UsersAdminServiceTest {
         @DisplayName("createClientRole delegates to IdentityProvider with clientId and request")
         void createClientRole_shouldDelegate() {
             var clientRole = new RoleDto("client-role", "Desc", false, RoleScope.CLIENT, "my-client");
-            when(identityProvider.createClientRole("my-client", testRoleRequest)).thenReturn(clientRole);
+            when(identityProvider.createClientRole("my-client", testRoleRequest))
+                    .thenReturn(clientRole);
 
             var result = service.createClientRole("my-client", testRoleRequest);
 
@@ -219,9 +214,7 @@ class UsersAdminServiceTest {
         @Test
         @DisplayName("getUserRoles with clientId delegates filtered call")
         void getUserRoles_withClientId_shouldDelegate() {
-            var clientRoles = List.of(
-                new RoleDto("client-role", "Desc", false, RoleScope.CLIENT, "my-client")
-            );
+            var clientRoles = List.of(new RoleDto("client-role", "Desc", false, RoleScope.CLIENT, "my-client"));
             when(identityProvider.getUserRoles("user-1", "my-client")).thenReturn(clientRoles);
 
             var result = service.getUserRoles("user-1", "my-client");

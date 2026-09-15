@@ -12,7 +12,8 @@ public class OpenAPIConfig {
     @Bean
     public OpenAPI lifeControlApi() {
         return new OpenAPI()
-                .info(new Info().title("LifeControl API")
+                .info(new Info()
+                        .title("LifeControl API")
                         .description("This is the REST API for LifeControl User Management")
                         .version("v0.0.1")
                         .license(new License().name("Apache 2.0")))

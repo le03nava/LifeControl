@@ -7,16 +7,15 @@ import com.lifecontrol.api.shift.exception.ShiftNotFoundException;
 import com.lifecontrol.api.shift.exception.ShiftNotOpenException;
 import com.lifecontrol.api.shift.model.Shift;
 import com.lifecontrol.api.shift.repository.ShiftRepository;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.UUID;
 
 @Service
 public class ShiftService {
@@ -36,14 +35,12 @@ public class ShiftService {
 
     @Transactional(readOnly = true)
     public Page<ShiftResponse> getAllShifts(Pageable pageable) {
-        return shiftRepository.findByEnabledTrueOrderByOpenedAtDesc(pageable)
-                .map(this::toResponse);
+        return shiftRepository.findByEnabledTrueOrderByOpenedAtDesc(pageable).map(this::toResponse);
     }
 
     @Transactional(readOnly = true)
     public ShiftResponse getShiftById(UUID id) {
-        var shift = shiftRepository.findById(id)
-                .orElseThrow(() -> new ShiftNotFoundException(id));
+        var shift = shiftRepository.findById(id).orElseThrow(() -> new ShiftNotFoundException(id));
         return toResponse(shift);
     }
 
@@ -69,8 +66,7 @@ public class ShiftService {
     public ShiftResponse updateShift(UUID id, ShiftRequest request) {
         logger.info("Updating shift: id={}", id);
 
-        var shift = shiftRepository.findById(id)
-                .orElseThrow(() -> new ShiftNotFoundException(id));
+        var shift = shiftRepository.findById(id).orElseThrow(() -> new ShiftNotFoundException(id));
 
         shift.setCompanyStoreId(request.companyStoreId());
         shift.setUserId(request.userId());
@@ -86,8 +82,7 @@ public class ShiftService {
     public void deleteShift(UUID id) {
         logger.info("Soft-deleting shift: id={}", id);
 
-        var shift = shiftRepository.findById(id)
-                .orElseThrow(() -> new ShiftNotFoundException(id));
+        var shift = shiftRepository.findById(id).orElseThrow(() -> new ShiftNotFoundException(id));
 
         shift.setEnabled(false);
         shiftRepository.save(shift);
@@ -98,8 +93,7 @@ public class ShiftService {
     public ShiftResponse enableShift(UUID id) {
         logger.info("Re-enabling shift: id={}", id);
 
-        var shift = shiftRepository.findById(id)
-                .orElseThrow(() -> new ShiftNotFoundException(id));
+        var shift = shiftRepository.findById(id).orElseThrow(() -> new ShiftNotFoundException(id));
 
         shift.setEnabled(true);
         var saved = shiftRepository.save(shift);
@@ -129,8 +123,12 @@ public class ShiftService {
                 .build();
 
         var saved = shiftRepository.save(shift);
-        logger.info("Shift opened: id={}, companyStoreId={}, userId={}, openedAt={}",
-                saved.getId(), companyStoreId, userId, now);
+        logger.info(
+                "Shift opened: id={}, companyStoreId={}, userId={}, openedAt={}",
+                saved.getId(),
+                companyStoreId,
+                userId,
+                now);
 
         return toResponse(saved);
     }
@@ -139,8 +137,7 @@ public class ShiftService {
     public ShiftResponse closeShift(UUID shiftId) {
         logger.info("Closing shift: id={}", shiftId);
 
-        var shift = shiftRepository.findById(shiftId)
-                .orElseThrow(() -> new ShiftNotFoundException(shiftId));
+        var shift = shiftRepository.findById(shiftId).orElseThrow(() -> new ShiftNotFoundException(shiftId));
 
         if (!STATUS_ABIERTO.equals(shift.getStatus())) {
             throw new ShiftNotOpenException(shiftId, shift.getStatus());
@@ -174,7 +171,6 @@ public class ShiftService {
                 shift.getStatus(),
                 shift.getEnabled(),
                 shift.getCreatedAt(),
-                shift.getUpdatedAt()
-        );
+                shift.getUpdatedAt());
     }
 }

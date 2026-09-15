@@ -1,36 +1,5 @@
 package com.lifecontrol.api.product.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.lifecontrol.api.exception.GlobalExceptionHandler;
-import com.lifecontrol.api.product.dto.ProductVariantRequest;
-import com.lifecontrol.api.product.dto.ProductVariantResponse;
-import com.lifecontrol.api.product.dto.ProductVariantSearchResponse;
-import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
-import com.lifecontrol.api.product.service.ProductService;
-import com.lifecontrol.api.product.service.ProductVariantService;
-import com.lifecontrol.api.product.supplier.service.ProductSupplierService;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Nested;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.web.PageableHandlerMethodArgumentResolver;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.UUID;
-
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -42,6 +11,35 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lifecontrol.api.exception.GlobalExceptionHandler;
+import com.lifecontrol.api.product.dto.ProductVariantRequest;
+import com.lifecontrol.api.product.dto.ProductVariantResponse;
+import com.lifecontrol.api.product.dto.ProductVariantSearchResponse;
+import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
+import com.lifecontrol.api.product.service.ProductService;
+import com.lifecontrol.api.product.service.ProductVariantService;
+import com.lifecontrol.api.product.supplier.service.ProductSupplierService;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableHandlerMethodArgumentResolver;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("ProductVariantController Tests")
@@ -104,8 +102,7 @@ class ProductVariantControllerTest {
                 new BigDecimal("50.00"),
                 true,
                 now,
-                now
-        );
+                now);
 
         testVariantRequest = new ProductVariantRequest(
                 productId,
@@ -116,8 +113,7 @@ class ProductVariantControllerTest {
                 new BigDecimal("199.99"),
                 new BigDecimal("120.00"),
                 new BigDecimal("50.00"),
-                true
-        );
+                true);
 
         testSearchResponse = new ProductVariantSearchResponse(
                 UUID.randomUUID(),
@@ -133,8 +129,7 @@ class ProductVariantControllerTest {
                 "Producto Test",
                 "PROD-001",
                 now,
-                now
-        );
+                now);
     }
 
     // ─────────────────────────────────────────────
@@ -151,7 +146,8 @@ class ProductVariantControllerTest {
             var variants = List.of(testVariantResponse);
             var page = new PageImpl<>(variants, pageable, 1);
 
-            when(productVariantService.listVariants(eq(productId), any(Pageable.class))).thenReturn(page);
+            when(productVariantService.listVariants(eq(productId), any(Pageable.class)))
+                    .thenReturn(page);
 
             mockMvc.perform(get("/api/products/{productId}/variants", productId)
                             .param("page", "0")
@@ -176,7 +172,8 @@ class ProductVariantControllerTest {
             var pageable = PageRequest.of(0, 12);
             var page = new PageImpl<ProductVariantResponse>(List.of(), pageable, 0);
 
-            when(productVariantService.listVariants(eq(productId), any(Pageable.class))).thenReturn(page);
+            when(productVariantService.listVariants(eq(productId), any(Pageable.class)))
+                    .thenReturn(page);
 
             mockMvc.perform(get("/api/products/{productId}/variants", productId)
                             .param("page", "0")
@@ -218,9 +215,7 @@ class ProductVariantControllerTest {
         @Test
         @DisplayName("should return 400 when required fields missing")
         void createVariant_MissingRequiredFields_Returns400() throws Exception {
-            var invalidRequest = new ProductVariantRequest(
-                    null, null, null, null, null, null, null, null, null
-            );
+            var invalidRequest = new ProductVariantRequest(null, null, null, null, null, null, null, null, null);
 
             mockMvc.perform(post("/api/products/{productId}/variants", productId)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -244,8 +239,7 @@ class ProductVariantControllerTest {
         @Test
         @DisplayName("should return 200 with variant when found")
         void getVariant_Found_Returns200() throws Exception {
-            when(productVariantService.getVariant(productId, variantId))
-                    .thenReturn(testVariantResponse);
+            when(productVariantService.getVariant(productId, variantId)).thenReturn(testVariantResponse);
 
             mockMvc.perform(get("/api/products/{productId}/variants/{variantId}", productId, variantId))
                     .andExpect(status().isOk())
@@ -326,7 +320,8 @@ class ProductVariantControllerTest {
         @DisplayName("should return 404 when variant not found")
         void deleteVariant_NotFound_Returns404() throws Exception {
             doThrow(new ProductVariantNotFoundException(variantId))
-                    .when(productVariantService).deleteVariant(productId, variantId);
+                    .when(productVariantService)
+                    .deleteVariant(productId, variantId);
 
             mockMvc.perform(delete("/api/products/{productId}/variants/{variantId}", productId, variantId))
                     .andExpect(status().isNotFound())
@@ -352,15 +347,18 @@ class ProductVariantControllerTest {
             when(productVariantService.searchVariants(eq("7501234567890"), eq(storeId), any(Pageable.class)))
                     .thenReturn(page);
 
-            searchMockMvc.perform(get("/api/product-variants/search")
-.param("q", "7501234567890")
-.param("storeId", storeId.toString())
-.param("page", "0")
-.param("size", "20"))
+            searchMockMvc
+                    .perform(get("/api/product-variants/search")
+                            .param("q", "7501234567890")
+                            .param("storeId", storeId.toString())
+                            .param("page", "0")
+                            .param("size", "20"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content").isArray())
-                    .andExpect(jsonPath("$.content[0].id").value(testSearchResponse.id().toString()))
-                    .andExpect(jsonPath("$.content[0].productId").value(testSearchResponse.productId().toString()))
+                    .andExpect(jsonPath("$.content[0].id")
+                            .value(testSearchResponse.id().toString()))
+                    .andExpect(jsonPath("$.content[0].productId")
+                            .value(testSearchResponse.productId().toString()))
                     .andExpect(jsonPath("$.content[0].companyStoreId").value(storeId.toString()))
                     .andExpect(jsonPath("$.content[0].variantName").value("Talla M"))
                     .andExpect(jsonPath("$.content[0].barCode").value("7501234567890"))
@@ -386,9 +384,10 @@ class ProductVariantControllerTest {
             when(productVariantService.searchVariants(eq("xyznonexistent"), eq(storeId), any(Pageable.class)))
                     .thenReturn(emptyPage);
 
-            searchMockMvc.perform(get("/api/product-variants/search")
-.param("q", "xyznonexistent")
-.param("storeId", storeId.toString()))
+            searchMockMvc
+                    .perform(get("/api/product-variants/search")
+                            .param("q", "xyznonexistent")
+                            .param("storeId", storeId.toString()))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content").isEmpty())
                     .andExpect(jsonPath("$.totalElements").value(0))

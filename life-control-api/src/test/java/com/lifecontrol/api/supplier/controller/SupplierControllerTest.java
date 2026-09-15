@@ -1,35 +1,5 @@
 package com.lifecontrol.api.supplier.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.lifecontrol.api.common.address.dto.AddressRequest;
-import com.lifecontrol.api.common.address.dto.AddressResponse;
-import com.lifecontrol.api.exception.GlobalExceptionHandler;
-import com.lifecontrol.api.supplier.dto.SupplierRequest;
-import com.lifecontrol.api.supplier.dto.SupplierResponse;
-import com.lifecontrol.api.supplier.exception.DuplicateSupplierException;
-import com.lifecontrol.api.supplier.exception.SupplierNotFoundException;
-import com.lifecontrol.api.supplier.service.SupplierService;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Nested;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.web.PageableHandlerMethodArgumentResolver;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.UUID;
-
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
@@ -42,6 +12,34 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lifecontrol.api.common.address.dto.AddressRequest;
+import com.lifecontrol.api.common.address.dto.AddressResponse;
+import com.lifecontrol.api.exception.GlobalExceptionHandler;
+import com.lifecontrol.api.supplier.dto.SupplierRequest;
+import com.lifecontrol.api.supplier.dto.SupplierResponse;
+import com.lifecontrol.api.supplier.exception.DuplicateSupplierException;
+import com.lifecontrol.api.supplier.exception.SupplierNotFoundException;
+import com.lifecontrol.api.supplier.service.SupplierService;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableHandlerMethodArgumentResolver;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("SupplierController Tests")
@@ -91,12 +89,10 @@ class SupplierControllerTest {
                         "12345",
                         "Ciudad de Mexico",
                         "CDMX",
-                        testCountryId
-                ),
+                        testCountryId),
                 true,
                 now,
-                now
-        );
+                now);
 
         testSupplierRequest = new SupplierRequest(
                 "Test Supplier",
@@ -106,17 +102,8 @@ class SupplierControllerTest {
                 "+1234567890",
                 "INT-001",
                 new AddressRequest(
-                        "Calle Principal",
-                        "123",
-                        null,
-                        "Centro",
-                        "12345",
-                        "Ciudad de Mexico",
-                        "CDMX",
-                        testCountryId
-                ),
-                true
-        );
+                        "Calle Principal", "123", null, "Centro", "12345", "Ciudad de Mexico", "CDMX", testCountryId),
+                true);
     }
 
     @Nested
@@ -131,12 +118,11 @@ class SupplierControllerTest {
             var suppliers = List.of(testSupplierResponse);
             var page = new PageImpl<>(suppliers, pageable, 1);
 
-            when(supplierService.getAllSuppliers(any(Pageable.class), eq(null), eq(false))).thenReturn(page);
+            when(supplierService.getAllSuppliers(any(Pageable.class), eq(null), eq(false)))
+                    .thenReturn(page);
 
             // Act & Assert
-            mockMvc.perform(get("/api/suppliers")
-                            .param("page", "0")
-                            .param("size", "12"))
+            mockMvc.perform(get("/api/suppliers").param("page", "0").param("size", "12"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content").isArray())
                     .andExpect(jsonPath("$.content[0].supplierName").value("Test Supplier"))
@@ -154,7 +140,8 @@ class SupplierControllerTest {
             var suppliers = List.of(testSupplierResponse);
             var page = new PageImpl<>(suppliers, pageable, 1);
 
-            when(supplierService.getAllSuppliers(any(Pageable.class), eq("Test"), eq(false))).thenReturn(page);
+            when(supplierService.getAllSuppliers(any(Pageable.class), eq("Test"), eq(false)))
+                    .thenReturn(page);
 
             // Act & Assert
             mockMvc.perform(get("/api/suppliers")
@@ -173,12 +160,11 @@ class SupplierControllerTest {
             var pageable = PageRequest.of(0, 12);
             var page = new PageImpl<SupplierResponse>(List.of(), pageable, 0);
 
-            when(supplierService.getAllSuppliers(any(Pageable.class), eq(null), eq(false))).thenReturn(page);
+            when(supplierService.getAllSuppliers(any(Pageable.class), eq(null), eq(false)))
+                    .thenReturn(page);
 
             // Act & Assert
-            mockMvc.perform(get("/api/suppliers")
-                            .param("page", "0")
-                            .param("size", "12"))
+            mockMvc.perform(get("/api/suppliers").param("page", "0").param("size", "12"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content").isEmpty())
                     .andExpect(jsonPath("$.totalElements").value(0))
@@ -192,7 +178,8 @@ class SupplierControllerTest {
             var pageable = PageRequest.of(0, 12);
             var page = new PageImpl<>(List.of(testSupplierResponse), pageable, 1);
 
-            when(supplierService.getAllSuppliers(any(Pageable.class), eq(null), eq(false))).thenReturn(page);
+            when(supplierService.getAllSuppliers(any(Pageable.class), eq(null), eq(false)))
+                    .thenReturn(page);
 
             // Act & Assert
             mockMvc.perform(get("/api/suppliers"))
@@ -260,10 +247,14 @@ class SupplierControllerTest {
         void createSupplier_InvalidInput() throws Exception {
             // Arrange - missing required supplierName
             var invalidRequest = new SupplierRequest(
-                    null,  // supplierName is required
-                    null, "ZAXX010101000", null, null, null, null,
-                    true
-            );
+                    null, // supplierName is required
+                    null,
+                    "ZAXX010101000",
+                    null,
+                    null,
+                    null,
+                    null,
+                    true);
 
             // Act & Assert
             mockMvc.perform(post("/api/suppliers")
@@ -344,10 +335,7 @@ class SupplierControllerTest {
         @DisplayName("updateSupplier - should return 400 for invalid input")
         void updateSupplier_InvalidInput() throws Exception {
             // Arrange - missing required supplierName
-            var invalidRequest = new SupplierRequest(
-                    null, null, "ZAXX010101000", null, null, null, null,
-                    true
-            );
+            var invalidRequest = new SupplierRequest(null, null, "ZAXX010101000", null, null, null, null, true);
 
             // Act & Assert
             mockMvc.perform(put("/api/suppliers/{id}", testSupplierId)
@@ -368,8 +356,7 @@ class SupplierControllerTest {
             doNothing().when(supplierService).deleteSupplier(testSupplierId);
 
             // Act & Assert
-            mockMvc.perform(delete("/api/suppliers/{id}", testSupplierId))
-                    .andExpect(status().isNoContent());
+            mockMvc.perform(delete("/api/suppliers/{id}", testSupplierId)).andExpect(status().isNoContent());
             verify(supplierService).deleteSupplier(testSupplierId);
         }
 
@@ -378,7 +365,8 @@ class SupplierControllerTest {
         void deleteSupplier_NotFound() throws Exception {
             // Arrange
             doThrow(new SupplierNotFoundException(testSupplierId))
-                    .when(supplierService).deleteSupplier(testSupplierId);
+                    .when(supplierService)
+                    .deleteSupplier(testSupplierId);
 
             // Act & Assert
             mockMvc.perform(delete("/api/suppliers/{id}", testSupplierId))

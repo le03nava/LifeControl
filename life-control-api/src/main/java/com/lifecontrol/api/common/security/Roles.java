@@ -17,8 +17,7 @@ package com.lifecontrol.api.common.security;
  */
 public final class Roles {
 
-    private Roles() {
-    }
+    private Roles() {}
 
     // ---- Admin ----
 

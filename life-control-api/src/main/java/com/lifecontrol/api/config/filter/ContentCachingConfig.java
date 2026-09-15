@@ -14,8 +14,7 @@ import org.springframework.core.Ordered;
 public class ContentCachingConfig {
 
     @Bean
-    public FilterRegistrationBean<ContentCachingFilter> contentCachingFilterRegistration(
-            ContentCachingFilter filter) {
+    public FilterRegistrationBean<ContentCachingFilter> contentCachingFilterRegistration(ContentCachingFilter filter) {
 
         var registration = new FilterRegistrationBean<>(filter);
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 10);

@@ -1,15 +1,14 @@
 package com.lifecontrol.api.product.model;
 
-import com.lifecontrol.api.common.model.Auditable;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Nested;
-import org.junit.jupiter.api.Test;
+import static org.assertj.core.api.Assertions.assertThat;
 
+import com.lifecontrol.api.common.model.Auditable;
 import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.UUID;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
 
 @DisplayName("Product Entity Tests")
 class ProductTest {
@@ -48,10 +47,8 @@ class ProductTest {
         @Test
         @DisplayName("should default enabled to true when not explicitly set")
         void buildProduct_DefaultEnabled() {
-            var product = Product.builder()
-                    .sku("DEF-002")
-                    .name("Default Product")
-                    .build();
+            var product =
+                    Product.builder().sku("DEF-002").name("Default Product").build();
 
             assertThat(product.getEnabled()).isTrue();
         }
@@ -160,8 +157,7 @@ class ProductTest {
 
             assertThat(idAnnotation).isNotNull();
             assertThat(generatedValue).isNotNull();
-            assertThat(generatedValue.strategy())
-                    .isEqualTo(jakarta.persistence.GenerationType.UUID);
+            assertThat(generatedValue.strategy()).isEqualTo(jakarta.persistence.GenerationType.UUID);
         }
 
         @Test

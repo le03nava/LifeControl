@@ -1,12 +1,11 @@
 package com.lifecontrol.api.company.event;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEvent;
-
-import java.util.UUID;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 @DisplayName("CompanyCreatedEvent Tests")
 class CompanyCreatedEventTest {
@@ -33,6 +32,4 @@ class CompanyCreatedEventTest {
         assertThat(event.getCompanyKey()).isEqualTo(companyKey);
         assertThat(event.getCompanyName()).isEqualTo(companyName);
     }
-
-
 }

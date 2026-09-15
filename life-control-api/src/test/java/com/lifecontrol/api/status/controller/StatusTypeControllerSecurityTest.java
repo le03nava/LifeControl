@@ -1,10 +1,22 @@
 package com.lifecontrol.api.status.controller;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifecontrol.api.config.ratelimit.RateLimitProperties;
 import com.lifecontrol.api.status.dto.StatusTypeRequest;
 import com.lifecontrol.api.status.dto.StatusTypeResponse;
 import com.lifecontrol.api.status.service.StatusTypeService;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -25,19 +37,6 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.UUID;
-
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-
 @WebMvcTest(StatusTypeController.class)
 @DisplayName("StatusType Controller Security - @PreAuthorize method-level authorization")
 class StatusTypeControllerSecurityTest {
@@ -53,8 +52,7 @@ class StatusTypeControllerSecurityTest {
     static class TestSecurityConfig {
         @Bean
         SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-            return http
-                    .authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
+            return http.authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
                     .httpBasic(basic -> {})
                     .csrf(AbstractHttpConfigurer::disable)
                     .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -81,10 +79,7 @@ class StatusTypeControllerSecurityTest {
     }
 
     private StatusTypeResponse buildResponse() {
-        return new StatusTypeResponse(
-                statusTypeId, "Order Status", true,
-                LocalDateTime.now(), LocalDateTime.now()
-        );
+        return new StatusTypeResponse(statusTypeId, "Order Status", true, LocalDateTime.now(), LocalDateTime.now());
     }
 
     // ─── GET /api/status-types ────────────────────────────────────
@@ -100,15 +95,13 @@ class StatusTypeControllerSecurityTest {
             when(statusTypeService.getAllStatusTypes(any(Pageable.class), any()))
                     .thenReturn(new PageImpl<>(List.of(buildResponse())));
 
-            mockMvc.perform(get("/api/status-types"))
-                    .andExpect(status().isOk());
+            mockMvc.perform(get("/api/status-types")).andExpect(status().isOk());
         }
 
         @Test
         @DisplayName("returns 401 Unauthorized for unauthenticated request")
         void unauthenticatedReturns401() throws Exception {
-            mockMvc.perform(get("/api/status-types"))
-                    .andExpect(status().isUnauthorized());
+            mockMvc.perform(get("/api/status-types")).andExpect(status().isUnauthorized());
         }
     }
 
@@ -236,24 +229,21 @@ class StatusTypeControllerSecurityTest {
         @WithMockUser(roles = {"lc-admin"})
         @DisplayName("returns 204 No Content for user with lc-admin role")
         void adminCanDelete() throws Exception {
-            mockMvc.perform(delete("/api/status-types/{id}", statusTypeId))
-                    .andExpect(status().isNoContent());
+            mockMvc.perform(delete("/api/status-types/{id}", statusTypeId)).andExpect(status().isNoContent());
         }
 
         @Test
         @WithMockUser(roles = {"lc-status-type"})
         @DisplayName("returns 204 No Content for user with lc-status-type role")
         void domainRoleCanDelete() throws Exception {
-            mockMvc.perform(delete("/api/status-types/{id}", statusTypeId))
-                    .andExpect(status().isNoContent());
+            mockMvc.perform(delete("/api/status-types/{id}", statusTypeId)).andExpect(status().isNoContent());
         }
 
         @Test
         @WithMockUser
         @DisplayName("returns 403 Forbidden for authenticated user with no roles")
         void userWithNoRolesGetsForbidden() throws Exception {
-            mockMvc.perform(delete("/api/status-types/{id}", statusTypeId))
-                    .andExpect(status().isForbidden());
+            mockMvc.perform(delete("/api/status-types/{id}", statusTypeId)).andExpect(status().isForbidden());
         }
     }
 }

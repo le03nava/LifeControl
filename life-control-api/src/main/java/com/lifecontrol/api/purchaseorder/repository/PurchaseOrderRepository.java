@@ -1,6 +1,9 @@
 package com.lifecontrol.api.purchaseorder.repository;
 
 import com.lifecontrol.api.purchaseorder.model.PurchaseOrder;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -8,10 +11,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
-
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
 
 @Repository
 public interface PurchaseOrderRepository extends JpaRepository<PurchaseOrder, UUID> {
@@ -27,7 +26,8 @@ public interface PurchaseOrderRepository extends JpaRepository<PurchaseOrder, UU
     @EntityGraph(value = "PurchaseOrder.withHierarchy", type = EntityGraph.EntityGraphType.FETCH)
     Page<PurchaseOrder> findByEnabledTrueOrderByCreatedAtDesc(Pageable pageable);
 
-    @Query("""
+    @Query(
+            """
         SELECT po FROM PurchaseOrder po
         LEFT JOIN FETCH po.supplier
         LEFT JOIN FETCH po.companyStore cs

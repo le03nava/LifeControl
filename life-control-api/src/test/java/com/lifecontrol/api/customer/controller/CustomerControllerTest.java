@@ -1,32 +1,5 @@
 package com.lifecontrol.api.customer.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.lifecontrol.api.customer.dto.CustomerRequest;
-import com.lifecontrol.api.customer.dto.CustomerResponse;
-import com.lifecontrol.api.customer.exception.CustomerNotFoundException;
-import com.lifecontrol.api.customer.service.CustomerService;
-import com.lifecontrol.api.exception.GlobalExceptionHandler;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Nested;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.web.PageableHandlerMethodArgumentResolver;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.UUID;
-
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
@@ -40,6 +13,31 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lifecontrol.api.customer.dto.CustomerRequest;
+import com.lifecontrol.api.customer.dto.CustomerResponse;
+import com.lifecontrol.api.customer.exception.CustomerNotFoundException;
+import com.lifecontrol.api.customer.service.CustomerService;
+import com.lifecontrol.api.exception.GlobalExceptionHandler;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableHandlerMethodArgumentResolver;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("CustomerController Tests")
@@ -79,17 +77,10 @@ class CustomerControllerTest {
                 "TIENDA",
                 true,
                 now,
-                now
-        );
+                now);
 
-        testCustomerRequest = new CustomerRequest(
-                "Juan Pérez",
-                "juan@example.com",
-                "+525512345678",
-                "PEGJ800101ABC",
-                "TIENDA",
-                true
-        );
+        testCustomerRequest =
+                new CustomerRequest("Juan Pérez", "juan@example.com", "+525512345678", "PEGJ800101ABC", "TIENDA", true);
     }
 
     // ─────────────────────────────────────────────
@@ -108,9 +99,7 @@ class CustomerControllerTest {
 
             when(customerService.getAllCustomers(any(Pageable.class), eq(null))).thenReturn(page);
 
-            mockMvc.perform(get("/api/customers")
-                            .param("page", "0")
-                            .param("size", "12"))
+            mockMvc.perform(get("/api/customers").param("page", "0").param("size", "12"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content").isArray())
                     .andExpect(jsonPath("$.content[0].name").value("Juan Pérez"))
@@ -128,7 +117,8 @@ class CustomerControllerTest {
             var customers = List.of(testCustomerResponse);
             var page = new PageImpl<>(customers, pageable, 1);
 
-            when(customerService.getAllCustomers(any(Pageable.class), eq("juan"))).thenReturn(page);
+            when(customerService.getAllCustomers(any(Pageable.class), eq("juan")))
+                    .thenReturn(page);
 
             mockMvc.perform(get("/api/customers")
                             .param("page", "0")
@@ -147,9 +137,7 @@ class CustomerControllerTest {
 
             when(customerService.getAllCustomers(any(Pageable.class), eq(null))).thenReturn(page);
 
-            mockMvc.perform(get("/api/customers")
-                            .param("page", "0")
-                            .param("size", "12"))
+            mockMvc.perform(get("/api/customers").param("page", "0").param("size", "12"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content").isEmpty())
                     .andExpect(jsonPath("$.totalElements").value(0))
@@ -201,8 +189,7 @@ class CustomerControllerTest {
         @Test
         @DisplayName("should return 201 with created customer when valid request")
         void createCustomer_ValidRequest_Returns201() throws Exception {
-            when(customerService.createCustomer(any(CustomerRequest.class)))
-                    .thenReturn(testCustomerResponse);
+            when(customerService.createCustomer(any(CustomerRequest.class))).thenReturn(testCustomerResponse);
 
             mockMvc.perform(post("/api/customers")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -281,8 +268,7 @@ class CustomerControllerTest {
         void deleteCustomer_Success_Returns204() throws Exception {
             doNothing().when(customerService).deleteCustomer(testCustomerId);
 
-            mockMvc.perform(delete("/api/customers/{id}", testCustomerId))
-                    .andExpect(status().isNoContent());
+            mockMvc.perform(delete("/api/customers/{id}", testCustomerId)).andExpect(status().isNoContent());
             verify(customerService).deleteCustomer(testCustomerId);
         }
 
@@ -290,7 +276,8 @@ class CustomerControllerTest {
         @DisplayName("should return 404 when customer not found")
         void deleteCustomer_NotFound_Returns404() throws Exception {
             doThrow(new CustomerNotFoundException(testCustomerId))
-                    .when(customerService).deleteCustomer(testCustomerId);
+                    .when(customerService)
+                    .deleteCustomer(testCustomerId);
 
             mockMvc.perform(delete("/api/customers/{id}", testCustomerId))
                     .andExpect(status().isNotFound())

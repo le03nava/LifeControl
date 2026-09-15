@@ -29,15 +29,17 @@ public class ProfileController {
     }
 
     @GetMapping
-    @Operation(summary = "Get user profile",
-               description = "Returns the authenticated user's basic info and location preferences")
+    @Operation(
+            summary = "Get user profile",
+            description = "Returns the authenticated user's basic info and location preferences")
     public ResponseEntity<ProfileResponse> getProfile() {
         return ResponseEntity.ok(profileService.getProfile());
     }
 
     @PutMapping
-    @Operation(summary = "Update user profile",
-               description = "Updates basic info in Keycloak and/or location preferences in user_preferences")
+    @Operation(
+            summary = "Update user profile",
+            description = "Updates basic info in Keycloak and/or location preferences in user_preferences")
     public ResponseEntity<ProfileResponse> updateProfile(@Valid @RequestBody ProfileUpdateRequest request) {
         return ResponseEntity.ok(profileService.updateProfile(request));
     }

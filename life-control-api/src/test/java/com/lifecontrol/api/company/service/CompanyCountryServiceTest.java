@@ -1,5 +1,10 @@
 package com.lifecontrol.api.company.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
 import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.company.dto.CompanyCountryRequest;
 import com.lifecontrol.api.company.dto.CompanyCountryResponse;
@@ -13,6 +18,10 @@ import com.lifecontrol.api.company.repository.CompanyCountryRepository;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.country.model.Country;
 import com.lifecontrol.api.country.repository.CountryRepository;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -23,17 +32,6 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
-
-import java.util.List;
-import java.util.Optional;
-import java.util.Set;
-import java.util.UUID;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
-
 import org.springframework.security.access.AccessDeniedException;
 
 @ExtendWith(MockitoExtension.class)
@@ -42,12 +40,16 @@ class CompanyCountryServiceTest {
 
     @Mock
     private CompanyCountryRepository companyCountryRepository;
+
     @Mock
     private CompanyRepository companyRepository;
+
     @Mock
     private CountryRepository countryRepository;
+
     @Mock
     private CurrentUserContext currentUserContext;
+
     @Mock
     private ApplicationEventPublisher eventPublisher;
 
@@ -102,8 +104,7 @@ class CompanyCountryServiceTest {
         void getCountriesByCompanyId_Success() {
             // Arrange
             when(companyRepository.existsById(companyId)).thenReturn(true);
-            when(companyCountryRepository.findByCompanyId(companyId))
-                    .thenReturn(List.of(testCompanyCountry));
+            when(companyCountryRepository.findByCompanyId(companyId)).thenReturn(List.of(testCompanyCountry));
 
             // Act
             List<CompanyCountryResponse> result = companyCountryService.getCountriesByCompanyId(companyId);
@@ -136,7 +137,8 @@ class CompanyCountryServiceTest {
             // Arrange
             when(companyRepository.findById(companyId)).thenReturn(Optional.of(testCompany));
             when(countryRepository.findByCountryCode("MX")).thenReturn(Optional.of(testCountry));
-            when(companyCountryRepository.existsByCompanyIdAndCountryId(companyId, countryId)).thenReturn(false);
+            when(companyCountryRepository.existsByCompanyIdAndCountryId(companyId, countryId))
+                    .thenReturn(false);
             when(companyCountryRepository.save(any(CompanyCountry.class))).thenAnswer(inv -> {
                 CompanyCountry cc = inv.getArgument(0);
                 return CompanyCountry.builder()
@@ -164,7 +166,8 @@ class CompanyCountryServiceTest {
             // Arrange
             when(companyRepository.findById(companyId)).thenReturn(Optional.of(testCompany));
             when(countryRepository.findByCountryCode("MX")).thenReturn(Optional.of(testCountry));
-            when(companyCountryRepository.existsByCompanyIdAndCountryId(companyId, countryId)).thenReturn(false);
+            when(companyCountryRepository.existsByCompanyIdAndCountryId(companyId, countryId))
+                    .thenReturn(false);
             when(companyCountryRepository.save(any(CompanyCountry.class))).thenAnswer(inv -> {
                 CompanyCountry cc = inv.getArgument(0);
                 return CompanyCountry.builder()
@@ -216,7 +219,8 @@ class CompanyCountryServiceTest {
             // Arrange
             when(companyRepository.findById(companyId)).thenReturn(Optional.of(testCompany));
             when(countryRepository.findByCountryCode("MX")).thenReturn(Optional.of(testCountry));
-            when(companyCountryRepository.existsByCompanyIdAndCountryId(companyId, countryId)).thenReturn(true);
+            when(companyCountryRepository.existsByCompanyIdAndCountryId(companyId, countryId))
+                    .thenReturn(true);
 
             // Act & Assert
             assertThatThrownBy(() -> companyCountryService.addCountryToCompany(companyId, testRequest))
@@ -232,8 +236,7 @@ class CompanyCountryServiceTest {
         @DisplayName("should remove country from company successfully")
         void removeCountryFromCompany_Success() {
             // Arrange
-            when(companyCountryRepository.findById(companyCountryId))
-                    .thenReturn(Optional.of(testCompanyCountry));
+            when(companyCountryRepository.findById(companyCountryId)).thenReturn(Optional.of(testCompanyCountry));
 
             // Act
             companyCountryService.removeCountryFromCompany(companyId, companyCountryId);
@@ -258,8 +261,7 @@ class CompanyCountryServiceTest {
         void removeCountryFromCompany_WrongCompany_ThrowsException() {
             // Arrange
             UUID wrongCompanyId = UUID.randomUUID();
-            when(companyCountryRepository.findById(companyCountryId))
-                    .thenReturn(Optional.of(testCompanyCountry));
+            when(companyCountryRepository.findById(companyCountryId)).thenReturn(Optional.of(testCompanyCountry));
 
             // Act & Assert
             assertThatThrownBy(() -> companyCountryService.removeCountryFromCompany(wrongCompanyId, companyCountryId))
@@ -330,8 +332,7 @@ class CompanyCountryServiceTest {
         @Test
         @DisplayName("should succeed when verifyCompanyCountryAccess passes")
         void removeCountryFromCompany_CountryRole_Success() {
-            when(companyCountryRepository.findById(companyCountryId))
-                    .thenReturn(Optional.of(testCompanyCountry));
+            when(companyCountryRepository.findById(companyCountryId)).thenReturn(Optional.of(testCompanyCountry));
 
             companyCountryService.removeCountryFromCompany(companyId, companyCountryId);
 
@@ -343,7 +344,8 @@ class CompanyCountryServiceTest {
         void removeCountryFromCompany_CountryRole_AccessDenied() {
             var nonMatchingId = UUID.randomUUID();
             doThrow(new AccessDeniedException("Access denied"))
-                    .when(currentUserContext).verifyCompanyCountryAccess(companyId, nonMatchingId);
+                    .when(currentUserContext)
+                    .verifyCompanyCountryAccess(companyId, nonMatchingId);
 
             assertThatThrownBy(() -> companyCountryService.removeCountryFromCompany(companyId, nonMatchingId))
                     .isInstanceOf(AccessDeniedException.class);
@@ -358,13 +360,14 @@ class CompanyCountryServiceTest {
         @Test
         @DisplayName("should succeed when verifyCompanyCountryAccess passes")
         void updateCountry_CountryRole_Success() {
-            when(companyCountryRepository.findById(companyCountryId))
-                    .thenReturn(Optional.of(testCompanyCountry));
+            when(companyCountryRepository.findById(companyCountryId)).thenReturn(Optional.of(testCompanyCountry));
             when(countryRepository.findByCountryCode("MX")).thenReturn(Optional.of(testCountry));
-            when(companyCountryRepository.existsByCompanyIdAndCountryId(companyId, countryId)).thenReturn(false);
+            when(companyCountryRepository.existsByCompanyIdAndCountryId(companyId, countryId))
+                    .thenReturn(false);
             when(companyCountryRepository.save(any(CompanyCountry.class))).thenReturn(testCompanyCountry);
 
-            CompanyCountryResponse result = companyCountryService.updateCountry(companyId, companyCountryId, testRequest);
+            CompanyCountryResponse result =
+                    companyCountryService.updateCountry(companyId, companyCountryId, testRequest);
 
             assertThat(result).isNotNull();
             assertThat(result.countryCode()).isEqualTo("MX");
@@ -376,7 +379,8 @@ class CompanyCountryServiceTest {
         void updateCountry_CountryRole_AccessDenied() {
             var nonMatchingId = UUID.randomUUID();
             doThrow(new AccessDeniedException("Access denied"))
-                    .when(currentUserContext).verifyCompanyCountryAccess(companyId, nonMatchingId);
+                    .when(currentUserContext)
+                    .verifyCompanyCountryAccess(companyId, nonMatchingId);
 
             assertThatThrownBy(() -> companyCountryService.updateCountry(companyId, nonMatchingId, testRequest))
                     .isInstanceOf(AccessDeniedException.class);
@@ -393,8 +397,7 @@ class CompanyCountryServiceTest {
         void getCountriesByCompanyId_Admin_BypassesCountryFiltering() {
             when(currentUserContext.isAdmin()).thenReturn(true);
             when(companyRepository.existsById(companyId)).thenReturn(true);
-            when(companyCountryRepository.findByCompanyId(companyId))
-                    .thenReturn(List.of(testCompanyCountry));
+            when(companyCountryRepository.findByCompanyId(companyId)).thenReturn(List.of(testCompanyCountry));
 
             List<CompanyCountryResponse> result = companyCountryService.getCountriesByCompanyId(companyId);
 
@@ -408,8 +411,7 @@ class CompanyCountryServiceTest {
         void getCountriesByCompanyId_CompanyRole_UsesFindByCompanyId() {
             when(currentUserContext.hasCompanyCountryRole()).thenReturn(false);
             when(companyRepository.existsById(companyId)).thenReturn(true);
-            when(companyCountryRepository.findByCompanyId(companyId))
-                    .thenReturn(List.of(testCompanyCountry));
+            when(companyCountryRepository.findByCompanyId(companyId)).thenReturn(List.of(testCompanyCountry));
 
             List<CompanyCountryResponse> result = companyCountryService.getCountriesByCompanyId(companyId);
 
@@ -423,7 +425,8 @@ class CompanyCountryServiceTest {
         void addCountryToCompany_UsesVerifyCompanyAccess() {
             when(companyRepository.findById(companyId)).thenReturn(Optional.of(testCompany));
             when(countryRepository.findByCountryCode("MX")).thenReturn(Optional.of(testCountry));
-            when(companyCountryRepository.existsByCompanyIdAndCountryId(companyId, countryId)).thenReturn(false);
+            when(companyCountryRepository.existsByCompanyIdAndCountryId(companyId, countryId))
+                    .thenReturn(false);
             when(companyCountryRepository.save(any(CompanyCountry.class))).thenReturn(testCompanyCountry);
 
             companyCountryService.addCountryToCompany(companyId, testRequest);

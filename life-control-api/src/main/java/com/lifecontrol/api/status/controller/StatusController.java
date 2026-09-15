@@ -1,5 +1,8 @@
 package com.lifecontrol.api.status.controller;
 
+import static com.lifecontrol.api.common.security.Roles.ADMIN;
+import static com.lifecontrol.api.common.security.Roles.STATUS;
+
 import com.lifecontrol.api.status.dto.StatusRequest;
 import com.lifecontrol.api.status.dto.StatusResponse;
 import com.lifecontrol.api.status.service.StatusService;
@@ -8,16 +11,12 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.List;
+import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
-import java.util.UUID;
-
-import static com.lifecontrol.api.common.security.Roles.ADMIN;
-import static com.lifecontrol.api.common.security.Roles.STATUS;
 
 @RestController
 @RequestMapping("/api/statuses")
@@ -32,7 +31,9 @@ public class StatusController {
 
     @GetMapping
     @PreAuthorize("isAuthenticated()")
-    @Operation(summary = "Get all statuses by type", description = "Returns a list of statuses for the given status type. ?statusTypeId= is required.")
+    @Operation(
+            summary = "Get all statuses by type",
+            description = "Returns a list of statuses for the given status type. ?statusTypeId= is required.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Statuses found"),
         @ApiResponse(responseCode = "400", description = "statusTypeId is required"),
@@ -49,14 +50,15 @@ public class StatusController {
 
     @GetMapping("/{id}")
     @PreAuthorize("isAuthenticated()")
-    @Operation(summary = "Get status by ID", description = "Returns a single status by its UUID. Optionally scope to a type with ?statusTypeId=")
+    @Operation(
+            summary = "Get status by ID",
+            description = "Returns a single status by its UUID. Optionally scope to a type with ?statusTypeId=")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Status found"),
         @ApiResponse(responseCode = "404", description = "Status not found")
     })
     public ResponseEntity<StatusResponse> getStatusById(
-            @PathVariable UUID id,
-            @RequestParam(required = false) UUID statusTypeId) {
+            @PathVariable UUID id, @RequestParam(required = false) UUID statusTypeId) {
         if (statusTypeId != null) {
             return ResponseEntity.ok(statusService.getStatusByIdAndTypeId(id, statusTypeId));
         }
@@ -87,8 +89,7 @@ public class StatusController {
         @ApiResponse(responseCode = "409", description = "Status name already exists within this type")
     })
     public ResponseEntity<StatusResponse> updateStatus(
-            @PathVariable UUID id,
-            @Valid @RequestBody StatusRequest request) {
+            @PathVariable UUID id, @Valid @RequestBody StatusRequest request) {
         var response = statusService.updateStatus(id, request);
         return ResponseEntity.ok(response);
     }

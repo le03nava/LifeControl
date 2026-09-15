@@ -1,32 +1,5 @@
 package com.lifecontrol.api.product.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.lifecontrol.api.exception.GlobalExceptionHandler;
-import com.lifecontrol.api.product.exception.ProductNotFoundException;
-import com.lifecontrol.api.product.service.ProductService;
-import com.lifecontrol.api.product.supplier.dto.ProductSupplierRequest;
-import com.lifecontrol.api.product.supplier.dto.ProductSupplierResponse;
-import com.lifecontrol.api.product.supplier.exception.DuplicateProductSupplierException;
-import com.lifecontrol.api.product.supplier.exception.ProductSupplierNotFoundException;
-import com.lifecontrol.api.product.supplier.service.ProductSupplierService;
-import com.lifecontrol.api.supplier.exception.SupplierNotFoundException;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Nested;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.UUID;
-
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -38,6 +11,32 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lifecontrol.api.exception.GlobalExceptionHandler;
+import com.lifecontrol.api.product.exception.ProductNotFoundException;
+import com.lifecontrol.api.product.service.ProductService;
+import com.lifecontrol.api.product.supplier.dto.ProductSupplierRequest;
+import com.lifecontrol.api.product.supplier.dto.ProductSupplierResponse;
+import com.lifecontrol.api.product.supplier.exception.DuplicateProductSupplierException;
+import com.lifecontrol.api.product.supplier.exception.ProductSupplierNotFoundException;
+import com.lifecontrol.api.product.supplier.service.ProductSupplierService;
+import com.lifecontrol.api.supplier.exception.SupplierNotFoundException;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("ProductSupplierController Tests")
@@ -76,23 +75,9 @@ class ProductSupplierControllerTest {
         now = LocalDateTime.now();
 
         testResponse = new ProductSupplierResponse(
-                relationId,
-                productId,
-                supplierId,
-                "Test Supplier Co",
-                new BigDecimal("150.00"),
-                true,
-                true,
-                now,
-                now
-        );
+                relationId, productId, supplierId, "Test Supplier Co", new BigDecimal("150.00"), true, true, now, now);
 
-        testRequest = new ProductSupplierRequest(
-                supplierId,
-                new BigDecimal("150.00"),
-                true,
-                true
-        );
+        testRequest = new ProductSupplierRequest(supplierId, new BigDecimal("150.00"), true, true);
     }
 
     // ─────────────────────────────────────────────
@@ -105,8 +90,7 @@ class ProductSupplierControllerTest {
         @Test
         @DisplayName("should return 200 with supplier list when product has suppliers")
         void getProductSuppliers_Success() throws Exception {
-            when(productSupplierService.listSuppliersByProductId(productId))
-                    .thenReturn(List.of(testResponse));
+            when(productSupplierService.listSuppliersByProductId(productId)).thenReturn(List.of(testResponse));
 
             mockMvc.perform(get("/api/products/{productId}/suppliers", productId))
                     .andExpect(status().isOk())
@@ -125,8 +109,7 @@ class ProductSupplierControllerTest {
         @Test
         @DisplayName("should return 200 with empty list when product has no suppliers")
         void getProductSuppliers_EmptyList() throws Exception {
-            when(productSupplierService.listSuppliersByProductId(productId))
-                    .thenReturn(List.of());
+            when(productSupplierService.listSuppliersByProductId(productId)).thenReturn(List.of());
 
             mockMvc.perform(get("/api/products/{productId}/suppliers", productId))
                     .andExpect(status().isOk())
@@ -176,9 +159,7 @@ class ProductSupplierControllerTest {
         void addProductSupplier_WithDefaults() throws Exception {
             var minimalRequest = new ProductSupplierRequest(supplierId, null, null, null);
             var minimalResponse = new ProductSupplierResponse(
-                    relationId, productId, supplierId, "Test Supplier Co",
-                    null, false, true, now, now
-            );
+                    relationId, productId, supplierId, "Test Supplier Co", null, false, true, now, now);
             when(productSupplierService.addSupplierToProduct(eq(productId), any(ProductSupplierRequest.class)))
                     .thenReturn(minimalResponse);
 
@@ -227,7 +208,8 @@ class ProductSupplierControllerTest {
                             .content(objectMapper.writeValueAsString(testRequest)))
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.status").value(409))
-                    .andExpect(jsonPath("$.message").value("The product already has a relationship with supplier: Test Supplier Co"))
+                    .andExpect(jsonPath("$.message")
+                            .value("The product already has a relationship with supplier: Test Supplier Co"))
                     .andExpect(jsonPath("$.timestamp").exists());
         }
 
@@ -271,10 +253,17 @@ class ProductSupplierControllerTest {
         @DisplayName("should return 200 with updated relation when valid request")
         void updateProductSupplier_Success() throws Exception {
             var updatedResponse = new ProductSupplierResponse(
-                    relationId, productId, supplierId, "Test Supplier Co",
-                    new BigDecimal("200.00"), true, true, now, now
-            );
-            when(productSupplierService.updateSupplier(eq(productId), eq(relationId), any(ProductSupplierRequest.class)))
+                    relationId,
+                    productId,
+                    supplierId,
+                    "Test Supplier Co",
+                    new BigDecimal("200.00"),
+                    true,
+                    true,
+                    now,
+                    now);
+            when(productSupplierService.updateSupplier(
+                            eq(productId), eq(relationId), any(ProductSupplierRequest.class)))
                     .thenReturn(updatedResponse);
 
             var updateRequest = new ProductSupplierRequest(supplierId, new BigDecimal("200.00"), true, true);
@@ -291,7 +280,8 @@ class ProductSupplierControllerTest {
         @Test
         @DisplayName("should return 404 when relation not found")
         void updateProductSupplier_NotFound() throws Exception {
-            when(productSupplierService.updateSupplier(eq(productId), eq(relationId), any(ProductSupplierRequest.class)))
+            when(productSupplierService.updateSupplier(
+                            eq(productId), eq(relationId), any(ProductSupplierRequest.class)))
                     .thenThrow(new ProductSupplierNotFoundException(relationId));
 
             mockMvc.perform(put("/api/products/{productId}/suppliers/{id}", productId, relationId)
@@ -299,7 +289,8 @@ class ProductSupplierControllerTest {
                             .content(objectMapper.writeValueAsString(testRequest)))
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.status").value(404))
-                    .andExpect(jsonPath("$.message").value("Product-supplier relation not found with id: " + relationId))
+                    .andExpect(
+                            jsonPath("$.message").value("Product-supplier relation not found with id: " + relationId))
                     .andExpect(jsonPath("$.timestamp").exists());
         }
     }
@@ -324,12 +315,14 @@ class ProductSupplierControllerTest {
         @DisplayName("should return 404 when relation not found")
         void removeProductSupplier_NotFound() throws Exception {
             doThrow(new ProductSupplierNotFoundException(relationId))
-                    .when(productSupplierService).removeSupplierFromProduct(productId, relationId);
+                    .when(productSupplierService)
+                    .removeSupplierFromProduct(productId, relationId);
 
             mockMvc.perform(delete("/api/products/{productId}/suppliers/{id}", productId, relationId))
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.status").value(404))
-                    .andExpect(jsonPath("$.message").value("Product-supplier relation not found with id: " + relationId))
+                    .andExpect(
+                            jsonPath("$.message").value("Product-supplier relation not found with id: " + relationId))
                     .andExpect(jsonPath("$.timestamp").exists());
         }
     }

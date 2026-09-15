@@ -1,11 +1,15 @@
 package com.lifecontrol.api.supplier.controller;
 
+import static com.lifecontrol.api.common.security.Roles.ADMIN;
+import static com.lifecontrol.api.common.security.Roles.PRODUCT_SUPPLIER;
+
 import com.lifecontrol.api.supplier.dto.SupplierRequest;
 import com.lifecontrol.api.supplier.dto.SupplierResponse;
 import com.lifecontrol.api.supplier.service.SupplierService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -22,11 +26,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.UUID;
-
-import static com.lifecontrol.api.common.security.Roles.ADMIN;
-import static com.lifecontrol.api.common.security.Roles.PRODUCT_SUPPLIER;
-
 @RestController
 @RequestMapping("/api/suppliers")
 @Tag(name = "Supplier Management", description = "API for managing suppliers")
@@ -40,7 +39,10 @@ public class SupplierController {
 
     @GetMapping
     @PreAuthorize("isAuthenticated()")
-    @Operation(summary = "Get all suppliers", description = "Returns a paginated list of suppliers. Use ?search=term to filter by name, RFC, razon social or email and ?includeDisabled=true to include soft-deleted suppliers.")
+    @Operation(
+            summary = "Get all suppliers",
+            description =
+                    "Returns a paginated list of suppliers. Use ?search=term to filter by name, RFC, razon social or email and ?includeDisabled=true to include soft-deleted suppliers.")
     public ResponseEntity<Page<SupplierResponse>> getAllSuppliers(
             @PageableDefault(size = 12) Pageable pageable,
             @RequestParam(required = false) String search,
@@ -66,7 +68,8 @@ public class SupplierController {
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + PRODUCT_SUPPLIER + "')")
     @Operation(summary = "Update a supplier", description = "Updates an existing supplier with the provided details")
-    public ResponseEntity<SupplierResponse> updateSupplier(@PathVariable UUID id, @Valid @RequestBody SupplierRequest request) {
+    public ResponseEntity<SupplierResponse> updateSupplier(
+            @PathVariable UUID id, @Valid @RequestBody SupplierRequest request) {
         var response = supplierService.updateSupplier(id, request);
         return ResponseEntity.ok(response);
     }

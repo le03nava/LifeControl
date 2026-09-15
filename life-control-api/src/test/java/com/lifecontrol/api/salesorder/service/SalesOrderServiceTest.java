@@ -1,12 +1,22 @@
 package com.lifecontrol.api.salesorder.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.atLeast;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
 import com.lifecontrol.api.customer.exception.CustomerNotFoundException;
 import com.lifecontrol.api.customer.repository.CustomerRepository;
+import com.lifecontrol.api.paymentmethod.exception.PaymentMethodNotFoundException;
+import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
 import com.lifecontrol.api.product.model.ProductVariant;
 import com.lifecontrol.api.product.repository.ProductVariantRepository;
-import com.lifecontrol.api.paymentmethod.exception.PaymentMethodNotFoundException;
-import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
 import com.lifecontrol.api.purchaseorder.exception.InvalidStatusTransitionException;
 import com.lifecontrol.api.salesorder.dto.ChargeSalesOrderRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderItemRequest;
@@ -27,43 +37,29 @@ import com.lifecontrol.api.shift.exception.ShiftNotFoundException;
 import com.lifecontrol.api.shift.exception.ShiftNotOpenException;
 import com.lifecontrol.api.shift.model.Shift;
 import com.lifecontrol.api.shift.repository.ShiftRepository;
-import com.lifecontrol.api.status.exception.StatusNotFoundException;
 import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.status.model.StatusType;
 import com.lifecontrol.api.status.repository.StatusRepository;
 import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Nested;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.argThat;
-import static org.mockito.Mockito.atLeast;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
-
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("SalesOrderService Tests")
@@ -215,13 +211,7 @@ class SalesOrderServiceTest {
                 .updatedAt(now)
                 .build();
 
-        testOrderRequest = new SalesOrderRequest(
-                customerId,
-                companyStoreId,
-                shiftId,
-                "user123",
-                null
-        );
+        testOrderRequest = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", null);
 
         testItem = SalesOrderItem.builder()
                 .id(itemId)
@@ -238,13 +228,7 @@ class SalesOrderServiceTest {
                 .build();
 
         testItemRequest = new SalesOrderItemRequest(
-                null,
-                variantId,
-                new BigDecimal("2.00"),
-                new BigDecimal("100.00"),
-                new BigDecimal("10.00"),
-                null
-        );
+                null, variantId, new BigDecimal("2.00"), new BigDecimal("100.00"), new BigDecimal("10.00"), null);
 
         testVariant = new ProductVariant();
         testVariant.setId(variantId);
@@ -275,7 +259,8 @@ class SalesOrderServiceTest {
             var orders = List.of(testOrder);
             var expectedPage = new PageImpl<>(orders, pageable, 1);
 
-            when(salesOrderRepository.findByEnabledTrueOrderByCreatedAtDesc(pageable)).thenReturn(expectedPage);
+            when(salesOrderRepository.findByEnabledTrueOrderByCreatedAtDesc(pageable))
+                    .thenReturn(expectedPage);
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
             when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
 
@@ -318,7 +303,8 @@ class SalesOrderServiceTest {
             var pageable = PageRequest.of(0, 12);
             var expectedPage = new PageImpl<SalesOrder>(List.of(), pageable, 0);
 
-            when(salesOrderRepository.findByEnabledTrueOrderByCreatedAtDesc(pageable)).thenReturn(expectedPage);
+            when(salesOrderRepository.findByEnabledTrueOrderByCreatedAtDesc(pageable))
+                    .thenReturn(expectedPage);
 
             Page<SalesOrderResponse> result = salesOrderService.getAllSalesOrders(pageable, null);
 
@@ -919,7 +905,8 @@ class SalesOrderServiceTest {
             // Verify stock was deducted
             verify(productVariantRepository).save(any(ProductVariant.class));
             assertThat(testVariant.getStock()).isEqualByComparingTo(new BigDecimal("98.00"));
-            // Verify totalAmount was recalculated (findById called in loadAndValidateModifiableSO + recalculateTotalAmount)
+            // Verify totalAmount was recalculated (findById called in loadAndValidateModifiableSO +
+            // recalculateTotalAmount)
             verify(salesOrderRepository, times(2)).findById(orderId);
         }
 
@@ -1043,8 +1030,8 @@ class SalesOrderServiceTest {
             assertThat(result).isNotNull();
             assertThat(result.id()).isEqualTo(itemId);
             // Verify order was saved with Active status (at least once, also saved during recalculate)
-            verify(salesOrderRepository, atLeast(1)).save(argThat(so ->
-                    so.getStatusId().equals(activoStatus.getId())));
+            verify(salesOrderRepository, atLeast(1))
+                    .save(argThat(so -> so.getStatusId().equals(activoStatus.getId())));
         }
 
         @Test
@@ -1103,8 +1090,7 @@ class SalesOrderServiceTest {
         @DisplayName("should deduct stock when item quantity increases")
         void updateSalesOrderItem_QuantityIncrease_DeductsStock() {
             var request = new SalesOrderItemRequest(
-                    itemId, variantId,
-                    new BigDecimal("5.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
+                    itemId, variantId, new BigDecimal("5.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
@@ -1126,8 +1112,7 @@ class SalesOrderServiceTest {
         @DisplayName("should restore stock when item quantity decreases")
         void updateSalesOrderItem_QuantityDecrease_RestoresStock() {
             var request = new SalesOrderItemRequest(
-                    itemId, variantId,
-                    new BigDecimal("1.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
+                    itemId, variantId, new BigDecimal("1.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
@@ -1173,8 +1158,7 @@ class SalesOrderServiceTest {
             newVariant.setStock(new BigDecimal("200.00"));
 
             var request = new SalesOrderItemRequest(
-                    itemId, newVariantId,
-                    new BigDecimal("2.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
+                    itemId, newVariantId, new BigDecimal("2.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
@@ -1196,7 +1180,8 @@ class SalesOrderServiceTest {
         }
 
         @Test
-        @DisplayName("should restore old variant full quantity and deduct new quantity when both variant and quantity change")
+        @DisplayName(
+                "should restore old variant full quantity and deduct new quantity when both variant and quantity change")
         void updateSalesOrderItem_VariantChange_WithQuantityChange() {
             var newVariantId = UUID.randomUUID();
             var newVariant = new ProductVariant();
@@ -1204,8 +1189,7 @@ class SalesOrderServiceTest {
             newVariant.setStock(new BigDecimal("200.00"));
 
             var request = new SalesOrderItemRequest(
-                    itemId, newVariantId,
-                    new BigDecimal("5.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
+                    itemId, newVariantId, new BigDecimal("5.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
@@ -1229,8 +1213,7 @@ class SalesOrderServiceTest {
         void updateSalesOrderItem_InsufficientStock_Throws409() {
             testVariant.setStock(new BigDecimal("1.00"));
             var request = new SalesOrderItemRequest(
-                    itemId, variantId,
-                    new BigDecimal("10.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
+                    itemId, variantId, new BigDecimal("10.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
@@ -1423,8 +1406,8 @@ class SalesOrderServiceTest {
             when(itemRepository.save(any(SalesOrderItem.class))).thenReturn(updatedItem);
             when(statusRepository.findById(agregadoItemStatus.getId())).thenReturn(Optional.of(agregadoItemStatus));
 
-            SalesOrderItemResponse result = salesOrderService.updateSalesOrderItemStatus(
-                    orderId, itemId, statusRequest);
+            SalesOrderItemResponse result =
+                    salesOrderService.updateSalesOrderItemStatus(orderId, itemId, statusRequest);
 
             assertThat(result).isNotNull();
             assertThat(result.id()).isEqualTo(itemId);
@@ -1457,8 +1440,8 @@ class SalesOrderServiceTest {
             when(itemRepository.save(any(SalesOrderItem.class))).thenReturn(updatedItem);
             when(statusRepository.findById(canceladoItemStatus.getId())).thenReturn(Optional.of(canceladoItemStatus));
 
-            SalesOrderItemResponse result = salesOrderService.updateSalesOrderItemStatus(
-                    orderId, itemId, statusRequest);
+            SalesOrderItemResponse result =
+                    salesOrderService.updateSalesOrderItemStatus(orderId, itemId, statusRequest);
 
             assertThat(result).isNotNull();
             assertThat(result.statusName()).isEqualTo("Cancelled");
@@ -1480,7 +1463,8 @@ class SalesOrderServiceTest {
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(testItem));
             when(statusRepository.findById(pendienteItemStatus.getId())).thenReturn(Optional.of(pendienteItemStatus));
-            when(statusRepository.findById(invalidTransitionStatus.getId())).thenReturn(Optional.of(invalidTransitionStatus));
+            when(statusRepository.findById(invalidTransitionStatus.getId()))
+                    .thenReturn(Optional.of(invalidTransitionStatus));
 
             assertThatThrownBy(() -> salesOrderService.updateSalesOrderItemStatus(orderId, itemId, statusRequest))
                     .isInstanceOf(InvalidStatusTransitionException.class)
@@ -1583,15 +1567,16 @@ class SalesOrderServiceTest {
             assertThat(result).isNotNull();
             assertThat(result.statusName()).isEqualTo("Completed");
             // Verify header saved with Completed status + payment method
-            verify(salesOrderRepository).save(argThat(so ->
-                    so.getStatusId().equals(cerradaStatus.getId())
+            verify(salesOrderRepository)
+                    .save(argThat(so -> so.getStatusId().equals(cerradaStatus.getId())
                             && paymentMethodId.equals(so.getPaymentMethodId())));
             // Verify both items saved in a single batch with Added status
             var itemsCaptor = ArgumentCaptor.forClass(Iterable.class);
             verify(itemRepository).saveAll(itemsCaptor.capture());
             var savedItems = new ArrayList<SalesOrderItem>();
             itemsCaptor.getValue().forEach(i -> savedItems.add((SalesOrderItem) i));
-            assertThat(savedItems).hasSize(2)
+            assertThat(savedItems)
+                    .hasSize(2)
                     .allMatch(i -> agregadoItemStatus.getId().equals(i.getStatusId()));
         }
 
@@ -1724,8 +1709,7 @@ class SalesOrderServiceTest {
             when(itemRepository.findBySalesOrderId(orderId))
                     .thenReturn(List.of(itemPending1, itemPending2, itemCancelled));
             // Item status lookup: bulk fetch by the set of item statusIds
-            when(statusRepository.findAllById(any()))
-                    .thenReturn(List.of(pendienteItemStatus, canceladoItemStatus));
+            when(statusRepository.findAllById(any())).thenReturn(List.of(pendienteItemStatus, canceladoItemStatus));
             // toResponse mocks
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
             when(statusRepository.findById(cerradaStatus.getId())).thenReturn(Optional.of(cerradaStatus));
@@ -1739,7 +1723,8 @@ class SalesOrderServiceTest {
             verify(itemRepository).saveAll(itemsCaptor.capture());
             var savedItems = new ArrayList<SalesOrderItem>();
             itemsCaptor.getValue().forEach(i -> savedItems.add((SalesOrderItem) i));
-            assertThat(savedItems).hasSize(2)
+            assertThat(savedItems)
+                    .hasSize(2)
                     .allMatch(i -> agregadoItemStatus.getId().equals(i.getStatusId()))
                     .extracting(SalesOrderItem::getId)
                     .containsExactlyInAnyOrder(itemPending1.getId(), itemPending2.getId());
@@ -1840,7 +1825,8 @@ class SalesOrderServiceTest {
             verify(itemRepository).saveAll(itemsCaptor.capture());
             var savedItems = new ArrayList<SalesOrderItem>();
             itemsCaptor.getValue().forEach(i -> savedItems.add((SalesOrderItem) i));
-            assertThat(savedItems).hasSize(2)
+            assertThat(savedItems)
+                    .hasSize(2)
                     .allMatch(i -> agregadoItemStatus.getId().equals(i.getStatusId()));
         }
 
@@ -1948,10 +1934,10 @@ class SalesOrderServiceTest {
                     .enabled(true)
                     .build();
 
-            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of(item1AfterCharge, item2AfterCharge));
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId))
+                    .thenReturn(List.of(item1AfterCharge, item2AfterCharge));
             when(statusRepository.findById(cerradaStatus.getId())).thenReturn(Optional.of(cerradaStatus));
-            when(statusRepository.findById(agregadoItemStatus.getId()))
-                    .thenReturn(Optional.of(agregadoItemStatus));
+            when(statusRepository.findById(agregadoItemStatus.getId())).thenReturn(Optional.of(agregadoItemStatus));
 
             SalesOrderResponse result = salesOrderService.chargeSalesOrder(orderId, request);
 
@@ -1970,7 +1956,8 @@ class SalesOrderServiceTest {
             verify(itemRepository).saveAll(itemsCaptor.capture());
             var savedItems = new ArrayList<SalesOrderItem>();
             itemsCaptor.getValue().forEach(i -> savedItems.add((SalesOrderItem) i));
-            assertThat(savedItems).hasSize(2)
+            assertThat(savedItems)
+                    .hasSize(2)
                     .allMatch(i -> agregadoItemStatus.getId().equals(i.getStatusId()));
         }
     }
@@ -1995,26 +1982,52 @@ class SalesOrderServiceTest {
             testVariant3.setStock(new BigDecimal("30.00"));
 
             var existingItem1 = SalesOrderItem.builder()
-                    .id(UUID.randomUUID()).salesOrderId(orderId).productVariantId(variantId)
-                    .quantity(BigDecimal.ONE).listPrice(BigDecimal.TEN).finalPrice(BigDecimal.TEN)
-                    .statusId(pendienteItemStatus.getId()).enabled(true).build();
+                    .id(UUID.randomUUID())
+                    .salesOrderId(orderId)
+                    .productVariantId(variantId)
+                    .quantity(BigDecimal.ONE)
+                    .listPrice(BigDecimal.TEN)
+                    .finalPrice(BigDecimal.TEN)
+                    .statusId(pendienteItemStatus.getId())
+                    .enabled(true)
+                    .build();
             var existingItem2 = SalesOrderItem.builder()
-                    .id(UUID.randomUUID()).salesOrderId(orderId).productVariantId(vid2)
-                    .quantity(BigDecimal.ONE).listPrice(BigDecimal.TEN).finalPrice(BigDecimal.TEN)
-                    .statusId(pendienteItemStatus.getId()).enabled(true).build();
+                    .id(UUID.randomUUID())
+                    .salesOrderId(orderId)
+                    .productVariantId(vid2)
+                    .quantity(BigDecimal.ONE)
+                    .listPrice(BigDecimal.TEN)
+                    .finalPrice(BigDecimal.TEN)
+                    .statusId(pendienteItemStatus.getId())
+                    .enabled(true)
+                    .build();
             var existingItem3 = SalesOrderItem.builder()
-                    .id(UUID.randomUUID()).salesOrderId(orderId).productVariantId(vid3)
-                    .quantity(new BigDecimal("5.00")).listPrice(BigDecimal.TEN).finalPrice(BigDecimal.TEN)
-                    .statusId(pendienteItemStatus.getId()).enabled(true).build();
+                    .id(UUID.randomUUID())
+                    .salesOrderId(orderId)
+                    .productVariantId(vid3)
+                    .quantity(new BigDecimal("5.00"))
+                    .listPrice(BigDecimal.TEN)
+                    .finalPrice(BigDecimal.TEN)
+                    .statusId(pendienteItemStatus.getId())
+                    .enabled(true)
+                    .build();
 
             var reqItem1 = new SalesOrderItemRequest(
-                    existingItem1.getId(), existingItem1.getProductVariantId(),
-                    BigDecimal.ONE, BigDecimal.TEN, BigDecimal.ZERO, null);
+                    existingItem1.getId(),
+                    existingItem1.getProductVariantId(),
+                    BigDecimal.ONE,
+                    BigDecimal.TEN,
+                    BigDecimal.ZERO,
+                    null);
             var reqItem2 = new SalesOrderItemRequest(
-                    existingItem2.getId(), existingItem2.getProductVariantId(),
-                    BigDecimal.ONE, BigDecimal.TEN, BigDecimal.ZERO, null);
-            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123",
-                    List.of(reqItem1, reqItem2));
+                    existingItem2.getId(),
+                    existingItem2.getProductVariantId(),
+                    BigDecimal.ONE,
+                    BigDecimal.TEN,
+                    BigDecimal.ZERO,
+                    null);
+            var request =
+                    new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(reqItem1, reqItem2));
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(customerRepository.existsById(customerId)).thenReturn(true);
@@ -2038,8 +2051,8 @@ class SalesOrderServiceTest {
 
             salesOrderService.updateSalesOrder(orderId, request);
 
-            verify(itemRepository).save(argThat(item ->
-                    item.getId().equals(existingItem3.getId()) && !item.getEnabled()));
+            verify(itemRepository)
+                    .save(argThat(item -> item.getId().equals(existingItem3.getId()) && !item.getEnabled()));
             // Verify stock restored for deleted item3: 30.00 + 5.00 = 35.00
             assertThat(testVariant3.getStock()).isEqualByComparingTo(new BigDecimal("35.00"));
             // Variant1 and variant2 should be unchanged (items kept, same qty)
@@ -2055,10 +2068,8 @@ class SalesOrderServiceTest {
             var newDiscount = new BigDecimal("20.00");
 
             var reqItem = new SalesOrderItemRequest(
-                    testItem.getId(), testItem.getProductVariantId(),
-                    newQty, newPrice, newDiscount, null);
-            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123",
-                    List.of(reqItem));
+                    testItem.getId(), testItem.getProductVariantId(), newQty, newPrice, newDiscount, null);
+            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(reqItem));
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(customerRepository.existsById(customerId)).thenReturn(true);
@@ -2077,8 +2088,8 @@ class SalesOrderServiceTest {
 
             salesOrderService.updateSalesOrder(orderId, request);
 
-            verify(itemRepository).save(argThat(item ->
-                    item.getId().equals(testItem.getId())
+            verify(itemRepository)
+                    .save(argThat(item -> item.getId().equals(testItem.getId())
                             && item.getQuantity().compareTo(newQty) == 0
                             && item.getListPrice().compareTo(newPrice) == 0
                             && item.getDiscountApplied().compareTo(newDiscount) == 0
@@ -2097,10 +2108,8 @@ class SalesOrderServiceTest {
             newVariant.setStock(new BigDecimal("50.00"));
 
             var reqItem = new SalesOrderItemRequest(
-                    null, newVariantId,
-                    new BigDecimal("3.00"), new BigDecimal("50.00"), BigDecimal.ZERO, null);
-            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123",
-                    List.of(reqItem));
+                    null, newVariantId, new BigDecimal("3.00"), new BigDecimal("50.00"), BigDecimal.ZERO, null);
+            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(reqItem));
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(customerRepository.existsById(customerId)).thenReturn(true);
@@ -2117,8 +2126,8 @@ class SalesOrderServiceTest {
 
             salesOrderService.updateSalesOrder(orderId, request);
 
-            verify(itemRepository).save(argThat(item ->
-                    item.getId() == null
+            verify(itemRepository)
+                    .save(argThat(item -> item.getId() == null
                             && item.getSalesOrderId().equals(orderId)
                             && item.getProductVariantId().equals(newVariantId)
                             && item.getQuantity().compareTo(new BigDecimal("3.00")) == 0));
@@ -2149,10 +2158,8 @@ class SalesOrderServiceTest {
         @DisplayName("should recalculate total amount after item changes")
         void updateSalesOrder_RecalculatesTotalAfterItemChanges() {
             var reqItem = new SalesOrderItemRequest(
-                    null, variantId,
-                    BigDecimal.ONE, new BigDecimal("100.00"), BigDecimal.ZERO, null);
-            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123",
-                    List.of(reqItem));
+                    null, variantId, BigDecimal.ONE, new BigDecimal("100.00"), BigDecimal.ZERO, null);
+            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(reqItem));
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(customerRepository.existsById(customerId)).thenReturn(true);
@@ -2189,10 +2196,8 @@ class SalesOrderServiceTest {
             newVariant.setStock(new BigDecimal("50.00"));
 
             var reqItem = new SalesOrderItemRequest(
-                    null, newVariantId,
-                    new BigDecimal("10.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
-            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123",
-                    List.of(reqItem));
+                    null, newVariantId, new BigDecimal("10.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
+            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(reqItem));
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(customerRepository.existsById(customerId)).thenReturn(true);
@@ -2221,29 +2226,43 @@ class SalesOrderServiceTest {
             testVariant2.setStock(new BigDecimal("30.00"));
 
             var existingToDelete = SalesOrderItem.builder()
-                    .id(UUID.randomUUID()).salesOrderId(orderId).productVariantId(vid2)
-                    .quantity(new BigDecimal("5.00")).listPrice(BigDecimal.TEN).finalPrice(BigDecimal.TEN)
-                    .statusId(pendienteItemStatus.getId()).enabled(true).build();
+                    .id(UUID.randomUUID())
+                    .salesOrderId(orderId)
+                    .productVariantId(vid2)
+                    .quantity(new BigDecimal("5.00"))
+                    .listPrice(BigDecimal.TEN)
+                    .finalPrice(BigDecimal.TEN)
+                    .statusId(pendienteItemStatus.getId())
+                    .enabled(true)
+                    .build();
 
             var existingKept = SalesOrderItem.builder()
-                    .id(UUID.randomUUID()).salesOrderId(orderId).productVariantId(variantId)
-                    .quantity(new BigDecimal("2.00")).listPrice(BigDecimal.TEN).finalPrice(BigDecimal.TEN)
-                    .statusId(pendienteItemStatus.getId()).enabled(true).build();
+                    .id(UUID.randomUUID())
+                    .salesOrderId(orderId)
+                    .productVariantId(variantId)
+                    .quantity(new BigDecimal("2.00"))
+                    .listPrice(BigDecimal.TEN)
+                    .finalPrice(BigDecimal.TEN)
+                    .statusId(pendienteItemStatus.getId())
+                    .enabled(true)
+                    .build();
 
             // Request: keep existingKept only (existingToDelete is absent → deleted)
             var reqItem = new SalesOrderItemRequest(
-                    existingKept.getId(), existingKept.getProductVariantId(),
-                    new BigDecimal("2.00"), BigDecimal.TEN, BigDecimal.ZERO, null);
-            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123",
-                    List.of(reqItem));
+                    existingKept.getId(),
+                    existingKept.getProductVariantId(),
+                    new BigDecimal("2.00"),
+                    BigDecimal.TEN,
+                    BigDecimal.ZERO,
+                    null);
+            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(reqItem));
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(customerRepository.existsById(customerId)).thenReturn(true);
             when(companyStoreRepository.existsById(companyStoreId)).thenReturn(true);
             when(shiftRepository.existsById(shiftId)).thenReturn(true);
             when(salesOrderRepository.save(any(SalesOrder.class))).thenReturn(testOrder);
-            when(itemRepository.findBySalesOrderId(orderId))
-                    .thenReturn(List.of(existingKept, existingToDelete));
+            when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(existingKept, existingToDelete));
             when(itemRepository.findById(existingKept.getId())).thenReturn(Optional.of(existingKept));
             when(itemRepository.save(any(SalesOrderItem.class))).thenAnswer(inv -> inv.getArgument(0));
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
@@ -2265,10 +2284,13 @@ class SalesOrderServiceTest {
         @DisplayName("should deduct additional stock on quantity increase")
         void deltaComputation_QuantityIncrease_DeductsAdditional() {
             var reqItem = new SalesOrderItemRequest(
-                    testItem.getId(), testItem.getProductVariantId(),
-                    new BigDecimal("7.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
-            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123",
-                    List.of(reqItem));
+                    testItem.getId(),
+                    testItem.getProductVariantId(),
+                    new BigDecimal("7.00"),
+                    new BigDecimal("100.00"),
+                    BigDecimal.ZERO,
+                    null);
+            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(reqItem));
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(customerRepository.existsById(customerId)).thenReturn(true);
@@ -2294,10 +2316,13 @@ class SalesOrderServiceTest {
         @DisplayName("should restore stock on quantity decrease")
         void deltaComputation_QuantityDecrease_RestoresStock() {
             var reqItem = new SalesOrderItemRequest(
-                    testItem.getId(), testItem.getProductVariantId(),
-                    BigDecimal.ONE, new BigDecimal("100.00"), BigDecimal.ZERO, null);
-            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123",
-                    List.of(reqItem));
+                    testItem.getId(),
+                    testItem.getProductVariantId(),
+                    BigDecimal.ONE,
+                    new BigDecimal("100.00"),
+                    BigDecimal.ZERO,
+                    null);
+            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(reqItem));
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(customerRepository.existsById(customerId)).thenReturn(true);
@@ -2333,26 +2358,34 @@ class SalesOrderServiceTest {
 
             // Existing item: testItem (variantId, qty 2.00) — will be kept, qty changed to 3
             var existingToDelete = SalesOrderItem.builder()
-                    .id(UUID.randomUUID()).salesOrderId(orderId).productVariantId(vidOld)
-                    .quantity(new BigDecimal("4.00")).listPrice(BigDecimal.TEN).finalPrice(BigDecimal.TEN)
-                    .statusId(pendienteItemStatus.getId()).enabled(true).build();
+                    .id(UUID.randomUUID())
+                    .salesOrderId(orderId)
+                    .productVariantId(vidOld)
+                    .quantity(new BigDecimal("4.00"))
+                    .listPrice(BigDecimal.TEN)
+                    .finalPrice(BigDecimal.TEN)
+                    .statusId(pendienteItemStatus.getId())
+                    .enabled(true)
+                    .build();
 
             var reqItemModify = new SalesOrderItemRequest(
-                    testItem.getId(), variantId,
-                    new BigDecimal("3.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
+                    testItem.getId(),
+                    variantId,
+                    new BigDecimal("3.00"),
+                    new BigDecimal("100.00"),
+                    BigDecimal.ZERO,
+                    null);
             var reqItemNew = new SalesOrderItemRequest(
-                    null, vidNew,
-                    new BigDecimal("6.00"), new BigDecimal("50.00"), BigDecimal.ZERO, null);
-            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123",
-                    List.of(reqItemModify, reqItemNew));
+                    null, vidNew, new BigDecimal("6.00"), new BigDecimal("50.00"), BigDecimal.ZERO, null);
+            var request = new SalesOrderRequest(
+                    customerId, companyStoreId, shiftId, "user123", List.of(reqItemModify, reqItemNew));
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(customerRepository.existsById(customerId)).thenReturn(true);
             when(companyStoreRepository.existsById(companyStoreId)).thenReturn(true);
             when(shiftRepository.existsById(shiftId)).thenReturn(true);
             when(salesOrderRepository.save(any(SalesOrder.class))).thenAnswer(inv -> inv.getArgument(0));
-            when(itemRepository.findBySalesOrderId(orderId))
-                    .thenReturn(List.of(testItem, existingToDelete));
+            when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(testItem, existingToDelete));
             when(itemRepository.findById(testItem.getId())).thenReturn(Optional.of(testItem));
             when(itemRepository.save(any(SalesOrderItem.class))).thenAnswer(inv -> inv.getArgument(0));
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
@@ -2382,15 +2415,24 @@ class SalesOrderServiceTest {
             oldVariant.setStock(new BigDecimal("30.00"));
 
             var existingItem = SalesOrderItem.builder()
-                    .id(UUID.randomUUID()).salesOrderId(orderId).productVariantId(vidOld)
-                    .quantity(new BigDecimal("4.00")).listPrice(BigDecimal.TEN).finalPrice(BigDecimal.TEN)
-                    .statusId(pendienteItemStatus.getId()).enabled(true).build();
+                    .id(UUID.randomUUID())
+                    .salesOrderId(orderId)
+                    .productVariantId(vidOld)
+                    .quantity(new BigDecimal("4.00"))
+                    .listPrice(BigDecimal.TEN)
+                    .finalPrice(BigDecimal.TEN)
+                    .statusId(pendienteItemStatus.getId())
+                    .enabled(true)
+                    .build();
 
             var reqItem = new SalesOrderItemRequest(
-                    existingItem.getId(), variantId,
-                    new BigDecimal("6.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
-            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123",
-                    List.of(reqItem));
+                    existingItem.getId(),
+                    variantId,
+                    new BigDecimal("6.00"),
+                    new BigDecimal("100.00"),
+                    BigDecimal.ZERO,
+                    null);
+            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(reqItem));
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(customerRepository.existsById(customerId)).thenReturn(true);
@@ -2420,10 +2462,13 @@ class SalesOrderServiceTest {
             testVariant.setStock(new BigDecimal("1.00")); // only 1 available
 
             var reqItem = new SalesOrderItemRequest(
-                    testItem.getId(), testItem.getProductVariantId(),
-                    new BigDecimal("5.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
-            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123",
-                    List.of(reqItem));
+                    testItem.getId(),
+                    testItem.getProductVariantId(),
+                    new BigDecimal("5.00"),
+                    new BigDecimal("100.00"),
+                    BigDecimal.ZERO,
+                    null);
+            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(reqItem));
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(customerRepository.existsById(customerId)).thenReturn(true);
@@ -2487,5 +2532,4 @@ class SalesOrderServiceTest {
             assertThat(ex).isInstanceOf(RuntimeException.class);
         }
     }
-
 }

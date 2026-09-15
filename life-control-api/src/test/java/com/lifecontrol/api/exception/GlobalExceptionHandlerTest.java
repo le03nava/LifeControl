@@ -1,15 +1,22 @@
 package com.lifecontrol.api.exception;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.lifecontrol.api.company.exception.CompanyCountryNotFoundException;
 import com.lifecontrol.api.company.exception.CompanyNotFoundException;
-import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.exception.DuplicateCompanyCountryException;
+import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.country.exception.CountryNotFoundException;
 import com.lifecontrol.api.country.exception.DuplicateCountryException;
 import com.lifecontrol.api.purchaseorder.exception.InvalidStatusTransitionException;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.Path;
+import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -18,20 +25,12 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
-import org.springframework.web.HttpRequestMethodNotSupportedException;
-import org.springframework.web.bind.MissingServletRequestParameterException;
-import org.springframework.web.bind.MethodArgumentNotValidException;
-import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
-
-import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 @DisplayName("GlobalExceptionHandler Tests")
 class GlobalExceptionHandlerTest {
@@ -56,15 +55,12 @@ class GlobalExceptionHandlerTest {
             errors.put("email", "Email must be valid");
 
             BindingResult bindingResult = org.mockito.Mockito.mock(BindingResult.class);
-            org.mockito.Mockito.when(bindingResult.getFieldErrors()).thenReturn(
-                    List.of(
+            org.mockito.Mockito.when(bindingResult.getFieldErrors())
+                    .thenReturn(List.of(
                             new FieldError("apiUserRequest", "username", "Username is required"),
-                            new FieldError("apiUserRequest", "email", "Email must be valid")
-                    )
-            );
+                            new FieldError("apiUserRequest", "email", "Email must be valid")));
 
-            MethodArgumentNotValidException exception =
-                    new MethodArgumentNotValidException(null, bindingResult);
+            MethodArgumentNotValidException exception = new MethodArgumentNotValidException(null, bindingResult);
 
             // Act
             ResponseEntity<GlobalExceptionHandler.ValidationErrorResponse> response =
@@ -152,7 +148,8 @@ class GlobalExceptionHandlerTest {
         @DisplayName("should return 409 Conflict with error message")
         void handleConflict_Returns409() {
             // Arrange
-            DuplicateCountryException exception = new DuplicateCountryException("Country with code 'MX' already exists");
+            DuplicateCountryException exception =
+                    new DuplicateCountryException("Country with code 'MX' already exists");
 
             // Act
             ResponseEntity<GlobalExceptionHandler.ErrorResponse> response =
@@ -175,7 +172,8 @@ class GlobalExceptionHandlerTest {
         @DisplayName("should return 404 with error message")
         void handleNotFound_Returns404_CompanyCountry() {
             // Arrange
-            CompanyCountryNotFoundException exception = new CompanyCountryNotFoundException(java.util.UUID.randomUUID());
+            CompanyCountryNotFoundException exception =
+                    new CompanyCountryNotFoundException(java.util.UUID.randomUUID());
 
             // Act
             ResponseEntity<GlobalExceptionHandler.ErrorResponse> response =
@@ -422,7 +420,8 @@ class GlobalExceptionHandlerTest {
 
             // Act
             GlobalExceptionHandler.ValidationErrorResponse errorResponse =
-                    new GlobalExceptionHandler.ValidationErrorResponse(400, "Validation failed", errors, "/api/companies", timestamp, "trace-456");
+                    new GlobalExceptionHandler.ValidationErrorResponse(
+                            400, "Validation failed", errors, "/api/companies", timestamp, "trace-456");
 
             // Assert
             assertThat(errorResponse.status()).isEqualTo(400);
@@ -448,8 +447,7 @@ class GlobalExceptionHandlerTest {
             var exception = new ResourceNotFoundException(Company.class, id);
 
             // Assert
-            assertThat(exception.getMessage())
-                    .isEqualTo("Company not found with id: " + id);
+            assertThat(exception.getMessage()).isEqualTo("Company not found with id: " + id);
         }
 
         @Test
@@ -457,8 +455,7 @@ class GlobalExceptionHandlerTest {
         void domainExceptions_ExtendGenericCategories() {
             assertThat(new CompanyNotFoundException(java.util.UUID.randomUUID()))
                     .isInstanceOf(ResourceNotFoundException.class);
-            assertThat(new DuplicateCountryException("duplicate"))
-                    .isInstanceOf(DuplicateResourceException.class);
+            assertThat(new DuplicateCountryException("duplicate")).isInstanceOf(DuplicateResourceException.class);
             assertThat(new InvalidStatusTransitionException("Draft", "Received"))
                     .isInstanceOf(ConflictException.class);
         }

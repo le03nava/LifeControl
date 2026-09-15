@@ -9,15 +9,13 @@ import com.lifecontrol.api.activity.repository.ActivityLogRepository;
 import com.lifecontrol.api.activity.repository.ActivityLogSpecifications;
 import com.lifecontrol.api.activity.repository.ActivityProcessRepository;
 import com.lifecontrol.api.activity.util.PayloadSanitizer;
+import java.time.LocalTime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.time.LocalDateTime;
-import java.time.LocalTime;
 
 /**
  * Service for the activity audit trail.
@@ -34,9 +32,10 @@ public class ActivityLogService {
     private final ActivityProcessRepository processRepository;
     private final ActivityEventRepository eventRepository;
 
-    public ActivityLogService(ActivityLogRepository activityLogRepository,
-                              ActivityProcessRepository processRepository,
-                              ActivityEventRepository eventRepository) {
+    public ActivityLogService(
+            ActivityLogRepository activityLogRepository,
+            ActivityProcessRepository processRepository,
+            ActivityEventRepository eventRepository) {
         this.activityLogRepository = activityLogRepository;
         this.processRepository = processRepository;
         this.eventRepository = eventRepository;
@@ -79,9 +78,12 @@ public class ActivityLogService {
 
         activityLogRepository.save(logEntry);
 
-        log.debug("Activity log saved: {} {} {} -> {}",
-                event.getHttpMethod(), event.getRequestPath(),
-                event.getProcessName(), event.getEventName());
+        log.debug(
+                "Activity log saved: {} {} {} -> {}",
+                event.getHttpMethod(),
+                event.getRequestPath(),
+                event.getProcessName(),
+                event.getEventName());
     }
 
     /**
@@ -93,20 +95,11 @@ public class ActivityLogService {
      */
     @Transactional(readOnly = true)
     public Page<ActivityLogResponse> findAll(ActivityLogFilter filter, Pageable pageable) {
-        var from = filter.from() != null
-                ? filter.from().atStartOfDay()
-                : null;
-        var to = filter.to() != null
-                ? filter.to().atTime(LocalTime.MAX)
-                : null;
+        var from = filter.from() != null ? filter.from().atStartOfDay() : null;
+        var to = filter.to() != null ? filter.to().atTime(LocalTime.MAX) : null;
 
         var spec = ActivityLogSpecifications.withFilters(
-                from, to,
-                filter.process(),
-                filter.event(),
-                filter.userId(),
-                filter.httpMethod()
-        );
+                from, to, filter.process(), filter.event(), filter.userId(), filter.httpMethod());
 
         var page = activityLogRepository.findAll(spec, pageable);
 
@@ -126,7 +119,6 @@ public class ActivityLogService {
                 logEntry.getIpAddress(),
                 logEntry.getUserAgent(),
                 logEntry.getPayloadJson(),
-                logEntry.getCreatedAt()
-        );
+                logEntry.getCreatedAt());
     }
 }

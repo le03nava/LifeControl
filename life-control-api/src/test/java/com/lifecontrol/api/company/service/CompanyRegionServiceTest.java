@@ -1,9 +1,15 @@
 package com.lifecontrol.api.company.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
 import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.company.dto.CompanyRegionResponse;
 import com.lifecontrol.api.company.dto.CreateCompanyRegionRequest;
 import com.lifecontrol.api.company.dto.UpdateCompanyRegionRequest;
+import com.lifecontrol.api.company.event.CompanyRegionCreatedEvent;
 import com.lifecontrol.api.company.exception.CompanyNotFoundException;
 import com.lifecontrol.api.company.exception.CompanyRegionNotFoundException;
 import com.lifecontrol.api.company.exception.DuplicateCompanyRegionException;
@@ -13,8 +19,12 @@ import com.lifecontrol.api.company.model.CompanyRegion;
 import com.lifecontrol.api.company.repository.CompanyCountryRepository;
 import com.lifecontrol.api.company.repository.CompanyRegionRepository;
 import com.lifecontrol.api.company.repository.CompanyRepository;
-import com.lifecontrol.api.company.event.CompanyRegionCreatedEvent;
 import com.lifecontrol.api.country.model.Country;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -25,29 +35,22 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Optional;
-import java.util.Set;
-import java.util.UUID;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
-
 @ExtendWith(MockitoExtension.class)
 @DisplayName("CompanyRegionService Tests")
 class CompanyRegionServiceTest {
 
     @Mock
     private CompanyRegionRepository companyRegionRepository;
+
     @Mock
     private CompanyRepository companyRepository;
+
     @Mock
     private CompanyCountryRepository companyCountryRepository;
+
     @Mock
     private CurrentUserContext currentUserContext;
+
     @Mock
     private ApplicationEventPublisher eventPublisher;
 
@@ -278,7 +281,8 @@ class CompanyRegionServiceTest {
             });
 
             // Act
-            CompanyRegionResponse result = companyRegionService.createRegion(companyId, companyCountryId, createRequest);
+            CompanyRegionResponse result =
+                    companyRegionService.createRegion(companyId, companyCountryId, createRequest);
 
             // Assert
             assertThat(result).isNotNull();
@@ -358,7 +362,8 @@ class CompanyRegionServiceTest {
             when(companyRegionRepository.save(any(CompanyRegion.class))).thenAnswer(inv -> inv.getArgument(0));
 
             // Act
-            CompanyRegionResponse result = companyRegionService.updateRegion(companyId, companyCountryId, regionId, updateRequest);
+            CompanyRegionResponse result =
+                    companyRegionService.updateRegion(companyId, companyCountryId, regionId, updateRequest);
 
             // Assert
             assertThat(result).isNotNull();
@@ -386,11 +391,12 @@ class CompanyRegionServiceTest {
                     .thenReturn(Optional.of(testRegion));
             // Code changed from NORTE to SUR
             when(companyRegionRepository.existsByCompanyCountryIdAndRegionCodeAndIdNot(
-                    companyCountryId, "SUR", regionId))
+                            companyCountryId, "SUR", regionId))
                     .thenReturn(true);
 
             // Act & Assert
-            assertThatThrownBy(() -> companyRegionService.updateRegion(companyId, companyCountryId, regionId, changeCodeRequest))
+            assertThatThrownBy(() ->
+                            companyRegionService.updateRegion(companyId, companyCountryId, regionId, changeCodeRequest))
                     .isInstanceOf(DuplicateCompanyRegionException.class);
             verify(companyRegionRepository, never()).save(any());
         }
@@ -413,7 +419,8 @@ class CompanyRegionServiceTest {
             when(companyRegionRepository.save(any(CompanyRegion.class))).thenAnswer(inv -> inv.getArgument(0));
 
             // Act
-            CompanyRegionResponse result = companyRegionService.updateRegion(companyId, companyCountryId, regionId, updateRequest);
+            CompanyRegionResponse result =
+                    companyRegionService.updateRegion(companyId, companyCountryId, regionId, updateRequest);
 
             // Assert
             assertThat(result).isNotNull();
@@ -437,7 +444,8 @@ class CompanyRegionServiceTest {
                     .thenReturn(Optional.empty());
 
             // Act & Assert
-            assertThatThrownBy(() -> companyRegionService.updateRegion(companyId, companyCountryId, regionId, updateRequest))
+            assertThatThrownBy(() ->
+                            companyRegionService.updateRegion(companyId, companyCountryId, regionId, updateRequest))
                     .isInstanceOf(CompanyRegionNotFoundException.class);
         }
     }
@@ -638,7 +646,10 @@ class CompanyRegionServiceTest {
         @DisplayName("getRegionById verifies with regionId set")
         void getRegionByIdPassesRegionId() {
             var companyCountry = CompanyCountry.builder()
-                    .id(companyCountryId).company(testCompany).country(testCountry).build();
+                    .id(companyCountryId)
+                    .company(testCompany)
+                    .country(testCountry)
+                    .build();
             when(companyCountryRepository.findByCompanyIdAndId(companyId, companyCountryId))
                     .thenReturn(Optional.of(companyCountry));
             when(companyRegionRepository.findByIdAndCompanyCountryId(regionId, companyCountryId))
@@ -654,7 +665,10 @@ class CompanyRegionServiceTest {
         void createRegionPassesNullRegionId() {
             when(companyRepository.findById(companyId)).thenReturn(Optional.of(testCompany));
             var companyCountry = CompanyCountry.builder()
-                    .id(companyCountryId).company(testCompany).country(testCountry).build();
+                    .id(companyCountryId)
+                    .company(testCompany)
+                    .country(testCountry)
+                    .build();
             when(companyCountryRepository.findByCompanyIdAndId(companyId, companyCountryId))
                     .thenReturn(Optional.of(companyCountry));
             when(companyRegionRepository.existsByCompanyCountryIdAndRegionCode(companyCountryId, "NORTE"))
@@ -671,7 +685,10 @@ class CompanyRegionServiceTest {
         void updateRegionPassesRegionId() {
             when(companyRepository.findById(companyId)).thenReturn(Optional.of(testCompany));
             var companyCountry = CompanyCountry.builder()
-                    .id(companyCountryId).company(testCompany).country(testCountry).build();
+                    .id(companyCountryId)
+                    .company(testCompany)
+                    .country(testCountry)
+                    .build();
             when(companyCountryRepository.findByCompanyIdAndId(companyId, companyCountryId))
                     .thenReturn(Optional.of(companyCountry));
             when(companyRegionRepository.findByIdAndCompanyCountryId(regionId, companyCountryId))
@@ -688,7 +705,10 @@ class CompanyRegionServiceTest {
         void deleteRegionPassesRegionId() {
             when(companyRepository.findById(companyId)).thenReturn(Optional.of(testCompany));
             var companyCountry = CompanyCountry.builder()
-                    .id(companyCountryId).company(testCompany).country(testCountry).build();
+                    .id(companyCountryId)
+                    .company(testCompany)
+                    .country(testCountry)
+                    .build();
             when(companyCountryRepository.findByCompanyIdAndId(companyId, companyCountryId))
                     .thenReturn(Optional.of(companyCountry));
             when(companyRegionRepository.findByIdAndCompanyCountryId(regionId, companyCountryId))
@@ -705,7 +725,10 @@ class CompanyRegionServiceTest {
         void enableRegionPassesRegionId() {
             when(companyRepository.findById(companyId)).thenReturn(Optional.of(testCompany));
             var companyCountry = CompanyCountry.builder()
-                    .id(companyCountryId).company(testCompany).country(testCountry).build();
+                    .id(companyCountryId)
+                    .company(testCompany)
+                    .country(testCountry)
+                    .build();
             when(companyCountryRepository.findByCompanyIdAndId(companyId, companyCountryId))
                     .thenReturn(Optional.of(companyCountry));
             when(companyRegionRepository.findByIdAndCompanyCountryId(regionId, companyCountryId))

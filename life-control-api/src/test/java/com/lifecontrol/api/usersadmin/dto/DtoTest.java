@@ -1,15 +1,14 @@
 package com.lifecontrol.api.usersadmin.dto;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.lifecontrol.api.usersadmin.identity.RoleDto;
 import com.lifecontrol.api.usersadmin.identity.RoleScope;
 import com.lifecontrol.api.usersadmin.identity.UserSearchDto;
+import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-
-import java.util.List;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 @DisplayName("DTOs and shared types")
 class DtoTest {

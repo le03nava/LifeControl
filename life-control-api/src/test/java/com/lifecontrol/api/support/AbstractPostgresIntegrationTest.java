@@ -21,11 +21,10 @@ import org.testcontainers.containers.PostgreSQLContainer;
 @ActiveProfiles("test")
 public abstract class AbstractPostgresIntegrationTest {
 
-    protected static final PostgreSQLContainer<?> POSTGRES =
-            new PostgreSQLContainer<>("postgres:16-alpine")
-                    .withDatabaseName("lifecontrol_test")
-                    .withUsername("lifecontrol")
-                    .withPassword("lifecontrol");
+    protected static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
+            .withDatabaseName("lifecontrol_test")
+            .withUsername("lifecontrol")
+            .withPassword("lifecontrol");
 
     static {
         POSTGRES.start();

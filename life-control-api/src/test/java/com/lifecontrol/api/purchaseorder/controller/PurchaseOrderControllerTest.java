@@ -1,5 +1,17 @@
 package com.lifecontrol.api.purchaseorder.controller;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifecontrol.api.exception.GlobalExceptionHandler;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderDetailRequest;
@@ -12,6 +24,10 @@ import com.lifecontrol.api.purchaseorder.exception.PurchaseOrderDetailNotFoundEx
 import com.lifecontrol.api.purchaseorder.exception.PurchaseOrderNotFoundException;
 import com.lifecontrol.api.purchaseorder.service.PurchaseOrderService;
 import com.lifecontrol.api.supplier.exception.SupplierNotFoundException;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -27,23 +43,6 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.UUID;
-
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-
 @ExtendWith(MockitoExtension.class)
 @DisplayName("PurchaseOrderController Tests")
 class PurchaseOrderControllerTest {
@@ -51,8 +50,11 @@ class PurchaseOrderControllerTest {
     private MockMvc mockMvc;
     private ObjectMapper objectMapper;
 
-    @Mock private PurchaseOrderService purchaseOrderService;
-    @InjectMocks private PurchaseOrderController controller;
+    @Mock
+    private PurchaseOrderService purchaseOrderService;
+
+    @InjectMocks
+    private PurchaseOrderController controller;
 
     private UUID poId, detailId, supplierId, productId, companyId, companyCountryId, regionId, zoneId;
     private PurchaseOrderResponse poResponse;
@@ -77,23 +79,40 @@ class PurchaseOrderControllerTest {
         zoneId = UUID.randomUUID();
 
         detailResponse = new PurchaseOrderDetailResponse(
-                detailId, poId, productId, "Test Product",
-                5, new BigDecimal("100.00"), new BigDecimal("500.00"),
-                0, "Note", UUID.randomUUID(), "Pending",
-                LocalDateTime.now(), LocalDateTime.now()
-        );
+                detailId,
+                poId,
+                productId,
+                "Test Product",
+                5,
+                new BigDecimal("100.00"),
+                new BigDecimal("500.00"),
+                0,
+                "Note",
+                UUID.randomUUID(),
+                "Pending",
+                LocalDateTime.now(),
+                LocalDateTime.now());
 
         poResponse = new PurchaseOrderResponse(
-                poId, "PO-20260603-00001",
-                supplierId, "Test Supplier",
-                UUID.randomUUID(), "Test Store",
-                companyId, companyCountryId, regionId, zoneId,
-                UUID.randomUUID(), "Transfer",
-                UUID.randomUUID(), "Draft",
-                "Comments", true,
-                LocalDateTime.now(), LocalDateTime.now(),
-                List.of(detailResponse)
-        );
+                poId,
+                "PO-20260603-00001",
+                supplierId,
+                "Test Supplier",
+                UUID.randomUUID(),
+                "Test Store",
+                companyId,
+                companyCountryId,
+                regionId,
+                zoneId,
+                UUID.randomUUID(),
+                "Transfer",
+                UUID.randomUUID(),
+                "Draft",
+                "Comments",
+                true,
+                LocalDateTime.now(),
+                LocalDateTime.now(),
+                List.of(detailResponse));
     }
 
     // ─── GET list ───────────────────────────────────────────────────────
@@ -146,11 +165,9 @@ class PurchaseOrderControllerTest {
         @Test
         @DisplayName("should return 404 when not found")
         void returns404() throws Exception {
-            when(purchaseOrderService.getPurchaseOrderById(poId))
-                    .thenThrow(new PurchaseOrderNotFoundException(poId));
+            when(purchaseOrderService.getPurchaseOrderById(poId)).thenThrow(new PurchaseOrderNotFoundException(poId));
 
-            mockMvc.perform(get("/api/purchase-orders/{id}", poId))
-                    .andExpect(status().isNotFound());
+            mockMvc.perform(get("/api/purchase-orders/{id}", poId)).andExpect(status().isNotFound());
         }
     }
 
@@ -164,9 +181,7 @@ class PurchaseOrderControllerTest {
         @DisplayName("should return 201 Created")
         void returns201() throws Exception {
             var request = new PurchaseOrderRequest(
-                    supplierId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
-                    "Comments", List.of()
-            );
+                    supplierId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), "Comments", List.of());
             when(purchaseOrderService.createPurchaseOrder(any(PurchaseOrderRequest.class)))
                     .thenReturn(poResponse);
 
@@ -180,9 +195,7 @@ class PurchaseOrderControllerTest {
         @Test
         @DisplayName("should return 400 on validation error")
         void returns400OnValidationError() throws Exception {
-            var invalidRequest = new PurchaseOrderRequest(
-                    null, null, null, null, null, null
-            );
+            var invalidRequest = new PurchaseOrderRequest(null, null, null, null, null, null);
 
             mockMvc.perform(post("/api/purchase-orders")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -194,9 +207,7 @@ class PurchaseOrderControllerTest {
         @DisplayName("should return 404 when supplier missing")
         void returns404WhenSupplierMissing() throws Exception {
             var request = new PurchaseOrderRequest(
-                    supplierId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
-                    null, List.of()
-            );
+                    supplierId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), null, List.of());
             when(purchaseOrderService.createPurchaseOrder(any(PurchaseOrderRequest.class)))
                     .thenThrow(new SupplierNotFoundException(supplierId));
 
@@ -217,9 +228,7 @@ class PurchaseOrderControllerTest {
         @DisplayName("should return 200 OK")
         void returns200() throws Exception {
             var request = new PurchaseOrderRequest(
-                    supplierId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
-                    "Updated", List.of()
-            );
+                    supplierId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), "Updated", List.of());
             when(purchaseOrderService.updatePurchaseOrder(eq(poId), any(PurchaseOrderRequest.class)))
                     .thenReturn(poResponse);
 
@@ -233,9 +242,7 @@ class PurchaseOrderControllerTest {
         @DisplayName("should return 404 when PO not found")
         void returns404() throws Exception {
             var request = new PurchaseOrderRequest(
-                    supplierId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
-                    null, List.of()
-            );
+                    supplierId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), null, List.of());
             when(purchaseOrderService.updatePurchaseOrder(eq(poId), any(PurchaseOrderRequest.class)))
                     .thenThrow(new PurchaseOrderNotFoundException(poId));
 
@@ -288,8 +295,7 @@ class PurchaseOrderControllerTest {
         @Test
         @DisplayName("should return 204 No Content")
         void returns204() throws Exception {
-            mockMvc.perform(delete("/api/purchase-orders/{id}", poId))
-                    .andExpect(status().isNoContent());
+            mockMvc.perform(delete("/api/purchase-orders/{id}", poId)).andExpect(status().isNoContent());
         }
     }
 
@@ -319,11 +325,9 @@ class PurchaseOrderControllerTest {
         @Test
         @DisplayName("should return 201 Created")
         void returns201() throws Exception {
-            var detailReq = new PurchaseOrderDetailRequest(
-                    productId, 5, new BigDecimal("100.00"), "Note", UUID.randomUUID()
-            );
-            when(purchaseOrderService.addPurchaseOrderDetail(eq(poId), any()))
-                    .thenReturn(detailResponse);
+            var detailReq =
+                    new PurchaseOrderDetailRequest(productId, 5, new BigDecimal("100.00"), "Note", UUID.randomUUID());
+            when(purchaseOrderService.addPurchaseOrderDetail(eq(poId), any())).thenReturn(detailResponse);
 
             mockMvc.perform(post("/api/purchase-orders/{id}/details", poId)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -343,8 +347,7 @@ class PurchaseOrderControllerTest {
         @DisplayName("should return 200 OK")
         void returns200() throws Exception {
             var detailReq = new PurchaseOrderDetailRequest(
-                    productId, 10, new BigDecimal("50.00"), "Updated", UUID.randomUUID()
-            );
+                    productId, 10, new BigDecimal("50.00"), "Updated", UUID.randomUUID());
             when(purchaseOrderService.updatePurchaseOrderDetail(eq(poId), eq(detailId), any()))
                     .thenReturn(detailResponse);
 
@@ -372,7 +375,8 @@ class PurchaseOrderControllerTest {
         @DisplayName("should return 404 when detail not found")
         void returns404() throws Exception {
             doThrow(new PurchaseOrderDetailNotFoundException(detailId))
-                    .when(purchaseOrderService).deletePurchaseOrderDetail(poId, detailId);
+                    .when(purchaseOrderService)
+                    .deletePurchaseOrderDetail(poId, detailId);
 
             mockMvc.perform(delete("/api/purchase-orders/{id}/details/{did}", poId, detailId))
                     .andExpect(status().isNotFound());

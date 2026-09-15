@@ -1,33 +1,5 @@
 package com.lifecontrol.api.shift.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.lifecontrol.api.exception.GlobalExceptionHandler;
-import com.lifecontrol.api.shift.dto.ShiftRequest;
-import com.lifecontrol.api.shift.dto.ShiftResponse;
-import com.lifecontrol.api.shift.exception.ShiftAlreadyOpenException;
-import com.lifecontrol.api.shift.exception.ShiftNotFoundException;
-import com.lifecontrol.api.shift.service.ShiftService;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Nested;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.web.PageableHandlerMethodArgumentResolver;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.UUID;
-
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -40,6 +12,32 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lifecontrol.api.exception.GlobalExceptionHandler;
+import com.lifecontrol.api.shift.dto.ShiftRequest;
+import com.lifecontrol.api.shift.dto.ShiftResponse;
+import com.lifecontrol.api.shift.exception.ShiftAlreadyOpenException;
+import com.lifecontrol.api.shift.exception.ShiftNotFoundException;
+import com.lifecontrol.api.shift.service.ShiftService;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableHandlerMethodArgumentResolver;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("ShiftController Tests")
@@ -73,22 +71,9 @@ class ShiftControllerTest {
         var now = LocalDateTime.now();
 
         testShiftResponse = new ShiftResponse(
-                shiftId,
-                companyStoreId,
-                "user123",
-                now.minusHours(2),
-                null,
-                "ABIERTO",
-                true,
-                now,
-                now
-        );
+                shiftId, companyStoreId, "user123", now.minusHours(2), null, "ABIERTO", true, now, now);
 
-        testShiftRequest = new ShiftRequest(
-                companyStoreId,
-                "user123",
-                true
-        );
+        testShiftRequest = new ShiftRequest(companyStoreId, "user123", true);
     }
 
     // ─────────────────────────────────────────────
@@ -107,9 +92,7 @@ class ShiftControllerTest {
 
             when(shiftService.getAllShifts(any(Pageable.class))).thenReturn(page);
 
-            mockMvc.perform(get("/api/shifts")
-                            .param("page", "0")
-                            .param("size", "12"))
+            mockMvc.perform(get("/api/shifts").param("page", "0").param("size", "12"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content").isArray())
                     .andExpect(jsonPath("$.content[0].id").value(shiftId.toString()))
@@ -131,9 +114,7 @@ class ShiftControllerTest {
 
             when(shiftService.getAllShifts(any(Pageable.class))).thenReturn(page);
 
-            mockMvc.perform(get("/api/shifts")
-                            .param("page", "0")
-                            .param("size", "12"))
+            mockMvc.perform(get("/api/shifts").param("page", "0").param("size", "12"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content").isEmpty())
                     .andExpect(jsonPath("$.totalElements").value(0));
@@ -196,8 +177,7 @@ class ShiftControllerTest {
         @Test
         @DisplayName("should return 404 when shift not found")
         void getShiftById_NotFound_Returns404() throws Exception {
-            when(shiftService.getShiftById(shiftId))
-                    .thenThrow(new ShiftNotFoundException(shiftId));
+            when(shiftService.getShiftById(shiftId)).thenThrow(new ShiftNotFoundException(shiftId));
 
             mockMvc.perform(get("/api/shifts/{id}", shiftId))
                     .andExpect(status().isNotFound())
@@ -217,8 +197,7 @@ class ShiftControllerTest {
         @Test
         @DisplayName("should return 201 with opened shift")
         void openShift_Success_Returns201() throws Exception {
-            when(shiftService.openShift(eq(companyStoreId), eq("user123")))
-                    .thenReturn(testShiftResponse);
+            when(shiftService.openShift(eq(companyStoreId), eq("user123"))).thenReturn(testShiftResponse);
 
             mockMvc.perform(post("/api/shifts/open")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -274,10 +253,7 @@ class ShiftControllerTest {
         void closeShift_Success_Returns200() throws Exception {
             var now = LocalDateTime.now();
             var closedShift = new ShiftResponse(
-                    shiftId, companyStoreId, "user123",
-                    now.minusHours(3), now,
-                    "CERRADO", true, now, now
-            );
+                    shiftId, companyStoreId, "user123", now.minusHours(3), now, "CERRADO", true, now, now);
 
             when(shiftService.closeShift(shiftId)).thenReturn(closedShift);
 
@@ -291,8 +267,7 @@ class ShiftControllerTest {
         @Test
         @DisplayName("should return 404 when shift not found")
         void closeShift_NotFound_Returns404() throws Exception {
-            when(shiftService.closeShift(shiftId))
-                    .thenThrow(new ShiftNotFoundException(shiftId));
+            when(shiftService.closeShift(shiftId)).thenThrow(new ShiftNotFoundException(shiftId));
 
             mockMvc.perform(post("/api/shifts/{id}/close", shiftId))
                     .andExpect(status().isNotFound())
@@ -312,8 +287,7 @@ class ShiftControllerTest {
         @Test
         @DisplayName("should return 200 with updated shift")
         void updateShift_Success_Returns200() throws Exception {
-            when(shiftService.updateShift(eq(shiftId), any(ShiftRequest.class)))
-                    .thenReturn(testShiftResponse);
+            when(shiftService.updateShift(eq(shiftId), any(ShiftRequest.class))).thenReturn(testShiftResponse);
 
             mockMvc.perform(put("/api/shifts/{id}", shiftId)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -349,8 +323,7 @@ class ShiftControllerTest {
         @Test
         @DisplayName("should return 204 on successful soft delete")
         void deleteShift_Success_Returns204() throws Exception {
-            mockMvc.perform(delete("/api/shifts/{id}", shiftId))
-                    .andExpect(status().isNoContent());
+            mockMvc.perform(delete("/api/shifts/{id}", shiftId)).andExpect(status().isNoContent());
 
             verify(shiftService).deleteShift(shiftId);
         }
@@ -358,8 +331,7 @@ class ShiftControllerTest {
         @Test
         @DisplayName("should return 404 when shift not found")
         void deleteShift_NotFound_Returns404() throws Exception {
-            doThrow(new ShiftNotFoundException(shiftId))
-                    .when(shiftService).deleteShift(shiftId);
+            doThrow(new ShiftNotFoundException(shiftId)).when(shiftService).deleteShift(shiftId);
 
             mockMvc.perform(delete("/api/shifts/{id}", shiftId))
                     .andExpect(status().isNotFound())

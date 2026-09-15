@@ -5,6 +5,7 @@ import com.lifecontrol.api.customer.dto.CustomerResponse;
 import com.lifecontrol.api.customer.exception.CustomerNotFoundException;
 import com.lifecontrol.api.customer.model.Customer;
 import com.lifecontrol.api.customer.repository.CustomerRepository;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
@@ -12,8 +13,6 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
-
-import java.util.UUID;
 
 @Service
 public class CustomerService {
@@ -41,8 +40,7 @@ public class CustomerService {
 
     @Transactional(readOnly = true)
     public CustomerResponse getCustomerById(UUID id) {
-        var customer = customerRepository.findById(id)
-                .orElseThrow(() -> new CustomerNotFoundException(id));
+        var customer = customerRepository.findById(id).orElseThrow(() -> new CustomerNotFoundException(id));
         return toResponse(customer);
     }
 
@@ -69,8 +67,7 @@ public class CustomerService {
     public CustomerResponse updateCustomer(UUID id, CustomerRequest request) {
         logger.info("Updating customer: id={}", id);
 
-        var customer = customerRepository.findById(id)
-                .orElseThrow(() -> new CustomerNotFoundException(id));
+        var customer = customerRepository.findById(id).orElseThrow(() -> new CustomerNotFoundException(id));
 
         customer.setName(request.name());
         customer.setEmail(request.email());
@@ -89,8 +86,7 @@ public class CustomerService {
     public void deleteCustomer(UUID id) {
         logger.info("Soft-deleting customer: id={}", id);
 
-        var customer = customerRepository.findById(id)
-                .orElseThrow(() -> new CustomerNotFoundException(id));
+        var customer = customerRepository.findById(id).orElseThrow(() -> new CustomerNotFoundException(id));
 
         customer.setEnabled(false);
         customerRepository.save(customer);
@@ -101,8 +97,7 @@ public class CustomerService {
     public CustomerResponse enableCustomer(UUID id) {
         logger.info("Re-enabling customer: id={}", id);
 
-        var customer = customerRepository.findById(id)
-                .orElseThrow(() -> new CustomerNotFoundException(id));
+        var customer = customerRepository.findById(id).orElseThrow(() -> new CustomerNotFoundException(id));
 
         customer.setEnabled(true);
         var saved = customerRepository.save(customer);
@@ -122,7 +117,6 @@ public class CustomerService {
                 customer.getSalesChannel(),
                 customer.getEnabled(),
                 customer.getCreatedAt(),
-                customer.getUpdatedAt()
-        );
+                customer.getUpdatedAt());
     }
 }

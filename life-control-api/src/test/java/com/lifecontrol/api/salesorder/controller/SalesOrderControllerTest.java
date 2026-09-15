@@ -1,43 +1,5 @@
 package com.lifecontrol.api.salesorder.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.lifecontrol.api.exception.GlobalExceptionHandler;
-import com.lifecontrol.api.purchaseorder.exception.InvalidStatusTransitionException;
-import com.lifecontrol.api.salesorder.dto.ChargeSalesOrderRequest;
-import com.lifecontrol.api.salesorder.dto.SalesOrderItemRequest;
-import com.lifecontrol.api.salesorder.dto.SalesOrderItemResponse;
-import com.lifecontrol.api.salesorder.dto.SalesOrderRequest;
-import com.lifecontrol.api.salesorder.dto.SalesOrderResponse;
-import com.lifecontrol.api.salesorder.dto.UpdateSalesOrderStatusRequest;
-import com.lifecontrol.api.salesorder.exception.InvalidSalesOrderChargeException;
-import com.lifecontrol.api.paymentmethod.exception.PaymentMethodNotFoundException;
-import com.lifecontrol.api.salesorder.exception.InsufficientStockException;
-import com.lifecontrol.api.salesorder.exception.SalesOrderAlreadyFinalizedException;
-import com.lifecontrol.api.salesorder.exception.SalesOrderItemNotFoundException;
-import com.lifecontrol.api.salesorder.exception.SalesOrderNotFoundException;
-import com.lifecontrol.api.salesorder.service.SalesOrderService;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Nested;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.web.PageableHandlerMethodArgumentResolver;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.UUID;
-
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
@@ -51,6 +13,42 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lifecontrol.api.exception.GlobalExceptionHandler;
+import com.lifecontrol.api.paymentmethod.exception.PaymentMethodNotFoundException;
+import com.lifecontrol.api.purchaseorder.exception.InvalidStatusTransitionException;
+import com.lifecontrol.api.salesorder.dto.ChargeSalesOrderRequest;
+import com.lifecontrol.api.salesorder.dto.SalesOrderItemRequest;
+import com.lifecontrol.api.salesorder.dto.SalesOrderItemResponse;
+import com.lifecontrol.api.salesorder.dto.SalesOrderRequest;
+import com.lifecontrol.api.salesorder.dto.SalesOrderResponse;
+import com.lifecontrol.api.salesorder.dto.UpdateSalesOrderStatusRequest;
+import com.lifecontrol.api.salesorder.exception.InsufficientStockException;
+import com.lifecontrol.api.salesorder.exception.InvalidSalesOrderChargeException;
+import com.lifecontrol.api.salesorder.exception.SalesOrderAlreadyFinalizedException;
+import com.lifecontrol.api.salesorder.exception.SalesOrderItemNotFoundException;
+import com.lifecontrol.api.salesorder.exception.SalesOrderNotFoundException;
+import com.lifecontrol.api.salesorder.service.SalesOrderService;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableHandlerMethodArgumentResolver;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("SalesOrderController Tests")
@@ -100,8 +98,7 @@ class SalesOrderControllerTest {
                 UUID.randomUUID(),
                 "Pending",
                 now,
-                now
-        );
+                now);
 
         testOrderResponse = new SalesOrderResponse(
                 testOrderId,
@@ -118,16 +115,14 @@ class SalesOrderControllerTest {
                 true,
                 now,
                 now,
-                List.of()
-        );
+                List.of());
 
         testOrderRequest = new SalesOrderRequest(
                 UUID.fromString("00000000-0000-0000-0000-000000000001"),
                 UUID.randomUUID(),
                 UUID.randomUUID(),
                 "user123",
-                null
-        );
+                null);
 
         testItemRequest = new SalesOrderItemRequest(
                 null,
@@ -135,8 +130,7 @@ class SalesOrderControllerTest {
                 new BigDecimal("2.00"),
                 new BigDecimal("100.00"),
                 new BigDecimal("10.00"),
-                null
-        );
+                null);
 
         testStatusRequest = new UpdateSalesOrderStatusRequest(testStatusId);
     }
@@ -155,11 +149,10 @@ class SalesOrderControllerTest {
             var orders = List.of(testOrderResponse);
             var page = new PageImpl<>(orders, pageable, 1);
 
-            when(salesOrderService.getAllSalesOrders(any(Pageable.class), eq(null))).thenReturn(page);
+            when(salesOrderService.getAllSalesOrders(any(Pageable.class), eq(null)))
+                    .thenReturn(page);
 
-            mockMvc.perform(get("/api/sales-orders")
-                            .param("page", "0")
-                            .param("size", "12"))
+            mockMvc.perform(get("/api/sales-orders").param("page", "0").param("size", "12"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content").isArray())
                     .andExpect(jsonPath("$.content[0].id").value(testOrderId.toString()))
@@ -180,7 +173,8 @@ class SalesOrderControllerTest {
             var orders = List.of(testOrderResponse);
             var page = new PageImpl<>(orders, pageable, 1);
 
-            when(salesOrderService.getAllSalesOrders(any(Pageable.class), eq("SO-20260610"))).thenReturn(page);
+            when(salesOrderService.getAllSalesOrders(any(Pageable.class), eq("SO-20260610")))
+                    .thenReturn(page);
 
             mockMvc.perform(get("/api/sales-orders")
                             .param("page", "0")
@@ -197,11 +191,10 @@ class SalesOrderControllerTest {
             var pageable = PageRequest.of(0, 12);
             var page = new PageImpl<SalesOrderResponse>(List.of(), pageable, 0);
 
-            when(salesOrderService.getAllSalesOrders(any(Pageable.class), eq(null))).thenReturn(page);
+            when(salesOrderService.getAllSalesOrders(any(Pageable.class), eq(null)))
+                    .thenReturn(page);
 
-            mockMvc.perform(get("/api/sales-orders")
-                            .param("page", "0")
-                            .param("size", "12"))
+            mockMvc.perform(get("/api/sales-orders").param("page", "0").param("size", "12"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content").isEmpty())
                     .andExpect(jsonPath("$.totalElements").value(0))
@@ -234,8 +227,7 @@ class SalesOrderControllerTest {
                     true,
                     testOrderResponse.createdAt(),
                     testOrderResponse.updatedAt(),
-                    List.of(testItemResponse)
-            );
+                    List.of(testItemResponse));
 
             when(salesOrderService.getSalesOrderById(testOrderId)).thenReturn(responseWithItems);
 
@@ -403,8 +395,7 @@ class SalesOrderControllerTest {
                     true,
                     testOrderResponse.createdAt(),
                     testOrderResponse.updatedAt(),
-                    List.of()
-            );
+                    List.of());
 
             when(salesOrderService.updateSalesOrderStatus(eq(testOrderId), any(UpdateSalesOrderStatusRequest.class)))
                     .thenReturn(updatedResponse);
@@ -467,8 +458,7 @@ class SalesOrderControllerTest {
                     true,
                     testOrderResponse.createdAt(),
                     testOrderResponse.updatedAt(),
-                    List.of()
-            );
+                    List.of());
 
             when(salesOrderService.chargeSalesOrder(eq(testOrderId), any(ChargeSalesOrderRequest.class)))
                     .thenReturn(chargedResponse);
@@ -500,8 +490,7 @@ class SalesOrderControllerTest {
                     true,
                     testOrderResponse.createdAt(),
                     testOrderResponse.updatedAt(),
-                    List.of()
-            );
+                    List.of());
 
             when(salesOrderService.chargeSalesOrder(eq(testOrderId), any(ChargeSalesOrderRequest.class)))
                     .thenReturn(chargedResponse);
@@ -527,7 +516,8 @@ class SalesOrderControllerTest {
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.status").value(400))
                     .andExpect(jsonPath("$.message")
-                            .value("Cannot charge sales order " + testOrderId + ": current status is Draft, expected Pending"))
+                            .value("Cannot charge sales order " + testOrderId
+                                    + ": current status is Draft, expected Pending"))
                     .andExpect(jsonPath("$.timestamp").exists());
         }
 
@@ -559,8 +549,7 @@ class SalesOrderControllerTest {
         void deleteSalesOrder_Success_Returns204() throws Exception {
             doNothing().when(salesOrderService).deleteSalesOrder(testOrderId);
 
-            mockMvc.perform(delete("/api/sales-orders/{id}", testOrderId))
-                    .andExpect(status().isNoContent());
+            mockMvc.perform(delete("/api/sales-orders/{id}", testOrderId)).andExpect(status().isNoContent());
             verify(salesOrderService).deleteSalesOrder(testOrderId);
         }
 
@@ -568,7 +557,8 @@ class SalesOrderControllerTest {
         @DisplayName("should return 404 when sales order not found")
         void deleteSalesOrder_NotFound_Returns404() throws Exception {
             doThrow(new SalesOrderNotFoundException(testOrderId))
-                    .when(salesOrderService).deleteSalesOrder(testOrderId);
+                    .when(salesOrderService)
+                    .deleteSalesOrder(testOrderId);
 
             mockMvc.perform(delete("/api/sales-orders/{id}", testOrderId))
                     .andExpect(status().isNotFound())
@@ -680,8 +670,8 @@ class SalesOrderControllerTest {
                             .content(objectMapper.writeValueAsString(testItemRequest)))
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.status").value(409))
-                    .andExpect(jsonPath("$.message").value(
-                            "Sales order " + testOrderId + " is already Completed and cannot be modified"))
+                    .andExpect(jsonPath("$.message")
+                            .value("Sales order " + testOrderId + " is already Completed and cannot be modified"))
                     .andExpect(jsonPath("$.timestamp").exists());
         }
 
@@ -700,8 +690,8 @@ class SalesOrderControllerTest {
                             .content(objectMapper.writeValueAsString(testItemRequest)))
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.status").value(409))
-                    .andExpect(jsonPath("$.message").value(
-                            "Insufficient stock for variant %s: requested 5.00, available 3.00"
+                    .andExpect(jsonPath("$.message")
+                            .value("Insufficient stock for variant %s: requested 5.00, available 3.00"
                                     .formatted(variantId)))
                     .andExpect(jsonPath("$.timestamp").exists());
         }
@@ -729,10 +719,10 @@ class SalesOrderControllerTest {
                     testItemResponse.statusId(),
                     "Pending",
                     testItemResponse.createdAt(),
-                    LocalDateTime.now()
-            );
+                    LocalDateTime.now());
 
-            when(salesOrderService.updateSalesOrderItem(eq(testOrderId), eq(testItemId), any(SalesOrderItemRequest.class)))
+            when(salesOrderService.updateSalesOrderItem(
+                            eq(testOrderId), eq(testItemId), any(SalesOrderItemRequest.class)))
                     .thenReturn(updatedItem);
 
             mockMvc.perform(put("/api/sales-orders/{id}/items/{itemId}", testOrderId, testItemId)
@@ -747,7 +737,8 @@ class SalesOrderControllerTest {
         @Test
         @DisplayName("should return 404 when item not found")
         void updateItem_NotFound_Returns404() throws Exception {
-            when(salesOrderService.updateSalesOrderItem(eq(testOrderId), eq(testItemId), any(SalesOrderItemRequest.class)))
+            when(salesOrderService.updateSalesOrderItem(
+                            eq(testOrderId), eq(testItemId), any(SalesOrderItemRequest.class)))
                     .thenThrow(new SalesOrderItemNotFoundException(testItemId));
 
             mockMvc.perform(put("/api/sales-orders/{id}/items/{itemId}", testOrderId, testItemId)
@@ -781,7 +772,8 @@ class SalesOrderControllerTest {
         @DisplayName("should return 404 when item not found")
         void deleteItem_NotFound_Returns404() throws Exception {
             doThrow(new SalesOrderItemNotFoundException(testItemId))
-                    .when(salesOrderService).deleteSalesOrderItem(testOrderId, testItemId);
+                    .when(salesOrderService)
+                    .deleteSalesOrderItem(testOrderId, testItemId);
 
             mockMvc.perform(delete("/api/sales-orders/{id}/items/{itemId}", testOrderId, testItemId))
                     .andExpect(status().isNotFound())
@@ -813,11 +805,10 @@ class SalesOrderControllerTest {
                     UUID.randomUUID(),
                     "Added",
                     testItemResponse.createdAt(),
-                    LocalDateTime.now()
-            );
+                    LocalDateTime.now());
 
             when(salesOrderService.updateSalesOrderItemStatus(
-                    eq(testOrderId), eq(testItemId), any(UpdateSalesOrderStatusRequest.class)))
+                            eq(testOrderId), eq(testItemId), any(UpdateSalesOrderStatusRequest.class)))
                     .thenReturn(updatedItem);
 
             mockMvc.perform(patch("/api/sales-orders/{id}/items/{itemId}/status", testOrderId, testItemId)
@@ -832,7 +823,7 @@ class SalesOrderControllerTest {
         @DisplayName("should return 409 on invalid status transition")
         void updateItemStatus_InvalidTransition_Returns409() throws Exception {
             when(salesOrderService.updateSalesOrderItemStatus(
-                    eq(testOrderId), eq(testItemId), any(UpdateSalesOrderStatusRequest.class)))
+                            eq(testOrderId), eq(testItemId), any(UpdateSalesOrderStatusRequest.class)))
                     .thenThrow(new InvalidStatusTransitionException("Cancelled", "Pending"));
 
             mockMvc.perform(patch("/api/sales-orders/{id}/items/{itemId}/status", testOrderId, testItemId)

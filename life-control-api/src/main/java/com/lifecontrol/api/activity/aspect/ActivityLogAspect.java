@@ -4,6 +4,9 @@ import com.lifecontrol.api.activity.annotation.ActivityLog;
 import com.lifecontrol.api.activity.event.ActivityLogEvent;
 import com.lifecontrol.api.common.auth.CurrentUserContext;
 import jakarta.servlet.http.HttpServletRequest;
+import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
@@ -18,10 +21,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.util.ContentCachingRequestWrapper;
-
-import java.lang.reflect.Method;
-import java.nio.charset.StandardCharsets;
-import java.util.List;
 
 /**
  * Aspect that logs every REST controller invocation to the activity audit trail.
@@ -43,10 +42,8 @@ public class ActivityLogAspect {
 
     private static final Logger log = LoggerFactory.getLogger(ActivityLogAspect.class);
 
-    private static final List<String> SKIP_PATHS = List.of(
-            "/actuator", "/swagger-ui", "/v3/api-docs", "/api-docs",
-            "/swagger-resources", "/aggregate"
-    );
+    private static final List<String> SKIP_PATHS =
+            List.of("/actuator", "/swagger-ui", "/v3/api-docs", "/api-docs", "/swagger-resources", "/aggregate");
 
     private static final String DEFAULT_EVENT_READ = "READ";
     private static final String DEFAULT_EVENT_CREATE = "CREATE";
@@ -56,8 +53,7 @@ public class ActivityLogAspect {
     private final ApplicationEventPublisher eventPublisher;
     private final CurrentUserContext currentUserContext;
 
-    public ActivityLogAspect(ApplicationEventPublisher eventPublisher,
-                             CurrentUserContext currentUserContext) {
+    public ActivityLogAspect(ApplicationEventPublisher eventPublisher, CurrentUserContext currentUserContext) {
         this.eventPublisher = eventPublisher;
         this.currentUserContext = currentUserContext;
     }
@@ -116,9 +112,17 @@ public class ActivityLogAspect {
 
         try {
             var event = new ActivityLogEvent(
-                    this, userId, username, processName, eventName,
-                    httpMethod, httpStatus, path, ipAddress, userAgent, payloadJson
-            );
+                    this,
+                    userId,
+                    username,
+                    processName,
+                    eventName,
+                    httpMethod,
+                    httpStatus,
+                    path,
+                    ipAddress,
+                    userAgent,
+                    payloadJson);
             eventPublisher.publishEvent(event);
         } catch (Exception e) {
             // Activity logging is best-effort — never fail the original request
@@ -145,8 +149,7 @@ public class ActivityLogAspect {
      * If the method carries an {@link ActivityLog} annotation, its non-empty
      * attributes override the auto-resolved values.
      */
-    private ProcessEventResult resolveProcessAndEvent(ProceedingJoinPoint joinPoint,
-                                                       String httpMethod) {
+    private ProcessEventResult resolveProcessAndEvent(ProceedingJoinPoint joinPoint, String httpMethod) {
         var signature = joinPoint.getSignature();
         var declaringType = signature.getDeclaringType();
         var packageName = declaringType.getPackageName();

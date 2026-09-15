@@ -11,17 +11,16 @@ import com.lifecontrol.api.usersadmin.identity.RoleScope;
 import com.lifecontrol.api.usersadmin.identity.UserSearchDto;
 import com.lifecontrol.api.usersadmin.model.UserPreferences;
 import com.lifecontrol.api.usersadmin.repository.UserPreferencesRepository;
+import java.security.SecureRandom;
+import java.util.Base64;
+import java.util.List;
+import java.util.Map;
 import org.keycloak.representations.idm.CredentialRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.security.SecureRandom;
-import java.util.Base64;
-import java.util.List;
-import java.util.Map;
 
 /**
  * Application service for user administration operations.
@@ -36,8 +35,7 @@ public class UsersAdminService {
     private final IdentityProvider identityProvider;
     private final UserPreferencesRepository userPreferencesRepository;
 
-    public UsersAdminService(IdentityProvider identityProvider,
-                             UserPreferencesRepository userPreferencesRepository) {
+    public UsersAdminService(IdentityProvider identityProvider, UserPreferencesRepository userPreferencesRepository) {
         this.identityProvider = identityProvider;
         this.userPreferencesRepository = userPreferencesRepository;
     }
@@ -69,9 +67,7 @@ public class UsersAdminService {
         try {
             keycloakUserId = identityProvider.createUser(userRep);
 
-            var prefs = UserPreferences.builder()
-                    .keycloakUserId(keycloakUserId)
-                    .build();
+            var prefs = UserPreferences.builder().keycloakUserId(keycloakUserId).build();
             userPreferencesRepository.save(prefs);
 
             return new CreateUserResponse(keycloakUserId);

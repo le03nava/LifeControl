@@ -4,7 +4,6 @@ import com.lifecontrol.api.common.address.model.Address;
 import com.lifecontrol.api.common.model.Auditable;
 import com.lifecontrol.api.company.model.CompanyZone;
 import jakarta.persistence.*;
-
 import java.util.UUID;
 
 @Entity
@@ -28,7 +27,9 @@ public class CompanyStore extends Auditable {
     @Column(name = "phone_number")
     private String phoneNumber;
 
-    @OneToOne(cascade = {CascadeType.PERSIST, CascadeType.MERGE}, fetch = FetchType.LAZY)
+    @OneToOne(
+            cascade = {CascadeType.PERSIST, CascadeType.MERGE},
+            fetch = FetchType.LAZY)
     @JoinColumn(name = "address_id")
     private Address address;
 

@@ -14,17 +14,16 @@ import com.lifecontrol.api.company.model.CompanyRegion;
 import com.lifecontrol.api.company.repository.CompanyCountryRepository;
 import com.lifecontrol.api.company.repository.CompanyRegionRepository;
 import com.lifecontrol.api.company.repository.CompanyRepository;
+import java.util.List;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.List;
-import java.util.UUID;
 
 @Service
 public class CompanyRegionService {
@@ -37,11 +36,12 @@ public class CompanyRegionService {
     private final CurrentUserContext currentUserContext;
     private final ApplicationEventPublisher eventPublisher;
 
-    public CompanyRegionService(CompanyRegionRepository companyRegionRepository,
-                                 CompanyRepository companyRepository,
-                                 CompanyCountryRepository companyCountryRepository,
-                                 CurrentUserContext currentUserContext,
-                                 ApplicationEventPublisher eventPublisher) {
+    public CompanyRegionService(
+            CompanyRegionRepository companyRegionRepository,
+            CompanyRepository companyRepository,
+            CompanyCountryRepository companyCountryRepository,
+            CurrentUserContext currentUserContext,
+            ApplicationEventPublisher eventPublisher) {
         this.companyRegionRepository = companyRegionRepository;
         this.companyRepository = companyRepository;
         this.companyCountryRepository = companyCountryRepository;
@@ -50,7 +50,8 @@ public class CompanyRegionService {
     }
 
     private CompanyCountry resolveCompanyCountry(UUID companyId, UUID companyCountryId) {
-        return companyCountryRepository.findByCompanyIdAndId(companyId, companyCountryId)
+        return companyCountryRepository
+                .findByCompanyIdAndId(companyId, companyCountryId)
                 .orElseThrow(() -> new CompanyCountryNotFoundException(companyCountryId));
     }
 
@@ -65,16 +66,16 @@ public class CompanyRegionService {
             if (regionIds.isEmpty()) {
                 return List.of();
             }
-            List<CompanyRegion> regions = companyRegionRepository
-                    .findByIdInAndCompanyCountryId(regionIds, companyCountry.getId());
+            List<CompanyRegion> regions =
+                    companyRegionRepository.findByIdInAndCompanyCountryId(regionIds, companyCountry.getId());
             return regions.stream()
                     .filter(r -> includeDisabled || r.getEnabled())
                     .map(this::toResponse)
                     .toList();
         }
 
-        List<CompanyRegion> regions = companyRegionRepository
-                .findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId());
+        List<CompanyRegion> regions =
+                companyRegionRepository.findByCompanyCountryIdOrderByRegionNameAsc(companyCountry.getId());
         return regions.stream()
                 .filter(r -> includeDisabled || r.getEnabled())
                 .map(this::toResponse)
@@ -86,24 +87,26 @@ public class CompanyRegionService {
     public CompanyRegionResponse getRegionById(UUID companyId, UUID companyCountryId, UUID id) {
         currentUserContext.verifyCompanyRegionAccess(companyId, companyCountryId, id);
         var companyCountry = resolveCompanyCountry(companyId, companyCountryId);
-        CompanyRegion region = companyRegionRepository.findByIdAndCompanyCountryId(id, companyCountry.getId())
+        CompanyRegion region = companyRegionRepository
+                .findByIdAndCompanyCountryId(id, companyCountry.getId())
                 .orElseThrow(() -> new CompanyRegionNotFoundException("Company region not found with id: " + id));
         return toResponse(region);
     }
 
     @CacheEvict(value = "companyRegions", allEntries = true)
     @Transactional
-    public CompanyRegionResponse createRegion(UUID companyId, UUID companyCountryId, CreateCompanyRegionRequest request) {
+    public CompanyRegionResponse createRegion(
+            UUID companyId, UUID companyCountryId, CreateCompanyRegionRequest request) {
         if (currentUserContext.hasCompanyRegionRole()) {
             throw new AccessDeniedException("Region-scoped users cannot create regions");
         }
         currentUserContext.verifyCompanyRegionAccess(companyId, companyCountryId, null);
-        companyRepository.findById(companyId)
-                .orElseThrow(() -> new CompanyNotFoundException(companyId));
+        companyRepository.findById(companyId).orElseThrow(() -> new CompanyNotFoundException(companyId));
 
         var companyCountry = resolveCompanyCountry(companyId, companyCountryId);
 
-        if (companyRegionRepository.existsByCompanyCountryIdAndRegionCode(companyCountry.getId(), request.regionCode())) {
+        if (companyRegionRepository.existsByCompanyCountryIdAndRegionCode(
+                companyCountry.getId(), request.regionCode())) {
             throw new DuplicateCompanyRegionException(
                     "Company region with code '" + request.regionCode() + "' already exists for this country");
         }
@@ -118,28 +121,34 @@ public class CompanyRegionService {
         CompanyRegion saved = companyRegionRepository.save(region);
 
         eventPublisher.publishEvent(new CompanyRegionCreatedEvent(
-                this, saved.getId(), companyId, saved.getRegionName(),
+                this,
+                saved.getId(),
+                companyId,
+                saved.getRegionName(),
                 companyCountry.getCountry().getCountryName()));
 
-        logger.info("CompanyRegion created: code={}, companyCountryId={}", saved.getRegionCode(), companyCountry.getId());
+        logger.info(
+                "CompanyRegion created: code={}, companyCountryId={}", saved.getRegionCode(), companyCountry.getId());
         return toResponse(saved);
     }
 
     @CacheEvict(value = "companyRegions", allEntries = true)
     @Transactional
-    public CompanyRegionResponse updateRegion(UUID companyId, UUID companyCountryId, UUID id, UpdateCompanyRegionRequest request) {
+    public CompanyRegionResponse updateRegion(
+            UUID companyId, UUID companyCountryId, UUID id, UpdateCompanyRegionRequest request) {
         currentUserContext.verifyCompanyRegionAccess(companyId, companyCountryId, id);
-        companyRepository.findById(companyId)
-                .orElseThrow(() -> new CompanyNotFoundException(companyId));
+        companyRepository.findById(companyId).orElseThrow(() -> new CompanyNotFoundException(companyId));
 
         var companyCountry = resolveCompanyCountry(companyId, companyCountryId);
 
-        CompanyRegion region = companyRegionRepository.findByIdAndCompanyCountryId(id, companyCountry.getId())
+        CompanyRegion region = companyRegionRepository
+                .findByIdAndCompanyCountryId(id, companyCountry.getId())
                 .orElseThrow(() -> new CompanyRegionNotFoundException("Company region not found with id: " + id));
 
         boolean codeChanged = !region.getRegionCode().equals(request.regionCode());
-        if (codeChanged && companyRegionRepository.existsByCompanyCountryIdAndRegionCodeAndIdNot(
-                companyCountry.getId(), request.regionCode(), id)) {
+        if (codeChanged
+                && companyRegionRepository.existsByCompanyCountryIdAndRegionCodeAndIdNot(
+                        companyCountry.getId(), request.regionCode(), id)) {
             throw new DuplicateCompanyRegionException(
                     "Company region with code '" + request.regionCode() + "' already exists for this country");
         }
@@ -156,12 +165,12 @@ public class CompanyRegionService {
     @Transactional
     public void deleteRegion(UUID companyId, UUID companyCountryId, UUID id) {
         currentUserContext.verifyCompanyRegionAccess(companyId, companyCountryId, id);
-        companyRepository.findById(companyId)
-                .orElseThrow(() -> new CompanyNotFoundException(companyId));
+        companyRepository.findById(companyId).orElseThrow(() -> new CompanyNotFoundException(companyId));
 
         var companyCountry = resolveCompanyCountry(companyId, companyCountryId);
 
-        CompanyRegion region = companyRegionRepository.findByIdAndCompanyCountryId(id, companyCountry.getId())
+        CompanyRegion region = companyRegionRepository
+                .findByIdAndCompanyCountryId(id, companyCountry.getId())
                 .orElseThrow(() -> new CompanyRegionNotFoundException("Company region not found with id: " + id));
 
         region.setEnabled(false);
@@ -174,12 +183,12 @@ public class CompanyRegionService {
     @Transactional
     public CompanyRegionResponse enableRegion(UUID companyId, UUID companyCountryId, UUID id) {
         currentUserContext.verifyCompanyRegionAccess(companyId, companyCountryId, id);
-        companyRepository.findById(companyId)
-                .orElseThrow(() -> new CompanyNotFoundException(companyId));
+        companyRepository.findById(companyId).orElseThrow(() -> new CompanyNotFoundException(companyId));
 
         var companyCountry = resolveCompanyCountry(companyId, companyCountryId);
 
-        CompanyRegion region = companyRegionRepository.findByIdAndCompanyCountryId(id, companyCountry.getId())
+        CompanyRegion region = companyRegionRepository
+                .findByIdAndCompanyCountryId(id, companyCountry.getId())
                 .orElseThrow(() -> new CompanyRegionNotFoundException("Company region not found with id: " + id));
 
         region.setEnabled(true);
@@ -199,7 +208,6 @@ public class CompanyRegionService {
                 region.getRegionName(),
                 region.getEnabled(),
                 region.getCreatedAt(),
-                region.getUpdatedAt()
-        );
+                region.getUpdatedAt());
     }
 }

@@ -1,7 +1,6 @@
 package com.lifecontrol.api.product.dto;
 
 import jakarta.validation.constraints.NotNull;
-
 import java.math.BigDecimal;
 import java.util.UUID;
 
@@ -14,8 +13,7 @@ public record ProductVariantRequest(
         BigDecimal listPrice,
         BigDecimal costPrice,
         BigDecimal stock,
-        Boolean enabled
-) {
+        Boolean enabled) {
     public ProductVariantRequest {
         if (enabled == null) {
             enabled = true;

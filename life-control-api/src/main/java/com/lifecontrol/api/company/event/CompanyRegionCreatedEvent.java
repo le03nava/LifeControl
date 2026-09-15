@@ -1,8 +1,7 @@
 package com.lifecontrol.api.company.event;
 
-import org.springframework.context.ApplicationEvent;
-
 import java.util.UUID;
+import org.springframework.context.ApplicationEvent;
 
 /**
  * Event published after a region has been successfully associated with a company-country.
@@ -15,8 +14,8 @@ public class CompanyRegionCreatedEvent extends ApplicationEvent {
     private final String regionName;
     private final String countryName;
 
-    public CompanyRegionCreatedEvent(Object source, UUID companyRegionId,
-                                      UUID companyId, String regionName, String countryName) {
+    public CompanyRegionCreatedEvent(
+            Object source, UUID companyRegionId, UUID companyId, String regionName, String countryName) {
         super(source);
         this.companyRegionId = companyRegionId;
         this.companyId = companyId;

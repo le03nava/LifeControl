@@ -1,21 +1,20 @@
 package com.lifecontrol.api.country.controller;
 
+import static com.lifecontrol.api.common.security.Roles.ADMIN;
+import static com.lifecontrol.api.common.security.Roles.COUNTRY;
+
 import com.lifecontrol.api.country.dto.CountryRequest;
 import com.lifecontrol.api.country.dto.CountryResponse;
 import com.lifecontrol.api.country.service.CountryService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.List;
+import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
-import java.util.UUID;
-
-import static com.lifecontrol.api.common.security.Roles.ADMIN;
-import static com.lifecontrol.api.common.security.Roles.COUNTRY;
 
 @RestController
 @RequestMapping("/api/countries")
@@ -30,7 +29,9 @@ public class CountryController {
 
     @GetMapping
     @PreAuthorize("isAuthenticated()")
-    @Operation(summary = "Get all countries", description = "Returns a list of countries. Use ?includeDisabled=true to include soft-deleted countries.")
+    @Operation(
+            summary = "Get all countries",
+            description = "Returns a list of countries. Use ?includeDisabled=true to include soft-deleted countries.")
     public ResponseEntity<List<CountryResponse>> getAllCountries(
             @RequestParam(name = "includeDisabled", defaultValue = "false") boolean includeDisabled) {
         return ResponseEntity.ok(countryService.getAllCountries(includeDisabled));
@@ -54,7 +55,8 @@ public class CountryController {
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COUNTRY + "')")
     @Operation(summary = "Update a country", description = "Updates an existing country")
-    public ResponseEntity<CountryResponse> updateCountry(@PathVariable UUID id, @Valid @RequestBody CountryRequest request) {
+    public ResponseEntity<CountryResponse> updateCountry(
+            @PathVariable UUID id, @Valid @RequestBody CountryRequest request) {
         CountryResponse response = countryService.updateCountry(id, request);
         return ResponseEntity.ok(response);
     }

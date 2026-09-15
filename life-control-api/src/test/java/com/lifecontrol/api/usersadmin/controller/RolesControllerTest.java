@@ -1,28 +1,5 @@
 package com.lifecontrol.api.usersadmin.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.lifecontrol.api.exception.GlobalExceptionHandler;
-import com.lifecontrol.api.usersadmin.dto.ChildRoleRequest;
-import com.lifecontrol.api.usersadmin.dto.RoleRequest;
-import com.lifecontrol.api.usersadmin.identity.IdentityProviderConflictException;
-import com.lifecontrol.api.usersadmin.identity.IdentityProviderNotFoundException;
-import com.lifecontrol.api.usersadmin.identity.RoleDto;
-import com.lifecontrol.api.usersadmin.identity.RoleScope;
-import com.lifecontrol.api.usersadmin.service.UsersAdminService;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Nested;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-
-import java.util.List;
-
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -34,6 +11,28 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lifecontrol.api.exception.GlobalExceptionHandler;
+import com.lifecontrol.api.usersadmin.dto.ChildRoleRequest;
+import com.lifecontrol.api.usersadmin.dto.RoleRequest;
+import com.lifecontrol.api.usersadmin.identity.IdentityProviderConflictException;
+import com.lifecontrol.api.usersadmin.identity.IdentityProviderNotFoundException;
+import com.lifecontrol.api.usersadmin.identity.RoleDto;
+import com.lifecontrol.api.usersadmin.identity.RoleScope;
+import com.lifecontrol.api.usersadmin.service.UsersAdminService;
+import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("RolesController Tests")
@@ -111,7 +110,8 @@ class RolesControllerTest {
         @DisplayName("PUT /api/users-admin/roles/realm/{name} returns 200 with updated role")
         void updateRealmRole_returns200() throws Exception {
             var updated = new RoleDto("test-role", "Updated description", true, RoleScope.REALM, null);
-            when(service.updateRealmRole(eq("test-role"), any(RoleRequest.class))).thenReturn(updated);
+            when(service.updateRealmRole(eq("test-role"), any(RoleRequest.class)))
+                    .thenReturn(updated);
 
             mockMvc.perform(put("/api/users-admin/roles/realm/test-role")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -124,8 +124,7 @@ class RolesControllerTest {
         @Test
         @DisplayName("DELETE /api/users-admin/roles/realm/{name} returns 204")
         void deleteRealmRole_returns204() throws Exception {
-            mockMvc.perform(delete("/api/users-admin/roles/realm/test-role"))
-                    .andExpect(status().isNoContent());
+            mockMvc.perform(delete("/api/users-admin/roles/realm/test-role")).andExpect(status().isNoContent());
 
             verify(service).deleteRealmRole("test-role");
         }
@@ -140,9 +139,7 @@ class RolesControllerTest {
         @Test
         @DisplayName("GET /api/users-admin/roles/client/{clientId} returns 200")
         void listClientRoles_returns200() throws Exception {
-            var clientRoles = List.of(
-                new RoleDto("client-role", "Client desc", false, RoleScope.CLIENT, "my-client")
-            );
+            var clientRoles = List.of(new RoleDto("client-role", "Client desc", false, RoleScope.CLIENT, "my-client"));
             when(service.listClientRoles("my-client")).thenReturn(clientRoles);
 
             mockMvc.perform(get("/api/users-admin/roles/client/my-client"))
@@ -156,7 +153,8 @@ class RolesControllerTest {
         @DisplayName("POST /api/users-admin/roles/client/{clientId} returns 201")
         void createClientRole_returns201() throws Exception {
             var clientRole = new RoleDto("client-role", "Desc", false, RoleScope.CLIENT, "my-client");
-            when(service.createClientRole(eq("my-client"), any(RoleRequest.class))).thenReturn(clientRole);
+            when(service.createClientRole(eq("my-client"), any(RoleRequest.class)))
+                    .thenReturn(clientRole);
 
             mockMvc.perform(post("/api/users-admin/roles/client/my-client")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -256,7 +254,8 @@ class RolesControllerTest {
         @DisplayName("DELETE realm role with user assignments returns 409")
         void deleteRealmRole_withAssignments_returns409() throws Exception {
             doThrow(new IdentityProviderConflictException("Cannot delete realm role: test-role (has user assignments)"))
-                    .when(service).deleteRealmRole("test-role");
+                    .when(service)
+                    .deleteRealmRole("test-role");
 
             mockMvc.perform(delete("/api/users-admin/roles/realm/test-role"))
                     .andExpect(status().isConflict())
@@ -266,8 +265,10 @@ class RolesControllerTest {
         @Test
         @DisplayName("DELETE client role with assignments or composite returns 409")
         void deleteClientRole_withAssignments_returns409() throws Exception {
-            doThrow(new IdentityProviderConflictException("Cannot delete client role: client-role (has assignments or is composite)"))
-                    .when(service).deleteClientRole("my-client", "client-role");
+            doThrow(new IdentityProviderConflictException(
+                            "Cannot delete client role: client-role (has assignments or is composite)"))
+                    .when(service)
+                    .deleteClientRole("my-client", "client-role");
 
             mockMvc.perform(delete("/api/users-admin/roles/client/my-client/client-role"))
                     .andExpect(status().isConflict())

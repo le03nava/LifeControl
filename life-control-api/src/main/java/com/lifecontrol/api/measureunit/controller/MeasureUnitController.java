@@ -1,5 +1,8 @@
 package com.lifecontrol.api.measureunit.controller;
 
+import static com.lifecontrol.api.common.security.Roles.ADMIN;
+import static com.lifecontrol.api.common.security.Roles.MEASURE_UNIT;
+
 import com.lifecontrol.api.measureunit.dto.MeasureUnitRequest;
 import com.lifecontrol.api.measureunit.dto.MeasureUnitResponse;
 import com.lifecontrol.api.measureunit.service.MeasureUnitService;
@@ -8,6 +11,8 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.List;
+import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -22,12 +27,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
-import java.util.UUID;
-
-import static com.lifecontrol.api.common.security.Roles.ADMIN;
-import static com.lifecontrol.api.common.security.Roles.MEASURE_UNIT;
-
 @RestController
 @RequestMapping("/api/measure-units")
 @Tag(name = "Measure Unit Management", description = "API for managing measure units (SAT catalog)")
@@ -41,7 +40,9 @@ public class MeasureUnitController {
 
     @GetMapping
     @PreAuthorize("isAuthenticated()")
-    @Operation(summary = "Get all measure units", description = "Returns a list of measure units. Use ?includeDisabled=true to include soft-deleted units.")
+    @Operation(
+            summary = "Get all measure units",
+            description = "Returns a list of measure units. Use ?includeDisabled=true to include soft-deleted units.")
     public ResponseEntity<List<MeasureUnitResponse>> getAllMeasureUnits(
             @RequestParam(name = "includeDisabled", defaultValue = "false") boolean includeDisabled) {
         return ResponseEntity.ok(measureUnitService.getAllMeasureUnits(includeDisabled));
@@ -60,7 +61,9 @@ public class MeasureUnitController {
 
     @GetMapping("/type/{unitType}")
     @PreAuthorize("isAuthenticated()")
-    @Operation(summary = "Get measure units by type", description = "Returns enabled measure units filtered by type (PRODUCT or SERVICE)")
+    @Operation(
+            summary = "Get measure units by type",
+            description = "Returns enabled measure units filtered by type (PRODUCT or SERVICE)")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Measure units found"),
         @ApiResponse(responseCode = "400", description = "Invalid unit type")
@@ -71,7 +74,9 @@ public class MeasureUnitController {
 
     @PostMapping
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + MEASURE_UNIT + "')")
-    @Operation(summary = "Create a new measure unit", description = "Creates a new measure unit with the provided details")
+    @Operation(
+            summary = "Create a new measure unit",
+            description = "Creates a new measure unit with the provided details")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "Measure unit created"),
         @ApiResponse(responseCode = "400", description = "Invalid input or unit type"),
@@ -92,14 +97,15 @@ public class MeasureUnitController {
         @ApiResponse(responseCode = "409", description = "SAT code already in use by another unit")
     })
     public ResponseEntity<MeasureUnitResponse> updateMeasureUnit(
-            @PathVariable UUID id,
-            @Valid @RequestBody MeasureUnitRequest request) {
+            @PathVariable UUID id, @Valid @RequestBody MeasureUnitRequest request) {
         return ResponseEntity.ok(measureUnitService.updateMeasureUnit(id, request));
     }
 
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + MEASURE_UNIT + "')")
-    @Operation(summary = "Delete a measure unit", description = "Soft-deletes a measure unit by setting enabled to false")
+    @Operation(
+            summary = "Delete a measure unit",
+            description = "Soft-deletes a measure unit by setting enabled to false")
     @ApiResponses({
         @ApiResponse(responseCode = "204", description = "Measure unit deleted"),
         @ApiResponse(responseCode = "404", description = "Measure unit not found")

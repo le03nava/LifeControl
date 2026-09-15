@@ -1,37 +1,5 @@
 package com.lifecontrol.api.product.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import com.lifecontrol.api.exception.GlobalExceptionHandler;
-import com.lifecontrol.api.product.dto.ProductRequest;
-import com.lifecontrol.api.product.dto.ProductResponse;
-import com.lifecontrol.api.product.exception.DuplicateProductException;
-import com.lifecontrol.api.product.exception.ProductNotFoundException;
-import com.lifecontrol.api.product.service.ProductService;
-import com.lifecontrol.api.product.supplier.dto.SupplierProductResponse;
-import com.lifecontrol.api.product.supplier.service.ProductSupplierService;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Nested;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.web.PageableHandlerMethodArgumentResolver;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -43,6 +11,36 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.lifecontrol.api.exception.GlobalExceptionHandler;
+import com.lifecontrol.api.product.dto.ProductRequest;
+import com.lifecontrol.api.product.dto.ProductResponse;
+import com.lifecontrol.api.product.exception.DuplicateProductException;
+import com.lifecontrol.api.product.exception.ProductNotFoundException;
+import com.lifecontrol.api.product.service.ProductService;
+import com.lifecontrol.api.product.supplier.dto.SupplierProductResponse;
+import com.lifecontrol.api.product.supplier.service.ProductSupplierService;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableHandlerMethodArgumentResolver;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("ProductController Tests")
@@ -78,14 +76,19 @@ class ProductControllerTest {
         now = LocalDateTime.now();
 
         testProductResponse = new ProductResponse(
-                productId, "SKU-001", "Test Product", "Test", "SAT-001",
-                "SERVICE", Map.of("color", "red"), true, now, now
-        );
+                productId,
+                "SKU-001",
+                "Test Product",
+                "Test",
+                "SAT-001",
+                "SERVICE",
+                Map.of("color", "red"),
+                true,
+                now,
+                now);
 
-        testProductRequest = new ProductRequest(
-                "SKU-001", "Test Product", "Test", "SAT-001", "SERVICE",
-                Map.of("color", "red")
-        );
+        testProductRequest =
+                new ProductRequest("SKU-001", "Test Product", "Test", "SAT-001", "SERVICE", Map.of("color", "red"));
     }
 
     // ─────────────────────────────────────────────
@@ -98,8 +101,7 @@ class ProductControllerTest {
         @Test
         @DisplayName("should return 201 with created product when valid request with all fields")
         void createProduct_WithAllFields_Returns201() throws Exception {
-            when(productService.createProduct(any(ProductRequest.class)))
-                    .thenReturn(testProductResponse);
+            when(productService.createProduct(any(ProductRequest.class))).thenReturn(testProductResponse);
 
             mockMvc.perform(post("/api/products")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -122,9 +124,7 @@ class ProductControllerTest {
         void createProduct_WithoutAttributes_Returns201() throws Exception {
             var request = new ProductRequest("SKU-SIMPLE", "Simple Product", null, null, null, null);
             var response = new ProductResponse(
-                    productId, "SKU-SIMPLE", "Simple Product", null, null, null,
-                    null, true, now, now
-            );
+                    productId, "SKU-SIMPLE", "Simple Product", null, null, null, null, true, now, now);
             when(productService.createProduct(any(ProductRequest.class))).thenReturn(response);
 
             mockMvc.perform(post("/api/products")
@@ -179,11 +179,10 @@ class ProductControllerTest {
         void listProducts_Default_Returns200() throws Exception {
             var pageable = PageRequest.of(0, 12);
             var page = new PageImpl<>(List.of(testProductResponse), pageable, 1);
-            when(productService.listProducts(any(Pageable.class), eq(null), eq(false))).thenReturn(page);
+            when(productService.listProducts(any(Pageable.class), eq(null), eq(false)))
+                    .thenReturn(page);
 
-            mockMvc.perform(get("/api/products")
-                            .param("page", "0")
-                            .param("size", "12"))
+            mockMvc.perform(get("/api/products").param("page", "0").param("size", "12"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content").isArray())
                     .andExpect(jsonPath("$.content[0].sku").value("SKU-001"))
@@ -198,7 +197,8 @@ class ProductControllerTest {
         void listProducts_WithSearch_Returns200() throws Exception {
             var pageable = PageRequest.of(0, 12);
             var page = new PageImpl<>(List.of(testProductResponse), pageable, 1);
-            when(productService.listProducts(any(Pageable.class), eq("Widget"), eq(false))).thenReturn(page);
+            when(productService.listProducts(any(Pageable.class), eq("Widget"), eq(false)))
+                    .thenReturn(page);
 
             mockMvc.perform(get("/api/products")
                             .param("page", "0")
@@ -214,7 +214,8 @@ class ProductControllerTest {
         void listProducts_IncludeDisabled_Returns200() throws Exception {
             var pageable = PageRequest.of(0, 12);
             var page = new PageImpl<>(List.of(testProductResponse), pageable, 1);
-            when(productService.listProducts(any(Pageable.class), eq(null), eq(true))).thenReturn(page);
+            when(productService.listProducts(any(Pageable.class), eq(null), eq(true)))
+                    .thenReturn(page);
 
             mockMvc.perform(get("/api/products")
                             .param("page", "0")
@@ -229,11 +230,10 @@ class ProductControllerTest {
         void listProducts_EmptyPage_Returns200() throws Exception {
             var pageable = PageRequest.of(0, 12);
             var page = new PageImpl<ProductResponse>(List.of(), pageable, 0);
-            when(productService.listProducts(any(Pageable.class), eq(null), eq(false))).thenReturn(page);
+            when(productService.listProducts(any(Pageable.class), eq(null), eq(false)))
+                    .thenReturn(page);
 
-            mockMvc.perform(get("/api/products")
-                            .param("page", "0")
-                            .param("size", "12"))
+            mockMvc.perform(get("/api/products").param("page", "0").param("size", "12"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content").isEmpty())
                     .andExpect(jsonPath("$.totalElements").value(0))
@@ -260,8 +260,7 @@ class ProductControllerTest {
         void getProductsBySupplier_Success() throws Exception {
             var products = List.of(
                     new SupplierProductResponse(productId, "Test Product", "SKU-001"),
-                    new SupplierProductResponse(UUID.randomUUID(), "Another Product", "SKU-002")
-            );
+                    new SupplierProductResponse(UUID.randomUUID(), "Another Product", "SKU-002"));
             when(productSupplierService.listProductsBySupplier(supplierId, null))
                     .thenReturn(products);
 
@@ -289,9 +288,7 @@ class ProductControllerTest {
         @Test
         @DisplayName("should filter by search term when provided")
         void getProductsBySupplier_WithSearch() throws Exception {
-            var products = List.of(
-                    new SupplierProductResponse(productId, "Test Product", "SKU-001")
-            );
+            var products = List.of(new SupplierProductResponse(productId, "Test Product", "SKU-001"));
             when(productSupplierService.listProductsBySupplier(supplierId, "Test"))
                     .thenReturn(products);
 
@@ -326,8 +323,7 @@ class ProductControllerTest {
         @Test
         @DisplayName("should return 404 when product not found")
         void getProductById_NotFound_Returns404() throws Exception {
-            when(productService.findProduct(productId))
-                    .thenThrow(new ProductNotFoundException(productId));
+            when(productService.findProduct(productId)).thenThrow(new ProductNotFoundException(productId));
 
             mockMvc.perform(get("/api/products/{id}", productId))
                     .andExpect(status().isNotFound())
@@ -339,8 +335,7 @@ class ProductControllerTest {
         @Test
         @DisplayName("should return 404 when product is soft-deleted")
         void getProductById_SoftDeleted_Returns404() throws Exception {
-            when(productService.findProduct(productId))
-                    .thenThrow(new ProductNotFoundException(productId));
+            when(productService.findProduct(productId)).thenThrow(new ProductNotFoundException(productId));
 
             mockMvc.perform(get("/api/products/{id}", productId))
                     .andExpect(status().isNotFound())
@@ -359,14 +354,21 @@ class ProductControllerTest {
         @DisplayName("should return 200 with updated product")
         void updateProduct_Returns200() throws Exception {
             var updatedResponse = new ProductResponse(
-                    productId, "SKU-001", "Updated Name", "Upd", "SAT-NEW", "GOODS",
-                    Map.of("color", "blue"), true, now, now
-            );
+                    productId,
+                    "SKU-001",
+                    "Updated Name",
+                    "Upd",
+                    "SAT-NEW",
+                    "GOODS",
+                    Map.of("color", "blue"),
+                    true,
+                    now,
+                    now);
             when(productService.updateProduct(eq(productId), any(ProductRequest.class)))
                     .thenReturn(updatedResponse);
 
-            var request = new ProductRequest("SKU-001", "Updated Name", "Upd", "SAT-NEW", "GOODS",
-                    Map.of("color", "blue"));
+            var request =
+                    new ProductRequest("SKU-001", "Updated Name", "Upd", "SAT-NEW", "GOODS", Map.of("color", "blue"));
 
             mockMvc.perform(put("/api/products/{id}", productId)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -381,15 +383,21 @@ class ProductControllerTest {
         @DisplayName("should merge attributes when partial attributes provided")
         void updateProduct_MergeAttributes_Returns200() throws Exception {
             var mergedResponse = new ProductResponse(
-                    productId, "SKU-001", "Product", null, null, null,
-                    Map.of("color", "red", "size", "L", "weight", "2kg"), true, now, now
-            );
+                    productId,
+                    "SKU-001",
+                    "Product",
+                    null,
+                    null,
+                    null,
+                    Map.of("color", "red", "size", "L", "weight", "2kg"),
+                    true,
+                    now,
+                    now);
             when(productService.updateProduct(eq(productId), any(ProductRequest.class)))
                     .thenReturn(mergedResponse);
 
             // Only send "weight" — expects existing "color" and "size" preserved
-            var request = new ProductRequest("SKU-001", "Product", null, null, null,
-                    Map.of("weight", "2kg"));
+            var request = new ProductRequest("SKU-001", "Product", null, null, null, Map.of("weight", "2kg"));
 
             mockMvc.perform(put("/api/products/{id}", productId)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -443,8 +451,7 @@ class ProductControllerTest {
         @Test
         @DisplayName("should return 204 when active product soft-deleted")
         void deleteProduct_Active_Returns204() throws Exception {
-            mockMvc.perform(delete("/api/products/{id}", productId))
-                    .andExpect(status().isNoContent());
+            mockMvc.perform(delete("/api/products/{id}", productId)).andExpect(status().isNoContent());
 
             verify(productService).deleteProduct(productId);
         }
@@ -453,7 +460,8 @@ class ProductControllerTest {
         @DisplayName("should return 404 when product already soft-deleted")
         void deleteProduct_AlreadyDeleted_Returns404() throws Exception {
             doThrow(new ProductNotFoundException(productId))
-                    .when(productService).deleteProduct(productId);
+                    .when(productService)
+                    .deleteProduct(productId);
 
             mockMvc.perform(delete("/api/products/{id}", productId))
                     .andExpect(status().isNotFound())
@@ -466,7 +474,8 @@ class ProductControllerTest {
         @DisplayName("should return 404 when product does not exist")
         void deleteProduct_NotFound_Returns404() throws Exception {
             doThrow(new ProductNotFoundException(productId))
-                    .when(productService).deleteProduct(productId);
+                    .when(productService)
+                    .deleteProduct(productId);
 
             mockMvc.perform(delete("/api/products/{id}", productId))
                     .andExpect(status().isNotFound())
@@ -485,8 +494,7 @@ class ProductControllerTest {
         @Test
         @DisplayName("should include correlationId, path, timestamp in 404 responses")
         void error404_ContainsContractFields() throws Exception {
-            when(productService.findProduct(productId))
-                    .thenThrow(new ProductNotFoundException(productId));
+            when(productService.findProduct(productId)).thenThrow(new ProductNotFoundException(productId));
 
             mockMvc.perform(get("/api/products/{id}", productId))
                     .andExpect(status().isNotFound())

@@ -1,10 +1,13 @@
 package com.lifecontrol.api.activity.controller;
 
+import static com.lifecontrol.api.common.security.Roles.ADMIN;
+
 import com.lifecontrol.api.activity.dto.ActivityLogFilter;
 import com.lifecontrol.api.activity.dto.ActivityLogResponse;
 import com.lifecontrol.api.activity.service.ActivityLogService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.time.LocalDate;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -15,10 +18,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.time.LocalDate;
-
-import static com.lifecontrol.api.common.security.Roles.ADMIN;
 
 /**
  * REST controller for querying the activity audit trail.
@@ -38,7 +37,10 @@ public class ActivityLogController {
     }
 
     @GetMapping
-    @Operation(summary = "Query activity logs", description = "Returns a paginated list of activity log entries, optionally filtered by date range, process, event, user, or HTTP method")
+    @Operation(
+            summary = "Query activity logs",
+            description =
+                    "Returns a paginated list of activity log entries, optionally filtered by date range, process, event, user, or HTTP method")
     public ResponseEntity<Page<ActivityLogResponse>> getActivityLogs(
             @PageableDefault(size = 20) Pageable pageable,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,

@@ -1,33 +1,5 @@
 package com.lifecontrol.api.promotion.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.lifecontrol.api.exception.GlobalExceptionHandler;
-import com.lifecontrol.api.promotion.dto.PromotionRequest;
-import com.lifecontrol.api.promotion.dto.PromotionResponse;
-import com.lifecontrol.api.promotion.exception.PromotionNotFoundException;
-import com.lifecontrol.api.promotion.service.PromotionService;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Nested;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.web.PageableHandlerMethodArgumentResolver;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.UUID;
-
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -39,6 +11,32 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lifecontrol.api.exception.GlobalExceptionHandler;
+import com.lifecontrol.api.promotion.dto.PromotionRequest;
+import com.lifecontrol.api.promotion.dto.PromotionResponse;
+import com.lifecontrol.api.promotion.exception.PromotionNotFoundException;
+import com.lifecontrol.api.promotion.service.PromotionService;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableHandlerMethodArgumentResolver;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("PromotionController Tests")
@@ -81,8 +79,7 @@ class PromotionControllerTest {
                 new BigDecimal("100.00"),
                 true,
                 now,
-                now
-        );
+                now);
 
         testPromotionRequest = new PromotionRequest(
                 "Summer Sale",
@@ -93,8 +90,7 @@ class PromotionControllerTest {
                 now.plusDays(30),
                 "TIENDA",
                 new BigDecimal("100.00"),
-                true
-        );
+                true);
     }
 
     // ─────────────────────────────────────────────
@@ -113,9 +109,7 @@ class PromotionControllerTest {
 
             when(promotionService.getAllPromotions(any(Pageable.class))).thenReturn(page);
 
-            mockMvc.perform(get("/api/promotions")
-                            .param("page", "0")
-                            .param("size", "12"))
+            mockMvc.perform(get("/api/promotions").param("page", "0").param("size", "12"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content").isArray())
                     .andExpect(jsonPath("$.content[0].id").value(testPromotionId.toString()))
@@ -138,9 +132,7 @@ class PromotionControllerTest {
 
             when(promotionService.getAllPromotions(any(Pageable.class))).thenReturn(page);
 
-            mockMvc.perform(get("/api/promotions")
-                            .param("page", "0")
-                            .param("size", "12"))
+            mockMvc.perform(get("/api/promotions").param("page", "0").param("size", "12"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content").isEmpty())
                     .andExpect(jsonPath("$.totalElements").value(0))
@@ -162,8 +154,7 @@ class PromotionControllerTest {
 
             when(promotionService.findActivePromotions("TIENDA")).thenReturn(activePromotions);
 
-            mockMvc.perform(get("/api/promotions/active")
-                            .param("channel", "TIENDA"))
+            mockMvc.perform(get("/api/promotions/active").param("channel", "TIENDA"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$").isArray())
                     .andExpect(jsonPath("$[0].id").value(testPromotionId.toString()))
@@ -177,8 +168,7 @@ class PromotionControllerTest {
         void getActivePromotions_EmptyList() throws Exception {
             when(promotionService.findActivePromotions("ONLINE")).thenReturn(List.of());
 
-            mockMvc.perform(get("/api/promotions/active")
-                            .param("channel", "ONLINE"))
+            mockMvc.perform(get("/api/promotions/active").param("channel", "ONLINE"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$").isArray())
                     .andExpect(jsonPath("$").isEmpty());
@@ -232,8 +222,7 @@ class PromotionControllerTest {
         @Test
         @DisplayName("should return 201 with created promotion when valid request")
         void createPromotion_ValidRequest_Returns201() throws Exception {
-            when(promotionService.createPromotion(any(PromotionRequest.class)))
-                    .thenReturn(testPromotionResponse);
+            when(promotionService.createPromotion(any(PromotionRequest.class))).thenReturn(testPromotionResponse);
 
             mockMvc.perform(post("/api/promotions")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -313,8 +302,7 @@ class PromotionControllerTest {
         @Test
         @DisplayName("should return 204 on successful soft delete")
         void deletePromotion_Success_Returns204() throws Exception {
-            mockMvc.perform(delete("/api/promotions/{id}", testPromotionId))
-                    .andExpect(status().isNoContent());
+            mockMvc.perform(delete("/api/promotions/{id}", testPromotionId)).andExpect(status().isNoContent());
 
             verify(promotionService).deletePromotion(testPromotionId);
         }
@@ -323,7 +311,8 @@ class PromotionControllerTest {
         @DisplayName("should return 404 when promotion not found")
         void deletePromotion_NotFound_Returns404() throws Exception {
             doThrow(new PromotionNotFoundException(testPromotionId))
-                    .when(promotionService).deletePromotion(testPromotionId);
+                    .when(promotionService)
+                    .deletePromotion(testPromotionId);
 
             mockMvc.perform(delete("/api/promotions/{id}", testPromotionId))
                     .andExpect(status().isNotFound())
@@ -332,5 +321,4 @@ class PromotionControllerTest {
                     .andExpect(jsonPath("$.timestamp").exists());
         }
     }
-
 }

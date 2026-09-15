@@ -1,15 +1,15 @@
 package com.lifecontrol.api.purchaseorder.service;
 
+import com.lifecontrol.api.company.model.Company;
+import com.lifecontrol.api.company.model.CompanyCountry;
+import com.lifecontrol.api.company.model.CompanyRegion;
+import com.lifecontrol.api.company.model.CompanyZone;
 import com.lifecontrol.api.paymentmethod.exception.PaymentMethodNotFoundException;
 import com.lifecontrol.api.paymentmethod.model.PaymentMethod;
 import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
 import com.lifecontrol.api.product.exception.ProductNotFoundException;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.repository.ProductRepository;
-import com.lifecontrol.api.company.model.Company;
-import com.lifecontrol.api.company.model.CompanyCountry;
-import com.lifecontrol.api.company.model.CompanyRegion;
-import com.lifecontrol.api.company.model.CompanyZone;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderDetailRequest;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderDetailResponse;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderRequest;
@@ -32,14 +32,6 @@ import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.supplier.exception.SupplierNotFoundException;
 import com.lifecontrol.api.supplier.model.Supplier;
 import com.lifecontrol.api.supplier.repository.SupplierRepository;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
-
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -48,6 +40,13 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 @Service
 public class PurchaseOrderService {
@@ -62,8 +61,7 @@ public class PurchaseOrderService {
             Map.entry("Received", Set.of("Billed", "Rejected")),
             Map.entry("Billed", Set.of("Closed", "Rejected")),
             Map.entry("Closed", Set.of()),
-            Map.entry("Rejected", Set.of())
-    );
+            Map.entry("Rejected", Set.of()));
 
     private static final Map<String, Set<String>> DETAIL_TRANSITIONS = Map.ofEntries(
             Map.entry("Pending", Set.of("In Process", "Cancelled")),
@@ -72,8 +70,7 @@ public class PurchaseOrderService {
             Map.entry("Partial Received", Set.of("Received", "Rejected")),
             Map.entry("Received", Set.of()),
             Map.entry("Rejected", Set.of()),
-            Map.entry("Cancelled", Set.of())
-    );
+            Map.entry("Cancelled", Set.of()));
 
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd");
 
@@ -85,13 +82,14 @@ public class PurchaseOrderService {
     private final PaymentMethodRepository paymentMethodRepository;
     private final StatusRepository statusRepository;
 
-    public PurchaseOrderService(PurchaseOrderRepository purchaseOrderRepository,
-                                PurchaseOrderDetailRepository detailRepository,
-                                SupplierRepository supplierRepository,
-                                CompanyStoreRepository companyStoreRepository,
-                                ProductRepository productRepository,
-                                PaymentMethodRepository paymentMethodRepository,
-                                StatusRepository statusRepository) {
+    public PurchaseOrderService(
+            PurchaseOrderRepository purchaseOrderRepository,
+            PurchaseOrderDetailRepository detailRepository,
+            SupplierRepository supplierRepository,
+            CompanyStoreRepository companyStoreRepository,
+            ProductRepository productRepository,
+            PaymentMethodRepository paymentMethodRepository,
+            StatusRepository statusRepository) {
         this.purchaseOrderRepository = purchaseOrderRepository;
         this.detailRepository = detailRepository;
         this.supplierRepository = supplierRepository;
@@ -118,8 +116,7 @@ public class PurchaseOrderService {
 
     @Transactional(readOnly = true)
     public PurchaseOrderResponse getPurchaseOrderById(UUID id) {
-        var po = purchaseOrderRepository.findById(id)
-                .orElseThrow(() -> new PurchaseOrderNotFoundException(id));
+        var po = purchaseOrderRepository.findById(id).orElseThrow(() -> new PurchaseOrderNotFoundException(id));
         return toResponse(po);
     }
 
@@ -132,7 +129,8 @@ public class PurchaseOrderService {
         var paymentMethod = validatePaymentMethodExists(request.paymentMethodId());
         var status = request.statusId() != null
                 ? StatusValidator.requireStatusOfType(statusRepository, request.statusId(), "PURCHASE_ORDER")
-                : statusRepository.findByTypeNameAndStatusName("PURCHASE_ORDER", "Draft")
+                : statusRepository
+                        .findByTypeNameAndStatusName("PURCHASE_ORDER", "Draft")
                         .orElseThrow(() -> new StatusNotFoundException(
                                 "Default status 'Draft' not found for PURCHASE_ORDER type"));
 
@@ -152,7 +150,8 @@ public class PurchaseOrderService {
         if (request.details() != null && !request.details().isEmpty()) {
             for (var detailReq : request.details()) {
                 var product = validateProductExists(detailReq.productId());
-                var detailStatus = StatusValidator.requireStatusOfType(statusRepository, detailReq.statusId(), "PURCHASE_ORDER_DETAIL");
+                var detailStatus = StatusValidator.requireStatusOfType(
+                        statusRepository, detailReq.statusId(), "PURCHASE_ORDER_DETAIL");
                 var total = detailReq.unitPrice().multiply(BigDecimal.valueOf(detailReq.quantity()));
 
                 var detail = PurchaseOrderDetail.builder()
@@ -180,8 +179,7 @@ public class PurchaseOrderService {
     public PurchaseOrderResponse updatePurchaseOrder(UUID id, PurchaseOrderRequest request) {
         logger.info("Updating purchase order: id={}", id);
 
-        var po = purchaseOrderRepository.findById(id)
-                .orElseThrow(() -> new PurchaseOrderNotFoundException(id));
+        var po = purchaseOrderRepository.findById(id).orElseThrow(() -> new PurchaseOrderNotFoundException(id));
 
         var supplier = validateSupplierExists(request.supplierId());
         var store = validateCompanyStoreExists(request.companyStoreId());
@@ -214,7 +212,8 @@ public class PurchaseOrderService {
                 for (var detailReq : request.details()) {
                     var product = validateProductExists(detailReq.productId());
                     var detailStatus = detailReq.statusId() != null
-                            ? StatusValidator.requireStatusOfType(statusRepository, detailReq.statusId(), "PURCHASE_ORDER_DETAIL")
+                            ? StatusValidator.requireStatusOfType(
+                                    statusRepository, detailReq.statusId(), "PURCHASE_ORDER_DETAIL")
                             : defaultDetailStatus;
                     var total = detailReq.unitPrice().multiply(BigDecimal.valueOf(detailReq.quantity()));
 
@@ -242,8 +241,7 @@ public class PurchaseOrderService {
     public PurchaseOrderResponse updatePurchaseOrderStatus(UUID id, UpdatePurchaseOrderStatusRequest request) {
         logger.info("Updating purchase order status: id={}", id);
 
-        var po = purchaseOrderRepository.findById(id)
-                .orElseThrow(() -> new PurchaseOrderNotFoundException(id));
+        var po = purchaseOrderRepository.findById(id).orElseThrow(() -> new PurchaseOrderNotFoundException(id));
 
         var newStatus = StatusValidator.requireStatusOfType(statusRepository, request.statusId(), "PURCHASE_ORDER");
         validatePOTransition(po.getStatus(), newStatus);
@@ -258,8 +256,7 @@ public class PurchaseOrderService {
     public void deletePurchaseOrder(UUID id) {
         logger.info("Soft-deleting purchase order: id={}", id);
 
-        var po = purchaseOrderRepository.findById(id)
-                .orElseThrow(() -> new PurchaseOrderNotFoundException(id));
+        var po = purchaseOrderRepository.findById(id).orElseThrow(() -> new PurchaseOrderNotFoundException(id));
 
         po.setEnabled(false);
         for (var detail : po.getDetails()) {
@@ -274,8 +271,7 @@ public class PurchaseOrderService {
     public PurchaseOrderResponse enablePurchaseOrder(UUID id) {
         logger.info("Re-enabling purchase order: id={}", id);
 
-        var po = purchaseOrderRepository.findById(id)
-                .orElseThrow(() -> new PurchaseOrderNotFoundException(id));
+        var po = purchaseOrderRepository.findById(id).orElseThrow(() -> new PurchaseOrderNotFoundException(id));
 
         po.setEnabled(true);
         for (var detail : po.getDetails()) {
@@ -290,22 +286,24 @@ public class PurchaseOrderService {
 
     @Transactional(readOnly = true)
     public List<PurchaseOrderDetailResponse> getPurchaseOrderDetails(UUID purchaseOrderId) {
-        purchaseOrderRepository.findById(purchaseOrderId)
+        purchaseOrderRepository
+                .findById(purchaseOrderId)
                 .orElseThrow(() -> new PurchaseOrderNotFoundException(purchaseOrderId));
 
-        return detailRepository.findByPurchaseOrderIdAndEnabledTrue(purchaseOrderId)
-                .stream()
+        return detailRepository.findByPurchaseOrderIdAndEnabledTrue(purchaseOrderId).stream()
                 .map(this::toDetailResponse)
                 .toList();
     }
 
     @Transactional
-    public PurchaseOrderDetailResponse addPurchaseOrderDetail(UUID purchaseOrderId, PurchaseOrderDetailRequest request) {
+    public PurchaseOrderDetailResponse addPurchaseOrderDetail(
+            UUID purchaseOrderId, PurchaseOrderDetailRequest request) {
         logger.info("Adding detail to purchase order: poId={}", purchaseOrderId);
 
         var po = loadAndValidateDraftPO(purchaseOrderId);
         var product = validateProductExists(request.productId());
-        var detailStatus = StatusValidator.requireStatusOfType(statusRepository, request.statusId(), "PURCHASE_ORDER_DETAIL");
+        var detailStatus =
+                StatusValidator.requireStatusOfType(statusRepository, request.statusId(), "PURCHASE_ORDER_DETAIL");
         var total = request.unitPrice().multiply(BigDecimal.valueOf(request.quantity()));
 
         var detail = PurchaseOrderDetail.builder()
@@ -327,17 +325,19 @@ public class PurchaseOrderService {
     }
 
     @Transactional
-    public PurchaseOrderDetailResponse updatePurchaseOrderDetail(UUID purchaseOrderId, UUID detailId,
-                                                                  PurchaseOrderDetailRequest request) {
+    public PurchaseOrderDetailResponse updatePurchaseOrderDetail(
+            UUID purchaseOrderId, UUID detailId, PurchaseOrderDetailRequest request) {
         logger.info("Updating detail: poId={}, detailId={}", purchaseOrderId, detailId);
 
         loadAndValidateDraftPO(purchaseOrderId);
 
-        var detail = detailRepository.findById(detailId)
+        var detail = detailRepository
+                .findById(detailId)
                 .orElseThrow(() -> new PurchaseOrderDetailNotFoundException(detailId));
 
         var product = validateProductExists(request.productId());
-        var detailStatus = StatusValidator.requireStatusOfType(statusRepository, request.statusId(), "PURCHASE_ORDER_DETAIL");
+        var detailStatus =
+                StatusValidator.requireStatusOfType(statusRepository, request.statusId(), "PURCHASE_ORDER_DETAIL");
         var total = request.unitPrice().multiply(BigDecimal.valueOf(request.quantity()));
 
         detail.setProduct(product);
@@ -357,7 +357,8 @@ public class PurchaseOrderService {
 
         loadAndValidateDraftPO(purchaseOrderId);
 
-        var detail = detailRepository.findById(detailId)
+        var detail = detailRepository
+                .findById(detailId)
                 .orElseThrow(() -> new PurchaseOrderDetailNotFoundException(detailId));
 
         detail.setEnabled(false);
@@ -366,17 +367,20 @@ public class PurchaseOrderService {
     }
 
     @Transactional
-    public PurchaseOrderDetailResponse updatePurchaseOrderDetailStatus(UUID purchaseOrderId, UUID detailId,
-                                                                        UpdatePurchaseOrderStatusRequest request) {
+    public PurchaseOrderDetailResponse updatePurchaseOrderDetailStatus(
+            UUID purchaseOrderId, UUID detailId, UpdatePurchaseOrderStatusRequest request) {
         logger.info("Updating detail status: poId={}, detailId={}", purchaseOrderId, detailId);
 
-        purchaseOrderRepository.findById(purchaseOrderId)
+        purchaseOrderRepository
+                .findById(purchaseOrderId)
                 .orElseThrow(() -> new PurchaseOrderNotFoundException(purchaseOrderId));
 
-        var detail = detailRepository.findById(detailId)
+        var detail = detailRepository
+                .findById(detailId)
                 .orElseThrow(() -> new PurchaseOrderDetailNotFoundException(detailId));
 
-        var newStatus = StatusValidator.requireStatusOfType(statusRepository, request.statusId(), "PURCHASE_ORDER_DETAIL");
+        var newStatus =
+                StatusValidator.requireStatusOfType(statusRepository, request.statusId(), "PURCHASE_ORDER_DETAIL");
         validateDetailTransition(detail.getStatus(), newStatus);
 
         // Update received_quantity reflecting the real quantity received
@@ -404,36 +408,38 @@ public class PurchaseOrderService {
     // ─── FK Validation Helpers ──────────────────────────────────────────
 
     private PurchaseOrder loadAndValidateDraftPO(UUID id) {
-        var po = purchaseOrderRepository.findById(id)
-                .orElseThrow(() -> new PurchaseOrderNotFoundException(id));
+        var po = purchaseOrderRepository.findById(id).orElseThrow(() -> new PurchaseOrderNotFoundException(id));
 
         if (!"Draft".equals(po.getStatus().getStatusName())) {
-            throw new InvalidStatusTransitionException(
-                    po.getStatus().getStatusName(), "detail mutation");
+            throw new InvalidStatusTransitionException(po.getStatus().getStatusName(), "detail mutation");
         }
         return po;
     }
 
     private Supplier validateSupplierExists(UUID id) {
-        return supplierRepository.findById(id)
+        return supplierRepository
+                .findById(id)
                 .filter(Supplier::getEnabled)
                 .orElseThrow(() -> new SupplierNotFoundException(id));
     }
 
     private CompanyStore validateCompanyStoreExists(UUID id) {
-        return companyStoreRepository.findById(id)
+        return companyStoreRepository
+                .findById(id)
                 .filter(CompanyStore::getEnabled)
                 .orElseThrow(() -> new CompanyStoreNotFoundException(id));
     }
 
     private PaymentMethod validatePaymentMethodExists(UUID id) {
-        return paymentMethodRepository.findById(id)
+        return paymentMethodRepository
+                .findById(id)
                 .filter(PaymentMethod::getEnabled)
                 .orElseThrow(() -> new PaymentMethodNotFoundException(id));
     }
 
     private Product validateProductExists(UUID id) {
-        return productRepository.findById(id)
+        return productRepository
+                .findById(id)
                 .filter(Product::getEnabled)
                 .orElseThrow(() -> new ProductNotFoundException(id));
     }
@@ -467,8 +473,7 @@ public class PurchaseOrderService {
         var dateStr = today.format(DATE_FORMAT);
         var prefix = "PO-" + dateStr + "-";
 
-        var maxOrder = purchaseOrderRepository
-                .findTopByOrderNumberStartingWithOrderByOrderNumberDesc(prefix);
+        var maxOrder = purchaseOrderRepository.findTopByOrderNumberStartingWithOrderByOrderNumberDesc(prefix);
 
         var nextSeq = 1;
         if (maxOrder.isPresent()) {
@@ -542,8 +547,7 @@ public class PurchaseOrderService {
                 po.getEnabled(),
                 po.getCreatedAt(),
                 po.getUpdatedAt(),
-                detailResponses
-        );
+                detailResponses);
     }
 
     private PurchaseOrderDetailResponse toDetailResponse(PurchaseOrderDetail detail) {
@@ -560,7 +564,6 @@ public class PurchaseOrderService {
                 detail.getStatus().getId(),
                 detail.getStatus().getStatusName(),
                 detail.getCreatedAt(),
-                detail.getUpdatedAt()
-        );
+                detail.getUpdatedAt());
     }
 }

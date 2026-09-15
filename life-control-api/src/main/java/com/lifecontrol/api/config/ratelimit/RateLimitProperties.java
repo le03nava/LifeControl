@@ -1,11 +1,10 @@
 package com.lifecontrol.api.config.ratelimit;
 
-import org.springframework.boot.context.properties.ConfigurationProperties;
-
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * Configuration properties for API rate limiting.
@@ -36,9 +35,8 @@ public class RateLimitProperties {
      * entries is the forwarded client address honored; otherwise the socket peer
      * address is used, preventing clients from spoofing the whitelist.
      */
-    private List<String> trustedProxies = List.of(
-            "127.0.0.1/32", "::1/128",
-            "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16");
+    private List<String> trustedProxies =
+            List.of("127.0.0.1/32", "::1/128", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16");
 
     private Map<String, EndpointLimit> endpoints = new HashMap<>();
 

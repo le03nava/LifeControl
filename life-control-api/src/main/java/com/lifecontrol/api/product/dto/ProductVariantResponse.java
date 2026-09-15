@@ -16,5 +16,4 @@ public record ProductVariantResponse(
         BigDecimal stock,
         Boolean enabled,
         LocalDateTime createdAt,
-        LocalDateTime updatedAt
-) {}
+        LocalDateTime updatedAt) {}

@@ -1,10 +1,22 @@
 package com.lifecontrol.api.country.controller;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifecontrol.api.config.ratelimit.RateLimitProperties;
 import com.lifecontrol.api.country.dto.CountryRequest;
 import com.lifecontrol.api.country.dto.CountryResponse;
 import com.lifecontrol.api.country.service.CountryService;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -23,19 +35,6 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.UUID;
-
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-
 @WebMvcTest(CountryController.class)
 @DisplayName("Country Controller Security — @PreAuthorize method-level authorization")
 class CountryControllerSecurityTest {
@@ -51,8 +50,7 @@ class CountryControllerSecurityTest {
     static class TestSecurityConfig {
         @Bean
         SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-            return http
-                    .authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
+            return http.authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
                     .httpBasic(basic -> {})
                     .csrf(AbstractHttpConfigurer::disable)
                     .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -79,10 +77,7 @@ class CountryControllerSecurityTest {
     }
 
     private CountryResponse buildResponse() {
-        return new CountryResponse(
-                countryId, "MX", "México", true,
-                LocalDateTime.now(), LocalDateTime.now()
-        );
+        return new CountryResponse(countryId, "MX", "México", true, LocalDateTime.now(), LocalDateTime.now());
     }
 
     // ─── GET /api/countries ───────────────────────────────────────
@@ -97,15 +92,13 @@ class CountryControllerSecurityTest {
         void anyAuthenticatedUserCanRead() throws Exception {
             when(countryService.getAllCountries(false)).thenReturn(List.of(buildResponse()));
 
-            mockMvc.perform(get("/api/countries"))
-                    .andExpect(status().isOk());
+            mockMvc.perform(get("/api/countries")).andExpect(status().isOk());
         }
 
         @Test
         @DisplayName("returns 401 Unauthorized for unauthenticated request")
         void unauthenticatedReturns401() throws Exception {
-            mockMvc.perform(get("/api/countries"))
-                    .andExpect(status().isUnauthorized());
+            mockMvc.perform(get("/api/countries")).andExpect(status().isUnauthorized());
         }
     }
 
@@ -119,8 +112,7 @@ class CountryControllerSecurityTest {
         @WithMockUser(roles = {"lc-admin"})
         @DisplayName("returns 201 Created for user with lc-admin role")
         void adminCanCreate() throws Exception {
-            when(countryService.createCountry(any(CountryRequest.class)))
-                    .thenReturn(buildResponse());
+            when(countryService.createCountry(any(CountryRequest.class))).thenReturn(buildResponse());
 
             mockMvc.perform(post("/api/countries")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -132,8 +124,7 @@ class CountryControllerSecurityTest {
         @WithMockUser(roles = {"lc-country"})
         @DisplayName("returns 201 Created for user with lc-country role")
         void domainRoleCanCreate() throws Exception {
-            when(countryService.createCountry(any(CountryRequest.class)))
-                    .thenReturn(buildResponse());
+            when(countryService.createCountry(any(CountryRequest.class))).thenReturn(buildResponse());
 
             mockMvc.perform(post("/api/countries")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -233,24 +224,21 @@ class CountryControllerSecurityTest {
         @WithMockUser(roles = {"lc-admin"})
         @DisplayName("returns 204 No Content for user with lc-admin role")
         void adminCanDelete() throws Exception {
-            mockMvc.perform(delete("/api/countries/{id}", countryId))
-                    .andExpect(status().isNoContent());
+            mockMvc.perform(delete("/api/countries/{id}", countryId)).andExpect(status().isNoContent());
         }
 
         @Test
         @WithMockUser(roles = {"lc-country"})
         @DisplayName("returns 204 No Content for user with lc-country role")
         void domainRoleCanDelete() throws Exception {
-            mockMvc.perform(delete("/api/countries/{id}", countryId))
-                    .andExpect(status().isNoContent());
+            mockMvc.perform(delete("/api/countries/{id}", countryId)).andExpect(status().isNoContent());
         }
 
         @Test
         @WithMockUser
         @DisplayName("returns 403 Forbidden for authenticated user with no roles")
         void userWithNoRolesGetsForbidden() throws Exception {
-            mockMvc.perform(delete("/api/countries/{id}", countryId))
-                    .andExpect(status().isForbidden());
+            mockMvc.perform(delete("/api/countries/{id}", countryId)).andExpect(status().isForbidden());
         }
     }
 }

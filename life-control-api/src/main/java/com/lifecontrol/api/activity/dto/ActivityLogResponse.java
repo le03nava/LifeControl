@@ -9,16 +9,15 @@ import java.util.UUID;
  * process and event names.
  */
 public record ActivityLogResponse(
-    UUID id,
-    String userId,
-    String username,
-    String process,
-    String event,
-    String httpMethod,
-    Integer httpStatus,
-    String requestPath,
-    String ipAddress,
-    String userAgent,
-    String payloadJson,
-    LocalDateTime createdAt
-) {}
+        UUID id,
+        String userId,
+        String username,
+        String process,
+        String event,
+        String httpMethod,
+        Integer httpStatus,
+        String requestPath,
+        String ipAddress,
+        String userAgent,
+        String payloadJson,
+        LocalDateTime createdAt) {}

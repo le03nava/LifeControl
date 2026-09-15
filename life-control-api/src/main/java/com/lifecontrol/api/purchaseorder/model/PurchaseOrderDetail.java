@@ -4,7 +4,6 @@ import com.lifecontrol.api.common.model.Auditable;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.status.model.Status;
 import jakarta.persistence.*;
-
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;

@@ -1,7 +1,6 @@
 package com.lifecontrol.api.activity.model;
 
 import jakarta.persistence.*;
-
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -58,10 +57,18 @@ public class ActivityLog {
     protected ActivityLog() {}
 
     // Private constructor — instances created only through the Builder
-    private ActivityLog(UUID id, String userId, String username,
-                        ActivityProcess activityProcess, ActivityEvent activityEvent,
-                        String httpMethod, Integer httpStatus, String requestPath,
-                        String ipAddress, String userAgent, String payloadJson) {
+    private ActivityLog(
+            UUID id,
+            String userId,
+            String username,
+            ActivityProcess activityProcess,
+            ActivityEvent activityEvent,
+            String httpMethod,
+            Integer httpStatus,
+            String requestPath,
+            String ipAddress,
+            String userAgent,
+            String payloadJson) {
         this.id = id;
         this.userId = userId;
         this.username = username;
@@ -205,8 +212,18 @@ public class ActivityLog {
         }
 
         public ActivityLog build() {
-            return new ActivityLog(id, userId, username, activityProcess, activityEvent,
-                    httpMethod, httpStatus, requestPath, ipAddress, userAgent, payloadJson);
+            return new ActivityLog(
+                    id,
+                    userId,
+                    username,
+                    activityProcess,
+                    activityEvent,
+                    httpMethod,
+                    httpStatus,
+                    requestPath,
+                    ipAddress,
+                    userAgent,
+                    payloadJson);
         }
     }
 }

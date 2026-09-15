@@ -1,18 +1,17 @@
 package com.lifecontrol.api.common.address.dto;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
 import jakarta.validation.ValidatorFactory;
+import java.util.Set;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-
-import java.util.Set;
-import java.util.UUID;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 @DisplayName("AddressRequest DTO Validation Tests")
 class AddressRequestValidationTest {
@@ -54,21 +53,16 @@ class AddressRequestValidationTest {
         @Test
         @DisplayName("should fail validation when street exceeds 255 characters")
         void streetTooLong_HasViolation() {
-            var request = new AddressRequest(
-                    "A".repeat(256), null, null, null, null, null, null, null
-            );
+            var request = new AddressRequest("A".repeat(256), null, null, null, null, null, null, null);
             Set<ConstraintViolation<AddressRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
-            assertThat(violations)
-                    .anyMatch(v -> v.getPropertyPath().toString().equals("street"));
+            assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("street"));
         }
 
         @Test
         @DisplayName("should pass validation when street is exactly 255 characters")
         void streetAtMaxLength_NoViolations() {
-            var request = new AddressRequest(
-                    "A".repeat(255), null, null, null, null, null, null, null
-            );
+            var request = new AddressRequest("A".repeat(255), null, null, null, null, null, null, null);
             Set<ConstraintViolation<AddressRequest>> violations = validator.validate(request);
             assertThat(violations).isEmpty();
         }
@@ -76,73 +70,55 @@ class AddressRequestValidationTest {
         @Test
         @DisplayName("should fail validation when streetNumber exceeds 20 characters")
         void streetNumberTooLong_HasViolation() {
-            var request = new AddressRequest(
-                    null, "B".repeat(21), null, null, null, null, null, null
-            );
+            var request = new AddressRequest(null, "B".repeat(21), null, null, null, null, null, null);
             Set<ConstraintViolation<AddressRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
-            assertThat(violations)
-                    .anyMatch(v -> v.getPropertyPath().toString().equals("streetNumber"));
+            assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("streetNumber"));
         }
 
         @Test
         @DisplayName("should fail validation when internalNumber exceeds 20 characters")
         void internalNumberTooLong_HasViolation() {
-            var request = new AddressRequest(
-                    null, null, "C".repeat(21), null, null, null, null, null
-            );
+            var request = new AddressRequest(null, null, "C".repeat(21), null, null, null, null, null);
             Set<ConstraintViolation<AddressRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
-            assertThat(violations)
-                    .anyMatch(v -> v.getPropertyPath().toString().equals("internalNumber"));
+            assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("internalNumber"));
         }
 
         @Test
         @DisplayName("should fail validation when neighborhood exceeds 255 characters")
         void neighborhoodTooLong_HasViolation() {
-            var request = new AddressRequest(
-                    null, null, null, "D".repeat(256), null, null, null, null
-            );
+            var request = new AddressRequest(null, null, null, "D".repeat(256), null, null, null, null);
             Set<ConstraintViolation<AddressRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
-            assertThat(violations)
-                    .anyMatch(v -> v.getPropertyPath().toString().equals("neighborhood"));
+            assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("neighborhood"));
         }
 
         @Test
         @DisplayName("should fail validation when zipCode exceeds 20 characters")
         void zipCodeTooLong_HasViolation() {
-            var request = new AddressRequest(
-                    null, null, null, null, "E".repeat(21), null, null, null
-            );
+            var request = new AddressRequest(null, null, null, null, "E".repeat(21), null, null, null);
             Set<ConstraintViolation<AddressRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
-            assertThat(violations)
-                    .anyMatch(v -> v.getPropertyPath().toString().equals("zipCode"));
+            assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("zipCode"));
         }
 
         @Test
         @DisplayName("should fail validation when city exceeds 255 characters")
         void cityTooLong_HasViolation() {
-            var request = new AddressRequest(
-                    null, null, null, null, null, "F".repeat(256), null, null
-            );
+            var request = new AddressRequest(null, null, null, null, null, "F".repeat(256), null, null);
             Set<ConstraintViolation<AddressRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
-            assertThat(violations)
-                    .anyMatch(v -> v.getPropertyPath().toString().equals("city"));
+            assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("city"));
         }
 
         @Test
         @DisplayName("should fail validation when state exceeds 255 characters")
         void stateTooLong_HasViolation() {
-            var request = new AddressRequest(
-                    null, null, null, null, null, null, "G".repeat(256), null
-            );
+            var request = new AddressRequest(null, null, null, null, null, null, "G".repeat(256), null);
             Set<ConstraintViolation<AddressRequest>> violations = validator.validate(request);
             assertThat(violations).isNotEmpty();
-            assertThat(violations)
-                    .anyMatch(v -> v.getPropertyPath().toString().equals("state"));
+            assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("state"));
         }
     }
 
@@ -154,9 +130,14 @@ class AddressRequestValidationTest {
         @DisplayName("should pass validation with all valid fields")
         void allValid_NoViolations() {
             var request = new AddressRequest(
-                    "Calle Principal", "123", "A-101", "Centro",
-                    "06600", "Ciudad de México", "CDMX", UUID.randomUUID()
-            );
+                    "Calle Principal",
+                    "123",
+                    "A-101",
+                    "Centro",
+                    "06600",
+                    "Ciudad de México",
+                    "CDMX",
+                    UUID.randomUUID());
             Set<ConstraintViolation<AddressRequest>> violations = validator.validate(request);
             assertThat(violations).isEmpty();
         }

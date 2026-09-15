@@ -6,6 +6,7 @@ import com.lifecontrol.api.status.exception.DuplicateStatusTypeException;
 import com.lifecontrol.api.status.exception.StatusTypeNotFoundException;
 import com.lifecontrol.api.status.model.StatusType;
 import com.lifecontrol.api.status.repository.StatusTypeRepository;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.CacheEvict;
@@ -14,8 +15,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.UUID;
 
 @Service
 public class StatusTypeService {
@@ -32,17 +31,18 @@ public class StatusTypeService {
     @Transactional(readOnly = true)
     public Page<StatusTypeResponse> getAllStatusTypes(Pageable pageable, String search) {
         if (search != null && !search.isBlank()) {
-            return statusTypeRepository.findByEnabledTrueAndStatusTypeNameContainingIgnoreCase(search, pageable)
+            return statusTypeRepository
+                    .findByEnabledTrueAndStatusTypeNameContainingIgnoreCase(search, pageable)
                     .map(this::toResponse);
         }
-        return statusTypeRepository.findByEnabledTrue(pageable)
-                .map(this::toResponse);
+        return statusTypeRepository.findByEnabledTrue(pageable).map(this::toResponse);
     }
 
     @Cacheable(value = "statusTypes", key = "#id")
     @Transactional(readOnly = true)
     public StatusTypeResponse getStatusTypeById(UUID id) {
-        return statusTypeRepository.findById(id)
+        return statusTypeRepository
+                .findById(id)
                 .map(this::toResponse)
                 .orElseThrow(() -> new StatusTypeNotFoundException(id));
     }
@@ -72,8 +72,7 @@ public class StatusTypeService {
     public StatusTypeResponse updateStatusType(UUID id, StatusTypeRequest request) {
         logger.info("Updating status type with id: {}", id);
 
-        var statusType = statusTypeRepository.findById(id)
-                .orElseThrow(() -> new StatusTypeNotFoundException(id));
+        var statusType = statusTypeRepository.findById(id).orElseThrow(() -> new StatusTypeNotFoundException(id));
 
         // Check duplicate name (excluding current entity)
         var existing = statusTypeRepository.findByStatusTypeNameIgnoreCase(request.statusTypeName());
@@ -94,8 +93,7 @@ public class StatusTypeService {
     public void deleteStatusType(UUID id) {
         logger.info("Soft-deleting status type with id: {}", id);
 
-        var statusType = statusTypeRepository.findById(id)
-                .orElseThrow(() -> new StatusTypeNotFoundException(id));
+        var statusType = statusTypeRepository.findById(id).orElseThrow(() -> new StatusTypeNotFoundException(id));
 
         statusType.setEnabled(false);
         statusTypeRepository.save(statusType);
@@ -108,8 +106,7 @@ public class StatusTypeService {
     public StatusTypeResponse enableStatusType(UUID id) {
         logger.info("Enabling status type with id: {}", id);
 
-        var statusType = statusTypeRepository.findById(id)
-                .orElseThrow(() -> new StatusTypeNotFoundException(id));
+        var statusType = statusTypeRepository.findById(id).orElseThrow(() -> new StatusTypeNotFoundException(id));
 
         statusType.setEnabled(true);
         var saved = statusTypeRepository.save(statusType);
@@ -123,7 +120,6 @@ public class StatusTypeService {
                 statusType.getStatusTypeName(),
                 statusType.getEnabled(),
                 statusType.getCreatedAt(),
-                statusType.getUpdatedAt()
-        );
+                statusType.getUpdatedAt());
     }
 }

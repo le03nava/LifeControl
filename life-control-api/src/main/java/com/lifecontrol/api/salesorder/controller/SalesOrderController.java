@@ -1,5 +1,8 @@
 package com.lifecontrol.api.salesorder.controller;
 
+import static com.lifecontrol.api.common.security.Roles.ADMIN;
+import static com.lifecontrol.api.common.security.Roles.SALES;
+
 import com.lifecontrol.api.salesorder.dto.ChargeSalesOrderRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderItemRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderItemResponse;
@@ -12,6 +15,8 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.List;
+import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -29,12 +34,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
-import java.util.UUID;
-
-import static com.lifecontrol.api.common.security.Roles.ADMIN;
-import static com.lifecontrol.api.common.security.Roles.SALES;
-
 @RestController
 @RequestMapping("/api/sales-orders")
 @Tag(name = "Sales Orders", description = "API for managing sales orders and their line items")
@@ -50,13 +49,12 @@ public class SalesOrderController {
 
     @GetMapping
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
-    @Operation(summary = "Get all sales orders", description = "Returns a paginated list, optionally filtered by search term on order number")
-    @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "Paginated list of sales orders")
-    })
+    @Operation(
+            summary = "Get all sales orders",
+            description = "Returns a paginated list, optionally filtered by search term on order number")
+    @ApiResponses({@ApiResponse(responseCode = "200", description = "Paginated list of sales orders")})
     public ResponseEntity<Page<SalesOrderResponse>> getAllSalesOrders(
-            @PageableDefault(size = 12) Pageable pageable,
-            @RequestParam(required = false) String search) {
+            @PageableDefault(size = 12) Pageable pageable, @RequestParam(required = false) String search) {
         return ResponseEntity.ok(salesOrderService.getAllSalesOrders(pageable, search));
     }
 
@@ -73,29 +71,32 @@ public class SalesOrderController {
 
     @PostMapping
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
-    @Operation(summary = "Create a sales order", description = "Creates a new sales order with Draft status. Items can be added via the nested endpoint.")
+    @Operation(
+            summary = "Create a sales order",
+            description = "Creates a new sales order with Draft status. Items can be added via the nested endpoint.")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "Sales order created"),
         @ApiResponse(responseCode = "400", description = "Validation error"),
         @ApiResponse(responseCode = "404", description = "Referenced entity not found")
     })
-    public ResponseEntity<SalesOrderResponse> createSalesOrder(
-            @Valid @RequestBody SalesOrderRequest request) {
+    public ResponseEntity<SalesOrderResponse> createSalesOrder(@Valid @RequestBody SalesOrderRequest request) {
         var response = salesOrderService.createSalesOrder(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
-    @Operation(summary = "Update a sales order", description = "Updates an existing sales order header. Optionally accepts an inline items array to atomically add, update, or delete line items.")
+    @Operation(
+            summary = "Update a sales order",
+            description =
+                    "Updates an existing sales order header. Optionally accepts an inline items array to atomically add, update, or delete line items.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Sales order updated"),
         @ApiResponse(responseCode = "400", description = "Validation error"),
         @ApiResponse(responseCode = "404", description = "Sales order or FK entity not found")
     })
     public ResponseEntity<SalesOrderResponse> updateSalesOrder(
-            @PathVariable UUID id,
-            @Valid @RequestBody SalesOrderRequest request) {
+            @PathVariable UUID id, @Valid @RequestBody SalesOrderRequest request) {
         return ResponseEntity.ok(salesOrderService.updateSalesOrder(id, request));
     }
 
@@ -112,7 +113,10 @@ public class SalesOrderController {
 
     @PatchMapping("/{id}/status")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
-    @Operation(summary = "Update sales order status", description = "Updates the status of a sales order. Validates status type and allowed transitions (Draft → Active → Pending → Completed/Cancelled).")
+    @Operation(
+            summary = "Update sales order status",
+            description =
+                    "Updates the status of a sales order. Validates status type and allowed transitions (Draft → Active → Pending → Completed/Cancelled).")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Status updated"),
         @ApiResponse(responseCode = "400", description = "Wrong status type"),
@@ -120,22 +124,23 @@ public class SalesOrderController {
         @ApiResponse(responseCode = "409", description = "Invalid status transition")
     })
     public ResponseEntity<SalesOrderResponse> updateSalesOrderStatus(
-            @PathVariable UUID id,
-            @Valid @RequestBody UpdateSalesOrderStatusRequest request) {
+            @PathVariable UUID id, @Valid @RequestBody UpdateSalesOrderStatusRequest request) {
         return ResponseEntity.ok(salesOrderService.updateSalesOrderStatus(id, request));
     }
 
     @PatchMapping("/{id}/charge")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
-    @Operation(summary = "Charge a sales order", description = "Transitions an Active or Pending order to Completed, all non-Cancelled items to Added, and records the payment method. Active orders auto-promote to Pending first.")
+    @Operation(
+            summary = "Charge a sales order",
+            description =
+                    "Transitions an Active or Pending order to Completed, all non-Cancelled items to Added, and records the payment method. Active orders auto-promote to Pending first.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Sales order charged successfully"),
         @ApiResponse(responseCode = "400", description = "Order is not in Pending or Active status"),
         @ApiResponse(responseCode = "404", description = "Sales order or payment method not found")
     })
     public ResponseEntity<SalesOrderResponse> chargeSalesOrder(
-            @PathVariable UUID id,
-            @Valid @RequestBody ChargeSalesOrderRequest request) {
+            @PathVariable UUID id, @Valid @RequestBody ChargeSalesOrderRequest request) {
         return ResponseEntity.ok(salesOrderService.chargeSalesOrder(id, request));
     }
 
@@ -166,7 +171,10 @@ public class SalesOrderController {
 
     @PostMapping("/{id}/items")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
-    @Operation(summary = "Add an item to a sales order", description = "Adds a line item. finalPrice = listPrice - discountApplied. Auto-transitions Draft → Active on first item. Allowed in Draft and Active status.")
+    @Operation(
+            summary = "Add an item to a sales order",
+            description =
+                    "Adds a line item. finalPrice = listPrice - discountApplied. Auto-transitions Draft → Active on first item. Allowed in Draft and Active status.")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "Item created"),
         @ApiResponse(responseCode = "400", description = "Validation error"),
@@ -174,15 +182,16 @@ public class SalesOrderController {
         @ApiResponse(responseCode = "409", description = "Sales order is not in Draft or Active status")
     })
     public ResponseEntity<SalesOrderItemResponse> addItem(
-            @PathVariable UUID id,
-            @Valid @RequestBody SalesOrderItemRequest request) {
+            @PathVariable UUID id, @Valid @RequestBody SalesOrderItemRequest request) {
         var response = salesOrderService.addSalesOrderItem(id, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @PutMapping("/{id}/items/{itemId}")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
-    @Operation(summary = "Update an item", description = "Updates a sales order item. Only allowed when order is in Draft or Active status.")
+    @Operation(
+            summary = "Update an item",
+            description = "Updates a sales order item. Only allowed when order is in Draft or Active status.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Item updated"),
         @ApiResponse(responseCode = "400", description = "Validation error"),
@@ -190,30 +199,31 @@ public class SalesOrderController {
         @ApiResponse(responseCode = "409", description = "Sales order is not in Draft or Active status")
     })
     public ResponseEntity<SalesOrderItemResponse> updateItem(
-            @PathVariable UUID id,
-            @PathVariable UUID itemId,
-            @Valid @RequestBody SalesOrderItemRequest request) {
+            @PathVariable UUID id, @PathVariable UUID itemId, @Valid @RequestBody SalesOrderItemRequest request) {
         return ResponseEntity.ok(salesOrderService.updateSalesOrderItem(id, itemId, request));
     }
 
     @DeleteMapping("/{id}/items/{itemId}")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
-    @Operation(summary = "Delete an item", description = "Soft-deletes a sales order item. Only allowed when order is in Draft or Active status.")
+    @Operation(
+            summary = "Delete an item",
+            description = "Soft-deletes a sales order item. Only allowed when order is in Draft or Active status.")
     @ApiResponses({
         @ApiResponse(responseCode = "204", description = "Item deleted"),
         @ApiResponse(responseCode = "404", description = "Sales order or item not found"),
         @ApiResponse(responseCode = "409", description = "Sales order is not in Draft or Active status")
     })
-    public ResponseEntity<Void> deleteItem(
-            @PathVariable UUID id,
-            @PathVariable UUID itemId) {
+    public ResponseEntity<Void> deleteItem(@PathVariable UUID id, @PathVariable UUID itemId) {
         salesOrderService.deleteSalesOrderItem(id, itemId);
         return ResponseEntity.noContent().build();
     }
 
     @PatchMapping("/{id}/items/{itemId}/status")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
-    @Operation(summary = "Update item status", description = "Updates the status of a sales order item. Validates status type and allowed transitions (Pending → Added/Cancelled).")
+    @Operation(
+            summary = "Update item status",
+            description =
+                    "Updates the status of a sales order item. Validates status type and allowed transitions (Pending → Added/Cancelled).")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Item status updated"),
         @ApiResponse(responseCode = "400", description = "Wrong status type"),

@@ -1,5 +1,12 @@
 package com.lifecontrol.api.company.controller;
 
+import static com.lifecontrol.api.common.security.Roles.ADMIN;
+import static com.lifecontrol.api.common.security.Roles.COMPANY;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_COUNTRY;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_REGION;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_ZONE;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_ZONE_READ;
+
 import com.lifecontrol.api.company.dto.CompanyZoneResponse;
 import com.lifecontrol.api.company.dto.CreateCompanyZoneRequest;
 import com.lifecontrol.api.company.dto.UpdateCompanyZoneRequest;
@@ -8,20 +15,12 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.List;
+import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
-import java.util.UUID;
-
-import static com.lifecontrol.api.common.security.Roles.ADMIN;
-import static com.lifecontrol.api.common.security.Roles.COMPANY;
-import static com.lifecontrol.api.common.security.Roles.COMPANY_COUNTRY;
-import static com.lifecontrol.api.common.security.Roles.COMPANY_REGION;
-import static com.lifecontrol.api.common.security.Roles.COMPANY_ZONE;
-import static com.lifecontrol.api.common.security.Roles.COMPANY_ZONE_READ;
 
 @RestController
 @RequestMapping("/api/companies/{companyId}/countries/{companyCountryId}/regions/{regionId}/zones")
@@ -35,22 +34,29 @@ public class CompanyZoneController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','" + COMPANY_ZONE + "','" + COMPANY_ZONE_READ + "')")
-    @Operation(summary = "List all zones",
-            description = "Returns zones for a company's region. For lc-company-zone and lc-company-zone-read roles, results are scoped to the company_zone_id values in the JWT.")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','"
+            + COMPANY_ZONE + "','" + COMPANY_ZONE_READ + "')")
+    @Operation(
+            summary = "List all zones",
+            description =
+                    "Returns zones for a company's region. For lc-company-zone and lc-company-zone-read roles, results are scoped to the company_zone_id values in the JWT.")
     @ApiResponse(responseCode = "200", description = "List of zones")
     public ResponseEntity<List<CompanyZoneResponse>> getAllZones(
             @PathVariable UUID companyId,
             @PathVariable UUID companyCountryId,
             @PathVariable UUID regionId,
             @RequestParam(defaultValue = "false") boolean includeDisabled) {
-        return ResponseEntity.ok(companyZoneService.getAllZones(companyId, companyCountryId, regionId, includeDisabled));
+        return ResponseEntity.ok(
+                companyZoneService.getAllZones(companyId, companyCountryId, regionId, includeDisabled));
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','" + COMPANY_ZONE + "','" + COMPANY_ZONE_READ + "')")
-    @Operation(summary = "Get a zone by ID",
-            description = "Returns a specific zone. Access is verified via verifyCompanyZoneAccess which checks zone ownership for scoped roles.")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','"
+            + COMPANY_ZONE + "','" + COMPANY_ZONE_READ + "')")
+    @Operation(
+            summary = "Get a zone by ID",
+            description =
+                    "Returns a specific zone. Access is verified via verifyCompanyZoneAccess which checks zone ownership for scoped roles.")
     @ApiResponse(responseCode = "200", description = "Zone found")
     @ApiResponse(responseCode = "404", description = "Zone not found")
     public ResponseEntity<CompanyZoneResponse> getZoneById(
@@ -62,7 +68,8 @@ public class CompanyZoneController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','" + COMPANY_ZONE + "')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','"
+            + COMPANY_ZONE + "')")
     @Operation(summary = "Create a new zone")
     @ApiResponse(responseCode = "201", description = "Zone created")
     @ApiResponse(responseCode = "400", description = "Validation error")
@@ -77,7 +84,8 @@ public class CompanyZoneController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','" + COMPANY_ZONE + "')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','"
+            + COMPANY_ZONE + "')")
     @Operation(summary = "Update a zone")
     @ApiResponse(responseCode = "200", description = "Zone updated")
     @ApiResponse(responseCode = "400", description = "Validation error")
@@ -93,7 +101,8 @@ public class CompanyZoneController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','" + COMPANY_ZONE + "')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','"
+            + COMPANY_ZONE + "')")
     @Operation(summary = "Soft-delete a zone")
     @ApiResponse(responseCode = "204", description = "Zone deleted")
     @ApiResponse(responseCode = "404", description = "Zone not found")
@@ -107,7 +116,8 @@ public class CompanyZoneController {
     }
 
     @PatchMapping("/{id}")
-    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','" + COMPANY_ZONE + "')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','"
+            + COMPANY_ZONE + "')")
     @Operation(summary = "Re-enable a soft-deleted zone")
     @ApiResponse(responseCode = "200", description = "Zone re-enabled")
     @ApiResponse(responseCode = "404", description = "Zone not found")

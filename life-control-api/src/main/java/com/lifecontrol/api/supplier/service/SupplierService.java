@@ -12,6 +12,7 @@ import com.lifecontrol.api.supplier.exception.DuplicateSupplierException;
 import com.lifecontrol.api.supplier.exception.SupplierNotFoundException;
 import com.lifecontrol.api.supplier.model.Supplier;
 import com.lifecontrol.api.supplier.repository.SupplierRepository;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
@@ -19,8 +20,6 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
-
-import java.util.UUID;
 
 @Service
 public class SupplierService {
@@ -30,8 +29,7 @@ public class SupplierService {
     private final SupplierRepository supplierRepository;
     private final CountryRepository countryRepository;
 
-    public SupplierService(SupplierRepository supplierRepository,
-                           CountryRepository countryRepository) {
+    public SupplierService(SupplierRepository supplierRepository, CountryRepository countryRepository) {
         this.supplierRepository = supplierRepository;
         this.countryRepository = countryRepository;
     }
@@ -55,7 +53,8 @@ public class SupplierService {
 
     @Transactional(readOnly = true)
     public SupplierResponse getSupplierById(UUID id) {
-        return supplierRepository.findById(id)
+        return supplierRepository
+                .findById(id)
                 .map(this::toResponse)
                 .orElseThrow(() -> new SupplierNotFoundException(id));
     }
@@ -84,8 +83,11 @@ public class SupplierService {
 
         var saved = supplierRepository.save(supplier);
 
-        logger.info("Supplier created: id={}, supplierName={}, rfc={}",
-                saved.getId(), saved.getSupplierName(), saved.getRfc());
+        logger.info(
+                "Supplier created: id={}, supplierName={}, rfc={}",
+                saved.getId(),
+                saved.getSupplierName(),
+                saved.getRfc());
 
         return toResponse(saved);
     }
@@ -93,8 +95,7 @@ public class SupplierService {
     @Transactional
     public SupplierResponse updateSupplier(UUID id, SupplierRequest request) {
         // Fetch existing supplier
-        var supplier = supplierRepository.findById(id)
-                .orElseThrow(() -> new SupplierNotFoundException(id));
+        var supplier = supplierRepository.findById(id).orElseThrow(() -> new SupplierNotFoundException(id));
 
         // Validate RFC uniqueness (excluding current supplier)
         if (!supplier.getRfc().equals(request.rfc()) && supplierRepository.existsByRfcAndIdNot(request.rfc(), id)) {
@@ -121,22 +122,27 @@ public class SupplierService {
 
         var updated = supplierRepository.save(supplier);
 
-        logger.info("Supplier updated: id={}, supplierName={}, rfc={}",
-                updated.getId(), updated.getSupplierName(), updated.getRfc());
+        logger.info(
+                "Supplier updated: id={}, supplierName={}, rfc={}",
+                updated.getId(),
+                updated.getSupplierName(),
+                updated.getRfc());
 
         return toResponse(updated);
     }
 
     @Transactional
     public void deleteSupplier(UUID id) {
-        var supplier = supplierRepository.findById(id)
-                .orElseThrow(() -> new SupplierNotFoundException(id));
+        var supplier = supplierRepository.findById(id).orElseThrow(() -> new SupplierNotFoundException(id));
 
         supplier.setEnabled(false);
         supplierRepository.save(supplier);
 
-        logger.info("Supplier soft-deleted: id={}, supplierName={}, timestamp={}",
-                id, supplier.getSupplierName(), java.time.LocalDateTime.now());
+        logger.info(
+                "Supplier soft-deleted: id={}, supplierName={}, timestamp={}",
+                id,
+                supplier.getSupplierName(),
+                java.time.LocalDateTime.now());
     }
 
     private SupplierResponse toResponse(Supplier supplier) {
@@ -151,8 +157,7 @@ public class SupplierService {
                 buildAddressResponse(supplier),
                 supplier.getEnabled(),
                 supplier.getCreatedAt(),
-                supplier.getUpdatedAt()
-        );
+                supplier.getUpdatedAt());
     }
 
     private AddressResponse buildAddressResponse(Supplier supplier) {
@@ -168,8 +173,7 @@ public class SupplierService {
                     addr.getZipCode(),
                     addr.getCity(),
                     addr.getState(),
-                    addr.getCountry() != null ? addr.getCountry().getId() : null
-            );
+                    addr.getCountry() != null ? addr.getCountry().getId() : null);
         } else if (supplier.getStreet() != null) {
             // LEGACY record: inline columns → map to AddressResponse
             return new AddressResponse(
@@ -181,8 +185,8 @@ public class SupplierService {
                     supplier.getZipCode(),
                     supplier.getCity(),
                     supplier.getState(),
-                    null  // Supplier did NOT have inline countryId
-            );
+                    null // Supplier did NOT have inline countryId
+                    );
         }
         return null;
     }
@@ -191,7 +195,8 @@ public class SupplierService {
         if (request == null) return null;
         Country country = null;
         if (request.countryId() != null) {
-            country = countryRepository.findById(request.countryId())
+            country = countryRepository
+                    .findById(request.countryId())
                     .orElseThrow(() -> new CountryNotFoundException(request.countryId()));
         }
         return Address.builder()
@@ -216,7 +221,8 @@ public class SupplierService {
         address.setCity(request.city());
         address.setState(request.state());
         if (request.countryId() != null) {
-            Country country = countryRepository.findById(request.countryId())
+            Country country = countryRepository
+                    .findById(request.countryId())
                     .orElseThrow(() -> new CountryNotFoundException(request.countryId()));
             address.setCountry(country);
         } else {

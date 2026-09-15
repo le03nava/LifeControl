@@ -1,8 +1,7 @@
 package com.lifecontrol.api.store.event;
 
-import org.springframework.context.ApplicationEvent;
-
 import java.util.UUID;
+import org.springframework.context.ApplicationEvent;
 
 /**
  * Event published after a store has been successfully created.
@@ -15,8 +14,8 @@ public class CompanyStoreCreatedEvent extends ApplicationEvent {
     private final String storeName;
     private final String zoneName;
 
-    public CompanyStoreCreatedEvent(Object source, UUID companyStoreId,
-                                    UUID companyId, String storeName, String zoneName) {
+    public CompanyStoreCreatedEvent(
+            Object source, UUID companyStoreId, UUID companyId, String storeName, String zoneName) {
         super(source);
         this.companyStoreId = companyStoreId;
         this.companyId = companyId;

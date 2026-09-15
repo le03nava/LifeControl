@@ -1,5 +1,8 @@
 package com.lifecontrol.api.shift.controller;
 
+import static com.lifecontrol.api.common.security.Roles.ADMIN;
+import static com.lifecontrol.api.common.security.Roles.SALES;
+
 import com.lifecontrol.api.shift.dto.ShiftRequest;
 import com.lifecontrol.api.shift.dto.ShiftResponse;
 import com.lifecontrol.api.shift.service.ShiftService;
@@ -8,6 +11,8 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.List;
+import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -15,12 +20,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
-import java.util.UUID;
-
-import static com.lifecontrol.api.common.security.Roles.ADMIN;
-import static com.lifecontrol.api.common.security.Roles.SALES;
 
 @RestController
 @RequestMapping("/api/shifts")
@@ -36,20 +35,15 @@ public class ShiftController {
     @GetMapping
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Get all shifts", description = "Returns a paginated list of shifts")
-    @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "Paginated list of shifts")
-    })
-    public ResponseEntity<Page<ShiftResponse>> getAllShifts(
-            @PageableDefault(size = 12) Pageable pageable) {
+    @ApiResponses({@ApiResponse(responseCode = "200", description = "Paginated list of shifts")})
+    public ResponseEntity<Page<ShiftResponse>> getAllShifts(@PageableDefault(size = 12) Pageable pageable) {
         return ResponseEntity.ok(shiftService.getAllShifts(pageable));
     }
 
     @GetMapping("/open")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(summary = "Get open shifts", description = "Returns all currently open shifts")
-    @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "List of open shifts")
-    })
+    @ApiResponses({@ApiResponse(responseCode = "200", description = "List of open shifts")})
     public ResponseEntity<List<ShiftResponse>> getOpenShifts() {
         return ResponseEntity.ok(shiftService.getOpenShifts());
     }
@@ -67,7 +61,9 @@ public class ShiftController {
 
     @PostMapping("/open")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
-    @Operation(summary = "Open a new shift", description = "Opens a new shift for a store. A store can only have one open shift at a time.")
+    @Operation(
+            summary = "Open a new shift",
+            description = "Opens a new shift for a store. A store can only have one open shift at a time.")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "Shift opened"),
         @ApiResponse(responseCode = "409", description = "An open shift already exists for this store"),
@@ -80,7 +76,9 @@ public class ShiftController {
 
     @PostMapping("/{id}/close")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
-    @Operation(summary = "Close a shift", description = "Closes an open shift by setting closedAt and changing status to CERRADO")
+    @Operation(
+            summary = "Close a shift",
+            description = "Closes an open shift by setting closedAt and changing status to CERRADO")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Shift closed"),
         @ApiResponse(responseCode = "404", description = "Shift not found"),
@@ -97,9 +95,7 @@ public class ShiftController {
         @ApiResponse(responseCode = "200", description = "Shift updated"),
         @ApiResponse(responseCode = "404", description = "Shift not found")
     })
-    public ResponseEntity<ShiftResponse> updateShift(
-            @PathVariable UUID id,
-            @Valid @RequestBody ShiftRequest request) {
+    public ResponseEntity<ShiftResponse> updateShift(@PathVariable UUID id, @Valid @RequestBody ShiftRequest request) {
         return ResponseEntity.ok(shiftService.updateShift(id, request));
     }
 

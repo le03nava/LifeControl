@@ -1,11 +1,10 @@
 package com.lifecontrol.api.activity.repository;
 
 import com.lifecontrol.api.activity.model.ActivityProcess;
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.stereotype.Repository;
-
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
 
 @Repository
 public interface ActivityProcessRepository extends JpaRepository<ActivityProcess, UUID> {
