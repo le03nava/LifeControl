@@ -17,13 +17,15 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 class JwtDecoderConfigTest {
 
     private static final String EXPECTED_ISSUER = "http://lifecontrol-dev-keycloak:8080/realms/life-control-realm";
+    private static final String PUBLIC_ISSUER = "http://localhost:8181/realms/life-control-realm";
     private static final String JWK_SET_URI = EXPECTED_ISSUER + "/protocol/openid-connect/certs";
 
     private final JwtDecoderConfig config;
     private final JwtAuthenticationConverter converter;
 
     JwtDecoderConfigTest() {
-        this.config = new JwtDecoderConfig(new KeycloakJwtProperties(EXPECTED_ISSUER, EXPECTED_ISSUER, JWK_SET_URI));
+        this.config = new JwtDecoderConfig(new KeycloakJwtProperties(
+                EXPECTED_ISSUER, EXPECTED_ISSUER, JWK_SET_URI, List.of(PUBLIC_ISSUER, EXPECTED_ISSUER)));
         this.converter = config.jwtAuthenticationConverter();
     }
 
@@ -159,13 +161,33 @@ class JwtDecoderConfigTest {
 
             assertThat(result.hasErrors()).isTrue();
             assertThat(result.getErrors())
-                    .anySatisfy(error -> assertThat(error.getDescription()).contains("iss"));
+                    .anySatisfy(error -> assertThat(error.getDescription()).contains("issuer"));
         }
 
         @Test
         @DisplayName("accepts token issued by the expected issuer")
         void acceptsTokenFromExpectedIssuer() {
             var jwt = jwtWithExpiringClaims(EXPECTED_ISSUER);
+
+            var result = config.jwtValidator().validate(jwt);
+
+            assertThat(result.hasErrors()).isFalse();
+        }
+
+        @Test
+        @DisplayName("accepts token issued by the public browser issuer")
+        void acceptsTokenFromPublicIssuer() {
+            var jwt = jwtWithExpiringClaims(PUBLIC_ISSUER);
+
+            var result = config.jwtValidator().validate(jwt);
+
+            assertThat(result.hasErrors()).isFalse();
+        }
+
+        @Test
+        @DisplayName("accepts token whose issuer has a trailing slash")
+        void acceptsTokenWithTrailingSlashIssuer() {
+            var jwt = jwtWithExpiringClaims(PUBLIC_ISSUER + "/");
 
             var result = config.jwtValidator().validate(jwt);
 

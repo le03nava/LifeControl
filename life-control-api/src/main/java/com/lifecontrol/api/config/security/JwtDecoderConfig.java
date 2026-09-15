@@ -8,6 +8,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
@@ -40,7 +41,11 @@ public class JwtDecoderConfig {
     }
 
     OAuth2TokenValidator<Jwt> jwtValidator() {
-        return JwtValidators.createDefaultWithIssuer(keycloakJwtProperties.issuer());
+        // createDefault() aporta la validación de exp/nbf (con 60s de leeway);
+        // el issuer se valida contra la allowlist (issuer público del navegador
+        // e interno de la red Docker), mientras la firma se valida contra el JWK interno.
+        return new DelegatingOAuth2TokenValidator<>(
+                JwtValidators.createDefault(), new JwtIssuerAllowlistValidator(keycloakJwtProperties.allowedIssuers()));
     }
 
     @Bean

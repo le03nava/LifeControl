@@ -373,6 +373,8 @@ services:
       - HEALTH_CHECK_PATH=/actuator/health
       - KEYCLOAK_ADMIN_SERVER_URL=${KEYCLOAK_ADMIN_SERVER_URL:-http://keycloak:8080}
       - KEYCLOAK_ADMIN_CLIENT_ID=${KEYCLOAK_ADMIN_CLIENT_ID:-life-control-admin-client}
+      - KEYCLOAK_URI=${KEYCLOAK_INTERNAL_URI:-http://keycloak:8080/realms/life-control-realm}
+      - KEYCLOAK_ISSUER_URI=${KEYCLOAK_ISSUER_URI:-http://localhost:8181/realms/life-control-realm}
       - REDIS_HOST=${REDIS_HOST:-redis}
       - REDIS_PORT=${REDIS_INTERNAL_PORT:-6379}
     volumes:
