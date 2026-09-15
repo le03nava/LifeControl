@@ -20,8 +20,7 @@ public interface ShiftRepository extends JpaRepository<Shift, UUID> {
 
     Page<Shift> findByEnabledTrueOrderByOpenedAtDesc(Pageable pageable);
 
-    @Query(
-            """
+    @Query("""
         SELECT s FROM Shift s
         WHERE s.companyStoreId = :storeId
           AND s.status = 'ABIERTO'
@@ -29,8 +28,7 @@ public interface ShiftRepository extends JpaRepository<Shift, UUID> {
         """)
     Optional<Shift> findOpenShiftByStoreId(@Param("storeId") UUID storeId);
 
-    @Query(
-            """
+    @Query("""
         SELECT s FROM Shift s
         WHERE s.userId = :userId
           AND s.status = 'ABIERTO'
@@ -39,8 +37,7 @@ public interface ShiftRepository extends JpaRepository<Shift, UUID> {
         """)
     List<Shift> findOpenShiftByUserId(@Param("userId") String userId);
 
-    @Query(
-            """
+    @Query("""
         SELECT s FROM Shift s
         WHERE s.status = 'ABIERTO'
           AND s.enabled = true

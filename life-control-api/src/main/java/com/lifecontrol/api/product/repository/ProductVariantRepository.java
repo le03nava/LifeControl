@@ -31,8 +31,7 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
     @Query("SELECT pv FROM ProductVariant pv WHERE pv.id = :id AND pv.enabled = true")
     Optional<ProductVariant> findByIdForUpdate(@Param("id") UUID id);
 
-    @Query(
-            """
+    @Query("""
             SELECT new com.lifecontrol.api.product.dto.ProductVariantSearchResponse(
                 pv.id, pv.productId, pv.companyStoreId, pv.barCode, pv.sku,
                 pv.variantName, pv.listPrice, pv.costPrice, pv.stock, pv.enabled,

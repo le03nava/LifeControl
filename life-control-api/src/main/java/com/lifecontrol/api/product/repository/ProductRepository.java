@@ -18,8 +18,7 @@ public interface ProductRepository extends JpaRepository<Product, UUID> {
 
     Page<Product> findByEnabledTrue(Pageable pageable);
 
-    @Query(
-            """
+    @Query("""
         SELECT p FROM Product p
         WHERE (LOWER(p.name) LIKE LOWER(CONCAT('%', :search, '%'))
             OR LOWER(p.sku) LIKE LOWER(CONCAT('%', :search, '%')))
@@ -27,8 +26,7 @@ public interface ProductRepository extends JpaRepository<Product, UUID> {
         """)
     Page<Product> findBySearchTermAndEnabledTrue(@Param("search") String search, Pageable pageable);
 
-    @Query(
-            """
+    @Query("""
         SELECT p FROM Product p
         WHERE LOWER(p.name) LIKE LOWER(CONCAT('%', :search, '%'))
            OR LOWER(p.sku) LIKE LOWER(CONCAT('%', :search, '%'))

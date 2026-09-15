@@ -26,8 +26,7 @@ public interface PurchaseOrderRepository extends JpaRepository<PurchaseOrder, UU
     @EntityGraph(value = "PurchaseOrder.withHierarchy", type = EntityGraph.EntityGraphType.FETCH)
     Page<PurchaseOrder> findByEnabledTrueOrderByCreatedAtDesc(Pageable pageable);
 
-    @Query(
-            """
+    @Query("""
         SELECT po FROM PurchaseOrder po
         LEFT JOIN FETCH po.supplier
         LEFT JOIN FETCH po.companyStore cs

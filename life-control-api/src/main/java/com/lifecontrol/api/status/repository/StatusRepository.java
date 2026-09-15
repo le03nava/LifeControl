@@ -18,8 +18,7 @@ public interface StatusRepository extends JpaRepository<Status, UUID> {
 
     boolean existsByStatusNameIgnoreCaseAndStatusTypeId(String statusName, UUID statusTypeId);
 
-    @Query(
-            """
+    @Query("""
         SELECT s FROM Status s
         JOIN FETCH s.statusType st
         WHERE LOWER(st.statusTypeName) = LOWER(:typeName)

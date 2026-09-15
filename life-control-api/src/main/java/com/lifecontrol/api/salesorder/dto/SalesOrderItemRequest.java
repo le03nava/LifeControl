@@ -8,12 +8,15 @@ import java.util.UUID;
 public record SalesOrderItemRequest(
         UUID id,
         @NotNull(message = "productVariantId is required") UUID productVariantId,
+
         @NotNull(message = "quantity is required")
-                @DecimalMin(value = "0.01", message = "quantity must be greater than 0")
-                BigDecimal quantity,
+        @DecimalMin(value = "0.01", message = "quantity must be greater than 0")
+        BigDecimal quantity,
+
         @NotNull(message = "listPrice is required")
-                @DecimalMin(value = "0.01", message = "listPrice must be greater than 0")
-                BigDecimal listPrice,
+        @DecimalMin(value = "0.01", message = "listPrice must be greater than 0")
+        BigDecimal listPrice,
+
         BigDecimal discountApplied,
         UUID promotionId) {
     public SalesOrderItemRequest {

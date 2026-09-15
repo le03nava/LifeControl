@@ -8,10 +8,13 @@ import java.util.UUID;
 
 public record PurchaseOrderDetailRequest(
         @NotNull(message = "productId is required") UUID productId,
+
         @NotNull(message = "quantity is required") @Min(value = 1, message = "quantity must be greater than 0")
-                Integer quantity,
+        Integer quantity,
+
         @NotNull(message = "unitPrice is required")
-                @DecimalMin(value = "0.01", message = "unitPrice must be greater than or equal to 0.01")
-                BigDecimal unitPrice,
+        @DecimalMin(value = "0.01", message = "unitPrice must be greater than or equal to 0.01")
+        BigDecimal unitPrice,
+
         String comments,
         UUID statusId) {}

@@ -23,8 +23,7 @@ public interface CustomerRepository extends JpaRepository<Customer, UUID> {
 
     boolean existsByEmail(String email);
 
-    @Query(
-            """
+    @Query("""
         SELECT c FROM Customer c
         WHERE c.enabled = true
           AND (LOWER(c.name) LIKE LOWER(CONCAT('%', :search, '%'))

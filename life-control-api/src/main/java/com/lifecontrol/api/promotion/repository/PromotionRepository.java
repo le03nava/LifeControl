@@ -23,8 +23,7 @@ public interface PromotionRepository extends JpaRepository<Promotion, UUID> {
 
     Optional<Promotion> findByCouponCode(String couponCode);
 
-    @Query(
-            """
+    @Query("""
         SELECT p FROM Promotion p
         WHERE p.enabled = true
           AND p.salesChannel = :channel

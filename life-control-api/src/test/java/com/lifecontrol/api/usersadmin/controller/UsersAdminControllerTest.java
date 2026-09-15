@@ -126,11 +126,9 @@ class UsersAdminControllerTest {
         @Test
         @DisplayName("POST /api/users-admin/users missing username returns 400")
         void createUser_missingUsername_returns400() throws Exception {
-            mockMvc.perform(
-                            post("/api/users-admin/users")
-                                    .contentType(MediaType.APPLICATION_JSON)
-                                    .content(
-                                            """
+            mockMvc.perform(post("/api/users-admin/users")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
                                     {"email": "test@example.com"}
                                     """))
                     .andExpect(status().isBadRequest())
@@ -140,11 +138,9 @@ class UsersAdminControllerTest {
         @Test
         @DisplayName("POST /api/users-admin/users with invalid email returns 400")
         void createUser_invalidEmail_returns400() throws Exception {
-            mockMvc.perform(
-                            post("/api/users-admin/users")
-                                    .contentType(MediaType.APPLICATION_JSON)
-                                    .content(
-                                            """
+            mockMvc.perform(post("/api/users-admin/users")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
                                     {"username": "jdoe", "email": "not-an-email"}
                                     """))
                     .andExpect(status().isBadRequest())
@@ -170,11 +166,9 @@ class UsersAdminControllerTest {
         void createUser_enabledFalse_returns201() throws Exception {
             when(service.createUser(any())).thenReturn(new CreateUserResponse("kc-user-id-123"));
 
-            mockMvc.perform(
-                            post("/api/users-admin/users")
-                                    .contentType(MediaType.APPLICATION_JSON)
-                                    .content(
-                                            """
+            mockMvc.perform(post("/api/users-admin/users")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
                                     {"username": "jdoe", "email": "jdoe@example.com", "enabled": false}
                                     """))
                     .andExpect(status().isCreated())
@@ -185,11 +179,9 @@ class UsersAdminControllerTest {
         @DisplayName("POST /api/users-admin/users with username longer than 255 chars returns 400")
         void createUser_usernameTooLong_returns400() throws Exception {
             var longUsername = "a".repeat(256);
-            var json = String.format(
-                    """
+            var json = String.format("""
                     {"username": "%s", "email": "test@example.com"}
-                    """,
-                    longUsername);
+                    """, longUsername);
 
             mockMvc.perform(post("/api/users-admin/users")
                             .contentType(MediaType.APPLICATION_JSON)
