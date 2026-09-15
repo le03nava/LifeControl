@@ -10,6 +10,7 @@ import {
 import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
 import { PageHeader } from '@shared/ui';
+import { httpErrorMessage } from '@shared/data';
 import { SupplierService } from '../../data/supplier.service';
 import { SuppliersCard } from '../../components';
 import { MatIconModule } from '@angular/material/icon';
@@ -68,9 +69,13 @@ export class SupplierList {
   });
 
   // Computed helpers
-  readonly suppliers = this.suppliersResource.value;
+  readonly suppliers = computed(() =>
+    this.suppliersResource.hasValue() ? this.suppliersResource.value() : undefined,
+  );
   readonly loading = this.suppliersResource.isLoading;
   readonly error = this.suppliersResource.error;
+
+  protected readonly httpErrorMessage = httpErrorMessage;
 
   constructor() {
     // Debounce effect: when searchQuery changes, wait 300ms and update _debouncedSearch

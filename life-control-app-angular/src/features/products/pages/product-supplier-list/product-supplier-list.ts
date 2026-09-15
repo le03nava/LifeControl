@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   DestroyRef,
   effect,
   inject,
@@ -21,6 +22,7 @@ import { ProductService } from '../../data/product.service';
 import { ProductSupplier } from '../../models/product-supplier.models';
 import { RemoveSupplierDialog } from '../../ui/remove-supplier-dialog/remove-supplier-dialog';
 import { PageHeader } from '@shared/ui';
+import { httpErrorMessage } from '@shared/data';
 import { of } from 'rxjs';
 
 @Component({
@@ -59,7 +61,9 @@ export class ProductSupplierList {
       return this.productService.getProductById(params.productId);
     },
   });
-  readonly product = this.productResource.value;
+  readonly product = computed(() =>
+    this.productResource.hasValue() ? this.productResource.value() : undefined,
+  );
 
   readonly displayedColumns: string[] = [
     'supplierName',
@@ -81,9 +85,13 @@ export class ProductSupplierList {
     },
   });
 
-  readonly suppliers = this.suppliersResource.value;
+  readonly suppliers = computed(() =>
+    this.suppliersResource.hasValue() ? this.suppliersResource.value() : undefined,
+  );
   readonly loading = this.suppliersResource.isLoading;
   readonly error = this.suppliersResource.error;
+
+  protected readonly httpErrorMessage = httpErrorMessage;
 
   constructor() {
     effect(() => {

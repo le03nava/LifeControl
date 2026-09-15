@@ -557,4 +557,17 @@ describe('RegionsPage', () => {
       expect(emptyEl).toBeNull();
     });
   });
+
+  // ─── Resource hardening ──────────────────────────────────────
+
+  describe('resource hardening', () => {
+    it('should return empty values without throwing when resources have no value', () => {
+      expect(() => component.countries()).not.toThrow();
+      expect(() => component.regions()).not.toThrow();
+
+      expect(component.countries()).toEqual([]);
+      expect(component.regions()).toEqual([]);
+      expect(component.filteredRegions()).toEqual([]);
+    });
+  });
 });

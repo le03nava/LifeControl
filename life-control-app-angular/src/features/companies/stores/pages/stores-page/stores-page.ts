@@ -140,11 +140,25 @@ export class StoresPage {
     defaultValue: [] as CompanyStore[],
   });
 
+  // Guarded resource reads: never touch `.value()` while a resource is in an error state.
+  readonly countries = computed(() =>
+    this.countriesResource.hasValue() ? this.countriesResource.value() : [],
+  );
+  readonly regions = computed(() =>
+    this.regionsResource.hasValue() ? this.regionsResource.value() : [],
+  );
+  readonly zones = computed(() =>
+    this.zonesResource.hasValue() ? this.zonesResource.value() : [],
+  );
+  readonly stores = computed(() =>
+    this.storesResource.hasValue() ? this.storesResource.value() : [],
+  );
+
   /** Friendly error message owned by the service (set on load failure). */
   readonly storesError = computed(() => this.companyStoreService.error());
 
   readonly filteredStores = computed(() => {
-    const all = this.storesResource.value();
+    const all = this.stores();
     if (this.showDisabled()) return all;
     return all.filter((s) => s.enabled);
   });
@@ -177,7 +191,7 @@ export class StoresPage {
     effect(() => {
       const countryId = this.initialCountryId();
       if (!countryId || this.countryPreselected) return;
-      const country = this.countriesResource.value().find((c) => c.id === countryId);
+      const country = this.countries().find((c) => c.id === countryId);
       if (country) {
         this.countryPreselected = true;
         this.selectedCountry.set(country);
@@ -188,7 +202,7 @@ export class StoresPage {
     effect(() => {
       const regionId = this.initialRegionId();
       if (!regionId || this.regionPreselected) return;
-      const region = this.regionsResource.value().find((r) => r.id === regionId);
+      const region = this.regions().find((r) => r.id === regionId);
       if (region) {
         this.regionPreselected = true;
         this.selectedRegion.set(region);
@@ -199,7 +213,7 @@ export class StoresPage {
     effect(() => {
       const zoneId = this.initialZoneId();
       if (!zoneId || this.zonePreselected) return;
-      const zone = this.zonesResource.value().find((z) => z.id === zoneId);
+      const zone = this.zones().find((z) => z.id === zoneId);
       if (zone) {
         this.zonePreselected = true;
         this.selectedZone.set(zone);
@@ -254,14 +268,14 @@ export class StoresPage {
 
   /** Bridge: the card emits a store ID; look up the full store and delegate. */
   onCardEditStore(storeId: string): void {
-    const store = this.storesResource.value().find((s) => s.id === storeId);
+    const store = this.stores().find((s) => s.id === storeId);
     if (store) {
       this.onEditStore(store);
     }
   }
 
   onToggleStore(storeId: string): void {
-    const store = this.storesResource.value().find((s) => s.id === storeId);
+    const store = this.stores().find((s) => s.id === storeId);
     if (!store) return;
     const cc = this.selectedCountry();
     const region = this.selectedRegion();

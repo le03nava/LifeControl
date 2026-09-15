@@ -10,6 +10,7 @@ import {
 import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
 import { PageHeader } from '@shared/ui';
+import { httpErrorMessage } from '@shared/data';
 import { ProductService } from '../../data/product.service';
 import { ProductsCard } from '../../components';
 import { MatIconModule } from '@angular/material/icon';
@@ -68,9 +69,13 @@ export class ProductList {
   });
 
   // Computed helpers
-  readonly products = this.productsResource.value;
+  readonly products = computed(() =>
+    this.productsResource.hasValue() ? this.productsResource.value() : undefined,
+  );
   readonly loading = this.productsResource.isLoading;
   readonly error = this.productsResource.error;
+
+  protected readonly httpErrorMessage = httpErrorMessage;
 
   constructor() {
     // Debounce effect: cuando searchQuery cambia, espera 300ms y actualiza _debouncedSearch

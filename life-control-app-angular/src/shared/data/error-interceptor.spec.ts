@@ -8,10 +8,11 @@ import { NotificationService } from './notification';
 const API_URL = 'http://localhost:9000/api/test';
 
 const ERROR_CASES: [status: number, message: string][] = [
-  [401, 'You are not authorized. Please log in.'],
-  [403, 'You do not have permission to perform this action.'],
-  [404, 'The requested resource was not found.'],
-  [500, 'Server error. Please try again later.'],
+  [400, 'La solicitud es inválida. Verificá los datos ingresados e intentá de nuevo.'],
+  [401, 'Tu sesión expiró o no estás autorizado. Volvé a iniciar sesión.'],
+  [403, 'No tenés permisos para realizar esta acción.'],
+  [404, 'No se encontró el recurso solicitado.'],
+  [500, 'Ocurrió un error en el servidor. Intentá de nuevo más tarde.'],
 ];
 
 describe('errorInterceptor', () => {
@@ -70,7 +71,7 @@ describe('errorInterceptor', () => {
 
     await expect(runRequest(500)).rejects.toBeInstanceOf(HttpErrorResponse);
     expect(notificationMock.showError).toHaveBeenCalledWith(
-      'Server error. Please try again later.',
+      'Ocurrió un error en el servidor. Intentá de nuevo más tarde.',
     );
   });
 

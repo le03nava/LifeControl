@@ -30,15 +30,6 @@
     </mat-form-field>
   </div>
 
-  <!-- Error State -->
-  @if (error(); as err) {
-    <div class="error-state">
-      <mat-icon fontIcon="error" />
-      <p>{{ err }}</p>
-      <button mat-stroked-button (click)="onRetry()">Retry</button>
-    </div>
-  }
-
   <!-- Table Section -->
   <div class="table-section">
     <!-- Loading Skeleton -->
@@ -54,6 +45,12 @@
             <div class="skeleton-cell actions"></div>
           </div>
         }
+      </div>
+    } @else if (error(); as err) {
+      <div class="error-state">
+        <mat-icon fontIcon="error" />
+        <p>{{ httpErrorMessage(err) }}</p>
+        <button mat-stroked-button type="button" (click)="onRetry()">Reintentar</button>
       </div>
     } @else {
       @let page = orders();

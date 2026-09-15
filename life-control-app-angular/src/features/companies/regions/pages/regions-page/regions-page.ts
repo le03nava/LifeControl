@@ -86,11 +86,19 @@ export class RegionsPage {
     defaultValue: [] as CompanyRegion[],
   });
 
+  // Guarded resource reads: never touch `.value()` while a resource is in an error state.
+  readonly countries = computed(() =>
+    this.countriesResource.hasValue() ? this.countriesResource.value() : [],
+  );
+  readonly regions = computed(() =>
+    this.regionsResource.hasValue() ? this.regionsResource.value() : [],
+  );
+
   /** Friendly error message owned by the service (set on load failure). */
   readonly regionsError = computed(() => this.companyRegionService.error());
 
   readonly filteredRegions = computed(() => {
-    const all = this.regionsResource.value();
+    const all = this.regions();
     if (this.showDisabled()) return all;
     return all.filter((r) => r.enabled);
   });
@@ -111,7 +119,7 @@ export class RegionsPage {
     effect(() => {
       const countryId = this.initialCountryId();
       if (!countryId || this.countryPreselected) return;
-      const country = this.countriesResource.value().find((c) => c.id === countryId);
+      const country = this.countries().find((c) => c.id === countryId);
       if (country) {
         this.countryPreselected = true;
         this.selectedCountry.set(country);
@@ -146,7 +154,7 @@ export class RegionsPage {
 
   /** Bridge: the card emits a region ID; look up the full region and delegate. */
   onCardEditRegion(regionId: string): void {
-    const region = this.regionsResource.value().find((r) => r.id === regionId);
+    const region = this.regions().find((r) => r.id === regionId);
     if (region) {
       this.onEditRegion(region);
     }

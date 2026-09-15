@@ -30,14 +30,6 @@
     </mat-form-field>
   </div>
 
-  <!-- Error State -->
-  @if (error(); as err) {
-    <div class="error-state">
-      <mat-icon fontIcon="error" />
-      <p>{{ err }}</p>
-    </div>
-  }
-
   <!-- Companies Grid -->
   <div class="companies-grid">
     @if (loading()) {
@@ -60,6 +52,14 @@
             </div>
           </div>
         }
+      </div>
+    } @else if (error(); as err) {
+      <div class="error-state">
+        <mat-icon fontIcon="error" />
+        <p>{{ httpErrorMessage(err) }}</p>
+        <button mat-stroked-button type="button" (click)="companiesResource.reload()">
+          Reintentar
+        </button>
       </div>
     } @else {
       @let page = companies();

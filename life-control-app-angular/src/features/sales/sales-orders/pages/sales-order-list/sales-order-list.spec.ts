@@ -2,7 +2,8 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { By } from '@angular/platform-browser';
-import { of, Observable } from 'rxjs';
+import { of, Observable, throwError } from 'rxjs';
+import { HttpErrorResponse } from '@angular/common/http';
 import { SalesOrderList } from './sales-order-list';
 import { SalesOrderService } from '../../data/sales-order.service';
 import type { SalesOrder, Page } from '../../models/sales-order.models';
@@ -166,6 +167,27 @@ describe('SalesOrderList', () => {
       await f.whenStable();
 
       expect(comp.error()).toBeTruthy();
+    });
+
+    it('should render the error state and not throw on resource error', async () => {
+      salesOrderService.getSalesOrders = vi
+        .fn()
+        .mockReturnValue(throwError(() => new HttpErrorResponse({ status: 401 })));
+
+      const f = TestBed.createComponent(SalesOrderList);
+      const comp = f.componentInstance;
+      f.detectChanges();
+      await f.whenStable();
+      f.detectChanges();
+
+      expect(() => comp.orders()).not.toThrow();
+      expect(comp.orders()).toBeUndefined();
+      expect(comp.error()).toBeTruthy();
+
+      const el: HTMLElement = f.nativeElement;
+      expect(el.querySelector('.error-state')).toBeTruthy();
+      expect(el.querySelector('.loading-skeleton')).toBeNull();
+      expect(el.textContent).toContain('Tu sesión expiró');
     });
 
     it('should call service again after onRetry reload', async () => {

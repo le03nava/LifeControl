@@ -107,11 +107,22 @@ export class ZonesPage {
     defaultValue: [] as CompanyZone[],
   });
 
+  // Guarded resource reads: never touch `.value()` while a resource is in an error state.
+  readonly countries = computed(() =>
+    this.countriesResource.hasValue() ? this.countriesResource.value() : [],
+  );
+  readonly regions = computed(() =>
+    this.regionsResource.hasValue() ? this.regionsResource.value() : [],
+  );
+  readonly zones = computed(() =>
+    this.zonesResource.hasValue() ? this.zonesResource.value() : [],
+  );
+
   /** Friendly error message owned by the service (set on load failure). */
   readonly zonesError = computed(() => this.companyZoneService.error());
 
   readonly filteredZones = computed(() => {
-    const all = this.zonesResource.value();
+    const all = this.zones();
     if (this.showDisabled()) return all;
     return all.filter((z) => z.enabled);
   });
@@ -138,7 +149,7 @@ export class ZonesPage {
     effect(() => {
       const countryId = this.initialCountryId();
       if (!countryId || this.countryPreselected) return;
-      const country = this.countriesResource.value().find((c) => c.id === countryId);
+      const country = this.countries().find((c) => c.id === countryId);
       if (country) {
         this.countryPreselected = true;
         this.selectedCountry.set(country);
@@ -149,7 +160,7 @@ export class ZonesPage {
     effect(() => {
       const regionId = this.initialRegionId();
       if (!regionId || this.regionPreselected) return;
-      const region = this.regionsResource.value().find((r) => r.id === regionId);
+      const region = this.regions().find((r) => r.id === regionId);
       if (region) {
         this.regionPreselected = true;
         this.selectedRegion.set(region);
@@ -191,7 +202,7 @@ export class ZonesPage {
 
   /** Bridge: the card emits a zone ID; look up the full zone and delegate. */
   onCardEditZone(zoneId: string): void {
-    const zone = this.zonesResource.value().find((z) => z.id === zoneId);
+    const zone = this.zones().find((z) => z.id === zoneId);
     if (zone) {
       this.onEditZone(zone);
     }

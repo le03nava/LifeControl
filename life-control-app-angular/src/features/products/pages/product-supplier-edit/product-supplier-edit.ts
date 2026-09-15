@@ -24,6 +24,7 @@ import {
 } from '../../models/product-supplier.models';
 import { ProductSupplierForm } from '../../components/product-supplier-form/product-supplier-form';
 import { ErrorBanner, PageHeader } from '@shared/ui';
+import { httpErrorMessage } from '@shared/data';
 
 @Component({
   selector: 'app-product-supplier-edit',
@@ -54,7 +55,11 @@ export class ProductSupplierEdit implements OnInit {
       return this.productService.getProductById(params.productId);
     },
   });
-  readonly product = this.productResource.value;
+  readonly product = computed(() =>
+    this.productResource.hasValue() ? this.productResource.value() : undefined,
+  );
+
+  protected readonly httpErrorMessage = httpErrorMessage;
 
   readonly headerSubtitle = computed(() => {
     const sku = this.product()?.sku;
@@ -71,7 +76,9 @@ export class ProductSupplierEdit implements OnInit {
   readonly allSuppliersResource = rxResource({
     stream: () => this.supplierService.getAllSuppliers(0, 1000).pipe(map((p) => p.content)),
   });
-  readonly allSuppliers = this.allSuppliersResource.value;
+  readonly allSuppliers = computed(() =>
+    this.allSuppliersResource.hasValue() ? this.allSuppliersResource.value() : undefined,
+  );
 
   // Already-assigned suppliers for this product (for dropdown filtering)
   readonly assignedSuppliers = signal<ProductSupplier[]>([]);

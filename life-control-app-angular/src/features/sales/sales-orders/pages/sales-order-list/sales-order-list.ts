@@ -1,8 +1,16 @@
-import { ChangeDetectionStrategy, Component, effect, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
 import { rxResource } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
 import { DatePipe, CurrencyPipe } from '@angular/common';
 import { PageHeader } from '@shared/ui';
+import { httpErrorMessage } from '@shared/data';
 import { SalesOrderService } from '../../data/sales-order.service';
 import { SO_STATUS_COLORS } from '../../data/status-config';
 import { MatTableModule } from '@angular/material/table';
@@ -60,9 +68,13 @@ export class SalesOrderList {
   });
 
   // Computed helpers
-  readonly orders = this.ordersResource.value;
+  readonly orders = computed(() =>
+    this.ordersResource.hasValue() ? this.ordersResource.value() : undefined,
+  );
   readonly loading = this.ordersResource.isLoading;
   readonly error = this.ordersResource.error;
+
+  protected readonly httpErrorMessage = httpErrorMessage;
 
   // Table columns
   readonly displayedColumns: string[] = [

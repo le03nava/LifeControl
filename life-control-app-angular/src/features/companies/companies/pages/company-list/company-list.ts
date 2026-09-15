@@ -10,6 +10,7 @@ import {
 import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
 import { PageHeader } from '@shared/ui';
+import { httpErrorMessage } from '@shared/data';
 import { CompanyService } from '@features/companies/companies/data/company.service';
 import { CompaniesCard } from '@features/companies/companies/components';
 import { MatIconModule } from '@angular/material/icon';
@@ -68,9 +69,13 @@ export class CompanyList {
   });
 
   // Computed helpers
-  readonly companies = this.companiesResource.value;
+  readonly companies = computed(() =>
+    this.companiesResource.hasValue() ? this.companiesResource.value() : undefined,
+  );
   readonly loading = this.companiesResource.isLoading;
   readonly error = this.companiesResource.error;
+
+  protected readonly httpErrorMessage = httpErrorMessage;
 
   constructor() {
     // Debounce effect: cuando searchQuery cambia, espera 300ms y actualiza _debouncedSearch

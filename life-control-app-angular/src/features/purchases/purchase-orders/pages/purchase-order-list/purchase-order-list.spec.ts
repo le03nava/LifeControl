@@ -2,7 +2,8 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { By } from '@angular/platform-browser';
-import { of, Observable } from 'rxjs';
+import { of, throwError } from 'rxjs';
+import { HttpErrorResponse } from '@angular/common/http';
 import { PurchaseOrderList } from './purchase-order-list';
 import { PurchaseOrderService } from '../../data/purchase-order.service';
 import type { PurchaseOrder, Page } from '../../models/purchase-order.models';
@@ -159,25 +160,25 @@ describe('PurchaseOrderList', () => {
   });
 
   describe('error state', () => {
-    it('should set error signal when API fails', async () => {
-      // Delay the error so rxResource processes it after initial render
-      // without triggering template re-render (which would crash at orders())
-      purchaseOrderService.getPurchaseOrders = vi.fn().mockReturnValue(
-        new Observable<Page<PurchaseOrder>>((subscriber) => {
-          setTimeout(() => {
-            subscriber.error(new Error('Server Error'));
-          }, 10);
-        }),
-      );
+    it('should not throw and render the error state when the API fails', async () => {
+      purchaseOrderService.getPurchaseOrders = vi
+        .fn()
+        .mockReturnValue(throwError(() => new HttpErrorResponse({ status: 401 })));
 
       const f = TestBed.createComponent(PurchaseOrderList);
       const comp = f.componentInstance;
       f.detectChanges();
       await f.whenStable();
-      // Do NOT call detectChanges again — the template crashes on orders() access
-      // after error. Just verify the signal is set.
+      f.detectChanges();
 
+      expect(() => comp.orders()).not.toThrow();
+      expect(comp.orders()).toBeUndefined();
       expect(comp.error()).toBeTruthy();
+
+      const el: HTMLElement = f.nativeElement;
+      expect(el.querySelector('.error-state')).toBeTruthy();
+      expect(el.querySelector('.loading-skeleton')).toBeNull();
+      expect(el.textContent).toContain('Tu sesión expiró');
     });
 
     it('should call service again after onRetry reload', async () => {

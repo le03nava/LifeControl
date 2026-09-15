@@ -7,7 +7,8 @@ import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { ProductList } from './product-list';
 import { ProductService } from '../../data/product.service';
 import { Product, Page } from '../../models/product.models';
-import { of } from 'rxjs';
+import { HttpErrorResponse } from '@angular/common/http';
+import { of, throwError } from 'rxjs';
 
 interface ProductServiceMock {
   getProducts: ReturnType<typeof vi.fn>;
@@ -217,6 +218,29 @@ describe('ProductList', () => {
         listeners['change']({ matches: true } as MediaQueryListEvent);
       }
       expect(f.componentInstance.isMobile()).toBe(true);
+    });
+  });
+
+  describe('error state', () => {
+    it('should not throw and render the error state when the API fails', async () => {
+      productService.getProducts = vi
+        .fn()
+        .mockReturnValue(throwError(() => new HttpErrorResponse({ status: 401 })));
+
+      const f = TestBed.createComponent(ProductList);
+      const comp = f.componentInstance;
+      f.detectChanges();
+      await f.whenStable();
+      f.detectChanges();
+
+      expect(() => comp.products()).not.toThrow();
+      expect(comp.products()).toBeUndefined();
+      expect(comp.error()).toBeTruthy();
+
+      const el: HTMLElement = f.nativeElement;
+      expect(el.querySelector('.error-state')).toBeTruthy();
+      expect(el.querySelector('.loading-skeleton')).toBeNull();
+      expect(el.textContent).toContain('Tu sesión expiró');
     });
   });
 });

@@ -1,6 +1,14 @@
 <!-- Product Header -->
 <app-page-header [title]="product()?.name ?? 'Supplier Assignment'" [subtitle]="headerSubtitle()" />
 
+@if (productResource.error(); as err) {
+  <app-error-banner [message]="httpErrorMessage(err)" />
+}
+
+@if (allSuppliersResource.error(); as err) {
+  <app-error-banner [message]="httpErrorMessage(err)" />
+}
+
 @if (generalError(); as errorMessage) {
   <app-error-banner [message]="errorMessage" />
 }

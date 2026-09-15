@@ -1,4 +1,4 @@
-import { provideHttpClient } from '@angular/common/http';
+import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { ProductSupplierList } from './product-supplier-list';
@@ -7,7 +7,7 @@ import { ProductSupplierService } from '../../data/product-supplier.service';
 import { ProductSupplier } from '../../models/product-supplier.models';
 import { ActivatedRoute, Router } from '@angular/router';
 import { MatDialog } from '@angular/material/dialog';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 
 describe('ProductSupplierList', () => {
   let component: ProductSupplierList;
@@ -41,12 +41,20 @@ describe('ProductSupplierList', () => {
     };
   }
 
-  function setup(options: { productId?: string | null; suppliers?: ProductSupplier[] } = {}) {
+  function setup(
+    options: {
+      productId?: string | null;
+      suppliers?: ProductSupplier[];
+      suppliersError?: boolean;
+    } = {},
+  ) {
     const productId = options.productId !== undefined ? options.productId : mockProductId;
     const suppliers = options.suppliers ?? createSuppliers();
 
     serviceMock = {
-      getSuppliers: vi.fn().mockReturnValue(of(suppliers)),
+      getSuppliers: options.suppliersError
+        ? vi.fn().mockReturnValue(throwError(() => new HttpErrorResponse({ status: 401 })))
+        : vi.fn().mockReturnValue(of(suppliers)),
       removeSupplier: vi.fn().mockReturnValue(of(void 0)),
     };
 
@@ -209,6 +217,23 @@ describe('ProductSupplierList', () => {
       const reloadSpy = vi.spyOn(component.suppliersResource, 'reload');
       component.onRetry();
       expect(reloadSpy).toHaveBeenCalled();
+    });
+  });
+
+  describe('Error state', () => {
+    it('should not throw and render the error state when suppliers fail', async () => {
+      setup({ suppliersError: true });
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(() => component.suppliers()).not.toThrow();
+      expect(component.suppliers()).toBeUndefined();
+      expect(component.error()).toBeTruthy();
+
+      const el: HTMLElement = fixture.nativeElement;
+      expect(el.querySelector('.error-state')).toBeTruthy();
+      expect(el.querySelector('.loading-skeleton')).toBeNull();
+      expect(el.textContent).toContain('Tu sesión expiró');
     });
   });
 });

@@ -7,7 +7,8 @@ import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { CompanyList } from './company-list';
 import { CompanyService } from '@features/companies/companies/data/company.service';
 import { Company, Page } from '@features/companies/companies/models/company.models';
-import { of } from 'rxjs';
+import { HttpErrorResponse } from '@angular/common/http';
+import { of, throwError } from 'rxjs';
 
 interface CompanyServiceMock {
   getCompanies: ReturnType<typeof vi.fn>;
@@ -264,6 +265,29 @@ describe('CompanyList', () => {
         listeners['change']({ matches: true } as MediaQueryListEvent);
       }
       expect(f.componentInstance.isMobile()).toBe(true);
+    });
+  });
+
+  describe('error state', () => {
+    it('should not throw and render the error state when the API fails', async () => {
+      companyService.getCompanies = vi
+        .fn()
+        .mockReturnValue(throwError(() => new HttpErrorResponse({ status: 401 })));
+
+      const f = TestBed.createComponent(CompanyList);
+      const comp = f.componentInstance;
+      f.detectChanges();
+      await f.whenStable();
+      f.detectChanges();
+
+      expect(() => comp.companies()).not.toThrow();
+      expect(comp.companies()).toBeUndefined();
+      expect(comp.error()).toBeTruthy();
+
+      const el: HTMLElement = f.nativeElement;
+      expect(el.querySelector('.error-state')).toBeTruthy();
+      expect(el.querySelector('.loading-skeleton')).toBeNull();
+      expect(el.textContent).toContain('Tu sesión expiró');
     });
   });
 });

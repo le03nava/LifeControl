@@ -27,10 +27,10 @@
       <mat-select
         [value]="selectedCountry()"
         [compareWith]="compareCompanyCountry"
-        [disabled]="countriesResource.value().length === 0"
+        [disabled]="countries().length === 0"
         (selectionChange)="onSelectCountry($event.value)"
       >
-        @for (cc of countriesResource.value(); track cc.id) {
+        @for (cc of countries(); track cc.id) {
           <mat-option [value]="cc">
             {{ cc.countryName }}
           </mat-option>
@@ -43,10 +43,10 @@
       <mat-select
         [value]="selectedRegion()"
         [compareWith]="compareCompanyRegion"
-        [disabled]="regionsResource.value().length === 0"
+        [disabled]="regions().length === 0"
         (selectionChange)="onSelectRegion($event.value)"
       >
-        @for (region of regionsResource.value(); track region.id) {
+        @for (region of regions(); track region.id) {
           <mat-option [value]="region">
             {{ region.regionName }}
           </mat-option>
@@ -59,10 +59,10 @@
       <mat-select
         [value]="selectedZone()"
         [compareWith]="compareCompanyZone"
-        [disabled]="zonesResource.value().length === 0"
+        [disabled]="zones().length === 0"
         (selectionChange)="onSelectZone($event.value)"
       >
-        @for (zone of zonesResource.value(); track zone.id) {
+        @for (zone of zones(); track zone.id) {
           <mat-option [value]="zone">
             {{ zone.zoneName }}
           </mat-option>
