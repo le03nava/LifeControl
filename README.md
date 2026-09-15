@@ -39,7 +39,7 @@ El proyecto consolidó toda la lógica de negocio en el monolito modular `life-c
 | Capa                | Tecnología                                           |
 |---------------------|------------------------------------------------------|
 | **Frontend**        | Angular 20.3.0 (SPA), Angular Material, Keycloak Angular |
-| **Backend**         | Spring Boot 3.4.0 (Java 21)                         |
+| **Backend**         | Spring Boot 3.5.16 (Java 21)                        |
 | **Base de datos**   | PostgreSQL (principal), Redis (caching)              |
 | **Auth**            | Keycloak 26 (OIDC/OAuth2)                            |
 | **Documentación**   | SpringDoc OpenAPI (Swagger UI)                       |
@@ -53,7 +53,7 @@ El proyecto consolidó toda la lógica de negocio en el monolito modular `life-c
 
 | Componente          | Directorio              | Stack                            | Rol                        |
 |---------------------|-------------------------|----------------------------------|----------------------------|
-| LifeControl API     | `life-control-api/`     | Spring Boot 3.4 + PostgreSQL     | **Módulo central** — compañías, países, regiones, zonas, usuarios, roles, productos, ventas, compras, auditoría |
+| LifeControl API     | `life-control-api/`     | Spring Boot 3.5 + PostgreSQL     | **Módulo central** — compañías, países, regiones, zonas, usuarios, roles, productos, ventas, compras, auditoría |
 | API Gateway         | `api-gateway/`          | Spring Cloud Gateway             | Proxy, enrutamiento        |
 | Angular App         | `life-control-app-angular/` | Angular 20.3, SPA, Material | Frontend de gestión        |
 | Backstage           | `backstage/`            | Backstage framework              | Developer portal           |
