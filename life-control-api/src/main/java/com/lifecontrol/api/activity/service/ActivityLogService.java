@@ -6,6 +6,7 @@ import com.lifecontrol.api.activity.event.ActivityLogEvent;
 import com.lifecontrol.api.activity.model.ActivityLog;
 import com.lifecontrol.api.activity.repository.ActivityEventRepository;
 import com.lifecontrol.api.activity.repository.ActivityLogRepository;
+import com.lifecontrol.api.activity.repository.ActivityLogSpecifications;
 import com.lifecontrol.api.activity.repository.ActivityProcessRepository;
 import com.lifecontrol.api.activity.util.PayloadSanitizer;
 import org.slf4j.Logger;
@@ -99,14 +100,15 @@ public class ActivityLogService {
                 ? filter.to().atTime(LocalTime.MAX)
                 : null;
 
-        var page = activityLogRepository.findByFilters(
+        var spec = ActivityLogSpecifications.withFilters(
                 from, to,
                 filter.process(),
                 filter.event(),
                 filter.userId(),
-                filter.httpMethod(),
-                pageable
+                filter.httpMethod()
         );
+
+        var page = activityLogRepository.findAll(spec, pageable);
 
         return page.map(this::toResponse);
     }

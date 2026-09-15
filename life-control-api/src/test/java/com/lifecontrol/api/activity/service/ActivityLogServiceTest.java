@@ -15,12 +15,14 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.jpa.domain.Specification;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -156,8 +158,8 @@ class ActivityLogServiceTest {
 
             var pageable = PageRequest.of(0, 20);
             var page = new PageImpl<>(List.of(logEntry), pageable, 1);
-            when(activityLogRepository.findByFilters(
-                    any(), any(), any(), any(), any(), any(), eq(pageable)))
+            when(activityLogRepository.findAll(
+                    ArgumentMatchers.<Specification<ActivityLog>>any(), eq(pageable)))
                     .thenReturn(page);
 
             var filter = new ActivityLogFilter(
