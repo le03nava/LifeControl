@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   ci:
-    name: Test
+    name: Check
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -29,6 +29,9 @@ jobs:
           java-version: 21
           distribution: temurin
           cache: gradle
+
+      - name: Static analysis
+        run: ./gradlew spotlessCheck spotbugsMain --no-daemon
 
       - name: Run tests
         run: ./gradlew test --no-daemon
