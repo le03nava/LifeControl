@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FindBugsFilter>
+    <!--
+      Tolerant baseline for SpotBugs.
+
+      Only accepted false positives / by-design patterns live here, each with a reason.
+      Do NOT use this file to hide real bugs: fix those in code.
+      Prefer narrowing by class/method over excluding a whole bug pattern.
+    -->
+
+    <!--
+      Entities, DTOs and @ConfigurationProperties expose and accept mutable references through
+      manual getters/setters/builder (project style: NO Lombok). This is by design for the
+      persistence and transport layers, so the "may expose internal representation" family is
+      not actionable here. Revisit if value objects are introduced.
+    -->
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!--
+      A one-shot SecureRandom is intentionally created per call to generate a temporary secret.
+      Not a bug for this use case; revisit if a shared RNG is introduced.
+    -->
+    <Match>
+        <Class name="com.lifecontrol.api.usersadmin.service.UsersAdminService"/>
+        <Method name="createUser"/>
+        <Bug pattern="DMI_RANDOM_USED_ONLY_ONCE"/>
+    </Match>
+</FindBugsFilter>

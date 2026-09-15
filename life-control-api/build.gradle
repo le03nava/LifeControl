@@ -3,6 +3,8 @@ plugins {
     id 'org.springframework.boot' version '3.4.0'
     id 'io.spring.dependency-management' version '1.1.6'
     id 'org.asciidoctor.jvm.convert' version '2.4.0'
+    id 'com.diffplug.spotless' version '6.25.0'
+    id 'com.github.spotbugs' version '6.5.11'
 }
 
 group = 'com.lifecontrol'
@@ -26,6 +28,36 @@ repositories {
 
 ext {
     set('snippetsDir', file("build/generated-snippets"))
+}
+
+spotless {
+    java {
+        palantirJavaFormat('2.50.0')
+        removeUnusedImports()
+        trimTrailingWhitespace()
+        endWithNewline()
+    }
+}
+
+spotbugs {
+    toolVersion = '4.9.3'
+    effort.set(com.github.spotbugs.snom.Effort.MAX)
+    reportLevel.set(com.github.spotbugs.snom.Confidence.valueOf('MEDIUM'))
+    ignoreFailures = false
+    excludeFilter = file('config/spotbugs/exclude.xml')
+}
+
+tasks.withType(com.github.spotbugs.snom.SpotBugsTask).configureEach {
+    reports {
+        xml.required = true
+        html.required = true
+    }
+}
+
+// Static analysis is scoped to production code: test sources are intentionally noisy
+// (dead stores, unread fields, format strings) and out of this baseline's scope.
+tasks.named('spotbugsTest') {
+    enabled = false
 }
 
 dependencies {
