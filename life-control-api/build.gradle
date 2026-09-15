@@ -28,6 +28,8 @@ repositories {
 
 ext {
     set('snippetsDir', file("build/generated-snippets"))
+    set('tomcat.version', '10.1.59')
+    set('postgresql.version', '42.7.13')
 }
 
 spotless {
