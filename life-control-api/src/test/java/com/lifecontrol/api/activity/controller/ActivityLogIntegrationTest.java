@@ -12,6 +12,7 @@ import com.lifecontrol.api.activity.repository.ActivityEventRepository;
 import com.lifecontrol.api.activity.repository.ActivityLogRepository;
 import com.lifecontrol.api.activity.repository.ActivityProcessRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
+import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -234,6 +235,41 @@ class ActivityLogIntegrationTest extends AbstractPostgresIntegrationTest {
 
             var logs = activityLogRepository.findAll();
             assertThat(logs).isEmpty();
+        }
+    }
+
+    // ─── V4: process seed coverage ───────────────────────────
+
+    @Nested
+    @DisplayName("V4 seeds every auto-derived activity process")
+    class ActivityProcessSeedTests {
+
+        @Test
+        @DisplayName("every controller domain resolves to a seeded activity process")
+        void allDerivedProcessesSeeded() {
+            var derivedProcesses = List.of(
+                    "ACTIVITY",
+                    "COMPANY",
+                    "COUNTRY",
+                    "CUSTOMER",
+                    "MEASUREUNIT",
+                    "PAYMENTMETHOD",
+                    "PRODUCT",
+                    "PROFILE",
+                    "PROMOTION",
+                    "PURCHASEORDER",
+                    "SALESORDER",
+                    "SHIFT",
+                    "STATUS",
+                    "STORE",
+                    "SUPPLIER",
+                    "USERSADMIN");
+
+            for (var name : derivedProcesses) {
+                assertThat(processRepository.findByName(name))
+                        .as("activity process '%s' should be seeded", name)
+                        .isPresent();
+            }
         }
     }
 }
