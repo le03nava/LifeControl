@@ -21,6 +21,9 @@ import com.lifecontrol.api.product.repository.ProductRepository;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderDetailRequest;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderRequest;
 import com.lifecontrol.api.purchaseorder.dto.UpdatePurchaseOrderStatusRequest;
+import com.lifecontrol.api.purchaseorder.event.PurchaseOrderCreatedEvent;
+import com.lifecontrol.api.purchaseorder.event.PurchaseOrderDetailStatusChangedEvent;
+import com.lifecontrol.api.purchaseorder.event.PurchaseOrderStatusChangedEvent;
 import com.lifecontrol.api.purchaseorder.exception.InvalidStatusTransitionException;
 import com.lifecontrol.api.purchaseorder.exception.PurchaseOrderDetailNotFoundException;
 import com.lifecontrol.api.purchaseorder.exception.PurchaseOrderNotFoundException;
@@ -53,6 +56,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 
@@ -83,6 +87,9 @@ class PurchaseOrderServiceTest {
 
     @Mock
     private StatusTypeRepository statusTypeRepository;
+
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
     private PurchaseOrderService service;
@@ -323,6 +330,7 @@ class PurchaseOrderServiceTest {
             assertThat(result.supplierName()).isEqualTo("Test Supplier");
             assertThat(result.companyStoreName()).isEqualTo("Test Store");
             assertThat(result.paymentMethodName()).isEqualTo("Transfer");
+            verify(eventPublisher).publishEvent(any(PurchaseOrderCreatedEvent.class));
         }
 
         @Test
@@ -469,6 +477,7 @@ class PurchaseOrderServiceTest {
             var result = service.updatePurchaseOrderStatus(poId, request);
 
             assertThat(result.statusName()).isEqualTo("Sent");
+            verify(eventPublisher).publishEvent(any(PurchaseOrderStatusChangedEvent.class));
         }
 
         @Test
@@ -681,6 +690,7 @@ class PurchaseOrderServiceTest {
             var result = service.updatePurchaseOrderDetailStatus(poId, detailId, request);
 
             assertThat(result.statusName()).isEqualTo("In Process");
+            verify(eventPublisher).publishEvent(any(PurchaseOrderDetailStatusChangedEvent.class));
         }
 
         @Test

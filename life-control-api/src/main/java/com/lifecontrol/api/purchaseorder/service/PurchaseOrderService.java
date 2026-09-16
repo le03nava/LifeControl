@@ -15,6 +15,9 @@ import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderDetailResponse;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderRequest;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderResponse;
 import com.lifecontrol.api.purchaseorder.dto.UpdatePurchaseOrderStatusRequest;
+import com.lifecontrol.api.purchaseorder.event.PurchaseOrderCreatedEvent;
+import com.lifecontrol.api.purchaseorder.event.PurchaseOrderDetailStatusChangedEvent;
+import com.lifecontrol.api.purchaseorder.event.PurchaseOrderStatusChangedEvent;
 import com.lifecontrol.api.purchaseorder.exception.InvalidStatusTransitionException;
 import com.lifecontrol.api.purchaseorder.exception.PurchaseOrderDetailNotFoundException;
 import com.lifecontrol.api.purchaseorder.exception.PurchaseOrderNotFoundException;
@@ -42,6 +45,7 @@ import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -81,6 +85,7 @@ public class PurchaseOrderService {
     private final ProductRepository productRepository;
     private final PaymentMethodRepository paymentMethodRepository;
     private final StatusRepository statusRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     public PurchaseOrderService(
             PurchaseOrderRepository purchaseOrderRepository,
@@ -89,7 +94,8 @@ public class PurchaseOrderService {
             CompanyStoreRepository companyStoreRepository,
             ProductRepository productRepository,
             PaymentMethodRepository paymentMethodRepository,
-            StatusRepository statusRepository) {
+            StatusRepository statusRepository,
+            ApplicationEventPublisher eventPublisher) {
         this.purchaseOrderRepository = purchaseOrderRepository;
         this.detailRepository = detailRepository;
         this.supplierRepository = supplierRepository;
@@ -97,6 +103,7 @@ public class PurchaseOrderService {
         this.productRepository = productRepository;
         this.paymentMethodRepository = paymentMethodRepository;
         this.statusRepository = statusRepository;
+        this.eventPublisher = eventPublisher;
     }
 
     // ─── Purchase Order CRUD ────────────────────────────────────────────
@@ -172,6 +179,9 @@ public class PurchaseOrderService {
         var saved = purchaseOrderRepository.save(po);
         logger.info("Purchase order created: id={}, orderNumber={}", saved.getId(), saved.getOrderNumber());
 
+        eventPublisher.publishEvent(new PurchaseOrderCreatedEvent(
+                this, saved.getId(), saved.getOrderNumber(), supplier.getId(), store.getId()));
+
         return toResponse(saved);
     }
 
@@ -246,8 +256,12 @@ public class PurchaseOrderService {
         var newStatus = StatusValidator.requireStatusOfType(statusRepository, request.statusId(), "PURCHASE_ORDER");
         validatePOTransition(po.getStatus(), newStatus);
 
+        var previousStatus = po.getStatus().getStatusName();
         po.setStatus(newStatus);
         var updated = purchaseOrderRepository.save(po);
+
+        eventPublisher.publishEvent(new PurchaseOrderStatusChangedEvent(
+                this, updated.getId(), updated.getOrderNumber(), previousStatus, newStatus.getStatusName()));
 
         return toResponse(updated);
     }
@@ -371,7 +385,7 @@ public class PurchaseOrderService {
             UUID purchaseOrderId, UUID detailId, UpdatePurchaseOrderStatusRequest request) {
         logger.info("Updating detail status: poId={}, detailId={}", purchaseOrderId, detailId);
 
-        purchaseOrderRepository
+        var po = purchaseOrderRepository
                 .findById(purchaseOrderId)
                 .orElseThrow(() -> new PurchaseOrderNotFoundException(purchaseOrderId));
 
@@ -399,8 +413,20 @@ public class PurchaseOrderService {
             detail.setReceivedQuantity(detail.getQuantity());
         }
 
+        var previousStatus = detail.getStatus().getStatusName();
         detail.setStatus(newStatus);
         var updated = detailRepository.save(detail);
+
+        eventPublisher.publishEvent(new PurchaseOrderDetailStatusChangedEvent(
+                this,
+                po.getId(),
+                po.getOrderNumber(),
+                updated.getId(),
+                updated.getProduct().getId(),
+                previousStatus,
+                newStatus.getStatusName(),
+                updated.getReceivedQuantity(),
+                updated.getQuantity()));
 
         return toDetailResponse(updated);
     }
