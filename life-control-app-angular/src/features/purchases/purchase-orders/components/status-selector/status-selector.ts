@@ -41,7 +41,7 @@ interface PageStatusType {
  *
  * Displays a dropdown filtered to valid next states per `PO_STATUS_TRANSITIONS`.
  * On selection, calls `PATCH /api/purchase-orders/{id}/status` with the resolved UUID.
- * Terminal states (Cerrada, Rechazada) show a disabled chip instead of the dropdown.
+ * Terminal states (Closed, Rejected) show a disabled chip instead of the dropdown.
  *
  * Covers spec Requirement 6, scenarios 6.1-6.9.
  */

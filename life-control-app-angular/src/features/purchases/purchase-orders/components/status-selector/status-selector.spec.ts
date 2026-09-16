@@ -49,9 +49,9 @@ const mockStatuses = [
   { id: 'st-accepted', name: 'Accepted' },
   { id: 'st-in-transit', name: 'In Transit' },
   { id: 'st-received', name: 'Received' },
-  { id: 'st-facturada', name: 'Facturada' },
-  { id: 'st-cerrada', name: 'Cerrada' },
-  { id: 'st-rechazada', name: 'Rechazada' },
+  { id: 'st-billed', name: 'Billed' },
+  { id: 'st-closed', name: 'Closed' },
+  { id: 'st-rejected', name: 'Rejected' },
 ];
 
 describe('StatusSelector', () => {
@@ -148,7 +148,7 @@ describe('StatusSelector', () => {
       httpMock.verify();
     });
 
-    it('Draft: dropdown should show Sent and Rechazada', () => {
+    it('Draft: dropdown should show Sent and Rejected', () => {
       const order = createOrder({ statusName: 'Draft' });
       const f = setupWithOrder(order, httpMock);
       const comp = f.componentInstance;
@@ -156,11 +156,11 @@ describe('StatusSelector', () => {
       const transitions = comp.validTransitions();
       const names = transitions.map((t) => t.name);
       expect(names).toContain('Sent');
-      expect(names).toContain('Rechazada');
+      expect(names).toContain('Rejected');
       expect(names).toHaveLength(2);
     });
 
-    it('Sent: dropdown should show Accepted and Rechazada', () => {
+    it('Sent: dropdown should show Accepted and Rejected', () => {
       const order = createOrder({
         statusName: 'Sent',
         statusId: 'st-sent',
@@ -170,11 +170,11 @@ describe('StatusSelector', () => {
 
       const names = comp.validTransitions().map((t) => t.name);
       expect(names).toContain('Accepted');
-      expect(names).toContain('Rechazada');
+      expect(names).toContain('Rejected');
       expect(names).toHaveLength(2);
     });
 
-    it('Accepted: dropdown should show In Transit and Rechazada', () => {
+    it('Accepted: dropdown should show In Transit and Rejected', () => {
       const order = createOrder({
         statusName: 'Accepted',
         statusId: 'st-accepted',
@@ -184,11 +184,11 @@ describe('StatusSelector', () => {
 
       const names = comp.validTransitions().map((t) => t.name);
       expect(names).toContain('In Transit');
-      expect(names).toContain('Rechazada');
+      expect(names).toContain('Rejected');
       expect(names).toHaveLength(2);
     });
 
-    it('In Transit: dropdown should show Received and Rechazada', () => {
+    it('In Transit: dropdown should show Received and Rejected', () => {
       const order = createOrder({
         statusName: 'In Transit',
         statusId: 'st-in-transit',
@@ -198,11 +198,11 @@ describe('StatusSelector', () => {
 
       const names = comp.validTransitions().map((t) => t.name);
       expect(names).toContain('Received');
-      expect(names).toContain('Rechazada');
+      expect(names).toContain('Rejected');
       expect(names).toHaveLength(2);
     });
 
-    it('Received: dropdown should show Facturada and Rechazada', () => {
+    it('Received: dropdown should show Billed and Rejected', () => {
       const order = createOrder({
         statusName: 'Received',
         statusId: 'st-received',
@@ -211,29 +211,29 @@ describe('StatusSelector', () => {
       const comp = f.componentInstance;
 
       const names = comp.validTransitions().map((t) => t.name);
-      expect(names).toContain('Facturada');
-      expect(names).toContain('Rechazada');
+      expect(names).toContain('Billed');
+      expect(names).toContain('Rejected');
       expect(names).toHaveLength(2);
     });
 
-    it('Facturada: dropdown should show Cerrada and Rechazada', () => {
+    it('Billed: dropdown should show Closed and Rejected', () => {
       const order = createOrder({
-        statusName: 'Facturada',
-        statusId: 'st-facturada',
+        statusName: 'Billed',
+        statusId: 'st-billed',
       });
       const f = setupWithOrder(order, httpMock);
       const comp = f.componentInstance;
 
       const names = comp.validTransitions().map((t) => t.name);
-      expect(names).toContain('Cerrada');
-      expect(names).toContain('Rechazada');
+      expect(names).toContain('Closed');
+      expect(names).toContain('Rejected');
       expect(names).toHaveLength(2);
     });
 
-    it('Cerrada: dropdown should be disabled (terminal)', () => {
+    it('Closed: dropdown should be disabled (terminal)', () => {
       const order = createOrder({
-        statusName: 'Cerrada',
-        statusId: 'st-cerrada',
+        statusName: 'Closed',
+        statusId: 'st-closed',
       });
       const f = setupWithOrder(order, httpMock);
       const comp = f.componentInstance;
@@ -242,10 +242,10 @@ describe('StatusSelector', () => {
       expect(comp.validTransitions()).toEqual([]);
     });
 
-    it('Rechazada: dropdown should be disabled (terminal)', () => {
+    it('Rejected: dropdown should be disabled (terminal)', () => {
       const order = createOrder({
-        statusName: 'Rechazada',
-        statusId: 'st-rechazada',
+        statusName: 'Rejected',
+        statusId: 'st-rejected',
       });
       const f = setupWithOrder(order, httpMock);
       const comp = f.componentInstance;
@@ -328,7 +328,7 @@ describe('StatusSelector', () => {
         ),
       );
 
-      comp.onStatusChange('st-rechazada');
+      comp.onStatusChange('st-rejected');
 
       expect(notificationService.showError).toHaveBeenCalledWith(
         'Transición de estado no permitida.',

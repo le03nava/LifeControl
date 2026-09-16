@@ -6,10 +6,10 @@ describe('PO_STATUS_TRANSITIONS', () => {
   });
 
   describe('Draft', () => {
-    it('should have valid transitions: Sent, Rechazada', () => {
+    it('should have valid transitions: Sent, Rejected', () => {
       const transitions = PO_STATUS_TRANSITIONS['Draft'];
       expect(transitions).toContain('Sent');
-      expect(transitions).toContain('Rechazada');
+      expect(transitions).toContain('Rejected');
       expect(transitions).toHaveLength(2);
     });
 
@@ -18,31 +18,31 @@ describe('PO_STATUS_TRANSITIONS', () => {
       expect(transitions).not.toContain('Accepted');
       expect(transitions).not.toContain('In Transit');
       expect(transitions).not.toContain('Received');
-      expect(transitions).not.toContain('Facturada');
-      expect(transitions).not.toContain('Cerrada');
+      expect(transitions).not.toContain('Billed');
+      expect(transitions).not.toContain('Closed');
     });
   });
 
   describe('Sent', () => {
-    it('should have valid transitions: Accepted, Rechazada', () => {
+    it('should have valid transitions: Accepted, Rejected', () => {
       const transitions = PO_STATUS_TRANSITIONS['Sent'];
       expect(transitions).toContain('Accepted');
-      expect(transitions).toContain('Rechazada');
+      expect(transitions).toContain('Rejected');
       expect(transitions).toHaveLength(2);
     });
 
     it('should NOT include backwards transitions', () => {
       const transitions = PO_STATUS_TRANSITIONS['Sent'];
       expect(transitions).not.toContain('Draft');
-      expect(transitions).not.toContain('Cerrada');
+      expect(transitions).not.toContain('Closed');
     });
   });
 
   describe('Accepted', () => {
-    it('should have valid transitions: In Transit, Rechazada', () => {
+    it('should have valid transitions: In Transit, Rejected', () => {
       const transitions = PO_STATUS_TRANSITIONS['Accepted'];
       expect(transitions).toContain('In Transit');
-      expect(transitions).toContain('Rechazada');
+      expect(transitions).toContain('Rejected');
       expect(transitions).toHaveLength(2);
     });
 
@@ -54,10 +54,10 @@ describe('PO_STATUS_TRANSITIONS', () => {
   });
 
   describe('In Transit', () => {
-    it('should have valid transitions: Received, Rechazada', () => {
+    it('should have valid transitions: Received, Rejected', () => {
       const transitions = PO_STATUS_TRANSITIONS['In Transit'];
       expect(transitions).toContain('Received');
-      expect(transitions).toContain('Rechazada');
+      expect(transitions).toContain('Rejected');
       expect(transitions).toHaveLength(2);
     });
 
@@ -70,10 +70,10 @@ describe('PO_STATUS_TRANSITIONS', () => {
   });
 
   describe('Received', () => {
-    it('should have valid transitions: Facturada, Rechazada', () => {
+    it('should have valid transitions: Billed, Rejected', () => {
       const transitions = PO_STATUS_TRANSITIONS['Received'];
-      expect(transitions).toContain('Facturada');
-      expect(transitions).toContain('Rechazada');
+      expect(transitions).toContain('Billed');
+      expect(transitions).toContain('Rejected');
       expect(transitions).toHaveLength(2);
     });
 
@@ -84,72 +84,72 @@ describe('PO_STATUS_TRANSITIONS', () => {
     });
   });
 
-  describe('Facturada', () => {
-    it('should have valid transitions: Cerrada, Rechazada', () => {
-      const transitions = PO_STATUS_TRANSITIONS['Facturada'];
-      expect(transitions).toContain('Cerrada');
-      expect(transitions).toContain('Rechazada');
+  describe('Billed', () => {
+    it('should have valid transitions: Closed, Rejected', () => {
+      const transitions = PO_STATUS_TRANSITIONS['Billed'];
+      expect(transitions).toContain('Closed');
+      expect(transitions).toContain('Rejected');
       expect(transitions).toHaveLength(2);
     });
 
     it('should NOT include Received or earlier', () => {
-      const transitions = PO_STATUS_TRANSITIONS['Facturada'];
+      const transitions = PO_STATUS_TRANSITIONS['Billed'];
       expect(transitions).not.toContain('Received');
       expect(transitions).not.toContain('In Transit');
     });
   });
 
-  describe('Cerrada (terminal)', () => {
+  describe('Closed (terminal)', () => {
     it('should have an empty transitions array', () => {
-      const transitions = PO_STATUS_TRANSITIONS['Cerrada'];
+      const transitions = PO_STATUS_TRANSITIONS['Closed'];
       expect(transitions).toEqual([]);
       expect(transitions).toHaveLength(0);
     });
 
     it('should NOT include any transitions', () => {
-      const transitions = PO_STATUS_TRANSITIONS['Cerrada'];
+      const transitions = PO_STATUS_TRANSITIONS['Closed'];
       expect(transitions).not.toContain('Draft');
       expect(transitions).not.toContain('Sent');
       expect(transitions).not.toContain('Accepted');
-      expect(transitions).not.toContain('Facturada');
-      expect(transitions).not.toContain('Rechazada');
+      expect(transitions).not.toContain('Billed');
+      expect(transitions).not.toContain('Rejected');
     });
   });
 
-  describe('Rechazada (terminal)', () => {
+  describe('Rejected (terminal)', () => {
     it('should have an empty transitions array', () => {
-      const transitions = PO_STATUS_TRANSITIONS['Rechazada'];
+      const transitions = PO_STATUS_TRANSITIONS['Rejected'];
       expect(transitions).toEqual([]);
       expect(transitions).toHaveLength(0);
     });
 
     it('should NOT include any transitions', () => {
-      const transitions = PO_STATUS_TRANSITIONS['Rechazada'];
+      const transitions = PO_STATUS_TRANSITIONS['Rejected'];
       expect(transitions).not.toContain('Draft');
       expect(transitions).not.toContain('Sent');
       expect(transitions).not.toContain('Accepted');
-      expect(transitions).not.toContain('Cerrada');
+      expect(transitions).not.toContain('Closed');
     });
   });
 
   describe('cross-status validation', () => {
-    it('Rechazada should be reachable from Draft through Facturada (6 states)', () => {
+    it('Rejected should be reachable from Draft through Billed (6 states)', () => {
       const reachableFrom: string[] = [
         'Draft',
         'Sent',
         'Accepted',
         'In Transit',
         'Received',
-        'Facturada',
+        'Billed',
       ];
       for (const status of reachableFrom) {
-        expect(PO_STATUS_TRANSITIONS[status]).toContain('Rechazada');
+        expect(PO_STATUS_TRANSITIONS[status]).toContain('Rejected');
       }
     });
 
-    it('Rechazada should NOT be reachable from terminal states', () => {
-      expect(PO_STATUS_TRANSITIONS['Cerrada']).not.toContain('Rechazada');
-      expect(PO_STATUS_TRANSITIONS['Rechazada']).not.toContain('Rechazada');
+    it('Rejected should NOT be reachable from terminal states', () => {
+      expect(PO_STATUS_TRANSITIONS['Closed']).not.toContain('Rejected');
+      expect(PO_STATUS_TRANSITIONS['Rejected']).not.toContain('Rejected');
     });
   });
 });
@@ -186,16 +186,16 @@ describe('PO_STATUS_COLORS', () => {
     expect(PO_STATUS_COLORS['Received']).toBe('#4caf50');
   });
 
-  it('Facturada should be teal (#009688)', () => {
-    expect(PO_STATUS_COLORS['Facturada']).toBe('#009688');
+  it('Billed should be teal (#009688)', () => {
+    expect(PO_STATUS_COLORS['Billed']).toBe('#009688');
   });
 
-  it('Cerrada should be blue-grey (#607d8b)', () => {
-    expect(PO_STATUS_COLORS['Cerrada']).toBe('#607d8b');
+  it('Closed should be blue-grey (#607d8b)', () => {
+    expect(PO_STATUS_COLORS['Closed']).toBe('#607d8b');
   });
 
-  it('Rechazada should be red (#f44336)', () => {
-    expect(PO_STATUS_COLORS['Rechazada']).toBe('#f44336');
+  it('Rejected should be red (#f44336)', () => {
+    expect(PO_STATUS_COLORS['Rejected']).toBe('#f44336');
   });
 });
 
@@ -224,16 +224,16 @@ describe('PO_STATUS_LABELS', () => {
     expect(PO_STATUS_LABELS['Received']).toBe('Recibida');
   });
 
-  it('Facturada label should be "Facturada"', () => {
-    expect(PO_STATUS_LABELS['Facturada']).toBe('Facturada');
+  it('Billed label should be "Facturada"', () => {
+    expect(PO_STATUS_LABELS['Billed']).toBe('Facturada');
   });
 
-  it('Cerrada label should be "Cerrada"', () => {
-    expect(PO_STATUS_LABELS['Cerrada']).toBe('Cerrada');
+  it('Closed label should be "Cerrada"', () => {
+    expect(PO_STATUS_LABELS['Closed']).toBe('Cerrada');
   });
 
-  it('Rechazada label should be "Rechazada"', () => {
-    expect(PO_STATUS_LABELS['Rechazada']).toBe('Rechazada');
+  it('Rejected label should be "Rechazada"', () => {
+    expect(PO_STATUS_LABELS['Rejected']).toBe('Rechazada');
   });
 
   it('all keys in TRANSITIONS should have a corresponding label', () => {
