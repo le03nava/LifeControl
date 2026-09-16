@@ -1,13 +1,28 @@
-import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  inject,
+  input,
+  output,
+  signal,
+} from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { CurrencyPipe } from '@angular/common';
+import { BreakpointObserver } from '@angular/cdk/layout';
+import { map } from 'rxjs';
 import { MatTableModule } from '@angular/material/table';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatSelectModule } from '@angular/material/select';
 import { MatInputModule } from '@angular/material/input';
 import { MatAutocompleteModule } from '@angular/material/autocomplete';
 import { MatButtonModule } from '@angular/material/button';
+import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
+
+/** Viewport width below which the table switches to one card per line item. */
+const MOBILE_QUERY = '(max-width: 575px)';
 
 /**
  * Simplified row type for the detail table.
@@ -41,6 +56,7 @@ export interface DetailTableRow {
     MatInputModule,
     MatAutocompleteModule,
     MatButtonModule,
+    MatCardModule,
     MatIconModule,
     MatTooltipModule,
   ],
@@ -49,6 +65,8 @@ export interface DetailTableRow {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DetailTable {
+  private readonly breakpointObserver = inject(BreakpointObserver);
+
   /** Current line items. */
   readonly items = input.required<DetailTableRow[]>();
 
@@ -60,6 +78,15 @@ export class DetailTable {
 
   /** Emits the full updated items array after any add or remove. */
   readonly itemsChanged = output<DetailTableRow[]>();
+
+  /**
+   * Narrow viewports render one card per line item instead of the overflowing
+   * `mat-table`.
+   */
+  readonly isMobile = toSignal(
+    this.breakpointObserver.observe(MOBILE_QUERY).pipe(map((result) => result.matches)),
+    { initialValue: false },
+  );
 
   // ─── Add-row form state ────────────────────────────────
   readonly newProductId = signal('');

@@ -282,14 +282,6 @@ describe('PurchaseOrderList', () => {
     });
   });
 
-  describe('status colors', () => {
-    it('should expose PO_STATUS_COLORS as statusColor', () => {
-      expect(component.statusColor).toBeDefined();
-      expect(component.statusColor['Draft']).toBe('#9e9e9e');
-      expect(component.statusColor['Sent']).toBe('#ff9800');
-    });
-  });
-
   describe('displayed columns', () => {
     it('should have correct columns array', () => {
       expect(component.displayedColumns).toEqual([

@@ -74,14 +74,7 @@
               <ng-container matColumnDef="status">
                 <th mat-header-cell *matHeaderCellDef>Estado</th>
                 <td mat-cell *matCellDef="let row">
-                  <mat-chip
-                    [style.background-color]="statusColor[row.statusName] || '#9e9e9e'"
-                    [style.color]="'#fff'"
-                    class="status-chip"
-                    disableRipple
-                  >
-                    {{ statusLabel[row.statusName] || row.statusName }}
-                  </mat-chip>
+                  <app-status-chip [statusName]="row.statusName" />
                 </td>
               </ng-container>
 

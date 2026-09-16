@@ -12,14 +12,13 @@ import { DatePipe } from '@angular/common';
 import { PageHeader } from '@shared/ui';
 import { httpErrorMessage } from '@shared/data';
 import { PurchaseOrderService } from '../../data/purchase-order.service';
-import { PO_STATUS_COLORS, PO_STATUS_LABELS } from '../../data/status-config';
+import { StatusChip } from '../../components/status-chip/status-chip';
 import { MatTableModule } from '@angular/material/table';
 import { MatIconModule } from '@angular/material/icon';
 import { MatPaginatorModule } from '@angular/material/paginator';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
-import { MatChipsModule } from '@angular/material/chips';
 import { MatCardModule } from '@angular/material/card';
 
 @Component({
@@ -29,13 +28,13 @@ import { MatCardModule } from '@angular/material/card';
   imports: [
     PageHeader,
     DatePipe,
+    StatusChip,
     MatTableModule,
     MatIconModule,
     MatPaginatorModule,
     MatButtonModule,
     MatFormFieldModule,
     MatInputModule,
-    MatChipsModule,
     MatCardModule,
   ],
   templateUrl: './purchase-order-list.html',
@@ -86,11 +85,6 @@ export class PurchaseOrderList {
     'createdAt',
     'actions',
   ];
-
-  // Status color lookup
-  readonly statusColor = PO_STATUS_COLORS;
-  // Spanish labels for the status column (falls back to the raw name)
-  readonly statusLabel = PO_STATUS_LABELS;
 
   constructor() {
     // Debounce effect: searchQuery → 300ms → _debouncedSearch
