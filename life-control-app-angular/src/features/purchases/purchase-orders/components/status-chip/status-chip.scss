@@ -1,0 +1,25 @@
+:host {
+  display: inline-flex;
+}
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--chip-color) 70%, var(--mat-sys-on-surface));
+  background: color-mix(in srgb, var(--chip-color) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--chip-color) 32%, transparent);
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--chip-color);
+    flex-shrink: 0;
+  }
+}

@@ -37,6 +37,38 @@ table {
   }
 }
 
+.cell-input {
+  width: 100%;
+  max-width: 120px;
+  padding: 6px 8px;
+  border: 1px solid var(--mat-sys-outline-variant, #cbd5e1);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--mat-sys-surface);
+  color: var(--mat-sys-on-surface);
+  font: inherit;
+  font-size: 0.875rem;
+
+  &:focus {
+    outline: none;
+    border-color: var(--mat-sys-primary);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--mat-sys-primary) 20%, transparent);
+  }
+
+  &.is-invalid {
+    border-color: var(--mat-sys-error);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--mat-sys-error) 18%, transparent);
+  }
+}
+
+.line-items-warning {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin: var(--space-sm) 0 0;
+  font-size: 0.8125rem;
+  color: var(--mat-sys-error);
+}
+
 .no-line-items {
   display: flex;
   flex-direction: column;

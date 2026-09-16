@@ -66,7 +66,6 @@ export class DetailTable {
   readonly newQuantity = signal(1);
   readonly newUnitPrice = signal(0);
   readonly searchQuery = signal('');
-  readonly selectedProductName = signal('');
 
   /** Products filtered by the local search query (client-side on the already supplier-filtered list). */
   readonly filteredProducts = computed(() => {
@@ -92,13 +91,24 @@ export class DetailTable {
   );
 
   readonly canAddItem = computed(
-    () => this.isDraft() && this.newProductId() !== '' && this.newQuantity() > 0,
+    () =>
+      this.isDraft() &&
+      this.newProductId() !== '' &&
+      this.newQuantity() > 0 &&
+      this.newUnitPrice() > 0,
   );
+
+  /** Whether any existing row has a non-positive quantity or unit price. */
+  readonly hasInvalidRows = computed(() => this.items().some((item) => this.isRowInvalid(item)));
+
+  isRowInvalid(row: DetailTableRow): boolean {
+    return row.quantity <= 0 || row.unitPrice <= 0;
+  }
 
   // ─── Mutations ─────────────────────────────────────────
 
   addItem(): void {
-    if (!this.isDraft() || !this.newProductId()) {
+    if (!this.isDraft() || !this.newProductId() || this.newUnitPrice() <= 0) {
       return;
     }
 
@@ -138,6 +148,9 @@ export class DetailTable {
 
   onSearchChange(value: string): void {
     this.searchQuery.set(value);
+    // Any manual edit invalidates the previous selection, otherwise "+" would
+    // add a product that no longer matches what the field shows.
+    this.newProductId.set('');
   }
 
   onNewQuantityChange(value: number): void {
@@ -146,6 +159,28 @@ export class DetailTable {
 
   onNewUnitPriceChange(value: number): void {
     this.newUnitPrice.set(value || 0);
+  }
+
+  /** Inline-edit the quantity of an already-saved row. */
+  onRowQuantityChange(index: number, value: number): void {
+    if (!this.isDraft()) {
+      return;
+    }
+    this.patchRow(index, { quantity: Number.isFinite(value) ? value : 0 });
+  }
+
+  /** Inline-edit the unit price of an already-saved row. */
+  onRowUnitPriceChange(index: number, value: number): void {
+    if (!this.isDraft()) {
+      return;
+    }
+    this.patchRow(index, { unitPrice: Number.isFinite(value) ? value : 0 });
+  }
+
+  private patchRow(index: number, patch: Partial<DetailTableRow>): void {
+    this.itemsChanged.emit(
+      this.items().map((item, i) => (i === index ? { ...item, ...patch } : item)),
+    );
   }
 
   /** Subtotal per row (quantity × unitPrice). */

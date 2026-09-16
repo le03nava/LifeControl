@@ -2,6 +2,7 @@
 export * from './button/button';
 export * from './field/field';
 export * from './modal';
+export * from './confirm-dialog/confirm-dialog';
 export * from './spinner';
 export * from './loading-indicator';
 export * from './not-found';

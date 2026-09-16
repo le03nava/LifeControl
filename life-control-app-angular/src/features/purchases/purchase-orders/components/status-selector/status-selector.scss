@@ -1,0 +1,128 @@
+@use '../../../../../shared/styles/variables' as *;
+
+:host {
+  display: block;
+}
+
+.status-stepper {
+  display: flex;
+  align-items: flex-start;
+  list-style: none;
+  margin: 0;
+  padding: var(--space-sm) 0 0;
+  overflow-x: auto;
+}
+
+.status-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  min-width: 68px;
+}
+
+.step-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid var(--mat-sys-outline-variant);
+  background: var(--mat-sys-surface);
+  color: var(--mat-sys-on-surface-variant);
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+
+  mat-icon {
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+  }
+
+  .step-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+}
+
+.step-label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--mat-sys-on-surface-variant);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.step-connector {
+  flex: 1 1 auto;
+  height: 2px;
+  min-width: 16px;
+  margin-top: 13px;
+  border-radius: 2px;
+  background: var(--mat-sys-outline-variant);
+
+  &.is-done {
+    background: var(--mat-sys-primary);
+  }
+}
+
+.status-step.is-done {
+  .step-marker {
+    border-color: var(--mat-sys-primary);
+    background: var(--mat-sys-primary);
+    color: var(--mat-sys-on-primary);
+  }
+
+  .step-label {
+    color: var(--mat-sys-on-surface);
+  }
+}
+
+.status-step.is-current {
+  .step-marker {
+    border-color: var(--mat-sys-primary);
+    color: var(--mat-sys-primary);
+    background: color-mix(in srgb, var(--mat-sys-primary) 12%, transparent);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--mat-sys-primary) 14%, transparent);
+  }
+
+  .step-label {
+    color: var(--mat-sys-primary);
+    font-weight: 700;
+  }
+}
+
+.status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-md);
+  margin-top: var(--space-lg);
+}
+
+.changing-indicator {
+  font-size: 0.875rem;
+  color: var(--mat-sys-on-surface-variant);
+  font-style: italic;
+}
+
+.status-terminal,
+.status-loading,
+.status-error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin: var(--space-md) 0 0;
+  font-size: 0.875rem;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.status-error {
+  color: var(--mat-sys-error);
+}

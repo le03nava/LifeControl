@@ -12,7 +12,7 @@ import { DatePipe } from '@angular/common';
 import { PageHeader } from '@shared/ui';
 import { httpErrorMessage } from '@shared/data';
 import { PurchaseOrderService } from '../../data/purchase-order.service';
-import { PO_STATUS_COLORS } from '../../data/status-config';
+import { PO_STATUS_COLORS, PO_STATUS_LABELS } from '../../data/status-config';
 import { MatTableModule } from '@angular/material/table';
 import { MatIconModule } from '@angular/material/icon';
 import { MatPaginatorModule } from '@angular/material/paginator';
@@ -89,6 +89,8 @@ export class PurchaseOrderList {
 
   // Status color lookup
   readonly statusColor = PO_STATUS_COLORS;
+  // Spanish labels for the status column (falls back to the raw name)
+  readonly statusLabel = PO_STATUS_LABELS;
 
   constructor() {
     // Debounce effect: searchQuery → 300ms → _debouncedSearch

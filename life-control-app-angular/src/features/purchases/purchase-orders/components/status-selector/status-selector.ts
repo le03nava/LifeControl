@@ -14,11 +14,9 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { map, catchError, throwError } from 'rxjs';
 import { ConfigService } from '@app/services/config.service';
 import { PurchaseOrderService } from '../../data/purchase-order.service';
-import { PO_STATUS_TRANSITIONS, PO_STATUS_LABELS } from '../../data/status-config';
+import { PO_STATUS_FLOW, PO_STATUS_LABELS, PO_STATUS_TRANSITIONS } from '../../data/status-config';
 import { NotificationService } from '@shared/data/notification';
 import type { PurchaseOrder } from '../../models/purchase-order.models';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatSelectModule } from '@angular/material/select';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 
@@ -39,17 +37,19 @@ interface PageStatusType {
 /**
  * Standalone component for changing a purchase order's status.
  *
- * Displays a dropdown filtered to valid next states per `PO_STATUS_TRANSITIONS`.
- * On selection, calls `PATCH /api/purchase-orders/{id}/status` with the resolved UUID.
- * Terminal states (Closed, Rejected) show a disabled chip instead of the dropdown.
+ * Renders the lifecycle as a linear progress stepper and exposes action
+ * buttons for the valid next states per `PO_STATUS_TRANSITIONS`. Selecting a
+ * transition calls `PATCH /api/purchase-orders/{id}/status`. Terminal states
+ * (Closed, Rejected) disable the actions and show a read-only message.
  *
  * Covers spec Requirement 6, scenarios 6.1-6.9.
  */
 @Component({
   selector: 'app-status-selector',
   standalone: true,
-  imports: [MatFormFieldModule, MatSelectModule, MatButtonModule, MatIconModule],
+  imports: [MatButtonModule, MatIconModule],
   templateUrl: './status-selector.html',
+  styleUrl: './status-selector.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class StatusSelector implements OnInit {
@@ -62,7 +62,7 @@ export class StatusSelector implements OnInit {
   /** The current purchase order (must include `statusId`, `statusName`, `id`). */
   readonly order = input.required<PurchaseOrder>();
 
-  /** Emits the statusId (UUID) of the newly selected status after a successful PATCH. */
+  /** Emits the new status **name** (e.g. `Sent`) after a successful PATCH. */
   readonly statusChanged = output<string>();
 
   // ─── Status UUID resolution ────────────────────────────
@@ -76,8 +76,26 @@ export class StatusSelector implements OnInit {
     () => PO_STATUS_TRANSITIONS[this.currentStatusName()] ?? [],
   );
 
-  /** Whether the dropdown should be disabled (no valid transitions). */
+  /** Whether the actions should be hidden (no valid transitions). */
   readonly isTerminal = computed(() => this.validTransitionNames().length === 0);
+
+  /** Linear lifecycle steps with their progress state for the stepper. */
+  readonly steps = computed(() => {
+    const current = this.currentStatusName();
+    const currentIndex = PO_STATUS_FLOW.indexOf(current);
+    return PO_STATUS_FLOW.map((name, index) => ({
+      name,
+      label: PO_STATUS_LABELS[name] ?? name,
+      state:
+        currentIndex === -1
+          ? 'upcoming'
+          : index < currentIndex
+            ? 'done'
+            : index === currentIndex
+              ? 'current'
+              : 'upcoming',
+    }));
+  });
 
   readonly statusMap = computed(() => {
     const map = new Map<string, string>();
@@ -151,6 +169,11 @@ export class StatusSelector implements OnInit {
 
   /** Called when the user selects a new status from the dropdown and confirms. */
   onStatusChange(transitionId: string): void {
+    const transition = this.validTransitions().find((t) => t.id === transitionId);
+    if (!transition) {
+      return;
+    }
+
     const id = this.order().id;
     this.changing.set(true);
 
@@ -158,10 +181,10 @@ export class StatusSelector implements OnInit {
       .updateStatus(id, { statusId: transitionId })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (_updated) => {
+        next: () => {
           this.changing.set(false);
           this.notificationService.showSuccess('Estado actualizado correctamente.');
-          this.statusChanged.emit(transitionId);
+          this.statusChanged.emit(transition.name);
         },
         error: (err: HttpErrorResponse) => {
           this.changing.set(false);

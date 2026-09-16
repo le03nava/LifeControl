@@ -80,7 +80,7 @@
                     class="status-chip"
                     disableRipple
                   >
-                    {{ row.statusName }}
+                    {{ statusLabel[row.statusName] || row.statusName }}
                   </mat-chip>
                 </td>
               </ng-container>

@@ -8,8 +8,10 @@ import {
   signal,
 } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
+import { CurrencyPipe } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { catchError, EMPTY, Subject, switchMap } from 'rxjs';
 import { NonNullableFormBuilder, FormGroup, Validators, ReactiveFormsModule } from '@angular/forms';
 // CurrencyPipe no longer needed in parent — used by child components
 import { PurchaseOrderService } from '../../data/purchase-order.service';
@@ -17,6 +19,7 @@ import { ProductService } from '@features/products/data/product.service';
 import { ApiError } from '@shared/models';
 import { PageHeader } from '@shared/ui';
 import { StatusSelector } from '../../components/status-selector/status-selector';
+import { StatusChip } from '../../components/status-chip/status-chip';
 import { DetailTable, type DetailTableRow } from '../../components/detail-table/detail-table';
 import { CompanyInfoSection } from '../../components/company-info-section/company-info-section';
 import { SupplierInfoSection } from '../../components/supplier-info-section/supplier-info-section';
@@ -29,6 +32,8 @@ import type {
 import type { PurchaseOrderHeaderControl } from '../../models/purchase-order-control.models';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
+import { MatCardModule } from '@angular/material/card';
+import { NotificationService } from '@shared/data/notification';
 import { ErrorBanner } from '@shared/ui';
 
 @Component({
@@ -36,15 +41,18 @@ import { ErrorBanner } from '@shared/ui';
   standalone: true,
   imports: [
     RouterLink,
+    CurrencyPipe,
     ReactiveFormsModule,
     ErrorBanner,
     PageHeader,
     StatusSelector,
+    StatusChip,
     DetailTable,
     CompanyInfoSection,
     SupplierInfoSection,
     MatButtonModule,
     MatIconModule,
+    MatCardModule,
   ],
   templateUrl: './purchase-order-edit.html',
   styleUrl: './purchase-order-edit.scss',
@@ -56,6 +64,7 @@ export class PurchaseOrderEdit implements OnInit {
   private readonly fb = inject(NonNullableFormBuilder);
   private readonly purchaseOrderService = inject(PurchaseOrderService);
   private readonly productService = inject(ProductService);
+  private readonly notificationService = inject(NotificationService);
   private readonly destroyRef = inject(DestroyRef);
 
   // ─── Route data ────────────────────────────────────────
@@ -70,37 +79,111 @@ export class PurchaseOrderEdit implements OnInit {
 
   // ─── Loaded order data (edit mode) ─────────────────────
   readonly loadedOrder = signal<PurchaseOrder | null>(null);
-  readonly isDraft = computed(() => this.loadedOrder()?.statusName === 'Draft');
+
+  /**
+   * New orders start as drafts (the backend defaults them to Draft), so the
+   * line-items editor is enabled while no order is loaded yet.
+   */
+  readonly isDraft = computed(() => {
+    const order = this.loadedOrder();
+    return !order || order.statusName === 'Draft';
+  });
+
+  // ─── Header context ────────────────────────────────────
+  readonly headerTitle = computed(() => {
+    const order = this.loadedOrder();
+    if (order) {
+      return `Orden ${order.orderNumber}`;
+    }
+    return this.isEditMode() ? 'Editar Orden de Compra' : 'Nueva Orden de Compra';
+  });
+
+  readonly headerSubtitle = computed(() => {
+    const order = this.loadedOrder();
+    if (order) {
+      return `${order.supplierName} · ${order.companyStoreName}`;
+    }
+    return this.isEditMode()
+      ? 'Modificá los datos de la orden'
+      : 'Completá los datos para crear una nueva orden';
+  });
 
   // ─── Line items ────────────────────────────────────────
   readonly lineItems = signal<DetailTableRow[]>([]);
 
+  /** Sum of all line-item subtotals (quantity × unit price). */
+  readonly orderTotal = computed(() =>
+    this.lineItems().reduce((sum, item) => sum + item.quantity * item.unitPrice, 0),
+  );
+
+  /** Every line item must have a positive quantity and unit price. */
+  readonly lineItemsValid = computed(() =>
+    this.lineItems().every((item) => item.quantity > 0 && item.unitPrice > 0),
+  );
+
   /** Products filtered by the selected supplier, passed to DetailTable. */
   readonly supplierProducts = signal<{ id: string; name: string; sku: string }[]>([]);
 
+  // ─── Unsaved-changes tracking ──────────────────────────
+  private readonly supplierId$ = new Subject<string>();
+  private readonly formDirty = signal(false);
+  private readonly lineItemsBaseline = signal('[]');
+
+  private readonly lineItemsKey = computed(() =>
+    JSON.stringify(
+      this.lineItems().map((item) => ({
+        productId: item.productId,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+      })),
+    ),
+  );
+
+  /** Exposed to `unsavedChangesGuard` so navigation can warn before losing edits. */
+  readonly hasUnsavedChanges = computed(
+    () => this.formDirty() || this.lineItemsKey() !== this.lineItemsBaseline(),
+  );
+
   ngOnInit(): void {
-    // Watch supplier changes to load associated products
+    // A user edit flips the dirty flag. Programmatic patches use
+    // `emitEvent: false`, so they never mark the form dirty.
+    this.headerForm()
+      .valueChanges.pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.formDirty.set(true));
+
+    // Supplier changes drive the product list. The Subject + `switchMap`
+    // cancels the previous request, so switching suppliers quickly can never
+    // resolve with a stale product list.
+    this.supplierId$
+      .pipe(
+        switchMap((supplierId) => {
+          if (!supplierId) {
+            this.supplierProducts.set([]);
+            return EMPTY;
+          }
+          return this.productService.getProductsBySupplier(supplierId).pipe(
+            catchError(() => {
+              this.supplierProducts.set([]);
+              return EMPTY;
+            }),
+          );
+        }),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((products) =>
+        this.supplierProducts.set(
+          products.map((p) => ({
+            id: p.productId,
+            name: p.productName,
+            sku: p.sku,
+          })),
+        ),
+      );
+
+    // Bridge the supplier form control into the Subject.
     this.headerForm()
       .controls.supplierId.valueChanges.pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((supplierId) => {
-        if (supplierId) {
-          this.productService
-            .getProductsBySupplier(supplierId)
-            .pipe(takeUntilDestroyed(this.destroyRef))
-            .subscribe({
-              next: (products) =>
-                this.supplierProducts.set(
-                  products.map((p) => ({
-                    id: p.productId,
-                    name: p.productName,
-                    sku: p.sku,
-                  })),
-                ),
-            });
-        } else {
-          this.supplierProducts.set([]);
-        }
-      });
+      .subscribe((supplierId) => this.supplierId$.next(supplierId));
 
     const id = this.orderId();
     if (id) {
@@ -133,12 +216,18 @@ export class PurchaseOrderEdit implements OnInit {
   }
 
   private populateForm(order: PurchaseOrder): void {
-    this.headerForm().patchValue({
-      supplierId: order.supplierId,
-      companyStoreId: order.companyStoreId,
-      paymentMethodId: order.paymentMethodId,
-      comments: order.comments,
-    });
+    this.headerForm().patchValue(
+      {
+        supplierId: order.supplierId,
+        companyStoreId: order.companyStoreId,
+        paymentMethodId: order.paymentMethodId,
+        comments: order.comments,
+      },
+      { emitEvent: false },
+    );
+    // valueChanges is suppressed above, so load the products explicitly.
+    this.supplierId$.next(order.supplierId);
+    this.formDirty.set(false);
   }
 
   private populateLineItems(details: PurchaseOrderDetail[]): void {
@@ -150,6 +239,7 @@ export class PurchaseOrderEdit implements OnInit {
       unitPrice: d.unitPrice,
     }));
     this.lineItems.set(rows);
+    this.lineItemsBaseline.set(this.lineItemsKey());
   }
 
   // ══════════════════════════════════════════════════════════
@@ -161,13 +251,17 @@ export class PurchaseOrderEdit implements OnInit {
     this.lineItems.set(updated);
   }
 
-  /** Called by `<app-status-selector>` after a successful PATCH. */
-  onStatusChanged(_statusId: string): void {
-    const id = this.orderId();
-    if (id) {
-      // Reload the order to get the updated status from the backend
-      this.loadOrder(id);
+  /**
+   * Called by `<app-status-selector>` after a successful PATCH with the new
+   * status name. Only the status is updated in place — reloading the whole
+   * order would silently discard unsaved header edits and line items.
+   */
+  onStatusChanged(statusName: string): void {
+    const order = this.loadedOrder();
+    if (!order) {
+      return;
     }
+    this.loadedOrder.set({ ...order, statusName });
   }
 
   // ══════════════════════════════════════════════════════════
@@ -208,6 +302,9 @@ export class PurchaseOrderEdit implements OnInit {
         .subscribe({
           next: () => {
             this.saving.set(false);
+            this.formDirty.set(false);
+            this.lineItemsBaseline.set(this.lineItemsKey());
+            this.notificationService.showSuccess('Orden actualizada correctamente.');
             this.router.navigate(['/purchases/orders']);
           },
           error: (err: HttpErrorResponse) => {
@@ -220,9 +317,12 @@ export class PurchaseOrderEdit implements OnInit {
         .create(request)
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
-          next: (created) => {
+          next: () => {
             this.saving.set(false);
-            this.router.navigate(['/purchases/orders', created.id]);
+            this.formDirty.set(false);
+            this.lineItemsBaseline.set(this.lineItemsKey());
+            this.notificationService.showSuccess('Orden creada correctamente.');
+            this.router.navigate(['/purchases/orders']);
           },
           error: (err: HttpErrorResponse) => {
             this.saving.set(false);

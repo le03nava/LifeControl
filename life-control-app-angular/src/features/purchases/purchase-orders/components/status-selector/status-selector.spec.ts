@@ -255,6 +255,38 @@ describe('StatusSelector', () => {
     });
   });
 
+  describe('progress stepper', () => {
+    let httpMock: HttpTestingController;
+
+    beforeEach(() => {
+      httpMock = TestBed.inject(HttpTestingController);
+    });
+
+    afterEach(() => {
+      httpMock.verify();
+    });
+
+    it('marks past steps as done and the current step as current', () => {
+      const order = createOrder({ statusName: 'Accepted', statusId: 'st-accepted' });
+      const f = setupWithOrder(order, httpMock);
+      const comp = f.componentInstance;
+
+      const states = comp.steps().map((s) => s.state);
+      expect(states[0]).toBe('done');
+      expect(states[1]).toBe('done');
+      expect(states[2]).toBe('current');
+      expect(states.slice(3).every((s) => s === 'upcoming')).toBe(true);
+    });
+
+    it('renders the Spanish step labels', () => {
+      const order = createOrder({ statusName: 'Draft' });
+      const f = setupWithOrder(order, httpMock);
+      const labels = f.componentInstance.steps().map((s) => s.label);
+      expect(labels).toContain('Borrador');
+      expect(labels).toContain('En Tránsito');
+    });
+  });
+
   describe('status change', () => {
     let httpMock: HttpTestingController;
 
@@ -280,14 +312,14 @@ describe('StatusSelector', () => {
       });
     });
 
-    it('should emit statusChanged on successful update', () => {
+    it('should emit the new status name on successful update', () => {
       const order = createOrder({ statusName: 'Draft' });
       const f = setupWithOrder(order, httpMock);
       const comp = f.componentInstance;
 
       let emitted = '';
-      comp.statusChanged.subscribe((id: string) => {
-        emitted = id;
+      comp.statusChanged.subscribe((name: string) => {
+        emitted = name;
       });
 
       purchaseOrderService.updateStatus = vi
@@ -296,7 +328,7 @@ describe('StatusSelector', () => {
 
       comp.onStatusChange('st-sent');
 
-      expect(emitted).toBe('st-sent');
+      expect(emitted).toBe('Sent');
     });
 
     it('should show success notification on status change', () => {

@@ -1,30 +1,58 @@
 <div class="status-selector">
   @if (statusFetchFailed()) {
-    <p class="status-error">No se pudieron cargar las transiciones de estado.</p>
-  } @else if (isTerminal()) {
-    <p class="status-terminal">
-      <mat-icon fontIcon="lock" inline />
-      Este estado es terminal y no permite cambios.
+    <p class="status-error">
+      <mat-icon fontIcon="error_outline" inline />
+      No se pudieron cargar las transiciones de estado.
     </p>
-  } @else if (validTransitions().length > 0) {
-    <mat-form-field appearance="outline" subscriptSizing="dynamic">
-      <mat-label>Cambiar Estado</mat-label>
-      <mat-select
-        [disabled]="changing()"
-        (selectionChange)="onStatusChange($event.value)"
-        placeholder="Seleccioná el nuevo estado"
-      >
-        @for (t of validTransitions(); track t.id) {
-          <mat-option [value]="t.id">
-            {{ t.label }}
-          </mat-option>
-        }
-      </mat-select>
-    </mat-form-field>
-    @if (changing()) {
-      <span class="changing-indicator">Actualizando estado...</span>
-    }
   } @else {
-    <p class="status-loading">Cargando transiciones...</p>
+    <ol class="status-stepper" aria-label="Progreso de la orden">
+      @for (step of steps(); track step.name; let last = $last) {
+        <li
+          class="status-step"
+          [class.is-done]="step.state === 'done'"
+          [class.is-current]="step.state === 'current'"
+          [class.is-upcoming]="step.state === 'upcoming'"
+        >
+          <span class="step-marker">
+            @if (step.state === 'done') {
+              <mat-icon fontIcon="check" />
+            } @else {
+              <span class="step-dot"></span>
+            }
+          </span>
+          <span class="step-label">{{ step.label }}</span>
+        </li>
+        @if (!last) {
+          <span class="step-connector" [class.is-done]="step.state === 'done'"></span>
+        }
+      }
+    </ol>
+
+    @if (isTerminal()) {
+      <p class="status-terminal">
+        <mat-icon fontIcon="lock" inline />
+        Este estado es terminal y no permite cambios.
+      </p>
+    } @else if (validTransitions().length > 0) {
+      <div class="status-actions">
+        @for (t of validTransitions(); track t.id) {
+          <button
+            mat-flat-button
+            type="button"
+            [color]="t.name === 'Rejected' ? 'warn' : 'primary'"
+            [disabled]="changing()"
+            (click)="onStatusChange(t.id)"
+          >
+            <mat-icon [fontIcon]="t.name === 'Rejected' ? 'cancel' : 'arrow_forward'" />
+            {{ t.name === 'Rejected' ? 'Rechazar orden' : 'Avanzar a ' + t.label }}
+          </button>
+        }
+        @if (changing()) {
+          <span class="changing-indicator">Actualizando estado...</span>
+        }
+      </div>
+    } @else {
+      <p class="status-loading">Cargando transiciones...</p>
+    }
   }
 </div>

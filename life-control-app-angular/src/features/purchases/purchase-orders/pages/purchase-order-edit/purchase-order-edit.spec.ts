@@ -211,6 +211,10 @@ describe('PurchaseOrderEdit', () => {
       expect(component.isEditMode()).toBe(false);
     });
 
+    it('should treat a new order as draft so line items are editable', () => {
+      expect(component.isDraft()).toBe(true);
+    });
+
     it('should have an empty form initially', () => {
       const form = component.headerForm();
       expect(form.controls.supplierId.value).toBe('');
@@ -253,7 +257,7 @@ describe('PurchaseOrderEdit', () => {
       });
     });
 
-    it('should navigate to edit page after successful create', () => {
+    it('should navigate to the order list after successful create', () => {
       const created: PurchaseOrder = { ...mockOrder, id: 'po-new' };
       purchaseOrderService.create = vi.fn().mockReturnValue(of(created));
 
@@ -263,7 +267,31 @@ describe('PurchaseOrderEdit', () => {
       form.controls.paymentMethodId.setValue('pm-1');
       component.onSave();
 
-      expect(router.navigate).toHaveBeenCalledWith(['/purchases/orders', 'po-new']);
+      expect(router.navigate).toHaveBeenCalledWith(['/purchases/orders']);
+    });
+
+    it('should show a success notification after create', () => {
+      const notification = TestBed.inject(NotificationService) as unknown as {
+        showSuccess: ReturnType<typeof vi.fn>;
+      };
+      purchaseOrderService.create = vi.fn().mockReturnValue(of(mockOrder));
+
+      const form = component.headerForm();
+      form.controls.supplierId.setValue('sup-1');
+      form.controls.companyStoreId.setValue('store-1');
+      form.controls.paymentMethodId.setValue('pm-1');
+      component.onSave();
+
+      expect(notification.showSuccess).toHaveBeenCalledWith('Orden creada correctamente.');
+    });
+
+    it('should not report unsaved changes on a fresh form', () => {
+      expect(component.hasUnsavedChanges()).toBe(false);
+    });
+
+    it('should report unsaved changes after editing the header', () => {
+      component.headerForm().controls.comments.setValue('draft note');
+      expect(component.hasUnsavedChanges()).toBe(true);
     });
 
     it('should not save when form is invalid', () => {
@@ -385,6 +413,56 @@ describe('PurchaseOrderEdit', () => {
         statusName: 'Sent',
       });
       expect(component.isDraft()).toBe(false);
+    });
+
+    it('should update only the status without resetting unsaved line items', () => {
+      component.onItemsChanged([
+        {
+          id: 'det-temp',
+          productId: 'prod-9',
+          productName: 'Unsaved Widget',
+          quantity: 3,
+          unitPrice: 25,
+        },
+      ]);
+
+      component.onStatusChanged('Sent');
+
+      expect(component.loadedOrder()?.statusName).toBe('Sent');
+      expect(component.lineItems()).toEqual([
+        {
+          id: 'det-temp',
+          productId: 'prod-9',
+          productName: 'Unsaved Widget',
+          quantity: 3,
+          unitPrice: 25,
+        },
+      ]);
+    });
+
+    it('should not report unsaved changes right after loading', () => {
+      expect(component.hasUnsavedChanges()).toBe(false);
+    });
+
+    it('should report unsaved changes after editing line items', () => {
+      component.onItemsChanged([
+        {
+          id: 'det-1',
+          productId: 'prod-1',
+          productName: 'Widget A',
+          quantity: 20,
+          unitPrice: 150,
+        },
+      ]);
+      expect(component.hasUnsavedChanges()).toBe(true);
+    });
+
+    it('should show a success notification after update', () => {
+      const notification = TestBed.inject(NotificationService) as unknown as {
+        showSuccess: ReturnType<typeof vi.fn>;
+      };
+      component.onSave();
+      expect(notification.showSuccess).toHaveBeenCalledWith('Orden actualizada correctamente.');
     });
 
     it('should call service.update with form data on save', () => {

@@ -1,15 +1,13 @@
 <div class="purchase-order-edit-page">
-  <app-page-header
-    [title]="isEditMode() ? 'Editar Orden de Compra' : 'Nueva Orden de Compra'"
-    [subtitle]="
-      isEditMode()
-        ? 'Modificá los datos de la orden'
-        : 'Completá los datos para crear una nueva orden'
-    "
-  >
-    <button mat-stroked-button routerLink="/purchases/orders">
-      <mat-icon fontIcon="arrow_back" /> Volver
-    </button>
+  <app-page-header [title]="headerTitle()" [subtitle]="headerSubtitle()">
+    <div class="header-tools">
+      @if (loadedOrder(); as order) {
+        <app-status-chip [statusName]="order.statusName" />
+      }
+      <button mat-stroked-button routerLink="/purchases/orders">
+        <mat-icon fontIcon="arrow_back" /> Volver
+      </button>
+    </div>
   </app-page-header>
 
   <!-- General Error -->
@@ -17,9 +15,13 @@
     <app-error-banner [message]="errorMessage" />
   }
 
-  <!-- Status Selector (edit mode only) -->
+  <!-- Status stepper (edit mode only) -->
   @if (loadedOrder(); as order) {
-    <app-status-selector [order]="order" (statusChanged)="onStatusChanged($event)" />
+    <mat-card appearance="outlined" class="status-card">
+      <mat-card-content>
+        <app-status-selector [order]="order" (statusChanged)="onStatusChanged($event)" />
+      </mat-card-content>
+    </mat-card>
   }
 
   <form [formGroup]="headerForm()" (ngSubmit)="onSave()" novalidate>
@@ -42,36 +44,37 @@
       (itemsChanged)="onItemsChanged($event)"
     />
 
-    <!-- Server Errors -->
-    @if (generalError()) {
-      <app-error-banner [message]="generalError()" />
-    }
-
-    <!-- Action Buttons -->
+    <!-- Sticky action bar -->
     <div class="form-actions">
-      <button
-        mat-stroked-button
-        type="button"
-        (click)="onCancel()"
-        [disabled]="saving()"
-        aria-label="Cancelar"
-      >
-        Cancelar
-      </button>
-      <button
-        mat-flat-button
-        color="primary"
-        type="submit"
-        [disabled]="saving() || headerForm().invalid"
-        aria-label="Guardar orden"
-      >
-        @if (saving()) {
-          <mat-icon fontIcon="hourglass_empty" />
-        } @else {
-          <mat-icon fontIcon="save" />
-        }
-        {{ saving() ? 'Guardando...' : isEditMode() ? 'Actualizar Orden' : 'Crear Orden' }}
-      </button>
+      <div class="actions-summary">
+        <span class="summary-label">Total</span>
+        <span class="summary-total">{{ orderTotal() | currency }}</span>
+      </div>
+      <div class="actions-buttons">
+        <button
+          mat-stroked-button
+          type="button"
+          (click)="onCancel()"
+          [disabled]="saving()"
+          aria-label="Cancelar"
+        >
+          Cancelar
+        </button>
+        <button
+          mat-flat-button
+          color="primary"
+          type="submit"
+          [disabled]="saving() || headerForm().invalid || !lineItemsValid()"
+          aria-label="Guardar orden"
+        >
+          @if (saving()) {
+            <mat-icon fontIcon="hourglass_empty" />
+          } @else {
+            <mat-icon fontIcon="save" />
+          }
+          {{ saving() ? 'Guardando...' : isEditMode() ? 'Actualizar Orden' : 'Crear Orden' }}
+        </button>
+      </div>
     </div>
   </form>
 </div>

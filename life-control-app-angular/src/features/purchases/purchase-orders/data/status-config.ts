@@ -42,3 +42,17 @@ export const PO_STATUS_LABELS: Record<string, string> = {
   Closed: 'Cerrada',
   Rejected: 'Rechazada',
 };
+
+/**
+ * Linear happy-path order of the purchase-order lifecycle, used to render the
+ * progress stepper. `Rejected` is an off-flow terminal state and is not listed.
+ */
+export const PO_STATUS_FLOW: string[] = [
+  'Draft',
+  'Sent',
+  'Accepted',
+  'In Transit',
+  'Received',
+  'Billed',
+  'Closed',
+];
