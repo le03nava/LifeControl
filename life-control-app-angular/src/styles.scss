@@ -72,6 +72,11 @@ $dark-theme: mat.define-theme(
   /* Material 3 Design Tokens (Light Mode) */
   --mat-sys-surface: #f8fafc;
   --mat-sys-surface-container: #ffffff;
+  --mat-sys-surface-container-lowest: #ffffff;
+  --mat-sys-surface-container-low: #f8fafc;
+  --mat-sys-surface-container-high: #f1f5f9;
+  --mat-sys-surface-container-highest: #e2e8f0;
+  --mat-sys-surface-container-hover: #f1f5f9;
   --mat-sys-surface-variant: #f1f5f9;
   --mat-sys-on-surface: #0f172a;
   --mat-sys-on-surface-variant: #475569;
@@ -171,6 +176,11 @@ $dark-theme: mat.define-theme(
     /* Material 3 Design Tokens (Dark Mode) */
     --mat-sys-surface: #0f172a;
     --mat-sys-surface-container: #1e293b;
+    --mat-sys-surface-container-lowest: #0b1220;
+    --mat-sys-surface-container-low: #172033;
+    --mat-sys-surface-container-high: #334155;
+    --mat-sys-surface-container-highest: #475569;
+    --mat-sys-surface-container-hover: #334155;
     --mat-sys-surface-variant: #334155;
     --mat-sys-on-surface: #f8fafc;
     --mat-sys-on-surface-variant: #cbd5e1;
