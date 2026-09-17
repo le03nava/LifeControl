@@ -172,6 +172,51 @@ describe('StoresCard', () => {
       expect(emittedId).toBe('store-1');
     });
 
+    it('should emit locations with store.id when the Áreas button is clicked', () => {
+      setStore(activeStore);
+
+      let emittedId: string | undefined;
+      component.locations.subscribe((id) => {
+        emittedId = id;
+      });
+
+      const areasBtn = fixture.nativeElement.querySelector(
+        'button[aria-label="Áreas de la tienda"]',
+      );
+      expect(areasBtn).toBeTruthy();
+      expect(areasBtn.textContent).toContain('Áreas');
+      areasBtn.click();
+
+      expect(emittedId).toBe('store-1');
+    });
+
+    it('should call stopPropagation on the Áreas button click', () => {
+      setStore(activeStore);
+
+      const clickEvent = new MouseEvent('click', { bubbles: true });
+      const stopSpy = vi.spyOn(clickEvent, 'stopPropagation');
+
+      const areasBtn = fixture.nativeElement.querySelector(
+        'button[aria-label="Áreas de la tienda"]',
+      );
+      expect(areasBtn).toBeTruthy();
+      areasBtn.dispatchEvent(clickEvent);
+
+      expect(stopSpy).toHaveBeenCalled();
+    });
+
+    it('should NOT emit locations when no store is set', () => {
+      setStore(undefined);
+
+      let emitted = false;
+      component.locations.subscribe(() => {
+        emitted = true;
+      });
+
+      component.onManageLocations();
+      expect(emitted).toBe(false);
+    });
+
     it('should call stopPropagation on edit button click', () => {
       setStore(activeStore);
 

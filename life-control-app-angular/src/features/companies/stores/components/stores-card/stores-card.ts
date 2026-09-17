@@ -18,6 +18,7 @@ export class StoresCard {
 
   edit = output<string>();
   storeToggle = output<string>();
+  locations = output<string>();
 
   readonly isEnabled = computed(() => this.store()?.enabled ?? true);
   readonly statusLabel = computed(() => (this.isEnabled() ? 'Activo' : 'Inactivo'));
@@ -49,6 +50,15 @@ export class StoresCard {
     const s = this.store();
     if (s?.id) {
       this.storeToggle.emit(s.id);
+    }
+  }
+
+  onManageLocations(event?: Event): void {
+    if (event) {
+      event.stopPropagation();
+    }
+    if (this.store()?.id) {
+      this.locations.emit(this.store()!.id);
     }
   }
 }

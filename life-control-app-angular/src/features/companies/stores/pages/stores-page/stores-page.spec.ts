@@ -459,6 +459,50 @@ describe('StoresPage', () => {
     expect(router.navigate).not.toHaveBeenCalled();
   });
 
+  // ─── onCardManageLocations ──────────────────────────────────
+
+  it('should navigate to store-areas with the cascade and store id', async () => {
+    const router = TestBed.inject(Router) as unknown as { navigate: ReturnType<typeof vi.fn> };
+
+    component.onSelectCountry(mockAssignedCountries[0]);
+    component.onSelectRegion(mockRegions[0]);
+    component.onSelectZone(mockZones[0]);
+    await settle();
+
+    component.onCardManageLocations('store-1');
+
+    expect(router.navigate).toHaveBeenCalledWith(['/companies/store-areas'], {
+      queryParams: {
+        companyId: 'company-1',
+        countryId: 'cc-1',
+        regionId: 'reg-1',
+        zoneId: 'zone-1',
+        storeId: 'store-1',
+      },
+    });
+  });
+
+  it('should NOT navigate to store-areas when the store is unknown', async () => {
+    const router = TestBed.inject(Router) as unknown as { navigate: ReturnType<typeof vi.fn> };
+
+    component.onSelectCountry(mockAssignedCountries[0]);
+    component.onSelectRegion(mockRegions[0]);
+    component.onSelectZone(mockZones[0]);
+    await settle();
+
+    component.onCardManageLocations('non-existent');
+
+    expect(router.navigate).not.toHaveBeenCalled();
+  });
+
+  it('should NOT navigate to store-areas without a full cascade', () => {
+    const router = TestBed.inject(Router) as unknown as { navigate: ReturnType<typeof vi.fn> };
+
+    component.onCardManageLocations('store-1');
+
+    expect(router.navigate).not.toHaveBeenCalled();
+  });
+
   // ─── onToggleStore ───────────────────────────────────────────
 
   it('should call removeStore when toggling an enabled store OFF', async () => {

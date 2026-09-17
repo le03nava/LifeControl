@@ -1,0 +1,194 @@
+<div class="store-areas-page">
+  <app-page-header
+    title="Áreas de Tienda"
+    subtitle="Gestión de las áreas físicas dentro de cada tienda"
+  >
+    <button
+      mat-flat-button
+      color="primary"
+      type="button"
+      [disabled]="!selectedStore()"
+      (click)="onCreateArea()"
+    >
+      <mat-icon fontIcon="add" /> Nueva área
+    </button>
+  </app-page-header>
+
+  <div class="filters-section">
+    <mat-form-field appearance="outline" class="company-selector" subscriptSizing="dynamic">
+      <mat-label>Empresa</mat-label>
+      <mat-select [value]="selectedCompanyId()" (selectionChange)="onCompanyChange($event.value)">
+        <mat-option value="">— Seleccionar empresa —</mat-option>
+        @for (company of companies(); track company.id) {
+          <mat-option [value]="company.id">{{ company.companyName }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="country-selector" subscriptSizing="dynamic">
+      <mat-label>País</mat-label>
+      <mat-select
+        [value]="selectedCountry()"
+        [compareWith]="compareCompanyCountry"
+        [disabled]="countries().length === 0"
+        (selectionChange)="onSelectCountry($event.value)"
+      >
+        @for (cc of countries(); track cc.id) {
+          <mat-option [value]="cc">
+            {{ cc.countryName }}
+          </mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="region-selector" subscriptSizing="dynamic">
+      <mat-label>Región</mat-label>
+      <mat-select
+        [value]="selectedRegion()"
+        [compareWith]="compareCompanyRegion"
+        [disabled]="regions().length === 0"
+        (selectionChange)="onSelectRegion($event.value)"
+      >
+        @for (region of regions(); track region.id) {
+          <mat-option [value]="region">
+            {{ region.regionName }}
+          </mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="zone-selector" subscriptSizing="dynamic">
+      <mat-label>Zona</mat-label>
+      <mat-select
+        [value]="selectedZone()"
+        [compareWith]="compareCompanyZone"
+        [disabled]="zones().length === 0"
+        (selectionChange)="onSelectZone($event.value)"
+      >
+        @for (zone of zones(); track zone.id) {
+          <mat-option [value]="zone">
+            {{ zone.zoneName }}
+          </mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="store-selector" subscriptSizing="dynamic">
+      <mat-label>Tienda</mat-label>
+      <mat-select
+        [value]="selectedStore()"
+        [compareWith]="compareCompanyStore"
+        [disabled]="stores().length === 0"
+        (selectionChange)="onSelectStore($event.value)"
+      >
+        @for (store of stores(); track store.id) {
+          <mat-option [value]="store">
+            {{ store.storeName }}
+            @if (!store.enabled) {
+              (deshabilitada)
+            }
+          </mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-slide-toggle
+      class="filter-toggle"
+      [checked]="showDisabled()"
+      (change)="showDisabled.set($event.checked)"
+    >
+      Mostrar deshabilitadas
+    </mat-slide-toggle>
+  </div>
+
+  @if (selectedStore()) {
+    <div class="areas-grid">
+      @if (areasError(); as errorMsg) {
+        <div class="error-state">
+          <mat-icon fontIcon="error" />
+          <p>{{ errorMsg }}</p>
+        </div>
+      }
+
+      @if (areasResource.isLoading()) {
+        <p class="loading-text">Cargando áreas...</p>
+      }
+
+      @if (areas().length) {
+        @for (area of areas(); track area.id; let i = $index) {
+          <div class="card-wrapper" [style.--i]="i">
+            <mat-card class="area-card" appearance="outlined">
+              <mat-card-header>
+                <mat-card-title>
+                  <div class="card-title-row">
+                    <span>{{ area.areaName }}</span>
+                    <span
+                      class="badge status"
+                      [class.active]="area.enabled"
+                      [class.inactive]="!area.enabled"
+                    >
+                      {{ area.enabled ? 'Activa' : 'Inactiva' }}
+                    </span>
+                  </div>
+                </mat-card-title>
+                <mat-card-subtitle>
+                  <span class="badge area-code-badge">
+                    <mat-icon fontIcon="account_tree" class="badge-icon" /> {{ area.areaCode }}
+                  </span>
+                  @if (area.displayOrder !== null) {
+                    <span class="badge order-badge">
+                      <mat-icon fontIcon="format_list_numbered" class="badge-icon" />
+                      Ord. {{ area.displayOrder }}
+                    </span>
+                  }
+                </mat-card-subtitle>
+              </mat-card-header>
+              <mat-card-content>
+                @if (area.description) {
+                  <p class="description">{{ area.description }}</p>
+                }
+              </mat-card-content>
+              <mat-card-actions align="end">
+                <button
+                  mat-button
+                  type="button"
+                  (click)="onEditArea(area)"
+                  aria-label="Editar área"
+                >
+                  <mat-icon fontIcon="edit" /> Editar
+                </button>
+                @if (area.enabled) {
+                  <button
+                    mat-flat-button
+                    color="warn"
+                    type="button"
+                    (click)="onToggleArea(area)"
+                    aria-label="Deshabilitar área"
+                  >
+                    <mat-icon fontIcon="block" /> Deshabilitar
+                  </button>
+                } @else {
+                  <button
+                    mat-flat-button
+                    color="primary"
+                    type="button"
+                    (click)="onToggleArea(area)"
+                    aria-label="Reactivar área"
+                  >
+                    <mat-icon fontIcon="restart_alt" /> Reactivar
+                  </button>
+                }
+              </mat-card-actions>
+            </mat-card>
+          </div>
+        }
+      } @else if (!areasResource.isLoading()) {
+        <div class="empty-state">
+          <p>No hay áreas registradas para esta tienda</p>
+        </div>
+      }
+    </div>
+  } @else {
+    <p class="empty-prompt">Seleccioná una tienda para ver sus áreas</p>
+  }
+</div>
