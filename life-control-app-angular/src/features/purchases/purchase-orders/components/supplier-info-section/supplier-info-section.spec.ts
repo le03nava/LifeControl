@@ -1,14 +1,14 @@
 import { TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
-import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 import { of } from 'rxjs';
 import { SupplierInfoSection } from './supplier-info-section';
 import { SupplierService } from '@features/products/suppliers/data/supplier.service';
-import { ConfigService } from '@app/services/config.service';
+import { PaymentMethodService } from '../../data/payment-method.service';
 import { FormControl, FormGroup, Validators } from '@angular/forms';
-import type { PurchaseOrderHeaderControl } from '../../models/purchase-order-control.models';
-
-const TEST_API = 'http://test/api';
+import type {
+  PurchaseOrderHeaderControl,
+  PurchaseOrderCompanyControl,
+} from '../../models/purchase-order-control.models';
 
 const mockSuppliersPage = {
   content: [
@@ -45,7 +45,7 @@ const mockSuppliersPage = {
   ],
   totalElements: 2,
   totalPages: 1,
-  size: 1000,
+  size: 20,
   number: 0,
   first: true,
   last: true,
@@ -53,23 +53,20 @@ const mockSuppliersPage = {
 };
 
 const mockPaymentMethods = [
-  {
-    id: 'pm-1',
-    paymentMethodName: 'Transferencia',
-    paymentMethodShortName: 'TRANSF',
-    enabled: true,
-  },
-  { id: 'pm-2', paymentMethodName: 'Cheque', paymentMethodShortName: 'CHEQ', enabled: true },
-  { id: 'pm-3', paymentMethodName: 'Efectivo', paymentMethodShortName: 'EFECT', enabled: true },
+  { id: 'pm-1', name: 'Transferencia' },
+  { id: 'pm-2', name: 'Cheque' },
+  { id: 'pm-3', name: 'Efectivo' },
 ];
 
 describe('SupplierInfoSection', () => {
   let headerForm: FormGroup<PurchaseOrderHeaderControl>;
   let supplierServiceMock: {
-    getAllSuppliers: ReturnType<typeof vi.fn>;
+    getSuppliers: ReturnType<typeof vi.fn>;
     getSupplierById: ReturnType<typeof vi.fn>;
   };
-  let httpMock: HttpTestingController;
+  let paymentMethodServiceMock: {
+    getPaymentMethods: ReturnType<typeof vi.fn>;
+  };
 
   function createForm(): FormGroup<PurchaseOrderHeaderControl> {
     return new FormGroup<PurchaseOrderHeaderControl>({
@@ -80,29 +77,33 @@ describe('SupplierInfoSection', () => {
         validators: [Validators.required],
       }),
       comments: new FormControl<string | null>(null),
+      company: new FormGroup<PurchaseOrderCompanyControl>({
+        companyId: new FormControl<string | null>(null),
+        companyCountryId: new FormControl<string | null>(null),
+        regionId: new FormControl<string | null>(null),
+        zoneId: new FormControl<string | null>(null),
+      }),
     });
   }
 
   beforeEach(async () => {
     supplierServiceMock = {
-      getAllSuppliers: vi.fn().mockReturnValue(of(mockSuppliersPage)),
+      getSuppliers: vi.fn().mockReturnValue(of(mockSuppliersPage)),
       getSupplierById: vi.fn(),
+    };
+    paymentMethodServiceMock = {
+      getPaymentMethods: vi.fn().mockReturnValue(of(mockPaymentMethods)),
     };
 
     await TestBed.configureTestingModule({
-      imports: [SupplierInfoSection, NoopAnimationsModule, HttpClientTestingModule],
+      imports: [SupplierInfoSection, NoopAnimationsModule],
       providers: [
-        { provide: ConfigService, useValue: { apiUrl: TEST_API } },
         { provide: SupplierService, useValue: supplierServiceMock },
+        { provide: PaymentMethodService, useValue: paymentMethodServiceMock },
       ],
     }).compileComponents();
 
     headerForm = createForm();
-    httpMock = TestBed.inject(HttpTestingController);
-  });
-
-  afterEach(() => {
-    httpMock.verify();
   });
 
   describe('initialisation', () => {
@@ -111,44 +112,34 @@ describe('SupplierInfoSection', () => {
       expect(fixture.componentInstance).toBeTruthy();
     });
 
-    it('should load suppliers on init', () => {
+    it('should load suppliers on init with server-side search', () => {
       const fixture = TestBed.createComponent(SupplierInfoSection);
       const comp = fixture.componentInstance;
       fixture.componentRef.setInput('headerForm', headerForm);
       fixture.detectChanges();
 
-      // Flush payment methods HTTP call (made in ngOnInit)
-      httpMock.expectOne(`${TEST_API}/payment-methods`).flush(mockPaymentMethods);
-
-      expect(supplierServiceMock.getAllSuppliers).toHaveBeenCalledWith(0, 1000);
+      expect(supplierServiceMock.getSuppliers).toHaveBeenCalledWith(0, 20, undefined);
       expect(comp.suppliers().length).toBe(2);
     });
 
-    it('should load payment methods on init', () => {
+    it('should load payment methods on init via PaymentMethodService', () => {
       const fixture = TestBed.createComponent(SupplierInfoSection);
       const comp = fixture.componentInstance;
       fixture.componentRef.setInput('headerForm', headerForm);
       fixture.detectChanges();
 
-      // Flush payment methods HTTP call
-      httpMock.expectOne(`${TEST_API}/payment-methods`).flush(mockPaymentMethods);
-
+      expect(paymentMethodServiceMock.getPaymentMethods).toHaveBeenCalled();
       expect(comp.paymentMethods().length).toBe(3);
     });
   });
 
-  function createFixture(overrides?: {
-    headerForm?: FormGroup<PurchaseOrderHeaderControl>;
-    serverErrors?: Record<string, string>;
-  }) {
+  function createFixture(overrides?: { serverErrors?: Record<string, string> }) {
     const fixture = TestBed.createComponent(SupplierInfoSection);
-    fixture.componentRef.setInput('headerForm', overrides?.headerForm ?? headerForm);
+    fixture.componentRef.setInput('headerForm', headerForm);
     if (overrides?.serverErrors) {
       fixture.componentRef.setInput('serverErrors', overrides.serverErrors);
     }
     fixture.detectChanges();
-    // Flush payment methods HTTP call made in ngOnInit
-    httpMock.expectOne(`${TEST_API}/payment-methods`).flush(mockPaymentMethods);
     return fixture;
   }
 
@@ -180,6 +171,7 @@ describe('SupplierInfoSection', () => {
 
       comp.onSupplierChange('sup-1');
 
+      expect(headerForm.controls.supplierId.value).toBe('sup-1');
       expect(supplierServiceMock.getSupplierById).toHaveBeenCalledWith('sup-1');
       expect(comp.supplierDetail()).not.toBeNull();
       expect(comp.supplierDetail()!.rfc).toBe('RFC-PROV-001');
@@ -223,7 +215,7 @@ describe('SupplierInfoSection', () => {
 
       comp.onSupplierChange('');
       expect(comp.supplierDetail()).toBeNull();
-      expect(comp.selectedSupplierId()).toBeNull();
+      expect(headerForm.controls.supplierId.value).toBe('');
     });
   });
 

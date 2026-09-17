@@ -6,62 +6,72 @@
     <ng-container [formGroup]="headerForm()">
       <div class="section-content">
         <div class="cascade-grid">
-          <!-- Company (cascade start) -->
-          <mat-form-field appearance="outline" subscriptSizing="dynamic">
-            <mat-label>Empresa</mat-label>
-            <mat-select
-              [value]="selectedCompanyId()"
-              (selectionChange)="onCompanyChange($event.value)"
-            >
-              @for (c of companies(); track c.id) {
-                <mat-option [value]="c.id">{{ c.name }}</mat-option>
-              }
-            </mat-select>
-          </mat-form-field>
-
-          <!-- Country -->
-          @if (countries().length > 0) {
+          <ng-container formGroupName="company">
+            <!-- Company (cascade start, server-side autocomplete) -->
             <mat-form-field appearance="outline" subscriptSizing="dynamic">
-              <mat-label>País</mat-label>
-              <mat-select
-                [value]="selectedCountryId()"
-                (selectionChange)="onCountryChange($event.value)"
+              <mat-label>Empresa</mat-label>
+              <input
+                type="text"
+                matInput
+                formControlName="companyId"
+                [matAutocomplete]="companyAuto"
+                (input)="onCompanySearch($event)"
+              />
+              <mat-autocomplete
+                #companyAuto="matAutocomplete"
+                [displayWith]="displayCompany"
+                (optionSelected)="onCompanyChange($event.option.value)"
               >
-                @for (c of countries(); track c.id) {
+                @for (c of companies(); track c.id) {
                   <mat-option [value]="c.id">{{ c.name }}</mat-option>
                 }
-              </mat-select>
+              </mat-autocomplete>
             </mat-form-field>
-          }
 
-          <!-- Region -->
-          @if (regions().length > 0) {
-            <mat-form-field appearance="outline" subscriptSizing="dynamic">
-              <mat-label>Región</mat-label>
-              <mat-select
-                [value]="selectedRegionId()"
-                (selectionChange)="onRegionChange($event.value)"
-              >
-                @for (r of regions(); track r.id) {
-                  <mat-option [value]="r.id">{{ r.name }}</mat-option>
-                }
-              </mat-select>
-            </mat-form-field>
-          }
+            <!-- Country -->
+            @if (countries().length > 0) {
+              <mat-form-field appearance="outline" subscriptSizing="dynamic">
+                <mat-label>País</mat-label>
+                <mat-select
+                  formControlName="companyCountryId"
+                  (selectionChange)="onCountryChange($event.value)"
+                >
+                  @for (c of countries(); track c.id) {
+                    <mat-option [value]="c.id">{{ c.name }}</mat-option>
+                  }
+                </mat-select>
+              </mat-form-field>
+            }
 
-          <!-- Zone -->
-          @if (zones().length > 0) {
-            <mat-form-field appearance="outline" subscriptSizing="dynamic">
-              <mat-label>Zona</mat-label>
-              <mat-select [value]="selectedZoneId()" (selectionChange)="onZoneChange($event.value)">
-                @for (z of zones(); track z.id) {
-                  <mat-option [value]="z.id">{{ z.name }}</mat-option>
-                }
-              </mat-select>
-            </mat-form-field>
-          }
+            <!-- Region -->
+            @if (regions().length > 0) {
+              <mat-form-field appearance="outline" subscriptSizing="dynamic">
+                <mat-label>Región</mat-label>
+                <mat-select
+                  formControlName="regionId"
+                  (selectionChange)="onRegionChange($event.value)"
+                >
+                  @for (r of regions(); track r.id) {
+                    <mat-option [value]="r.id">{{ r.name }}</mat-option>
+                  }
+                </mat-select>
+              </mat-form-field>
+            }
 
-          <!-- Store -->
+            <!-- Zone -->
+            @if (zones().length > 0) {
+              <mat-form-field appearance="outline" subscriptSizing="dynamic">
+                <mat-label>Zona</mat-label>
+                <mat-select formControlName="zoneId" (selectionChange)="onZoneChange($event.value)">
+                  @for (z of zones(); track z.id) {
+                    <mat-option [value]="z.id">{{ z.name }}</mat-option>
+                  }
+                </mat-select>
+              </mat-form-field>
+            }
+          </ng-container>
+
+          <!-- Store (header-level control, sent to the backend) -->
           @if (stores().length > 0) {
             <mat-form-field appearance="outline" subscriptSizing="dynamic">
               <mat-label>Tienda</mat-label>
@@ -102,7 +112,7 @@
               </div>
             </mat-card-content>
           </mat-card>
-        } @else if (companyDetailLoading() && selectedCompanyId()) {
+        } @else if (companyDetailLoading()) {
           <mat-card appearance="outlined" class="detail-card">
             <mat-card-content>
               <span class="detail-loading">Cargando datos de la empresa...</span>

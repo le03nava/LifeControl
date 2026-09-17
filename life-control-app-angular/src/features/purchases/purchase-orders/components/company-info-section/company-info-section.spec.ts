@@ -11,7 +11,10 @@ import { CompanyStoreService } from '@features/companies/stores/data/company-sto
 import { ProfileService } from '@features/user/profile/data/profile.service';
 import { ConfigService } from '@app/services/config.service';
 import { FormControl, FormGroup, Validators } from '@angular/forms';
-import type { PurchaseOrderHeaderControl } from '../../models/purchase-order-control.models';
+import type {
+  PurchaseOrderHeaderControl,
+  PurchaseOrderCompanyControl,
+} from '../../models/purchase-order-control.models';
 import type { PurchaseOrder } from '../../models/purchase-order.models';
 
 const TEST_API = 'http://test/api';
@@ -23,7 +26,7 @@ const mockCompanies = {
   ],
   totalElements: 2,
   totalPages: 1,
-  size: 1000,
+  size: 20,
   number: 0,
   first: true,
   last: true,
@@ -198,7 +201,17 @@ describe('CompanyInfoSection', () => {
         validators: [Validators.required],
       }),
       comments: new FormControl<string | null>(null),
+      company: new FormGroup<PurchaseOrderCompanyControl>({
+        companyId: new FormControl<string | null>(null),
+        companyCountryId: new FormControl<string | null>(null),
+        regionId: new FormControl<string | null>(null),
+        zoneId: new FormControl<string | null>(null),
+      }),
     });
+  }
+
+  function companyControls() {
+    return headerForm.controls.company.controls;
   }
 
   beforeEach(async () => {
@@ -246,46 +259,42 @@ describe('CompanyInfoSection', () => {
       return fixture;
     }
 
-    it('should load companies and profile on init', () => {
+    it('should load companies (server-side search) and profile on init', () => {
       createFixture();
 
-      expect(companyServiceMock.getCompanies).toHaveBeenCalledWith(0, 1000);
+      expect(companyServiceMock.getCompanies).toHaveBeenCalledWith(0, 20, undefined);
       expect(profileServiceMock.getProfile).toHaveBeenCalled();
     });
 
     it('should reconstruct cascade from profile when profile has companyId', () => {
-      const { componentInstance: comp } = createFixture();
+      createFixture();
 
-      // After init runs, the cascade should start reconstructing
       expect(companyServiceMock.getCompanies).toHaveBeenCalled();
       expect(profileServiceMock.getProfile).toHaveBeenCalled();
 
-      // After companies load, advanceCascade selects company and loads countries
       expect(companyCountryServiceMock.getCountries).toHaveBeenCalledWith('comp-1');
       expect(companyServiceMock.getCompanyById).toHaveBeenCalledWith('comp-1');
-
-      expect(comp.selectedCompanyId()).toBe('comp-1');
+      expect(companyControls().companyId.value).toBe('comp-1');
     });
 
     it('should select country from profile after countries load', () => {
-      const { componentInstance: comp } = createFixture();
+      createFixture();
 
-      // Cascade advances step by step
-      expect(comp.selectedCountryId()).toBe('cc-1');
+      expect(companyControls().companyCountryId.value).toBe('cc-1');
       expect(companyRegionServiceMock.getRegions).toHaveBeenCalledWith('comp-1', 'cc-1');
     });
 
     it('should select region from profile after regions load', () => {
-      const { componentInstance: comp } = createFixture();
+      createFixture();
 
-      expect(comp.selectedRegionId()).toBe('reg-1');
+      expect(companyControls().regionId.value).toBe('reg-1');
       expect(companyZoneServiceMock.getZones).toHaveBeenCalledWith('comp-1', 'cc-1', 'reg-1');
     });
 
     it('should select zone from profile after zones load', () => {
-      const { componentInstance: comp } = createFixture();
+      createFixture();
 
-      expect(comp.selectedZoneId()).toBe('zone-1');
+      expect(companyControls().zoneId.value).toBe('zone-1');
       expect(companyStoreServiceMock.getStores).toHaveBeenCalledWith(
         'comp-1',
         'cc-1',
@@ -324,7 +333,7 @@ describe('CompanyInfoSection', () => {
 
       const { componentInstance: comp } = createFixture();
 
-      expect(comp.selectedCompanyId()).toBeNull();
+      expect(companyControls().companyId.value).toBeNull();
       expect(comp.companyDetail()).toBeNull();
     });
   });
@@ -340,17 +349,15 @@ describe('CompanyInfoSection', () => {
     }
 
     it('should reconstruct cascade from loadedOrder', () => {
-      const { componentInstance: comp } = createEditFixture(mockOrder);
+      createEditFixture(mockOrder);
 
-      // Cascade should start from loadedOrder
       expect(companyServiceMock.getCompanies).toHaveBeenCalled();
       expect(profileServiceMock.getProfile).not.toHaveBeenCalled();
 
-      // Cascade reconstructs from order IDs
-      expect(comp.selectedCompanyId()).toBe('comp-1');
-      expect(comp.selectedCountryId()).toBe('cc-1');
-      expect(comp.selectedRegionId()).toBe('reg-1');
-      expect(comp.selectedZoneId()).toBe('zone-1');
+      expect(companyControls().companyId.value).toBe('comp-1');
+      expect(companyControls().companyCountryId.value).toBe('cc-1');
+      expect(companyControls().regionId.value).toBe('reg-1');
+      expect(companyControls().zoneId.value).toBe('zone-1');
       expect(headerForm.controls.companyStoreId.value).toBe('store-1');
     });
 
@@ -364,7 +371,7 @@ describe('CompanyInfoSection', () => {
       const orderNoCompany = { ...mockOrder, companyId: null };
       const { componentInstance: comp } = createEditFixture(orderNoCompany);
 
-      expect(comp.selectedCompanyId()).toBeNull();
+      expect(companyControls().companyId.value).toBeNull();
       expect(comp.companyDetail()).toBeNull();
     });
   });
@@ -380,12 +387,11 @@ describe('CompanyInfoSection', () => {
     it('onCompanyChange should clear lower levels and load countries', () => {
       const { componentInstance: comp } = createFixture();
 
-      // Reset and select a different company
       comp.onCompanyChange('comp-2');
 
-      expect(comp.selectedCompanyId()).toBe('comp-2');
+      expect(companyControls().companyId.value).toBe('comp-2');
       expect(comp.countries().length).toBeGreaterThan(0);
-      expect(comp.selectedCountryId()).toBeNull();
+      expect(companyControls().companyCountryId.value).toBeNull();
       expect(comp.regions().length).toBe(0);
       expect(comp.stores().length).toBe(0);
     });
@@ -395,7 +401,7 @@ describe('CompanyInfoSection', () => {
 
       comp.onCompanyChange('');
 
-      expect(comp.selectedCompanyId()).toBeNull();
+      expect(companyControls().companyId.value).toBeNull();
       expect(comp.countries().length).toBe(0);
       expect(comp.companyDetail()).toBeNull();
     });
@@ -405,9 +411,9 @@ describe('CompanyInfoSection', () => {
 
       comp.onCountryChange('cc-2');
 
-      expect(comp.selectedCountryId()).toBe('cc-2');
+      expect(companyControls().companyCountryId.value).toBe('cc-2');
       expect(comp.regions().length).toBeGreaterThan(0);
-      expect(comp.selectedRegionId()).toBeNull();
+      expect(companyControls().regionId.value).toBeNull();
       expect(comp.zones().length).toBe(0);
     });
 
@@ -416,9 +422,9 @@ describe('CompanyInfoSection', () => {
 
       comp.onRegionChange('reg-2');
 
-      expect(comp.selectedRegionId()).toBe('reg-2');
+      expect(companyControls().regionId.value).toBe('reg-2');
       expect(comp.zones().length).toBeGreaterThan(0);
-      expect(comp.selectedZoneId()).toBeNull();
+      expect(companyControls().zoneId.value).toBeNull();
       expect(comp.stores().length).toBe(0);
     });
 
@@ -427,7 +433,7 @@ describe('CompanyInfoSection', () => {
 
       comp.onZoneChange('zone-2');
 
-      expect(comp.selectedZoneId()).toBe('zone-2');
+      expect(companyControls().zoneId.value).toBe('zone-2');
       expect(comp.stores().length).toBeGreaterThan(0);
     });
   });

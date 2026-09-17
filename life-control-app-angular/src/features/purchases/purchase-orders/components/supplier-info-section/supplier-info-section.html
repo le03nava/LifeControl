@@ -6,17 +6,25 @@
     <ng-container [formGroup]="headerForm()">
       <div class="section-content">
         <div class="form-grid">
-          <!-- Supplier -->
+          <!-- Supplier (server-side autocomplete) -->
           <mat-form-field appearance="outline" subscriptSizing="dynamic">
             <mat-label>Proveedor</mat-label>
-            <mat-select
+            <input
+              type="text"
+              matInput
               formControlName="supplierId"
-              (selectionChange)="onSupplierChange($event.value)"
+              [matAutocomplete]="supplierAuto"
+              (input)="onSupplierSearch($event)"
+            />
+            <mat-autocomplete
+              #supplierAuto="matAutocomplete"
+              [displayWith]="displaySupplier"
+              (optionSelected)="onSupplierChange($event.option.value)"
             >
               @for (s of suppliers(); track s.id) {
                 <mat-option [value]="s.id">{{ s.name }}</mat-option>
               }
-            </mat-select>
+            </mat-autocomplete>
             @if (fieldError('supplierId'); as err) {
               <mat-error>{{ err }}</mat-error>
             }
@@ -78,7 +86,7 @@
               </div>
             </mat-card-content>
           </mat-card>
-        } @else if (supplierDetailLoading() && selectedSupplierId()) {
+        } @else if (supplierDetailLoading()) {
           <mat-card appearance="outlined" class="detail-card">
             <mat-card-content>
               <span class="detail-loading">Cargando datos del proveedor...</span>

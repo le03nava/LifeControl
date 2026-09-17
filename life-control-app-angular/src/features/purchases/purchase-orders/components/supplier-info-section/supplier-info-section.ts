@@ -8,27 +8,20 @@ import {
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Subject, debounceTime } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { FormGroup, ReactiveFormsModule } from '@angular/forms';
-import { HttpClient } from '@angular/common/http';
-import { ConfigService } from '@app/services/config.service';
 import { SupplierService } from '@features/products/suppliers/data/supplier.service';
+import { PaymentMethodService } from '../../data/payment-method.service';
+import { requiredFieldError, serverError } from '../../utils/form-error.utils';
 import type { PurchaseOrderHeaderControl } from '../../models/purchase-order-control.models';
+import type { SelectOption } from '../../models/select-option.models';
 import type { Supplier } from '@features/products/suppliers/models/supplier.models';
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
+import { MatAutocompleteModule } from '@angular/material/autocomplete';
 import { MatSelectModule } from '@angular/material/select';
-
-interface DropdownOption {
-  id: string;
-  name: string;
-}
-
-interface PaymentMethod {
-  id: string;
-  name: string;
-}
 
 interface SupplierDetail {
   rfc: string;
@@ -37,13 +30,14 @@ interface SupplierDetail {
   email: string;
 }
 
+/** Number of suppliers fetched per server-side search. */
+const SUPPLIER_PAGE_SIZE = 20;
+
 /**
  * Supplier info section for the purchase order edit form.
  *
- * Displays a supplier dropdown with a read-only supplier details card,
- * a payment method selector, and a comments textarea.
- *
- * Covers spec Requirements F4–F5.
+ * Renders a supplier autocomplete with server-side search, a read-only supplier
+ * details card, a payment method selector, and a comments textarea.
  */
 @Component({
   selector: 'app-supplier-info-section',
@@ -53,6 +47,7 @@ interface SupplierDetail {
     MatCardModule,
     MatFormFieldModule,
     MatInputModule,
+    MatAutocompleteModule,
     MatSelectModule,
   ],
   templateUrl: './supplier-info-section.html',
@@ -61,9 +56,8 @@ interface SupplierDetail {
 })
 export class SupplierInfoSection implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
-  private readonly configService = inject(ConfigService);
-  private readonly http = inject(HttpClient);
   private readonly supplierService = inject(SupplierService);
+  private readonly paymentMethodService = inject(PaymentMethodService);
 
   /** The header form group from the parent component. */
   readonly headerForm = input.required<FormGroup<PurchaseOrderHeaderControl>>();
@@ -72,16 +66,21 @@ export class SupplierInfoSection implements OnInit {
   readonly serverErrors = input<Record<string, string>>({});
 
   // ─── FK dropdowns ──────────────────────────────────────
-
-  readonly suppliers = signal<DropdownOption[]>([]);
-  readonly selectedSupplierId = signal<string | null>(null);
+  readonly suppliers = signal<SelectOption[]>([]);
   readonly supplierDetail = signal<SupplierDetail | null>(null);
   readonly supplierDetailLoading = signal(false);
+  readonly paymentMethods = signal<SelectOption[]>([]);
 
-  readonly paymentMethods = signal<PaymentMethod[]>([]);
+  private readonly supplierSearch$ = new Subject<string>();
+
+  constructor() {
+    this.supplierSearch$
+      .pipe(debounceTime(300), takeUntilDestroyed(this.destroyRef))
+      .subscribe((term) => this.searchSuppliers(term.trim()));
+  }
 
   ngOnInit(): void {
-    this.loadSuppliers();
+    this.searchSuppliers('');
     this.loadPaymentMethods();
   }
 
@@ -89,12 +88,12 @@ export class SupplierInfoSection implements OnInit {
   // DATA LOADING
   // ══════════════════════════════════════════════════════════
 
-  private loadSuppliers(): void {
+  private searchSuppliers(term: string): void {
     this.supplierService
-      .getAllSuppliers(0, 1000)
+      .getSuppliers(0, SUPPLIER_PAGE_SIZE, term || undefined)
       .pipe(
-        map((p) =>
-          p.content.map((s) => ({
+        map((page) =>
+          page.content.map((s) => ({
             id: s.id,
             name: s.supplierName,
           })),
@@ -107,19 +106,9 @@ export class SupplierInfoSection implements OnInit {
   }
 
   private loadPaymentMethods(): void {
-    this.http
-      .get<{ id: string; paymentMethodName: string }[]>(
-        `${this.configService.apiUrl}/payment-methods`,
-      )
-      .pipe(
-        map((list) =>
-          list.map((pm) => ({
-            id: pm.id,
-            name: pm.paymentMethodName,
-          })),
-        ),
-        takeUntilDestroyed(this.destroyRef),
-      )
+    this.paymentMethodService
+      .getPaymentMethods()
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (list) => this.paymentMethods.set(list),
       });
@@ -129,8 +118,16 @@ export class SupplierInfoSection implements OnInit {
   // SUPPLIER DETAILS
   // ══════════════════════════════════════════════════════════
 
-  onSupplierChange(supplierId: string): void {
-    this.selectedSupplierId.set(supplierId || null);
+  /** Autocomplete display formatter: maps a supplier UUID to its name. */
+  displaySupplier = (id: string | null): string =>
+    this.suppliers().find((supplier) => supplier.id === id)?.name ?? id ?? '';
+
+  onSupplierSearch(event: Event): void {
+    this.supplierSearch$.next((event.target as HTMLInputElement).value);
+  }
+
+  onSupplierChange(supplierId: string | null): void {
+    this.headerForm().controls.supplierId.setValue(supplierId ?? '');
     this.supplierDetail.set(null);
 
     if (supplierId) {
@@ -147,6 +144,11 @@ export class SupplierInfoSection implements OnInit {
         next: (supplier) => {
           this.supplierDetail.set(this.formatSupplierDetail(supplier));
           this.supplierDetailLoading.set(false);
+          this.suppliers.update((list) =>
+            list.some((s) => s.id === supplier.id)
+              ? list
+              : [{ id: supplier.id, name: supplier.supplierName }, ...list],
+          );
         },
         error: () => this.supplierDetailLoading.set(false),
       });
@@ -178,16 +180,10 @@ export class SupplierInfoSection implements OnInit {
   // ══════════════════════════════════════════════════════════
 
   fieldError(field: keyof PurchaseOrderHeaderControl): string | null {
-    const control = this.headerForm().controls[field];
-    if (control && control.invalid && control.touched) {
-      if (control.hasError('required')) {
-        return 'Este campo es requerido.';
-      }
-    }
-    return null;
+    return requiredFieldError(this.headerForm().controls[field]);
   }
 
   serverFieldError(field: string): string | null {
-    return this.serverErrors()[field] ?? null;
+    return serverError(this.serverErrors(), field);
   }
 }

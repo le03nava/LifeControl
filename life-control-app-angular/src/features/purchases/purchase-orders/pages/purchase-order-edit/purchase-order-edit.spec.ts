@@ -8,6 +8,8 @@ import { PurchaseOrderEdit } from './purchase-order-edit';
 import { PurchaseOrderService } from '../../data/purchase-order.service';
 import { ProductService } from '@features/products/data/product.service';
 import { SupplierService } from '@features/products/suppliers/data/supplier.service';
+import { PaymentMethodService } from '../../data/payment-method.service';
+import { StatusService } from '../../data/status.service';
 import { CompanyService } from '@features/companies/companies/data/company.service';
 import { CompanyCountryService } from '@features/companies/countries/data/company-country.service';
 import { CompanyRegionService } from '@features/companies/regions/data/company-region.service';
@@ -115,13 +117,27 @@ describe('PurchaseOrderEdit', () => {
     {
       provide: SupplierService,
       useValue: {
-        getAllSuppliers: vi.fn().mockReturnValue(of(emptyPage)),
+        getSuppliers: vi.fn().mockReturnValue(of(emptyPage)),
+      },
+    },
+    {
+      provide: PaymentMethodService,
+      useValue: {
+        getPaymentMethods: vi.fn().mockReturnValue(of([])),
+      },
+    },
+    {
+      provide: StatusService,
+      useValue: {
+        getStatusTypeIdByName: vi.fn().mockReturnValue(of('type-po')),
+        getStatusesByTypeId: vi.fn().mockReturnValue(of([])),
       },
     },
     {
       provide: CompanyService,
       useValue: {
         getCompanies: vi.fn().mockReturnValue(of(emptyPage)),
+        getCompanyById: vi.fn().mockReturnValue(of({})),
       },
     },
     {

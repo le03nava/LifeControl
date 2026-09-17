@@ -28,7 +28,10 @@ import type {
   PurchaseOrderRequest,
   PurchaseOrderDetailRequest,
 } from '../../models/purchase-order.models';
-import type { PurchaseOrderHeaderControl } from '../../models/purchase-order-control.models';
+import type {
+  PurchaseOrderHeaderControl,
+  PurchaseOrderCompanyControl,
+} from '../../models/purchase-order-control.models';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatCardModule } from '@angular/material/card';
@@ -355,21 +358,13 @@ export class PurchaseOrderEdit implements OnInit {
       companyStoreId: this.fb.control('', Validators.required),
       paymentMethodId: this.fb.control('', Validators.required),
       comments: this.fb.control<string | null>(null),
+      company: this.fb.group<PurchaseOrderCompanyControl>({
+        companyId: this.fb.control<string | null>(null),
+        companyCountryId: this.fb.control<string | null>(null),
+        regionId: this.fb.control<string | null>(null),
+        zoneId: this.fb.control<string | null>(null),
+      }),
     });
-  }
-
-  fieldError(field: keyof PurchaseOrderHeaderControl): string | null {
-    const control = this.headerForm().controls[field];
-    if (control && control.invalid && control.touched) {
-      if (control.hasError('required')) {
-        return 'Este campo es requerido.';
-      }
-    }
-    return null;
-  }
-
-  serverFieldError(field: string): string | null {
-    return this.serverErrors()[field] ?? null;
   }
 
   onCancel(): void {
