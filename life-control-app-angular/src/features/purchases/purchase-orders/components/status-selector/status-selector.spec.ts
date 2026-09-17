@@ -1,15 +1,12 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
-import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 import { of, throwError } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
 import { StatusSelector } from './status-selector';
 import { PurchaseOrderService } from '../../data/purchase-order.service';
+import { StatusService } from '../../data/status.service';
 import { NotificationService } from '@shared/data/notification';
-import { ConfigService } from '@app/services/config.service';
 import type { PurchaseOrder } from '../../models/purchase-order.models';
-
-const TEST_API = 'http://test/api';
 
 function createOrder(overrides: Partial<PurchaseOrder> = {}): PurchaseOrder {
   return {
@@ -36,13 +33,6 @@ function createOrder(overrides: Partial<PurchaseOrder> = {}): PurchaseOrder {
   };
 }
 
-const mockStatusTypesPage = {
-  content: [
-    { id: 'type-po', statusTypeName: 'PURCHASE_ORDER' },
-    { id: 'type-other', statusTypeName: 'OTHER' },
-  ],
-};
-
 const mockStatuses = [
   { id: 'st-draft', name: 'Draft' },
   { id: 'st-sent', name: 'Sent' },
@@ -58,6 +48,10 @@ describe('StatusSelector', () => {
   let purchaseOrderService: {
     updateStatus: ReturnType<typeof vi.fn>;
   };
+  let statusService: {
+    getStatusTypeIdByName: ReturnType<typeof vi.fn>;
+    getStatusesByTypeId: ReturnType<typeof vi.fn>;
+  };
   let notificationService: {
     showSuccess: ReturnType<typeof vi.fn>;
     showError: ReturnType<typeof vi.fn>;
@@ -67,90 +61,63 @@ describe('StatusSelector', () => {
     purchaseOrderService = {
       updateStatus: vi.fn(),
     };
+    statusService = {
+      getStatusTypeIdByName: vi.fn().mockReturnValue(of('type-po')),
+      getStatusesByTypeId: vi.fn().mockReturnValue(of(mockStatuses)),
+    };
     notificationService = {
       showSuccess: vi.fn(),
       showError: vi.fn(),
     };
 
     await TestBed.configureTestingModule({
-      imports: [StatusSelector, NoopAnimationsModule, HttpClientTestingModule],
+      imports: [StatusSelector, NoopAnimationsModule],
       providers: [
-        { provide: ConfigService, useValue: { apiUrl: TEST_API } },
-        {
-          provide: PurchaseOrderService,
-          useValue: purchaseOrderService,
-        },
-        {
-          provide: NotificationService,
-          useValue: notificationService,
-        },
+        { provide: PurchaseOrderService, useValue: purchaseOrderService },
+        { provide: StatusService, useValue: statusService },
+        { provide: NotificationService, useValue: notificationService },
       ],
     }).compileComponents();
   });
 
-  /**
-   * Helper: creates component with a given order, flushes the status fetch
-   * HTTP calls, and runs change detection so computed signals settle.
-   */
-  function setupWithOrder(
-    order: PurchaseOrder,
-    httpMock: HttpTestingController,
-  ): ComponentFixture<StatusSelector> {
+  /** Creates the component with a given order and runs initial change detection. */
+  function setupWithOrder(order: PurchaseOrder): ComponentFixture<StatusSelector> {
     const f = TestBed.createComponent(StatusSelector);
-    const comp = f.componentInstance;
-
-    // Set the required input — use a function signal-like access
-    (comp as unknown as { order: () => PurchaseOrder }).order = vi.fn(() => order);
-    // Manually call ngOnInit trigger
-    f.detectChanges();
-
-    // Flush status type lookup
-    const typeReq = httpMock.expectOne(
-      (r) => r.url === `${TEST_API}/status-types` && r.params.get('search') === 'PURCHASE_ORDER',
-    );
-    typeReq.flush(mockStatusTypesPage);
-
-    // Flush statuses lookup
-    const statusReq = httpMock.expectOne(
-      (r) => r.url === `${TEST_API}/statuses` && r.params.get('statusTypeId') === 'type-po',
-    );
-    statusReq.flush(mockStatuses);
-
+    f.componentRef.setInput('order', order);
     f.detectChanges();
     return f;
   }
 
   describe('initial creation', () => {
-    let httpMock: HttpTestingController;
-
-    beforeEach(() => {
-      httpMock = TestBed.inject(HttpTestingController);
-    });
-
-    afterEach(() => {
-      httpMock.verify();
-    });
-
     it('should create', () => {
       const component = TestBed.createComponent(StatusSelector).componentInstance;
       expect(component).toBeTruthy();
     });
+
+    it('should resolve the PURCHASE_ORDER status type and load statuses', () => {
+      const order = createOrder();
+      setupWithOrder(order);
+
+      expect(statusService.getStatusTypeIdByName).toHaveBeenCalledWith('PURCHASE_ORDER');
+      expect(statusService.getStatusesByTypeId).toHaveBeenCalledWith('type-po');
+    });
+
+    it('should set statusFetchFailed when statuses cannot be loaded', () => {
+      statusService.getStatusesByTypeId = vi
+        .fn()
+        .mockReturnValue(throwError(() => new Error('boom')));
+
+      const order = createOrder();
+      const f = setupWithOrder(order);
+
+      expect(f.componentInstance.statusFetchFailed()).toBe(true);
+    });
   });
 
   describe('valid transitions per status', () => {
-    let httpMock: HttpTestingController;
-
-    beforeEach(() => {
-      httpMock = TestBed.inject(HttpTestingController);
-    });
-
-    afterEach(() => {
-      httpMock.verify();
-    });
-
     it('Draft: dropdown should show Sent and Rejected', () => {
       const order = createOrder({ statusName: 'Draft' });
-      const f = setupWithOrder(order, httpMock);
+      const f = setupWithOrder(order);
       const comp = f.componentInstance;
 
       const transitions = comp.validTransitions();
@@ -165,7 +132,7 @@ describe('StatusSelector', () => {
         statusName: 'Sent',
         statusId: 'st-sent',
       });
-      const f = setupWithOrder(order, httpMock);
+      const f = setupWithOrder(order);
       const comp = f.componentInstance;
 
       const names = comp.validTransitions().map((t) => t.name);
@@ -179,7 +146,7 @@ describe('StatusSelector', () => {
         statusName: 'Accepted',
         statusId: 'st-accepted',
       });
-      const f = setupWithOrder(order, httpMock);
+      const f = setupWithOrder(order);
       const comp = f.componentInstance;
 
       const names = comp.validTransitions().map((t) => t.name);
@@ -193,7 +160,7 @@ describe('StatusSelector', () => {
         statusName: 'In Transit',
         statusId: 'st-in-transit',
       });
-      const f = setupWithOrder(order, httpMock);
+      const f = setupWithOrder(order);
       const comp = f.componentInstance;
 
       const names = comp.validTransitions().map((t) => t.name);
@@ -207,7 +174,7 @@ describe('StatusSelector', () => {
         statusName: 'Received',
         statusId: 'st-received',
       });
-      const f = setupWithOrder(order, httpMock);
+      const f = setupWithOrder(order);
       const comp = f.componentInstance;
 
       const names = comp.validTransitions().map((t) => t.name);
@@ -221,7 +188,7 @@ describe('StatusSelector', () => {
         statusName: 'Billed',
         statusId: 'st-billed',
       });
-      const f = setupWithOrder(order, httpMock);
+      const f = setupWithOrder(order);
       const comp = f.componentInstance;
 
       const names = comp.validTransitions().map((t) => t.name);
@@ -235,7 +202,7 @@ describe('StatusSelector', () => {
         statusName: 'Closed',
         statusId: 'st-closed',
       });
-      const f = setupWithOrder(order, httpMock);
+      const f = setupWithOrder(order);
       const comp = f.componentInstance;
 
       expect(comp.isTerminal()).toBe(true);
@@ -247,7 +214,7 @@ describe('StatusSelector', () => {
         statusName: 'Rejected',
         statusId: 'st-rejected',
       });
-      const f = setupWithOrder(order, httpMock);
+      const f = setupWithOrder(order);
       const comp = f.componentInstance;
 
       expect(comp.isTerminal()).toBe(true);
@@ -256,19 +223,9 @@ describe('StatusSelector', () => {
   });
 
   describe('progress stepper', () => {
-    let httpMock: HttpTestingController;
-
-    beforeEach(() => {
-      httpMock = TestBed.inject(HttpTestingController);
-    });
-
-    afterEach(() => {
-      httpMock.verify();
-    });
-
     it('marks past steps as done and the current step as current', () => {
       const order = createOrder({ statusName: 'Accepted', statusId: 'st-accepted' });
-      const f = setupWithOrder(order, httpMock);
+      const f = setupWithOrder(order);
       const comp = f.componentInstance;
 
       const states = comp.steps().map((s) => s.state);
@@ -280,7 +237,7 @@ describe('StatusSelector', () => {
 
     it('renders the Spanish step labels', () => {
       const order = createOrder({ statusName: 'Draft' });
-      const f = setupWithOrder(order, httpMock);
+      const f = setupWithOrder(order);
       const labels = f.componentInstance.steps().map((s) => s.label);
       expect(labels).toContain('Borrador');
       expect(labels).toContain('En Tránsito');
@@ -288,19 +245,9 @@ describe('StatusSelector', () => {
   });
 
   describe('status change', () => {
-    let httpMock: HttpTestingController;
-
-    beforeEach(() => {
-      httpMock = TestBed.inject(HttpTestingController);
-    });
-
-    afterEach(() => {
-      httpMock.verify();
-    });
-
     it('should call purchaseOrderService.updateStatus with correct UUID', () => {
       const order = createOrder({ statusName: 'Draft' });
-      const f = setupWithOrder(order, httpMock);
+      const f = setupWithOrder(order);
       const comp = f.componentInstance;
 
       purchaseOrderService.updateStatus = vi.fn().mockReturnValue(of(order));
@@ -314,7 +261,7 @@ describe('StatusSelector', () => {
 
     it('should emit the new status name on successful update', () => {
       const order = createOrder({ statusName: 'Draft' });
-      const f = setupWithOrder(order, httpMock);
+      const f = setupWithOrder(order);
       const comp = f.componentInstance;
 
       let emitted = '';
@@ -333,7 +280,7 @@ describe('StatusSelector', () => {
 
     it('should show success notification on status change', () => {
       const order = createOrder({ statusName: 'Draft' });
-      const f = setupWithOrder(order, httpMock);
+      const f = setupWithOrder(order);
       const comp = f.componentInstance;
 
       purchaseOrderService.updateStatus = vi.fn().mockReturnValue(of(order));
@@ -347,7 +294,7 @@ describe('StatusSelector', () => {
 
     it('should show error notification on 409 conflict', () => {
       const order = createOrder({ statusName: 'Draft' });
-      const f = setupWithOrder(order, httpMock);
+      const f = setupWithOrder(order);
       const comp = f.componentInstance;
 
       purchaseOrderService.updateStatus = vi.fn().mockReturnValue(
@@ -369,7 +316,7 @@ describe('StatusSelector', () => {
 
     it('should show error notification on 404', () => {
       const order = createOrder({ statusName: 'Draft' });
-      const f = setupWithOrder(order, httpMock);
+      const f = setupWithOrder(order);
       const comp = f.componentInstance;
 
       purchaseOrderService.updateStatus = vi.fn().mockReturnValue(
@@ -390,13 +337,10 @@ describe('StatusSelector', () => {
 
   describe('loading states', () => {
     it('should show loading text before statuses are fetched', () => {
+      statusService.getStatusesByTypeId = vi.fn().mockReturnValue(of([]));
       const order = createOrder({ statusName: 'Draft' });
-      const f = TestBed.createComponent(StatusSelector);
-      const comp = f.componentInstance;
-      (comp as unknown as { order: () => PurchaseOrder }).order = vi.fn(() => order);
-      f.detectChanges();
+      const f = setupWithOrder(order);
 
-      // Statuses not yet flushed — validTransitions is empty but not terminal
       const el: HTMLElement = f.nativeElement;
       expect(el.textContent).toContain('Cargando transiciones');
     });
