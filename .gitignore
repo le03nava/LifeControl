@@ -133,3 +133,11 @@ Thumbs.db
 openspec/
 .openspec/
 sdd/
+
+# ============================================
+# Local Artifacts & Scratch (NEVER COMMIT)
+# ============================================
+node_modules/
+.vitest/
+odd/
+life-control-api-improvement-prompts.md
