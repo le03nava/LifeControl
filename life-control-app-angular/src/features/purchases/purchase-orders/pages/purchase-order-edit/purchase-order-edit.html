@@ -34,7 +34,12 @@
     />
 
     <!-- Supplier Information (supplier + payment method + comments) -->
-    <app-supplier-info-section [headerForm]="headerForm()" [serverErrors]="serverErrors()" />
+    <app-supplier-info-section
+      [headerForm]="headerForm()"
+      [isEditMode]="isEditMode()"
+      [loadedOrder]="loadedOrder()"
+      [serverErrors]="serverErrors()"
+    />
 
     <!-- Line Items Table -->
     <app-detail-table

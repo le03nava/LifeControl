@@ -9,6 +9,7 @@ import type {
   PurchaseOrderHeaderControl,
   PurchaseOrderCompanyControl,
 } from '../../models/purchase-order-control.models';
+import type { PurchaseOrder } from '../../models/purchase-order.models';
 
 const mockSuppliersPage = {
   content: [
@@ -57,6 +58,48 @@ const mockPaymentMethods = [
   { id: 'pm-2', name: 'Cheque' },
   { id: 'pm-3', name: 'Efectivo' },
 ];
+
+const mockSupplierDetail = {
+  id: 'sup-1',
+  supplierName: 'Proveedor Uno',
+  razonSocial: 'Proveedor Uno S.A.',
+  rfc: 'RFC-PROV-001',
+  email: 'ventas@proveedoruno.com',
+  phoneNumber: '555-2000',
+  enabled: true,
+  createdAt: '2026-01-01T00:00:00Z',
+  updatedAt: '2026-01-01T00:00:00Z',
+  address: {
+    street: 'Calle Comercio',
+    streetNumber: '456',
+    neighborhood: 'Industrial',
+    zipCode: '20000',
+    city: 'Monterrey',
+    state: 'Nuevo León',
+  },
+};
+
+const mockOrder: PurchaseOrder = {
+  id: 'po-1',
+  orderNumber: 'PO-00001',
+  supplierId: 'sup-1',
+  supplierName: 'Proveedor Uno',
+  companyStoreId: 'store-1',
+  companyStoreName: 'Tienda Centro',
+  companyId: 'comp-1',
+  companyCountryId: 'cc-1',
+  regionId: 'reg-1',
+  zoneId: 'zone-1',
+  paymentMethodId: 'pm-1',
+  paymentMethodName: 'Transferencia',
+  statusId: 'st-draft',
+  statusName: 'Draft',
+  comments: 'Test order',
+  enabled: true,
+  createdAt: '2026-01-01T00:00:00Z',
+  updatedAt: '2026-01-01T00:00:00Z',
+  details: [],
+};
 
 describe('SupplierInfoSection', () => {
   let headerForm: FormGroup<PurchaseOrderHeaderControl>;
@@ -216,6 +259,39 @@ describe('SupplierInfoSection', () => {
       comp.onSupplierChange('');
       expect(comp.supplierDetail()).toBeNull();
       expect(headerForm.controls.supplierId.value).toBe('');
+    });
+  });
+
+  describe('edit mode', () => {
+    function createEditFixture(order: PurchaseOrder) {
+      const fixture = TestBed.createComponent(SupplierInfoSection);
+      fixture.componentRef.setInput('headerForm', headerForm);
+      fixture.componentRef.setInput('isEditMode', true);
+      fixture.componentRef.setInput('loadedOrder', order);
+      fixture.detectChanges();
+      return fixture;
+    }
+
+    it('should load supplier details from the loaded order', () => {
+      supplierServiceMock.getSupplierById = vi.fn().mockReturnValue(of(mockSupplierDetail));
+
+      const { componentInstance: comp } = createEditFixture(mockOrder);
+
+      expect(supplierServiceMock.getSupplierById).toHaveBeenCalledWith('sup-1');
+      expect(comp.supplierDetail()).not.toBeNull();
+      expect(comp.supplierDetail()!.rfc).toBe('RFC-PROV-001');
+      expect(comp.supplierDetail()!.email).toBe('ventas@proveedoruno.com');
+      expect(comp.supplierDetail()!.phone).toBe('555-2000');
+      expect(comp.supplierDetail()!.address).toContain('Calle Comercio');
+    });
+
+    it('should not load supplier details when the order has no supplierId', () => {
+      supplierServiceMock.getSupplierById = vi.fn().mockReturnValue(of(mockSupplierDetail));
+
+      const { componentInstance: comp } = createEditFixture({ ...mockOrder, supplierId: '' });
+
+      expect(supplierServiceMock.getSupplierById).not.toHaveBeenCalled();
+      expect(comp.supplierDetail()).toBeNull();
     });
   });
 
