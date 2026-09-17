@@ -92,13 +92,14 @@
         <p class="loading-text">Cargando tiendas...</p>
       }
 
-      @if (filteredStores().length > 0) {
+      @if (filteredStores().length) {
         @for (store of filteredStores(); track store.id; let i = $index) {
           <div class="card-wrapper" [style.--i]="i">
             <app-stores-card
               [store]="store"
               (edit)="onCardEditStore($event)"
               (storeToggle)="onToggleStore($event)"
+              (locations)="onCardManageLocations($event)"
             />
           </div>
         }

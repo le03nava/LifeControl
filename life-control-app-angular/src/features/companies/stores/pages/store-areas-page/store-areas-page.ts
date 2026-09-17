@@ -10,11 +10,13 @@ import {
 import { rxResource, takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
+import { MatCardModule } from '@angular/material/card';
+import { MatDialog } from '@angular/material/dialog';
+import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatSelectModule } from '@angular/material/select';
-import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
-import { PageHeader } from '@shared/ui';
+import { PageHeader, ConfirmDialog } from '@shared/ui';
 import { of } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 import { CompanyService } from '../../../companies/data/company.service';
@@ -22,37 +24,40 @@ import { CompanyCountryService } from '../../../countries/data/company-country.s
 import { CompanyRegionService } from '../../../regions/data/company-region.service';
 import { CompanyZoneService } from '../../../zones/data/company-zone.service';
 import { CompanyStoreService } from '../../data/company-store.service';
-import { StoresCard } from '../../components/stores-card/stores-card';
+import { StoreAreaService } from '../../data/store-area.service';
 import { CompanyStore } from '../../models/store.models';
+import { StoreArea } from '../../models/store-area.models';
 import { CompanyCountry } from '../../../countries/models/country.models';
 import { CompanyRegion } from '../../../regions/models/region.models';
 import { CompanyZone } from '../../../zones/models/zone.models';
 
 @Component({
-  selector: 'app-stores-page',
+  selector: 'app-store-areas-page',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     MatButtonModule,
+    MatCardModule,
     MatIconModule,
     MatSelectModule,
     MatFormFieldModule,
     MatSlideToggleModule,
     PageHeader,
-    StoresCard,
   ],
-  templateUrl: './stores-page.html',
-  styleUrl: './stores-page.scss',
+  templateUrl: './store-areas-page.html',
+  styleUrl: './store-areas-page.scss',
 })
-export class StoresPage {
+export class StoreAreasPage {
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly dialog = inject(MatDialog);
   private readonly companyService = inject(CompanyService);
   private readonly companyCountryService = inject(CompanyCountryService);
   private readonly companyRegionService = inject(CompanyRegionService);
   private readonly companyZoneService = inject(CompanyZoneService);
   private readonly companyStoreService = inject(CompanyStoreService);
+  private readonly storeAreaService = inject(StoreAreaService);
 
   readonly companies = toSignal(
     this.companyService.getCompanies(0, 1000).pipe(map((page) => page.content)),
@@ -66,6 +71,7 @@ export class StoresPage {
   readonly selectedCountry = signal<CompanyCountry | null>(null);
   readonly selectedRegion = signal<CompanyRegion | null>(null);
   readonly selectedZone = signal<CompanyZone | null>(null);
+  readonly selectedStore = signal<CompanyStore | null>(null);
 
   /** Query params captured once at construction for pre-selection. */
   private readonly initialCountryId = signal<string | null>(
@@ -77,9 +83,14 @@ export class StoresPage {
   private readonly initialZoneId = signal<string | null>(
     this.route.snapshot.queryParamMap.get('zoneId'),
   );
+  private readonly initialStoreId = signal<string | null>(
+    this.route.snapshot.queryParamMap.get('storeId'),
+  );
 
   // ─── Filter state ────────────────────────────────────────────
   readonly showDisabled = signal(false);
+  /** Bumped after a disable/enable write to re-fetch the areas list. */
+  readonly reload = signal(0);
 
   // ─── Reactive data flow: each level is keyed on the selection above it ───
   readonly countriesResource = rxResource({
@@ -114,6 +125,10 @@ export class StoresPage {
     defaultValue: [] as CompanyZone[],
   });
 
+  /**
+   * Always requests disabled stores too: the page can be entered from a disabled
+   * store's card, and the pre-selected store must resolve even when disabled.
+   */
   readonly storesResource = rxResource({
     params: () => {
       const country = this.selectedCountry();
@@ -122,22 +137,44 @@ export class StoresPage {
       if (!country || !region || !zone) return undefined;
       return {
         companyId: country.companyId,
-        countryId: country.id,
+        companyCountryId: country.id,
         regionId: region.id,
         zoneId: zone.id,
       };
     },
     stream: ({ params }) =>
       this.companyStoreService
-        .getStores(
-          params.companyId,
-          params.countryId,
-          params.regionId,
-          params.zoneId,
-          this.showDisabled(),
-        )
+        .getStores(params.companyId, params.companyCountryId, params.regionId, params.zoneId, true)
         .pipe(catchError(() => of([] as CompanyStore[]))),
     defaultValue: [] as CompanyStore[],
+  });
+
+  readonly areasResource = rxResource({
+    params: () => {
+      const store = this.selectedStore();
+      if (!store) return undefined;
+      return {
+        companyId: store.companyId,
+        companyCountryId: store.companyCountryId,
+        regionId: store.regionId,
+        zoneId: store.zoneId,
+        storeId: store.id,
+        showDisabled: this.showDisabled(),
+        reload: this.reload(),
+      };
+    },
+    stream: ({ params }) =>
+      this.storeAreaService
+        .getAreas(
+          params.companyId,
+          params.companyCountryId,
+          params.regionId,
+          params.zoneId,
+          params.storeId,
+          params.showDisabled,
+        )
+        .pipe(catchError(() => of([] as StoreArea[]))),
+    defaultValue: [] as StoreArea[],
   });
 
   // Guarded resource reads: never touch `.value()` while a resource is in an error state.
@@ -153,15 +190,12 @@ export class StoresPage {
   readonly stores = computed(() =>
     this.storesResource.hasValue() ? this.storesResource.value() : [],
   );
+  readonly areas = computed(() =>
+    this.areasResource.hasValue() ? this.areasResource.value() : [],
+  );
 
   /** Friendly error message owned by the service (set on load failure). */
-  readonly storesError = computed(() => this.companyStoreService.error());
-
-  readonly filteredStores = computed(() => {
-    const all = this.stores();
-    if (this.showDisabled()) return all;
-    return all.filter((s) => s.enabled);
-  });
+  readonly areasError = computed(() => this.storeAreaService.error());
 
   /** compareWith for mat-select: both sides are CompanyCountry objects */
   protected compareCompanyCountry = (
@@ -181,10 +215,16 @@ export class StoresPage {
     return a?.id === b?.id;
   };
 
+  /** compareWith for mat-select: both sides are CompanyStore objects */
+  protected compareCompanyStore = (a: CompanyStore | null, b: CompanyStore | null): boolean => {
+    return a?.id === b?.id;
+  };
+
   /** Guards so the query-param pre-selection runs exactly once per level. */
   private countryPreselected = false;
   private regionPreselected = false;
   private zonePreselected = false;
+  private storePreselected = false;
 
   constructor() {
     // Pre-select the country from the query param once its countries resolve.
@@ -219,6 +259,17 @@ export class StoresPage {
         this.selectedZone.set(zone);
       }
     });
+
+    // Pre-select the store from the query param once its stores resolve.
+    effect(() => {
+      const storeId = this.initialStoreId();
+      if (!storeId || this.storePreselected) return;
+      const store = this.stores().find((s) => s.id === storeId);
+      if (store) {
+        this.storePreselected = true;
+        this.selectedStore.set(store);
+      }
+    });
   }
 
   // ─── Event handlers ──────────────────────────────────────────
@@ -228,89 +279,96 @@ export class StoresPage {
     this.selectedCountry.set(null);
     this.selectedRegion.set(null);
     this.selectedZone.set(null);
+    this.selectedStore.set(null);
   }
 
   onSelectCountry(cc: CompanyCountry): void {
     this.selectedCountry.set(cc);
     this.selectedRegion.set(null);
     this.selectedZone.set(null);
+    this.selectedStore.set(null);
   }
 
   onSelectRegion(region: CompanyRegion): void {
     this.selectedRegion.set(region);
     this.selectedZone.set(null);
+    this.selectedStore.set(null);
   }
 
   onSelectZone(zone: CompanyZone): void {
     this.selectedZone.set(zone);
+    this.selectedStore.set(null);
   }
 
-  onCreateStore(): void {
-    const cc = this.selectedCountry();
-    const region = this.selectedRegion();
-    const zone = this.selectedZone();
-    if (!cc || !region || !zone) return;
-    this.router.navigate(['/companies/stores/create'], {
-      queryParams: {
-        companyId: cc.companyId,
-        countryId: cc.id,
-        regionId: region.id,
-        zoneId: zone.id,
-      },
-    });
+  onSelectStore(store: CompanyStore): void {
+    this.selectedStore.set(store);
   }
 
-  onEditStore(store: CompanyStore): void {
-    this.router.navigate(['/companies/stores/edit', store.id], {
-      state: { store },
-    });
-  }
-
-  /** Bridge: the card emits a store ID; look up the full store and delegate. */
-  onCardEditStore(storeId: string): void {
-    const store = this.stores().find((s) => s.id === storeId);
-    if (store) {
-      this.onEditStore(store);
-    }
-  }
-
-  /** Bridge: open the areas page for the card's store, preserving the cascade. */
-  onCardManageLocations(storeId: string): void {
-    const store = this.stores().find((s) => s.id === storeId);
+  onCreateArea(): void {
+    const store = this.selectedStore();
     const cc = this.selectedCountry();
     const region = this.selectedRegion();
     const zone = this.selectedZone();
     if (!store || !cc || !region || !zone) return;
-
-    this.router.navigate(['/companies/store-areas'], {
+    this.router.navigate(['/companies/store-areas/create'], {
       queryParams: {
         companyId: cc.companyId,
         countryId: cc.id,
         regionId: region.id,
         zoneId: zone.id,
-        storeId,
+        storeId: store.id,
       },
     });
   }
 
-  onToggleStore(storeId: string): void {
-    const store = this.stores().find((s) => s.id === storeId);
-    if (!store) return;
-    const cc = this.selectedCountry();
-    const region = this.selectedRegion();
-    const zone = this.selectedZone();
-    if (!cc || !region || !zone) return;
+  onEditArea(area: StoreArea): void {
+    this.router.navigate(['/companies/store-areas/edit', area.id], {
+      state: { area },
+    });
+  }
 
-    if (store.enabled) {
-      this.companyStoreService
-        .removeStore(cc.companyId, cc.id, region.id, zone.id, storeId)
+  onToggleArea(area: StoreArea): void {
+    const store = this.selectedStore();
+    if (!store) return;
+
+    if (area.enabled) {
+      const dialogRef = this.dialog.open(ConfirmDialog, {
+        data: {
+          title: 'Deshabilitar área',
+          message: `¿Confirmás que querés deshabilitar el área "${area.areaName}"? La información se conserva y podés reactivarla más adelante.`,
+          confirmLabel: 'Deshabilitar',
+          destructive: true,
+        },
+      });
+      dialogRef
+        .afterClosed()
         .pipe(takeUntilDestroyed(this.destroyRef))
-        .subscribe(() => this.storesResource.reload());
+        .subscribe((confirmed: boolean) => {
+          if (!confirmed) return;
+          this.storeAreaService
+            .removeArea(
+              store.companyId,
+              store.companyCountryId,
+              store.regionId,
+              store.zoneId,
+              store.id,
+              area.id,
+            )
+            .pipe(takeUntilDestroyed(this.destroyRef))
+            .subscribe(() => this.reload.update((n) => n + 1));
+        });
     } else {
-      this.companyStoreService
-        .enableStore(cc.companyId, cc.id, region.id, zone.id, storeId)
+      this.storeAreaService
+        .enableArea(
+          store.companyId,
+          store.companyCountryId,
+          store.regionId,
+          store.zoneId,
+          store.id,
+          area.id,
+        )
         .pipe(takeUntilDestroyed(this.destroyRef))
-        .subscribe(() => this.storesResource.reload());
+        .subscribe(() => this.reload.update((n) => n + 1));
     }
   }
 }

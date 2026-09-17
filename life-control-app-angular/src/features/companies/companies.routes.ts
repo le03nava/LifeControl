@@ -144,6 +144,35 @@ export const companyRoutes: Routes = [
           },
         ],
       },
+      // Store areas — all company roles
+      {
+        path: 'store-areas',
+        canActivate: [keycloakRoleGuard],
+        data: { roles: STORE_ROLES, clientId: CLIENT_ID },
+        children: [
+          {
+            path: 'create',
+            loadComponent: () =>
+              import('./stores/pages/store-areas-edit/store-areas-edit').then(
+                (m) => m.StoreAreasEdit,
+              ),
+          },
+          {
+            path: 'edit/:id',
+            loadComponent: () =>
+              import('./stores/pages/store-areas-edit/store-areas-edit').then(
+                (m) => m.StoreAreasEdit,
+              ),
+          },
+          {
+            path: '',
+            loadComponent: () =>
+              import('./stores/pages/store-areas-page/store-areas-page').then(
+                (m) => m.StoreAreasPage,
+              ),
+          },
+        ],
+      },
     ],
   },
 ];
