@@ -71,7 +71,19 @@ class StoreAreaControllerTest {
         now = LocalDateTime.now();
 
         testAreaResponse = new StoreAreaResponse(
-                testAreaId, testStoreId, "A01", "Bodega", "Área de almacenamiento", 1, true, now, now);
+                testAreaId,
+                testStoreId,
+                testCompanyId,
+                testCompanyCountryId,
+                testRegionId,
+                testZoneId,
+                "A01",
+                "Bodega",
+                "Área de almacenamiento",
+                1,
+                true,
+                now,
+                now);
     }
 
     @Nested
@@ -249,7 +261,19 @@ class StoreAreaControllerTest {
         void updateArea_Success() throws Exception {
             var request = new UpdateStoreAreaRequest("A03", "Piso de venta", "Actualizada", 3);
             var updatedResponse = new StoreAreaResponse(
-                    testAreaId, testStoreId, "A03", "Piso de venta", "Actualizada", 3, true, now, now);
+                    testAreaId,
+                    testStoreId,
+                    testCompanyId,
+                    testCompanyCountryId,
+                    testRegionId,
+                    testZoneId,
+                    "A03",
+                    "Piso de venta",
+                    "Actualizada",
+                    3,
+                    true,
+                    now,
+                    now);
             when(storeAreaService.updateArea(
                             eq(testCompanyId),
                             eq(testCompanyCountryId),

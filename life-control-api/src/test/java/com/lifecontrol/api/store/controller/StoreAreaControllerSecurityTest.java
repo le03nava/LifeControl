@@ -35,7 +35,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-@WebMvcTest(StoreAreaController.class)
+@WebMvcTest({StoreAreaController.class, StoreAreaFlatController.class})
 @Import(GlobalExceptionHandler.class)
 @DisplayName("StoreAreaController Security — @PreAuthorize method-level authorization")
 class StoreAreaControllerSecurityTest {
@@ -78,7 +78,19 @@ class StoreAreaControllerSecurityTest {
 
     private StoreAreaResponse buildAreaResponse() {
         return new StoreAreaResponse(
-                areaId, storeId, "A01", "Bodega", "Descripción", 1, true, LocalDateTime.now(), LocalDateTime.now());
+                areaId,
+                storeId,
+                companyId,
+                companyCountryId,
+                regionId,
+                zoneId,
+                "A01",
+                "Bodega",
+                "Descripción",
+                1,
+                true,
+                LocalDateTime.now(),
+                LocalDateTime.now());
     }
 
     @Nested
@@ -489,6 +501,45 @@ class StoreAreaControllerSecurityTest {
                             storeId,
                             areaId))
                     .andExpect(status().isOk());
+        }
+    }
+
+    @Nested
+    @DisplayName("GET /api/store-areas/{areaId} (flat)")
+    class GetAreaByIdFlat {
+
+        private static final String FLAT_URL = "/api/store-areas";
+
+        @Test
+        @WithMockUser
+        @DisplayName("returns 403 for user with no matching role")
+        void userWithNoMatchingRoleGetsForbidden() throws Exception {
+            mockMvc.perform(get(FLAT_URL + "/{areaId}", areaId)).andExpect(status().isForbidden());
+        }
+
+        @Test
+        @WithMockUser(roles = {"other-role"})
+        @DisplayName("returns 403 for user with wrong role")
+        void userWithWrongRoleGetsForbidden() throws Exception {
+            mockMvc.perform(get(FLAT_URL + "/{areaId}", areaId)).andExpect(status().isForbidden());
+        }
+
+        @Test
+        @WithMockUser(roles = {"lc-admin"})
+        @DisplayName("returns 200 OK for lc-admin")
+        void lcAdminCanGetById() throws Exception {
+            when(storeAreaService.getAreaById(areaId)).thenReturn(buildAreaResponse());
+
+            mockMvc.perform(get(FLAT_URL + "/{areaId}", areaId)).andExpect(status().isOk());
+        }
+
+        @Test
+        @WithMockUser(roles = {"lc-company-store-read"})
+        @DisplayName("returns 200 OK for lc-company-store-read")
+        void lcCompanyStoreReadCanGetById() throws Exception {
+            when(storeAreaService.getAreaById(areaId)).thenReturn(buildAreaResponse());
+
+            mockMvc.perform(get(FLAT_URL + "/{areaId}", areaId)).andExpect(status().isOk());
         }
     }
 }
