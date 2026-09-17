@@ -118,6 +118,19 @@ describe('PurchaseOrderEdit', () => {
       provide: SupplierService,
       useValue: {
         getSuppliers: vi.fn().mockReturnValue(of(emptyPage)),
+        getSupplierById: vi.fn().mockReturnValue(
+          of({
+            id: 'sup-1',
+            supplierName: 'Acme Corp',
+            razonSocial: 'Acme Corp S.A.',
+            rfc: 'RFC-ACME',
+            email: 'ventas@acme.com',
+            phoneNumber: '555-0000',
+            enabled: true,
+            createdAt: '2026-01-01T00:00:00Z',
+            updatedAt: '2026-01-01T00:00:00Z',
+          }),
+        ),
       },
     },
     {

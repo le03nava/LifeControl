@@ -2,10 +2,12 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  effect,
   inject,
   input,
   OnInit,
   signal,
+  untracked,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Subject, debounceTime } from 'rxjs';
@@ -15,6 +17,7 @@ import { SupplierService } from '@features/products/suppliers/data/supplier.serv
 import { PaymentMethodService } from '../../data/payment-method.service';
 import { requiredFieldError, serverError } from '../../utils/form-error.utils';
 import type { PurchaseOrderHeaderControl } from '../../models/purchase-order-control.models';
+import type { PurchaseOrder } from '../../models/purchase-order.models';
 import type { SelectOption } from '../../models/select-option.models';
 import type { Supplier } from '@features/products/suppliers/models/supplier.models';
 import { MatCardModule } from '@angular/material/card';
@@ -62,6 +65,12 @@ export class SupplierInfoSection implements OnInit {
   /** The header form group from the parent component. */
   readonly headerForm = input.required<FormGroup<PurchaseOrderHeaderControl>>();
 
+  /** Whether the form is in edit mode. */
+  readonly isEditMode = input<boolean>(false);
+
+  /** The loaded purchase order (edit mode only). */
+  readonly loadedOrder = input<PurchaseOrder | null>(null);
+
   /** Server-side validation errors keyed by field name. */
   readonly serverErrors = input<Record<string, string>>({});
 
@@ -74,6 +83,18 @@ export class SupplierInfoSection implements OnInit {
   private readonly supplierSearch$ = new Subject<string>();
 
   constructor() {
+    // Reconstruct supplier details from the loaded order (edit mode). The parent
+    // patches the form with `emitEvent: false`, so `onSupplierChange` never fires.
+    effect(() => {
+      const order = this.loadedOrder();
+      const isEditMode = this.isEditMode();
+      untracked(() => {
+        if (isEditMode && order?.supplierId) {
+          this.loadSupplierDetails(order.supplierId);
+        }
+      });
+    });
+
     this.supplierSearch$
       .pipe(debounceTime(300), takeUntilDestroyed(this.destroyRef))
       .subscribe((term) => this.searchSuppliers(term.trim()));
