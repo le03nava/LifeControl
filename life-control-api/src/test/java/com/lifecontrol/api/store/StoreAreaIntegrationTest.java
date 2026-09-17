@@ -455,4 +455,42 @@ class StoreAreaIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(jsonPath("$.message").value("Store area with code 'A01' already exists in this store"));
         }
     }
+
+    @Nested
+    @DisplayName("flat lookup")
+    class FlatLookupTests {
+
+        private static final String FLAT_URL = "/api/store-areas";
+
+        @Test
+        @DisplayName("should resolve the persisted chain from a flat area lookup")
+        void flatGet_ResolvesChainFromPersistedData() throws Exception {
+            createArea("A01", "Bodega", 1);
+            var areaId = storeAreaRepository.findByCompanyStoreIdOrderByDisplayOrderAscAreaCodeAsc(storeId).stream()
+                    .findFirst()
+                    .orElseThrow()
+                    .getId();
+
+            mockMvc.perform(get(FLAT_URL + "/{areaId}", areaId).with(jwt().authorities(ROLE_LC_ADMIN)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.id").value(areaId.toString()))
+                    .andExpect(jsonPath("$.companyStoreId").value(storeId.toString()))
+                    .andExpect(jsonPath("$.companyId").value(companyId.toString()))
+                    .andExpect(jsonPath("$.companyCountryId").value(companyCountryId.toString()))
+                    .andExpect(jsonPath("$.regionId").value(regionId.toString()))
+                    .andExpect(jsonPath("$.zoneId").value(zoneId.toString()))
+                    .andExpect(jsonPath("$.areaCode").value("A01"))
+                    .andExpect(jsonPath("$.areaName").value("Bodega"));
+        }
+
+        @Test
+        @DisplayName("should return 404 for an unknown area id")
+        void flatGet_UnknownAreaReturns404() throws Exception {
+            var unknownId = UUID.randomUUID();
+
+            mockMvc.perform(get(FLAT_URL + "/{areaId}", unknownId).with(jwt().authorities(ROLE_LC_ADMIN)))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.message").value("Store area not found with id: " + unknownId));
+        }
+    }
 }

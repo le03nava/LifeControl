@@ -6,6 +6,10 @@ import java.util.UUID;
 public record StoreAreaResponse(
         UUID id,
         UUID companyStoreId,
+        UUID companyId,
+        UUID companyCountryId,
+        UUID regionId,
+        UUID zoneId,
         String areaCode,
         String areaName,
         String description,

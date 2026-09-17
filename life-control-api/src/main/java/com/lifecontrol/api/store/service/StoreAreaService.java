@@ -33,6 +33,10 @@ import org.springframework.transaction.annotation.Transactional;
  * company &rarr; country &rarr; region &rarr; zone &rarr; store path through
  * {@link CurrentUserContext#verifyCompanyStoreAccess} before touching an area, so scoped roles keep
  * their broadest granted scope and no area is reachable outside its own store.</p>
+ *
+ * <p>The flat {@link #getAreaById(UUID) lookup} navigates the area's JPA associations to resolve
+ * its chain before authorizing, so a caller that only holds the area id still goes through the
+ * same single access check as the nested endpoints.</p>
  */
 @Service
 public class StoreAreaService {
@@ -101,25 +105,44 @@ public class StoreAreaService {
     public List<StoreAreaResponse> getAllAreas(
             UUID companyId, UUID companyCountryId, UUID regionId, UUID zoneId, UUID storeId, boolean includeDisabled) {
         var store = resolveStore(companyId, companyCountryId, regionId, zoneId, storeId);
+        var chain = chainOf(store);
 
         var areas = includeDisabled
                 ? storeAreaRepository.findByCompanyStoreIdOrderByDisplayOrderAscAreaCodeAsc(store.getId())
                 : storeAreaRepository.findByCompanyStoreIdAndEnabledTrueOrderByDisplayOrderAscAreaCodeAsc(
                         store.getId());
 
-        return areas.stream().map(this::toResponse).toList();
+        return areas.stream().map(area -> toResponse(area, chain)).toList();
     }
 
     @Transactional(readOnly = true)
     public StoreAreaResponse getAreaById(
             UUID companyId, UUID companyCountryId, UUID regionId, UUID zoneId, UUID storeId, UUID areaId) {
         var store = resolveStore(companyId, companyCountryId, regionId, zoneId, storeId);
+        var chain = chainOf(store);
 
         var area = storeAreaRepository
                 .findByIdAndCompanyStoreId(areaId, store.getId())
                 .orElseThrow(() -> new StoreAreaNotFoundException(areaId));
 
-        return toResponse(area);
+        return toResponse(area, chain);
+    }
+
+    /**
+     * Resolves a single area by its id without a nested path, then authorizes it against the chain
+     * navigated from the area's own store association.
+     *
+     * @throws StoreAreaNotFoundException when no area exists with the given id
+     * @throws org.springframework.security.access.AccessDeniedException when the current user
+     *     cannot access the resolved store scope
+     */
+    @Transactional(readOnly = true)
+    public StoreAreaResponse getAreaById(UUID areaId) {
+        var area = storeAreaRepository.findById(areaId).orElseThrow(() -> new StoreAreaNotFoundException(areaId));
+        var chain = chainOf(area.getCompanyStore());
+        currentUserContext.verifyCompanyStoreAccess(
+                chain.companyId(), chain.companyCountryId(), chain.regionId(), chain.zoneId(), chain.storeId());
+        return toResponse(area, chain);
     }
 
     @Transactional
@@ -131,6 +154,7 @@ public class StoreAreaService {
             UUID storeId,
             CreateStoreAreaRequest request) {
         var store = resolveStore(companyId, companyCountryId, regionId, zoneId, storeId);
+        var chain = chainOf(store);
 
         if (storeAreaRepository.existsByCompanyStoreIdAndAreaCode(store.getId(), request.areaCode())) {
             throw new DuplicateStoreAreaException(
@@ -148,7 +172,7 @@ public class StoreAreaService {
 
         var saved = storeAreaRepository.save(area);
         logger.info("StoreArea created: code={}, storeId={}", saved.getAreaCode(), store.getId());
-        return toResponse(saved);
+        return toResponse(saved, chain);
     }
 
     @Transactional
@@ -161,6 +185,7 @@ public class StoreAreaService {
             UUID areaId,
             UpdateStoreAreaRequest request) {
         var store = resolveStore(companyId, companyCountryId, regionId, zoneId, storeId);
+        var chain = chainOf(store);
 
         var area = storeAreaRepository
                 .findByIdAndCompanyStoreId(areaId, store.getId())
@@ -190,7 +215,7 @@ public class StoreAreaService {
 
         var saved = storeAreaRepository.save(area);
         logger.info("StoreArea updated: id={}, code={}", saved.getId(), saved.getAreaCode());
-        return toResponse(saved);
+        return toResponse(saved, chain);
     }
 
     @Transactional
@@ -212,6 +237,7 @@ public class StoreAreaService {
     public StoreAreaResponse enableArea(
             UUID companyId, UUID companyCountryId, UUID regionId, UUID zoneId, UUID storeId, UUID areaId) {
         var store = resolveStore(companyId, companyCountryId, regionId, zoneId, storeId);
+        var chain = chainOf(store);
 
         var area = storeAreaRepository
                 .findByIdAndCompanyStoreId(areaId, store.getId())
@@ -221,13 +247,33 @@ public class StoreAreaService {
         var saved = storeAreaRepository.save(area);
 
         logger.info("StoreArea re-enabled: id={}, code={}", areaId, saved.getAreaCode());
-        return toResponse(saved);
+        return toResponse(saved, chain);
     }
 
-    private StoreAreaResponse toResponse(StoreArea area) {
+    /**
+     * Resolved company &rarr; country &rarr; region &rarr; zone &rarr; store identity of an area,
+     * carried alongside the area so the response always exposes the full chain without a second
+     * traversal per element.
+     */
+    private record StoreChain(UUID companyId, UUID companyCountryId, UUID regionId, UUID zoneId, UUID storeId) {}
+
+    private StoreChain chainOf(CompanyStore store) {
+        var zone = store.getCompanyZone();
+        var region = zone.getCompanyRegion();
+        var companyCountry = region.getCompanyCountry();
+        var company = companyCountry.getCompany();
+
+        return new StoreChain(company.getId(), companyCountry.getId(), region.getId(), zone.getId(), store.getId());
+    }
+
+    private StoreAreaResponse toResponse(StoreArea area, StoreChain chain) {
         return new StoreAreaResponse(
                 area.getId(),
-                area.getCompanyStore().getId(),
+                chain.storeId(),
+                chain.companyId(),
+                chain.companyCountryId(),
+                chain.regionId(),
+                chain.zoneId(),
                 area.getAreaCode(),
                 area.getAreaName(),
                 area.getDescription(),

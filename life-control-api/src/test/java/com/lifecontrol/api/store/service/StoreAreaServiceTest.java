@@ -36,6 +36,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.access.AccessDeniedException;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("StoreAreaService Tests")
@@ -257,6 +258,55 @@ class StoreAreaServiceTest {
                             companyId, companyCountryId, regionId, zoneId, storeId, areaId))
                     .isInstanceOf(StoreAreaNotFoundException.class)
                     .hasMessage("Store area not found with id: " + areaId);
+        }
+    }
+
+    @Nested
+    @DisplayName("getAreaById (flat)")
+    class GetAreaByIdFlatTests {
+
+        @Test
+        @DisplayName("should return the area with its resolved chain ids")
+        void getAreaByIdFlat_Success() {
+            when(storeAreaRepository.findById(areaId)).thenReturn(Optional.of(testArea));
+
+            var result = storeAreaService.getAreaById(areaId);
+
+            assertThat(result.id()).isEqualTo(areaId);
+            assertThat(result.companyStoreId()).isEqualTo(storeId);
+            assertThat(result.companyId()).isEqualTo(companyId);
+            assertThat(result.companyCountryId()).isEqualTo(companyCountryId);
+            assertThat(result.regionId()).isEqualTo(regionId);
+            assertThat(result.zoneId()).isEqualTo(zoneId);
+            assertThat(result.areaCode()).isEqualTo("A01");
+            assertThat(result.areaName()).isEqualTo("Bodega");
+
+            verify(currentUserContext).verifyCompanyStoreAccess(companyId, companyCountryId, regionId, zoneId, storeId);
+        }
+
+        @Test
+        @DisplayName("should throw StoreAreaNotFoundException and never authorize when the area does not exist")
+        void getAreaByIdFlat_NotFound() {
+            when(storeAreaRepository.findById(areaId)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> storeAreaService.getAreaById(areaId))
+                    .isInstanceOf(StoreAreaNotFoundException.class)
+                    .hasMessage("Store area not found with id: " + areaId);
+
+            verify(currentUserContext, never()).verifyCompanyStoreAccess(any(), any(), any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("should propagate AccessDeniedException from verifyCompanyStoreAccess")
+        void getAreaByIdFlat_AccessDenied() {
+            when(storeAreaRepository.findById(areaId)).thenReturn(Optional.of(testArea));
+            doThrow(new AccessDeniedException("Access denied"))
+                    .when(currentUserContext)
+                    .verifyCompanyStoreAccess(companyId, companyCountryId, regionId, zoneId, storeId);
+
+            assertThatThrownBy(() -> storeAreaService.getAreaById(areaId))
+                    .isInstanceOf(AccessDeniedException.class)
+                    .hasMessage("Access denied");
         }
     }
 
