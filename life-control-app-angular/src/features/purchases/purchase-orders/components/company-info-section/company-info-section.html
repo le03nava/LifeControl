@@ -90,10 +90,10 @@
           }
         </div>
 
-        <!-- Company details card -->
+        <!-- Company details -->
         @if (companyDetail(); as detail) {
-          <mat-card appearance="outlined" class="detail-card">
-            <mat-card-content class="detail-grid">
+          <div class="company-details">
+            <div class="detail-grid">
               <div class="detail-item">
                 <span class="detail-label">RFC</span>
                 <span class="detail-value">{{ detail.rfc }}</span>
@@ -110,14 +110,12 @@
                 <span class="detail-label">Email</span>
                 <span class="detail-value">{{ detail.email }}</span>
               </div>
-            </mat-card-content>
-          </mat-card>
+            </div>
+          </div>
         } @else if (companyDetailLoading()) {
-          <mat-card appearance="outlined" class="detail-card">
-            <mat-card-content>
-              <span class="detail-loading">Cargando datos de la empresa...</span>
-            </mat-card-content>
-          </mat-card>
+          <div class="company-details">
+            <span class="detail-loading">Cargando datos de la empresa...</span>
+          </div>
         }
       </div>
     </ng-container>
