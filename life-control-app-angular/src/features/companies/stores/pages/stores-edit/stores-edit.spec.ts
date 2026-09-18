@@ -288,6 +288,72 @@ describe('StoresEdit', () => {
 
       expect(component.serverErrors()).toEqual({ storeName: 'Already exists' });
     });
+
+    it('should surface a 409 without an errors map as a visible general message', () => {
+      const apiError = {
+        status: 409,
+        message: 'Store already exists in this zone',
+        path: '/api/companies/company-1/stores',
+        timestamp: '2024-01-01',
+        correlationId: 'abc',
+      };
+      const storeService = TestBed.inject(
+        CompanyStoreService,
+      ) as unknown as MockCompanyStoreService;
+      storeService.addStore = vi.fn().mockReturnValue(
+        throwError(
+          () =>
+            new HttpErrorResponse({
+              error: apiError,
+              status: 409,
+              statusText: 'Conflict',
+            }),
+        ),
+      );
+
+      const event: StoreSaveEvent = {
+        companyId: 'company-1',
+        countryId: 'cc-1',
+        regionId: 'reg-1',
+        zoneId: 'zone-1',
+        request: { storeName: 'Duplicate Store' },
+      };
+      component.onSaveStore(event);
+      fixture.detectChanges();
+
+      expect(component.generalError()).toBe('Store already exists in this zone');
+
+      const banner = fixture.nativeElement.querySelector('app-error-banner');
+      expect(banner).toBeTruthy();
+      expect(banner.textContent).toContain('Store already exists in this zone');
+    });
+
+    it('should fall back to a generic message when a non-field failure carries none', () => {
+      const storeService = TestBed.inject(
+        CompanyStoreService,
+      ) as unknown as MockCompanyStoreService;
+      storeService.addStore = vi.fn().mockReturnValue(
+        throwError(
+          () =>
+            new HttpErrorResponse({
+              error: { status: 404 },
+              status: 404,
+              statusText: 'Not Found',
+            }),
+        ),
+      );
+
+      const event: StoreSaveEvent = {
+        companyId: 'company-1',
+        countryId: 'cc-1',
+        regionId: 'reg-1',
+        zoneId: 'zone-1',
+        request: { storeName: 'Missing Store' },
+      };
+      component.onSaveStore(event);
+
+      expect(component.generalError()).toBe('No se pudo guardar la tienda.');
+    });
   });
 
   // ─── Create mode without query params ───────────────────────

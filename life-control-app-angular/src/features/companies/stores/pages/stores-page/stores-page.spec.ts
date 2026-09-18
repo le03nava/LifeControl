@@ -2,8 +2,9 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { signal, WritableSignal } from '@angular/core';
-import { NEVER, of } from 'rxjs';
+import { NEVER, of, throwError } from 'rxjs';
 import { ActivatedRoute, Router } from '@angular/router';
+import Keycloak from 'keycloak-js';
 import { StoresPage } from './stores-page';
 import { CompanyService } from '../../../companies/data/company.service';
 import { CompanyCountryService } from '../../../countries/data/company-country.service';
@@ -223,6 +224,14 @@ describe('StoresPage', () => {
         { provide: CompanyZoneService, useClass: MockCompanyZoneService },
         { provide: CompanyStoreService, useClass: MockCompanyStoreService },
         { provide: Router, useValue: { navigate: vi.fn() } },
+        {
+          provide: Keycloak,
+          useValue: {
+            tokenParsed: {
+              resource_access: { 'life-control-client': { roles: ['lc-admin'] } },
+            },
+          },
+        },
         {
           provide: ActivatedRoute,
           useValue: {
@@ -548,6 +557,81 @@ describe('StoresPage', () => {
     expect(storeService.enableStore).not.toHaveBeenCalled();
   });
 
+  it('should surface the backend message when disabling fails', async () => {
+    const storeService = TestBed.inject(CompanyStoreService) as unknown as MockCompanyStoreService;
+    storeService.removeStore.mockReturnValue(
+      throwError(() => ({ error: { message: 'La zona está deshabilitada' } })),
+    );
+
+    component.onSelectCountry(mockAssignedCountries[0]);
+    component.onSelectRegion(mockRegions[0]);
+    component.onSelectZone(mockZones[0]);
+    await settle();
+
+    component.onToggleStore('store-1'); // enabled: true
+    await settle();
+
+    expect(component.actionError()).toBe('La zona está deshabilitada');
+
+    const errorEl = fixture.nativeElement.querySelector('.error-state');
+    expect(errorEl).toBeTruthy();
+    expect(errorEl.textContent).toContain('La zona está deshabilitada');
+  });
+
+  it('should surface the backend message when re-enabling fails', async () => {
+    const storeService = TestBed.inject(CompanyStoreService) as unknown as MockCompanyStoreService;
+    storeService.enableStore.mockReturnValue(
+      throwError(() => ({ error: { message: 'La zona está deshabilitada' } })),
+    );
+
+    component.onSelectCountry(mockAssignedCountries[0]);
+    component.onSelectRegion(mockRegions[0]);
+    component.onSelectZone(mockZones[0]);
+    await settle();
+
+    component.onToggleStore('store-2'); // enabled: false
+    await settle();
+
+    expect(component.actionError()).toBe('La zona está deshabilitada');
+  });
+
+  it('should fall back to a generic message when the failure carries none', async () => {
+    const storeService = TestBed.inject(CompanyStoreService) as unknown as MockCompanyStoreService;
+    storeService.enableStore.mockReturnValue(throwError(() => ({ error: {} })));
+
+    component.onSelectCountry(mockAssignedCountries[0]);
+    component.onSelectRegion(mockRegions[0]);
+    component.onSelectZone(mockZones[0]);
+    await settle();
+
+    component.onToggleStore('store-2');
+    await settle();
+
+    expect(component.actionError()).toBe('No se pudo actualizar la tienda.');
+  });
+
+  it('should clear a previous action error on the next toggle attempt', async () => {
+    const storeService = TestBed.inject(CompanyStoreService) as unknown as MockCompanyStoreService;
+    storeService.enableStore.mockReturnValue(
+      throwError(() => ({ error: { message: 'La zona está deshabilitada' } })),
+    );
+
+    component.onSelectCountry(mockAssignedCountries[0]);
+    component.onSelectRegion(mockRegions[0]);
+    component.onSelectZone(mockZones[0]);
+    await settle();
+
+    component.onToggleStore('store-2');
+    await settle();
+    expect(component.actionError()).toBe('La zona está deshabilitada');
+
+    storeService.enableStore.mockReturnValue(of(mockStores[1]));
+    component.onToggleStore('store-2');
+    await settle();
+
+    expect(component.actionError()).toBeNull();
+  });
+
   // ─── filteredStores ────────────────────────────────────────
 
   it('should show only enabled stores by default', async () => {
@@ -700,6 +784,64 @@ describe('StoresPage', () => {
       expect(component.zones()).toEqual([]);
       expect(component.stores()).toEqual([]);
       expect(component.filteredStores()).toEqual([]);
+    });
+  });
+
+  // ─── Create-button role gating ───────────────────────────────
+
+  describe('create button gating', () => {
+    /** Rebuilds the page with a specific set of Keycloak client roles. */
+    async function setupWithRoles(roles: string[]): Promise<void> {
+      fixture.destroy();
+      TestBed.resetTestingModule();
+      await TestBed.configureTestingModule({
+        imports: [StoresPage, NoopAnimationsModule, HttpClientTestingModule],
+        providers: [
+          { provide: CompanyService, useClass: MockCompanyService },
+          { provide: CompanyCountryService, useClass: MockCompanyCountryService },
+          { provide: CompanyRegionService, useClass: MockCompanyRegionService },
+          { provide: CompanyZoneService, useClass: MockCompanyZoneService },
+          { provide: CompanyStoreService, useClass: MockCompanyStoreService },
+          { provide: Router, useValue: { navigate: vi.fn() } },
+          {
+            provide: Keycloak,
+            useValue: {
+              tokenParsed: { resource_access: { 'life-control-client': { roles } } },
+            },
+          },
+          {
+            provide: ActivatedRoute,
+            useValue: {
+              snapshot: {
+                queryParamMap: { get: vi.fn().mockReturnValue(null) },
+                paramMap: { get: vi.fn().mockReturnValue(null) },
+              },
+            },
+          },
+        ],
+      }).compileComponents();
+
+      fixture = TestBed.createComponent(StoresPage);
+      component = fixture.componentInstance;
+      fixture.detectChanges();
+    }
+
+    it('should show "Nueva Tienda" for roles that can create stores', async () => {
+      await setupWithRoles(['lc-company']);
+
+      expect(fixture.nativeElement.textContent).toContain('Nueva Tienda');
+    });
+
+    it('should hide "Nueva Tienda" for store-scoped users', async () => {
+      await setupWithRoles(['lc-company-store']);
+
+      expect(fixture.nativeElement.textContent).not.toContain('Nueva Tienda');
+    });
+
+    it('should hide "Nueva Tienda" for read-only store users', async () => {
+      await setupWithRoles(['lc-company-store-read']);
+
+      expect(fixture.nativeElement.textContent).not.toContain('Nueva Tienda');
     });
   });
 });

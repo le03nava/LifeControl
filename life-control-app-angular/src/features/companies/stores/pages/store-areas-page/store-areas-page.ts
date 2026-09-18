@@ -8,6 +8,7 @@ import {
   signal,
 } from '@angular/core';
 import { rxResource, takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
@@ -17,6 +18,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { PageHeader, ConfirmDialog } from '@shared/ui';
+import { ApiError } from '@shared/models';
 import { of } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 import { CompanyService } from '../../../companies/data/company.service';
@@ -95,19 +97,14 @@ export class StoreAreasPage {
   // ─── Reactive data flow: each level is keyed on the selection above it ───
   readonly countriesResource = rxResource({
     params: () => this.selectedCompanyId() || undefined,
-    stream: ({ params: companyId }) =>
-      this.companyCountryService
-        .getCountries(companyId)
-        .pipe(catchError(() => of([] as CompanyCountry[]))),
+    stream: ({ params: companyId }) => this.companyCountryService.getCountries(companyId),
     defaultValue: [] as CompanyCountry[],
   });
 
   readonly regionsResource = rxResource({
     params: () => this.selectedCountry() ?? undefined,
     stream: ({ params: country }) =>
-      this.companyRegionService
-        .getRegions(country.companyId, country.id)
-        .pipe(catchError(() => of([] as CompanyRegion[]))),
+      this.companyRegionService.getRegions(country.companyId, country.id),
     defaultValue: [] as CompanyRegion[],
   });
 
@@ -119,9 +116,7 @@ export class StoreAreasPage {
       return { companyId: country.companyId, countryId: country.id, regionId: region.id };
     },
     stream: ({ params }) =>
-      this.companyZoneService
-        .getZones(params.companyId, params.countryId, params.regionId)
-        .pipe(catchError(() => of([] as CompanyZone[]))),
+      this.companyZoneService.getZones(params.companyId, params.countryId, params.regionId),
     defaultValue: [] as CompanyZone[],
   });
 
@@ -143,9 +138,13 @@ export class StoreAreasPage {
       };
     },
     stream: ({ params }) =>
-      this.companyStoreService
-        .getStores(params.companyId, params.companyCountryId, params.regionId, params.zoneId, true)
-        .pipe(catchError(() => of([] as CompanyStore[]))),
+      this.companyStoreService.getStores(
+        params.companyId,
+        params.companyCountryId,
+        params.regionId,
+        params.zoneId,
+        true,
+      ),
     defaultValue: [] as CompanyStore[],
   });
 
@@ -196,6 +195,26 @@ export class StoreAreasPage {
 
   /** Friendly error message owned by the service (set on load failure). */
   readonly areasError = computed(() => this.storeAreaService.error());
+
+  /**
+   * Cascade load failures: a failed non-leaf level leaves its dependent selectors
+   * empty (guarded reads above) and surfaces the failure instead of a silent empty.
+   */
+  readonly countriesError = computed(() =>
+    this.cascadeMessage(this.countriesResource.error(), 'No se pudieron cargar los países.'),
+  );
+  readonly regionsError = computed(() =>
+    this.cascadeMessage(this.regionsResource.error(), 'No se pudieron cargar las regiones.'),
+  );
+  readonly zonesError = computed(() =>
+    this.cascadeMessage(this.zonesResource.error(), 'No se pudieron cargar las zonas.'),
+  );
+  readonly storesError = computed(() =>
+    this.cascadeMessage(this.storesResource.error(), 'No se pudieron cargar las tiendas.'),
+  );
+
+  /** Write failure surfaced to the user (e.g. HTTP 409 when an ancestor is disabled). */
+  readonly actionError = signal<string | null>(null);
 
   /** compareWith for mat-select: both sides are CompanyCountry objects */
   protected compareCompanyCountry = (
@@ -331,6 +350,8 @@ export class StoreAreasPage {
     const store = this.selectedStore();
     if (!store) return;
 
+    this.actionError.set(null);
+
     if (area.enabled) {
       const dialogRef = this.dialog.open(ConfirmDialog, {
         data: {
@@ -355,7 +376,10 @@ export class StoreAreasPage {
               area.id,
             )
             .pipe(takeUntilDestroyed(this.destroyRef))
-            .subscribe(() => this.reload.update((n) => n + 1));
+            .subscribe({
+              next: () => this.reload.update((n) => n + 1),
+              error: (err: HttpErrorResponse) => this.setActionError(err),
+            });
         });
     } else {
       this.storeAreaService
@@ -368,7 +392,30 @@ export class StoreAreasPage {
           area.id,
         )
         .pipe(takeUntilDestroyed(this.destroyRef))
-        .subscribe(() => this.reload.update((n) => n + 1));
+        .subscribe({
+          next: () => this.reload.update((n) => n + 1),
+          error: (err: HttpErrorResponse) => this.setActionError(err),
+        });
     }
+  }
+
+  /**
+   * Surfaces write failures instead of swallowing them: the backend answers 409
+   * when an ancestor (store) is disabled, which is an expected flow here.
+   */
+  private setActionError(err: HttpErrorResponse): void {
+    const apiError = err.error as ApiError | undefined;
+    this.actionError.set(apiError?.message ?? 'No se pudo actualizar el área de la tienda.');
+  }
+
+  /**
+   * Maps a cascade resource failure to user-facing copy. `rxResource` wraps
+   * non-`Error` throwables (an `HttpErrorResponse`) in a wrapped error, so the
+   * API envelope lives on `cause`.
+   */
+  private cascadeMessage(err: Error | undefined, fallback: string): string | null {
+    if (!err) return null;
+    const httpError = (err.cause as HttpErrorResponse | undefined) ?? (err as HttpErrorResponse);
+    return (httpError.error as ApiError | undefined)?.message ?? fallback;
   }
 }

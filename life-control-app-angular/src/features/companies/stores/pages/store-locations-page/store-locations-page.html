@@ -21,6 +21,48 @@
     </div>
   }
 
+  @if (countriesError(); as errorMsg) {
+    <div class="cascade-error error-state">
+      <mat-icon fontIcon="error" />
+      <p>{{ errorMsg }}</p>
+    </div>
+  }
+
+  @if (regionsError(); as errorMsg) {
+    <div class="cascade-error error-state">
+      <mat-icon fontIcon="error" />
+      <p>{{ errorMsg }}</p>
+    </div>
+  }
+
+  @if (companyZonesError(); as errorMsg) {
+    <div class="cascade-error error-state">
+      <mat-icon fontIcon="error" />
+      <p>{{ errorMsg }}</p>
+    </div>
+  }
+
+  @if (storesError(); as errorMsg) {
+    <div class="cascade-error error-state">
+      <mat-icon fontIcon="error" />
+      <p>{{ errorMsg }}</p>
+    </div>
+  }
+
+  @if (areasError(); as errorMsg) {
+    <div class="cascade-error error-state">
+      <mat-icon fontIcon="error" />
+      <p>{{ errorMsg }}</p>
+    </div>
+  }
+
+  @if (storeZonesError(); as errorMsg) {
+    <div class="cascade-error error-state">
+      <mat-icon fontIcon="error" />
+      <p>{{ errorMsg }}</p>
+    </div>
+  }
+
   <div class="filters-section">
     <mat-form-field appearance="outline" class="company-selector" subscriptSizing="dynamic">
       <mat-label>Empresa</mat-label>

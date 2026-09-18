@@ -14,6 +14,7 @@ import { CompanyRegionService } from '../../../regions/data/company-region.servi
 import { CompanyZoneService } from '../../../zones/data/company-zone.service';
 import { CompanyStoreService } from '../../data/company-store.service';
 import { StoresForm } from '../../components/stores-form/stores-form';
+import { ErrorBanner } from '@shared/ui';
 import { CompanyStore, StoreSaveEvent } from '../../models/store.models';
 import { CompanyCountry } from '../../../countries/models/country.models';
 import { CompanyRegion } from '../../../regions/models/region.models';
@@ -25,7 +26,7 @@ import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 @Component({
   selector: 'app-stores-edit',
   standalone: true,
-  imports: [StoresForm],
+  imports: [StoresForm, ErrorBanner],
   templateUrl: './stores-edit.html',
   styleUrl: './stores-edit.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -54,6 +55,9 @@ export class StoresEdit implements OnInit {
 
   serverErrors = signal<Record<string, string>>({});
   addressServerErrors = signal<Record<string, string>>({});
+
+  /** Non-field save failure (e.g. 409 duplicate name or 404) surfaced as a banner. */
+  generalError = signal<string | null>(null);
 
   // ─── Edit mode data ────────────────────────────────────
   storeToEdit = signal<CompanyStore | null>(null);
@@ -223,6 +227,10 @@ export class StoresEdit implements OnInit {
     const apiError = err.error as ApiError | undefined;
     if (apiError?.errors) {
       this.serverErrors.set(apiError.errors);
+      this.generalError.set(null);
+      return;
     }
+    // The backend 409/404 envelope has no `errors` map: surface its message instead.
+    this.generalError.set(apiError?.message ?? 'No se pudo guardar la tienda.');
   }
 }

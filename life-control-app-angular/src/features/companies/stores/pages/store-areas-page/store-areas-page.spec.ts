@@ -3,7 +3,8 @@ import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { By } from '@angular/platform-browser';
 import { signal, WritableSignal } from '@angular/core';
-import { of } from 'rxjs';
+import { throwError, of } from 'rxjs';
+import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router } from '@angular/router';
 import { MatDialog } from '@angular/material/dialog';
 import { MatSelect } from '@angular/material/select';
@@ -230,6 +231,15 @@ describe('StoreAreasPage', () => {
         },
       },
     };
+  }
+
+  /** Backend failure simulating the real HTTP envelope (wrapped by rxResource). */
+  function httpFailure(message: string): HttpErrorResponse {
+    return new HttpErrorResponse({
+      error: { message },
+      status: 503,
+      statusText: 'Service Unavailable',
+    });
   }
 
   async function setup(queryParams: Record<string, string> = {}): Promise<void> {
@@ -471,6 +481,88 @@ describe('StoreAreasPage', () => {
     });
   });
 
+  describe('cascade load failures', () => {
+    beforeEach(async () => {
+      await setup();
+    });
+
+    it('should surface a countries failure instead of an empty list', async () => {
+      const countryService = TestBed.inject(
+        CompanyCountryService,
+      ) as unknown as MockCompanyCountryService;
+      countryService.getCountries.mockReturnValue(throwError(() => httpFailure('Países caídos')));
+
+      component.onCompanyChange('company-1');
+      await settle();
+
+      expect(component.countries()).toEqual([]);
+      expect(component.countriesError()).toBe('Países caídos');
+      expect(fixture.nativeElement.querySelector('.cascade-error')?.textContent).toContain(
+        'Países caídos',
+      );
+    });
+
+    it('should surface a regions failure instead of an empty list', async () => {
+      const regionService = TestBed.inject(
+        CompanyRegionService,
+      ) as unknown as MockCompanyRegionService;
+      regionService.getRegions.mockReturnValue(throwError(() => httpFailure('Regiones caídas')));
+
+      component.onCompanyChange('company-1');
+      await settle();
+      component.onSelectCountry(mockAssignedCountries[0]);
+      await settle();
+
+      expect(component.regions()).toEqual([]);
+      expect(component.regionsError()).toBe('Regiones caídas');
+      expect(fixture.nativeElement.querySelector('.cascade-error')?.textContent).toContain(
+        'Regiones caídas',
+      );
+    });
+
+    it('should surface a zones failure instead of an empty list', async () => {
+      const zoneService = TestBed.inject(
+        CompanyZoneService,
+      ) as unknown as MockCompanyZoneService;
+      zoneService.getZones.mockReturnValue(throwError(() => httpFailure('Zonas caídas')));
+
+      component.onCompanyChange('company-1');
+      await settle();
+      component.onSelectCountry(mockAssignedCountries[0]);
+      await settle();
+      component.onSelectRegion(mockRegions[0]);
+      await settle();
+
+      expect(component.zones()).toEqual([]);
+      expect(component.zonesError()).toBe('Zonas caídas');
+      expect(fixture.nativeElement.querySelector('.cascade-error')?.textContent).toContain(
+        'Zonas caídas',
+      );
+    });
+
+    it('should surface a stores failure instead of an empty list', async () => {
+      const storeService = TestBed.inject(
+        CompanyStoreService,
+      ) as unknown as MockCompanyStoreService;
+      storeService.getStores.mockReturnValue(throwError(() => httpFailure('Tiendas caídas')));
+
+      component.onCompanyChange('company-1');
+      await settle();
+      component.onSelectCountry(mockAssignedCountries[0]);
+      await settle();
+      component.onSelectRegion(mockRegions[0]);
+      await settle();
+      component.onSelectZone(mockZones[0]);
+      await settle();
+
+      expect(component.stores()).toEqual([]);
+      expect(component.storesError()).toBe('Tiendas caídas');
+      expect(fixture.nativeElement.querySelector('.cascade-error')?.textContent).toContain(
+        'Tiendas caídas',
+      );
+    });
+  });
+
   describe('onCreateArea', () => {
     beforeEach(async () => {
       await setup();
@@ -600,6 +692,77 @@ describe('StoreAreasPage', () => {
       ).map((b) => b.getAttribute('aria-label'));
       expect(labels).toContain('Reactivar área');
       expect(labels).toContain('Deshabilitar área');
+    });
+
+    it('should surface the backend message when disabling fails', async () => {
+      const areaService = TestBed.inject(StoreAreaService) as unknown as MockStoreAreaService;
+      dialogMock.open.mockReturnValue({ afterClosed: () => of(true) });
+      areaService.removeArea.mockReturnValue(
+        throwError(() => ({ error: { message: 'La tienda está deshabilitada' } })),
+      );
+
+      await selectStore();
+
+      component.onToggleArea(mockAreas[0]);
+      await settle();
+
+      expect(component.actionError()).toBe('La tienda está deshabilitada');
+      expect(component.reload()).toBe(0);
+
+      const errorEl = fixture.nativeElement.querySelector('.error-state');
+      expect(errorEl).toBeTruthy();
+      expect(errorEl.textContent).toContain('La tienda está deshabilitada');
+    });
+
+    it('should surface the backend message when re-enabling fails', async () => {
+      const areaService = TestBed.inject(StoreAreaService) as unknown as MockStoreAreaService;
+      areaService.enableArea.mockReturnValue(
+        throwError(() => ({ error: { message: 'La tienda está deshabilitada' } })),
+      );
+
+      await selectStore();
+
+      component.onToggleArea(mockAreas[1]); // enabled: false
+      await settle();
+
+      expect(component.actionError()).toBe('La tienda está deshabilitada');
+      expect(component.reload()).toBe(0);
+
+      const errorEl = fixture.nativeElement.querySelector('.error-state');
+      expect(errorEl).toBeTruthy();
+      expect(errorEl.textContent).toContain('La tienda está deshabilitada');
+    });
+
+    it('should fall back to a generic message when the failure carries none', async () => {
+      const areaService = TestBed.inject(StoreAreaService) as unknown as MockStoreAreaService;
+      areaService.enableArea.mockReturnValue(throwError(() => ({ error: {} })));
+
+      await selectStore();
+
+      component.onToggleArea(mockAreas[1]);
+      await settle();
+
+      expect(component.actionError()).toBe('No se pudo actualizar el área de la tienda.');
+    });
+
+    it('should clear a previous action error on the next toggle attempt', async () => {
+      const areaService = TestBed.inject(StoreAreaService) as unknown as MockStoreAreaService;
+      areaService.enableArea.mockReturnValue(
+        throwError(() => ({ error: { message: 'La tienda está deshabilitada' } })),
+      );
+
+      await selectStore();
+
+      component.onToggleArea(mockAreas[1]);
+      await settle();
+      expect(component.actionError()).toBe('La tienda está deshabilitada');
+
+      areaService.enableArea.mockReturnValue(of(mockAreas[1]));
+      component.onToggleArea(mockAreas[1]);
+      await settle();
+
+      expect(component.actionError()).toBeNull();
+      expect(component.reload()).toBe(1);
     });
   });
 
