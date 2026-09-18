@@ -143,12 +143,18 @@ describe('Header', () => {
       const { component } = setup(['lc-admin']);
       const companiesItem = component.items().find((i) => i.routeLink === '/companies');
       expect(companiesItem?.children).toBeDefined();
-      expect(companiesItem?.children).toHaveLength(1);
+      expect(companiesItem?.children).toHaveLength(2);
       expect(companiesItem?.children?.[0]).toEqual({
         id: '2-1',
         routeLink: '/companies/store-zones',
         textLink: 'Store Zones',
         icon: 'grid_view',
+      });
+      expect(companiesItem?.children?.[1]).toEqual({
+        id: '2-2',
+        routeLink: '/companies/store-locations',
+        textLink: 'Store Locations',
+        icon: 'shelves',
       });
     });
 
@@ -172,6 +178,9 @@ describe('Header', () => {
       expect(companiesItem?.children?.some((c) => c.routeLink === '/companies/store-zones')).toBe(
         true,
       );
+      expect(
+        companiesItem?.children?.some((c) => c.routeLink === '/companies/store-locations'),
+      ).toBe(true);
     });
 
     it('should NOT expose the Store Zones child when user has no company role', () => {

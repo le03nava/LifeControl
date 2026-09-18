@@ -96,6 +96,20 @@ const STATIC_CARDS: Omit<DashboardCard, 'disabled'>[] = [
       'lc-company-store',
     ],
   },
+  {
+    title: 'Store Locations',
+    icon: 'shelves',
+    description: 'Manage the physical locations inside each store zone.',
+    route: '/companies/store-locations',
+    requiredRoles: [
+      'lc-admin',
+      'lc-company',
+      'lc-company-country',
+      'lc-company-region',
+      'lc-company-zone',
+      'lc-company-store',
+    ],
+  },
 ];
 
 @Component({
