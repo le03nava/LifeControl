@@ -61,10 +61,29 @@ export class Header implements OnInit {
   });
 
   items = computed(() => {
-    const menuItems: { id: string; routeLink: string; textLink: string; icon: string }[] = [];
+    const menuItems: {
+      id: string;
+      routeLink: string;
+      textLink: string;
+      icon: string;
+      children?: { id: string; routeLink: string; textLink: string; icon: string }[];
+    }[] = [];
 
     if (this.isCompanyRole()) {
-      menuItems.push({ id: '2', routeLink: '/companies', textLink: 'Companies', icon: 'business' });
+      menuItems.push({
+        id: '2',
+        routeLink: '/companies',
+        textLink: 'Companies',
+        icon: 'business',
+        children: [
+          {
+            id: '2-1',
+            routeLink: '/companies/store-zones',
+            textLink: 'Store Zones',
+            icon: 'grid_view',
+          },
+        ],
+      });
     }
 
     if (this.isSalesRole()) {
