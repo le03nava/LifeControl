@@ -1,0 +1,5 @@
+@use '../../../../../shared/styles/form-layout' as *;
+
+.full-width {
+  grid-column: 1 / -1;
+}

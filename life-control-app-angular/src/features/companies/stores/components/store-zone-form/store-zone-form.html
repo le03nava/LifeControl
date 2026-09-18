@@ -1,0 +1,64 @@
+<div class="form-card">
+  <h2>
+    @if (isEditMode()) {
+      Editar Zona
+    } @else {
+      Nueva Zona
+    }
+  </h2>
+
+  <form [formGroup]="formGroup" (ngSubmit)="onSave()">
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>Código</mat-label>
+      <input matInput type="text" formControlName="zoneCode" placeholder="Ej. SECO" />
+      @if (getErrorMessage(formGroup.controls.zoneCode); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>Nombre</mat-label>
+      <input
+        matInput
+        type="text"
+        formControlName="zoneName"
+        placeholder="Ingrese el nombre de la zona"
+      />
+      @if (getErrorMessage(formGroup.controls.zoneName); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+      <mat-label>Descripción</mat-label>
+      <textarea
+        matInput
+        formControlName="description"
+        rows="3"
+        placeholder="Descripción opcional de la zona"
+      ></textarea>
+      @if (getErrorMessage(formGroup.controls.description); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>Orden</mat-label>
+      <input matInput type="number" formControlName="displayOrder" min="0" placeholder="0" />
+      @if (getErrorMessage(formGroup.controls.displayOrder); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <div class="form-actions">
+      <button mat-button type="button" (click)="onCancel()">Cancelar</button>
+      <button mat-flat-button type="submit">
+        @if (isEditMode()) {
+          Actualizar
+        } @else {
+          Guardar
+        }
+      </button>
+    </div>
+  </form>
+</div>
