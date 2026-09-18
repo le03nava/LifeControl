@@ -1,0 +1,219 @@
+@use '../../../../../shared/styles/variables' as *;
+
+:host {
+  display: block;
+  width: 100%;
+  padding: 0 var(--space-md);
+}
+
+.store-zones-page {
+  width: 100%;
+}
+
+.filters-section {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+
+  .company-selector,
+  .country-selector,
+  .region-selector,
+  .company-zone-selector,
+  .store-selector,
+  .area-selector {
+    flex: 1 1 220px;
+    max-width: 320px;
+  }
+}
+
+.store-zones-grid {
+  min-height: 200px;
+  margin-bottom: var(--space-sm);
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-lg);
+
+  @media (min-width: $bp-sm) {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  @media (min-width: $bp-md) {
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  }
+}
+
+.card-wrapper {
+  animation: slideInUp 0.4s ease-out;
+  animation-delay: calc(var(--i, 0) * 50ms);
+  animation-fill-mode: both;
+}
+
+.store-zone-card {
+  height: 100%;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+
+  &:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-lg);
+  }
+
+  mat-card-header {
+    margin-bottom: 0.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--mat-sys-outline-variant);
+  }
+
+  mat-card-subtitle {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin-top: 0.25rem;
+  }
+
+  mat-card-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    border-top: 1px solid var(--mat-sys-outline-variant);
+    padding: 0.5rem;
+  }
+}
+
+.card-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+
+  &.status.active {
+    background-color: var(--mat-sys-success-container);
+    color: var(--mat-sys-on-success-container);
+  }
+
+  &.status.inactive {
+    background-color: var(--mat-sys-error-container);
+    color: var(--mat-sys-on-error-container);
+  }
+
+  &.store-zone-code-badge {
+    background-color: var(--mat-sys-secondary-container);
+    color: var(--mat-sys-on-secondary-container);
+  }
+
+  &.order-badge {
+    background-color: var(--mat-sys-tertiary-container);
+    color: var(--mat-sys-on-tertiary-container);
+  }
+}
+
+.badge-icon {
+  font-size: 14px;
+  width: 14px;
+  height: 14px;
+}
+
+.description {
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 0.875rem;
+  line-height: 1.4;
+  margin: 0;
+}
+
+@keyframes slideInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.error-state {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-lg);
+  border: 1px solid var(--mat-sys-error);
+  border-radius: var(--radius-lg);
+  background-color: color-mix(in srgb, var(--mat-sys-error) 8%, transparent);
+  color: var(--mat-sys-error);
+  font-size: 1rem;
+  margin-bottom: var(--space-md);
+
+  mat-icon {
+    font-size: 24px;
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+  }
+
+  p {
+    margin: 0;
+  }
+}
+
+.store-zones-grid > .error-state {
+  grid-column: 1 / -1;
+  margin-bottom: 0;
+}
+
+.loading-text {
+  grid-column: 1 / -1;
+  color: var(--mat-sys-on-surface-variant);
+  font-style: italic;
+}
+
+.empty-state {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: var(--space-2xl) var(--space-xl);
+  color: var(--mat-sys-on-surface-variant);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+
+  p {
+    margin: 0;
+    font-style: italic;
+  }
+}
+
+.empty-prompt {
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 1rem;
+  margin-top: var(--space-md);
+}
+
+@media (max-width: $bp-sm) {
+  .filters-section {
+    .company-selector,
+    .country-selector,
+    .region-selector,
+    .company-zone-selector,
+    .store-selector,
+    .area-selector {
+      max-width: 100%;
+      flex: 1 1 100%;
+    }
+  }
+}

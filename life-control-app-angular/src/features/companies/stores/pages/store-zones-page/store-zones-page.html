@@ -1,0 +1,220 @@
+<div class="store-zones-page">
+  <app-page-header
+    title="Zonas de Tienda"
+    subtitle="Gestión de las zonas físicas dentro de cada área de una tienda"
+  >
+    <button
+      mat-flat-button
+      color="primary"
+      type="button"
+      [disabled]="!selectedArea()"
+      (click)="onCreateStoreZone()"
+    >
+      <mat-icon fontIcon="add" /> Nueva zona
+    </button>
+  </app-page-header>
+
+  @if (actionError(); as actionErrorMsg) {
+    <div class="error-state">
+      <mat-icon fontIcon="error" />
+      <p>{{ actionErrorMsg }}</p>
+    </div>
+  }
+
+  <div class="filters-section">
+    <mat-form-field appearance="outline" class="company-selector" subscriptSizing="dynamic">
+      <mat-label>Empresa</mat-label>
+      <mat-select [value]="selectedCompanyId()" (selectionChange)="onCompanyChange($event.value)">
+        <mat-option value="">— Seleccionar empresa —</mat-option>
+        @for (company of companies(); track company.id) {
+          <mat-option [value]="company.id">{{ company.companyName }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="country-selector" subscriptSizing="dynamic">
+      <mat-label>País</mat-label>
+      <mat-select
+        [value]="selectedCountry()"
+        [compareWith]="compareCompanyCountry"
+        [disabled]="countries().length === 0"
+        (selectionChange)="onSelectCountry($event.value)"
+      >
+        @for (cc of countries(); track cc.id) {
+          <mat-option [value]="cc">
+            {{ cc.countryName }}
+          </mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="region-selector" subscriptSizing="dynamic">
+      <mat-label>Región</mat-label>
+      <mat-select
+        [value]="selectedRegion()"
+        [compareWith]="compareCompanyRegion"
+        [disabled]="regions().length === 0"
+        (selectionChange)="onSelectRegion($event.value)"
+      >
+        @for (region of regions(); track region.id) {
+          <mat-option [value]="region">
+            {{ region.regionName }}
+          </mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="company-zone-selector" subscriptSizing="dynamic">
+      <mat-label>Zona</mat-label>
+      <mat-select
+        [value]="selectedCompanyZone()"
+        [compareWith]="compareCompanyZone"
+        [disabled]="companyZones().length === 0"
+        (selectionChange)="onSelectCompanyZone($event.value)"
+      >
+        @for (companyZone of companyZones(); track companyZone.id) {
+          <mat-option [value]="companyZone">
+            {{ companyZone.zoneName }}
+          </mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="store-selector" subscriptSizing="dynamic">
+      <mat-label>Tienda</mat-label>
+      <mat-select
+        [value]="selectedStore()"
+        [compareWith]="compareCompanyStore"
+        [disabled]="stores().length === 0"
+        (selectionChange)="onSelectStore($event.value)"
+      >
+        @for (store of stores(); track store.id) {
+          <mat-option [value]="store">
+            {{ store.storeName }}
+            @if (!store.enabled) {
+              (deshabilitada)
+            }
+          </mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="area-selector" subscriptSizing="dynamic">
+      <mat-label>Área</mat-label>
+      <mat-select
+        [value]="selectedArea()"
+        [compareWith]="compareStoreArea"
+        [disabled]="areas().length === 0"
+        (selectionChange)="onSelectArea($event.value)"
+      >
+        @for (area of areas(); track area.id) {
+          <mat-option [value]="area">
+            {{ area.areaName }}
+            @if (!area.enabled) {
+              (deshabilitada)
+            }
+          </mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-slide-toggle
+      class="filter-toggle"
+      [checked]="showDisabled()"
+      (change)="showDisabled.set($event.checked)"
+    >
+      Mostrar deshabilitadas
+    </mat-slide-toggle>
+  </div>
+
+  @if (selectedArea()) {
+    <div class="store-zones-grid">
+      @if (storeZonesError(); as errorMsg) {
+        <div class="error-state">
+          <mat-icon fontIcon="error" />
+          <p>{{ errorMsg }}</p>
+        </div>
+      }
+
+      @if (storeZonesResource.isLoading()) {
+        <p class="loading-text">Cargando zonas...</p>
+      }
+
+      @if (storeZones().length) {
+        @for (storeZone of storeZones(); track storeZone.id; let i = $index) {
+          <div class="card-wrapper" [style.--i]="i">
+            <mat-card class="store-zone-card" appearance="outlined">
+              <mat-card-header>
+                <mat-card-title>
+                  <div class="card-title-row">
+                    <span>{{ storeZone.zoneName }}</span>
+                    <span
+                      class="badge status"
+                      [class.active]="storeZone.enabled"
+                      [class.inactive]="!storeZone.enabled"
+                    >
+                      {{ storeZone.enabled ? 'Activa' : 'Inactiva' }}
+                    </span>
+                  </div>
+                </mat-card-title>
+                <mat-card-subtitle>
+                  <span class="badge store-zone-code-badge">
+                    <mat-icon fontIcon="grid_view" class="badge-icon" /> {{ storeZone.zoneCode }}
+                  </span>
+                  @if (storeZone.displayOrder !== null) {
+                    <span class="badge order-badge">
+                      <mat-icon fontIcon="format_list_numbered" class="badge-icon" />
+                      Ord. {{ storeZone.displayOrder }}
+                    </span>
+                  }
+                </mat-card-subtitle>
+              </mat-card-header>
+              <mat-card-content>
+                @if (storeZone.description) {
+                  <p class="description">{{ storeZone.description }}</p>
+                }
+              </mat-card-content>
+              <mat-card-actions align="end">
+                <button
+                  mat-button
+                  type="button"
+                  (click)="onEditStoreZone(storeZone)"
+                  aria-label="Editar zona"
+                >
+                  <mat-icon fontIcon="edit" /> Editar
+                </button>
+                @if (storeZone.enabled) {
+                  <button
+                    mat-flat-button
+                    color="warn"
+                    type="button"
+                    (click)="onToggleStoreZone(storeZone)"
+                    aria-label="Deshabilitar zona"
+                  >
+                    <mat-icon fontIcon="block" /> Deshabilitar
+                  </button>
+                } @else {
+                  <button
+                    mat-flat-button
+                    color="primary"
+                    type="button"
+                    (click)="onToggleStoreZone(storeZone)"
+                    aria-label="Reactivar zona"
+                  >
+                    <mat-icon fontIcon="restart_alt" /> Reactivar
+                  </button>
+                }
+              </mat-card-actions>
+            </mat-card>
+          </div>
+        }
+      } @else if (!storeZonesResource.isLoading()) {
+        <div class="empty-state">
+          <p>No hay zonas registradas para esta área</p>
+        </div>
+      }
+    </div>
+  } @else {
+    <p class="empty-prompt">Seleccioná un área para ver sus zonas</p>
+  }
+</div>
