@@ -232,6 +232,39 @@ class StoreAreaControllerTest {
         }
 
         @Test
+        @DisplayName("should return 400 when displayOrder is negative")
+        void createArea_NegativeDisplayOrderReturns400() throws Exception {
+            var invalidRequest = new CreateStoreAreaRequest("A01", "Bodega", null, -1);
+
+            mockMvc.perform(post(BASE_URL, testCompanyId, testCompanyCountryId, testRegionId, testZoneId, testStoreId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(invalidRequest)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors.displayOrder").exists());
+
+            verifyNoInteractions(storeAreaService);
+        }
+
+        @Test
+        @DisplayName("should accept displayOrder = 0")
+        void createArea_ZeroDisplayOrderIsAccepted() throws Exception {
+            var request = new CreateStoreAreaRequest("A01", "Bodega", null, 0);
+            when(storeAreaService.createArea(
+                            eq(testCompanyId),
+                            eq(testCompanyCountryId),
+                            eq(testRegionId),
+                            eq(testZoneId),
+                            eq(testStoreId),
+                            any(CreateStoreAreaRequest.class)))
+                    .thenReturn(testAreaResponse);
+
+            mockMvc.perform(post(BASE_URL, testCompanyId, testCompanyCountryId, testRegionId, testZoneId, testStoreId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isCreated());
+        }
+
+        @Test
         @DisplayName("should return 409 when the area code already exists in the store")
         void createArea_Duplicate() throws Exception {
             var request = new CreateStoreAreaRequest("A01", "Bodega", null, null);
@@ -340,6 +373,54 @@ class StoreAreaControllerTest {
                             .content(objectMapper.writeValueAsString(invalidRequest)))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.errors.areaName").exists());
+        }
+
+        @Test
+        @DisplayName("should return 400 when displayOrder is negative")
+        void updateArea_NegativeDisplayOrderReturns400() throws Exception {
+            var invalidRequest = new UpdateStoreAreaRequest(null, null, null, -1);
+
+            mockMvc.perform(put(
+                                    BASE_URL + "/{areaId}",
+                                    testCompanyId,
+                                    testCompanyCountryId,
+                                    testRegionId,
+                                    testZoneId,
+                                    testStoreId,
+                                    testAreaId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(invalidRequest)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors.displayOrder").exists());
+
+            verifyNoInteractions(storeAreaService);
+        }
+
+        @Test
+        @DisplayName("should accept a null displayOrder meaning unchanged")
+        void updateArea_NullDisplayOrderIsUnchanged() throws Exception {
+            var request = new UpdateStoreAreaRequest(null, null, null, null);
+            when(storeAreaService.updateArea(
+                            eq(testCompanyId),
+                            eq(testCompanyCountryId),
+                            eq(testRegionId),
+                            eq(testZoneId),
+                            eq(testStoreId),
+                            eq(testAreaId),
+                            any(UpdateStoreAreaRequest.class)))
+                    .thenReturn(testAreaResponse);
+
+            mockMvc.perform(put(
+                                    BASE_URL + "/{areaId}",
+                                    testCompanyId,
+                                    testCompanyCountryId,
+                                    testRegionId,
+                                    testZoneId,
+                                    testStoreId,
+                                    testAreaId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isOk());
         }
 
         @Test

@@ -2,9 +2,14 @@ package com.lifecontrol.api.store.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
@@ -35,6 +40,7 @@ import com.lifecontrol.api.store.repository.StoreZoneRepository;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -43,6 +49,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.access.AccessDeniedException;
 
@@ -98,6 +105,32 @@ class StoreLocationServiceTest {
     private StoreLocation testStoreLocation;
     private CreateStoreLocationRequest createRequest;
     private UpdateStoreLocationRequest updateRequest;
+
+    private ListAppender<ILoggingEvent> logAppender;
+    private Logger serviceLogger;
+    private Level previousLogLevel;
+
+    @BeforeEach
+    void attachLogCapture() {
+        serviceLogger = (Logger) LoggerFactory.getLogger(StoreLocationService.class);
+        previousLogLevel = serviceLogger.getLevel();
+        serviceLogger.setLevel(Level.INFO);
+        logAppender = new ListAppender<>();
+        logAppender.start();
+        serviceLogger.addAppender(logAppender);
+    }
+
+    @AfterEach
+    void detachLogCapture() {
+        serviceLogger.detachAppender(logAppender);
+        serviceLogger.setLevel(previousLogLevel);
+    }
+
+    private String capturedLogs() {
+        return logAppender.list.stream()
+                .map(ILoggingEvent::getFormattedMessage)
+                .collect(java.util.stream.Collectors.joining("\n"));
+    }
 
     @BeforeEach
     void setUp() {
@@ -393,16 +426,30 @@ class StoreLocationServiceTest {
         }
 
         @Test
-        @DisplayName("should propagate AccessDeniedException from verifyCompanyStoreAccess")
+        @DisplayName("should mask a denied flat lookup as the identical not-found error of the same id")
         void getLocationByIdFlat_AccessDenied() {
+            // Genuinely missing: findById returns nothing.
+            when(storeLocationRepository.findById(storeLocationId)).thenReturn(Optional.empty());
+            var genuinelyMissing = catchThrowable(() -> storeLocationService.getLocationById(storeLocationId));
+
+            // Out of scope: the location exists, but the resolved store is not accessible to the user.
             when(storeLocationRepository.findById(storeLocationId)).thenReturn(Optional.of(testStoreLocation));
             doThrow(new AccessDeniedException("Access denied"))
                     .when(currentUserContext)
                     .verifyCompanyStoreAccess(companyId, companyCountryId, regionId, zoneId, storeId);
+            when(currentUserContext.getUsername()).thenReturn("jdoe");
+            var denied = catchThrowable(() -> storeLocationService.getLocationById(storeLocationId));
 
-            assertThatThrownBy(() -> storeLocationService.getLocationById(storeLocationId))
-                    .isInstanceOf(AccessDeniedException.class)
-                    .hasMessage("Access denied");
+            // The two responses must be indistinguishable: same type, same message, same status.
+            assertThat(genuinelyMissing).isInstanceOf(StoreLocationNotFoundException.class);
+            assertThat(denied).isInstanceOf(StoreLocationNotFoundException.class);
+            assertThat(denied.getClass()).isEqualTo(genuinelyMissing.getClass());
+            assertThat(denied.getMessage()).isEqualTo(genuinelyMissing.getMessage());
+            assertThat(denied.getMessage()).isEqualTo("Store location not found with id: " + storeLocationId);
+            assertThat(capturedLogs())
+                    .contains("StoreLocation access denied")
+                    .contains("id=" + storeLocationId)
+                    .contains("actor=jdoe");
         }
     }
 
@@ -656,6 +703,41 @@ class StoreLocationServiceTest {
             assertThat(captor.getValue().getEnabled()).isFalse();
             verify(storeLocationRepository, never()).deleteById(any());
             verify(storeLocationRepository, never()).delete(any());
+        }
+
+        @Test
+        @DisplayName("should record the acting username in the soft-delete audit log")
+        void deleteLocation_LogsActingUsername() {
+            mockZoneResolution();
+            when(storeLocationRepository.findByIdAndStoreZoneId(storeLocationId, storeZoneId))
+                    .thenReturn(Optional.of(testStoreLocation));
+            when(storeLocationRepository.save(any(StoreLocation.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
+            when(currentUserContext.getUsername()).thenReturn("jdoe");
+
+            storeLocationService.deleteLocation(
+                    companyId, companyCountryId, regionId, zoneId, storeId, areaId, storeZoneId, storeLocationId);
+
+            assertThat(capturedLogs())
+                    .contains("StoreLocation soft-deleted")
+                    .contains("id=" + storeLocationId)
+                    .contains("actor=jdoe");
+        }
+
+        @Test
+        @DisplayName("should fall back to the user id in the audit log when the username is absent")
+        void deleteLocation_LogsUserIdWhenUsernameMissing() {
+            mockZoneResolution();
+            when(storeLocationRepository.findByIdAndStoreZoneId(storeLocationId, storeZoneId))
+                    .thenReturn(Optional.of(testStoreLocation));
+            when(storeLocationRepository.save(any(StoreLocation.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
+            when(currentUserContext.getUserId()).thenReturn("user-123");
+
+            storeLocationService.deleteLocation(
+                    companyId, companyCountryId, regionId, zoneId, storeId, areaId, storeZoneId, storeLocationId);
+
+            assertThat(capturedLogs()).contains("StoreLocation soft-deleted").contains("actor=user-123");
         }
 
         @Test

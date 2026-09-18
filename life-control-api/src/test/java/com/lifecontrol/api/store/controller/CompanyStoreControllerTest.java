@@ -225,6 +225,28 @@ class CompanyStoreControllerTest {
         }
 
         @Test
+        @DisplayName("should return 400 when the nested address street exceeds 255 characters")
+        void createStore_OverLengthAddressStreetReturns400() throws Exception {
+            // Arrange: 256 chars in the nested address. Without @Valid on the address component the
+            // @Size(max = 255) in AddressRequest never runs and this request would reach the service.
+            var request = new CreateCompanyStoreRequest(
+                    "Tienda Nueva",
+                    "nueva@example.com",
+                    "555-5678",
+                    new AddressRequest("a".repeat(256), null, null, null, null, null, null, UUID.randomUUID()));
+
+            // Act & Assert
+            mockMvc.perform(post(BASE_URL, testCompanyId, testCompanyCountryId, testRegionId, testZoneId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value("Validation failed"))
+                    .andExpect(jsonPath("$['errors']['address.street']").exists());
+
+            verifyNoInteractions(companyStoreService);
+        }
+
+        @Test
         @DisplayName("should return 409 when duplicate")
         void createStore_Duplicate() throws Exception {
             // Arrange
@@ -294,6 +316,82 @@ class CompanyStoreControllerTest {
                     .andExpect(jsonPath("$.storeName").value("Tienda Actualizada"))
                     .andExpect(jsonPath("$.enabled").value(true))
                     .andExpect(jsonPath("$.address").doesNotExist());
+        }
+
+        @Test
+        @DisplayName("should return 400 when storeName is blank")
+        void updateStore_BlankStoreNameReturns400() throws Exception {
+            // Arrange: null means "leave unchanged", but a blank string is a validation error.
+            var request = new UpdateCompanyStoreRequest("", null, null, null);
+
+            // Act & Assert
+            mockMvc.perform(put(
+                                    BASE_URL + "/{id}",
+                                    testCompanyId,
+                                    testCompanyCountryId,
+                                    testRegionId,
+                                    testZoneId,
+                                    testStoreId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors.storeName").exists());
+
+            verifyNoInteractions(companyStoreService);
+        }
+
+        @Test
+        @DisplayName("should return 400 when the nested address street exceeds 255 characters")
+        void updateStore_OverLengthAddressStreetReturns400() throws Exception {
+            // Arrange
+            var request = new UpdateCompanyStoreRequest(
+                    null,
+                    null,
+                    null,
+                    new AddressRequest("a".repeat(256), null, null, null, null, null, null, UUID.randomUUID()));
+
+            // Act & Assert
+            mockMvc.perform(put(
+                                    BASE_URL + "/{id}",
+                                    testCompanyId,
+                                    testCompanyCountryId,
+                                    testRegionId,
+                                    testZoneId,
+                                    testStoreId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value("Validation failed"))
+                    .andExpect(jsonPath("$['errors']['address.street']").exists());
+
+            verifyNoInteractions(companyStoreService);
+        }
+
+        @Test
+        @DisplayName("should accept a null storeName meaning unchanged")
+        void updateStore_NullStoreNameIsUnchanged() throws Exception {
+            // Arrange: positive boundary — null passes validation and reaches the service.
+            var request = new UpdateCompanyStoreRequest(null, "nueva@example.com", null, null);
+            when(companyStoreService.updateStore(
+                            eq(testCompanyId),
+                            eq(testCompanyCountryId),
+                            eq(testRegionId),
+                            eq(testZoneId),
+                            eq(testStoreId),
+                            any(UpdateCompanyStoreRequest.class)))
+                    .thenReturn(testStoreResponse);
+
+            // Act & Assert
+            mockMvc.perform(put(
+                                    BASE_URL + "/{id}",
+                                    testCompanyId,
+                                    testCompanyCountryId,
+                                    testRegionId,
+                                    testZoneId,
+                                    testStoreId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isOk());
         }
 
         @Test

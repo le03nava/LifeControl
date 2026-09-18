@@ -2,9 +2,14 @@ package com.lifecontrol.api.store.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
@@ -30,6 +35,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -38,6 +44,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.access.AccessDeniedException;
 
 @ExtendWith(MockitoExtension.class)
@@ -85,6 +92,32 @@ class StoreAreaServiceTest {
     private StoreArea testArea;
     private CreateStoreAreaRequest createRequest;
     private UpdateStoreAreaRequest updateRequest;
+
+    private ListAppender<ILoggingEvent> logAppender;
+    private Logger serviceLogger;
+    private Level previousLogLevel;
+
+    @BeforeEach
+    void attachLogCapture() {
+        serviceLogger = (Logger) LoggerFactory.getLogger(StoreAreaService.class);
+        previousLogLevel = serviceLogger.getLevel();
+        serviceLogger.setLevel(Level.INFO);
+        logAppender = new ListAppender<>();
+        logAppender.start();
+        serviceLogger.addAppender(logAppender);
+    }
+
+    @AfterEach
+    void detachLogCapture() {
+        serviceLogger.detachAppender(logAppender);
+        serviceLogger.setLevel(previousLogLevel);
+    }
+
+    private String capturedLogs() {
+        return logAppender.list.stream()
+                .map(ILoggingEvent::getFormattedMessage)
+                .collect(java.util.stream.Collectors.joining("\n"));
+    }
 
     @BeforeEach
     void setUp() {
@@ -302,16 +335,30 @@ class StoreAreaServiceTest {
         }
 
         @Test
-        @DisplayName("should propagate AccessDeniedException from verifyCompanyStoreAccess")
+        @DisplayName("should mask a denied flat lookup as the identical not-found error of the same id")
         void getAreaByIdFlat_AccessDenied() {
+            // Genuinely missing: findById returns nothing.
+            when(storeAreaRepository.findById(areaId)).thenReturn(Optional.empty());
+            var genuinelyMissing = catchThrowable(() -> storeAreaService.getAreaById(areaId));
+
+            // Out of scope: the area exists, but the resolved store is not accessible to the user.
             when(storeAreaRepository.findById(areaId)).thenReturn(Optional.of(testArea));
             doThrow(new AccessDeniedException("Access denied"))
                     .when(currentUserContext)
                     .verifyCompanyStoreAccess(companyId, companyCountryId, regionId, zoneId, storeId);
+            when(currentUserContext.getUsername()).thenReturn("jdoe");
+            var denied = catchThrowable(() -> storeAreaService.getAreaById(areaId));
 
-            assertThatThrownBy(() -> storeAreaService.getAreaById(areaId))
-                    .isInstanceOf(AccessDeniedException.class)
-                    .hasMessage("Access denied");
+            // The two responses must be indistinguishable: same type, same message, same status.
+            assertThat(genuinelyMissing).isInstanceOf(StoreAreaNotFoundException.class);
+            assertThat(denied).isInstanceOf(StoreAreaNotFoundException.class);
+            assertThat(denied.getClass()).isEqualTo(genuinelyMissing.getClass());
+            assertThat(denied.getMessage()).isEqualTo(genuinelyMissing.getMessage());
+            assertThat(denied.getMessage()).isEqualTo("Store area not found with id: " + areaId);
+            assertThat(capturedLogs())
+                    .contains("StoreArea access denied")
+                    .contains("id=" + areaId)
+                    .contains("actor=jdoe");
         }
     }
 
@@ -480,6 +527,22 @@ class StoreAreaServiceTest {
             var captor = org.mockito.ArgumentCaptor.forClass(List.class);
             verify(storeZoneService).disableZonesOfAreas(captor.capture());
             assertThat(captor.getValue()).hasSize(1).containsExactly(testArea);
+        }
+
+        @Test
+        @DisplayName("should record the acting username in the soft-delete audit log")
+        void deleteArea_LogsActingUsername() {
+            mockStoreResolution();
+            when(storeAreaRepository.findByIdAndCompanyStoreId(areaId, storeId)).thenReturn(Optional.of(testArea));
+            when(storeAreaRepository.save(any(StoreArea.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            when(currentUserContext.getUsername()).thenReturn("jdoe");
+
+            storeAreaService.deleteArea(companyId, companyCountryId, regionId, zoneId, storeId, areaId);
+
+            assertThat(capturedLogs())
+                    .contains("StoreArea soft-deleted")
+                    .contains("id=" + areaId)
+                    .contains("actor=jdoe");
         }
 
         @Test
