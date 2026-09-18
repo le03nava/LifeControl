@@ -9,16 +9,18 @@ import com.lifecontrol.api.company.repository.CompanyCountryRepository;
 import com.lifecontrol.api.company.repository.CompanyRegionRepository;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.company.repository.CompanyZoneRepository;
-import com.lifecontrol.api.store.dto.CreateStoreZoneRequest;
-import com.lifecontrol.api.store.dto.StoreZoneResponse;
-import com.lifecontrol.api.store.dto.UpdateStoreZoneRequest;
+import com.lifecontrol.api.store.dto.CreateStoreLocationRequest;
+import com.lifecontrol.api.store.dto.StoreLocationResponse;
+import com.lifecontrol.api.store.dto.UpdateStoreLocationRequest;
 import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.exception.DisabledParentException;
-import com.lifecontrol.api.store.exception.DuplicateStoreZoneException;
+import com.lifecontrol.api.store.exception.DuplicateStoreLocationException;
 import com.lifecontrol.api.store.exception.StoreAreaNotFoundException;
+import com.lifecontrol.api.store.exception.StoreLocationNotFoundException;
 import com.lifecontrol.api.store.exception.StoreZoneNotFoundException;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.model.StoreArea;
+import com.lifecontrol.api.store.model.StoreLocation;
 import com.lifecontrol.api.store.model.StoreZone;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.store.repository.StoreAreaRepository;
@@ -32,24 +34,25 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Business logic for store zones (level 3 of the store location tree).
+ * Business logic for store locations (level 4 of the store location tree).
  *
  * <p>Every public operation resolves — and authorizes — the full
- * company &rarr; country &rarr; region &rarr; zone &rarr; store &rarr; area path through
- * {@link CurrentUserContext#verifyCompanyStoreAccess} before touching a zone, so scoped roles keep
- * their broadest granted scope and no zone is reachable outside its own area.</p>
+ * company &rarr; country &rarr; region &rarr; zone &rarr; store &rarr; area &rarr; zone path
+ * through {@link CurrentUserContext#verifyCompanyStoreAccess} before touching a location, so
+ * scoped roles keep their broadest granted scope and no location is reachable outside its own
+ * zone.</p>
  *
- * <p>The flat {@link #getZoneById(UUID) lookup} navigates the zone's JPA associations to resolve
- * its chain before authorizing, so a caller that only holds the zone id still goes through the
- * same single access check as the nested endpoints.</p>
+ * <p>The flat {@link #getLocationById(UUID) lookup} navigates the location's JPA associations to
+ * resolve its chain before authorizing, so a caller that only holds the location id still goes
+ * through the same single access check as the nested endpoints.</p>
  */
 @Service
-public class StoreZoneService {
+public class StoreLocationService {
 
-    private static final Logger logger = LoggerFactory.getLogger(StoreZoneService.class);
+    private static final Logger logger = LoggerFactory.getLogger(StoreLocationService.class);
 
-    private final StoreZoneRepository storeZoneRepository;
     private final StoreLocationRepository storeLocationRepository;
+    private final StoreZoneRepository storeZoneRepository;
     private final StoreAreaRepository storeAreaRepository;
     private final CompanyStoreRepository companyStoreRepository;
     private final CompanyZoneRepository companyZoneRepository;
@@ -58,9 +61,9 @@ public class StoreZoneService {
     private final CompanyRepository companyRepository;
     private final CurrentUserContext currentUserContext;
 
-    public StoreZoneService(
-            StoreZoneRepository storeZoneRepository,
+    public StoreLocationService(
             StoreLocationRepository storeLocationRepository,
+            StoreZoneRepository storeZoneRepository,
             StoreAreaRepository storeAreaRepository,
             CompanyStoreRepository companyStoreRepository,
             CompanyZoneRepository companyZoneRepository,
@@ -68,8 +71,8 @@ public class StoreZoneService {
             CompanyCountryRepository companyCountryRepository,
             CompanyRepository companyRepository,
             CurrentUserContext currentUserContext) {
-        this.storeZoneRepository = storeZoneRepository;
         this.storeLocationRepository = storeLocationRepository;
+        this.storeZoneRepository = storeZoneRepository;
         this.storeAreaRepository = storeAreaRepository;
         this.companyStoreRepository = companyStoreRepository;
         this.companyZoneRepository = companyZoneRepository;
@@ -117,10 +120,6 @@ public class StoreZoneService {
      *
      * @throws org.springframework.security.access.AccessDeniedException when the current user
      *     cannot access the requested scope
-     * @throws CompanyNotFoundException                                when the company does not exist
-     * @throws CompanyCountryNotFoundException                         when the company-country does not belong to the company
-     * @throws CompanyRegionNotFoundException                          when the region does not belong to the company-country
-     * @throws CompanyZoneNotFoundException                            when the zone does not belong to the region
      * @throws CompanyStoreNotFoundException                           when the store does not belong to the zone
      * @throws StoreAreaNotFoundException                              when the area does not belong to the store
      */
@@ -134,13 +133,43 @@ public class StoreZoneService {
     }
 
     /**
-     * Rejects an operation whose authorized area, or that area's store, is soft-deleted.
+     * Verifies access and resolves the store zone identified by the full nested path.
+     *
+     * @throws org.springframework.security.access.AccessDeniedException when the current user
+     *     cannot access the requested scope
+     * @throws CompanyStoreNotFoundException                           when the store does not belong to the zone
+     * @throws StoreAreaNotFoundException                              when the area does not belong to the store
+     * @throws StoreZoneNotFoundException                              when the zone does not belong to the area
+     */
+    private StoreZone resolveZone(
+            UUID companyId,
+            UUID companyCountryId,
+            UUID regionId,
+            UUID zoneId,
+            UUID storeId,
+            UUID areaId,
+            UUID storeZoneId) {
+        var area = resolveArea(companyId, companyCountryId, regionId, zoneId, storeId, areaId);
+
+        return storeZoneRepository
+                .findByIdAndStoreAreaId(storeZoneId, area.getId())
+                .orElseThrow(() -> new StoreZoneNotFoundException(storeZoneId));
+    }
+
+    /**
+     * Rejects an operation whose authorized zone, that zone's area, or that area's store is
+     * soft-deleted.
      *
      * <p>Creating or re-enabling a node requires its entire enabled ancestor chain up to the store
-     * to be enabled, so the area and its store are both checked. The lazy {@code companyStore}
+     * to be enabled, so the zone, its area and the store are all checked. The lazy association
      * access is safe because the callers are transactional.</p>
      */
-    private void assertAncestorsEnabled(StoreArea area, String action) {
+    private void assertAncestorsEnabled(StoreZone zone, String action) {
+        if (!Boolean.TRUE.equals(zone.getEnabled())) {
+            throw new DisabledParentException(
+                    "Cannot " + action + ": store zone with id " + zone.getId() + " is disabled");
+        }
+        var area = zone.getStoreArea();
         if (!Boolean.TRUE.equals(area.getEnabled())) {
             throw new DisabledParentException(
                     "Cannot " + action + ": store area with id " + area.getId() + " is disabled");
@@ -152,34 +181,7 @@ public class StoreZoneService {
     }
 
     /**
-     * Lists the zones of an area, ordering them by display order and zone code.
-     *
-     * @throws org.springframework.security.access.AccessDeniedException when the current user
-     *     cannot access the requested scope
-     * @throws CompanyStoreNotFoundException when the store does not belong to the zone
-     * @throws StoreAreaNotFoundException when the area does not belong to the store
-     */
-    @Transactional(readOnly = true)
-    public List<StoreZoneResponse> getAllZones(
-            UUID companyId,
-            UUID companyCountryId,
-            UUID regionId,
-            UUID zoneId,
-            UUID storeId,
-            UUID areaId,
-            boolean includeDisabled) {
-        var area = resolveArea(companyId, companyCountryId, regionId, zoneId, storeId, areaId);
-        var chain = chainOf(area.getCompanyStore());
-
-        var zones = includeDisabled
-                ? storeZoneRepository.findByStoreAreaIdOrderByDisplayOrderAscZoneCodeAsc(area.getId())
-                : storeZoneRepository.findByStoreAreaIdAndEnabledTrueOrderByDisplayOrderAscZoneCodeAsc(area.getId());
-
-        return zones.stream().map(zone -> toResponse(zone, area, chain)).toList();
-    }
-
-    /**
-     * Reads a single zone inside an area addressed by the full nested path.
+     * Lists the locations of a zone, ordering them by display order and location code.
      *
      * @throws org.springframework.security.access.AccessDeniedException when the current user
      *     cannot access the requested scope
@@ -188,98 +190,7 @@ public class StoreZoneService {
      * @throws StoreZoneNotFoundException when the zone does not belong to the area
      */
     @Transactional(readOnly = true)
-    public StoreZoneResponse getZoneById(
-            UUID companyId,
-            UUID companyCountryId,
-            UUID regionId,
-            UUID zoneId,
-            UUID storeId,
-            UUID areaId,
-            UUID storeZoneId) {
-        var area = resolveArea(companyId, companyCountryId, regionId, zoneId, storeId, areaId);
-        var chain = chainOf(area.getCompanyStore());
-
-        var zone = storeZoneRepository
-                .findByIdAndStoreAreaId(storeZoneId, area.getId())
-                .orElseThrow(() -> new StoreZoneNotFoundException(storeZoneId));
-
-        return toResponse(zone, area, chain);
-    }
-
-    /**
-     * Resolves a single zone by its id without a nested path, then authorizes it against the chain
-     * navigated from the zone's own area and store associations.
-     *
-     * @throws StoreZoneNotFoundException when no zone exists with the given id
-     * @throws org.springframework.security.access.AccessDeniedException when the current user
-     *     cannot access the resolved store scope
-     */
-    @Transactional(readOnly = true)
-    public StoreZoneResponse getZoneById(UUID storeZoneId) {
-        var zone = storeZoneRepository
-                .findById(storeZoneId)
-                .orElseThrow(() -> new StoreZoneNotFoundException(storeZoneId));
-        var area = zone.getStoreArea();
-        var chain = chainOf(area.getCompanyStore());
-        currentUserContext.verifyCompanyStoreAccess(
-                chain.companyId(), chain.companyCountryId(), chain.regionId(), chain.zoneId(), chain.storeId());
-        return toResponse(zone, area, chain);
-    }
-
-    /**
-     * Creates an enabled zone inside the resolved area.
-     *
-     * @throws org.springframework.security.access.AccessDeniedException when the current user
-     *     cannot access the requested scope
-     * @throws CompanyStoreNotFoundException when the store does not belong to the zone
-     * @throws StoreAreaNotFoundException when the area does not belong to the store
-     * @throws DisabledParentException when the area or its store is soft-deleted
-     * @throws DuplicateStoreZoneException when the zone code already exists in the area
-     */
-    @Transactional
-    public StoreZoneResponse createZone(
-            UUID companyId,
-            UUID companyCountryId,
-            UUID regionId,
-            UUID zoneId,
-            UUID storeId,
-            UUID areaId,
-            CreateStoreZoneRequest request) {
-        var area = resolveArea(companyId, companyCountryId, regionId, zoneId, storeId, areaId);
-        assertAncestorsEnabled(area, "create a store zone");
-        var chain = chainOf(area.getCompanyStore());
-
-        if (storeZoneRepository.existsByStoreAreaIdAndZoneCode(area.getId(), request.zoneCode())) {
-            throw new DuplicateStoreZoneException(
-                    "Store zone with code '" + request.zoneCode() + "' already exists in this area");
-        }
-
-        var zone = StoreZone.builder()
-                .storeArea(area)
-                .zoneCode(request.zoneCode())
-                .zoneName(request.zoneName())
-                .description(request.description())
-                .displayOrder(request.displayOrder())
-                .enabled(true)
-                .build();
-
-        var saved = storeZoneRepository.save(zone);
-        logger.info("StoreZone created: code={}, areaId={}", saved.getZoneCode(), area.getId());
-        return toResponse(saved, area, chain);
-    }
-
-    /**
-     * Applies the non-null fields of the request to the resolved zone.
-     *
-     * @throws org.springframework.security.access.AccessDeniedException when the current user
-     *     cannot access the requested scope
-     * @throws CompanyStoreNotFoundException when the store does not belong to the zone
-     * @throws StoreAreaNotFoundException when the area does not belong to the store
-     * @throws StoreZoneNotFoundException when the zone does not belong to the area
-     * @throws DuplicateStoreZoneException when the new zone code already exists in the area
-     */
-    @Transactional
-    public StoreZoneResponse updateZone(
+    public List<StoreLocationResponse> getAllLocations(
             UUID companyId,
             UUID companyCountryId,
             UUID regionId,
@@ -287,161 +198,248 @@ public class StoreZoneService {
             UUID storeId,
             UUID areaId,
             UUID storeZoneId,
-            UpdateStoreZoneRequest request) {
-        var area = resolveArea(companyId, companyCountryId, regionId, zoneId, storeId, areaId);
+            boolean includeDisabled) {
+        var zone = resolveZone(companyId, companyCountryId, regionId, zoneId, storeId, areaId, storeZoneId);
+        var area = zone.getStoreArea();
         var chain = chainOf(area.getCompanyStore());
 
-        var zone = storeZoneRepository
-                .findByIdAndStoreAreaId(storeZoneId, area.getId())
-                .orElseThrow(() -> new StoreZoneNotFoundException(storeZoneId));
+        var locations = includeDisabled
+                ? storeLocationRepository.findByStoreZoneIdOrderByDisplayOrderAscLocationCodeAsc(zone.getId())
+                : storeLocationRepository.findByStoreZoneIdAndEnabledTrueOrderByDisplayOrderAscLocationCodeAsc(
+                        zone.getId());
+
+        return locations.stream()
+                .map(location -> toResponse(location, zone, area, chain))
+                .toList();
+    }
+
+    /**
+     * Reads a single location inside a zone addressed by the full nested path.
+     *
+     * @throws org.springframework.security.access.AccessDeniedException when the current user
+     *     cannot access the requested scope
+     * @throws CompanyStoreNotFoundException when the store does not belong to the zone
+     * @throws StoreAreaNotFoundException when the area does not belong to the store
+     * @throws StoreZoneNotFoundException when the zone does not belong to the area
+     * @throws StoreLocationNotFoundException when the location does not belong to the zone
+     */
+    @Transactional(readOnly = true)
+    public StoreLocationResponse getLocationById(
+            UUID companyId,
+            UUID companyCountryId,
+            UUID regionId,
+            UUID zoneId,
+            UUID storeId,
+            UUID areaId,
+            UUID storeZoneId,
+            UUID storeLocationId) {
+        var zone = resolveZone(companyId, companyCountryId, regionId, zoneId, storeId, areaId, storeZoneId);
+        var area = zone.getStoreArea();
+        var chain = chainOf(area.getCompanyStore());
+
+        var location = storeLocationRepository
+                .findByIdAndStoreZoneId(storeLocationId, zone.getId())
+                .orElseThrow(() -> new StoreLocationNotFoundException(storeLocationId));
+
+        return toResponse(location, zone, area, chain);
+    }
+
+    /**
+     * Resolves a single location by its id without a nested path, then authorizes it against the
+     * chain navigated from the location's own zone, area and store associations.
+     *
+     * @throws StoreLocationNotFoundException when no location exists with the given id
+     * @throws org.springframework.security.access.AccessDeniedException when the current user
+     *     cannot access the resolved store scope
+     */
+    @Transactional(readOnly = true)
+    public StoreLocationResponse getLocationById(UUID storeLocationId) {
+        var location = storeLocationRepository
+                .findById(storeLocationId)
+                .orElseThrow(() -> new StoreLocationNotFoundException(storeLocationId));
+        var zone = location.getStoreZone();
+        var area = zone.getStoreArea();
+        var chain = chainOf(area.getCompanyStore());
+        currentUserContext.verifyCompanyStoreAccess(
+                chain.companyId(), chain.companyCountryId(), chain.regionId(), chain.zoneId(), chain.storeId());
+        return toResponse(location, zone, area, chain);
+    }
+
+    /**
+     * Creates an enabled location inside the resolved zone.
+     *
+     * @throws org.springframework.security.access.AccessDeniedException when the current user
+     *     cannot access the requested scope
+     * @throws CompanyStoreNotFoundException when the store does not belong to the zone
+     * @throws StoreAreaNotFoundException when the area does not belong to the store
+     * @throws StoreZoneNotFoundException when the zone does not belong to the area
+     * @throws DisabledParentException when the zone, its area or its store is soft-deleted
+     * @throws DuplicateStoreLocationException when the location code already exists in the zone
+     */
+    @Transactional
+    public StoreLocationResponse createLocation(
+            UUID companyId,
+            UUID companyCountryId,
+            UUID regionId,
+            UUID zoneId,
+            UUID storeId,
+            UUID areaId,
+            UUID storeZoneId,
+            CreateStoreLocationRequest request) {
+        var zone = resolveZone(companyId, companyCountryId, regionId, zoneId, storeId, areaId, storeZoneId);
+        assertAncestorsEnabled(zone, "create a store location");
+        var area = zone.getStoreArea();
+        var chain = chainOf(area.getCompanyStore());
+
+        if (storeLocationRepository.existsByStoreZoneIdAndLocationCode(zone.getId(), request.locationCode())) {
+            throw new DuplicateStoreLocationException(
+                    "Store location with code '" + request.locationCode() + "' already exists in this zone");
+        }
+
+        var location = StoreLocation.builder()
+                .storeZone(zone)
+                .locationCode(request.locationCode())
+                .locationName(request.locationName())
+                .description(request.description())
+                .displayOrder(request.displayOrder())
+                .enabled(true)
+                .build();
+
+        var saved = storeLocationRepository.save(location);
+        logger.info("StoreLocation created: code={}, storeZoneId={}", saved.getLocationCode(), zone.getId());
+        return toResponse(saved, zone, area, chain);
+    }
+
+    /**
+     * Applies the non-null fields of the request to the resolved location.
+     *
+     * @throws org.springframework.security.access.AccessDeniedException when the current user
+     *     cannot access the requested scope
+     * @throws CompanyStoreNotFoundException when the store does not belong to the zone
+     * @throws StoreAreaNotFoundException when the area does not belong to the store
+     * @throws StoreZoneNotFoundException when the zone does not belong to the area
+     * @throws StoreLocationNotFoundException when the location does not belong to the zone
+     * @throws DuplicateStoreLocationException when the new location code already exists in the zone
+     */
+    @Transactional
+    public StoreLocationResponse updateLocation(
+            UUID companyId,
+            UUID companyCountryId,
+            UUID regionId,
+            UUID zoneId,
+            UUID storeId,
+            UUID areaId,
+            UUID storeZoneId,
+            UUID storeLocationId,
+            UpdateStoreLocationRequest request) {
+        var zone = resolveZone(companyId, companyCountryId, regionId, zoneId, storeId, areaId, storeZoneId);
+        var area = zone.getStoreArea();
+        var chain = chainOf(area.getCompanyStore());
+
+        var location = storeLocationRepository
+                .findByIdAndStoreZoneId(storeLocationId, zone.getId())
+                .orElseThrow(() -> new StoreLocationNotFoundException(storeLocationId));
 
         // Check uniqueness only when the code actually changes
-        if (request.zoneCode() != null
-                && !zone.getZoneCode().equals(request.zoneCode())
-                && storeZoneRepository.existsByStoreAreaIdAndZoneCodeAndIdNot(
-                        area.getId(), request.zoneCode(), storeZoneId)) {
-            throw new DuplicateStoreZoneException(
-                    "Store zone with code '" + request.zoneCode() + "' already exists in this area");
+        if (request.locationCode() != null
+                && !location.getLocationCode().equals(request.locationCode())
+                && storeLocationRepository.existsByStoreZoneIdAndLocationCodeAndIdNot(
+                        zone.getId(), request.locationCode(), storeLocationId)) {
+            throw new DuplicateStoreLocationException(
+                    "Store location with code '" + request.locationCode() + "' already exists in this zone");
         }
 
-        if (request.zoneCode() != null) {
-            zone.setZoneCode(request.zoneCode());
+        if (request.locationCode() != null) {
+            location.setLocationCode(request.locationCode());
         }
-        if (request.zoneName() != null) {
-            zone.setZoneName(request.zoneName());
+        if (request.locationName() != null) {
+            location.setLocationName(request.locationName());
         }
         if (request.description() != null) {
-            zone.setDescription(request.description());
+            location.setDescription(request.description());
         }
         if (request.displayOrder() != null) {
-            zone.setDisplayOrder(request.displayOrder());
+            location.setDisplayOrder(request.displayOrder());
         }
 
-        var saved = storeZoneRepository.save(zone);
-        logger.info("StoreZone updated: id={}, code={}", saved.getId(), saved.getZoneCode());
-        return toResponse(saved, area, chain);
+        var saved = storeLocationRepository.save(location);
+        logger.info("StoreLocation updated: id={}, code={}", saved.getId(), saved.getLocationCode());
+        return toResponse(saved, zone, area, chain);
     }
 
     /**
-     * Soft-deletes the zone and cascades the soft delete to its still-enabled locations.
-     *
-     * <p>Disabling a zone must not leave enabled locations hanging off a disabled zone, so every
-     * location of the zone that is still enabled is disabled in the same transaction.</p>
+     * Soft-deletes the location by setting {@code enabled = false}, keeping the row.
      *
      * @throws org.springframework.security.access.AccessDeniedException when the current user
      *     cannot access the requested scope
      * @throws CompanyStoreNotFoundException when the store does not belong to the zone
      * @throws StoreAreaNotFoundException when the area does not belong to the store
      * @throws StoreZoneNotFoundException when the zone does not belong to the area
+     * @throws StoreLocationNotFoundException when the location does not belong to the zone
      */
     @Transactional
-    public void deleteZone(
+    public void deleteLocation(
             UUID companyId,
             UUID companyCountryId,
             UUID regionId,
             UUID zoneId,
             UUID storeId,
             UUID areaId,
-            UUID storeZoneId) {
-        var area = resolveArea(companyId, companyCountryId, regionId, zoneId, storeId, areaId);
+            UUID storeZoneId,
+            UUID storeLocationId) {
+        var zone = resolveZone(companyId, companyCountryId, regionId, zoneId, storeId, areaId, storeZoneId);
 
-        var zone = storeZoneRepository
-                .findByIdAndStoreAreaId(storeZoneId, area.getId())
-                .orElseThrow(() -> new StoreZoneNotFoundException(storeZoneId));
+        var location = storeLocationRepository
+                .findByIdAndStoreZoneId(storeLocationId, zone.getId())
+                .orElseThrow(() -> new StoreLocationNotFoundException(storeLocationId));
 
-        disableZone(zone);
+        location.setEnabled(false);
+        storeLocationRepository.save(location);
 
-        logger.info("StoreZone soft-deleted: id={}, code={}", storeZoneId, zone.getZoneCode());
+        logger.info("StoreLocation soft-deleted: id={}, code={}", storeLocationId, location.getLocationCode());
     }
 
     /**
-     * Re-enables a soft-deleted zone.
+     * Re-enables a soft-deleted location.
      *
      * @throws org.springframework.security.access.AccessDeniedException when the current user
      *     cannot access the requested scope
      * @throws CompanyStoreNotFoundException when the store does not belong to the zone
      * @throws StoreAreaNotFoundException when the area does not belong to the store
      * @throws StoreZoneNotFoundException when the zone does not belong to the area
-     * @throws DisabledParentException when the area or its store is soft-deleted
+     * @throws StoreLocationNotFoundException when the location does not belong to the zone
+     * @throws DisabledParentException when the zone, its area or its store is soft-deleted
      */
     @Transactional
-    public StoreZoneResponse enableZone(
+    public StoreLocationResponse enableLocation(
             UUID companyId,
             UUID companyCountryId,
             UUID regionId,
             UUID zoneId,
             UUID storeId,
             UUID areaId,
-            UUID storeZoneId) {
-        var area = resolveArea(companyId, companyCountryId, regionId, zoneId, storeId, areaId);
-        assertAncestorsEnabled(area, "re-enable a store zone");
+            UUID storeZoneId,
+            UUID storeLocationId) {
+        var zone = resolveZone(companyId, companyCountryId, regionId, zoneId, storeId, areaId, storeZoneId);
+        assertAncestorsEnabled(zone, "re-enable a store location");
+        var area = zone.getStoreArea();
         var chain = chainOf(area.getCompanyStore());
 
-        var zone = storeZoneRepository
-                .findByIdAndStoreAreaId(storeZoneId, area.getId())
-                .orElseThrow(() -> new StoreZoneNotFoundException(storeZoneId));
+        var location = storeLocationRepository
+                .findByIdAndStoreZoneId(storeLocationId, zone.getId())
+                .orElseThrow(() -> new StoreLocationNotFoundException(storeLocationId));
 
-        zone.setEnabled(true);
-        var saved = storeZoneRepository.save(zone);
+        location.setEnabled(true);
+        var saved = storeLocationRepository.save(location);
 
-        logger.info("StoreZone re-enabled: id={}, code={}", storeZoneId, saved.getZoneCode());
-        return toResponse(saved, area, chain);
+        logger.info("StoreLocation re-enabled: id={}, code={}", storeLocationId, saved.getLocationCode());
+        return toResponse(saved, zone, area, chain);
     }
 
     /**
-     * Soft-deletes every enabled zone of each given area and, through
-     * {@link #disableZone(StoreZone)}, its enabled locations.
-     *
-     * <p>Called by {@code StoreAreaService} when an area — or a whole store — is soft-deleted. It
-     * performs no authorization of its own: the caller already resolved and authorized the store
-     * scope before invoking it.</p>
-     *
-     * @return the number of zones that were disabled, for logging at the call sites
-     */
-    @Transactional
-    public int disableZonesOfAreas(List<StoreArea> areas) {
-        var disabled = 0;
-        for (var area : areas) {
-            var zones = storeZoneRepository.findByStoreAreaIdAndEnabledTrue(area.getId());
-            zones.forEach(this::disableZone);
-            disabled += zones.size();
-        }
-        return disabled;
-    }
-
-    /**
-     * Disables a single zone and cascades the soft delete to its still-enabled locations. Shared by
-     * the zone soft delete and the area/store cascade so that "disable one zone and its locations"
-     * has exactly one implementation.
-     */
-    private void disableZone(StoreZone zone) {
-        zone.setEnabled(false);
-        storeZoneRepository.save(zone);
-        disableLocationsOfZones(List.of(zone));
-    }
-
-    /**
-     * Disables every still-enabled location of each given zone and persists the change. It never
-     * touches the zones themselves, so the zone&rarr;location cascade has exactly one
-     * implementation shared by the zone soft delete and the area/store cascades.
-     *
-     * @return the number of locations that were disabled, for logging at the call sites
-     */
-    private int disableLocationsOfZones(List<StoreZone> zones) {
-        var disabled = 0;
-        for (var zone : zones) {
-            var locations = storeLocationRepository.findByStoreZoneIdAndEnabledTrue(zone.getId());
-            locations.forEach(location -> location.setEnabled(false));
-            storeLocationRepository.saveAll(locations);
-            disabled += locations.size();
-        }
-        return disabled;
-    }
-
-    /**
-     * Resolved company &rarr; country &rarr; region &rarr; zone &rarr; store identity of a zone,
-     * carried alongside the zone so the response always exposes the full chain without a second
-     * traversal per element.
+     * Resolved company &rarr; country &rarr; region &rarr; zone &rarr; store identity of a
+     * location, carried alongside the location so the response always exposes the full chain
+     * without a second traversal per element.
      */
     private record StoreChain(UUID companyId, UUID companyCountryId, UUID regionId, UUID zoneId, UUID storeId) {}
 
@@ -454,8 +452,9 @@ public class StoreZoneService {
         return new StoreChain(company.getId(), companyCountry.getId(), region.getId(), zone.getId(), store.getId());
     }
 
-    private StoreZoneResponse toResponse(StoreZone zone, StoreArea area, StoreChain chain) {
-        return new StoreZoneResponse(
+    private StoreLocationResponse toResponse(StoreLocation location, StoreZone zone, StoreArea area, StoreChain chain) {
+        return new StoreLocationResponse(
+                location.getId(),
                 zone.getId(),
                 area.getId(),
                 chain.storeId(),
@@ -463,12 +462,12 @@ public class StoreZoneService {
                 chain.companyCountryId(),
                 chain.regionId(),
                 chain.zoneId(),
-                zone.getZoneCode(),
-                zone.getZoneName(),
-                zone.getDescription(),
-                zone.getDisplayOrder(),
-                zone.getEnabled(),
-                zone.getCreatedAt(),
-                zone.getUpdatedAt());
+                location.getLocationCode(),
+                location.getLocationName(),
+                location.getDescription(),
+                location.getDisplayOrder(),
+                location.getEnabled(),
+                location.getCreatedAt(),
+                location.getUpdatedAt());
     }
 }
