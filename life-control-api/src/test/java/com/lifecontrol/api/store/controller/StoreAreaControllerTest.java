@@ -11,6 +11,7 @@ import com.lifecontrol.api.exception.GlobalExceptionHandler;
 import com.lifecontrol.api.store.dto.CreateStoreAreaRequest;
 import com.lifecontrol.api.store.dto.StoreAreaResponse;
 import com.lifecontrol.api.store.dto.UpdateStoreAreaRequest;
+import com.lifecontrol.api.store.exception.DisabledParentException;
 import com.lifecontrol.api.store.exception.DuplicateStoreAreaException;
 import com.lifecontrol.api.store.exception.StoreAreaNotFoundException;
 import com.lifecontrol.api.store.service.StoreAreaService;
@@ -249,6 +250,28 @@ class StoreAreaControllerTest {
                             .content(objectMapper.writeValueAsString(request)))
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.message").value("Store area with code 'A01' already exists in this store"));
+        }
+
+        @Test
+        @DisplayName("should return 409 when the parent store is disabled")
+        void createArea_DisabledParentStore_Returns409() throws Exception {
+            var request = new CreateStoreAreaRequest("A01", "Bodega", null, null);
+            when(storeAreaService.createArea(
+                            eq(testCompanyId),
+                            eq(testCompanyCountryId),
+                            eq(testRegionId),
+                            eq(testZoneId),
+                            eq(testStoreId),
+                            any(CreateStoreAreaRequest.class)))
+                    .thenThrow(new DisabledParentException(
+                            "Cannot create a store area: store with id " + testStoreId + " is disabled"));
+
+            mockMvc.perform(post(BASE_URL, testCompanyId, testCompanyCountryId, testRegionId, testZoneId, testStoreId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.message")
+                            .value("Cannot create a store area: store with id " + testStoreId + " is disabled"));
         }
     }
 

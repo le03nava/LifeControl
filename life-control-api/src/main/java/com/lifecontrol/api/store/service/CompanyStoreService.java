@@ -46,6 +46,7 @@ public class CompanyStoreService {
     private final CountryRepository countryRepository;
     private final CurrentUserContext currentUserContext;
     private final ApplicationEventPublisher eventPublisher;
+    private final StoreAreaService storeAreaService;
 
     public CompanyStoreService(
             CompanyStoreRepository companyStoreRepository,
@@ -55,7 +56,8 @@ public class CompanyStoreService {
             CompanyRepository companyRepository,
             CountryRepository countryRepository,
             CurrentUserContext currentUserContext,
-            ApplicationEventPublisher eventPublisher) {
+            ApplicationEventPublisher eventPublisher,
+            StoreAreaService storeAreaService) {
         this.companyStoreRepository = companyStoreRepository;
         this.companyZoneRepository = companyZoneRepository;
         this.companyRegionRepository = companyRegionRepository;
@@ -64,6 +66,7 @@ public class CompanyStoreService {
         this.countryRepository = countryRepository;
         this.currentUserContext = currentUserContext;
         this.eventPublisher = eventPublisher;
+        this.storeAreaService = storeAreaService;
     }
 
     private CompanyZone resolveCompanyZone(UUID companyId, UUID companyCountryId, UUID regionId, UUID zoneId) {
@@ -205,7 +208,12 @@ public class CompanyStoreService {
         store.setEnabled(false);
         companyStoreRepository.save(store);
 
-        logger.info("CompanyStore soft-deleted: id={}, name={}", storeId, store.getStoreName());
+        // Cascade the soft delete to the store's enabled areas and their enabled zones, in the
+        // same transaction. StoreAreaService owns the single area -> zone cascade implementation.
+        storeAreaService.disableAreasOfStore(store.getId());
+
+        logger.info(
+                "CompanyStore soft-deleted: id={}, name={}; areas and zones cascaded", storeId, store.getStoreName());
     }
 
     @Transactional

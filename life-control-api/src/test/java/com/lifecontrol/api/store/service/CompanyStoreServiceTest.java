@@ -71,6 +71,9 @@ class CompanyStoreServiceTest {
     @Mock
     private ApplicationEventPublisher eventPublisher;
 
+    @Mock
+    private StoreAreaService storeAreaService;
+
     @InjectMocks
     private CompanyStoreService companyStoreService;
 
@@ -567,6 +570,7 @@ class CompanyStoreServiceTest {
             // Assert
             assertThat(testStore.getEnabled()).isFalse();
             verify(companyStoreRepository).save(testStore);
+            verify(storeAreaService).disableAreasOfStore(storeId);
         }
 
         @Test

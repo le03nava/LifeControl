@@ -19,12 +19,16 @@ import com.lifecontrol.api.store.dto.CreateStoreAreaRequest;
 import com.lifecontrol.api.store.dto.StoreAreaResponse;
 import com.lifecontrol.api.store.dto.UpdateStoreAreaRequest;
 import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
+import com.lifecontrol.api.store.exception.DisabledParentException;
 import com.lifecontrol.api.store.exception.DuplicateStoreAreaException;
 import com.lifecontrol.api.store.exception.StoreAreaNotFoundException;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.model.StoreArea;
+import com.lifecontrol.api.store.model.StoreZone;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.store.repository.StoreAreaRepository;
+import com.lifecontrol.api.store.repository.StoreZoneRepository;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -44,6 +48,9 @@ class StoreAreaServiceTest {
 
     @Mock
     private StoreAreaRepository storeAreaRepository;
+
+    @Mock
+    private StoreZoneRepository storeZoneRepository;
 
     @Mock
     private CompanyStoreRepository companyStoreRepository;
@@ -352,6 +359,21 @@ class StoreAreaServiceTest {
 
             verify(storeAreaRepository, never()).save(any(StoreArea.class));
         }
+
+        @Test
+        @DisplayName("should throw DisabledParentException when the parent store is disabled")
+        void createArea_DisabledStore_ThrowsException() {
+            testStore.setEnabled(false);
+            mockStoreResolution();
+
+            assertThatThrownBy(() -> storeAreaService.createArea(
+                            companyId, companyCountryId, regionId, zoneId, storeId, createRequest))
+                    .isInstanceOf(DisabledParentException.class)
+                    .hasMessage("Cannot create a store area: store with id " + storeId + " is disabled");
+
+            verify(storeAreaRepository, never()).existsByCompanyStoreIdAndAreaCode(any(), any());
+            verify(storeAreaRepository, never()).save(any(StoreArea.class));
+        }
     }
 
     @Nested
@@ -449,6 +471,28 @@ class StoreAreaServiceTest {
         }
 
         @Test
+        @DisplayName("should cascade the soft delete to the area's still-enabled zones")
+        void deleteArea_CascadesToEnabledZones() {
+            mockStoreResolution();
+            when(storeAreaRepository.findByIdAndCompanyStoreId(areaId, storeId)).thenReturn(Optional.of(testArea));
+            when(storeAreaRepository.save(any(StoreArea.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            var enabledZone = StoreZone.builder()
+                    .id(UUID.randomUUID())
+                    .storeArea(testArea)
+                    .zoneCode("Z01")
+                    .zoneName("Pasillo")
+                    .enabled(true)
+                    .build();
+            when(storeZoneRepository.findByStoreAreaIdAndEnabledTrue(areaId))
+                    .thenReturn(new ArrayList<>(List.of(enabledZone)));
+
+            storeAreaService.deleteArea(companyId, companyCountryId, regionId, zoneId, storeId, areaId);
+
+            assertThat(enabledZone.getEnabled()).isFalse();
+            verify(storeZoneRepository).saveAll(java.util.List.of(enabledZone));
+        }
+
+        @Test
         @DisplayName("should throw StoreAreaNotFoundException when the area does not exist")
         void deleteArea_NotFound() {
             mockStoreResolution();
@@ -460,6 +504,66 @@ class StoreAreaServiceTest {
                     .hasMessage("Store area not found with id: " + areaId);
 
             verify(storeAreaRepository, never()).save(any(StoreArea.class));
+        }
+    }
+
+    @Nested
+    @DisplayName("disableAreasOfStore")
+    class DisableAreasOfStoreTests {
+
+        @Test
+        @DisplayName("should disable the store's areas and all of their enabled zones")
+        void disableAreasOfStore_DisablesAreasAndZones() {
+            var secondArea = StoreArea.builder()
+                    .id(UUID.randomUUID())
+                    .companyStore(testStore)
+                    .areaCode("A02")
+                    .areaName("Piso de venta")
+                    .enabled(true)
+                    .build();
+            var firstZone = StoreZone.builder()
+                    .id(UUID.randomUUID())
+                    .storeArea(testArea)
+                    .zoneCode("Z01")
+                    .zoneName("Pasillo")
+                    .enabled(true)
+                    .build();
+            var secondZone = StoreZone.builder()
+                    .id(UUID.randomUUID())
+                    .storeArea(secondArea)
+                    .zoneCode("Z02")
+                    .zoneName("Estante")
+                    .enabled(true)
+                    .build();
+
+            when(storeAreaRepository.findByCompanyStoreIdAndEnabledTrueOrderByDisplayOrderAscAreaCodeAsc(storeId))
+                    .thenReturn(new ArrayList<>(List.of(testArea, secondArea)));
+            when(storeZoneRepository.findByStoreAreaIdAndEnabledTrue(areaId))
+                    .thenReturn(new ArrayList<>(List.of(firstZone)));
+            when(storeZoneRepository.findByStoreAreaIdAndEnabledTrue(secondArea.getId()))
+                    .thenReturn(new ArrayList<>(List.of(secondZone)));
+
+            storeAreaService.disableAreasOfStore(storeId);
+
+            assertThat(testArea.getEnabled()).isFalse();
+            assertThat(secondArea.getEnabled()).isFalse();
+            assertThat(firstZone.getEnabled()).isFalse();
+            assertThat(secondZone.getEnabled()).isFalse();
+            verify(storeZoneRepository).saveAll(List.of(firstZone));
+            verify(storeZoneRepository).saveAll(List.of(secondZone));
+            verify(storeAreaRepository).saveAll(List.of(testArea, secondArea));
+        }
+
+        @Test
+        @DisplayName("should do nothing when the store has no enabled areas")
+        void disableAreasOfStore_NoEnabledAreas() {
+            when(storeAreaRepository.findByCompanyStoreIdAndEnabledTrueOrderByDisplayOrderAscAreaCodeAsc(storeId))
+                    .thenReturn(new ArrayList<>());
+
+            storeAreaService.disableAreasOfStore(storeId);
+
+            verify(storeZoneRepository, never()).findByStoreAreaIdAndEnabledTrue(any());
+            verify(storeAreaRepository).saveAll(List.of());
         }
     }
 
@@ -485,6 +589,20 @@ class StoreAreaServiceTest {
         }
 
         @Test
+        @DisplayName("should not cascade to zones when re-enabling the area")
+        void enableArea_DoesNotCascadeToZones() {
+            mockStoreResolution();
+            testArea.setEnabled(false);
+            when(storeAreaRepository.findByIdAndCompanyStoreId(areaId, storeId)).thenReturn(Optional.of(testArea));
+            when(storeAreaRepository.save(any(StoreArea.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+            storeAreaService.enableArea(companyId, companyCountryId, regionId, zoneId, storeId, areaId);
+
+            // D8: re-enable is explicit and ordered (store -> area -> zone); it never cascades down.
+            verify(storeZoneRepository, never()).saveAll(any());
+        }
+
+        @Test
         @DisplayName("should throw StoreAreaNotFoundException when the area does not exist")
         void enableArea_NotFound() {
             mockStoreResolution();
@@ -494,6 +612,21 @@ class StoreAreaServiceTest {
                             storeAreaService.enableArea(companyId, companyCountryId, regionId, zoneId, storeId, areaId))
                     .isInstanceOf(StoreAreaNotFoundException.class)
                     .hasMessage("Store area not found with id: " + areaId);
+        }
+
+        @Test
+        @DisplayName("should throw DisabledParentException when the parent store is disabled")
+        void enableArea_DisabledStore_ThrowsException() {
+            testStore.setEnabled(false);
+            mockStoreResolution();
+
+            assertThatThrownBy(() ->
+                            storeAreaService.enableArea(companyId, companyCountryId, regionId, zoneId, storeId, areaId))
+                    .isInstanceOf(DisabledParentException.class)
+                    .hasMessage("Cannot re-enable a store area: store with id " + storeId + " is disabled");
+
+            verify(storeAreaRepository, never()).findByIdAndCompanyStoreId(any(), any());
+            verify(storeAreaRepository, never()).save(any(StoreArea.class));
         }
     }
 }

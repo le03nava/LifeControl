@@ -87,7 +87,7 @@ public class StoreAreaController {
     @ApiResponse(responseCode = "201", description = "Store area created")
     @ApiResponse(responseCode = "400", description = "Validation error")
     @ApiResponse(responseCode = "404", description = "Store or parent hierarchy not found")
-    @ApiResponse(responseCode = "409", description = "Duplicate area code in store")
+    @ApiResponse(responseCode = "409", description = "Duplicate area code in store, or the parent store is disabled")
     public ResponseEntity<StoreAreaResponse> createArea(
             @PathVariable UUID companyId,
             @PathVariable UUID companyCountryId,
@@ -142,6 +142,7 @@ public class StoreAreaController {
     @Operation(summary = "Re-enable a soft-deleted store area")
     @ApiResponse(responseCode = "200", description = "Store area re-enabled")
     @ApiResponse(responseCode = "404", description = "Store area, store or parent hierarchy not found")
+    @ApiResponse(responseCode = "409", description = "Parent store is disabled")
     public ResponseEntity<StoreAreaResponse> enableArea(
             @PathVariable UUID companyId,
             @PathVariable UUID companyCountryId,
