@@ -1,0 +1,240 @@
+<div class="store-locations-page">
+  <app-page-header
+    title="Ubicaciones de Tienda"
+    subtitle="Gestión de las ubicaciones físicas dentro de cada zona de una tienda"
+  >
+    <button
+      mat-flat-button
+      color="primary"
+      type="button"
+      [disabled]="!selectedStoreZone()"
+      (click)="onCreateStoreLocation()"
+    >
+      <mat-icon fontIcon="add" /> Nueva ubicación
+    </button>
+  </app-page-header>
+
+  @if (actionError(); as actionErrorMsg) {
+    <div class="error-state">
+      <mat-icon fontIcon="error" />
+      <p>{{ actionErrorMsg }}</p>
+    </div>
+  }
+
+  <div class="filters-section">
+    <mat-form-field appearance="outline" class="company-selector" subscriptSizing="dynamic">
+      <mat-label>Empresa</mat-label>
+      <mat-select [value]="selectedCompanyId()" (selectionChange)="onCompanyChange($event.value)">
+        <mat-option value="">— Seleccionar empresa —</mat-option>
+        @for (company of companies(); track company.id) {
+          <mat-option [value]="company.id">{{ company.companyName }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="country-selector" subscriptSizing="dynamic">
+      <mat-label>País</mat-label>
+      <mat-select
+        [value]="selectedCountry()"
+        [compareWith]="compareCompanyCountry"
+        [disabled]="countries().length === 0"
+        (selectionChange)="onSelectCountry($event.value)"
+      >
+        @for (cc of countries(); track cc.id) {
+          <mat-option [value]="cc">
+            {{ cc.countryName }}
+          </mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="region-selector" subscriptSizing="dynamic">
+      <mat-label>Región</mat-label>
+      <mat-select
+        [value]="selectedRegion()"
+        [compareWith]="compareCompanyRegion"
+        [disabled]="regions().length === 0"
+        (selectionChange)="onSelectRegion($event.value)"
+      >
+        @for (region of regions(); track region.id) {
+          <mat-option [value]="region">
+            {{ region.regionName }}
+          </mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="company-zone-selector" subscriptSizing="dynamic">
+      <mat-label>Zona</mat-label>
+      <mat-select
+        [value]="selectedCompanyZone()"
+        [compareWith]="compareCompanyZone"
+        [disabled]="companyZones().length === 0"
+        (selectionChange)="onSelectCompanyZone($event.value)"
+      >
+        @for (companyZone of companyZones(); track companyZone.id) {
+          <mat-option [value]="companyZone">
+            {{ companyZone.zoneName }}
+          </mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="store-selector" subscriptSizing="dynamic">
+      <mat-label>Tienda</mat-label>
+      <mat-select
+        [value]="selectedStore()"
+        [compareWith]="compareCompanyStore"
+        [disabled]="stores().length === 0"
+        (selectionChange)="onSelectStore($event.value)"
+      >
+        @for (store of stores(); track store.id) {
+          <mat-option [value]="store">
+            {{ store.storeName }}
+            @if (!store.enabled) {
+              (deshabilitada)
+            }
+          </mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="area-selector" subscriptSizing="dynamic">
+      <mat-label>Área</mat-label>
+      <mat-select
+        [value]="selectedArea()"
+        [compareWith]="compareStoreArea"
+        [disabled]="areas().length === 0"
+        (selectionChange)="onSelectArea($event.value)"
+      >
+        @for (area of areas(); track area.id) {
+          <mat-option [value]="area">
+            {{ area.areaName }}
+            @if (!area.enabled) {
+              (deshabilitada)
+            }
+          </mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="store-zone-selector" subscriptSizing="dynamic">
+      <mat-label>Zona de tienda</mat-label>
+      <mat-select
+        [value]="selectedStoreZone()"
+        [compareWith]="compareStoreZone"
+        [disabled]="storeZones().length === 0"
+        (selectionChange)="onSelectStoreZone($event.value)"
+      >
+        @for (storeZone of storeZones(); track storeZone.id) {
+          <mat-option [value]="storeZone">
+            {{ storeZone.zoneName }}
+            @if (!storeZone.enabled) {
+              (deshabilitada)
+            }
+          </mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-slide-toggle
+      class="filter-toggle"
+      [checked]="showDisabled()"
+      (change)="showDisabled.set($event.checked)"
+    >
+      Mostrar deshabilitadas
+    </mat-slide-toggle>
+  </div>
+
+  @if (selectedStoreZone()) {
+    <div class="store-locations-grid">
+      @if (storeLocationsError(); as errorMsg) {
+        <div class="error-state">
+          <mat-icon fontIcon="error" />
+          <p>{{ errorMsg }}</p>
+        </div>
+      }
+
+      @if (storeLocationsResource.isLoading()) {
+        <p class="loading-text">Cargando ubicaciones...</p>
+      }
+
+      @if (storeLocations().length) {
+        @for (storeLocation of storeLocations(); track storeLocation.id; let i = $index) {
+          <div class="card-wrapper" [style.--i]="i">
+            <mat-card class="store-location-card" appearance="outlined">
+              <mat-card-header>
+                <mat-card-title>
+                  <div class="card-title-row">
+                    <span>{{ storeLocation.locationName }}</span>
+                    <span
+                      class="badge status"
+                      [class.active]="storeLocation.enabled"
+                      [class.inactive]="!storeLocation.enabled"
+                    >
+                      {{ storeLocation.enabled ? 'Activa' : 'Inactiva' }}
+                    </span>
+                  </div>
+                </mat-card-title>
+                <mat-card-subtitle>
+                  <span class="badge store-location-code-badge">
+                    <mat-icon fontIcon="shelves" class="badge-icon" />
+                    {{ storeLocation.locationCode }}
+                  </span>
+                  @if (storeLocation.displayOrder !== null) {
+                    <span class="badge order-badge">
+                      <mat-icon fontIcon="format_list_numbered" class="badge-icon" />
+                      Ord. {{ storeLocation.displayOrder }}
+                    </span>
+                  }
+                </mat-card-subtitle>
+              </mat-card-header>
+              <mat-card-content>
+                @if (storeLocation.description) {
+                  <p class="description">{{ storeLocation.description }}</p>
+                }
+              </mat-card-content>
+              <mat-card-actions align="end">
+                <button
+                  mat-button
+                  type="button"
+                  (click)="onEditStoreLocation(storeLocation)"
+                  aria-label="Editar ubicación"
+                >
+                  <mat-icon fontIcon="edit" /> Editar
+                </button>
+                @if (storeLocation.enabled) {
+                  <button
+                    mat-flat-button
+                    color="warn"
+                    type="button"
+                    (click)="onToggleStoreLocation(storeLocation)"
+                    aria-label="Deshabilitar ubicación"
+                  >
+                    <mat-icon fontIcon="block" /> Deshabilitar
+                  </button>
+                } @else {
+                  <button
+                    mat-flat-button
+                    color="primary"
+                    type="button"
+                    (click)="onToggleStoreLocation(storeLocation)"
+                    aria-label="Reactivar ubicación"
+                  >
+                    <mat-icon fontIcon="restart_alt" /> Reactivar
+                  </button>
+                }
+              </mat-card-actions>
+            </mat-card>
+          </div>
+        }
+      } @else if (!storeLocationsResource.isLoading()) {
+        <div class="empty-state">
+          <p>No hay ubicaciones registradas para esta zona de tienda</p>
+        </div>
+      }
+    </div>
+  } @else {
+    <p class="empty-prompt">Seleccioná una zona de tienda para ver sus ubicaciones</p>
+  }
+</div>
