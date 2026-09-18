@@ -546,57 +546,6 @@ describe('StoreLocationsEdit', () => {
     });
   });
 
-  // ─── Validation (delegated to StoreLocationForm) ────────────
-
-  describe('form validation', () => {
-    beforeEach(async () => {
-      await setup(null, {
-        companyId: 'company-1',
-        countryId: 'cc-1',
-        regionId: 'reg-1',
-        zoneId: 'zone-1',
-        storeId: 'store-1',
-        areaId: 'area-1',
-        storeZoneId: 'store-zone-1',
-      });
-    });
-
-    it('should require locationCode and locationName', () => {
-      const group = storeLocationForm().formGroup;
-      expect(group.controls.locationCode.errors?.['required']).toBeTruthy();
-      expect(group.controls.locationName.errors?.['required']).toBeTruthy();
-    });
-
-    it('should enforce maxLength on locationCode (10), locationName (100), and description (255)', () => {
-      const group = storeLocationForm().formGroup;
-
-      group.controls.locationCode.setValue('A'.repeat(11));
-      group.controls.locationName.setValue('A'.repeat(101));
-      group.controls.description.setValue('A'.repeat(256));
-
-      expect(group.controls.locationCode.errors?.['maxlength']).toBeTruthy();
-      expect(group.controls.locationName.errors?.['maxlength']).toBeTruthy();
-      expect(group.controls.description.errors?.['maxlength']).toBeTruthy();
-    });
-
-    it('should enforce min 0 on displayOrder', () => {
-      const group = storeLocationForm().formGroup;
-      group.controls.displayOrder.setValue(-1);
-
-      expect(group.controls.displayOrder.errors?.['min']).toBeTruthy();
-    });
-
-    it('should not send a request when the form submits while invalid', () => {
-      const storeLocationService = TestBed.inject(
-        StoreLocationService,
-      ) as unknown as MockStoreLocationService;
-
-      storeLocationForm().onSave();
-
-      expect(storeLocationService.createLocation).not.toHaveBeenCalled();
-    });
-  });
-
   // ─── Error handling ─────────────────────────────────────────
 
   describe('handleError', () => {

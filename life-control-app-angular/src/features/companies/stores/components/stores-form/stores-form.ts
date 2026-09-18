@@ -9,13 +9,7 @@ import {
   output,
   signal,
 } from '@angular/core';
-import {
-  AbstractControl,
-  FormControl,
-  FormGroup,
-  ReactiveFormsModule,
-  Validators,
-} from '@angular/forms';
+import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Subscription, of } from 'rxjs';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { catchError } from 'rxjs/operators';
@@ -35,6 +29,7 @@ import { CountryService } from '../../../../countries/data/country.service';
 import { Country } from '../../../countries/models/country.models';
 import { AddressControl } from '@shared/models/address.models';
 import { AddressFormComponent } from '@shared/ui/address-form';
+import { createErrorMessageResolver, CONTACT_FORM_ERROR_MESSAGES } from '../form-errors';
 
 @Component({
   selector: 'app-stores-form',
@@ -121,32 +116,7 @@ export class StoresForm {
   });
 
   // ─── Error messages ─────────────────────────────────────────
-  private readonly defaultErrorMessages: Record<string, (error: unknown) => string> = {
-    required: () => 'Este campo es obligatorio.',
-    maxlength: (err) =>
-      `No puede superar los ${(err as { requiredLength?: number }).requiredLength} caracteres.`,
-    email: () => 'Ingrese un correo electrónico válido.',
-    serverError: (err) => err as string,
-  };
-
-  protected getErrorMessage(
-    control: AbstractControl | null,
-    customMessages?: Record<string, (error: unknown) => string>,
-  ): string | null {
-    if (!control || !control.errors || !control.touched) {
-      return null;
-    }
-
-    const primerErrorKey = Object.keys(control.errors)[0];
-    const errorDetalle = control.errors[primerErrorKey];
-
-    const allMessages = { ...this.defaultErrorMessages, ...customMessages };
-    if (allMessages[primerErrorKey]) {
-      return allMessages[primerErrorKey](errorDetalle);
-    }
-
-    return 'Campo inválido.';
-  }
+  protected readonly getErrorMessage = createErrorMessageResolver(CONTACT_FORM_ERROR_MESSAGES);
 
   // ─── Computed ───────────────────────────────────────────────
   readonly isEditMode = computed(() => !!this.storeToEdit());

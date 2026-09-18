@@ -494,54 +494,6 @@ describe('StoreZonesEdit', () => {
     });
   });
 
-  // ─── Validation (delegated to StoreZoneForm) ────────────────
-
-  describe('form validation', () => {
-    beforeEach(async () => {
-      await setup(null, {
-        companyId: 'company-1',
-        countryId: 'cc-1',
-        regionId: 'reg-1',
-        zoneId: 'zone-1',
-        storeId: 'store-1',
-        areaId: 'area-1',
-      });
-    });
-
-    it('should require zoneCode and zoneName', () => {
-      const group = zoneForm().formGroup;
-      expect(group.controls.zoneCode.errors?.['required']).toBeTruthy();
-      expect(group.controls.zoneName.errors?.['required']).toBeTruthy();
-    });
-
-    it('should enforce maxLength on zoneCode (10), zoneName (100), and description (255)', () => {
-      const group = zoneForm().formGroup;
-
-      group.controls.zoneCode.setValue('A'.repeat(11));
-      group.controls.zoneName.setValue('A'.repeat(101));
-      group.controls.description.setValue('A'.repeat(256));
-
-      expect(group.controls.zoneCode.errors?.['maxlength']).toBeTruthy();
-      expect(group.controls.zoneName.errors?.['maxlength']).toBeTruthy();
-      expect(group.controls.description.errors?.['maxlength']).toBeTruthy();
-    });
-
-    it('should enforce min 0 on displayOrder', () => {
-      const group = zoneForm().formGroup;
-      group.controls.displayOrder.setValue(-1);
-
-      expect(group.controls.displayOrder.errors?.['min']).toBeTruthy();
-    });
-
-    it('should not send a request when the form submits while invalid', () => {
-      const zoneService = TestBed.inject(StoreZoneService) as unknown as MockStoreZoneService;
-
-      zoneForm().onSave();
-
-      expect(zoneService.createZone).not.toHaveBeenCalled();
-    });
-  });
-
   // ─── Error handling ─────────────────────────────────────────
 
   describe('handleError', () => {

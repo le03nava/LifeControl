@@ -1,5 +1,4 @@
 import { TestBed } from '@angular/core/testing';
-import { WritableSignal } from '@angular/core';
 import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 import { firstValueFrom } from 'rxjs';
 import { ConfigService } from '@app/services/config.service';
@@ -71,18 +70,12 @@ describe('StoreZoneService', () => {
     httpMock.verify();
   });
 
-  function setStoreZones(storeZones: StoreZone[]): void {
-    (service as unknown as { _storeZones: WritableSignal<StoreZone[]> })._storeZones.set(
-      storeZones,
-    );
-  }
-
   it('should be created', () => {
     expect(service).toBeTruthy();
   });
 
   describe('getStoreZones', () => {
-    it('should GET the nested URL and populate the store zones signal', async () => {
+    it('should GET the nested URL with includeDisabled=false and emit the store zones', async () => {
       const request$ = firstValueFrom(
         service.getStoreZones(companyId, countryId, regionId, zoneId, storeId, areaId),
       );
@@ -91,9 +84,7 @@ describe('StoreZoneService', () => {
       expect(req.request.params.get('includeDisabled')).toBe('false');
       req.flush(mockZones);
 
-      const storeZones = await request$;
-      expect(storeZones).toEqual(mockZones);
-      expect(service.storeZones()).toEqual(mockZones);
+      await expect(request$).resolves.toEqual(mockZones);
     });
 
     it('should send includeDisabled=true when requested', async () => {
@@ -108,20 +99,21 @@ describe('StoreZoneService', () => {
       await request$;
     });
 
-    it('should toggle loading around the request', async () => {
-      expect(service.loading()).toBe(false);
-
+    it('should keep the request in flight until the response arrives', async () => {
       const request$ = firstValueFrom(
         service.getStoreZones(companyId, countryId, regionId, zoneId, storeId, areaId),
       );
+      const req = httpMock.expectOne((r) => r.url === nestedUrl && r.method === 'GET');
 
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      expect(service.loading()).toBe(true);
+      let settled = false;
+      void request$.then(() => (settled = true));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(settled).toBe(false);
 
-      httpMock.expectOne((r) => r.url === nestedUrl && r.method === 'GET').flush(mockZones);
-      await request$;
+      req.flush(mockZones);
 
-      expect(service.loading()).toBe(false);
+      await expect(request$).resolves.toEqual(mockZones);
+      expect(settled).toBe(true);
     });
 
     it('should set the store zones error message on failure', async () => {
@@ -152,15 +144,13 @@ describe('StoreZoneService', () => {
       expect(storeZone.storeAreaId).toBe(areaId);
     });
 
-    it('should NOT touch the store zones signal', async () => {
-      setStoreZones([mockZones[1]]);
-      expect(service.storeZones()).toEqual([mockZones[1]]);
-
+    it('should issue only the flat request, never a nested list read', async () => {
       const request$ = firstValueFrom(service.getZoneById('store-zone-1'));
+
       httpMock.expectOne(`${baseUrl}/store-zones/store-zone-1`).flush(mockZones[0]);
       await request$;
 
-      expect(service.storeZones()).toEqual([mockZones[1]]);
+      expect(httpMock.match((r) => r.url === nestedUrl).length).toBe(0);
     });
 
     it('should set the store zone error message on failure', async () => {
@@ -200,9 +190,7 @@ describe('StoreZoneService', () => {
       updatedAt: '2024-02-01T00:00:00Z',
     };
 
-    it('should POST to the nested URL and append to the signal', async () => {
-      setStoreZones([mockZones[0]]);
-
+    it('should POST the body to the nested URL and emit the created store zone', async () => {
       const request$ = firstValueFrom(
         service.createZone(companyId, countryId, regionId, zoneId, storeId, areaId, request),
       );
@@ -211,15 +199,10 @@ describe('StoreZoneService', () => {
       expect(req.request.body).toEqual(request);
       req.flush(response);
 
-      const created = await request$;
-      expect(created).toEqual(response);
-      expect(service.storeZones().length).toBe(2);
-      expect(service.storeZones()[1].zoneCode).toBe('NUEVA');
+      await expect(request$).resolves.toEqual(response);
     });
 
-    it('should set the create error message and leave the signal untouched', async () => {
-      setStoreZones([mockZones[0]]);
-
+    it('should set the create error message and rethrow', async () => {
       const request$ = firstValueFrom(
         service.createZone(companyId, countryId, regionId, zoneId, storeId, areaId, request),
       );
@@ -230,7 +213,6 @@ describe('StoreZoneService', () => {
 
       await expect(request$).rejects.toThrow();
       expect(service.error()).toBe('Error al crear la zona de la tienda');
-      expect(service.storeZones().length).toBe(1);
     });
   });
 
@@ -245,9 +227,7 @@ describe('StoreZoneService', () => {
       updatedAt: '2024-02-01T00:00:00Z',
     };
 
-    it('should PUT to the nested /{storeZoneId} URL and map-replace in the signal', async () => {
-      setStoreZones(mockZones);
-
+    it('should PUT the body to the nested /{storeZoneId} URL and emit the updated store zone', async () => {
       const request$ = firstValueFrom(
         service.updateZone(
           companyId,
@@ -265,11 +245,7 @@ describe('StoreZoneService', () => {
       expect(req.request.body).toEqual(request);
       req.flush(updated);
 
-      const result = await request$;
-      expect(result).toEqual(updated);
-      expect(service.storeZones().length).toBe(2);
-      expect(service.storeZones()[0].zoneName).toBe('Depósito Nuevo');
-      expect(service.storeZones()[1]).toEqual(mockZones[1]);
+      await expect(request$).resolves.toEqual(updated);
     });
 
     it('should set the update error message on failure', async () => {
@@ -299,9 +275,7 @@ describe('StoreZoneService', () => {
     const storeZoneId = 'store-zone-1';
     const expectedUrl = `${nestedUrl}/${storeZoneId}`;
 
-    it('should DELETE and flag the row enabled=false without removing it', async () => {
-      setStoreZones(mockZones);
-
+    it('should DELETE the nested /{storeZoneId} URL and complete', async () => {
       const request$ = firstValueFrom(
         service.removeZone(companyId, countryId, regionId, zoneId, storeId, areaId, storeZoneId),
       );
@@ -311,10 +285,8 @@ describe('StoreZoneService', () => {
 
       await request$;
 
-      expect(service.storeZones().length).toBe(2);
-      const storeZone = service.storeZones().find((z) => z.id === storeZoneId);
-      expect(storeZone).toBeDefined();
-      expect(storeZone!.enabled).toBe(false);
+      // Soft delete: the backend flips `enabled`; the client issues no follow-up read or write.
+      expect(httpMock.match((r) => r.method !== 'DELETE').length).toBe(0);
     });
 
     it('should set the disable error message on failure', async () => {
@@ -338,9 +310,7 @@ describe('StoreZoneService', () => {
 
     const enabled: StoreZone = { ...mockZones[1], enabled: true };
 
-    it('should PATCH /{storeZoneId}/enable and map-replace in the signal', async () => {
-      setStoreZones(mockZones);
-
+    it('should PATCH /{storeZoneId}/enable and emit the re-enabled store zone', async () => {
       const request$ = firstValueFrom(
         service.enableZone(companyId, countryId, regionId, zoneId, storeId, areaId, storeZoneId),
       );
@@ -348,9 +318,7 @@ describe('StoreZoneService', () => {
       const req = httpMock.expectOne((r) => r.url === expectedUrl && r.method === 'PATCH');
       req.flush(enabled);
 
-      const result = await request$;
-      expect(result).toEqual(enabled);
-      expect(service.storeZones().find((z) => z.id === storeZoneId)?.enabled).toBe(true);
+      await expect(request$).resolves.toEqual(enabled);
     });
 
     it('should set the enable error message on failure', async () => {
@@ -367,21 +335,28 @@ describe('StoreZoneService', () => {
     });
   });
 
-  describe('clearError', () => {
-    it('should reset the error signal to null', () => {
-      (service as unknown as { _error: WritableSignal<string | null> })._error.set('Some error');
-      expect(service.error()).toBe('Some error');
-
-      service.clearError();
+  describe('error signal', () => {
+    it('should start with no error', () => {
       expect(service.error()).toBeNull();
     });
-  });
 
-  describe('signal exposure', () => {
-    it('should expose readonly signals for store zones, loading, and error', () => {
-      expect(service.storeZones()).toEqual([]);
-      expect(service.loading()).toBe(false);
+    it('should clear a previous error when a new request starts', async () => {
+      const failed$ = firstValueFrom(
+        service.getStoreZones(companyId, countryId, regionId, zoneId, storeId, areaId),
+      );
+      httpMock
+        .expectOne((r) => r.url === nestedUrl && r.method === 'GET')
+        .flush('Server error', { status: 500, statusText: 'Internal Server Error' });
+      await expect(failed$).rejects.toThrow();
+      expect(service.error()).toBe('Error al cargar las zonas de la tienda');
+
+      const retry$ = firstValueFrom(
+        service.getStoreZones(companyId, countryId, regionId, zoneId, storeId, areaId),
+      );
       expect(service.error()).toBeNull();
+
+      httpMock.expectOne((r) => r.url === nestedUrl && r.method === 'GET').flush(mockZones);
+      await retry$;
     });
   });
 });

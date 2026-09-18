@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { By } from '@angular/platform-browser';
-import { signal, WritableSignal } from '@angular/core';
+import { signal, Type, WritableSignal } from '@angular/core';
 import { of, throwError } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -30,6 +30,15 @@ import { Company, Page } from '../../../companies/models/company.models';
 describe('StoreLocationsPage', () => {
   let component: StoreLocationsPage;
   let fixture: ComponentFixture<StoreLocationsPage>;
+
+  /**
+   * The listing pages provide their leaf service themselves — a page-scoped instance so the
+   * service's `error` signal cannot leak in from another route (slice 3, step 2d). The module
+   * level mock therefore cannot reach them; the override lives in the component injector.
+   */
+  function pageService<T>(type: Type<T>): T {
+    return fixture.debugElement.injector.get(type);
+  }
 
   const mockCompanies: Company[] = [
     {
@@ -362,7 +371,7 @@ describe('StoreLocationsPage', () => {
   }
 
   async function setup(queryParams: Record<string, string> = {}): Promise<void> {
-    await TestBed.configureTestingModule({
+    TestBed.configureTestingModule({
       imports: [StoreLocationsPage, NoopAnimationsModule, HttpClientTestingModule],
       providers: [
         { provide: CompanyService, useClass: MockCompanyService },
@@ -372,12 +381,16 @@ describe('StoreLocationsPage', () => {
         { provide: CompanyStoreService, useClass: MockCompanyStoreService },
         { provide: StoreAreaService, useClass: MockStoreAreaService },
         { provide: StoreZoneService, useClass: MockStoreZoneService },
-        { provide: StoreLocationService, useClass: MockStoreLocationService },
         { provide: Router, useValue: routerMock },
         { provide: MatDialog, useValue: dialogMock },
         { provide: ActivatedRoute, useValue: activatedRouteWith(queryParams) },
       ],
-    }).compileComponents();
+    });
+    // The page-scoped leaf service (2d): replace the component-level provider with the mock.
+    TestBed.overrideComponent(StoreLocationsPage, {
+      set: { providers: [{ provide: StoreLocationService, useClass: MockStoreLocationService }] },
+    });
+    await TestBed.compileComponents();
 
     fixture = TestBed.createComponent(StoreLocationsPage);
     component = fixture.componentInstance;
@@ -472,7 +485,7 @@ describe('StoreLocationsPage', () => {
     });
 
     it('should not request store locations while no store zone is selected', () => {
-      const storeLocationService = TestBed.inject(
+      const storeLocationService = pageService(
         StoreLocationService,
       ) as unknown as MockStoreLocationService;
       expect(storeLocationService.getStoreLocations).not.toHaveBeenCalled();
@@ -504,7 +517,7 @@ describe('StoreLocationsPage', () => {
       ) as unknown as MockCompanyStoreService;
       const areaService = TestBed.inject(StoreAreaService) as unknown as MockStoreAreaService;
       const storeZoneService = TestBed.inject(StoreZoneService) as unknown as MockStoreZoneService;
-      const storeLocationService = TestBed.inject(
+      const storeLocationService = pageService(
         StoreLocationService,
       ) as unknown as MockStoreLocationService;
 
@@ -702,9 +715,7 @@ describe('StoreLocationsPage', () => {
     });
 
     it('should surface a company-zones failure instead of an empty list', async () => {
-      const zoneService = TestBed.inject(
-        CompanyZoneService,
-      ) as unknown as MockCompanyZoneService;
+      const zoneService = TestBed.inject(CompanyZoneService) as unknown as MockCompanyZoneService;
       zoneService.getZones.mockReturnValue(throwError(() => httpFailure('Zonas caídas')));
 
       component.onCompanyChange('company-1');
@@ -806,7 +817,7 @@ describe('StoreLocationsPage', () => {
     });
 
     it('should load the selected store zone locations with the full nested chain', async () => {
-      const storeLocationService = TestBed.inject(
+      const storeLocationService = pageService(
         StoreLocationService,
       ) as unknown as MockStoreLocationService;
 
@@ -826,7 +837,7 @@ describe('StoreLocationsPage', () => {
     });
 
     it('should re-request store locations when the selected store zone changes', async () => {
-      const storeLocationService = TestBed.inject(
+      const storeLocationService = pageService(
         StoreLocationService,
       ) as unknown as MockStoreLocationService;
 
@@ -847,7 +858,7 @@ describe('StoreLocationsPage', () => {
     });
 
     it('should request disabled store locations when the toggle is on', async () => {
-      const storeLocationService = TestBed.inject(
+      const storeLocationService = pageService(
         StoreLocationService,
       ) as unknown as MockStoreLocationService;
 
@@ -889,7 +900,7 @@ describe('StoreLocationsPage', () => {
 
     it('should not re-request store zones when the show-disabled toggle changes', async () => {
       const storeZoneService = TestBed.inject(StoreZoneService) as unknown as MockStoreZoneService;
-      const storeLocationService = TestBed.inject(
+      const storeLocationService = pageService(
         StoreLocationService,
       ) as unknown as MockStoreLocationService;
 
@@ -939,7 +950,7 @@ describe('StoreLocationsPage', () => {
     });
 
     it('should render the empty state when the selected store zone has no locations', async () => {
-      const storeLocationService = TestBed.inject(
+      const storeLocationService = pageService(
         StoreLocationService,
       ) as unknown as MockStoreLocationService;
       storeLocationService.getStoreLocations.mockImplementation(() => {
@@ -1031,7 +1042,7 @@ describe('StoreLocationsPage', () => {
     });
 
     it('should call removeLocation and reload when the dialog is confirmed', async () => {
-      const storeLocationService = TestBed.inject(
+      const storeLocationService = pageService(
         StoreLocationService,
       ) as unknown as MockStoreLocationService;
       dialogMock.open.mockReturnValue({ afterClosed: () => of(true) });
@@ -1057,7 +1068,7 @@ describe('StoreLocationsPage', () => {
     });
 
     it('should NOT call removeLocation when the dialog is dismissed', async () => {
-      const storeLocationService = TestBed.inject(
+      const storeLocationService = pageService(
         StoreLocationService,
       ) as unknown as MockStoreLocationService;
       dialogMock.open.mockReturnValue({ afterClosed: () => of(false) });
@@ -1072,7 +1083,7 @@ describe('StoreLocationsPage', () => {
     });
 
     it('should call enableLocation for a disabled store location and reload', async () => {
-      const storeLocationService = TestBed.inject(
+      const storeLocationService = pageService(
         StoreLocationService,
       ) as unknown as MockStoreLocationService;
 
@@ -1106,7 +1117,7 @@ describe('StoreLocationsPage', () => {
     });
 
     it('should surface the backend message when disabling fails', async () => {
-      const storeLocationService = TestBed.inject(
+      const storeLocationService = pageService(
         StoreLocationService,
       ) as unknown as MockStoreLocationService;
       dialogMock.open.mockReturnValue({ afterClosed: () => of(true) });
@@ -1128,7 +1139,7 @@ describe('StoreLocationsPage', () => {
     });
 
     it('should surface the backend message when re-enabling fails', async () => {
-      const storeLocationService = TestBed.inject(
+      const storeLocationService = pageService(
         StoreLocationService,
       ) as unknown as MockStoreLocationService;
       storeLocationService.enableLocation.mockReturnValue(
@@ -1149,7 +1160,7 @@ describe('StoreLocationsPage', () => {
     });
 
     it('should fall back to a generic message when the failure carries none', async () => {
-      const storeLocationService = TestBed.inject(
+      const storeLocationService = pageService(
         StoreLocationService,
       ) as unknown as MockStoreLocationService;
       storeLocationService.enableLocation.mockReturnValue(throwError(() => ({ error: {} })));
@@ -1163,7 +1174,7 @@ describe('StoreLocationsPage', () => {
     });
 
     it('should clear a previous action error on the next toggle attempt', async () => {
-      const storeLocationService = TestBed.inject(
+      const storeLocationService = pageService(
         StoreLocationService,
       ) as unknown as MockStoreLocationService;
       storeLocationService.enableLocation.mockReturnValue(
@@ -1249,7 +1260,7 @@ describe('StoreLocationsPage', () => {
     });
 
     it('should load store locations for the pre-selected disabled store zone', async () => {
-      const storeLocationService = TestBed.inject(
+      const storeLocationService = pageService(
         StoreLocationService,
       ) as unknown as MockStoreLocationService;
 
@@ -1282,7 +1293,7 @@ describe('StoreLocationsPage', () => {
     });
 
     it('should render the service error message', async () => {
-      const storeLocationService = TestBed.inject(
+      const storeLocationService = pageService(
         StoreLocationService,
       ) as unknown as MockStoreLocationService;
       (storeLocationService as unknown as { _error: WritableSignal<string | null> })._error.set(
