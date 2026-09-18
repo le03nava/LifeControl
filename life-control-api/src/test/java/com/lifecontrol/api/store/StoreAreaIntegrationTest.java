@@ -21,6 +21,7 @@ import com.lifecontrol.api.store.dto.UpdateStoreAreaRequest;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.store.repository.StoreAreaRepository;
+import com.lifecontrol.api.store.repository.StoreLocationRepository;
 import com.lifecontrol.api.store.repository.StoreZoneRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import java.util.UUID;
@@ -58,6 +59,9 @@ class StoreAreaIntegrationTest extends AbstractPostgresIntegrationTest {
     private StoreZoneRepository storeZoneRepository;
 
     @Autowired
+    private StoreLocationRepository storeLocationRepository;
+
+    @Autowired
     private CompanyStoreRepository companyStoreRepository;
 
     @Autowired
@@ -88,9 +92,10 @@ class StoreAreaIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        // store_zones references store_areas without ON DELETE CASCADE and deleteAll() deletes row
-        // by row, so zones must be removed first or this cleanup breaks the foreign key when the
-        // zone integration class ran earlier in the same JVM.
+        // store_locations references store_zones and store_zones references store_areas, none
+        // with ON DELETE CASCADE, and deleteAll() deletes row by row: cleanup must go leaf-first or
+        // the foreign keys break when another integration class ran earlier in the same JVM.
+        storeLocationRepository.deleteAll();
         storeZoneRepository.deleteAll();
         storeAreaRepository.deleteAll();
         seedCompanyHierarchy();

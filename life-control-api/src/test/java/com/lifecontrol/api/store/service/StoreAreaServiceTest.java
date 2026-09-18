@@ -24,10 +24,8 @@ import com.lifecontrol.api.store.exception.DuplicateStoreAreaException;
 import com.lifecontrol.api.store.exception.StoreAreaNotFoundException;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.model.StoreArea;
-import com.lifecontrol.api.store.model.StoreZone;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.store.repository.StoreAreaRepository;
-import com.lifecontrol.api.store.repository.StoreZoneRepository;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -50,7 +48,7 @@ class StoreAreaServiceTest {
     private StoreAreaRepository storeAreaRepository;
 
     @Mock
-    private StoreZoneRepository storeZoneRepository;
+    private StoreZoneService storeZoneService;
 
     @Mock
     private CompanyStoreRepository companyStoreRepository;
@@ -471,25 +469,17 @@ class StoreAreaServiceTest {
         }
 
         @Test
-        @DisplayName("should cascade the soft delete to the area's still-enabled zones")
+        @DisplayName("should cascade the soft delete to the area's still-enabled zones through StoreZoneService")
         void deleteArea_CascadesToEnabledZones() {
             mockStoreResolution();
             when(storeAreaRepository.findByIdAndCompanyStoreId(areaId, storeId)).thenReturn(Optional.of(testArea));
             when(storeAreaRepository.save(any(StoreArea.class))).thenAnswer(invocation -> invocation.getArgument(0));
-            var enabledZone = StoreZone.builder()
-                    .id(UUID.randomUUID())
-                    .storeArea(testArea)
-                    .zoneCode("Z01")
-                    .zoneName("Pasillo")
-                    .enabled(true)
-                    .build();
-            when(storeZoneRepository.findByStoreAreaIdAndEnabledTrue(areaId))
-                    .thenReturn(new ArrayList<>(List.of(enabledZone)));
 
             storeAreaService.deleteArea(companyId, companyCountryId, regionId, zoneId, storeId, areaId);
 
-            assertThat(enabledZone.getEnabled()).isFalse();
-            verify(storeZoneRepository).saveAll(java.util.List.of(enabledZone));
+            var captor = org.mockito.ArgumentCaptor.forClass(List.class);
+            verify(storeZoneService).disableZonesOfAreas(captor.capture());
+            assertThat(captor.getValue()).hasSize(1).containsExactly(testArea);
         }
 
         @Test
@@ -512,7 +502,7 @@ class StoreAreaServiceTest {
     class DisableAreasOfStoreTests {
 
         @Test
-        @DisplayName("should disable the store's areas and all of their enabled zones")
+        @DisplayName("should disable the store's areas and delegate their zones to StoreZoneService")
         void disableAreasOfStore_DisablesAreasAndZones() {
             var secondArea = StoreArea.builder()
                     .id(UUID.randomUUID())
@@ -521,36 +511,17 @@ class StoreAreaServiceTest {
                     .areaName("Piso de venta")
                     .enabled(true)
                     .build();
-            var firstZone = StoreZone.builder()
-                    .id(UUID.randomUUID())
-                    .storeArea(testArea)
-                    .zoneCode("Z01")
-                    .zoneName("Pasillo")
-                    .enabled(true)
-                    .build();
-            var secondZone = StoreZone.builder()
-                    .id(UUID.randomUUID())
-                    .storeArea(secondArea)
-                    .zoneCode("Z02")
-                    .zoneName("Estante")
-                    .enabled(true)
-                    .build();
 
             when(storeAreaRepository.findByCompanyStoreIdAndEnabledTrueOrderByDisplayOrderAscAreaCodeAsc(storeId))
                     .thenReturn(new ArrayList<>(List.of(testArea, secondArea)));
-            when(storeZoneRepository.findByStoreAreaIdAndEnabledTrue(areaId))
-                    .thenReturn(new ArrayList<>(List.of(firstZone)));
-            when(storeZoneRepository.findByStoreAreaIdAndEnabledTrue(secondArea.getId()))
-                    .thenReturn(new ArrayList<>(List.of(secondZone)));
 
             storeAreaService.disableAreasOfStore(storeId);
 
             assertThat(testArea.getEnabled()).isFalse();
             assertThat(secondArea.getEnabled()).isFalse();
-            assertThat(firstZone.getEnabled()).isFalse();
-            assertThat(secondZone.getEnabled()).isFalse();
-            verify(storeZoneRepository).saveAll(List.of(firstZone));
-            verify(storeZoneRepository).saveAll(List.of(secondZone));
+            var captor = org.mockito.ArgumentCaptor.forClass(List.class);
+            verify(storeZoneService).disableZonesOfAreas(captor.capture());
+            assertThat(captor.getValue()).hasSize(2).containsExactly(testArea, secondArea);
             verify(storeAreaRepository).saveAll(List.of(testArea, secondArea));
         }
 
@@ -562,7 +533,7 @@ class StoreAreaServiceTest {
 
             storeAreaService.disableAreasOfStore(storeId);
 
-            verify(storeZoneRepository, never()).findByStoreAreaIdAndEnabledTrue(any());
+            verify(storeZoneService).disableZonesOfAreas(List.of());
             verify(storeAreaRepository).saveAll(List.of());
         }
     }
@@ -598,8 +569,9 @@ class StoreAreaServiceTest {
 
             storeAreaService.enableArea(companyId, companyCountryId, regionId, zoneId, storeId, areaId);
 
-            // D8: re-enable is explicit and ordered (store -> area -> zone); it never cascades down.
-            verify(storeZoneRepository, never()).saveAll(any());
+            // D8: re-enable is explicit and ordered (store -> area -> zone -> location); it never
+            // cascades down.
+            verify(storeZoneService, never()).disableZonesOfAreas(any());
         }
 
         @Test

@@ -20,7 +20,6 @@ import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.model.StoreArea;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.store.repository.StoreAreaRepository;
-import com.lifecontrol.api.store.repository.StoreZoneRepository;
 import java.util.List;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -46,7 +45,7 @@ public class StoreAreaService {
     private static final Logger logger = LoggerFactory.getLogger(StoreAreaService.class);
 
     private final StoreAreaRepository storeAreaRepository;
-    private final StoreZoneRepository storeZoneRepository;
+    private final StoreZoneService storeZoneService;
     private final CompanyStoreRepository companyStoreRepository;
     private final CompanyZoneRepository companyZoneRepository;
     private final CompanyRegionRepository companyRegionRepository;
@@ -56,7 +55,7 @@ public class StoreAreaService {
 
     public StoreAreaService(
             StoreAreaRepository storeAreaRepository,
-            StoreZoneRepository storeZoneRepository,
+            StoreZoneService storeZoneService,
             CompanyStoreRepository companyStoreRepository,
             CompanyZoneRepository companyZoneRepository,
             CompanyRegionRepository companyRegionRepository,
@@ -64,7 +63,7 @@ public class StoreAreaService {
             CompanyRepository companyRepository,
             CurrentUserContext currentUserContext) {
         this.storeAreaRepository = storeAreaRepository;
-        this.storeZoneRepository = storeZoneRepository;
+        this.storeZoneService = storeZoneService;
         this.companyStoreRepository = companyStoreRepository;
         this.companyZoneRepository = companyZoneRepository;
         this.companyRegionRepository = companyRegionRepository;
@@ -265,15 +264,15 @@ public class StoreAreaService {
         area.setEnabled(false);
         storeAreaRepository.save(area);
 
-        var cascadedZones = disableZonesOfAreas(List.of(area));
+        var cascadedZones = storeZoneService.disableZonesOfAreas(List.of(area));
 
         logger.info(
                 "StoreArea soft-deleted: id={}, code={}, cascadedZones={}", areaId, area.getAreaCode(), cascadedZones);
     }
 
     /**
-     * Soft-deletes every enabled area of a store and, through {@link #disableZonesOfAreas(List)},
-     * its enabled zones.
+     * Soft-deletes every enabled area of a store and, through
+     * {@link StoreZoneService#disableZonesOfAreas(List)}, its enabled zones and their locations.
      *
      * <p>Called by {@code CompanyStoreService} when a store is soft-deleted. It performs no
      * authorization of its own: the caller already resolved and authorized the store scope before
@@ -283,7 +282,7 @@ public class StoreAreaService {
     public void disableAreasOfStore(UUID companyStoreId) {
         var areas =
                 storeAreaRepository.findByCompanyStoreIdAndEnabledTrueOrderByDisplayOrderAscAreaCodeAsc(companyStoreId);
-        var cascadedZones = disableZonesOfAreas(areas);
+        var cascadedZones = storeZoneService.disableZonesOfAreas(areas);
         areas.forEach(area -> area.setEnabled(false));
         storeAreaRepository.saveAll(areas);
         logger.info(
@@ -291,24 +290,6 @@ public class StoreAreaService {
                 companyStoreId,
                 areas.size(),
                 cascadedZones);
-    }
-
-    /**
-     * Disables every still-enabled zone of each given area and persists the change. It never
-     * touches the areas themselves, so the area&rarr;zone cascade has exactly one implementation
-     * shared by the area soft delete and the store soft-delete cascade.
-     *
-     * @return the number of zones that were disabled, for logging at the call sites
-     */
-    private int disableZonesOfAreas(List<StoreArea> areas) {
-        var disabled = 0;
-        for (var area : areas) {
-            var zones = storeZoneRepository.findByStoreAreaIdAndEnabledTrue(area.getId());
-            zones.forEach(zone -> zone.setEnabled(false));
-            storeZoneRepository.saveAll(zones);
-            disabled += zones.size();
-        }
-        return disabled;
     }
 
     /**

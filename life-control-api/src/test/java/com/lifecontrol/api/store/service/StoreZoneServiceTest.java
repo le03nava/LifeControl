@@ -25,9 +25,11 @@ import com.lifecontrol.api.store.exception.StoreAreaNotFoundException;
 import com.lifecontrol.api.store.exception.StoreZoneNotFoundException;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.model.StoreArea;
+import com.lifecontrol.api.store.model.StoreLocation;
 import com.lifecontrol.api.store.model.StoreZone;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.store.repository.StoreAreaRepository;
+import com.lifecontrol.api.store.repository.StoreLocationRepository;
 import com.lifecontrol.api.store.repository.StoreZoneRepository;
 import java.util.List;
 import java.util.Optional;
@@ -49,6 +51,9 @@ class StoreZoneServiceTest {
 
     @Mock
     private StoreZoneRepository storeZoneRepository;
+
+    @Mock
+    private StoreLocationRepository storeLocationRepository;
 
     @Mock
     private StoreAreaRepository storeAreaRepository;
@@ -600,6 +605,184 @@ class StoreZoneServiceTest {
 
             verify(storeZoneRepository, never()).findByIdAndStoreAreaId(any(), any());
             verify(storeZoneRepository, never()).save(any(StoreZone.class));
+        }
+
+        @Test
+        @DisplayName("should not cascade to locations when re-enabling the zone")
+        void enableZone_DoesNotCascadeToLocations() {
+            mockAreaResolution();
+            testStoreZone.setEnabled(false);
+            when(storeZoneRepository.findByIdAndStoreAreaId(storeZoneId, areaId))
+                    .thenReturn(Optional.of(testStoreZone));
+            when(storeZoneRepository.save(any(StoreZone.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+            storeZoneService.enableZone(companyId, companyCountryId, regionId, zoneId, storeId, areaId, storeZoneId);
+
+            // D8: re-enable is explicit and ordered (store -> area -> zone -> location); it never
+            // cascades down.
+            verify(storeLocationRepository, never()).findByStoreZoneIdAndEnabledTrue(any());
+            verify(storeLocationRepository, never()).saveAll(any());
+        }
+    }
+
+    @Nested
+    @DisplayName("disableZonesOfAreas")
+    class DisableZonesOfAreasTests {
+
+        /**
+         * Typed captor for the {@code saveAll(List<StoreLocation>)} argument. A raw
+         * {@code forClass(List.class)} is the only way to bind the generic type, so the unchecked
+         * conversion is confined to this helper instead of every assertion site.
+         */
+        @SuppressWarnings("unchecked")
+        private static org.mockito.ArgumentCaptor<List<StoreLocation>> locationListCaptor() {
+            return org.mockito.ArgumentCaptor.forClass(List.class);
+        }
+
+        @Test
+        @DisplayName("should disable every enabled zone of the area and their enabled locations")
+        void disableZonesOfAreas_DisablesZonesAndTheirLocations() {
+            var firstZoneId = UUID.randomUUID();
+            var secondZoneId = UUID.randomUUID();
+            var firstZone = StoreZone.builder()
+                    .id(firstZoneId)
+                    .storeArea(testArea)
+                    .zoneCode("Z01")
+                    .zoneName("Pasillo")
+                    .enabled(true)
+                    .build();
+            var secondZone = StoreZone.builder()
+                    .id(secondZoneId)
+                    .storeArea(testArea)
+                    .zoneCode("Z02")
+                    .zoneName("Estante")
+                    .enabled(true)
+                    .build();
+            var firstLocation = StoreLocation.builder()
+                    .id(UUID.randomUUID())
+                    .storeZone(firstZone)
+                    .locationCode("L01")
+                    .locationName("Estante")
+                    .enabled(true)
+                    .build();
+            var secondLocation = StoreLocation.builder()
+                    .id(UUID.randomUUID())
+                    .storeZone(secondZone)
+                    .locationCode("L01")
+                    .locationName("Estante")
+                    .enabled(true)
+                    .build();
+
+            when(storeZoneRepository.findByStoreAreaIdAndEnabledTrue(areaId))
+                    .thenReturn(List.of(firstZone, secondZone));
+            when(storeLocationRepository.findByStoreZoneIdAndEnabledTrue(firstZoneId))
+                    .thenReturn(List.of(firstLocation));
+            when(storeLocationRepository.findByStoreZoneIdAndEnabledTrue(secondZoneId))
+                    .thenReturn(List.of(secondLocation));
+            when(storeZoneRepository.save(any(StoreZone.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+            var disabledZones = storeZoneService.disableZonesOfAreas(List.of(testArea));
+
+            assertThat(disabledZones).isEqualTo(2);
+
+            var zoneCaptor = org.mockito.ArgumentCaptor.forClass(StoreZone.class);
+            verify(storeZoneRepository, times(2)).save(zoneCaptor.capture());
+            assertThat(zoneCaptor.getAllValues())
+                    .hasSize(2)
+                    .allSatisfy(zone -> assertThat(zone.getEnabled()).isFalse());
+
+            var locationCaptor = locationListCaptor();
+            verify(storeLocationRepository, times(2)).saveAll(locationCaptor.capture());
+            assertThat(locationCaptor.getAllValues())
+                    .flatExtracting(saved -> saved)
+                    .hasSize(2)
+                    .allSatisfy(location -> assertThat(location.getEnabled()).isFalse());
+        }
+
+        @Test
+        @DisplayName("should return zero and persist nothing when the area has no enabled zones")
+        void disableZonesOfAreas_NoEnabledZones_ReturnsZero() {
+            when(storeZoneRepository.findByStoreAreaIdAndEnabledTrue(areaId)).thenReturn(List.of());
+
+            var disabledZones = storeZoneService.disableZonesOfAreas(List.of(testArea));
+
+            assertThat(disabledZones).isZero();
+            verify(storeZoneRepository, never()).save(any(StoreZone.class));
+            verify(storeLocationRepository, never()).findByStoreZoneIdAndEnabledTrue(any());
+            verify(storeLocationRepository, never()).saveAll(any());
+        }
+
+        @Test
+        @DisplayName("should sum the disabled zones across areas and query each area by its own id")
+        void disableZonesOfAreas_MultipleAreas() {
+            var secondAreaId = UUID.randomUUID();
+            var secondArea = StoreArea.builder()
+                    .id(secondAreaId)
+                    .companyStore(testStore)
+                    .areaCode("A02")
+                    .areaName("Piso de venta")
+                    .enabled(true)
+                    .build();
+            var firstAreaZone = StoreZone.builder()
+                    .id(UUID.randomUUID())
+                    .storeArea(testArea)
+                    .zoneCode("Z01")
+                    .zoneName("Pasillo")
+                    .enabled(true)
+                    .build();
+            var secondAreaZone = StoreZone.builder()
+                    .id(UUID.randomUUID())
+                    .storeArea(secondArea)
+                    .zoneCode("Z02")
+                    .zoneName("Estante")
+                    .enabled(true)
+                    .build();
+
+            when(storeZoneRepository.findByStoreAreaIdAndEnabledTrue(areaId)).thenReturn(List.of(firstAreaZone));
+            when(storeZoneRepository.findByStoreAreaIdAndEnabledTrue(secondAreaId))
+                    .thenReturn(List.of(secondAreaZone));
+            when(storeZoneRepository.save(any(StoreZone.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            when(storeLocationRepository.findByStoreZoneIdAndEnabledTrue(any())).thenReturn(List.of());
+
+            var disabledZones = storeZoneService.disableZonesOfAreas(List.of(testArea, secondArea));
+
+            assertThat(disabledZones).isEqualTo(2);
+            verify(storeZoneRepository).findByStoreAreaIdAndEnabledTrue(areaId);
+            verify(storeZoneRepository).findByStoreAreaIdAndEnabledTrue(secondAreaId);
+            verify(storeZoneRepository, times(2)).save(any(StoreZone.class));
+        }
+
+        @Test
+        @DisplayName("should disable the zone and its enabled locations through the shared cascade")
+        void deleteZone_AlsoDisablesItsLocations() {
+            mockAreaResolution();
+            var enabledLocation = StoreLocation.builder()
+                    .id(UUID.randomUUID())
+                    .storeZone(testStoreZone)
+                    .locationCode("L01")
+                    .locationName("Estante")
+                    .enabled(true)
+                    .build();
+            when(storeZoneRepository.findByIdAndStoreAreaId(storeZoneId, areaId))
+                    .thenReturn(Optional.of(testStoreZone));
+            when(storeZoneRepository.save(any(StoreZone.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            when(storeLocationRepository.findByStoreZoneIdAndEnabledTrue(storeZoneId))
+                    .thenReturn(List.of(enabledLocation));
+
+            storeZoneService.deleteZone(companyId, companyCountryId, regionId, zoneId, storeId, areaId, storeZoneId);
+
+            var zoneCaptor = org.mockito.ArgumentCaptor.forClass(StoreZone.class);
+            verify(storeZoneRepository).save(zoneCaptor.capture());
+            assertThat(zoneCaptor.getValue().getEnabled()).isFalse();
+
+            // The single-zone delete and the area/store cascade share disableZone: both persist the
+            // zone and then its still-enabled locations through the same code path.
+            var locationCaptor = locationListCaptor();
+            verify(storeLocationRepository).findByStoreZoneIdAndEnabledTrue(storeZoneId);
+            verify(storeLocationRepository).saveAll(locationCaptor.capture());
+            assertThat(locationCaptor.getValue())
+                    .hasSize(1)
+                    .allSatisfy(location -> assertThat(location.getEnabled()).isFalse());
         }
     }
 }
