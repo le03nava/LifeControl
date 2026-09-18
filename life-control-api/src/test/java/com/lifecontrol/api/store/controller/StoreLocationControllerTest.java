@@ -346,6 +346,57 @@ class StoreLocationControllerTest {
         }
 
         @Test
+        @DisplayName("should return 400 when displayOrder is negative")
+        void createLocation_NegativeDisplayOrderReturns400() throws Exception {
+            var invalidRequest = new CreateStoreLocationRequest("L01", "Estante", null, -1);
+
+            mockMvc.perform(post(
+                                    BASE_URL,
+                                    testCompanyId,
+                                    testCompanyCountryId,
+                                    testRegionId,
+                                    testZoneId,
+                                    testStoreId,
+                                    testAreaId,
+                                    testStoreZoneId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(invalidRequest)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors.displayOrder").exists());
+
+            verifyNoInteractions(storeLocationService);
+        }
+
+        @Test
+        @DisplayName("should accept displayOrder = 0")
+        void createLocation_ZeroDisplayOrderIsAccepted() throws Exception {
+            var request = new CreateStoreLocationRequest("L01", "Estante", null, 0);
+            when(storeLocationService.createLocation(
+                            eq(testCompanyId),
+                            eq(testCompanyCountryId),
+                            eq(testRegionId),
+                            eq(testZoneId),
+                            eq(testStoreId),
+                            eq(testAreaId),
+                            eq(testStoreZoneId),
+                            any(CreateStoreLocationRequest.class)))
+                    .thenReturn(testStoreLocationResponse);
+
+            mockMvc.perform(post(
+                                    BASE_URL,
+                                    testCompanyId,
+                                    testCompanyCountryId,
+                                    testRegionId,
+                                    testZoneId,
+                                    testStoreId,
+                                    testAreaId,
+                                    testStoreZoneId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isCreated());
+        }
+
+        @Test
         @DisplayName("should return 409 when the location code already exists in the zone")
         void createLocation_Duplicate() throws Exception {
             var request = new CreateStoreLocationRequest("L01", "Estante", null, null);
@@ -513,6 +564,60 @@ class StoreLocationControllerTest {
                             .content(objectMapper.writeValueAsString(invalidRequest)))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.errors.locationName").exists());
+        }
+
+        @Test
+        @DisplayName("should return 400 when displayOrder is negative")
+        void updateLocation_NegativeDisplayOrderReturns400() throws Exception {
+            var invalidRequest = new UpdateStoreLocationRequest(null, null, null, -1);
+
+            mockMvc.perform(put(
+                                    BASE_URL + "/{storeLocationId}",
+                                    testCompanyId,
+                                    testCompanyCountryId,
+                                    testRegionId,
+                                    testZoneId,
+                                    testStoreId,
+                                    testAreaId,
+                                    testStoreZoneId,
+                                    testStoreLocationId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(invalidRequest)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors.displayOrder").exists());
+
+            verifyNoInteractions(storeLocationService);
+        }
+
+        @Test
+        @DisplayName("should accept a null displayOrder meaning unchanged")
+        void updateLocation_NullDisplayOrderIsUnchanged() throws Exception {
+            var request = new UpdateStoreLocationRequest(null, null, null, null);
+            when(storeLocationService.updateLocation(
+                            eq(testCompanyId),
+                            eq(testCompanyCountryId),
+                            eq(testRegionId),
+                            eq(testZoneId),
+                            eq(testStoreId),
+                            eq(testAreaId),
+                            eq(testStoreZoneId),
+                            eq(testStoreLocationId),
+                            any(UpdateStoreLocationRequest.class)))
+                    .thenReturn(testStoreLocationResponse);
+
+            mockMvc.perform(put(
+                                    BASE_URL + "/{storeLocationId}",
+                                    testCompanyId,
+                                    testCompanyCountryId,
+                                    testRegionId,
+                                    testZoneId,
+                                    testStoreId,
+                                    testAreaId,
+                                    testStoreZoneId,
+                                    testStoreLocationId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isOk());
         }
 
         @Test

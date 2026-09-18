@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -44,7 +45,9 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>The flat {@link #getLocationById(UUID) lookup} navigates the location's JPA associations to
  * resolve its chain before authorizing, so a caller that only holds the location id still goes
- * through the same single access check as the nested endpoints.</p>
+ * through the same single access check as the nested endpoints. Because that id is supplied by the
+ * caller, a denial there is reported as not-found to avoid disclosing the existence of a location
+ * the caller cannot reach, and the denial is logged.</p>
  */
 @Service
 public class StoreLocationService {
@@ -248,9 +251,14 @@ public class StoreLocationService {
      * Resolves a single location by its id without a nested path, then authorizes it against the
      * chain navigated from the location's own zone, area and store associations.
      *
-     * @throws StoreLocationNotFoundException when no location exists with the given id
-     * @throws org.springframework.security.access.AccessDeniedException when the current user
-     *     cannot access the resolved store scope
+     * <p>When the location exists but its resolved store scope is not accessible to the caller, the
+     * denial is masked as not-found — the same exception type, status and message as a genuinely
+     * missing id — so the flat lookup cannot be used as an existence oracle for resources the
+     * caller cannot reach. The denial is logged as a warning with the resource id and the acting
+     * user.</p>
+     *
+     * @throws StoreLocationNotFoundException when no location exists with the given id, or when the
+     *     resolved store scope is not accessible to the current user
      */
     @Transactional(readOnly = true)
     public StoreLocationResponse getLocationById(UUID storeLocationId) {
@@ -260,8 +268,16 @@ public class StoreLocationService {
         var zone = location.getStoreZone();
         var area = zone.getStoreArea();
         var chain = chainOf(area.getCompanyStore());
-        currentUserContext.verifyCompanyStoreAccess(
-                chain.companyId(), chain.companyCountryId(), chain.regionId(), chain.zoneId(), chain.storeId());
+        try {
+            currentUserContext.verifyCompanyStoreAccess(
+                    chain.companyId(), chain.companyCountryId(), chain.regionId(), chain.zoneId(), chain.storeId());
+        } catch (AccessDeniedException ex) {
+            logger.warn(
+                    "StoreLocation access denied for id={} and actor={}; reporting as not found",
+                    storeLocationId,
+                    currentActor());
+            throw new StoreLocationNotFoundException(storeLocationId);
+        }
         return toResponse(location, zone, area, chain);
     }
 
@@ -396,7 +412,11 @@ public class StoreLocationService {
         location.setEnabled(false);
         storeLocationRepository.save(location);
 
-        logger.info("StoreLocation soft-deleted: id={}, code={}", storeLocationId, location.getLocationCode());
+        logger.info(
+                "StoreLocation soft-deleted: id={}, code={}, actor={}",
+                storeLocationId,
+                location.getLocationCode(),
+                currentActor());
     }
 
     /**
@@ -450,6 +470,16 @@ public class StoreLocationService {
         var company = companyCountry.getCompany();
 
         return new StoreChain(company.getId(), companyCountry.getId(), region.getId(), zone.getId(), store.getId());
+    }
+
+    /**
+     * Resolves the acting user for audit log lines: the JWT {@code preferred_username}, falling
+     * back to the {@code sub} claim. Both may be {@code null} outside a request, so callers must
+     * tolerate a {@code null} actor instead of failing the operation.
+     */
+    private String currentActor() {
+        var username = currentUserContext.getUsername();
+        return username != null ? username : currentUserContext.getUserId();
     }
 
     private StoreLocationResponse toResponse(StoreLocation location, StoreZone zone, StoreArea area, StoreChain chain) {

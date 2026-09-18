@@ -67,13 +67,23 @@ public class StoreLocationController {
                 companyId, companyCountryId, regionId, zoneId, storeId, areaId, storeZoneId, includeDisabled));
     }
 
+    /**
+     * Reads a single location inside a zone addressed by the full nested path.
+     *
+     * @deprecated the flat {@link StoreLocationFlatController#getLocationById(UUID)} endpoint
+     *     ({@code GET /api/store-locations/{storeLocationId}}) is the canonical read path for this
+     *     resource. The nested route is retained for contract compatibility and is scheduled for
+     *     removal in a later slice.
+     */
+    @Deprecated
     @GetMapping("/{storeLocationId}")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','"
             + COMPANY_ZONE + "','" + COMPANY_STORE + "','" + COMPANY_STORE_READ + "')")
     @Operation(
             summary = "Get a store location by ID",
             description =
-                    "Returns a specific store location. Access is verified via verifyCompanyStoreAccess over the whole hierarchy.")
+                    "Returns a specific store location. Access is verified via verifyCompanyStoreAccess over the whole hierarchy.",
+            deprecated = true)
     @ApiResponse(responseCode = "200", description = "Store location found")
     @ApiResponse(responseCode = "404", description = "Store location, store zone or parent hierarchy not found")
     public ResponseEntity<StoreLocationResponse> getLocationById(

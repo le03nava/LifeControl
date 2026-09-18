@@ -60,13 +60,23 @@ public class StoreAreaController {
                 storeAreaService.getAllAreas(companyId, companyCountryId, regionId, zoneId, storeId, includeDisabled));
     }
 
+    /**
+     * Reads a single area inside a store addressed by the full nested path.
+     *
+     * @deprecated the flat {@link StoreAreaFlatController#getAreaById(UUID)} endpoint
+     *     ({@code GET /api/store-areas/{areaId}}) is the canonical read path for this resource. The
+     *     nested route is retained for contract compatibility and is scheduled for removal in a
+     *     later slice.
+     */
+    @Deprecated
     @GetMapping("/{areaId}")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','"
             + COMPANY_ZONE + "','" + COMPANY_STORE + "','" + COMPANY_STORE_READ + "')")
     @Operation(
             summary = "Get a store area by ID",
             description =
-                    "Returns a specific store area. Access is verified via verifyCompanyStoreAccess over the whole hierarchy.")
+                    "Returns a specific store area. Access is verified via verifyCompanyStoreAccess over the whole hierarchy.",
+            deprecated = true)
     @ApiResponse(responseCode = "200", description = "Store area found")
     @ApiResponse(responseCode = "404", description = "Store area, store or parent hierarchy not found")
     public ResponseEntity<StoreAreaResponse> getAreaById(

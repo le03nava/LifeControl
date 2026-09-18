@@ -5,6 +5,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.lifecontrol.api.common.address.dto.AddressRequest;
 import com.lifecontrol.api.common.address.model.Address;
 import com.lifecontrol.api.common.auth.CurrentUserContext;
@@ -32,6 +36,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -40,6 +45,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.access.AccessDeniedException;
 
@@ -94,6 +100,32 @@ class CompanyStoreServiceTest {
     private CreateCompanyStoreRequest createWithoutAddressRequest;
     private UpdateCompanyStoreRequest updateRequest;
     private LocalDateTime now;
+
+    private ListAppender<ILoggingEvent> logAppender;
+    private Logger serviceLogger;
+    private Level previousLogLevel;
+
+    @BeforeEach
+    void attachLogCapture() {
+        serviceLogger = (Logger) LoggerFactory.getLogger(CompanyStoreService.class);
+        previousLogLevel = serviceLogger.getLevel();
+        serviceLogger.setLevel(Level.INFO);
+        logAppender = new ListAppender<>();
+        logAppender.start();
+        serviceLogger.addAppender(logAppender);
+    }
+
+    @AfterEach
+    void detachLogCapture() {
+        serviceLogger.detachAppender(logAppender);
+        serviceLogger.setLevel(previousLogLevel);
+    }
+
+    private String capturedLogs() {
+        return logAppender.list.stream()
+                .map(ILoggingEvent::getFormattedMessage)
+                .collect(java.util.stream.Collectors.joining("\n"));
+    }
 
     @BeforeEach
     void setUp() {
@@ -278,22 +310,30 @@ class CompanyStoreServiceTest {
         }
 
         @Test
-        @DisplayName("should filter by store IDs when user has store role")
+        @DisplayName("should keep the storeIds scoping and exclude disabled stores when includeDisabled is false")
         void getAllStores_StoreRole_FiltersByStoreIds() {
             // Arrange
             mockZoneResolution();
-            UUID assignedStoreId = UUID.randomUUID();
+            UUID enabledStoreId = UUID.randomUUID();
+            UUID disabledStoreId = UUID.randomUUID();
+            var assignedStoreIds = Set.of(enabledStoreId, disabledStoreId);
             when(currentUserContext.hasCompanyStoreRole()).thenReturn(true);
-            when(currentUserContext.getCompanyStoreIds()).thenReturn(Set.of(assignedStoreId));
+            when(currentUserContext.getCompanyStoreIds()).thenReturn(assignedStoreIds);
 
-            var store = CompanyStore.builder()
-                    .id(assignedStoreId)
+            var enabledStore = CompanyStore.builder()
+                    .id(enabledStoreId)
                     .companyZone(testZone)
                     .storeName("Mi Tienda")
                     .enabled(true)
                     .build();
-            when(companyStoreRepository.findByIdInAndCompanyZoneId(Set.of(assignedStoreId), zoneId))
-                    .thenReturn(List.of(store));
+            var disabledStore = CompanyStore.builder()
+                    .id(disabledStoreId)
+                    .companyZone(testZone)
+                    .storeName("Tienda Deshabilitada")
+                    .enabled(false)
+                    .build();
+            when(companyStoreRepository.findByIdInAndCompanyZoneIdAndEnabledTrue(assignedStoreIds, zoneId))
+                    .thenReturn(List.of(enabledStore));
 
             // Act
             List<CompanyStoreResponse> result =
@@ -302,8 +342,49 @@ class CompanyStoreServiceTest {
             // Assert
             assertThat(result).hasSize(1);
             assertThat(result.get(0).storeName()).isEqualTo("Mi Tienda");
-            assertThat(result.get(0).id()).isEqualTo(assignedStoreId);
-            verify(companyStoreRepository).findByIdInAndCompanyZoneId(Set.of(assignedStoreId), zoneId);
+            assertThat(result.get(0).id()).isEqualTo(enabledStoreId);
+            assertThat(disabledStore.getEnabled()).isFalse();
+            verify(companyStoreRepository).findByIdInAndCompanyZoneIdAndEnabledTrue(assignedStoreIds, zoneId);
+            verify(companyStoreRepository, never()).findByIdInAndCompanyZoneId(any(), any());
+        }
+
+        @Test
+        @DisplayName("should return all assigned stores, disabled included, when includeDisabled is true")
+        void getAllStores_StoreRole_IncludeDisabled_ReturnsAllAssignedStores() {
+            // Arrange
+            mockZoneResolution();
+            UUID enabledStoreId = UUID.randomUUID();
+            UUID disabledStoreId = UUID.randomUUID();
+            var assignedStoreIds = Set.of(enabledStoreId, disabledStoreId);
+            when(currentUserContext.hasCompanyStoreRole()).thenReturn(true);
+            when(currentUserContext.getCompanyStoreIds()).thenReturn(assignedStoreIds);
+
+            var enabledStore = CompanyStore.builder()
+                    .id(enabledStoreId)
+                    .companyZone(testZone)
+                    .storeName("Mi Tienda")
+                    .enabled(true)
+                    .build();
+            var disabledStore = CompanyStore.builder()
+                    .id(disabledStoreId)
+                    .companyZone(testZone)
+                    .storeName("Tienda Deshabilitada")
+                    .enabled(false)
+                    .build();
+            when(companyStoreRepository.findByIdInAndCompanyZoneId(assignedStoreIds, zoneId))
+                    .thenReturn(List.of(enabledStore, disabledStore));
+
+            // Act
+            List<CompanyStoreResponse> result =
+                    companyStoreService.getAllStores(companyId, companyCountryId, regionId, zoneId, true);
+
+            // Assert
+            assertThat(result).hasSize(2);
+            assertThat(result)
+                    .extracting(CompanyStoreResponse::id)
+                    .containsExactlyInAnyOrder(enabledStoreId, disabledStoreId);
+            verify(companyStoreRepository).findByIdInAndCompanyZoneId(assignedStoreIds, zoneId);
+            verify(companyStoreRepository, never()).findByIdInAndCompanyZoneIdAndEnabledTrue(any(), any());
         }
 
         @Test
@@ -571,6 +652,26 @@ class CompanyStoreServiceTest {
             assertThat(testStore.getEnabled()).isFalse();
             verify(companyStoreRepository).save(testStore);
             verify(storeAreaService).disableAreasOfStore(storeId);
+        }
+
+        @Test
+        @DisplayName("should record the acting username in the soft-delete audit log")
+        void deleteStore_LogsActingUsername() {
+            // Arrange
+            mockZoneResolution();
+            when(companyStoreRepository.findByIdAndCompanyZoneId(storeId, zoneId))
+                    .thenReturn(Optional.of(testStore));
+            when(companyStoreRepository.save(any(CompanyStore.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(currentUserContext.getUsername()).thenReturn("jdoe");
+
+            // Act
+            companyStoreService.deleteStore(companyId, companyCountryId, regionId, zoneId, storeId);
+
+            // Assert
+            assertThat(capturedLogs())
+                    .contains("CompanyStore soft-deleted")
+                    .contains("id=" + storeId)
+                    .contains("actor=jdoe");
         }
 
         @Test

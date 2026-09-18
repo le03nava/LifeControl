@@ -1,5 +1,6 @@
 package com.lifecontrol.api.store.dto;
 
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Size;
 
 /**
@@ -17,4 +18,4 @@ public record UpdateStoreAreaRequest(
         String areaName,
 
         @Size(max = 255) String description,
-        Integer displayOrder) {}
+        @Min(0) Integer displayOrder) {}

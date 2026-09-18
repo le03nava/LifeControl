@@ -2,9 +2,14 @@ package com.lifecontrol.api.store.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
@@ -34,6 +39,7 @@ import com.lifecontrol.api.store.repository.StoreZoneRepository;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -42,6 +48,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.access.AccessDeniedException;
 
@@ -95,6 +102,32 @@ class StoreZoneServiceTest {
     private StoreZone testStoreZone;
     private CreateStoreZoneRequest createRequest;
     private UpdateStoreZoneRequest updateRequest;
+
+    private ListAppender<ILoggingEvent> logAppender;
+    private Logger serviceLogger;
+    private Level previousLogLevel;
+
+    @BeforeEach
+    void attachLogCapture() {
+        serviceLogger = (Logger) LoggerFactory.getLogger(StoreZoneService.class);
+        previousLogLevel = serviceLogger.getLevel();
+        serviceLogger.setLevel(Level.INFO);
+        logAppender = new ListAppender<>();
+        logAppender.start();
+        serviceLogger.addAppender(logAppender);
+    }
+
+    @AfterEach
+    void detachLogCapture() {
+        serviceLogger.detachAppender(logAppender);
+        serviceLogger.setLevel(previousLogLevel);
+    }
+
+    private String capturedLogs() {
+        return logAppender.list.stream()
+                .map(ILoggingEvent::getFormattedMessage)
+                .collect(java.util.stream.Collectors.joining("\n"));
+    }
 
     @BeforeEach
     void setUp() {
@@ -339,16 +372,30 @@ class StoreZoneServiceTest {
         }
 
         @Test
-        @DisplayName("should propagate AccessDeniedException from verifyCompanyStoreAccess")
+        @DisplayName("should mask a denied flat lookup as the identical not-found error of the same id")
         void getZoneByIdFlat_AccessDenied() {
+            // Genuinely missing: findById returns nothing.
+            when(storeZoneRepository.findById(storeZoneId)).thenReturn(Optional.empty());
+            var genuinelyMissing = catchThrowable(() -> storeZoneService.getZoneById(storeZoneId));
+
+            // Out of scope: the zone exists, but the resolved store is not accessible to the user.
             when(storeZoneRepository.findById(storeZoneId)).thenReturn(Optional.of(testStoreZone));
             doThrow(new AccessDeniedException("Access denied"))
                     .when(currentUserContext)
                     .verifyCompanyStoreAccess(companyId, companyCountryId, regionId, zoneId, storeId);
+            when(currentUserContext.getUsername()).thenReturn("jdoe");
+            var denied = catchThrowable(() -> storeZoneService.getZoneById(storeZoneId));
 
-            assertThatThrownBy(() -> storeZoneService.getZoneById(storeZoneId))
-                    .isInstanceOf(AccessDeniedException.class)
-                    .hasMessage("Access denied");
+            // The two responses must be indistinguishable: same type, same message, same status.
+            assertThat(genuinelyMissing).isInstanceOf(StoreZoneNotFoundException.class);
+            assertThat(denied).isInstanceOf(StoreZoneNotFoundException.class);
+            assertThat(denied.getClass()).isEqualTo(genuinelyMissing.getClass());
+            assertThat(denied.getMessage()).isEqualTo(genuinelyMissing.getMessage());
+            assertThat(denied.getMessage()).isEqualTo("Store zone not found with id: " + storeZoneId);
+            assertThat(capturedLogs())
+                    .contains("StoreZone access denied")
+                    .contains("id=" + storeZoneId)
+                    .contains("actor=jdoe");
         }
     }
 
@@ -539,6 +586,23 @@ class StoreZoneServiceTest {
             assertThat(captor.getValue().getEnabled()).isFalse();
             verify(storeZoneRepository, never()).deleteById(any());
             verify(storeZoneRepository, never()).delete(any());
+        }
+
+        @Test
+        @DisplayName("should record the acting username in the soft-delete audit log")
+        void deleteZone_LogsActingUsername() {
+            mockAreaResolution();
+            when(storeZoneRepository.findByIdAndStoreAreaId(storeZoneId, areaId))
+                    .thenReturn(Optional.of(testStoreZone));
+            when(storeZoneRepository.save(any(StoreZone.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            when(currentUserContext.getUsername()).thenReturn("jdoe");
+
+            storeZoneService.deleteZone(companyId, companyCountryId, regionId, zoneId, storeId, areaId, storeZoneId);
+
+            assertThat(capturedLogs())
+                    .contains("StoreZone soft-deleted")
+                    .contains("id=" + storeZoneId)
+                    .contains("actor=jdoe");
         }
 
         @Test

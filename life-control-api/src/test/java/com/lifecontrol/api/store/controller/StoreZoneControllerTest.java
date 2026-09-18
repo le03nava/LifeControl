@@ -326,6 +326,54 @@ class StoreZoneControllerTest {
         }
 
         @Test
+        @DisplayName("should return 400 when displayOrder is negative")
+        void createZone_NegativeDisplayOrderReturns400() throws Exception {
+            var invalidRequest = new CreateStoreZoneRequest("Z01", "Pasillo", null, -1);
+
+            mockMvc.perform(post(
+                                    BASE_URL,
+                                    testCompanyId,
+                                    testCompanyCountryId,
+                                    testRegionId,
+                                    testZoneId,
+                                    testStoreId,
+                                    testAreaId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(invalidRequest)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors.displayOrder").exists());
+
+            verifyNoInteractions(storeZoneService);
+        }
+
+        @Test
+        @DisplayName("should accept displayOrder = 0")
+        void createZone_ZeroDisplayOrderIsAccepted() throws Exception {
+            var request = new CreateStoreZoneRequest("Z01", "Pasillo", null, 0);
+            when(storeZoneService.createZone(
+                            eq(testCompanyId),
+                            eq(testCompanyCountryId),
+                            eq(testRegionId),
+                            eq(testZoneId),
+                            eq(testStoreId),
+                            eq(testAreaId),
+                            any(CreateStoreZoneRequest.class)))
+                    .thenReturn(testStoreZoneResponse);
+
+            mockMvc.perform(post(
+                                    BASE_URL,
+                                    testCompanyId,
+                                    testCompanyCountryId,
+                                    testRegionId,
+                                    testZoneId,
+                                    testStoreId,
+                                    testAreaId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isCreated());
+        }
+
+        @Test
         @DisplayName("should return 409 when the zone code already exists in the area")
         void createZone_Duplicate() throws Exception {
             var request = new CreateStoreZoneRequest("Z01", "Pasillo", null, null);
@@ -481,6 +529,57 @@ class StoreZoneControllerTest {
                             .content(objectMapper.writeValueAsString(invalidRequest)))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.errors.zoneName").exists());
+        }
+
+        @Test
+        @DisplayName("should return 400 when displayOrder is negative")
+        void updateZone_NegativeDisplayOrderReturns400() throws Exception {
+            var invalidRequest = new UpdateStoreZoneRequest(null, null, null, -1);
+
+            mockMvc.perform(put(
+                                    BASE_URL + "/{storeZoneId}",
+                                    testCompanyId,
+                                    testCompanyCountryId,
+                                    testRegionId,
+                                    testZoneId,
+                                    testStoreId,
+                                    testAreaId,
+                                    testStoreZoneId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(invalidRequest)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors.displayOrder").exists());
+
+            verifyNoInteractions(storeZoneService);
+        }
+
+        @Test
+        @DisplayName("should accept a null displayOrder meaning unchanged")
+        void updateZone_NullDisplayOrderIsUnchanged() throws Exception {
+            var request = new UpdateStoreZoneRequest(null, null, null, null);
+            when(storeZoneService.updateZone(
+                            eq(testCompanyId),
+                            eq(testCompanyCountryId),
+                            eq(testRegionId),
+                            eq(testZoneId),
+                            eq(testStoreId),
+                            eq(testAreaId),
+                            eq(testStoreZoneId),
+                            any(UpdateStoreZoneRequest.class)))
+                    .thenReturn(testStoreZoneResponse);
+
+            mockMvc.perform(put(
+                                    BASE_URL + "/{storeZoneId}",
+                                    testCompanyId,
+                                    testCompanyCountryId,
+                                    testRegionId,
+                                    testZoneId,
+                                    testStoreId,
+                                    testAreaId,
+                                    testStoreZoneId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isOk());
         }
 
         @Test

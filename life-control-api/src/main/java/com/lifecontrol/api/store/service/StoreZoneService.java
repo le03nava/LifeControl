@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -41,7 +42,9 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>The flat {@link #getZoneById(UUID) lookup} navigates the zone's JPA associations to resolve
  * its chain before authorizing, so a caller that only holds the zone id still goes through the
- * same single access check as the nested endpoints.</p>
+ * same single access check as the nested endpoints. Because that id is supplied by the caller, a
+ * denial there is reported as not-found to avoid disclosing the existence of a zone the caller
+ * cannot reach, and the denial is logged.</p>
  */
 @Service
 public class StoreZoneService {
@@ -210,9 +213,14 @@ public class StoreZoneService {
      * Resolves a single zone by its id without a nested path, then authorizes it against the chain
      * navigated from the zone's own area and store associations.
      *
-     * @throws StoreZoneNotFoundException when no zone exists with the given id
-     * @throws org.springframework.security.access.AccessDeniedException when the current user
-     *     cannot access the resolved store scope
+     * <p>When the zone exists but its resolved store scope is not accessible to the caller, the
+     * denial is masked as not-found — the same exception type, status and message as a genuinely
+     * missing id — so the flat lookup cannot be used as an existence oracle for resources the
+     * caller cannot reach. The denial is logged as a warning with the resource id and the acting
+     * user.</p>
+     *
+     * @throws StoreZoneNotFoundException when no zone exists with the given id, or when the
+     *     resolved store scope is not accessible to the current user
      */
     @Transactional(readOnly = true)
     public StoreZoneResponse getZoneById(UUID storeZoneId) {
@@ -221,8 +229,16 @@ public class StoreZoneService {
                 .orElseThrow(() -> new StoreZoneNotFoundException(storeZoneId));
         var area = zone.getStoreArea();
         var chain = chainOf(area.getCompanyStore());
-        currentUserContext.verifyCompanyStoreAccess(
-                chain.companyId(), chain.companyCountryId(), chain.regionId(), chain.zoneId(), chain.storeId());
+        try {
+            currentUserContext.verifyCompanyStoreAccess(
+                    chain.companyId(), chain.companyCountryId(), chain.regionId(), chain.zoneId(), chain.storeId());
+        } catch (AccessDeniedException ex) {
+            logger.warn(
+                    "StoreZone access denied for id={} and actor={}; reporting as not found",
+                    storeZoneId,
+                    currentActor());
+            throw new StoreZoneNotFoundException(storeZoneId);
+        }
         return toResponse(zone, area, chain);
     }
 
@@ -351,7 +367,8 @@ public class StoreZoneService {
 
         disableZone(zone);
 
-        logger.info("StoreZone soft-deleted: id={}, code={}", storeZoneId, zone.getZoneCode());
+        logger.info(
+                "StoreZone soft-deleted: id={}, code={}, actor={}", storeZoneId, zone.getZoneCode(), currentActor());
     }
 
     /**
@@ -452,6 +469,16 @@ public class StoreZoneService {
         var company = companyCountry.getCompany();
 
         return new StoreChain(company.getId(), companyCountry.getId(), region.getId(), zone.getId(), store.getId());
+    }
+
+    /**
+     * Resolves the acting user for audit log lines: the JWT {@code preferred_username}, falling
+     * back to the {@code sub} claim. Both may be {@code null} outside a request, so callers must
+     * tolerate a {@code null} actor instead of failing the operation.
+     */
+    private String currentActor() {
+        var username = currentUserContext.getUsername();
+        return username != null ? username : currentUserContext.getUserId();
     }
 
     private StoreZoneResponse toResponse(StoreZone zone, StoreArea area, StoreChain chain) {

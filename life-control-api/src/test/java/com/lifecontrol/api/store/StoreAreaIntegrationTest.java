@@ -81,6 +81,9 @@ class StoreAreaIntegrationTest extends AbstractPostgresIntegrationTest {
 
     private static final SimpleGrantedAuthority ROLE_LC_ADMIN = new SimpleGrantedAuthority("ROLE_lc-admin");
 
+    private static final SimpleGrantedAuthority ROLE_LC_COMPANY_STORE_READ =
+            new SimpleGrantedAuthority("ROLE_lc-company-store-read");
+
     private static final String BASE_URL =
             "/api/companies/{companyId}/countries/{companyCountryId}/regions/{regionId}/zones/{zoneId}/stores/{storeId}/areas";
 
@@ -503,6 +506,37 @@ class StoreAreaIntegrationTest extends AbstractPostgresIntegrationTest {
 
             mockMvc.perform(get(FLAT_URL + "/{areaId}", unknownId).with(jwt().authorities(ROLE_LC_ADMIN)))
                     .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.message").value("Store area not found with id: " + unknownId));
+        }
+
+        @Test
+        @DisplayName("should mask an area outside the caller's store scope as 404, never 403")
+        void flatGet_OutOfScopeAreaIsMaskedAsNotFound() throws Exception {
+            createArea("A01", "Bodega", 1);
+            var areaId = storeAreaRepository.findByCompanyStoreIdOrderByDisplayOrderAscAreaCodeAsc(storeId).stream()
+                    .findFirst()
+                    .orElseThrow()
+                    .getId();
+
+            // Store-scoped caller: the full claim path matches the area's real one except the
+            // store id, which points to a store the caller is not assigned to.
+            var scopedJwt = jwt().authorities(ROLE_LC_COMPANY_STORE_READ)
+                    .jwt(builder -> builder.claim("company_id", companyId.toString())
+                            .claim("company_country_id", companyCountryId.toString())
+                            .claim("company_region_id", regionId.toString())
+                            .claim("company_zone_id", zoneId.toString())
+                            .claim("company_store_id", UUID.randomUUID().toString()));
+
+            mockMvc.perform(get(FLAT_URL + "/{areaId}", areaId).with(scopedJwt))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.status").value(404))
+                    .andExpect(jsonPath("$.message").value("Store area not found with id: " + areaId));
+
+            // A genuinely unknown id is indistinguishable: same status, same message shape.
+            var unknownId = UUID.randomUUID();
+            mockMvc.perform(get(FLAT_URL + "/{areaId}", unknownId).with(scopedJwt))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.status").value(404))
                     .andExpect(jsonPath("$.message").value("Store area not found with id: " + unknownId));
         }
     }

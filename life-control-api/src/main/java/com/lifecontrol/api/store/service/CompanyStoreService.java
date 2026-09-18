@@ -95,7 +95,11 @@ public class CompanyStoreService {
         List<CompanyStore> stores;
         if (currentUserContext.hasCompanyStoreRole() || currentUserContext.hasCompanyStoreReadRole()) {
             var storeIds = currentUserContext.getCompanyStoreIds();
-            stores = companyStoreRepository.findByIdInAndCompanyZoneId(storeIds, zone.getId());
+            // The storeIds scoping is the security boundary and is passed through untouched; only
+            // the enabled filter follows includeDisabled, mirroring the non-store-scoped branch.
+            stores = includeDisabled
+                    ? companyStoreRepository.findByIdInAndCompanyZoneId(storeIds, zone.getId())
+                    : companyStoreRepository.findByIdInAndCompanyZoneIdAndEnabledTrue(storeIds, zone.getId());
         } else {
             stores = includeDisabled
                     ? companyStoreRepository.findByCompanyZoneId(zone.getId())
@@ -213,7 +217,10 @@ public class CompanyStoreService {
         storeAreaService.disableAreasOfStore(store.getId());
 
         logger.info(
-                "CompanyStore soft-deleted: id={}, name={}; areas and zones cascaded", storeId, store.getStoreName());
+                "CompanyStore soft-deleted: id={}, name={}; areas and zones cascaded, actor={}",
+                storeId,
+                store.getStoreName(),
+                currentActor());
     }
 
     @Transactional
@@ -230,6 +237,16 @@ public class CompanyStoreService {
 
         logger.info("CompanyStore re-enabled: id={}, name={}", storeId, saved.getStoreName());
         return toResponse(saved);
+    }
+
+    /**
+     * Resolves the acting user for audit log lines: the JWT {@code preferred_username}, falling
+     * back to the {@code sub} claim. Both may be {@code null} outside a request, so callers must
+     * tolerate a {@code null} actor instead of failing the operation.
+     */
+    private String currentActor() {
+        var username = currentUserContext.getUsername();
+        return username != null ? username : currentUserContext.getUserId();
     }
 
     private CompanyStoreResponse toResponse(CompanyStore store) {

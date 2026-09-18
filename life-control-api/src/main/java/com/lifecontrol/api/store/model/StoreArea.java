@@ -37,6 +37,10 @@ public class StoreArea extends Auditable {
     @Column(name = "enabled", nullable = false)
     private Boolean enabled = true;
 
+    @Version
+    @Column(name = "version", nullable = false)
+    private long version;
+
     // Default constructor for JPA
     public StoreArea() {}
 
@@ -67,6 +71,10 @@ public class StoreArea extends Auditable {
 
     public Boolean getEnabled() {
         return enabled;
+    }
+
+    public long getVersion() {
+        return version;
     }
 
     // Setters

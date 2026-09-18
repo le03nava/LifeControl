@@ -36,6 +36,10 @@ public class CompanyStore extends Auditable {
     @Column(name = "enabled", nullable = false)
     private Boolean enabled = true;
 
+    @Version
+    @Column(name = "version", nullable = false)
+    private long version;
+
     // Default constructor for JPA
     public CompanyStore() {}
 
@@ -66,6 +70,10 @@ public class CompanyStore extends Auditable {
 
     public Boolean getEnabled() {
         return enabled;
+    }
+
+    public long getVersion() {
+        return version;
     }
 
     // Setters
