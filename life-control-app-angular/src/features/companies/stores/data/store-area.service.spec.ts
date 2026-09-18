@@ -1,5 +1,4 @@
 import { TestBed } from '@angular/core/testing';
-import { WritableSignal } from '@angular/core';
 import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 import { firstValueFrom } from 'rxjs';
 import { ConfigService } from '@app/services/config.service';
@@ -68,16 +67,12 @@ describe('StoreAreaService', () => {
     httpMock.verify();
   });
 
-  function setAreas(areas: StoreArea[]): void {
-    (service as unknown as { _areas: WritableSignal<StoreArea[]> })._areas.set(areas);
-  }
-
   it('should be created', () => {
     expect(service).toBeTruthy();
   });
 
   describe('getAreas', () => {
-    it('should GET the nested URL and populate the areas signal', async () => {
+    it('should GET the nested URL with includeDisabled=false and emit the areas', async () => {
       const request$ = firstValueFrom(
         service.getAreas(companyId, countryId, regionId, zoneId, storeId),
       );
@@ -86,9 +81,7 @@ describe('StoreAreaService', () => {
       expect(req.request.params.get('includeDisabled')).toBe('false');
       req.flush(mockAreas);
 
-      const areas = await request$;
-      expect(areas).toEqual(mockAreas);
-      expect(service.areas()).toEqual(mockAreas);
+      await expect(request$).resolves.toEqual(mockAreas);
     });
 
     it('should send includeDisabled=true when requested', async () => {
@@ -103,20 +96,21 @@ describe('StoreAreaService', () => {
       await request$;
     });
 
-    it('should toggle loading around the request', async () => {
-      expect(service.loading()).toBe(false);
-
+    it('should keep the request in flight until the response arrives', async () => {
       const request$ = firstValueFrom(
         service.getAreas(companyId, countryId, regionId, zoneId, storeId),
       );
+      const req = httpMock.expectOne((r) => r.url === nestedUrl && r.method === 'GET');
 
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      expect(service.loading()).toBe(true);
+      let settled = false;
+      void request$.then(() => (settled = true));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(settled).toBe(false);
 
-      httpMock.expectOne((r) => r.url === nestedUrl && r.method === 'GET').flush(mockAreas);
-      await request$;
+      req.flush(mockAreas);
 
-      expect(service.loading()).toBe(false);
+      await expect(request$).resolves.toEqual(mockAreas);
+      expect(settled).toBe(true);
     });
 
     it('should set the areas error message on failure', async () => {
@@ -147,15 +141,13 @@ describe('StoreAreaService', () => {
       expect(area.companyStoreId).toBe(storeId);
     });
 
-    it('should NOT touch the areas signal', async () => {
-      setAreas([mockAreas[1]]);
-      expect(service.areas()).toEqual([mockAreas[1]]);
-
+    it('should issue only the flat request, never a nested list read', async () => {
       const request$ = firstValueFrom(service.getAreaById('area-1'));
+
       httpMock.expectOne(`${baseUrl}/store-areas/area-1`).flush(mockAreas[0]);
       await request$;
 
-      expect(service.areas()).toEqual([mockAreas[1]]);
+      expect(httpMock.match((r) => r.url === nestedUrl).length).toBe(0);
     });
 
     it('should set the area error message on failure', async () => {
@@ -194,9 +186,7 @@ describe('StoreAreaService', () => {
       updatedAt: '2024-02-01T00:00:00Z',
     };
 
-    it('should POST to the nested URL and append to the signal', async () => {
-      setAreas([mockAreas[0]]);
-
+    it('should POST the body to the nested URL and emit the created area', async () => {
       const request$ = firstValueFrom(
         service.createArea(companyId, countryId, regionId, zoneId, storeId, request),
       );
@@ -205,15 +195,10 @@ describe('StoreAreaService', () => {
       expect(req.request.body).toEqual(request);
       req.flush(response);
 
-      const created = await request$;
-      expect(created).toEqual(response);
-      expect(service.areas().length).toBe(2);
-      expect(service.areas()[1].areaCode).toBe('NUEVA');
+      await expect(request$).resolves.toEqual(response);
     });
 
-    it('should set the create error message and leave the signal untouched', async () => {
-      setAreas([mockAreas[0]]);
-
+    it('should set the create error message and rethrow', async () => {
       const request$ = firstValueFrom(
         service.createArea(companyId, countryId, regionId, zoneId, storeId, request),
       );
@@ -224,7 +209,6 @@ describe('StoreAreaService', () => {
 
       await expect(request$).rejects.toThrow();
       expect(service.error()).toBe('Error al crear el área');
-      expect(service.areas().length).toBe(1);
     });
   });
 
@@ -239,9 +223,7 @@ describe('StoreAreaService', () => {
       updatedAt: '2024-02-01T00:00:00Z',
     };
 
-    it('should PUT to the nested /{areaId} URL and map-replace in the signal', async () => {
-      setAreas(mockAreas);
-
+    it('should PUT the body to the nested /{areaId} URL and emit the updated area', async () => {
       const request$ = firstValueFrom(
         service.updateArea(companyId, countryId, regionId, zoneId, storeId, areaId, request),
       );
@@ -250,11 +232,7 @@ describe('StoreAreaService', () => {
       expect(req.request.body).toEqual(request);
       req.flush(updated);
 
-      const result = await request$;
-      expect(result).toEqual(updated);
-      expect(service.areas().length).toBe(2);
-      expect(service.areas()[0].areaName).toBe('Almacén Nuevo');
-      expect(service.areas()[1]).toEqual(mockAreas[1]);
+      await expect(request$).resolves.toEqual(updated);
     });
 
     it('should set the update error message on failure', async () => {
@@ -275,9 +253,7 @@ describe('StoreAreaService', () => {
     const areaId = 'area-1';
     const expectedUrl = `${nestedUrl}/${areaId}`;
 
-    it('should DELETE and flag the row enabled=false without removing it', async () => {
-      setAreas(mockAreas);
-
+    it('should DELETE the nested /{areaId} URL and complete', async () => {
       const request$ = firstValueFrom(
         service.removeArea(companyId, countryId, regionId, zoneId, storeId, areaId),
       );
@@ -287,10 +263,8 @@ describe('StoreAreaService', () => {
 
       await request$;
 
-      expect(service.areas().length).toBe(2);
-      const area = service.areas().find((a) => a.id === areaId);
-      expect(area).toBeDefined();
-      expect(area!.enabled).toBe(false);
+      // Soft delete: the backend flips `enabled`; the client issues no follow-up read or write.
+      expect(httpMock.match((r) => r.method !== 'DELETE').length).toBe(0);
     });
 
     it('should set the disable error message on failure', async () => {
@@ -314,9 +288,7 @@ describe('StoreAreaService', () => {
 
     const enabled: StoreArea = { ...mockAreas[1], enabled: true };
 
-    it('should PATCH /{areaId}/enable and map-replace in the signal', async () => {
-      setAreas(mockAreas);
-
+    it('should PATCH /{areaId}/enable and emit the re-enabled area', async () => {
       const request$ = firstValueFrom(
         service.enableArea(companyId, countryId, regionId, zoneId, storeId, areaId),
       );
@@ -324,9 +296,7 @@ describe('StoreAreaService', () => {
       const req = httpMock.expectOne((r) => r.url === expectedUrl && r.method === 'PATCH');
       req.flush(enabled);
 
-      const result = await request$;
-      expect(result).toEqual(enabled);
-      expect(service.areas().find((a) => a.id === areaId)?.enabled).toBe(true);
+      await expect(request$).resolves.toEqual(enabled);
     });
 
     it('should set the enable error message on failure', async () => {
@@ -343,21 +313,28 @@ describe('StoreAreaService', () => {
     });
   });
 
-  describe('clearError', () => {
-    it('should reset the error signal to null', () => {
-      (service as unknown as { _error: WritableSignal<string | null> })._error.set('Some error');
-      expect(service.error()).toBe('Some error');
-
-      service.clearError();
+  describe('error signal', () => {
+    it('should start with no error', () => {
       expect(service.error()).toBeNull();
     });
-  });
 
-  describe('signal exposure', () => {
-    it('should expose readonly signals for areas, loading, and error', () => {
-      expect(service.areas()).toEqual([]);
-      expect(service.loading()).toBe(false);
+    it('should clear a previous error when a new request starts', async () => {
+      const failed$ = firstValueFrom(
+        service.getAreas(companyId, countryId, regionId, zoneId, storeId),
+      );
+      httpMock
+        .expectOne((r) => r.url === nestedUrl && r.method === 'GET')
+        .flush('Server error', { status: 500, statusText: 'Internal Server Error' });
+      await expect(failed$).rejects.toThrow();
+      expect(service.error()).toBe('Error al cargar las áreas');
+
+      const retry$ = firstValueFrom(
+        service.getAreas(companyId, countryId, regionId, zoneId, storeId),
+      );
       expect(service.error()).toBeNull();
+
+      httpMock.expectOne((r) => r.url === nestedUrl && r.method === 'GET').flush(mockAreas);
+      await retry$;
     });
   });
 });

@@ -1,7 +1,7 @@
 import { inject, Injectable, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, throwError } from 'rxjs';
-import { catchError, finalize, tap } from 'rxjs/operators';
+import { catchError } from 'rxjs/operators';
 import { ConfigService } from '@app/services/config.service';
 import {
   CreateStoreLocationRequest,
@@ -23,12 +23,8 @@ import {
 export class StoreLocationService {
   private readonly configService = inject(ConfigService);
   private readonly http = inject(HttpClient);
-  private readonly _storeLocations = signal<StoreLocation[]>([]);
-  private readonly _loading = signal(false);
   private readonly _error = signal<string | null>(null);
 
-  readonly storeLocations = this._storeLocations.asReadonly();
-  readonly loading = this._loading.asReadonly();
   readonly error = this._error.asReadonly();
 
   private storeLocationsUrl(
@@ -53,7 +49,6 @@ export class StoreLocationService {
     storeZoneId: string,
     includeDisabled = false,
   ): Observable<StoreLocation[]> {
-    this._loading.set(true);
     this._error.set(null);
     const params = { includeDisabled: String(includeDisabled) };
     return this.http
@@ -70,12 +65,10 @@ export class StoreLocationService {
         { params },
       )
       .pipe(
-        tap((storeLocations) => this._storeLocations.set(storeLocations)),
         catchError((err) => {
           this._error.set('Error al cargar las ubicaciones');
           return throwError(() => err);
         }),
-        finalize(() => this._loading.set(false)),
       );
   }
 
@@ -85,7 +78,6 @@ export class StoreLocationService {
    * page owns this data.
    */
   getLocationById(storeLocationId: string): Observable<StoreLocation> {
-    this._loading.set(true);
     this._error.set(null);
     return this.http
       .get<StoreLocation>(`${this.configService.apiUrl}/store-locations/${storeLocationId}`)
@@ -94,7 +86,6 @@ export class StoreLocationService {
           this._error.set('Error al cargar la ubicación');
           return throwError(() => err);
         }),
-        finalize(() => this._loading.set(false)),
       );
   }
 
@@ -108,7 +99,6 @@ export class StoreLocationService {
     storeZoneId: string,
     request: CreateStoreLocationRequest,
   ): Observable<StoreLocation> {
-    this._loading.set(true);
     this._error.set(null);
     return this.http
       .post<StoreLocation>(
@@ -124,15 +114,10 @@ export class StoreLocationService {
         request,
       )
       .pipe(
-        tap((storeLocation) => {
-          const current = this._storeLocations();
-          this._storeLocations.set([...current, storeLocation]);
-        }),
         catchError((err) => {
           this._error.set('Error al crear la ubicación');
           return throwError(() => err);
         }),
-        finalize(() => this._loading.set(false)),
       );
   }
 
@@ -147,7 +132,6 @@ export class StoreLocationService {
     storeLocationId: string,
     request: UpdateStoreLocationRequest,
   ): Observable<StoreLocation> {
-    this._loading.set(true);
     this._error.set(null);
     return this.http
       .put<StoreLocation>(
@@ -155,17 +139,10 @@ export class StoreLocationService {
         request,
       )
       .pipe(
-        tap((updated) => {
-          const current = this._storeLocations();
-          this._storeLocations.set(
-            current.map((item) => (item.id === storeLocationId ? updated : item)),
-          );
-        }),
         catchError((err) => {
           this._error.set('Error al actualizar la ubicación');
           return throwError(() => err);
         }),
-        finalize(() => this._loading.set(false)),
       );
   }
 
@@ -180,26 +157,16 @@ export class StoreLocationService {
     storeZoneId: string,
     storeLocationId: string,
   ): Observable<void> {
-    this._loading.set(true);
     this._error.set(null);
     return this.http
       .delete<void>(
         `${this.storeLocationsUrl(companyId, companyCountryId, regionId, zoneId, storeId, areaId, storeZoneId)}/${storeLocationId}`,
       )
       .pipe(
-        tap(() => {
-          const current = this._storeLocations();
-          this._storeLocations.set(
-            current.map((item) =>
-              item.id === storeLocationId ? { ...item, enabled: false } : item,
-            ),
-          );
-        }),
         catchError((err) => {
           this._error.set('Error al deshabilitar la ubicación');
           return throwError(() => err);
         }),
-        finalize(() => this._loading.set(false)),
       );
   }
 
@@ -214,7 +181,6 @@ export class StoreLocationService {
     storeZoneId: string,
     storeLocationId: string,
   ): Observable<StoreLocation> {
-    this._loading.set(true);
     this._error.set(null);
     return this.http
       .patch<StoreLocation>(
@@ -222,21 +188,10 @@ export class StoreLocationService {
         {},
       )
       .pipe(
-        tap((updated) => {
-          const current = this._storeLocations();
-          this._storeLocations.set(
-            current.map((item) => (item.id === storeLocationId ? updated : item)),
-          );
-        }),
         catchError((err) => {
           this._error.set('Error al reactivar la ubicación');
           return throwError(() => err);
         }),
-        finalize(() => this._loading.set(false)),
       );
-  }
-
-  clearError(): void {
-    this._error.set(null);
   }
 }

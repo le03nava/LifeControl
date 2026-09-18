@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { By } from '@angular/platform-browser';
-import { signal, WritableSignal } from '@angular/core';
+import { signal, Type, WritableSignal } from '@angular/core';
 import { of, throwError } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -28,6 +28,15 @@ import { Company, Page } from '../../../companies/models/company.models';
 describe('StoreZonesPage', () => {
   let component: StoreZonesPage;
   let fixture: ComponentFixture<StoreZonesPage>;
+
+  /**
+   * The listing pages provide their leaf service themselves — a page-scoped instance so the
+   * service's `error` signal cannot leak in from another route (slice 3, step 2d). The module
+   * level mock therefore cannot reach them; the override lives in the component injector.
+   */
+  function pageService<T>(type: Type<T>): T {
+    return fixture.debugElement.injector.get(type);
+  }
 
   const mockCompanies: Company[] = [
     {
@@ -309,7 +318,7 @@ describe('StoreZonesPage', () => {
   }
 
   async function setup(queryParams: Record<string, string> = {}): Promise<void> {
-    await TestBed.configureTestingModule({
+    TestBed.configureTestingModule({
       imports: [StoreZonesPage, NoopAnimationsModule, HttpClientTestingModule],
       providers: [
         { provide: CompanyService, useClass: MockCompanyService },
@@ -318,12 +327,16 @@ describe('StoreZonesPage', () => {
         { provide: CompanyZoneService, useClass: MockCompanyZoneService },
         { provide: CompanyStoreService, useClass: MockCompanyStoreService },
         { provide: StoreAreaService, useClass: MockStoreAreaService },
-        { provide: StoreZoneService, useClass: MockStoreZoneService },
         { provide: Router, useValue: routerMock },
         { provide: MatDialog, useValue: dialogMock },
         { provide: ActivatedRoute, useValue: activatedRouteWith(queryParams) },
       ],
-    }).compileComponents();
+    });
+    // The page-scoped leaf service (2d): replace the component-level provider with the mock.
+    TestBed.overrideComponent(StoreZonesPage, {
+      set: { providers: [{ provide: StoreZoneService, useClass: MockStoreZoneService }] },
+    });
+    await TestBed.compileComponents();
 
     fixture = TestBed.createComponent(StoreZonesPage);
     component = fixture.componentInstance;
@@ -407,7 +420,7 @@ describe('StoreZonesPage', () => {
     });
 
     it('should not request store zones while no area is selected', () => {
-      const zoneService = TestBed.inject(StoreZoneService) as unknown as MockStoreZoneService;
+      const zoneService = pageService(StoreZoneService) as unknown as MockStoreZoneService;
       expect(zoneService.getStoreZones).not.toHaveBeenCalled();
     });
 
@@ -436,7 +449,7 @@ describe('StoreZonesPage', () => {
         CompanyStoreService,
       ) as unknown as MockCompanyStoreService;
       const areaService = TestBed.inject(StoreAreaService) as unknown as MockStoreAreaService;
-      const storeZoneService = TestBed.inject(StoreZoneService) as unknown as MockStoreZoneService;
+      const storeZoneService = pageService(StoreZoneService) as unknown as MockStoreZoneService;
 
       component.onCompanyChange('company-1');
       await settle();
@@ -596,9 +609,7 @@ describe('StoreZonesPage', () => {
     });
 
     it('should surface a company-zones failure instead of an empty list', async () => {
-      const zoneService = TestBed.inject(
-        CompanyZoneService,
-      ) as unknown as MockCompanyZoneService;
+      const zoneService = TestBed.inject(CompanyZoneService) as unknown as MockCompanyZoneService;
       zoneService.getZones.mockReturnValue(throwError(() => httpFailure('Zonas caídas')));
 
       component.onCompanyChange('company-1');
@@ -692,7 +703,7 @@ describe('StoreZonesPage', () => {
     });
 
     it('should load the selected area store zones with the full nested chain', async () => {
-      const storeZoneService = TestBed.inject(StoreZoneService) as unknown as MockStoreZoneService;
+      const storeZoneService = pageService(StoreZoneService) as unknown as MockStoreZoneService;
 
       await selectArea();
 
@@ -709,7 +720,7 @@ describe('StoreZonesPage', () => {
     });
 
     it('should re-request store zones when the selected area changes', async () => {
-      const storeZoneService = TestBed.inject(StoreZoneService) as unknown as MockStoreZoneService;
+      const storeZoneService = pageService(StoreZoneService) as unknown as MockStoreZoneService;
 
       await selectArea();
       component.onSelectArea(mockAreas[1]);
@@ -727,7 +738,7 @@ describe('StoreZonesPage', () => {
     });
 
     it('should request disabled store zones when the toggle is on', async () => {
-      const storeZoneService = TestBed.inject(StoreZoneService) as unknown as MockStoreZoneService;
+      const storeZoneService = pageService(StoreZoneService) as unknown as MockStoreZoneService;
 
       await selectArea();
       component.showDisabled.set(true);
@@ -778,7 +789,7 @@ describe('StoreZonesPage', () => {
     });
 
     it('should render the empty state when the selected area has no zones', async () => {
-      const storeZoneService = TestBed.inject(StoreZoneService) as unknown as MockStoreZoneService;
+      const storeZoneService = pageService(StoreZoneService) as unknown as MockStoreZoneService;
       storeZoneService.getStoreZones.mockImplementation(() => {
         return of([] as StoreZone[]);
       });
@@ -862,7 +873,7 @@ describe('StoreZonesPage', () => {
     });
 
     it('should call removeZone and reload when the dialog is confirmed', async () => {
-      const storeZoneService = TestBed.inject(StoreZoneService) as unknown as MockStoreZoneService;
+      const storeZoneService = pageService(StoreZoneService) as unknown as MockStoreZoneService;
       dialogMock.open.mockReturnValue({ afterClosed: () => of(true) });
 
       await selectArea();
@@ -885,7 +896,7 @@ describe('StoreZonesPage', () => {
     });
 
     it('should NOT call removeZone when the dialog is dismissed', async () => {
-      const storeZoneService = TestBed.inject(StoreZoneService) as unknown as MockStoreZoneService;
+      const storeZoneService = pageService(StoreZoneService) as unknown as MockStoreZoneService;
       dialogMock.open.mockReturnValue({ afterClosed: () => of(false) });
 
       await selectArea();
@@ -898,7 +909,7 @@ describe('StoreZonesPage', () => {
     });
 
     it('should call enableZone for a disabled store zone and reload', async () => {
-      const storeZoneService = TestBed.inject(StoreZoneService) as unknown as MockStoreZoneService;
+      const storeZoneService = pageService(StoreZoneService) as unknown as MockStoreZoneService;
 
       await selectArea();
 
@@ -929,7 +940,7 @@ describe('StoreZonesPage', () => {
     });
 
     it('should surface the backend message when disabling fails', async () => {
-      const storeZoneService = TestBed.inject(StoreZoneService) as unknown as MockStoreZoneService;
+      const storeZoneService = pageService(StoreZoneService) as unknown as MockStoreZoneService;
       dialogMock.open.mockReturnValue({ afterClosed: () => of(true) });
       storeZoneService.removeZone.mockReturnValue(
         throwError(() => ({ error: { message: 'El área está deshabilitada' } })),
@@ -949,7 +960,7 @@ describe('StoreZonesPage', () => {
     });
 
     it('should surface the backend message when re-enabling fails', async () => {
-      const storeZoneService = TestBed.inject(StoreZoneService) as unknown as MockStoreZoneService;
+      const storeZoneService = pageService(StoreZoneService) as unknown as MockStoreZoneService;
       storeZoneService.enableZone.mockReturnValue(
         throwError(() => ({ error: { message: 'La tienda está deshabilitada' } })),
       );
@@ -968,7 +979,7 @@ describe('StoreZonesPage', () => {
     });
 
     it('should fall back to a generic message when the failure carries none', async () => {
-      const storeZoneService = TestBed.inject(StoreZoneService) as unknown as MockStoreZoneService;
+      const storeZoneService = pageService(StoreZoneService) as unknown as MockStoreZoneService;
       storeZoneService.enableZone.mockReturnValue(throwError(() => ({ error: {} })));
 
       await selectArea();
@@ -980,7 +991,7 @@ describe('StoreZonesPage', () => {
     });
 
     it('should clear a previous action error on the next toggle attempt', async () => {
-      const storeZoneService = TestBed.inject(StoreZoneService) as unknown as MockStoreZoneService;
+      const storeZoneService = pageService(StoreZoneService) as unknown as MockStoreZoneService;
       storeZoneService.enableZone.mockReturnValue(
         throwError(() => ({ error: { message: 'La tienda está deshabilitada' } })),
       );
@@ -1044,7 +1055,7 @@ describe('StoreZonesPage', () => {
     });
 
     it('should load store zones for the pre-selected disabled area', async () => {
-      const storeZoneService = TestBed.inject(StoreZoneService) as unknown as MockStoreZoneService;
+      const storeZoneService = pageService(StoreZoneService) as unknown as MockStoreZoneService;
 
       await settleCascade();
 
@@ -1074,7 +1085,7 @@ describe('StoreZonesPage', () => {
     });
 
     it('should render the service error message', async () => {
-      const storeZoneService = TestBed.inject(StoreZoneService) as unknown as MockStoreZoneService;
+      const storeZoneService = pageService(StoreZoneService) as unknown as MockStoreZoneService;
       (storeZoneService as unknown as { _error: WritableSignal<string | null> })._error.set(
         'Error al cargar las zonas de la tienda',
       );

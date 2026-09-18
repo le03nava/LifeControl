@@ -1,5 +1,4 @@
 import { TestBed } from '@angular/core/testing';
-import { WritableSignal } from '@angular/core';
 import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 import { firstValueFrom } from 'rxjs';
 import { ConfigService } from '@app/services/config.service';
@@ -74,18 +73,12 @@ describe('StoreLocationService', () => {
     httpMock.verify();
   });
 
-  function setStoreLocations(storeLocations: StoreLocation[]): void {
-    (
-      service as unknown as { _storeLocations: WritableSignal<StoreLocation[]> }
-    )._storeLocations.set(storeLocations);
-  }
-
   it('should be created', () => {
     expect(service).toBeTruthy();
   });
 
   describe('getStoreLocations', () => {
-    it('should GET the nested URL and populate the store locations signal', async () => {
+    it('should GET the nested URL with includeDisabled=false and emit the store locations', async () => {
       const request$ = firstValueFrom(
         service.getStoreLocations(
           companyId,
@@ -102,9 +95,7 @@ describe('StoreLocationService', () => {
       expect(req.request.params.get('includeDisabled')).toBe('false');
       req.flush(mockLocations);
 
-      const storeLocations = await request$;
-      expect(storeLocations).toEqual(mockLocations);
-      expect(service.storeLocations()).toEqual(mockLocations);
+      await expect(request$).resolves.toEqual(mockLocations);
     });
 
     it('should send includeDisabled=true when requested', async () => {
@@ -128,9 +119,7 @@ describe('StoreLocationService', () => {
       await request$;
     });
 
-    it('should toggle loading around the request', async () => {
-      expect(service.loading()).toBe(false);
-
+    it('should keep the request in flight until the response arrives', async () => {
       const request$ = firstValueFrom(
         service.getStoreLocations(
           companyId,
@@ -142,14 +131,17 @@ describe('StoreLocationService', () => {
           storeZoneId,
         ),
       );
+      const req = httpMock.expectOne((r) => r.url === nestedUrl && r.method === 'GET');
 
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      expect(service.loading()).toBe(true);
+      let settled = false;
+      void request$.then(() => (settled = true));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(settled).toBe(false);
 
-      httpMock.expectOne((r) => r.url === nestedUrl && r.method === 'GET').flush(mockLocations);
-      await request$;
+      req.flush(mockLocations);
 
-      expect(service.loading()).toBe(false);
+      await expect(request$).resolves.toEqual(mockLocations);
+      expect(settled).toBe(true);
     });
 
     it('should set the store locations error message on failure', async () => {
@@ -188,15 +180,13 @@ describe('StoreLocationService', () => {
       expect(storeLocation.storeZoneId).toBe(storeZoneId);
     });
 
-    it('should NOT touch the store locations signal', async () => {
-      setStoreLocations([mockLocations[1]]);
-      expect(service.storeLocations()).toEqual([mockLocations[1]]);
-
+    it('should issue only the flat request, never a nested list read', async () => {
       const request$ = firstValueFrom(service.getLocationById('store-location-1'));
+
       httpMock.expectOne(`${baseUrl}/store-locations/store-location-1`).flush(mockLocations[0]);
       await request$;
 
-      expect(service.storeLocations()).toEqual([mockLocations[1]]);
+      expect(httpMock.match((r) => r.url === nestedUrl).length).toBe(0);
     });
 
     it('should set the store location error message on failure', async () => {
@@ -237,9 +227,7 @@ describe('StoreLocationService', () => {
       updatedAt: '2024-02-01T00:00:00Z',
     };
 
-    it('should POST to the nested URL and append to the signal', async () => {
-      setStoreLocations([mockLocations[0]]);
-
+    it('should POST the body to the nested URL and emit the created store location', async () => {
       const request$ = firstValueFrom(
         service.createLocation(
           companyId,
@@ -257,15 +245,10 @@ describe('StoreLocationService', () => {
       expect(req.request.body).toEqual(request);
       req.flush(response);
 
-      const created = await request$;
-      expect(created).toEqual(response);
-      expect(service.storeLocations().length).toBe(2);
-      expect(service.storeLocations()[1].locationCode).toBe('A-03');
+      await expect(request$).resolves.toEqual(response);
     });
 
-    it('should set the create error message and leave the signal untouched', async () => {
-      setStoreLocations([mockLocations[0]]);
-
+    it('should set the create error message and rethrow', async () => {
       const request$ = firstValueFrom(
         service.createLocation(
           companyId,
@@ -285,7 +268,6 @@ describe('StoreLocationService', () => {
 
       await expect(request$).rejects.toThrow();
       expect(service.error()).toBe('Error al crear la ubicación');
-      expect(service.storeLocations().length).toBe(1);
     });
   });
 
@@ -303,9 +285,7 @@ describe('StoreLocationService', () => {
       updatedAt: '2024-02-01T00:00:00Z',
     };
 
-    it('should PUT to the nested /{storeLocationId} URL and map-replace in the signal', async () => {
-      setStoreLocations(mockLocations);
-
+    it('should PUT the body to the nested /{storeLocationId} URL and emit the updated store location', async () => {
       const request$ = firstValueFrom(
         service.updateLocation(
           companyId,
@@ -324,11 +304,7 @@ describe('StoreLocationService', () => {
       expect(req.request.body).toEqual(request);
       req.flush(updated);
 
-      const result = await request$;
-      expect(result).toEqual(updated);
-      expect(service.storeLocations().length).toBe(2);
-      expect(service.storeLocations()[0].locationName).toBe('Estante A-01 Nuevo');
-      expect(service.storeLocations()[1]).toEqual(mockLocations[1]);
+      await expect(request$).resolves.toEqual(updated);
     });
 
     it('should set the update error message on failure', async () => {
@@ -359,9 +335,7 @@ describe('StoreLocationService', () => {
     const storeLocationId = 'store-location-1';
     const expectedUrl = `${nestedUrl}/${storeLocationId}`;
 
-    it('should DELETE and flag the row enabled=false without removing it', async () => {
-      setStoreLocations(mockLocations);
-
+    it('should DELETE the nested /{storeLocationId} URL and complete', async () => {
       const request$ = firstValueFrom(
         service.removeLocation(
           companyId,
@@ -380,10 +354,8 @@ describe('StoreLocationService', () => {
 
       await request$;
 
-      expect(service.storeLocations().length).toBe(2);
-      const storeLocation = service.storeLocations().find((l) => l.id === storeLocationId);
-      expect(storeLocation).toBeDefined();
-      expect(storeLocation!.enabled).toBe(false);
+      // Soft delete: the backend flips `enabled`; the client issues no follow-up read or write.
+      expect(httpMock.match((r) => r.method !== 'DELETE').length).toBe(0);
     });
 
     it('should set the disable error message on failure', async () => {
@@ -416,9 +388,7 @@ describe('StoreLocationService', () => {
 
     const enabled: StoreLocation = { ...mockLocations[1], enabled: true };
 
-    it('should PATCH /{storeLocationId}/enable and map-replace in the signal', async () => {
-      setStoreLocations(mockLocations);
-
+    it('should PATCH /{storeLocationId}/enable and emit the re-enabled store location', async () => {
       const request$ = firstValueFrom(
         service.enableLocation(
           companyId,
@@ -435,9 +405,7 @@ describe('StoreLocationService', () => {
       const req = httpMock.expectOne((r) => r.url === expectedUrl && r.method === 'PATCH');
       req.flush(enabled);
 
-      const result = await request$;
-      expect(result).toEqual(enabled);
-      expect(service.storeLocations().find((l) => l.id === storeLocationId)?.enabled).toBe(true);
+      await expect(request$).resolves.toEqual(enabled);
     });
 
     it('should set the enable error message on failure', async () => {
@@ -463,21 +431,44 @@ describe('StoreLocationService', () => {
     });
   });
 
-  describe('clearError', () => {
-    it('should reset the error signal to null', () => {
-      (service as unknown as { _error: WritableSignal<string | null> })._error.set('Some error');
-      expect(service.error()).toBe('Some error');
-
-      service.clearError();
+  describe('error signal', () => {
+    it('should start with no error', () => {
       expect(service.error()).toBeNull();
     });
-  });
 
-  describe('signal exposure', () => {
-    it('should expose readonly signals for store locations, loading, and error', () => {
-      expect(service.storeLocations()).toEqual([]);
-      expect(service.loading()).toBe(false);
+    it('should clear a previous error when a new request starts', async () => {
+      const failed$ = firstValueFrom(
+        service.getStoreLocations(
+          companyId,
+          countryId,
+          regionId,
+          zoneId,
+          storeId,
+          areaId,
+          storeZoneId,
+        ),
+      );
+      httpMock
+        .expectOne((r) => r.url === nestedUrl && r.method === 'GET')
+        .flush('Server error', { status: 500, statusText: 'Internal Server Error' });
+      await expect(failed$).rejects.toThrow();
+      expect(service.error()).toBe('Error al cargar las ubicaciones');
+
+      const retry$ = firstValueFrom(
+        service.getStoreLocations(
+          companyId,
+          countryId,
+          regionId,
+          zoneId,
+          storeId,
+          areaId,
+          storeZoneId,
+        ),
+      );
       expect(service.error()).toBeNull();
+
+      httpMock.expectOne((r) => r.url === nestedUrl && r.method === 'GET').flush(mockLocations);
+      await retry$;
     });
   });
 });

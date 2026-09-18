@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { By } from '@angular/platform-browser';
-import { signal, WritableSignal } from '@angular/core';
+import { signal, Type, WritableSignal } from '@angular/core';
 import { throwError, of } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -26,6 +26,15 @@ import { Company, Page } from '../../../companies/models/company.models';
 describe('StoreAreasPage', () => {
   let component: StoreAreasPage;
   let fixture: ComponentFixture<StoreAreasPage>;
+
+  /**
+   * The listing pages provide their leaf service themselves — a page-scoped instance so the
+   * service's `error` signal cannot leak in from another route (slice 3, step 2d). The module
+   * level mock therefore cannot reach them; the override lives in the component injector.
+   */
+  function pageService<T>(type: Type<T>): T {
+    return fixture.debugElement.injector.get(type);
+  }
 
   const mockCompanies: Company[] = [
     {
@@ -184,7 +193,7 @@ describe('StoreAreasPage', () => {
 
   class MockCompanyZoneService {
     private readonly _zones = signal<CompanyZone[]>([]);
-    readonly zones = this._zones.asReadonly();
+    readonly companyZones = this._zones.asReadonly();
     readonly loading = signal(false).asReadonly();
     readonly error = signal<string | null>(null).asReadonly();
     getZones = vi.fn().mockImplementation(() => {
@@ -243,7 +252,7 @@ describe('StoreAreasPage', () => {
   }
 
   async function setup(queryParams: Record<string, string> = {}): Promise<void> {
-    await TestBed.configureTestingModule({
+    TestBed.configureTestingModule({
       imports: [StoreAreasPage, NoopAnimationsModule, HttpClientTestingModule],
       providers: [
         { provide: CompanyService, useClass: MockCompanyService },
@@ -251,12 +260,16 @@ describe('StoreAreasPage', () => {
         { provide: CompanyRegionService, useClass: MockCompanyRegionService },
         { provide: CompanyZoneService, useClass: MockCompanyZoneService },
         { provide: CompanyStoreService, useClass: MockCompanyStoreService },
-        { provide: StoreAreaService, useClass: MockStoreAreaService },
         { provide: Router, useValue: routerMock },
         { provide: MatDialog, useValue: dialogMock },
         { provide: ActivatedRoute, useValue: activatedRouteWith(queryParams) },
       ],
-    }).compileComponents();
+    });
+    // The page-scoped leaf service (2d): replace the component-level provider with the mock.
+    TestBed.overrideComponent(StoreAreasPage, {
+      set: { providers: [{ provide: StoreAreaService, useClass: MockStoreAreaService }] },
+    });
+    await TestBed.compileComponents();
 
     fixture = TestBed.createComponent(StoreAreasPage);
     component = fixture.componentInstance;
@@ -288,7 +301,7 @@ describe('StoreAreasPage', () => {
     await settle();
     component.onSelectRegion(mockRegions[0]);
     await settle();
-    component.onSelectZone(mockZones[0]);
+    component.onSelectCompanyZone(mockZones[0]);
     await settle();
     component.onSelectStore(store);
     await settle();
@@ -313,7 +326,7 @@ describe('StoreAreasPage', () => {
       expect(component.selectedCompanyId()).toBeNull();
       expect(component.selectedCountry()).toBeNull();
       expect(component.selectedRegion()).toBeNull();
-      expect(component.selectedZone()).toBeNull();
+      expect(component.selectedCompanyZone()).toBeNull();
       expect(component.selectedStore()).toBeNull();
       expect(component.showDisabled()).toBe(false);
     });
@@ -331,7 +344,7 @@ describe('StoreAreasPage', () => {
     });
 
     it('should not request areas while no store is selected', () => {
-      const areaService = TestBed.inject(StoreAreaService) as unknown as MockStoreAreaService;
+      const areaService = pageService(StoreAreaService) as unknown as MockStoreAreaService;
       expect(areaService.getAreas).not.toHaveBeenCalled();
     });
 
@@ -354,7 +367,7 @@ describe('StoreAreasPage', () => {
       expect(component.selectedCompanyId()).toBe('company-2');
       expect(component.selectedCountry()).toBeNull();
       expect(component.selectedRegion()).toBeNull();
-      expect(component.selectedZone()).toBeNull();
+      expect(component.selectedCompanyZone()).toBeNull();
       expect(component.selectedStore()).toBeNull();
     });
 
@@ -364,7 +377,7 @@ describe('StoreAreasPage', () => {
       component.onSelectCountry(mockAssignedCountries[0]);
 
       expect(component.selectedRegion()).toBeNull();
-      expect(component.selectedZone()).toBeNull();
+      expect(component.selectedCompanyZone()).toBeNull();
       expect(component.selectedStore()).toBeNull();
     });
 
@@ -373,14 +386,14 @@ describe('StoreAreasPage', () => {
 
       component.onSelectRegion(mockRegions[0]);
 
-      expect(component.selectedZone()).toBeNull();
+      expect(component.selectedCompanyZone()).toBeNull();
       expect(component.selectedStore()).toBeNull();
     });
 
     it('should reset the store when the zone changes', async () => {
       await selectStore();
 
-      component.onSelectZone(mockZones[0]);
+      component.onSelectCompanyZone(mockZones[0]);
 
       expect(component.selectedStore()).toBeNull();
     });
@@ -409,7 +422,7 @@ describe('StoreAreasPage', () => {
     });
 
     it('should load the selected store areas with the full nested chain', async () => {
-      const areaService = TestBed.inject(StoreAreaService) as unknown as MockStoreAreaService;
+      const areaService = pageService(StoreAreaService) as unknown as MockStoreAreaService;
 
       await selectStore();
 
@@ -425,7 +438,7 @@ describe('StoreAreasPage', () => {
     });
 
     it('should request disabled areas when the toggle is on', async () => {
-      const areaService = TestBed.inject(StoreAreaService) as unknown as MockStoreAreaService;
+      const areaService = pageService(StoreAreaService) as unknown as MockStoreAreaService;
 
       await selectStore();
       component.showDisabled.set(true);
@@ -475,7 +488,7 @@ describe('StoreAreasPage', () => {
     it('should expose empty guarded reads before anything resolves', () => {
       expect(component.countries()).toEqual([]);
       expect(component.regions()).toEqual([]);
-      expect(component.zones()).toEqual([]);
+      expect(component.companyZones()).toEqual([]);
       expect(component.stores()).toEqual([]);
       expect(component.areas()).toEqual([]);
     });
@@ -520,10 +533,8 @@ describe('StoreAreasPage', () => {
       );
     });
 
-    it('should surface a zones failure instead of an empty list', async () => {
-      const zoneService = TestBed.inject(
-        CompanyZoneService,
-      ) as unknown as MockCompanyZoneService;
+    it('should surface a company-zones failure instead of an empty list', async () => {
+      const zoneService = TestBed.inject(CompanyZoneService) as unknown as MockCompanyZoneService;
       zoneService.getZones.mockReturnValue(throwError(() => httpFailure('Zonas caídas')));
 
       component.onCompanyChange('company-1');
@@ -533,8 +544,8 @@ describe('StoreAreasPage', () => {
       component.onSelectRegion(mockRegions[0]);
       await settle();
 
-      expect(component.zones()).toEqual([]);
-      expect(component.zonesError()).toBe('Zonas caídas');
+      expect(component.companyZones()).toEqual([]);
+      expect(component.companyZonesError()).toBe('Zonas caídas');
       expect(fixture.nativeElement.querySelector('.cascade-error')?.textContent).toContain(
         'Zonas caídas',
       );
@@ -552,7 +563,7 @@ describe('StoreAreasPage', () => {
       await settle();
       component.onSelectRegion(mockRegions[0]);
       await settle();
-      component.onSelectZone(mockZones[0]);
+      component.onSelectCompanyZone(mockZones[0]);
       await settle();
 
       expect(component.stores()).toEqual([]);
@@ -631,7 +642,7 @@ describe('StoreAreasPage', () => {
     });
 
     it('should call removeArea and reload when the dialog is confirmed', async () => {
-      const areaService = TestBed.inject(StoreAreaService) as unknown as MockStoreAreaService;
+      const areaService = pageService(StoreAreaService) as unknown as MockStoreAreaService;
       dialogMock.open.mockReturnValue({ afterClosed: () => of(true) });
 
       await selectStore();
@@ -652,7 +663,7 @@ describe('StoreAreasPage', () => {
     });
 
     it('should NOT call removeArea when the dialog is dismissed', async () => {
-      const areaService = TestBed.inject(StoreAreaService) as unknown as MockStoreAreaService;
+      const areaService = pageService(StoreAreaService) as unknown as MockStoreAreaService;
       dialogMock.open.mockReturnValue({ afterClosed: () => of(false) });
 
       await selectStore();
@@ -665,7 +676,7 @@ describe('StoreAreasPage', () => {
     });
 
     it('should call enableArea for a disabled area and reload', async () => {
-      const areaService = TestBed.inject(StoreAreaService) as unknown as MockStoreAreaService;
+      const areaService = pageService(StoreAreaService) as unknown as MockStoreAreaService;
 
       await selectStore();
 
@@ -695,7 +706,7 @@ describe('StoreAreasPage', () => {
     });
 
     it('should surface the backend message when disabling fails', async () => {
-      const areaService = TestBed.inject(StoreAreaService) as unknown as MockStoreAreaService;
+      const areaService = pageService(StoreAreaService) as unknown as MockStoreAreaService;
       dialogMock.open.mockReturnValue({ afterClosed: () => of(true) });
       areaService.removeArea.mockReturnValue(
         throwError(() => ({ error: { message: 'La tienda está deshabilitada' } })),
@@ -715,7 +726,7 @@ describe('StoreAreasPage', () => {
     });
 
     it('should surface the backend message when re-enabling fails', async () => {
-      const areaService = TestBed.inject(StoreAreaService) as unknown as MockStoreAreaService;
+      const areaService = pageService(StoreAreaService) as unknown as MockStoreAreaService;
       areaService.enableArea.mockReturnValue(
         throwError(() => ({ error: { message: 'La tienda está deshabilitada' } })),
       );
@@ -734,7 +745,7 @@ describe('StoreAreasPage', () => {
     });
 
     it('should fall back to a generic message when the failure carries none', async () => {
-      const areaService = TestBed.inject(StoreAreaService) as unknown as MockStoreAreaService;
+      const areaService = pageService(StoreAreaService) as unknown as MockStoreAreaService;
       areaService.enableArea.mockReturnValue(throwError(() => ({ error: {} })));
 
       await selectStore();
@@ -746,7 +757,7 @@ describe('StoreAreasPage', () => {
     });
 
     it('should clear a previous action error on the next toggle attempt', async () => {
-      const areaService = TestBed.inject(StoreAreaService) as unknown as MockStoreAreaService;
+      const areaService = pageService(StoreAreaService) as unknown as MockStoreAreaService;
       areaService.enableArea.mockReturnValue(
         throwError(() => ({ error: { message: 'La tienda está deshabilitada' } })),
       );
@@ -787,12 +798,12 @@ describe('StoreAreasPage', () => {
 
       expect(component.selectedCountry()?.id).toBe('cc-1');
       expect(component.selectedRegion()?.id).toBe('reg-1');
-      expect(component.selectedZone()?.id).toBe('zone-1');
+      expect(component.selectedCompanyZone()?.id).toBe('zone-1');
       expect(component.selectedStore()?.id).toBe('store-2');
     });
 
     it('should load areas for the pre-selected (disabled) store', async () => {
-      const areaService = TestBed.inject(StoreAreaService) as unknown as MockStoreAreaService;
+      const areaService = pageService(StoreAreaService) as unknown as MockStoreAreaService;
 
       await settleCascade();
 
@@ -813,7 +824,7 @@ describe('StoreAreasPage', () => {
     });
 
     it('should render the service error message', async () => {
-      const areaService = TestBed.inject(StoreAreaService) as unknown as MockStoreAreaService;
+      const areaService = pageService(StoreAreaService) as unknown as MockStoreAreaService;
       (areaService as unknown as { _error: WritableSignal<string | null> })._error.set(
         'Error al cargar las áreas',
       );

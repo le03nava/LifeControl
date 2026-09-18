@@ -1,7 +1,7 @@
 import { inject, Injectable, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, throwError } from 'rxjs';
-import { catchError, finalize, tap } from 'rxjs/operators';
+import { catchError } from 'rxjs/operators';
 import { ConfigService } from '@app/services/config.service';
 import {
   CreateStoreAreaRequest,
@@ -15,6 +15,11 @@ import {
  * Writes and list reads are nested under the full
  * company → country → region → zone → store path; the edit page resolves a
  * single area through the flat `/api/store-areas/{areaId}` lookup.
+ *
+ * The list/loading signals were never read by the application and were removed
+ * (slice 3, step 2c). The only state left is the last error message; the listing
+ * page reads it through a page-scoped instance so it cannot leak across routes
+ * (step 2d).
  */
 @Injectable({
   providedIn: 'root',
@@ -22,12 +27,8 @@ import {
 export class StoreAreaService {
   private readonly configService = inject(ConfigService);
   private readonly http = inject(HttpClient);
-  private readonly _areas = signal<StoreArea[]>([]);
-  private readonly _loading = signal(false);
   private readonly _error = signal<string | null>(null);
 
-  readonly areas = this._areas.asReadonly();
-  readonly loading = this._loading.asReadonly();
   readonly error = this._error.asReadonly();
 
   private areasUrl(
@@ -48,7 +49,6 @@ export class StoreAreaService {
     storeId: string,
     includeDisabled = false,
   ): Observable<StoreArea[]> {
-    this._loading.set(true);
     this._error.set(null);
     const params = { includeDisabled: String(includeDisabled) };
     return this.http
@@ -56,28 +56,24 @@ export class StoreAreaService {
         params,
       })
       .pipe(
-        tap((areas) => this._areas.set(areas)),
         catchError((err) => {
           this._error.set('Error al cargar las áreas');
           return throwError(() => err);
         }),
-        finalize(() => this._loading.set(false)),
       );
   }
 
   /**
    * Flat lookup by area id. Returns the area **including** its full chain and
-   * intentionally does not touch the list signal — the edit page owns this data.
+   * intentionally does not read the list — the edit page owns this data.
    */
   getAreaById(areaId: string): Observable<StoreArea> {
-    this._loading.set(true);
     this._error.set(null);
     return this.http.get<StoreArea>(`${this.configService.apiUrl}/store-areas/${areaId}`).pipe(
       catchError((err) => {
         this._error.set('Error al cargar el área');
         return throwError(() => err);
       }),
-      finalize(() => this._loading.set(false)),
     );
   }
 
@@ -89,7 +85,6 @@ export class StoreAreaService {
     storeId: string,
     request: CreateStoreAreaRequest,
   ): Observable<StoreArea> {
-    this._loading.set(true);
     this._error.set(null);
     return this.http
       .post<StoreArea>(
@@ -97,15 +92,10 @@ export class StoreAreaService {
         request,
       )
       .pipe(
-        tap((area) => {
-          const current = this._areas();
-          this._areas.set([...current, area]);
-        }),
         catchError((err) => {
           this._error.set('Error al crear el área');
           return throwError(() => err);
         }),
-        finalize(() => this._loading.set(false)),
       );
   }
 
@@ -118,7 +108,6 @@ export class StoreAreaService {
     areaId: string,
     request: UpdateStoreAreaRequest,
   ): Observable<StoreArea> {
-    this._loading.set(true);
     this._error.set(null);
     return this.http
       .put<StoreArea>(
@@ -126,19 +115,14 @@ export class StoreAreaService {
         request,
       )
       .pipe(
-        tap((updated) => {
-          const current = this._areas();
-          this._areas.set(current.map((a) => (a.id === areaId ? updated : a)));
-        }),
         catchError((err) => {
           this._error.set('Error al actualizar el área');
           return throwError(() => err);
         }),
-        finalize(() => this._loading.set(false)),
       );
   }
 
-  /** Soft delete: the backend sets `enabled = false`; the row is kept locally. */
+  /** Soft delete: the backend sets `enabled = false`. */
   removeArea(
     companyId: string,
     companyCountryId: string,
@@ -147,22 +131,16 @@ export class StoreAreaService {
     storeId: string,
     areaId: string,
   ): Observable<void> {
-    this._loading.set(true);
     this._error.set(null);
     return this.http
       .delete<void>(
         `${this.areasUrl(companyId, companyCountryId, regionId, zoneId, storeId)}/${areaId}`,
       )
       .pipe(
-        tap(() => {
-          const current = this._areas();
-          this._areas.set(current.map((a) => (a.id === areaId ? { ...a, enabled: false } : a)));
-        }),
         catchError((err) => {
           this._error.set('Error al deshabilitar el área');
           return throwError(() => err);
         }),
-        finalize(() => this._loading.set(false)),
       );
   }
 
@@ -175,7 +153,6 @@ export class StoreAreaService {
     storeId: string,
     areaId: string,
   ): Observable<StoreArea> {
-    this._loading.set(true);
     this._error.set(null);
     return this.http
       .patch<StoreArea>(
@@ -183,19 +160,10 @@ export class StoreAreaService {
         {},
       )
       .pipe(
-        tap((updated) => {
-          const current = this._areas();
-          this._areas.set(current.map((a) => (a.id === areaId ? updated : a)));
-        }),
         catchError((err) => {
           this._error.set('Error al reactivar el área');
           return throwError(() => err);
         }),
-        finalize(() => this._loading.set(false)),
       );
-  }
-
-  clearError(): void {
-    this._error.set(null);
   }
 }
