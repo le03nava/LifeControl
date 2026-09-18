@@ -72,6 +72,7 @@ public class Routes {
         .route(RequestPredicates.path("/api/product-variants/**"), HandlerFunctions.http(props.lifeControlApiUri()))
         .route(RequestPredicates.path("/api/profile/**"), HandlerFunctions.http(props.lifeControlApiUri()))
         .route(RequestPredicates.path("/api/store-areas/**"), HandlerFunctions.http(props.lifeControlApiUri()))
+        .route(RequestPredicates.path("/api/store-zones/**"), HandlerFunctions.http(props.lifeControlApiUri()))
         .filter(CircuitBreakerFilterFunctions.circuitBreaker("lifeControlApiCircuitBreaker",
             URI.create("forward:/fallbackRoute")))
         .build();
