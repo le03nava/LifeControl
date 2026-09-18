@@ -110,6 +110,31 @@
   color: var(--color-primary);
 }
 
+/* ── Submenu caret trigger (items with children) ── */
+
+.submenu-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  color: var(--color-gray-600);
+  font-weight: 500;
+  padding: var(--space-sm);
+  transition: color 0.2s ease;
+}
+
+.submenu-trigger:hover {
+  color: var(--color-primary);
+}
+
+.submenu-trigger mat-icon {
+  color: var(--color-gray-500);
+}
+
 .nav-actions {
   display: flex;
   flex-wrap: wrap;

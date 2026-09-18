@@ -90,19 +90,19 @@ describe('CompaniesAdminComponent', () => {
       ({ fixture, component } = setupWithRoles(['lc-admin']));
     });
 
-    it('should render all 6 cards enabled', () => {
+    it('should render all 7 cards enabled', () => {
       const cards = component.cards();
-      expect(cards).toHaveLength(6);
+      expect(cards).toHaveLength(7);
       for (const card of cards) {
         expect(card.disabled).toBe(false);
       }
       const dashboardCards = fixture.debugElement.queryAll(By.css('.dashboard-card'));
-      expect(dashboardCards).toHaveLength(6);
+      expect(dashboardCards).toHaveLength(7);
     });
 
     it('should render active cards with "Manage" call-to-action text', () => {
       const actionElements = fixture.nativeElement.querySelectorAll('.card-action');
-      expect(actionElements).toHaveLength(6);
+      expect(actionElements).toHaveLength(7);
       expect(actionElements[0].textContent.trim()).toContain('Manage Companies');
       expect(actionElements[1].textContent.trim()).toContain('Manage Countries');
     });
@@ -115,11 +115,35 @@ describe('CompaniesAdminComponent', () => {
       ({ fixture, component } = setupWithRoles(['lc-company-region']));
     });
 
-    it('should enable Regions, Zones, Stores, Store Areas and disable Companies, Countries', () => {
+    it('should enable Regions, Zones, Stores, Store Areas, Store Zones and disable Companies, Countries', () => {
       const cards = component.cards();
       const titles = cards.map((c) => c.title);
 
-      expect(titles).toEqual(['Regions', 'Zones', 'Stores', 'Store Areas']);
+      expect(titles).toEqual(['Regions', 'Zones', 'Stores', 'Store Areas', 'Store Zones']);
+      expect(cards).toHaveLength(5);
+      for (const card of cards) {
+        expect(card.disabled).toBe(false);
+      }
+    });
+
+    it('should render 5 cards in the DOM', () => {
+      const dashboardCards = fixture.debugElement.queryAll(By.css('.dashboard-card'));
+      expect(dashboardCards).toHaveLength(5);
+    });
+  });
+
+  // ─── Zone-only user (lc-company-zone) ─────────────────────────
+
+  describe('zone-only user (lc-company-zone)', () => {
+    beforeEach(async () => {
+      ({ fixture, component } = setupWithRoles(['lc-company-zone']));
+    });
+
+    it('should enable Zones, Stores, Store Areas, Store Zones and disable Companies, Countries, Regions', () => {
+      const cards = component.cards();
+      const titles = cards.map((c) => c.title);
+
+      expect(titles).toEqual(['Zones', 'Stores', 'Store Areas', 'Store Zones']);
       expect(cards).toHaveLength(4);
       for (const card of cards) {
         expect(card.disabled).toBe(false);
@@ -132,18 +156,18 @@ describe('CompaniesAdminComponent', () => {
     });
   });
 
-  // ─── Zone-only user (lc-company-zone) ─────────────────────────
+  // ─── Store-only user (lc-company-store) ───────────────────────
 
-  describe('zone-only user (lc-company-zone)', () => {
+  describe('store-only user (lc-company-store)', () => {
     beforeEach(async () => {
-      ({ fixture, component } = setupWithRoles(['lc-company-zone']));
+      ({ fixture, component } = setupWithRoles(['lc-company-store']));
     });
 
-    it('should enable Zones, Stores, Store Areas and disable Companies, Countries, Regions', () => {
+    it('should enable only Stores, Store Areas, Store Zones and disable all others', () => {
       const cards = component.cards();
       const titles = cards.map((c) => c.title);
 
-      expect(titles).toEqual(['Zones', 'Stores', 'Store Areas']);
+      expect(titles).toEqual(['Stores', 'Store Areas', 'Store Zones']);
       expect(cards).toHaveLength(3);
       for (const card of cards) {
         expect(card.disabled).toBe(false);
@@ -153,30 +177,6 @@ describe('CompaniesAdminComponent', () => {
     it('should render 3 cards in the DOM', () => {
       const dashboardCards = fixture.debugElement.queryAll(By.css('.dashboard-card'));
       expect(dashboardCards).toHaveLength(3);
-    });
-  });
-
-  // ─── Store-only user (lc-company-store) ───────────────────────
-
-  describe('store-only user (lc-company-store)', () => {
-    beforeEach(async () => {
-      ({ fixture, component } = setupWithRoles(['lc-company-store']));
-    });
-
-    it('should enable only Stores and Store Areas and disable all others', () => {
-      const cards = component.cards();
-      const titles = cards.map((c) => c.title);
-
-      expect(titles).toEqual(['Stores', 'Store Areas']);
-      expect(cards).toHaveLength(2);
-      for (const card of cards) {
-        expect(card.disabled).toBe(false);
-      }
-    });
-
-    it('should render 2 cards in the DOM', () => {
-      const dashboardCards = fixture.debugElement.queryAll(By.css('.dashboard-card'));
-      expect(dashboardCards).toHaveLength(2);
     });
   });
 
@@ -194,7 +194,7 @@ describe('CompaniesAdminComponent', () => {
       expect(title.textContent.trim()).toBe('Companies Administration');
       expect(subtitle).toBeTruthy();
       expect(subtitle.textContent.trim()).toBe(
-        'Manage companies, countries, regions, zones, stores, and store areas',
+        'Manage companies, countries, regions, zones, stores, store areas, and store zones',
       );
     });
 
@@ -209,13 +209,14 @@ describe('CompaniesAdminComponent', () => {
         'Zones',
         'Stores',
         'Store Areas',
+        'Store Zones',
       ]);
     });
 
     it('should render card icons with correct Material icon names', () => {
       const icons: NodeListOf<Element> =
         fixture.nativeElement.querySelectorAll('.card-icon mat-icon');
-      expect(icons).toHaveLength(6);
+      expect(icons).toHaveLength(7);
 
       const iconNames = Array.from(icons).map((el: Element) =>
         el.getAttribute('data-mat-icon-name'),
@@ -226,6 +227,7 @@ describe('CompaniesAdminComponent', () => {
       expect(iconNames).toContain('map');
       expect(iconNames).toContain('store');
       expect(iconNames).toContain('account_tree');
+      expect(iconNames).toContain('grid_view');
     });
   });
 });

@@ -136,6 +136,65 @@ describe('Header', () => {
     });
   });
 
+  // ─── Companies submenu — Store Zones child ────────────────────
+
+  describe('companies submenu', () => {
+    it('should expose a Store Zones child on the Companies item', () => {
+      const { component } = setup(['lc-admin']);
+      const companiesItem = component.items().find((i) => i.routeLink === '/companies');
+      expect(companiesItem?.children).toBeDefined();
+      expect(companiesItem?.children).toHaveLength(1);
+      expect(companiesItem?.children?.[0]).toEqual({
+        id: '2-1',
+        routeLink: '/companies/store-zones',
+        textLink: 'Store Zones',
+        icon: 'grid_view',
+      });
+    });
+
+    it('should keep the Companies parent navigating to /companies (D7)', () => {
+      const { component } = setup(['lc-admin']);
+      const companiesItem = component.items().find((i) => i.id === '2');
+      expect(companiesItem?.routeLink).toBe('/companies');
+    });
+
+    it.each([
+      'lc-admin',
+      'lc-company',
+      'lc-company-country',
+      'lc-company-region',
+      'lc-company-zone',
+      'lc-company-store',
+    ])('should expose the Store Zones child under company gating for %s', (role) => {
+      const { component } = setup([role]);
+      const companiesItem = component.items().find((i) => i.routeLink === '/companies');
+      expect(companiesItem).toBeDefined();
+      expect(companiesItem?.children?.some((c) => c.routeLink === '/companies/store-zones')).toBe(
+        true,
+      );
+    });
+
+    it('should NOT expose the Store Zones child when user has no company role', () => {
+      const { component } = setup(['lc-sales']);
+      const companiesItem = component.items().find((i) => i.routeLink === '/companies');
+      expect(companiesItem).toBeUndefined();
+    });
+
+    it('should render the caret trigger only for items that have children', () => {
+      const { fixture } = setup(['lc-admin']);
+      const triggers = fixture.nativeElement.querySelectorAll('.submenu-trigger');
+      // Only the Companies item has children among the 5 admin items
+      expect(triggers).toHaveLength(1);
+      expect(triggers[0].getAttribute('aria-label')).toBe('Companies submenu');
+    });
+
+    it('should NOT render a caret trigger when no item has children', () => {
+      const { fixture } = setup(['lc-sales']);
+      const triggers = fixture.nativeElement.querySelectorAll('.submenu-trigger');
+      expect(triggers).toHaveLength(0);
+    });
+  });
+
   // ─── Admin role visibility (client roles) — company-selector removed ───
 
   describe('admin role visibility', () => {
