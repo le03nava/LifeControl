@@ -14,6 +14,41 @@
     </button>
   </app-page-header>
 
+  @if (actionError(); as actionErrorMsg) {
+    <div class="error-state">
+      <mat-icon fontIcon="error" />
+      <p>{{ actionErrorMsg }}</p>
+    </div>
+  }
+
+  @if (countriesError(); as errorMsg) {
+    <div class="cascade-error error-state">
+      <mat-icon fontIcon="error" />
+      <p>{{ errorMsg }}</p>
+    </div>
+  }
+
+  @if (regionsError(); as errorMsg) {
+    <div class="cascade-error error-state">
+      <mat-icon fontIcon="error" />
+      <p>{{ errorMsg }}</p>
+    </div>
+  }
+
+  @if (zonesError(); as errorMsg) {
+    <div class="cascade-error error-state">
+      <mat-icon fontIcon="error" />
+      <p>{{ errorMsg }}</p>
+    </div>
+  }
+
+  @if (storesError(); as errorMsg) {
+    <div class="cascade-error error-state">
+      <mat-icon fontIcon="error" />
+      <p>{{ errorMsg }}</p>
+    </div>
+  }
+
   <div class="filters-section">
     <mat-form-field appearance="outline" class="company-selector" subscriptSizing="dynamic">
       <mat-label>Empresa</mat-label>

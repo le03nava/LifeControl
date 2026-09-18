@@ -114,19 +114,14 @@ export class StoreLocationsPage {
   // ─── Reactive data flow: each level is keyed on the selection above it ───
   readonly countriesResource = rxResource({
     params: () => this.selectedCompanyId() || undefined,
-    stream: ({ params: companyId }) =>
-      this.companyCountryService
-        .getCountries(companyId)
-        .pipe(catchError(() => of([] as CompanyCountry[]))),
+    stream: ({ params: companyId }) => this.companyCountryService.getCountries(companyId),
     defaultValue: [] as CompanyCountry[],
   });
 
   readonly regionsResource = rxResource({
     params: () => this.selectedCountry() ?? undefined,
     stream: ({ params: country }) =>
-      this.companyRegionService
-        .getRegions(country.companyId, country.id)
-        .pipe(catchError(() => of([] as CompanyRegion[]))),
+      this.companyRegionService.getRegions(country.companyId, country.id),
     defaultValue: [] as CompanyRegion[],
   });
 
@@ -138,9 +133,7 @@ export class StoreLocationsPage {
       return { companyId: country.companyId, countryId: country.id, regionId: region.id };
     },
     stream: ({ params }) =>
-      this.companyZoneService
-        .getZones(params.companyId, params.countryId, params.regionId)
-        .pipe(catchError(() => of([] as CompanyZone[]))),
+      this.companyZoneService.getZones(params.companyId, params.countryId, params.regionId),
     defaultValue: [] as CompanyZone[],
   });
 
@@ -162,9 +155,13 @@ export class StoreLocationsPage {
       };
     },
     stream: ({ params }) =>
-      this.companyStoreService
-        .getStores(params.companyId, params.companyCountryId, params.regionId, params.zoneId, true)
-        .pipe(catchError(() => of([] as CompanyStore[]))),
+      this.companyStoreService.getStores(
+        params.companyId,
+        params.companyCountryId,
+        params.regionId,
+        params.zoneId,
+        true,
+      ),
     defaultValue: [] as CompanyStore[],
   });
 
@@ -185,16 +182,14 @@ export class StoreLocationsPage {
       };
     },
     stream: ({ params }) =>
-      this.storeAreaService
-        .getAreas(
-          params.companyId,
-          params.companyCountryId,
-          params.regionId,
-          params.zoneId,
-          params.storeId,
-          true,
-        )
-        .pipe(catchError(() => of([] as StoreArea[]))),
+      this.storeAreaService.getAreas(
+        params.companyId,
+        params.companyCountryId,
+        params.regionId,
+        params.zoneId,
+        params.storeId,
+        true,
+      ),
     defaultValue: [] as StoreArea[],
   });
 
@@ -220,17 +215,15 @@ export class StoreLocationsPage {
       };
     },
     stream: ({ params }) =>
-      this.storeZoneService
-        .getStoreZones(
-          params.companyId,
-          params.companyCountryId,
-          params.regionId,
-          params.zoneId,
-          params.storeId,
-          params.areaId,
-          true,
-        )
-        .pipe(catchError(() => of([] as StoreZone[]))),
+      this.storeZoneService.getStoreZones(
+        params.companyId,
+        params.companyCountryId,
+        params.regionId,
+        params.zoneId,
+        params.storeId,
+        params.areaId,
+        true,
+      ),
     defaultValue: [] as StoreZone[],
   });
 
@@ -292,6 +285,32 @@ export class StoreLocationsPage {
 
   /** Friendly error message owned by the service (set on load failure). */
   readonly storeLocationsError = computed(() => this.storeLocationService.error());
+
+  /**
+   * Cascade load failures: a failed non-leaf level leaves its dependent selectors
+   * empty (guarded reads above) and surfaces the failure instead of a silent empty.
+   */
+  readonly countriesError = computed(() =>
+    this.cascadeMessage(this.countriesResource.error(), 'No se pudieron cargar los países.'),
+  );
+  readonly regionsError = computed(() =>
+    this.cascadeMessage(this.regionsResource.error(), 'No se pudieron cargar las regiones.'),
+  );
+  readonly companyZonesError = computed(() =>
+    this.cascadeMessage(this.companyZonesResource.error(), 'No se pudieron cargar las zonas.'),
+  );
+  readonly storesError = computed(() =>
+    this.cascadeMessage(this.storesResource.error(), 'No se pudieron cargar las tiendas.'),
+  );
+  readonly areasError = computed(() =>
+    this.cascadeMessage(this.areasResource.error(), 'No se pudieron cargar las áreas.'),
+  );
+  readonly storeZonesError = computed(() =>
+    this.cascadeMessage(
+      this.storeZonesResource.error(),
+      'No se pudieron cargar las zonas de tienda.',
+    ),
+  );
 
   /** compareWith for mat-select: both sides are CompanyCountry objects */
   protected compareCompanyCountry = (
@@ -546,5 +565,16 @@ export class StoreLocationsPage {
   private setActionError(err: HttpErrorResponse): void {
     const apiError = err.error as ApiError | undefined;
     this.actionError.set(apiError?.message ?? 'No se pudo actualizar la ubicación de la tienda.');
+  }
+
+  /**
+   * Maps a cascade resource failure to user-facing copy. `rxResource` wraps
+   * non-`Error` throwables (an `HttpErrorResponse`) in a wrapped error, so the
+   * API envelope lives on `cause`.
+   */
+  private cascadeMessage(err: Error | undefined, fallback: string): string | null {
+    if (!err) return null;
+    const httpError = (err.cause as HttpErrorResponse | undefined) ?? (err as HttpErrorResponse);
+    return (httpError.error as ApiError | undefined)?.message ?? fallback;
   }
 }

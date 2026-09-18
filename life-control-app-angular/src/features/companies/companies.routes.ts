@@ -5,7 +5,8 @@ const BASE_ROLES = ['lc-admin', 'lc-company', 'lc-company-country'];
 const COMPANY_CRUD_ROLES = ['lc-admin', 'lc-company'];
 const REGION_ROLES = [...BASE_ROLES, 'lc-company-region'];
 const ZONE_ROLES = [...REGION_ROLES, 'lc-company-zone'];
-const STORE_ROLES = [...ZONE_ROLES, 'lc-company-store'];
+const STORE_WRITE_ROLES = [...ZONE_ROLES, 'lc-company-store'];
+const STORE_ROLES = [...STORE_WRITE_ROLES, 'lc-company-store-read'];
 
 const CLIENT_ID = 'life-control-client';
 
@@ -129,11 +130,15 @@ export const companyRoutes: Routes = [
         children: [
           {
             path: 'create',
+            canActivate: [keycloakRoleGuard],
+            data: { roles: STORE_WRITE_ROLES, clientId: CLIENT_ID },
             loadComponent: () =>
               import('./stores/pages/stores-edit/stores-edit').then((m) => m.StoresEdit),
           },
           {
             path: 'edit/:id',
+            canActivate: [keycloakRoleGuard],
+            data: { roles: STORE_WRITE_ROLES, clientId: CLIENT_ID },
             loadComponent: () =>
               import('./stores/pages/stores-edit/stores-edit').then((m) => m.StoresEdit),
           },
@@ -152,6 +157,8 @@ export const companyRoutes: Routes = [
         children: [
           {
             path: 'create',
+            canActivate: [keycloakRoleGuard],
+            data: { roles: STORE_WRITE_ROLES, clientId: CLIENT_ID },
             loadComponent: () =>
               import('./stores/pages/store-areas-edit/store-areas-edit').then(
                 (m) => m.StoreAreasEdit,
@@ -159,6 +166,8 @@ export const companyRoutes: Routes = [
           },
           {
             path: 'edit/:id',
+            canActivate: [keycloakRoleGuard],
+            data: { roles: STORE_WRITE_ROLES, clientId: CLIENT_ID },
             loadComponent: () =>
               import('./stores/pages/store-areas-edit/store-areas-edit').then(
                 (m) => m.StoreAreasEdit,
@@ -181,6 +190,8 @@ export const companyRoutes: Routes = [
         children: [
           {
             path: 'create',
+            canActivate: [keycloakRoleGuard],
+            data: { roles: STORE_WRITE_ROLES, clientId: CLIENT_ID },
             loadComponent: () =>
               import('./stores/pages/store-zones-edit/store-zones-edit').then(
                 (m) => m.StoreZonesEdit,
@@ -188,6 +199,8 @@ export const companyRoutes: Routes = [
           },
           {
             path: 'edit/:id',
+            canActivate: [keycloakRoleGuard],
+            data: { roles: STORE_WRITE_ROLES, clientId: CLIENT_ID },
             loadComponent: () =>
               import('./stores/pages/store-zones-edit/store-zones-edit').then(
                 (m) => m.StoreZonesEdit,
@@ -210,6 +223,8 @@ export const companyRoutes: Routes = [
         children: [
           {
             path: 'create',
+            canActivate: [keycloakRoleGuard],
+            data: { roles: STORE_WRITE_ROLES, clientId: CLIENT_ID },
             loadComponent: () =>
               import('./stores/pages/store-locations-edit/store-locations-edit').then(
                 (m) => m.StoreLocationsEdit,
@@ -217,6 +232,8 @@ export const companyRoutes: Routes = [
           },
           {
             path: 'edit/:id',
+            canActivate: [keycloakRoleGuard],
+            data: { roles: STORE_WRITE_ROLES, clientId: CLIENT_ID },
             loadComponent: () =>
               import('./stores/pages/store-locations-edit/store-locations-edit').then(
                 (m) => m.StoreLocationsEdit,

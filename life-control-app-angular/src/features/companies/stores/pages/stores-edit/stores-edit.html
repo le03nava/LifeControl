@@ -1,4 +1,8 @@
 <div class="stores-edit-page">
+  @if (generalError(); as errorMsg) {
+    <app-error-banner [message]="errorMsg" />
+  }
+
   <app-stores-form
     [companies]="companies()"
     [companyCountries]="companyCountries()"

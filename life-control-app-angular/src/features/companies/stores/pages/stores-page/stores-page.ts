@@ -8,6 +8,7 @@ import {
   signal,
 } from '@angular/core';
 import { rxResource, takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
@@ -15,6 +16,15 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { PageHeader } from '@shared/ui';
+import { ApiError } from '@shared/models';
+import {
+  hasAnyClientRole,
+  LC_ADMIN,
+  LC_COMPANY,
+  LC_COMPANY_COUNTRY,
+  LC_COMPANY_REGION,
+  LC_COMPANY_ZONE,
+} from '@core/security/roles';
 import { of } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 import { CompanyService } from '../../../companies/data/company.service';
@@ -156,6 +166,22 @@ export class StoresPage {
 
   /** Friendly error message owned by the service (set on load failure). */
   readonly storesError = computed(() => this.companyStoreService.error());
+
+  /** Write failure surfaced to the user (e.g. HTTP 409 when an ancestor is disabled). */
+  readonly actionError = signal<string | null>(null);
+
+  /**
+   * Store-scoped users (`lc-company-store`) reach this page but the backend answers
+   * `AccessDeniedException` on create (`CompanyStoreService.createStore`), so the
+   * action is hidden for them. These are the backend POST roles minus that one.
+   */
+  readonly canCreateStore = hasAnyClientRole([
+    LC_ADMIN,
+    LC_COMPANY,
+    LC_COMPANY_COUNTRY,
+    LC_COMPANY_REGION,
+    LC_COMPANY_ZONE,
+  ]);
 
   readonly filteredStores = computed(() => {
     const all = this.stores();
@@ -301,16 +327,33 @@ export class StoresPage {
     const zone = this.selectedZone();
     if (!cc || !region || !zone) return;
 
+    this.actionError.set(null);
+
     if (store.enabled) {
       this.companyStoreService
         .removeStore(cc.companyId, cc.id, region.id, zone.id, storeId)
         .pipe(takeUntilDestroyed(this.destroyRef))
-        .subscribe(() => this.storesResource.reload());
+        .subscribe({
+          next: () => this.storesResource.reload(),
+          error: (err: HttpErrorResponse) => this.setActionError(err),
+        });
     } else {
       this.companyStoreService
         .enableStore(cc.companyId, cc.id, region.id, zone.id, storeId)
         .pipe(takeUntilDestroyed(this.destroyRef))
-        .subscribe(() => this.storesResource.reload());
+        .subscribe({
+          next: () => this.storesResource.reload(),
+          error: (err: HttpErrorResponse) => this.setActionError(err),
+        });
     }
+  }
+
+  /**
+   * Surfaces write failures instead of swallowing them: the backend answers 409
+   * when an ancestor is disabled, which is an expected flow here.
+   */
+  private setActionError(err: HttpErrorResponse): void {
+    const apiError = err.error as ApiError | undefined;
+    this.actionError.set(apiError?.message ?? 'No se pudo actualizar la tienda.');
   }
 }
