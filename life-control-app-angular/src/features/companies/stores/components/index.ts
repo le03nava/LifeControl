@@ -3,3 +3,4 @@ export * from './stores-form/stores-form';
 export * from './stores-list/stores-list';
 export * from './store-area-form/store-area-form';
 export * from './store-zone-form/store-zone-form';
+export * from './store-location-form/store-location-form';

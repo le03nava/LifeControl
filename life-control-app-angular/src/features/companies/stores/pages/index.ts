@@ -4,3 +4,4 @@ export { StoreAreasPage } from './store-areas-page/store-areas-page';
 export { StoreAreasEdit } from './store-areas-edit/store-areas-edit';
 export { StoreZonesPage } from './store-zones-page/store-zones-page';
 export { StoreZonesEdit } from './store-zones-edit/store-zones-edit';
+export { StoreLocationsEdit } from './store-locations-edit/store-locations-edit';

@@ -1,0 +1,16 @@
+<div class="store-locations-edit-page">
+  <app-page-header
+    [title]="isEditMode() ? 'Editar Ubicación' : 'Nueva Ubicación'"
+    subtitle="Ubicaciones físicas de la zona de tienda seleccionada"
+    [showActions]="false"
+  />
+
+  <app-error-banner [message]="generalError()" />
+
+  <app-store-location-form
+    [storeLocation]="storeLocation()"
+    [serverErrors]="serverErrors()"
+    (save)="onSave($event)"
+    (cancelForm)="onCancel()"
+  />
+</div>
