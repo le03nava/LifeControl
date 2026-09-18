@@ -82,6 +82,12 @@ export class Header implements OnInit {
             textLink: 'Store Zones',
             icon: 'grid_view',
           },
+          {
+            id: '2-2',
+            routeLink: '/companies/store-locations',
+            textLink: 'Store Locations',
+            icon: 'shelves',
+          },
         ],
       });
     }
