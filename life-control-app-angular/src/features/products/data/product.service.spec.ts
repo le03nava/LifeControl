@@ -3,6 +3,7 @@ import { HttpClientTestingModule, HttpTestingController } from '@angular/common/
 import { firstValueFrom } from 'rxjs';
 import { ProductService } from './product.service';
 import { Product, Page } from '../models/product.models';
+import { ProductVariant } from '../models/product-variant.models';
 
 describe('ProductService', () => {
   let service: ProductService;
@@ -122,6 +123,64 @@ describe('ProductService', () => {
 
       const product = await productPromise;
       expect(product).toEqual(mockProduct);
+    });
+  });
+
+  describe('getProductVariants', () => {
+    const mockVariant: ProductVariant = {
+      id: 'var-1',
+      productId: 'prod-1',
+      companyStoreId: 'store-1',
+      barCode: 'BAR-001',
+      sku: 'SKU-001-A',
+      variantName: 'Product A — 1L',
+      listPrice: 120,
+      costPrice: 80,
+      stock: 12,
+      enabled: true,
+    };
+
+    const variantPage = (content: ProductVariant[]): Page<ProductVariant> => ({
+      content,
+      totalElements: content.length,
+      totalPages: 1,
+      size: 50,
+      number: 0,
+      first: true,
+      last: true,
+      empty: content.length === 0,
+    });
+
+    it("should fetch a product's variants for one store with page and size params", async () => {
+      const variantsPromise = firstValueFrom(service.getProductVariants('prod-1', 'store-1'));
+
+      const req = httpMock.expectOne(
+        (r) => r.url === `${service.apiUrl}/prod-1/variants` && r.method === 'GET',
+      );
+      expect(req.request.params.get('storeId')).toBe('store-1');
+      expect(req.request.params.get('page')).toBe('0');
+      expect(req.request.params.get('size')).toBe('50');
+      req.flush(variantPage([mockVariant]));
+
+      const page = await variantsPromise;
+      expect(page.content.length).toBe(1);
+      expect(page.content[0].variantName).toBe('Product A — 1L');
+      expect(page.content[0].costPrice).toBe(80);
+    });
+
+    it('should forward an explicit page and size', async () => {
+      const variantsPromise = firstValueFrom(
+        service.getProductVariants('prod-9', 'store-7', 2, 25),
+      );
+
+      const req = httpMock.expectOne((r) => r.url === `${service.apiUrl}/prod-9/variants`);
+      expect(req.request.params.get('storeId')).toBe('store-7');
+      expect(req.request.params.get('page')).toBe('2');
+      expect(req.request.params.get('size')).toBe('25');
+      req.flush(variantPage([]));
+
+      const page = await variantsPromise;
+      expect(page.empty).toBe(true);
     });
   });
 

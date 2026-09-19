@@ -146,10 +146,13 @@ public class ProductController {
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(
             summary = "List variants for a product",
-            description = "Returns a paginated list of variants for a given product")
+            description =
+                    "Returns a paginated list of variants for a given product. Use ?storeId=<uuid> to narrow the list to a single store. Omitting storeId returns the product's variants across every store.")
     public ResponseEntity<Page<ProductVariantResponse>> listVariants(
-            @PathVariable UUID productId, @PageableDefault(size = 12) Pageable pageable) {
-        return ResponseEntity.ok(productVariantService.listVariants(productId, pageable));
+            @PathVariable UUID productId,
+            @RequestParam(required = false) UUID storeId,
+            @PageableDefault(size = 12) Pageable pageable) {
+        return ResponseEntity.ok(productVariantService.listVariants(productId, storeId, pageable));
     }
 
     @PostMapping("/{productId}/variants")

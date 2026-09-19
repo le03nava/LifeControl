@@ -2,6 +2,7 @@ package com.lifecontrol.api.product.controller;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -146,7 +147,7 @@ class ProductVariantControllerTest {
             var variants = List.of(testVariantResponse);
             var page = new PageImpl<>(variants, pageable, 1);
 
-            when(productVariantService.listVariants(eq(productId), any(Pageable.class)))
+            when(productVariantService.listVariants(eq(productId), isNull(), any(Pageable.class)))
                     .thenReturn(page);
 
             mockMvc.perform(get("/api/products/{productId}/variants", productId)
@@ -164,6 +165,25 @@ class ProductVariantControllerTest {
                     .andExpect(jsonPath("$.totalPages").value(1))
                     .andExpect(jsonPath("$.number").value(0))
                     .andExpect(jsonPath("$.size").value(12));
+
+            verify(productVariantService).listVariants(eq(productId), isNull(), any(Pageable.class));
+        }
+
+        @Test
+        @DisplayName("should forward the storeId param to the service")
+        void listVariants_WithStoreId_ForwardsStoreIdToService() throws Exception {
+            var pageable = PageRequest.of(0, 12);
+            var page = new PageImpl<>(List.of(testVariantResponse), pageable, 1);
+
+            when(productVariantService.listVariants(eq(productId), eq(storeId), any(Pageable.class)))
+                    .thenReturn(page);
+
+            mockMvc.perform(get("/api/products/{productId}/variants", productId).param("storeId", storeId.toString()))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content[0].id").value(variantId.toString()))
+                    .andExpect(jsonPath("$.totalElements").value(1));
+
+            verify(productVariantService).listVariants(eq(productId), eq(storeId), any(Pageable.class));
         }
 
         @Test
@@ -172,7 +192,7 @@ class ProductVariantControllerTest {
             var pageable = PageRequest.of(0, 12);
             var page = new PageImpl<ProductVariantResponse>(List.of(), pageable, 0);
 
-            when(productVariantService.listVariants(eq(productId), any(Pageable.class)))
+            when(productVariantService.listVariants(eq(productId), isNull(), any(Pageable.class)))
                     .thenReturn(page);
 
             mockMvc.perform(get("/api/products/{productId}/variants", productId)
@@ -181,6 +201,8 @@ class ProductVariantControllerTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content").isEmpty())
                     .andExpect(jsonPath("$.totalElements").value(0));
+
+            verify(productVariantService).listVariants(eq(productId), isNull(), any(Pageable.class));
         }
     }
 

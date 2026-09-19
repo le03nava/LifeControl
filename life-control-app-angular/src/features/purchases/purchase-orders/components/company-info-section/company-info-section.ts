@@ -6,6 +6,7 @@ import {
   inject,
   input,
   OnInit,
+  output,
   untracked,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -63,6 +64,17 @@ export class CompanyInfoSection implements OnInit {
   /** Server-side validation errors keyed by field name. */
   readonly serverErrors = input<Record<string, string>>({});
 
+  /**
+   * Emits the store the cascade applied to the header form.
+   *
+   * `CompanyCascadeService` patches `companyStoreId` with `emitEvent: false` —
+   * the documented silent-patch contract — so `valueChanges` never sees the
+   * profile prefill (create mode), the order reconstruction (edit mode), or any
+   * of the company/country/region/zone resets. This signal-backed output is the
+   * only channel that can carry those programmatic resolutions to the parent.
+   */
+  readonly storeResolved = output<string>();
+
   // ─── Cascade state (owned by the service) ──────────────
   readonly companies = this.cascade.companies;
   readonly countries = this.cascade.countries;
@@ -77,6 +89,11 @@ export class CompanyInfoSection implements OnInit {
   constructor() {
     // Bind the cascade service once the required header form input resolves.
     effect(() => this.cascade.bind(this.headerForm()));
+
+    // Mirror the store the cascade applied to the parent. The service patches
+    // `companyStoreId` silently (`emitEvent: false`), so `valueChanges` alone
+    // can never see the profile prefill or the resets; this channel can.
+    effect(() => this.storeResolved.emit(this.cascade.storeId()));
 
     // Reconstruct the cascade from the loaded order (edit mode).
     effect(() => {

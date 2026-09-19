@@ -157,6 +157,11 @@
   color: var(--mat-sys-error);
 }
 
+.missing-variant {
+  color: var(--mat-sys-error);
+  font-style: italic;
+}
+
 .no-line-items {
   display: flex;
   flex-direction: column;
@@ -194,7 +199,7 @@
 
   .add-line-item-row {
     display: grid;
-    grid-template-columns: 2fr 1fr 1fr auto;
+    grid-template-columns: 2fr 2fr 1fr 1fr auto;
     gap: var(--space-md);
     align-items: start;
 

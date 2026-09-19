@@ -32,11 +32,27 @@ public class ProductVariantService {
 
     @Transactional(readOnly = true)
     public Page<ProductVariantResponse> listVariants(UUID productId, Pageable pageable) {
+        return listVariants(productId, null, pageable);
+    }
+
+    /**
+     * Lists a product's enabled variants, optionally narrowed to a single store.
+     *
+     * <p>When {@code companyStoreId} is {@code null} the behaviour is identical to
+     * {@link #listVariants(UUID, Pageable)}: every enabled variant of the product is
+     * returned regardless of store. When it is present, only variants belonging to
+     * that store are returned.</p>
+     */
+    @Transactional(readOnly = true)
+    public Page<ProductVariantResponse> listVariants(UUID productId, UUID companyStoreId, Pageable pageable) {
         validateProductExists(productId);
 
-        return productVariantRepository
-                .findByProductIdAndEnabledTrueOrderByCreatedAtDesc(productId, pageable)
-                .map(this::toResponse);
+        var page = companyStoreId == null
+                ? productVariantRepository.findByProductIdAndEnabledTrueOrderByCreatedAtDesc(productId, pageable)
+                : productVariantRepository.findByProductIdAndCompanyStoreIdAndEnabledTrueOrderByCreatedAtDesc(
+                        productId, companyStoreId, pageable);
+
+        return page.map(this::toResponse);
     }
 
     @Transactional(readOnly = true)

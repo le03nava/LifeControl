@@ -128,6 +128,54 @@ class ProductVariantServiceTest {
                     .hasMessageContaining("Product not found with id");
 
             verify(productVariantRepository, never()).findByProductIdAndEnabledTrueOrderByCreatedAtDesc(any(), any());
+            verify(productVariantRepository, never())
+                    .findByProductIdAndCompanyStoreIdAndEnabledTrueOrderByCreatedAtDesc(any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("should use the store-scoped finder and map the page when a store id is supplied")
+        void listVariants_WithStoreId_UsesStoreScopedFinder() {
+            var pageable = PageRequest.of(0, 12);
+            var storeId = UUID.randomUUID();
+            var expectedPage = new PageImpl<>(List.of(testVariant), pageable, 1);
+
+            when(productRepository.existsById(productId)).thenReturn(true);
+            when(productVariantRepository.findByProductIdAndCompanyStoreIdAndEnabledTrueOrderByCreatedAtDesc(
+                            productId, storeId, pageable))
+                    .thenReturn(expectedPage);
+
+            Page<ProductVariantResponse> result = productVariantService.listVariants(productId, storeId, pageable);
+
+            assertThat(result).isNotNull();
+            assertThat(result.getContent()).hasSize(1);
+            assertThat(result.getContent().get(0).id()).isEqualTo(variantId);
+            assertThat(result.getContent().get(0).variantName()).isEqualTo("Talla M");
+            assertThat(result.getTotalElements()).isEqualTo(1);
+            assertThat(result.getTotalPages()).isEqualTo(1);
+            verify(productRepository).existsById(productId);
+            verify(productVariantRepository)
+                    .findByProductIdAndCompanyStoreIdAndEnabledTrueOrderByCreatedAtDesc(productId, storeId, pageable);
+            verify(productVariantRepository, never()).findByProductIdAndEnabledTrueOrderByCreatedAtDesc(any(), any());
+        }
+
+        @Test
+        @DisplayName("should keep using the product-scoped finder when the store id is null")
+        void listVariants_NullStoreId_UsesProductScopedFinder() {
+            var pageable = PageRequest.of(0, 12);
+            var expectedPage = new PageImpl<>(List.of(testVariant), pageable, 1);
+
+            when(productRepository.existsById(productId)).thenReturn(true);
+            when(productVariantRepository.findByProductIdAndEnabledTrueOrderByCreatedAtDesc(productId, pageable))
+                    .thenReturn(expectedPage);
+
+            Page<ProductVariantResponse> result = productVariantService.listVariants(productId, (UUID) null, pageable);
+
+            assertThat(result).isNotNull();
+            assertThat(result.getContent()).hasSize(1);
+            assertThat(result.getContent().get(0).id()).isEqualTo(variantId);
+            verify(productVariantRepository).findByProductIdAndEnabledTrueOrderByCreatedAtDesc(productId, pageable);
+            verify(productVariantRepository, never())
+                    .findByProductIdAndCompanyStoreIdAndEnabledTrueOrderByCreatedAtDesc(any(), any(), any());
         }
 
         @Test

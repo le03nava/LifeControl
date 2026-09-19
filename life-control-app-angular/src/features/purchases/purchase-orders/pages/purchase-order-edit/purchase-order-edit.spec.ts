@@ -2,9 +2,12 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { provideRouter, Router, ActivatedRoute } from '@angular/router';
+import { By } from '@angular/platform-browser';
 import { of, throwError } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
 import { PurchaseOrderEdit } from './purchase-order-edit';
+import { DetailTable } from '../../components/detail-table/detail-table';
+import { CompanyInfoSection } from '../../components/company-info-section/company-info-section';
 import { PurchaseOrderService } from '../../data/purchase-order.service';
 import { ProductService } from '@features/products/data/product.service';
 import { SupplierService } from '@features/products/suppliers/data/supplier.service';
@@ -47,6 +50,8 @@ const mockOrder: PurchaseOrder = {
       purchaseOrderId: 'po-1',
       productId: 'prod-1',
       productName: 'Widget A',
+      productVariantId: 'var-1',
+      productVariantName: 'Presentación 1L',
       quantity: 10,
       unitPrice: 150,
       total: 1500,
@@ -112,6 +117,7 @@ describe('PurchaseOrderEdit', () => {
       provide: ProductService,
       useValue: {
         getProductsBySupplier: vi.fn().mockReturnValue(of([])),
+        getProductVariants: vi.fn().mockReturnValue(of(emptyPage)),
       },
     },
     {
@@ -429,6 +435,17 @@ describe('PurchaseOrderEdit', () => {
       expect(items[0].productName).toBe('Widget A');
       expect(items[0].quantity).toBe(10);
       expect(items[0].unitPrice).toBe(150);
+      expect(items[0].productVariantId).toBe('var-1');
+      expect(items[0].productVariantName).toBe('Presentación 1L');
+    });
+
+    it('should scope the line-item variant picker to the loaded order store', () => {
+      expect(component.variantStoreId()).toBe('store-1');
+    });
+
+    it('should follow the header store selection for the variant picker', () => {
+      component.headerForm().controls.companyStoreId.setValue('store-9');
+      expect(component.variantStoreId()).toBe('store-9');
     });
 
     it('should compute isDraft = true when statusName is Draft', () => {
@@ -450,6 +467,8 @@ describe('PurchaseOrderEdit', () => {
           id: 'det-temp',
           productId: 'prod-9',
           productName: 'Unsaved Widget',
+          productVariantId: 'var-9',
+          productVariantName: 'Presentación 9',
           quantity: 3,
           unitPrice: 25,
         },
@@ -463,6 +482,8 @@ describe('PurchaseOrderEdit', () => {
           id: 'det-temp',
           productId: 'prod-9',
           productName: 'Unsaved Widget',
+          productVariantId: 'var-9',
+          productVariantName: 'Presentación 9',
           quantity: 3,
           unitPrice: 25,
         },
@@ -479,6 +500,8 @@ describe('PurchaseOrderEdit', () => {
           id: 'det-1',
           productId: 'prod-1',
           productName: 'Widget A',
+          productVariantId: 'var-1',
+          productVariantName: 'Presentación 1L',
           quantity: 20,
           unitPrice: 150,
         },
@@ -507,6 +530,7 @@ describe('PurchaseOrderEdit', () => {
         details: [
           {
             productId: 'prod-1',
+            productVariantId: 'var-1',
             quantity: 10,
             unitPrice: 150,
           },
@@ -587,6 +611,8 @@ describe('PurchaseOrderEdit', () => {
           id: 'det-2',
           productId: 'prod-2',
           productName: 'Widget B',
+          productVariantId: 'var-2',
+          productVariantName: 'Presentación 2L',
           quantity: 5,
           unitPrice: 200,
         },
@@ -601,6 +627,8 @@ describe('PurchaseOrderEdit', () => {
           id: 'det-1',
           productId: 'prod-1',
           productName: 'Widget A',
+          productVariantId: 'var-1',
+          productVariantName: 'Presentación 1L',
           quantity: 20,
           unitPrice: 150,
         },
@@ -610,7 +638,183 @@ describe('PurchaseOrderEdit', () => {
       expect(purchaseOrderService.update).toHaveBeenCalled();
       const callArgs = (purchaseOrderService.update as ReturnType<typeof vi.fn>).mock.calls[0];
       const request = callArgs[1];
-      expect(request.details).toEqual([{ productId: 'prod-1', quantity: 20, unitPrice: 150 }]);
+      expect(request.details).toEqual([
+        { productId: 'prod-1', productVariantId: 'var-1', quantity: 20, unitPrice: 150 },
+      ]);
+    });
+
+    it('should abort the save when a legacy line has no variant', () => {
+      component.onItemsChanged([
+        {
+          id: 'det-legacy',
+          productId: 'prod-1',
+          productName: 'Widget A',
+          productVariantId: null,
+          productVariantName: null,
+          quantity: 20,
+          unitPrice: 150,
+        },
+      ]);
+
+      component.onSave();
+
+      expect(component.hasLinesWithoutVariant()).toBe(true);
+      expect(purchaseOrderService.update).not.toHaveBeenCalled();
+      // The save never starts, so no half-saved state is left behind.
+      expect(component.saving()).toBe(false);
+      // A silent abort is a UX bug: the click must tell the user which line is
+      // unusable and what to do about it.
+      expect(component.generalError()).toContain('1: Widget A');
+      expect(component.generalError()).toContain('sin variante');
+      // The order is still a Draft, so the actionable repair is offered.
+      expect(component.generalError()).toContain(
+        'Eliminá esas líneas y agregalas de nuevo eligiendo una variante.',
+      );
+    });
+
+    it('should not ask for an impossible repair when the order is not a Draft', () => {
+      component.loadedOrder.set({ ...mockOrder, statusName: 'Sent' });
+      component.onItemsChanged([
+        {
+          id: 'det-legacy',
+          productId: 'prod-1',
+          productName: 'Widget A',
+          productVariantId: null,
+          productVariantName: null,
+          quantity: 20,
+          unitPrice: 150,
+        },
+      ]);
+
+      component.onSave();
+
+      expect(purchaseOrderService.update).not.toHaveBeenCalled();
+      expect(component.generalError()).toContain('1: Widget A');
+      expect(component.generalError()).toContain('no se pueden reparar en el estado actual');
+      // Outside Draft the delete/add controls are disabled, so the repair
+      // instruction must not be shown.
+      expect(component.generalError()).not.toContain('Eliminá esas líneas');
+    });
+  });
+
+  // ══════════════════════════════════════════════════════════
+  // SILENT STORE RESOLUTION
+  // ══════════════════════════════════════════════════════════
+
+  describe('silent store resolution (create mode)', () => {
+    beforeEach(async () => {
+      // The real `CompanyInfoSection` + `CompanyCascadeService` run here against
+      // profile data, so the store is applied with `emitEvent: false` — exactly
+      // the path `companyStoreId.valueChanges` cannot see.
+      await TestBed.configureTestingModule({
+        imports: [PurchaseOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
+        providers: [
+          ...baseProviders(null),
+          {
+            provide: CompanyService,
+            useValue: {
+              getCompanies: vi.fn().mockReturnValue(
+                of({
+                  ...emptyPage,
+                  content: [{ id: 'comp-1', companyName: 'Empresa Uno', rfc: 'RFC-001' }],
+                }),
+              ),
+              getCompanyById: vi.fn().mockReturnValue(
+                of({
+                  id: 'comp-1',
+                  companyName: 'Empresa Uno',
+                  rfc: 'RFC-001',
+                  address: null,
+                  phone: '555-1000',
+                  email: 'contacto@empresauno.com',
+                }),
+              ),
+            },
+          },
+          {
+            provide: CompanyCountryService,
+            useValue: {
+              getCountries: vi.fn().mockReturnValue(of([{ id: 'cc-1', countryName: 'México' }])),
+            },
+          },
+          {
+            provide: CompanyRegionService,
+            useValue: {
+              getRegions: vi.fn().mockReturnValue(of([{ id: 'reg-1', regionName: 'Norte' }])),
+            },
+          },
+          {
+            provide: CompanyZoneService,
+            useValue: {
+              getZones: vi.fn().mockReturnValue(of([{ id: 'zone-1', zoneName: 'Zona A' }])),
+            },
+          },
+          {
+            provide: CompanyStoreService,
+            useValue: {
+              getStores: vi
+                .fn()
+                .mockReturnValue(
+                  of([{ id: 'store-7', storeName: 'Tienda Centro', enabled: true }]),
+                ),
+            },
+          },
+          {
+            provide: ProfileService,
+            useValue: {
+              getProfile: vi.fn().mockReturnValue(
+                of({
+                  keycloakUserId: 'user-1',
+                  username: 'testuser',
+                  email: 'test@example.com',
+                  firstName: 'Test',
+                  lastName: 'User',
+                  companyId: 'comp-1',
+                  companyCountryId: 'cc-1',
+                  companyRegionId: 'reg-1',
+                  companyZoneId: 'zone-1',
+                  companyStoreId: 'store-7',
+                }),
+              ),
+            },
+          },
+        ],
+      }).compileComponents();
+
+      fixture = TestBed.createComponent(PurchaseOrderEdit);
+      component = fixture.componentInstance;
+      fixture.detectChanges();
+      fixture.detectChanges();
+    });
+
+    it('should scope the picker to the silently pre-filled profile store', () => {
+      // `valueChanges` never fires for this patch, so only the child output can
+      // have produced it.
+      expect(component.headerForm().controls.companyStoreId.value).toBe('store-7');
+      expect(component.variantStoreId()).toBe('store-7');
+    });
+
+    it('should push the resolved store into the detail table store input', () => {
+      const table = fixture.debugElement.query(By.directive(DetailTable))
+        .componentInstance as DetailTable;
+
+      expect(table.storeId()).toBe('store-7');
+    });
+
+    it('should clear the table store input when the cascade resets the store', () => {
+      const cascadeChild = fixture.debugElement.query(By.directive(CompanyInfoSection))
+        .componentInstance as CompanyInfoSection;
+      const table = fixture.debugElement.query(By.directive(DetailTable))
+        .componentInstance as DetailTable;
+      expect(table.storeId()).toBe('store-7');
+
+      cascadeChild.onZoneChange('zone-9');
+      fixture.detectChanges();
+
+      // The reset is silent too: only the output channel can carry it.
+      expect(component.headerForm().controls.companyStoreId.value).toBe('');
+      expect(component.variantStoreId()).toBe('');
+      expect(table.storeId()).toBe('');
     });
   });
 

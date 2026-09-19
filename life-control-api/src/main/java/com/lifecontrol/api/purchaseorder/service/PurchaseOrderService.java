@@ -549,9 +549,14 @@ public class PurchaseOrderService {
     }
 
     /**
-     * Resolves an optional variant reference against the line's product and the
-     * purchase order's store. {@code null} leaves the relation unset; a variant
-     * that is not reachable through both keys is a 404.
+     * Resolves the variant reference against the line's product and the purchase
+     * order's store. A variant that is not reachable through both keys is a 404.
+     *
+     * <p>The HTTP contract now requires the variant: {@link PurchaseOrderDetailRequest}
+     * rejects a missing {@code productVariantId} with 400 before this method runs.
+     * The {@code null} tolerance is kept only for legacy rows written before the
+     * contract flip and for programmatic callers that construct requests directly,
+     * so a {@code null} id still leaves the relation unset instead of failing.</p>
      */
     private ProductVariant resolveProductVariant(UUID productVariantId, Product product, UUID companyStoreId) {
         if (productVariantId == null) {

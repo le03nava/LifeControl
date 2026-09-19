@@ -1,5 +1,6 @@
 package com.lifecontrol.api.purchaseorder.dto;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import java.util.List;
 import java.util.UUID;
@@ -10,4 +11,4 @@ public record PurchaseOrderRequest(
         @NotNull(message = "paymentMethodId is required") UUID paymentMethodId,
         UUID statusId,
         String comments,
-        List<PurchaseOrderDetailRequest> details) {}
+        @Valid List<@NotNull(message = "details must not contain null entries") PurchaseOrderDetailRequest> details) {}
