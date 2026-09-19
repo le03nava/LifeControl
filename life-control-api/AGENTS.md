@@ -1014,4 +1014,6 @@ This project uses SDD for structured feature development. SDD artifacts live in 
 |---------------------|------------|
 | `company-zones-backend` | (in progress) |
 
-See `AGENTS.md` (root) and `.opencode/skills/sdd-*.md` for the full SDD workflow.
+See `AGENTS.md` (root) for the skill registry and the SDD workflow. Component conventions and
+security gates for changes to this API live in
+[`project-conventions/references/api.md`](../.agents/skills/project-conventions/references/api.md).
