@@ -187,9 +187,11 @@ record "case 7: non-git stale artifact returns 1" 1 "$GUARD_RC" "$GUARD_OUT"
 
 # ------------------------------------------
 # Case 8 (D1 regression): a realistic Gradle layout where .gradle bookkeeping
-# (gc.properties) is written after the JAR. The guard must ignore that
-# bookkeeping and return 0. The previous whole-module scan reported this fresh
-# artifact as stale.
+# (gc.properties) is newer than the JAR. The guard must ignore that
+# bookkeeping and return 0. The pre-fix whole-module scan failed whenever a
+# scanned .properties was strictly newer than the JAR, so the delta is forced
+# deterministically: the JAR is an hour old while the .gradle bookkeeping keeps
+# its current, newer mtime and the commit stays older than the artifact.
 # ------------------------------------------
 root="$(new_root)"
 git_init "$root"
@@ -197,10 +199,14 @@ mkdir -p "$root/svc/src/main/java" "$root/svc/build/libs"
 printf 'class A {}\n' >"$root/svc/src/main/java/A.java"
 touch -d '3 days ago' "$root/svc/src/main/java/A.java"
 printf "plugins { id 'java' }\n" >"$root/svc/build.gradle"
+touch -d '3 days ago' "$root/svc/build.gradle"
 printf "rootProject.name = 'svc'\n" >"$root/svc/settings.gradle"
+touch -d '3 days ago' "$root/svc/settings.gradle"
 git -C "$root" add -f svc
-git -C "$root" commit -qm "add svc module"
+GIT_COMMITTER_DATE="$(date -d '3 days ago' '+%Y-%m-%dT%H:%M:%S%z')" \
+	git -C "$root" commit -qm "add svc module"
 printf 'fake jar' >"$root/$JAR_REL"
+touch -d '1 hour ago' "$root/$JAR_REL"
 # Gradle bookkeeping: written after the JAR, never a build input.
 mkdir -p "$root/svc/.gradle/8.5" "$root/svc/.gradle/vcs-1"
 printf 'gc' >"$root/svc/.gradle/8.5/gc.properties"
@@ -243,6 +249,65 @@ printf 'fake jar' >"$root/real/build/libs/svc-0.0.1-SNAPSHOT.jar"
 run_guard "missing-svc" "real/build/libs/svc-0.0.1-SNAPSHOT.jar" "$root"
 record "case 10: missing module path returns 1" 1 "$GUARD_RC" "$GUARD_OUT"
 assert_contains "case 10: reports the missing module" "Module directory not found" "$GUARD_OUT"
+
+# ------------------------------------------
+# Case 11 (§1 regression): src/test/** is not a JAR build input. A newer test
+# resource must not fail the guard even though bootJar ignores it.
+# ------------------------------------------
+root="$(new_root)"
+git_init "$root"
+mkdir -p "$root/svc/src/main/java" "$root/svc/build/libs"
+printf 'class A {}\n' >"$root/svc/src/main/java/A.java"
+touch -d '3 days ago' "$root/svc/src/main/java/A.java"
+git -C "$root" add -f svc
+GIT_COMMITTER_DATE="$(date -d '3 days ago' '+%Y-%m-%dT%H:%M:%S%z')" \
+	git -C "$root" commit -qm "add svc module"
+printf 'fake jar' >"$root/$JAR_REL"
+touch -d '1 hour ago' "$root/$JAR_REL"
+mkdir -p "$root/svc/src/test/resources"
+printf '<configuration/>\n' >"$root/svc/src/test/resources/logback-test.xml"
+run_guard "svc" "$JAR_REL" "$root"
+record "case 11: newer src/test resource returns 0" 0 "$GUARD_RC" "$GUARD_OUT"
+
+# ------------------------------------------
+# Case 12 (§2 regression): a commit touching only a non-build file inside the
+# module (README.md) must not fail the guard. The commit check pathspec is
+# restricted to build inputs.
+# ------------------------------------------
+root="$(new_root)"
+git_init "$root"
+mkdir -p "$root/svc/src/main/java" "$root/svc/build/libs"
+printf 'class A {}\n' >"$root/svc/src/main/java/A.java"
+touch -d '3 days ago' "$root/svc/src/main/java/A.java"
+git -C "$root" add -f svc
+GIT_COMMITTER_DATE="$(date -d '3 days ago' '+%Y-%m-%dT%H:%M:%S%z')" \
+	git -C "$root" commit -qm "add svc module"
+printf 'fake jar' >"$root/$JAR_REL"
+touch -d '1 hour ago' "$root/$JAR_REL"
+printf '# svc\n' >"$root/svc/README.md"
+git -C "$root" add -f svc/README.md
+git -C "$root" commit -qm "docs: document svc"
+run_guard "svc" "$JAR_REL" "$root"
+record "case 12: commit touching only module README returns 0" 0 "$GUARD_RC" "$GUARD_OUT"
+
+# ------------------------------------------
+# Case 13 (§3 regression): gradle/libs.versions.toml is a dependency-catalog
+# build input. A newer catalog must fail the guard.
+# ------------------------------------------
+root="$(new_root)"
+git_init "$root"
+mkdir -p "$root/svc/src/main/java" "$root/svc/gradle" "$root/svc/build/libs"
+printf 'class A {}\n' >"$root/svc/src/main/java/A.java"
+touch -d '3 days ago' "$root/svc/src/main/java/A.java"
+git -C "$root" add -f svc
+GIT_COMMITTER_DATE="$(date -d '3 days ago' '+%Y-%m-%dT%H:%M:%S%z')" \
+	git -C "$root" commit -qm "add svc module"
+printf 'fake jar' >"$root/$JAR_REL"
+touch -d '1 hour ago' "$root/$JAR_REL"
+printf '[versions]\n' >"$root/svc/gradle/libs.versions.toml"
+run_guard "svc" "$JAR_REL" "$root"
+record "case 13: newer gradle/libs.versions.toml returns 1" 1 "$GUARD_RC" "$GUARD_OUT"
+assert_contains "case 13: reports the stale artifact" "Stale artifact" "$GUARD_OUT"
 
 # ------------------------------------------
 # Summary

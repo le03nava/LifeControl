@@ -289,8 +289,9 @@ Las tres imágenes no se construyen igual:
 
 - falta `api-gateway/gradlew` o `life-control-api/gradlew` (comandos `start` y `build`);
 - falla el build de Gradle (comandos `start` y `build`);
-- al construir imágenes, el JAR está ausente, vacío o es más viejo que la fuente más nueva
-  del módulo o que su último commit (comandos `start` y `build-images`).
+- al construir imágenes, el JAR está ausente, vacío o es más viejo que las entradas de build
+  del módulo (`src/main`, los archivos Gradle de la raíz, `gradle/`, `buildSrc/`) o que su
+  último commit que toca esas entradas (comandos `start` y `build-images`).
 
 La verificación del JAR corre en los caminos que construyen imágenes: `start` y
 `build-images`. `deploy.sh <env> build` solo compila y no construye imágenes, y

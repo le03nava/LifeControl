@@ -139,49 +139,77 @@ verify_artifact_freshness() {
 		return 1
 	fi
 
-	# 1) No real build input may be newer than the artifact.
-	# Scan only the actual build inputs instead of the whole module. Gradle writes
-	# bookkeeping such as .gradle/<version>/gc.properties after producing the JAR,
-	# so a whole-module scan would always report a freshly built artifact as stale.
-	local scan_roots=()
-	if [ -d "$module_abs/src" ]; then
-		scan_roots+=("$module_abs/src")
+	# One list of JAR build inputs drives both checks below so they cannot drift.
+	# bootJar packages the main source set only, so src/test/** cannot affect the
+	# JAR and must stay out of the mtime scan; Gradle writes bookkeeping such as
+	# .gradle/<version>/gc.properties after producing the JAR, so a whole-module
+	# scan would always report a freshly built artifact as stale; and build inputs
+	# outside src/ (gradle/, buildSrc/, root Gradle files) must stay covered so a
+	# silent miss cannot let a stale JAR through.
+	local build_inputs=()
+	local main_src=""
+	if [ -d "$module_abs/src/main" ]; then
+		main_src="src/main"
+	elif [ -d "$module_abs/src" ]; then
+		main_src="src"
+	fi
+	if [ -n "$main_src" ]; then
+		build_inputs+=("$main_src")
 	fi
 	local gradle_file
 	for gradle_file in build.gradle build.gradle.kts settings.gradle settings.gradle.kts gradle.properties; do
 		if [ -f "$module_abs/$gradle_file" ]; then
-			scan_roots+=("$module_abs/$gradle_file")
+			build_inputs+=("$gradle_file")
+		fi
+	done
+	local gradle_dir
+	for gradle_dir in gradle buildSrc; do
+		if [ -d "$module_abs/$gradle_dir" ]; then
+			build_inputs+=("$gradle_dir")
 		fi
 	done
 
-	if [ "${#scan_roots[@]}" -eq 0 ]; then
+	if [ "${#build_inputs[@]}" -eq 0 ]; then
 		print_warning "No build inputs found under $module: cannot check $artifact against them by mtime"
-	else
-		local newest_source
-		newest_source="$(find "${scan_roots[@]}" -type f \
-			\( -name '*.java' -o -name '*.gradle' -o -name '*.kts' \
-				-o -name '*.properties' -o -name '*.yml' -o -name '*.yaml' \
-				-o -name '*.sql' -o -name '*.xml' -o -name '*.json' -o -name '*.kt' \) \
-			-newer "$artifact_abs" -print -quit 2>/dev/null)"
-
-		if [ -n "$newest_source" ]; then
-			print_error "Stale artifact: source files are newer than $artifact"
-			print_status "Newest: ${newest_source#"$root"/}"
-			print_status "Rebuild: (cd $module && ./gradlew bootJar -Pprofile=<env> -x test)"
-			return 1
-		fi
+		return 0
 	fi
 
-	# 2) Nor may the last commit touching the module.
+	# find roots are absolute; git pathspec entries are repository-relative. Both
+	# are derived from build_inputs, the single source of truth.
+	local scan_roots=() pathspec=() build_input
+	for build_input in "${build_inputs[@]}"; do
+		scan_roots+=("$module_abs/$build_input")
+		pathspec+=("$module/$build_input")
+	done
+
+	# 1) No real build input may be newer than the artifact.
+	local newest_source
+	newest_source="$(find "${scan_roots[@]}" -type f \
+		\( -name '*.java' -o -name '*.gradle' -o -name '*.kts' \
+			-o -name '*.properties' -o -name '*.yml' -o -name '*.yaml' \
+			-o -name '*.sql' -o -name '*.xml' -o -name '*.json' -o -name '*.kt' \
+			-o -name '*.toml' \) \
+		-newer "$artifact_abs" -print -quit 2>/dev/null)"
+
+	if [ -n "$newest_source" ]; then
+		print_error "Stale artifact: source files are newer than $artifact"
+		print_status "Newest: ${newest_source#"$root"/}"
+		print_status "Rebuild: (cd $module && ./gradlew bootJar -Pprofile=<env> -x test)"
+		return 1
+	fi
+
+	# 2) Nor may the last commit touching a build input. Restricting the pathspec
+	# to build inputs keeps a documentation-only commit such as a module
+	# Dockerfile or README from marking the JAR stale.
 	if git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 		local commit_ts artifact_ts
-		commit_ts="$(git -C "$root" log -1 --format=%ct -- "$module" 2>/dev/null || true)"
+		commit_ts="$(git -C "$root" log -1 --format=%ct -- "${pathspec[@]}" 2>/dev/null || true)"
 		artifact_ts="$(file_mtime "$artifact_abs")"
 		if [ -n "$commit_ts" ] && [ -n "$artifact_ts" ] && [ "$artifact_ts" -lt "$commit_ts" ]; then
-			print_error "Stale artifact: commits touching $module are newer than $artifact"
+			print_error "Stale artifact: commits touching $module build inputs are newer than $artifact"
 			while IFS= read -r line; do
 				print_status "$line"
-			done < <(git -C "$root" log -3 --format='%h %ad %s' --date=short -- "$module" 2>/dev/null)
+			done < <(git -C "$root" log -3 --format='%h %ad %s' --date=short -- "${pathspec[@]}" 2>/dev/null)
 			return 1
 		fi
 	else

@@ -144,8 +144,9 @@ build_images() {
 
 	# The Java Dockerfiles do not compile: they COPY a pre-built JAR. Fail here,
 	# immediately before docker build, if any JAR is missing or older than its
-	# module. This is the only path that builds images, so start, build-images
-	# and start with SKIP_BUILD=true are all covered.
+	# module's build inputs. This is the only path that builds images, so every
+	# command that calls it (start and build-images) is covered; start with
+	# SKIP_BUILD=true builds no images and therefore needs no guard.
 	local jar_version
 	jar_version="$(resolve_jar_version)"
 	local service
