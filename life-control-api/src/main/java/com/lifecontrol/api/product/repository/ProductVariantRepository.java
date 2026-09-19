@@ -24,6 +24,9 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
 
     Page<ProductVariant> findByProductIdAndEnabledTrueOrderByCreatedAtDesc(UUID productId, Pageable pageable);
 
+    Page<ProductVariant> findByProductIdAndCompanyStoreIdAndEnabledTrueOrderByCreatedAtDesc(
+            UUID productId, UUID companyStoreId, Pageable pageable);
+
     Optional<ProductVariant> findByBarCode(String barCode);
 
     Optional<ProductVariant> findBySku(String sku);
