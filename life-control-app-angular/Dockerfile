@@ -21,6 +21,11 @@ RUN npm run build
 # ---------- Stage 2: Runtime ----------
 FROM nginx:alpine
 
+# ARG es por stage: debe declararse en el stage de runtime (stage 2) para que
+# la revisión git quede en la imagen final y no en el stage de build descartado.
+ARG GIT_COMMIT=unknown
+LABEL org.opencontainers.image.revision="${GIT_COMMIT}"
+
 COPY --from=build /app/dist/life-control-app-angular/browser /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/nginx.conf
 COPY entrypoint.sh /entrypoint.sh

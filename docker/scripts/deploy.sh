@@ -111,6 +111,17 @@ build_services() {
 
 build_images() {
 	print_status "Building Docker images for $ENV environment..."
+
+	# Sello la revisión git en cada imagen para trazabilidad de lo que corre.
+	# El entorno del shell tiene precedencia sobre --env-file, así que export
+	# alcanza para que la interpolación ${GIT_COMMIT:-unknown} de compose lo tome.
+	local repo_root="$DOCKER_DIR/.."
+	local git_commit
+	# set -e está activo: el guard evita que un fallo de git aborte el build.
+	git_commit="$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || true)"
+	export GIT_COMMIT="${git_commit:-unknown}"
+	print_status "Stamping GIT_COMMIT=$GIT_COMMIT"
+
 	compose_run build --no-cache
 	print_success "Docker images built!"
 }
