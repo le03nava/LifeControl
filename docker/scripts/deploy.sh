@@ -14,6 +14,9 @@ resolve_compose_env "${1:-dev}"
 # Default build profile (fallback: current environment)
 BUILD_PROFILE=${BUILD_PROFILE:-$ENV}
 
+# Java services whose Dockerfiles COPY a pre-built JAR (they do not compile).
+JAVA_SERVICES=("api-gateway" "life-control-api")
+
 # Check if SKIP_BUILD is set to a truthy value
 is_skip_build() {
 	local value="${SKIP_BUILD:-}"
@@ -66,13 +69,9 @@ check_requirements() {
 	print_success "Requirements OK"
 }
 
-build_services() {
-	print_status "Building services for $ENV environment (profile: $BUILD_PROFILE)..."
-
-	local repo_root="$DOCKER_DIR/.."
-
-	# Resolve the JAR version exactly like compose interpolates APP_VERSION:
-	# shell environment first, then --env-file, then the built-in default.
+# Resolve the JAR version exactly like compose interpolates APP_VERSION:
+# shell environment first, then --env-file, then the built-in default.
+resolve_jar_version() {
 	local jar_version="${APP_VERSION:-}"
 	if [ -z "$jar_version" ]; then
 		jar_version="$(get_env_var APP_VERSION)"
@@ -80,11 +79,18 @@ build_services() {
 	if [ -z "$jar_version" ]; then
 		jar_version="0.0.1-SNAPSHOT"
 	fi
+	echo "$jar_version"
+}
+
+build_services() {
+	print_status "Building services for $ENV environment (profile: $BUILD_PROFILE)..."
+
+	local repo_root="$DOCKER_DIR/.."
+	local jar_version
+	jar_version="$(resolve_jar_version)"
 
 	# Build Java services
-	local java_services=("api-gateway" "life-control-api")
-
-	for service in "${java_services[@]}"; do
+	for service in "${JAVA_SERVICES[@]}"; do
 		if [ ! -f "$repo_root/$service/gradlew" ]; then
 			print_error "$service/gradlew not found: cannot build the JAR that its Dockerfile COPYs."
 			print_error "Restore the Gradle wrapper before deploying (api-gateway/gradlew is not tracked by git)."
@@ -102,11 +108,6 @@ build_services() {
 			exit 1
 		fi
 		cd - >/dev/null
-
-		if ! verify_artifact_freshness "$service" "$service/build/libs/$service-$jar_version.jar"; then
-			print_error "$service build artifact is not fresh; aborting before docker build."
-			exit 1
-		fi
 	done
 
 	# Map BUILD_PROFILE to Angular configuration
@@ -139,10 +140,25 @@ build_services() {
 build_images() {
 	print_status "Building Docker images for $ENV environment..."
 
+	local repo_root="$DOCKER_DIR/.."
+
+	# The Java Dockerfiles do not compile: they COPY a pre-built JAR. Fail here,
+	# immediately before docker build, if any JAR is missing or older than its
+	# module. This is the only path that builds images, so start, build-images
+	# and start with SKIP_BUILD=true are all covered.
+	local jar_version
+	jar_version="$(resolve_jar_version)"
+	local service
+	for service in "${JAVA_SERVICES[@]}"; do
+		if ! verify_artifact_freshness "$service" "$service/build/libs/$service-$jar_version.jar"; then
+			print_error "$service build artifact is not fresh; aborting before docker build."
+			exit 1
+		fi
+	done
+
 	# Sello la revisión git en cada imagen para trazabilidad de lo que corre.
 	# El entorno del shell tiene precedencia sobre --env-file, así que export
 	# alcanza para que la interpolación ${GIT_COMMIT:-unknown} de compose lo tome.
-	local repo_root="$DOCKER_DIR/.."
 	local git_commit
 	# set -e está activo: el guard evita que un fallo de git aborte el build.
 	git_commit="$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || true)"

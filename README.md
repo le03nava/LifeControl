@@ -285,12 +285,17 @@ Las tres imágenes no se construyen igual:
 - `web-app` **sí compila**: su Dockerfile multi-stage corre `npm run build` dentro del build,
   así que la imagen siempre refleja el working tree y no necesita pre-build.
 
-`deploy.sh` ahora aborta con exit code distinto de cero cuando:
+`deploy.sh` aborta con exit code distinto de cero cuando:
 
-- falta `api-gateway/gradlew` o `life-control-api/gradlew`;
-- falla el build de Gradle;
-- el JAR está ausente, vacío o es más viejo que la fuente más nueva del módulo o que su
-  último commit.
+- falta `api-gateway/gradlew` o `life-control-api/gradlew` (comandos `start` y `build`);
+- falla el build de Gradle (comandos `start` y `build`);
+- al construir imágenes, el JAR está ausente, vacío o es más viejo que la fuente más nueva
+  del módulo o que su último commit (comandos `start` y `build-images`).
+
+La verificación del JAR corre en los caminos que construyen imágenes: `start` y
+`build-images`. `deploy.sh <env> build` solo compila y no construye imágenes, y
+`SKIP_BUILD=true start` tampoco las construye (usa las que ya existen), así que ninguno de
+los dos corre esa verificación.
 
 Antes seguía con un warning, lo que podía publicar una imagen armada con un JAR viejo sin
 que se notara. El guard resuelve la versión del JAR como lo hace `docker/docker-compose.yml`
@@ -305,15 +310,16 @@ los casos:
 
 ### Procedencia de la imagen
 
-Cada imagen construida lleva la revisión git desde la que se generó, así podés rastrear qué
-código contiene:
+Las imágenes construidas a través de `deploy.sh` (es decir, por `docker compose`) llevan la
+revisión git desde la que se generaron, así podés rastrear qué código contienen:
 
 ```bash
 docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' lifecontrol-dev-lifecontrol-api
 ```
 
 El valor lo sella `deploy.sh` con `git rev-parse HEAD` y cae a `unknown` cuando git no está
-disponible.
+disponible. Un `docker build` directo, que no recibe el build arg `GIT_COMMIT`, graba el
+literal `unknown`.
 
 ---
 

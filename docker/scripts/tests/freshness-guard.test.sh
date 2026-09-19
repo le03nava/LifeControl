@@ -26,6 +26,11 @@ FAIL_COUNT=0
 # would be lost before cleanup runs.
 TMP_BASE="$(mktemp -d)"
 
+# Keep every case hermetic even when TMPDIR points inside a git work tree: with
+# this ceiling git stops at TMP_BASE and cannot walk up into a parent repository,
+# so the no-git cases (6 and 7) always exercise the no-git branch.
+export GIT_CEILING_DIRECTORIES="$TMP_BASE"
+
 cleanup() {
 	if [ -n "${TMP_BASE:-}" ] && [ -d "$TMP_BASE" ]; then
 		rm -rf "$TMP_BASE"
@@ -78,12 +83,26 @@ assert_contains() {
 	fi
 }
 
+# assert_not_contains <name> <needle> <haystack>
+assert_not_contains() {
+	local name="$1" needle="$2" haystack="$3"
+	if printf '%s' "$haystack" | grep -qF -- "$needle"; then
+		printf 'FAIL: %s (unexpected output: %s)\n' "$name" "$needle"
+		printf '%s\n' "$haystack" | sed 's/^/        /'
+		FAIL_COUNT=$((FAIL_COUNT + 1))
+	else
+		printf 'PASS: %s\n' "$name"
+		PASS_COUNT=$((PASS_COUNT + 1))
+	fi
+}
+
 JAR_REL="svc/build/libs/svc-0.0.1-SNAPSHOT.jar"
 
 # ------------------------------------------
 # Case 1: artifact missing entirely -> 1
 # ------------------------------------------
 root="$(new_root)"
+mkdir -p "$root/svc"
 run_guard "svc" "$JAR_REL" "$root"
 record "case 1: missing artifact returns 1" 1 "$GUARD_RC" "$GUARD_OUT"
 
@@ -165,6 +184,65 @@ mkdir -p "$root/svc/src/main/java"
 printf 'class A {}\n' >"$root/svc/src/main/java/A.java"
 run_guard "svc" "$JAR_REL" "$root"
 record "case 7: non-git stale artifact returns 1" 1 "$GUARD_RC" "$GUARD_OUT"
+
+# ------------------------------------------
+# Case 8 (D1 regression): a realistic Gradle layout where .gradle bookkeeping
+# (gc.properties) is written after the JAR. The guard must ignore that
+# bookkeeping and return 0. The previous whole-module scan reported this fresh
+# artifact as stale.
+# ------------------------------------------
+root="$(new_root)"
+git_init "$root"
+mkdir -p "$root/svc/src/main/java" "$root/svc/build/libs"
+printf 'class A {}\n' >"$root/svc/src/main/java/A.java"
+touch -d '3 days ago' "$root/svc/src/main/java/A.java"
+printf "plugins { id 'java' }\n" >"$root/svc/build.gradle"
+printf "rootProject.name = 'svc'\n" >"$root/svc/settings.gradle"
+git -C "$root" add -f svc
+git -C "$root" commit -qm "add svc module"
+printf 'fake jar' >"$root/$JAR_REL"
+# Gradle bookkeeping: written after the JAR, never a build input.
+mkdir -p "$root/svc/.gradle/8.5" "$root/svc/.gradle/vcs-1"
+printf 'gc' >"$root/svc/.gradle/8.5/gc.properties"
+printf 'gc' >"$root/svc/.gradle/vcs-1/gc.properties"
+run_guard "svc" "$JAR_REL" "$root"
+record "case 8: Gradle .gradle bookkeeping newer than artifact returns 0" 0 "$GUARD_RC" "$GUARD_OUT"
+assert_not_contains "case 8: never blames a .gradle path" ".gradle" "$GUARD_OUT"
+
+# ------------------------------------------
+# Case 9 (D3 regression): a newer XML resource is a real build input and must
+# fail the guard, even though the artifact is newer than the last commit (so
+# only the mtime check can fire).
+# ------------------------------------------
+root="$(new_root)"
+git_init "$root"
+mkdir -p "$root/svc/src/main/java" "$root/svc/build/libs"
+printf 'class A {}\n' >"$root/svc/src/main/java/A.java"
+touch -d '3 days ago' "$root/svc/src/main/java/A.java"
+git -C "$root" add -f svc
+GIT_COMMITTER_DATE="$(date -d '3 days ago' '+%Y-%m-%dT%H:%M:%S%z')" \
+	git -C "$root" commit -qm "add svc module"
+printf 'fake jar' >"$root/$JAR_REL"
+touch -d '1 day ago' "$root/$JAR_REL"
+mkdir -p "$root/svc/src/main/resources"
+printf '<configuration/>\n' >"$root/svc/src/main/resources/logback-spring.xml"
+touch -d '1 hour ago' "$root/svc/src/main/resources/logback-spring.xml"
+run_guard "svc" "$JAR_REL" "$root"
+record "case 9: newer resource XML returns 1" 1 "$GUARD_RC" "$GUARD_OUT"
+assert_contains "case 9: reports the stale artifact" "Stale artifact" "$GUARD_OUT"
+
+# ------------------------------------------
+# Case 10 (D4 regression): a module path that does not exist must fail even when
+# the artifact path resolves. The old guard's find failed silently and the commit
+# check yielded nothing, so it returned 0 despite its documented contract.
+# ------------------------------------------
+root="$(new_root)"
+git_init "$root"
+mkdir -p "$root/real/build/libs"
+printf 'fake jar' >"$root/real/build/libs/svc-0.0.1-SNAPSHOT.jar"
+run_guard "missing-svc" "real/build/libs/svc-0.0.1-SNAPSHOT.jar" "$root"
+record "case 10: missing module path returns 1" 1 "$GUARD_RC" "$GUARD_OUT"
+assert_contains "case 10: reports the missing module" "Module directory not found" "$GUARD_OUT"
 
 # ------------------------------------------
 # Summary

@@ -127,24 +127,49 @@ verify_artifact_freshness() {
 	local module_abs="$root/$module"
 	local artifact_abs="$root/$artifact"
 
+	if [ ! -d "$module_abs" ]; then
+		print_error "Module directory not found: $module"
+		print_status "Expected build inputs under $module_abs"
+		return 1
+	fi
+
 	if [ ! -s "$artifact_abs" ]; then
 		print_error "Artifact missing or empty: $artifact"
 		print_status "Build the module before building its image (see README, Docker scripts)."
 		return 1
 	fi
 
-	# 1) No source file in the module may be newer than the artifact.
-	local newest_source
-	newest_source="$(find "$module_abs" -type f \
-		\( -name '*.java' -o -name '*.gradle' -o -name '*.properties' \
-			-o -name '*.yml' -o -name '*.yaml' -o -name '*.sql' \) \
-		-not -path '*/build/*' -newer "$artifact_abs" -print -quit 2>/dev/null)"
+	# 1) No real build input may be newer than the artifact.
+	# Scan only the actual build inputs instead of the whole module. Gradle writes
+	# bookkeeping such as .gradle/<version>/gc.properties after producing the JAR,
+	# so a whole-module scan would always report a freshly built artifact as stale.
+	local scan_roots=()
+	if [ -d "$module_abs/src" ]; then
+		scan_roots+=("$module_abs/src")
+	fi
+	local gradle_file
+	for gradle_file in build.gradle build.gradle.kts settings.gradle settings.gradle.kts gradle.properties; do
+		if [ -f "$module_abs/$gradle_file" ]; then
+			scan_roots+=("$module_abs/$gradle_file")
+		fi
+	done
 
-	if [ -n "$newest_source" ]; then
-		print_error "Stale artifact: source files are newer than $artifact"
-		print_status "Newest: ${newest_source#"$root"/}"
-		print_status "Rebuild: (cd $module && ./gradlew bootJar -Pprofile=<env> -x test)"
-		return 1
+	if [ "${#scan_roots[@]}" -eq 0 ]; then
+		print_warning "No build inputs found under $module: cannot check $artifact against them by mtime"
+	else
+		local newest_source
+		newest_source="$(find "${scan_roots[@]}" -type f \
+			\( -name '*.java' -o -name '*.gradle' -o -name '*.kts' \
+				-o -name '*.properties' -o -name '*.yml' -o -name '*.yaml' \
+				-o -name '*.sql' -o -name '*.xml' -o -name '*.json' -o -name '*.kt' \) \
+			-newer "$artifact_abs" -print -quit 2>/dev/null)"
+
+		if [ -n "$newest_source" ]; then
+			print_error "Stale artifact: source files are newer than $artifact"
+			print_status "Newest: ${newest_source#"$root"/}"
+			print_status "Rebuild: (cd $module && ./gradlew bootJar -Pprofile=<env> -x test)"
+			return 1
+		fi
 	fi
 
 	# 2) Nor may the last commit touching the module.
