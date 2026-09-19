@@ -2,6 +2,7 @@ package com.lifecontrol.api.purchaseorder.model;
 
 import com.lifecontrol.api.common.model.Auditable;
 import com.lifecontrol.api.product.model.Product;
+import com.lifecontrol.api.product.model.ProductVariant;
 import com.lifecontrol.api.status.model.Status;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
@@ -23,6 +24,10 @@ public class PurchaseOrderDetail extends Auditable {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "product_id", nullable = false)
     private Product product;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "product_variant_id")
+    private ProductVariant productVariant;
 
     @Column(nullable = false)
     private Integer quantity;
@@ -60,6 +65,10 @@ public class PurchaseOrderDetail extends Auditable {
 
     public Product getProduct() {
         return product;
+    }
+
+    public ProductVariant getProductVariant() {
+        return productVariant;
     }
 
     public Integer getQuantity() {
@@ -101,6 +110,10 @@ public class PurchaseOrderDetail extends Auditable {
 
     public void setProduct(Product product) {
         this.product = product;
+    }
+
+    public void setProductVariant(ProductVariant productVariant) {
+        this.productVariant = productVariant;
     }
 
     public void setQuantity(Integer quantity) {
@@ -151,6 +164,11 @@ public class PurchaseOrderDetail extends Auditable {
 
         public Builder product(Product product) {
             detail.product = product;
+            return this;
+        }
+
+        public Builder productVariant(ProductVariant productVariant) {
+            detail.productVariant = productVariant;
             return this;
         }
 
