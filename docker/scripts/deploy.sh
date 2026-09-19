@@ -71,18 +71,41 @@ build_services() {
 
 	local repo_root="$DOCKER_DIR/.."
 
+	# Resolve the JAR version exactly like compose interpolates APP_VERSION:
+	# shell environment first, then --env-file, then the built-in default.
+	local jar_version="${APP_VERSION:-}"
+	if [ -z "$jar_version" ]; then
+		jar_version="$(get_env_var APP_VERSION)"
+	fi
+	if [ -z "$jar_version" ]; then
+		jar_version="0.0.1-SNAPSHOT"
+	fi
+
 	# Build Java services
 	local java_services=("api-gateway" "life-control-api")
 
 	for service in "${java_services[@]}"; do
-		if [ -f "$repo_root/$service/gradlew" ]; then
-			print_status "Building $service..."
-			cd "$repo_root/$service"
-			chmod +x gradlew
-			./gradlew bootJar --no-daemon -Pprofile=$BUILD_PROFILE -x test || print_warning "$service build failed, will try docker build"
-			cd - >/dev/null
-		else
-			print_warning "Skipping $service (gradlew not found)"
+		if [ ! -f "$repo_root/$service/gradlew" ]; then
+			print_error "$service/gradlew not found: cannot build the JAR that its Dockerfile COPYs."
+			print_error "Restore the Gradle wrapper before deploying (api-gateway/gradlew is not tracked by git)."
+			exit 1
+		fi
+
+		print_status "Building $service..."
+		cd "$repo_root/$service"
+		chmod +x gradlew
+		# The Java Dockerfiles do not compile: they COPY build/libs/<service>-<version>.jar.
+		# Swallowing a Gradle failure here would let docker build bake in the previous JAR.
+		if ! ./gradlew bootJar --no-daemon -Pprofile=$BUILD_PROFILE -x test; then
+			print_error "$service Gradle build failed."
+			print_error "The Java Dockerfile only COPYs build/libs/$service-$jar_version.jar, so continuing would ship a stale artifact as if it were freshly built. Aborting."
+			exit 1
+		fi
+		cd - >/dev/null
+
+		if ! verify_artifact_freshness "$service" "$service/build/libs/$service-$jar_version.jar"; then
+			print_error "$service build artifact is not fresh; aborting before docker build."
+			exit 1
 		fi
 	done
 
@@ -96,12 +119,16 @@ build_services() {
 
 	# Build Angular app
 	if [ -f "$repo_root/life-control-app-angular/package.json" ]; then
+		# This pre-build is only an early local check: the Angular image build
+		# recompiles from source in its multi-stage Dockerfile, so a failure here
+		# is deliberately not fatal.
+		local angular_warn="Angular build failed (early local check only). The image build recompiles Angular from source and will fail on its own if compilation is broken."
 		print_status "Building Angular app (config: $ANGULAR_CONFIG)..."
 		cd "$repo_root/life-control-app-angular"
 		if [ -d "node_modules" ]; then
-			npm run build -- --configuration=$ANGULAR_CONFIG || print_warning "Angular build failed"
+			npm run build -- --configuration=$ANGULAR_CONFIG || print_warning "$angular_warn"
 		else
-			npm install && npm run build -- --configuration=$ANGULAR_CONFIG || print_warning "Angular build failed"
+			npm install && npm run build -- --configuration=$ANGULAR_CONFIG || print_warning "$angular_warn"
 		fi
 		cd - >/dev/null
 	fi
