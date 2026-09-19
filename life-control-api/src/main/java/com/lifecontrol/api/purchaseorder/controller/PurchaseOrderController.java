@@ -199,23 +199,4 @@ public class PurchaseOrderController {
         purchaseOrderService.deletePurchaseOrderDetail(id, detailId);
         return ResponseEntity.noContent().build();
     }
-
-    @PatchMapping("/{id}/details/{detailId}/status")
-    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
-    @Operation(
-            summary = "Update detail status",
-            description =
-                    "Updates the status of a purchase order detail. Validates status type and allowed transitions.")
-    @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "Detail status updated"),
-        @ApiResponse(responseCode = "400", description = "Wrong status type"),
-        @ApiResponse(responseCode = "404", description = "Purchase order, detail, or status not found"),
-        @ApiResponse(responseCode = "409", description = "Invalid status transition")
-    })
-    public ResponseEntity<PurchaseOrderDetailResponse> updateDetailStatus(
-            @PathVariable UUID id,
-            @PathVariable UUID detailId,
-            @Valid @RequestBody UpdatePurchaseOrderStatusRequest request) {
-        return ResponseEntity.ok(purchaseOrderService.updatePurchaseOrderDetailStatus(id, detailId, request));
-    }
 }

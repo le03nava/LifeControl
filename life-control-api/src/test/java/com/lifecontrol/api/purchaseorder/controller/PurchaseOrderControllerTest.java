@@ -1,5 +1,6 @@
 package com.lifecontrol.api.purchaseorder.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -42,6 +43,7 @@ import org.springframework.data.web.PageableHandlerMethodArgumentResolver;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.servlet.NoHandlerFoundException;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("PurchaseOrderController Tests")
@@ -83,6 +85,8 @@ class PurchaseOrderControllerTest {
                 poId,
                 productId,
                 "Test Product",
+                UUID.randomUUID(),
+                "Test Variant",
                 5,
                 new BigDecimal("100.00"),
                 new BigDecimal("500.00"),
@@ -325,8 +329,8 @@ class PurchaseOrderControllerTest {
         @Test
         @DisplayName("should return 201 Created")
         void returns201() throws Exception {
-            var detailReq =
-                    new PurchaseOrderDetailRequest(productId, 5, new BigDecimal("100.00"), "Note", UUID.randomUUID());
+            var detailReq = new PurchaseOrderDetailRequest(
+                    productId, null, 5, new BigDecimal("100.00"), "Note", UUID.randomUUID());
             when(purchaseOrderService.addPurchaseOrderDetail(eq(poId), any())).thenReturn(detailResponse);
 
             mockMvc.perform(post("/api/purchase-orders/{id}/details", poId)
@@ -347,7 +351,7 @@ class PurchaseOrderControllerTest {
         @DisplayName("should return 200 OK")
         void returns200() throws Exception {
             var detailReq = new PurchaseOrderDetailRequest(
-                    productId, 10, new BigDecimal("50.00"), "Updated", UUID.randomUUID());
+                    productId, null, 10, new BigDecimal("50.00"), "Updated", UUID.randomUUID());
             when(purchaseOrderService.updatePurchaseOrderDetail(eq(poId), eq(detailId), any()))
                     .thenReturn(detailResponse);
 
@@ -383,23 +387,25 @@ class PurchaseOrderControllerTest {
         }
     }
 
-    // ─── PATCH detail status ────────────────────────────────────────────
+    // ─── Removed manual detail-status writer ────────────────────────────
 
     @Nested
-    @DisplayName("PATCH /api/purchase-orders/{id}/details/{did}/status")
-    class UpdateDetailStatusTests {
+    @DisplayName("PATCH /api/purchase-orders/{id}/details/{did}/status (removed)")
+    class RemovedDetailStatusRouteTests {
 
         @Test
-        @DisplayName("should return 200 OK")
-        void returns200() throws Exception {
+        @DisplayName("should no longer resolve to any handler")
+        void routeIsNotMapped() throws Exception {
             var statusReq = new UpdatePurchaseOrderStatusRequest(UUID.randomUUID());
-            when(purchaseOrderService.updatePurchaseOrderDetailStatus(eq(poId), eq(detailId), any()))
-                    .thenReturn(detailResponse);
 
-            mockMvc.perform(patch("/api/purchase-orders/{id}/details/{did}/status", poId, detailId)
+            var result = mockMvc.perform(patch("/api/purchase-orders/{id}/details/{did}/status", poId, detailId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(statusReq)))
-                    .andExpect(status().isOk());
+                    .andReturn();
+
+            // The route is gone, so the dispatcher raises NoHandlerFoundException. The global
+            // catch-all maps it to 500; asserting the exception proves no handler is registered.
+            assertThat(result.getResolvedException()).isInstanceOf(NoHandlerFoundException.class);
         }
     }
 }

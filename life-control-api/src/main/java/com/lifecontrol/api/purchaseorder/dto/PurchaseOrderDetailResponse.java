@@ -9,6 +9,8 @@ public record PurchaseOrderDetailResponse(
         UUID purchaseOrderId,
         UUID productId,
         String productName,
+        UUID productVariantId,
+        String productVariantName,
         Integer quantity,
         BigDecimal unitPrice,
         BigDecimal total,
