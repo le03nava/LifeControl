@@ -10,6 +10,8 @@
   <app-store-location-form
     [storeLocation]="storeLocation()"
     [serverErrors]="serverErrors()"
+    [saving]="saving()"
+    [canWrite]="canWrite"
     (save)="onSave($event)"
     (cancelForm)="onCancel()"
   />

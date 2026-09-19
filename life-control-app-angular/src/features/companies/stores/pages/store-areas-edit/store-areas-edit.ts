@@ -5,11 +5,15 @@ import {
   DestroyRef,
   inject,
   signal,
+  viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
+import { finalize } from 'rxjs/operators';
 import { PageHeader, ErrorBanner } from '@shared/ui';
+import { NotificationService } from '@shared/data/notification';
+import { hasAnyClientRole, STORE_WRITE_ROLES } from '@core/security/roles';
 import { ApiError } from '@shared/models';
 import { StoreAreaForm } from '../../components/store-area-form/store-area-form';
 import { StoreAreaService } from '../../data/store-area.service';
@@ -43,7 +47,20 @@ export class StoreAreasEdit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly storeAreaService = inject(StoreAreaService);
+  private readonly notifications = inject(NotificationService);
   private readonly destroyRef = inject(DestroyRef);
+
+  /** The rendered form, read for its pristine/dirty state and for the save-in-flight lock. */
+  private readonly areaForm = viewChild(StoreAreaForm);
+
+  /**
+   * `lc-company-store-read` never reaches this route (the write-role guard blocks it), but the
+   * form still hides its submit control instead of rendering a control that cannot be used.
+   */
+  readonly canWrite = hasAnyClientRole(STORE_WRITE_ROLES);
+
+  /** True while a create/update request is in flight; disables the submit control. */
+  readonly saving = signal(false);
 
   // ─── Route data ────────────────────────────────────────
   readonly areaId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
@@ -114,9 +131,10 @@ export class StoreAreasEdit {
 
   onSave(request: CreateStoreAreaRequest | UpdateStoreAreaRequest): void {
     const chain = this.chain();
-    if (!chain) return;
+    if (!chain || this.saving()) return;
 
     this.generalError.set(null);
+    this.saving.set(true);
 
     const id = this.areaId();
     const request$ = id
@@ -138,13 +156,31 @@ export class StoreAreasEdit {
           request,
         );
 
-    request$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (saved) =>
-        this.router.navigate(['/companies/store-areas'], {
-          queryParams: this.toQueryParams(saved),
-        }),
-      error: (err: HttpErrorResponse) => this.handleError(err),
-    });
+    request$
+      .pipe(
+        finalize(() => this.saving.set(false)),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe({
+        next: (saved) => {
+          this.notifications.showSuccess(
+            id ? 'Área actualizada correctamente.' : 'Área creada correctamente.',
+          );
+          // The route's `canDeactivate` guard must not block the navigation that follows a save.
+          this.areaForm()?.formGroup.markAsPristine();
+          this.router.navigate(['/companies/store-areas'], {
+            queryParams: this.toQueryParams(saved),
+          });
+        },
+        error: (err: HttpErrorResponse) => this.handleError(err),
+      });
+  }
+
+  /**
+   * Exposed to `unsavedChangesGuard`, which blocks the route change while the form is dirty.
+   */
+  hasUnsavedChanges(): boolean {
+    return this.areaForm()?.formGroup.dirty ?? false;
   }
 
   onCancel(): void {

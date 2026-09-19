@@ -1,3 +1,4 @@
+/// <reference types="vitest/globals" />
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
@@ -9,6 +10,8 @@ import { StoreLocationsEdit } from './store-locations-edit';
 import { StoreLocationForm } from '../../components/store-location-form/store-location-form';
 import { StoreLocationService } from '../../data/store-location.service';
 import { CreateStoreLocationRequest, StoreLocation } from '../../models/store-location.models';
+import { NotificationService } from '@shared/data/notification';
+import Keycloak from 'keycloak-js';
 
 describe('StoreLocationsEdit', () => {
   let component: StoreLocationsEdit;
@@ -57,12 +60,21 @@ describe('StoreLocationsEdit', () => {
   async function setup(
     id: string | null = null,
     queryParams: Record<string, string> = {},
+    roles: string[] = ['lc-admin'],
   ): Promise<void> {
     await TestBed.configureTestingModule({
       imports: [StoreLocationsEdit, NoopAnimationsModule, HttpClientTestingModule],
       providers: [
         { provide: StoreLocationService, useClass: MockStoreLocationService },
         { provide: Router, useValue: routerMock },
+        {
+          provide: NotificationService,
+          useValue: { showSuccess: vi.fn(), showError: vi.fn(), showWarning: vi.fn() },
+        },
+        {
+          provide: Keycloak,
+          useValue: { tokenParsed: { resource_access: { 'life-control-client': { roles } } } },
+        },
         { provide: ActivatedRoute, useValue: activatedRouteWith(id, queryParams) },
       ],
     }).compileComponents();
@@ -481,6 +493,16 @@ describe('StoreLocationsEdit', () => {
         providers: [
           { provide: StoreLocationService, useClass: MockStoreLocationService },
           { provide: Router, useValue: routerMock },
+          {
+            provide: NotificationService,
+            useValue: { showSuccess: vi.fn(), showError: vi.fn(), showWarning: vi.fn() },
+          },
+          {
+            provide: Keycloak,
+            useValue: {
+              tokenParsed: { resource_access: { 'life-control-client': { roles: ['lc-admin'] } } },
+            },
+          },
           { provide: ActivatedRoute, useValue: activatedRouteWith('store-location-1') },
         ],
       }).compileComponents();
@@ -517,6 +539,16 @@ describe('StoreLocationsEdit', () => {
         providers: [
           { provide: StoreLocationService, useClass: MockStoreLocationService },
           { provide: Router, useValue: routerMock },
+          {
+            provide: NotificationService,
+            useValue: { showSuccess: vi.fn(), showError: vi.fn(), showWarning: vi.fn() },
+          },
+          {
+            provide: Keycloak,
+            useValue: {
+              tokenParsed: { resource_access: { 'life-control-client': { roles: ['lc-admin'] } } },
+            },
+          },
           { provide: ActivatedRoute, useValue: activatedRouteWith('store-location-404') },
         ],
       }).compileComponents();
@@ -611,6 +643,188 @@ describe('StoreLocationsEdit', () => {
       const banner = fixture.nativeElement.querySelector('app-error-banner');
       expect(banner).toBeTruthy();
       expect(banner.textContent).toContain('Error inesperado. Intente de nuevo más tarde.');
+    });
+  });
+
+  // ─── Save lifecycle, feedback and route guard ───────────────
+
+  describe('save lifecycle (create mode)', () => {
+    const createParams = {
+      companyId: 'company-1',
+      countryId: 'cc-1',
+      regionId: 'reg-1',
+      zoneId: 'zone-1',
+      storeId: 'store-1',
+      areaId: 'area-1',
+      storeZoneId: 'store-zone-1',
+    };
+
+    beforeEach(async () => {
+      await setup(null, createParams);
+    });
+
+    it('should start with no save in flight', () => {
+      expect(component.saving()).toBe(false);
+    });
+
+    it('should notify a successful create', () => {
+      const notifications = TestBed.inject(NotificationService) as unknown as {
+        showSuccess: ReturnType<typeof vi.fn>;
+      };
+
+      component.onSave({ locationCode: 'EST-01', locationName: 'Estante 01' });
+
+      expect(notifications.showSuccess).toHaveBeenCalledWith('Ubicación creada correctamente.');
+    });
+
+    it('should not fire a second request while the first is still in flight', () => {
+      const storeLocationService = TestBed.inject(
+        StoreLocationService,
+      ) as unknown as MockStoreLocationService;
+      storeLocationService.createLocation.mockReturnValue(
+        new Subject<StoreLocation>().asObservable(),
+      );
+      const request = { locationCode: 'EST-01', locationName: 'Estante 01' };
+
+      component.onSave(request);
+      expect(component.saving()).toBe(true);
+
+      component.onSave(request);
+
+      expect(storeLocationService.createLocation).toHaveBeenCalledTimes(1);
+    });
+
+    it('should clear the in-flight flag when the request completes', () => {
+      const storeLocationService = TestBed.inject(
+        StoreLocationService,
+      ) as unknown as MockStoreLocationService;
+      const pending = new Subject<StoreLocation>();
+      storeLocationService.createLocation.mockReturnValue(pending.asObservable());
+
+      component.onSave({ locationCode: 'EST-01', locationName: 'Estante 01' });
+      pending.next(mockStoreLocation);
+      pending.complete();
+
+      expect(component.saving()).toBe(false);
+    });
+
+    it('should clear the in-flight flag when the request fails', () => {
+      const storeLocationService = TestBed.inject(
+        StoreLocationService,
+      ) as unknown as MockStoreLocationService;
+      storeLocationService.createLocation.mockReturnValue(
+        throwError(() => new HttpErrorResponse({ error: {}, status: 400 })),
+      );
+
+      component.onSave({ locationCode: 'EST-01', locationName: 'Estante 01' });
+
+      expect(component.saving()).toBe(false);
+    });
+
+    it('should pass the in-flight flag down to the form', () => {
+      const storeLocationService = TestBed.inject(
+        StoreLocationService,
+      ) as unknown as MockStoreLocationService;
+      storeLocationService.createLocation.mockReturnValue(
+        new Subject<StoreLocation>().asObservable(),
+      );
+
+      component.onSave({ locationCode: 'EST-01', locationName: 'Estante 01' });
+      fixture.detectChanges();
+
+      expect(storeLocationForm().saving()).toBe(true);
+    });
+  });
+
+  describe('save lifecycle (edit mode)', () => {
+    beforeEach(async () => {
+      await setup('store-location-1');
+    });
+
+    it('should notify a successful update', () => {
+      const notifications = TestBed.inject(NotificationService) as unknown as {
+        showSuccess: ReturnType<typeof vi.fn>;
+      };
+
+      component.onSave({ locationCode: 'EST-01', locationName: 'Estante 01' });
+
+      expect(notifications.showSuccess).toHaveBeenCalledWith(
+        'Ubicación actualizada correctamente.',
+      );
+    });
+
+    it('should leave the form pristine so the route guard lets the post-save navigation through', () => {
+      storeLocationForm().formGroup.markAsDirty();
+      expect(component.hasUnsavedChanges()).toBe(true);
+
+      component.onSave({ locationCode: 'EST-01', locationName: 'Estante 01' });
+
+      expect(component.hasUnsavedChanges()).toBe(false);
+      expect(routerMock.navigate).toHaveBeenCalled();
+    });
+  });
+
+  describe('unsaved changes', () => {
+    const createParams = {
+      companyId: 'company-1',
+      countryId: 'cc-1',
+      regionId: 'reg-1',
+      zoneId: 'zone-1',
+      storeId: 'store-1',
+      areaId: 'area-1',
+      storeZoneId: 'store-zone-1',
+    };
+
+    it('should report no unsaved changes right after loading an entity', async () => {
+      await setup('store-location-1');
+
+      expect(component.hasUnsavedChanges()).toBe(false);
+    });
+
+    it('should report unsaved changes once the form is edited', async () => {
+      await setup('store-location-1');
+
+      storeLocationForm().formGroup.markAsDirty();
+
+      expect(component.hasUnsavedChanges()).toBe(true);
+    });
+
+    it('should report no unsaved changes in a fresh create form', async () => {
+      await setup(null, createParams);
+
+      expect(component.hasUnsavedChanges()).toBe(false);
+    });
+
+    it('should report unsaved changes after editing a create form', async () => {
+      await setup(null, createParams);
+
+      storeLocationForm().formGroup.markAsDirty();
+
+      expect(component.hasUnsavedChanges()).toBe(true);
+    });
+  });
+
+  describe('role gating', () => {
+    const createParams = {
+      companyId: 'company-1',
+      countryId: 'cc-1',
+      regionId: 'reg-1',
+      zoneId: 'zone-1',
+      storeId: 'store-1',
+      areaId: 'area-1',
+      storeZoneId: 'store-zone-1',
+    };
+
+    it('should not render the submit control for a read-only user', async () => {
+      await setup(null, createParams, ['lc-company-store-read']);
+
+      expect(fixture.nativeElement.querySelector('button[type="submit"]')).toBeNull();
+    });
+
+    it('should render the submit control for a store writer', async () => {
+      await setup(null, createParams, ['lc-company-store']);
+
+      expect(fixture.nativeElement.querySelector('button[type="submit"]')).toBeTruthy();
     });
   });
 });

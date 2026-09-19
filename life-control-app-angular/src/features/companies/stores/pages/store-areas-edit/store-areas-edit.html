@@ -10,6 +10,8 @@
   <app-store-area-form
     [area]="area()"
     [serverErrors]="serverErrors()"
+    [saving]="saving()"
+    [canWrite]="canWrite"
     (save)="onSave($event)"
     (cancelForm)="onCancel()"
   />
