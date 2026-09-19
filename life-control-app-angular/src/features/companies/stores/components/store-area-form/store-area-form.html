@@ -9,7 +9,7 @@
 
   <form [formGroup]="formGroup" (ngSubmit)="onSave()">
     <mat-form-field appearance="outline" subscriptSizing="dynamic">
-      <mat-label>Código de Área</mat-label>
+      <mat-label>Código</mat-label>
       <input matInput type="text" formControlName="areaCode" placeholder="Ej. ALMACEN" />
       @if (getErrorMessage(formGroup.controls.areaCode); as msg) {
         <mat-error>{{ msg }}</mat-error>
@@ -17,7 +17,7 @@
     </mat-form-field>
 
     <mat-form-field appearance="outline" subscriptSizing="dynamic">
-      <mat-label>Nombre del Área</mat-label>
+      <mat-label>Nombre</mat-label>
       <input
         matInput
         type="text"
@@ -43,7 +43,7 @@
     </mat-form-field>
 
     <mat-form-field appearance="outline" subscriptSizing="dynamic">
-      <mat-label>Orden de Visualización</mat-label>
+      <mat-label>Orden</mat-label>
       <input matInput type="number" formControlName="displayOrder" min="0" placeholder="0" />
       @if (getErrorMessage(formGroup.controls.displayOrder); as msg) {
         <mat-error>{{ msg }}</mat-error>
@@ -52,13 +52,15 @@
 
     <div class="form-actions">
       <button mat-button type="button" (click)="onCancel()">Cancelar</button>
-      <button mat-flat-button type="submit">
-        @if (isEditMode()) {
-          Actualizar
-        } @else {
-          Guardar
-        }
-      </button>
+      @if (canWrite()) {
+        <button mat-flat-button type="submit" [disabled]="formGroup.invalid || saving()">
+          @if (isEditMode()) {
+            Actualizar
+          } @else {
+            Guardar
+          }
+        </button>
+      }
     </div>
   </form>
 </div>

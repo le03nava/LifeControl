@@ -52,13 +52,15 @@
 
     <div class="form-actions">
       <button mat-button type="button" (click)="onCancel()">Cancelar</button>
-      <button mat-flat-button type="submit">
-        @if (isEditMode()) {
-          Actualizar
-        } @else {
-          Guardar
-        }
-      </button>
+      @if (canWrite()) {
+        <button mat-flat-button type="submit" [disabled]="formGroup.invalid || saving()">
+          @if (isEditMode()) {
+            Actualizar
+          } @else {
+            Guardar
+          }
+        </button>
+      }
     </div>
   </form>
 </div>

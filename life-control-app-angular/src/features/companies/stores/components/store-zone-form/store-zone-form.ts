@@ -10,6 +10,7 @@ import {
   UpdateStoreZoneRequest,
 } from '../../models/store-zone.models';
 import { StoreLeafFormBase } from '../store-leaf-form-base';
+import { integerValidator } from '../form-errors';
 
 /**
  * Self-contained reactive form for creating and editing a store zone.
@@ -37,7 +38,7 @@ export class StoreZoneForm extends StoreLeafFormBase<
     zoneCode: this.fb.control('', [Validators.required, Validators.maxLength(10)]),
     zoneName: this.fb.control('', [Validators.required, Validators.maxLength(100)]),
     description: this.fb.control<string | null>(null, [Validators.maxLength(255)]),
-    displayOrder: this.fb.control<number | null>(null, [Validators.min(0)]),
+    displayOrder: this.fb.control<number | null>(null, [Validators.min(0), integerValidator]),
   });
 
   constructor() {
