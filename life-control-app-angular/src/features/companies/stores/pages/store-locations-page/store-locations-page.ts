@@ -7,7 +7,9 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
-import { PageHeader, ConfirmDialog } from '@shared/ui';
+import { PageHeader, ConfirmDialog, ErrorBanner } from '@shared/ui';
+import { NotificationService } from '@shared/data/notification';
+import { hasAnyClientRole, STORE_WRITE_ROLES } from '@core/security/roles';
 import { of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { StoreLocationService } from '../../data/store-location.service';
@@ -30,6 +32,7 @@ import { CascadeStep, CascadeStepHandle, StoreAreaLevelCascadePage } from '../st
     MatFormFieldModule,
     MatSlideToggleModule,
     PageHeader,
+    ErrorBanner,
   ],
   templateUrl: './store-locations-page.html',
   styleUrl: './store-locations-page.scss',
@@ -38,7 +41,15 @@ export class StoreLocationsPage extends StoreAreaLevelCascadePage {
   private readonly storeLocationService = inject(StoreLocationService);
   /** Cascade level (not page-scoped: its `error` signal is not read here). */
   private readonly storeZoneService = inject(StoreZoneService);
+  private readonly notifications = inject(NotificationService);
   private readonly actionErrorFallback = 'No se pudo actualizar la ubicación de la tienda.';
+
+  /**
+   * `lc-company-store-read` reaches this page — its route allows every company role — but the
+   * backend answers `AccessDeniedException` on every write, so the create / edit / disable
+   * controls are not rendered for it.
+   */
+  readonly canWrite = hasAnyClientRole(STORE_WRITE_ROLES);
 
   readonly selectedStoreZone = signal<StoreZone | null>(null);
 
@@ -203,7 +214,10 @@ export class StoreLocationsPage extends StoreAreaLevelCascadePage {
             )
             .pipe(takeUntilDestroyed(this.destroyRef))
             .subscribe({
-              next: () => this.reload.update((n) => n + 1),
+              next: () => {
+                this.notifications.showSuccess('Ubicación deshabilitada correctamente.');
+                this.reload.update((n) => n + 1);
+              },
               error: (err: HttpErrorResponse) => this.setActionError(err, this.actionErrorFallback),
             });
         });
@@ -223,7 +237,10 @@ export class StoreLocationsPage extends StoreAreaLevelCascadePage {
       )
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: () => this.reload.update((n) => n + 1),
+        next: () => {
+          this.notifications.showSuccess('Ubicación reactivada correctamente.');
+          this.reload.update((n) => n + 1);
+        },
         error: (err: HttpErrorResponse) => this.setActionError(err, this.actionErrorFallback),
       });
   }

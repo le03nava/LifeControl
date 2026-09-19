@@ -16,10 +16,11 @@
 // ellas es el nombre de la clase raíz, el de la grilla, el de la tarjeta, el del
 // badge de código y la lista de selectores de nivel. Eso es lo parametrizado.
 //
-// `.error-state` estaba drifted: las páginas de zonas y ubicaciones lo definían
-// con `margin-bottom` más un override scoped a la grilla, y la de áreas sin
-// `margin-bottom`. Se conserva la definición de zonas/ubicaciones (2 de 3
-// archivos, y con el override que demuestra que ambos contextos fueron pensados).
+// `.error-state` dejó de ser un bloque con chrome propio: las tres páginas ahora
+// renderizan `<app-error-banner class="error-state" [message]="..."/>` y el chrome
+// (borde, padding, fondo, ícono y margen inferior) lo aporta el stylesheet del banner.
+// Conservar acá una segunda copia anidaría caja dentro de caja. Lo único que la página
+// sigue aportando es el span de grilla del error que vive dentro de la grilla de tarjetas.
 // ============================================================
 @use 'variables' as *;
 
@@ -166,33 +167,9 @@
     }
   }
 
-  .error-state {
-    display: flex;
-    align-items: center;
-    gap: var(--space-sm);
-    padding: var(--space-lg);
-    border: 1px solid var(--mat-sys-error);
-    border-radius: var(--radius-lg);
-    background-color: color-mix(in srgb, var(--mat-sys-error) 8%, transparent);
-    color: var(--mat-sys-error);
-    font-size: 1rem;
-    margin-bottom: var(--space-md);
-
-    mat-icon {
-      font-size: 24px;
-      width: 24px;
-      height: 24px;
-      flex-shrink: 0;
-    }
-
-    p {
-      margin: 0;
-    }
-  }
-
+  // Sólo layout: el chrome lo pone `shared/ui/error-banner`. Ver la nota del encabezado.
   #{$grid} > .error-state {
     grid-column: 1 / -1;
-    margin-bottom: 0;
   }
 
   .loading-text {

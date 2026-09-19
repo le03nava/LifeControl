@@ -1,15 +1,18 @@
+/// <reference types="vitest/globals" />
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { By } from '@angular/platform-browser';
 import { signal, Type, WritableSignal } from '@angular/core';
-import { of, throwError } from 'rxjs';
+import { Subject, of, throwError } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router } from '@angular/router';
 import { MatDialog } from '@angular/material/dialog';
 import { MatSelect } from '@angular/material/select';
 import { StoreZonesPage } from './store-zones-page';
 import { ConfirmDialog } from '@shared/ui';
+import { NotificationService } from '@shared/data/notification';
+import Keycloak from 'keycloak-js';
 import { CompanyService } from '../../../companies/data/company.service';
 import { CompanyCountryService } from '../../../countries/data/company-country.service';
 import { CompanyRegionService } from '../../../regions/data/company-region.service';
@@ -317,7 +320,10 @@ describe('StoreZonesPage', () => {
     });
   }
 
-  async function setup(queryParams: Record<string, string> = {}): Promise<void> {
+  async function setup(
+    queryParams: Record<string, string> = {},
+    roles: string[] = ['lc-admin'],
+  ): Promise<void> {
     TestBed.configureTestingModule({
       imports: [StoreZonesPage, NoopAnimationsModule, HttpClientTestingModule],
       providers: [
@@ -329,6 +335,14 @@ describe('StoreZonesPage', () => {
         { provide: StoreAreaService, useClass: MockStoreAreaService },
         { provide: Router, useValue: routerMock },
         { provide: MatDialog, useValue: dialogMock },
+        {
+          provide: NotificationService,
+          useValue: { showSuccess: vi.fn(), showError: vi.fn(), showWarning: vi.fn() },
+        },
+        {
+          provide: Keycloak,
+          useValue: { tokenParsed: { resource_access: { 'life-control-client': { roles } } } },
+        },
         { provide: ActivatedRoute, useValue: activatedRouteWith(queryParams) },
       ],
     });
@@ -864,7 +878,7 @@ describe('StoreZonesPage', () => {
           data: expect.objectContaining({
             title: 'Deshabilitar zona de tienda',
             message:
-              '¿Confirmás que querés deshabilitar la zona "Estantería A"? La información se conserva y podés reactivarla más adelante.',
+              '¿Confirmás que querés deshabilitar la zona "Estantería A"? También se deshabilitarán todas sus ubicaciones habilitadas. La información se conserva y podés reactivarla más adelante.',
             confirmLabel: 'Deshabilitar',
             destructive: true,
           }),
@@ -929,14 +943,53 @@ describe('StoreZonesPage', () => {
       expect(component.reload()).toBe(1);
     });
 
-    it('should render "Reactivar" for a disabled store zone', async () => {
+    it('should render the visible "Reactivar" / "Deshabilitar" labels for a mixed list', async () => {
       await selectArea();
 
-      const labels = Array.from(
-        fixture.nativeElement.querySelectorAll('button[aria-label]') as NodeListOf<Element>,
-      ).map((b) => b.getAttribute('aria-label'));
-      expect(labels).toContain('Reactivar zona');
-      expect(labels).toContain('Deshabilitar zona');
+      const actions = fixture.nativeElement.querySelectorAll('.store-zone-card mat-card-actions');
+      const text = Array.from(actions as NodeListOf<Element>)
+        .map((node) => node.textContent ?? '')
+        .join(' ');
+
+      expect(text).toContain('Reactivar');
+      expect(text).toContain('Deshabilitar');
+    });
+
+    it('should not duplicate the visible button text in an aria-label', async () => {
+      await selectArea();
+
+      expect(
+        fixture.nativeElement.querySelectorAll(
+          '.store-zone-card mat-card-actions button[aria-label]',
+        ).length,
+      ).toBe(0);
+    });
+
+    it('should notify a successful disable', async () => {
+      const notifications = TestBed.inject(NotificationService) as unknown as {
+        showSuccess: ReturnType<typeof vi.fn>;
+      };
+      const storeZoneService = pageService(StoreZoneService) as unknown as MockStoreZoneService;
+      dialogMock.open.mockReturnValue({ afterClosed: () => of(true) });
+      storeZoneService.removeZone.mockReturnValue(of(undefined));
+
+      await selectArea();
+      component.onToggleStoreZone(mockStoreZones[0]);
+      await settle();
+
+      expect(notifications.showSuccess).toHaveBeenCalledWith('Zona deshabilitada correctamente.');
+    });
+
+    it('should notify a successful re-enable', async () => {
+      const notifications = TestBed.inject(NotificationService) as unknown as {
+        showSuccess: ReturnType<typeof vi.fn>;
+      };
+
+      await selectArea();
+      component.onToggleStoreZone(mockStoreZones[1]); // enabled: false
+      await settle();
+
+      expect(notifications.showSuccess).toHaveBeenCalledWith('Zona reactivada correctamente.');
     });
 
     it('should surface the backend message when disabling fails', async () => {
@@ -1095,6 +1148,99 @@ describe('StoreZonesPage', () => {
       const errorEl = fixture.nativeElement.querySelector('.error-state');
       expect(errorEl).toBeTruthy();
       expect(errorEl.textContent).toContain('Error al cargar las zonas de la tienda');
+      // The shared banner owns the alert role: the region must be announced, not just rendered.
+      expect(errorEl.querySelector('[role="alert"]')).toBeTruthy();
+    });
+  });
+
+  describe('leaf list region', () => {
+    beforeEach(async () => {
+      await setup();
+    });
+
+    it('should not be busy once the list has loaded', async () => {
+      await selectArea();
+
+      const grid = fixture.nativeElement.querySelector('.store-zones-grid');
+      expect(grid).toBeTruthy();
+      expect(grid.getAttribute('aria-busy')).toBe('false');
+    });
+
+    it('should be busy while the list is loading', async () => {
+      const storeZoneService = pageService(StoreZoneService) as unknown as MockStoreZoneService;
+
+      // Resolve the cascade first, then make only the leaf request hang.
+      component.onCompanyChange('company-1');
+      await settle();
+      component.onSelectCountry(mockAssignedCountries[0]);
+      await settle();
+      component.onSelectRegion(mockRegions[0]);
+      await settle();
+      component.onSelectCompanyZone(mockCompanyZones[0]);
+      await settle();
+      component.onSelectStore(mockStores[0]);
+      await settle();
+
+      storeZoneService.getStoreZones.mockReturnValue(new Subject<StoreZone>().asObservable());
+      component.onSelectArea(mockAreas[0]);
+      // Flushed by hand: a pending resource keeps the app unstable, so `settle()` (which awaits
+      // `whenStable()`) would never resolve.
+      fixture.detectChanges();
+      await Promise.resolve();
+      fixture.detectChanges();
+
+      const grid = fixture.nativeElement.querySelector('.store-zones-grid');
+      expect(grid).toBeTruthy();
+      expect(grid.getAttribute('aria-busy')).toBe('true');
+    });
+  });
+
+  describe('role gating', () => {
+    describe('read-only user (lc-company-store-read)', () => {
+      beforeEach(async () => {
+        await setup({}, ['lc-company-store-read']);
+      });
+
+      it('should not render the create control', async () => {
+        await selectArea();
+
+        expect(fixture.nativeElement.querySelector('.header-actions button')).toBeNull();
+      });
+
+      it('should not render any per-card write control', async () => {
+        await selectArea();
+
+        const actions = fixture.nativeElement.querySelector('.store-zone-card mat-card-actions');
+        expect(actions).toBeTruthy();
+        expect(actions.querySelectorAll('button').length).toBe(0);
+      });
+
+      it('should still render the zone cards themselves', async () => {
+        await selectArea();
+
+        expect(fixture.nativeElement.querySelectorAll('.store-zone-card').length).toBe(
+          mockStoreZones.length,
+        );
+      });
+    });
+
+    describe('store writer (lc-company-store)', () => {
+      beforeEach(async () => {
+        await setup({}, ['lc-company-store']);
+      });
+
+      it('should render the create control', async () => {
+        await selectArea();
+
+        expect(fixture.nativeElement.querySelector('.header-actions button')).toBeTruthy();
+      });
+
+      it('should render the per-card write controls', async () => {
+        await selectArea();
+
+        const actions = fixture.nativeElement.querySelector('.store-zone-card mat-card-actions');
+        expect(actions.querySelectorAll('button').length).toBeGreaterThan(0);
+      });
     });
   });
 });

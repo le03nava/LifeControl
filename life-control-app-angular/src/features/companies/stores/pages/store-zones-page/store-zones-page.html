@@ -3,57 +3,41 @@
     title="Zonas de Tienda"
     subtitle="Gestión de las zonas físicas dentro de cada área de una tienda"
   >
-    <button
-      mat-flat-button
-      color="primary"
-      type="button"
-      [disabled]="!selectedArea()"
-      (click)="onCreateStoreZone()"
-    >
-      <mat-icon fontIcon="add" /> Nueva zona
-    </button>
+    @if (canWrite) {
+      <button
+        mat-flat-button
+        color="primary"
+        type="button"
+        [disabled]="!selectedArea()"
+        (click)="onCreateStoreZone()"
+      >
+        <mat-icon fontIcon="add" /> Nueva zona
+      </button>
+    }
   </app-page-header>
 
   @if (actionError(); as actionErrorMsg) {
-    <div class="error-state">
-      <mat-icon fontIcon="error" />
-      <p>{{ actionErrorMsg }}</p>
-    </div>
+    <app-error-banner class="error-state" [message]="actionErrorMsg" />
   }
 
   @if (countriesError(); as errorMsg) {
-    <div class="cascade-error error-state">
-      <mat-icon fontIcon="error" />
-      <p>{{ errorMsg }}</p>
-    </div>
+    <app-error-banner class="cascade-error error-state" [message]="errorMsg" />
   }
 
   @if (regionsError(); as errorMsg) {
-    <div class="cascade-error error-state">
-      <mat-icon fontIcon="error" />
-      <p>{{ errorMsg }}</p>
-    </div>
+    <app-error-banner class="cascade-error error-state" [message]="errorMsg" />
   }
 
   @if (companyZonesError(); as errorMsg) {
-    <div class="cascade-error error-state">
-      <mat-icon fontIcon="error" />
-      <p>{{ errorMsg }}</p>
-    </div>
+    <app-error-banner class="cascade-error error-state" [message]="errorMsg" />
   }
 
   @if (storesError(); as errorMsg) {
-    <div class="cascade-error error-state">
-      <mat-icon fontIcon="error" />
-      <p>{{ errorMsg }}</p>
-    </div>
+    <app-error-banner class="cascade-error error-state" [message]="errorMsg" />
   }
 
   @if (areasError(); as errorMsg) {
-    <div class="cascade-error error-state">
-      <mat-icon fontIcon="error" />
-      <p>{{ errorMsg }}</p>
-    </div>
+    <app-error-banner class="cascade-error error-state" [message]="errorMsg" />
   }
 
   <div class="filters-section">
@@ -163,12 +147,9 @@
   </div>
 
   @if (selectedArea()) {
-    <div class="store-zones-grid">
+    <div class="store-zones-grid" [attr.aria-busy]="storeZonesResource.isLoading()">
       @if (storeZonesError(); as errorMsg) {
-        <div class="error-state">
-          <mat-icon fontIcon="error" />
-          <p>{{ errorMsg }}</p>
-        </div>
+        <app-error-banner class="error-state" [message]="errorMsg" />
       }
 
       @if (storeZonesResource.isLoading()) {
@@ -210,34 +191,29 @@
                 }
               </mat-card-content>
               <mat-card-actions align="end">
-                <button
-                  mat-button
-                  type="button"
-                  (click)="onEditStoreZone(storeZone)"
-                  aria-label="Editar zona"
-                >
-                  <mat-icon fontIcon="edit" /> Editar
-                </button>
-                @if (storeZone.enabled) {
-                  <button
-                    mat-flat-button
-                    color="warn"
-                    type="button"
-                    (click)="onToggleStoreZone(storeZone)"
-                    aria-label="Deshabilitar zona"
-                  >
-                    <mat-icon fontIcon="block" /> Deshabilitar
+                @if (canWrite) {
+                  <button mat-button type="button" (click)="onEditStoreZone(storeZone)">
+                    <mat-icon fontIcon="edit" /> Editar
                   </button>
-                } @else {
-                  <button
-                    mat-flat-button
-                    color="primary"
-                    type="button"
-                    (click)="onToggleStoreZone(storeZone)"
-                    aria-label="Reactivar zona"
-                  >
-                    <mat-icon fontIcon="restart_alt" /> Reactivar
-                  </button>
+                  @if (storeZone.enabled) {
+                    <button
+                      mat-flat-button
+                      color="warn"
+                      type="button"
+                      (click)="onToggleStoreZone(storeZone)"
+                    >
+                      <mat-icon fontIcon="block" /> Deshabilitar
+                    </button>
+                  } @else {
+                    <button
+                      mat-flat-button
+                      color="primary"
+                      type="button"
+                      (click)="onToggleStoreZone(storeZone)"
+                    >
+                      <mat-icon fontIcon="restart_alt" /> Reactivar
+                    </button>
+                  }
                 }
               </mat-card-actions>
             </mat-card>
