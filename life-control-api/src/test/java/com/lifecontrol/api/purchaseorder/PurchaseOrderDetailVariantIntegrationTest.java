@@ -1,11 +1,11 @@
 package com.lifecontrol.api.purchaseorder;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -29,6 +29,7 @@ import com.lifecontrol.api.product.repository.ProductVariantRepository;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderDetailRequest;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderRequest;
 import com.lifecontrol.api.purchaseorder.dto.UpdatePurchaseOrderStatusRequest;
+import com.lifecontrol.api.purchaseorder.model.PurchaseOrderDetail;
 import com.lifecontrol.api.purchaseorder.repository.PurchaseOrderDetailRepository;
 import com.lifecontrol.api.purchaseorder.repository.PurchaseOrderRepository;
 import com.lifecontrol.api.purchaseorder.service.PurchaseOrderService;
@@ -39,6 +40,7 @@ import com.lifecontrol.api.supplier.model.Supplier;
 import com.lifecontrol.api.supplier.repository.SupplierRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import java.math.BigDecimal;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -262,6 +264,38 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
                 .asText());
     }
 
+    /**
+     * Builds a full create/update payload whose single line omits {@code productVariantId}.
+     * The header fields are valid, so a 400 can only come from the nested detail constraint.
+     */
+    private String orderPayloadWithLineMissingVariant(UUID productId) throws Exception {
+        var line = new LinkedHashMap<String, Object>();
+        line.put("productId", productId.toString());
+        line.put("quantity", 2);
+        line.put("unitPrice", new BigDecimal("15.00"));
+
+        var payload = new LinkedHashMap<String, Object>();
+        payload.put("supplierId", supplierId.toString());
+        payload.put("companyStoreId", storeId.toString());
+        payload.put("paymentMethodId", paymentMethodId.toString());
+        payload.put("statusId", draftStatusId.toString());
+        payload.put("comments", "Nested detail validation");
+        payload.put("details", List.of(line));
+        return objectMapper.writeValueAsString(payload);
+    }
+
+    /**
+     * Builds a valid header whose {@code details} list holds a single JSON null entry.
+     * Before the container-element constraint the service dereferenced it and answered 500.
+     */
+    private String orderPayloadWithNullDetailEntry() {
+        return "{\"supplierId\":\"" + supplierId
+                + "\",\"companyStoreId\":\"" + storeId
+                + "\",\"paymentMethodId\":\"" + paymentMethodId
+                + "\",\"statusId\":\"" + draftStatusId
+                + "\",\"comments\":\"Null detail entry\",\"details\":[null]}";
+    }
+
     private UUID addVariantDetail(UUID purchaseOrderId, UUID productId, UUID variantId, int quantity) throws Exception {
         var detailRequest = new PurchaseOrderDetailRequest(
                 productId, variantId, quantity, new BigDecimal("25.00"), "Reception line", pendingDetailStatusId);
@@ -365,23 +399,158 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
             assertThat(persisted).hasSize(1);
             assertThat(persisted.getFirst().getProductVariant().getId()).isEqualTo(variant.getId());
         }
+    }
+
+    @Nested
+    @DisplayName("missing variant contract")
+    class MissingVariantContractTests {
 
         @Test
-        @DisplayName("should leave the variant link null when the line has no variant")
-        void detailWithoutVariantRoundTripsNull() throws Exception {
+        @DisplayName("should reject an add payload without productVariantId with 400 and persist nothing")
+        void addPayloadWithoutVariantIsRejected() throws Exception {
             var product = createProduct();
             var purchaseOrderId = createEmptyPurchaseOrder();
 
-            var detailRequest = new PurchaseOrderDetailRequest(
-                    product.getId(), null, 2, new BigDecimal("15.00"), "No variant", pendingDetailStatusId);
+            // The key is absent, not present-and-null, to pin the contract at the wire level.
+            var payload = "{\"productId\":\"" + product.getId() + "\",\"quantity\":2,\"unitPrice\":15.00}";
 
             mockMvc.perform(post("/api/purchase-orders/{id}/details", purchaseOrderId)
                             .with(jwt().authorities(ROLE_LC_ADMIN))
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(detailRequest)))
-                    .andExpect(status().isCreated())
-                    .andExpect(jsonPath("$.productVariantId").value(nullValue()))
-                    .andExpect(jsonPath("$.productVariantName").doesNotExist());
+                            .content(payload))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors.productVariantId").value("productVariantId is required"));
+
+            assertThat(purchaseOrderDetailRepository.findByPurchaseOrderIdAndEnabledTrue(purchaseOrderId))
+                    .isEmpty();
+        }
+
+        @Test
+        @DisplayName("should reject an add payload with a blank productVariantId with 400 and persist nothing")
+        void addPayloadWithBlankVariantIsRejected() throws Exception {
+            var product = createProduct();
+            var purchaseOrderId = createEmptyPurchaseOrder();
+
+            // Jackson coerces the empty string to null, so the same @NotNull contract fires.
+            var payload = "{\"productId\":\"" + product.getId()
+                    + "\",\"productVariantId\":\"\",\"quantity\":2,\"unitPrice\":15.00}";
+
+            mockMvc.perform(post("/api/purchase-orders/{id}/details", purchaseOrderId)
+                            .with(jwt().authorities(ROLE_LC_ADMIN))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(payload))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors.productVariantId").value("productVariantId is required"));
+
+            assertThat(purchaseOrderDetailRepository.findByPurchaseOrderIdAndEnabledTrue(purchaseOrderId))
+                    .isEmpty();
+        }
+
+        @Test
+        @DisplayName("should render a legacy null-variant row with an explicit JSON null")
+        void legacyRowWithoutVariantRendersExplicitNull() throws Exception {
+            var product = createProduct();
+            var purchaseOrderId = createEmptyPurchaseOrder();
+            var po = purchaseOrderRepository.findById(purchaseOrderId).orElseThrow();
+            var pendingStatus = statusRepository.findById(pendingDetailStatusId).orElseThrow();
+
+            // Seeded straight through the repository: the HTTP contract can no longer
+            // produce this shape, but pre-flip rows still exist in the database.
+            purchaseOrderDetailRepository.save(PurchaseOrderDetail.builder()
+                    .purchaseOrder(po)
+                    .product(product)
+                    .quantity(2)
+                    .unitPrice(new BigDecimal("15.00"))
+                    .total(new BigDecimal("30.00"))
+                    .receivedQuantity(0)
+                    .comments("Legacy row")
+                    .status(pendingStatus)
+                    .enabled(true)
+                    .build());
+
+            var result = mockMvc.perform(get("/api/purchase-orders/{id}/details", purchaseOrderId)
+                            .with(jwt().authorities(ROLE_LC_ADMIN)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.length()").value(1))
+                    .andReturn();
+
+            var line = objectMapper
+                    .readTree(result.getResponse().getContentAsString())
+                    .get(0);
+            assertThat(line.has("productVariantId"))
+                    .as("productVariantId key present")
+                    .isTrue();
+            assertThat(line.get("productVariantId").isNull())
+                    .as("productVariantId null")
+                    .isTrue();
+            assertThat(line.has("productVariantName"))
+                    .as("productVariantName key present")
+                    .isTrue();
+            assertThat(line.get("productVariantName").isNull())
+                    .as("productVariantName null")
+                    .isTrue();
+        }
+    }
+
+    @Nested
+    @DisplayName("nested detail validation on the order write routes")
+    class NestedDetailValidationTests {
+
+        @Test
+        @DisplayName("should reject a create payload whose line omits productVariantId with 400 and persist nothing")
+        void createPayloadWithLineMissingVariantIsRejected() throws Exception {
+            var product = createProduct();
+            var ordersBefore = purchaseOrderRepository.count();
+
+            mockMvc.perform(post("/api/purchase-orders")
+                            .with(jwt().authorities(ROLE_LC_ADMIN))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(orderPayloadWithLineMissingVariant(product.getId())))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(
+                            jsonPath("$.errors['details[0].productVariantId']").value("productVariantId is required"));
+
+            assertThat(purchaseOrderRepository.count())
+                    .as("no order persisted for the rejected create")
+                    .isEqualTo(ordersBefore);
+        }
+
+        @Test
+        @DisplayName("should reject a create payload with a null detail entry with 400 and persist nothing")
+        void createPayloadWithNullDetailEntryIsRejected() throws Exception {
+            var ordersBefore = purchaseOrderRepository.count();
+
+            mockMvc.perform(post("/api/purchase-orders")
+                            .with(jwt().authorities(ROLE_LC_ADMIN))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(orderPayloadWithNullDetailEntry()))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors['details[0]']").value("details must not contain null entries"));
+
+            assertThat(purchaseOrderRepository.count())
+                    .as("no order persisted for the rejected create")
+                    .isEqualTo(ordersBefore);
+        }
+
+        @Test
+        @DisplayName("should reject an update payload whose line omits productVariantId with 400 and persist nothing")
+        void updatePayloadWithLineMissingVariantIsRejected() throws Exception {
+            var product = createProduct();
+            var purchaseOrderId = createEmptyPurchaseOrder();
+
+            mockMvc.perform(put("/api/purchase-orders/{id}", purchaseOrderId)
+                            .with(jwt().authorities(ROLE_LC_ADMIN))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(orderPayloadWithLineMissingVariant(product.getId())))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(
+                            jsonPath("$.errors['details[0].productVariantId']").value("productVariantId is required"));
+
+            assertThat(purchaseOrderRepository.findById(purchaseOrderId))
+                    .as("order still exists after the rejected update")
+                    .isPresent();
+            assertThat(purchaseOrderDetailRepository.findByPurchaseOrderIdAndEnabledTrue(purchaseOrderId))
+                    .isEmpty();
         }
     }
 

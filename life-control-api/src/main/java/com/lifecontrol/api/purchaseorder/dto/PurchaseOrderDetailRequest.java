@@ -9,7 +9,7 @@ import java.util.UUID;
 public record PurchaseOrderDetailRequest(
         @NotNull(message = "productId is required") UUID productId,
 
-        UUID productVariantId,
+        @NotNull(message = "productVariantId is required") UUID productVariantId,
 
         @NotNull(message = "quantity is required") @Min(value = 1, message = "quantity must be greater than 0")
         Integer quantity,

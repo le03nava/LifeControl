@@ -330,7 +330,7 @@ class PurchaseOrderControllerTest {
         @DisplayName("should return 201 Created")
         void returns201() throws Exception {
             var detailReq = new PurchaseOrderDetailRequest(
-                    productId, null, 5, new BigDecimal("100.00"), "Note", UUID.randomUUID());
+                    productId, UUID.randomUUID(), 5, new BigDecimal("100.00"), "Note", UUID.randomUUID());
             when(purchaseOrderService.addPurchaseOrderDetail(eq(poId), any())).thenReturn(detailResponse);
 
             mockMvc.perform(post("/api/purchase-orders/{id}/details", poId)
@@ -338,6 +338,18 @@ class PurchaseOrderControllerTest {
                             .content(objectMapper.writeValueAsString(detailReq)))
                     .andExpect(status().isCreated())
                     .andExpect(jsonPath("$.productName").value("Test Product"));
+        }
+
+        @Test
+        @DisplayName("should return 400 when the payload omits productVariantId")
+        void returns400WhenProductVariantIdIsMissing() throws Exception {
+            var payload = "{\"productId\":\"" + productId + "\",\"quantity\":5,\"unitPrice\":100.00}";
+
+            mockMvc.perform(post("/api/purchase-orders/{id}/details", poId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(payload))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors.productVariantId").value("productVariantId is required"));
         }
     }
 
@@ -351,7 +363,7 @@ class PurchaseOrderControllerTest {
         @DisplayName("should return 200 OK")
         void returns200() throws Exception {
             var detailReq = new PurchaseOrderDetailRequest(
-                    productId, null, 10, new BigDecimal("50.00"), "Updated", UUID.randomUUID());
+                    productId, UUID.randomUUID(), 10, new BigDecimal("50.00"), "Updated", UUID.randomUUID());
             when(purchaseOrderService.updatePurchaseOrderDetail(eq(poId), eq(detailId), any()))
                     .thenReturn(detailResponse);
 
@@ -359,6 +371,18 @@ class PurchaseOrderControllerTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(detailReq)))
                     .andExpect(status().isOk());
+        }
+
+        @Test
+        @DisplayName("should return 400 when the payload omits productVariantId")
+        void returns400WhenProductVariantIdIsMissing() throws Exception {
+            var payload = "{\"productId\":\"" + productId + "\",\"quantity\":10,\"unitPrice\":50.00}";
+
+            mockMvc.perform(put("/api/purchase-orders/{id}/details/{did}", poId, detailId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(payload))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors.productVariantId").value("productVariantId is required"));
         }
     }
 
