@@ -40,6 +40,29 @@ export const CLIENT_ROLES = [
 ] as const;
 
 /**
+ * Roles allowed to create, edit, disable or re-enable a store sub-entity
+ * (area, zone, location).
+ *
+ * Mirrors the `@PreAuthorize` write sets of `StoreAreaController`,
+ * `StoreZoneController` and `StoreLocationController`, and is the same list the
+ * `store-areas` / `store-zones` / `store-locations` `create` and `edit` routes
+ * carry.
+ *
+ * `lc-company-store-read` is deliberately absent: the read role reaches the
+ * listing routes but must not render a control it can never use. A flat
+ * allow-list — not a role hierarchy, and never a "not read-only" test, so a
+ * user holding neither a write nor a read role stays gated too.
+ */
+export const STORE_WRITE_ROLES = [
+  LC_ADMIN,
+  LC_COMPANY,
+  LC_COMPANY_COUNTRY,
+  LC_COMPANY_REGION,
+  LC_COMPANY_ZONE,
+  LC_COMPANY_STORE,
+];
+
+/**
  * Returns `true` when the authenticated user holds at least one of `roles` as a
  * client role of `life-control-client`.
  *

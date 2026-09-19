@@ -3,50 +3,37 @@
     title="Áreas de Tienda"
     subtitle="Gestión de las áreas físicas dentro de cada tienda"
   >
-    <button
-      mat-flat-button
-      color="primary"
-      type="button"
-      [disabled]="!selectedStore()"
-      (click)="onCreateArea()"
-    >
-      <mat-icon fontIcon="add" /> Nueva área
-    </button>
+    @if (canWrite) {
+      <button
+        mat-flat-button
+        color="primary"
+        type="button"
+        [disabled]="!selectedStore()"
+        (click)="onCreateArea()"
+      >
+        <mat-icon fontIcon="add" /> Nueva área
+      </button>
+    }
   </app-page-header>
 
   @if (actionError(); as actionErrorMsg) {
-    <div class="error-state">
-      <mat-icon fontIcon="error" />
-      <p>{{ actionErrorMsg }}</p>
-    </div>
+    <app-error-banner class="error-state" [message]="actionErrorMsg" />
   }
 
   @if (countriesError(); as errorMsg) {
-    <div class="cascade-error error-state">
-      <mat-icon fontIcon="error" />
-      <p>{{ errorMsg }}</p>
-    </div>
+    <app-error-banner class="cascade-error error-state" [message]="errorMsg" />
   }
 
   @if (regionsError(); as errorMsg) {
-    <div class="cascade-error error-state">
-      <mat-icon fontIcon="error" />
-      <p>{{ errorMsg }}</p>
-    </div>
+    <app-error-banner class="cascade-error error-state" [message]="errorMsg" />
   }
 
   @if (companyZonesError(); as errorMsg) {
-    <div class="cascade-error error-state">
-      <mat-icon fontIcon="error" />
-      <p>{{ errorMsg }}</p>
-    </div>
+    <app-error-banner class="cascade-error error-state" [message]="errorMsg" />
   }
 
   @if (storesError(); as errorMsg) {
-    <div class="cascade-error error-state">
-      <mat-icon fontIcon="error" />
-      <p>{{ errorMsg }}</p>
-    </div>
+    <app-error-banner class="cascade-error error-state" [message]="errorMsg" />
   }
 
   <div class="filters-section">
@@ -137,12 +124,9 @@
   </div>
 
   @if (selectedStore()) {
-    <div class="areas-grid">
+    <div class="areas-grid" [attr.aria-busy]="areasResource.isLoading()">
       @if (areasError(); as errorMsg) {
-        <div class="error-state">
-          <mat-icon fontIcon="error" />
-          <p>{{ errorMsg }}</p>
-        </div>
+        <app-error-banner class="error-state" [message]="errorMsg" />
       }
 
       @if (areasResource.isLoading()) {
@@ -184,34 +168,24 @@
                 }
               </mat-card-content>
               <mat-card-actions align="end">
-                <button
-                  mat-button
-                  type="button"
-                  (click)="onEditArea(area)"
-                  aria-label="Editar área"
-                >
-                  <mat-icon fontIcon="edit" /> Editar
-                </button>
-                @if (area.enabled) {
-                  <button
-                    mat-flat-button
-                    color="warn"
-                    type="button"
-                    (click)="onToggleArea(area)"
-                    aria-label="Deshabilitar área"
-                  >
-                    <mat-icon fontIcon="block" /> Deshabilitar
+                @if (canWrite) {
+                  <button mat-button type="button" (click)="onEditArea(area)">
+                    <mat-icon fontIcon="edit" /> Editar
                   </button>
-                } @else {
-                  <button
-                    mat-flat-button
-                    color="primary"
-                    type="button"
-                    (click)="onToggleArea(area)"
-                    aria-label="Reactivar área"
-                  >
-                    <mat-icon fontIcon="restart_alt" /> Reactivar
-                  </button>
+                  @if (area.enabled) {
+                    <button mat-flat-button color="warn" type="button" (click)="onToggleArea(area)">
+                      <mat-icon fontIcon="block" /> Deshabilitar
+                    </button>
+                  } @else {
+                    <button
+                      mat-flat-button
+                      color="primary"
+                      type="button"
+                      (click)="onToggleArea(area)"
+                    >
+                      <mat-icon fontIcon="restart_alt" /> Reactivar
+                    </button>
+                  }
                 }
               </mat-card-actions>
             </mat-card>

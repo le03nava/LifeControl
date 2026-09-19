@@ -1,3 +1,4 @@
+/// <reference types="vitest/globals" />
 import { ComponentFixture } from '@angular/core/testing';
 import { StoreZoneForm } from './store-zone-form';
 import {
@@ -93,6 +94,14 @@ describe('StoreZoneForm', () => {
       fixture.detectChanges();
       submitBtn = fixture.nativeElement.querySelector('button[type="submit"]');
       expect(submitBtn.textContent?.trim()).toBe('Actualizar');
+    });
+
+    it('should render the unified "Código" / "Nombre" / "Orden" labels', () => {
+      const labels = Array.from(
+        fixture.nativeElement.querySelectorAll('mat-label') as NodeListOf<Element>,
+      ).map((label) => label.textContent?.trim());
+
+      expect(labels).toEqual(['Código', 'Nombre', 'Descripción', 'Orden']);
     });
   });
 });

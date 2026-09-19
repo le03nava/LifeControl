@@ -1,3 +1,4 @@
+/// <reference types="vitest/globals" />
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
@@ -9,6 +10,8 @@ import { StoreZonesEdit } from './store-zones-edit';
 import { StoreZoneForm } from '../../components/store-zone-form/store-zone-form';
 import { StoreZoneService } from '../../data/store-zone.service';
 import { CreateStoreZoneRequest, StoreZone } from '../../models/store-zone.models';
+import { NotificationService } from '@shared/data/notification';
+import Keycloak from 'keycloak-js';
 
 describe('StoreZonesEdit', () => {
   let component: StoreZonesEdit;
@@ -56,12 +59,21 @@ describe('StoreZonesEdit', () => {
   async function setup(
     id: string | null = null,
     queryParams: Record<string, string> = {},
+    roles: string[] = ['lc-admin'],
   ): Promise<void> {
     await TestBed.configureTestingModule({
       imports: [StoreZonesEdit, NoopAnimationsModule, HttpClientTestingModule],
       providers: [
         { provide: StoreZoneService, useClass: MockStoreZoneService },
         { provide: Router, useValue: routerMock },
+        {
+          provide: NotificationService,
+          useValue: { showSuccess: vi.fn(), showError: vi.fn(), showWarning: vi.fn() },
+        },
+        {
+          provide: Keycloak,
+          useValue: { tokenParsed: { resource_access: { 'life-control-client': { roles } } } },
+        },
         { provide: ActivatedRoute, useValue: activatedRouteWith(id, queryParams) },
       ],
     }).compileComponents();
@@ -434,6 +446,16 @@ describe('StoreZonesEdit', () => {
         providers: [
           { provide: StoreZoneService, useClass: MockStoreZoneService },
           { provide: Router, useValue: routerMock },
+          {
+            provide: NotificationService,
+            useValue: { showSuccess: vi.fn(), showError: vi.fn(), showWarning: vi.fn() },
+          },
+          {
+            provide: Keycloak,
+            useValue: {
+              tokenParsed: { resource_access: { 'life-control-client': { roles: ['lc-admin'] } } },
+            },
+          },
           { provide: ActivatedRoute, useValue: activatedRouteWith('store-zone-1') },
         ],
       }).compileComponents();
@@ -467,6 +489,16 @@ describe('StoreZonesEdit', () => {
         providers: [
           { provide: StoreZoneService, useClass: MockStoreZoneService },
           { provide: Router, useValue: routerMock },
+          {
+            provide: NotificationService,
+            useValue: { showSuccess: vi.fn(), showError: vi.fn(), showWarning: vi.fn() },
+          },
+          {
+            provide: Keycloak,
+            useValue: {
+              tokenParsed: { resource_access: { 'life-control-client': { roles: ['lc-admin'] } } },
+            },
+          },
           { provide: ActivatedRoute, useValue: activatedRouteWith('store-zone-404') },
         ],
       }).compileComponents();
@@ -556,6 +588,171 @@ describe('StoreZonesEdit', () => {
       const banner = fixture.nativeElement.querySelector('app-error-banner');
       expect(banner).toBeTruthy();
       expect(banner.textContent).toContain('Error inesperado. Intente de nuevo más tarde.');
+    });
+  });
+
+  // ─── Save lifecycle, feedback and route guard ───────────────
+
+  describe('save lifecycle (create mode)', () => {
+    const createParams = {
+      companyId: 'company-1',
+      countryId: 'cc-1',
+      regionId: 'reg-1',
+      zoneId: 'zone-1',
+      storeId: 'store-1',
+      areaId: 'area-1',
+    };
+
+    beforeEach(async () => {
+      await setup(null, createParams);
+    });
+
+    it('should start with no save in flight', () => {
+      expect(component.saving()).toBe(false);
+    });
+
+    it('should notify a successful create', () => {
+      const notifications = TestBed.inject(NotificationService) as unknown as {
+        showSuccess: ReturnType<typeof vi.fn>;
+      };
+
+      component.onSave({ zoneCode: 'SECO', zoneName: 'Zona Seca' });
+
+      expect(notifications.showSuccess).toHaveBeenCalledWith('Zona creada correctamente.');
+    });
+
+    it('should not fire a second request while the first is still in flight', () => {
+      const zoneService = TestBed.inject(StoreZoneService) as unknown as MockStoreZoneService;
+      zoneService.createZone.mockReturnValue(new Subject<StoreZone>().asObservable());
+      const request = { zoneCode: 'SECO', zoneName: 'Zona Seca' };
+
+      component.onSave(request);
+      expect(component.saving()).toBe(true);
+
+      component.onSave(request);
+
+      expect(zoneService.createZone).toHaveBeenCalledTimes(1);
+    });
+
+    it('should clear the in-flight flag when the request completes', () => {
+      const zoneService = TestBed.inject(StoreZoneService) as unknown as MockStoreZoneService;
+      const pending = new Subject<StoreZone>();
+      zoneService.createZone.mockReturnValue(pending.asObservable());
+
+      component.onSave({ zoneCode: 'SECO', zoneName: 'Zona Seca' });
+      pending.next(mockZone);
+      pending.complete();
+
+      expect(component.saving()).toBe(false);
+    });
+
+    it('should clear the in-flight flag when the request fails', () => {
+      const zoneService = TestBed.inject(StoreZoneService) as unknown as MockStoreZoneService;
+      zoneService.createZone.mockReturnValue(
+        throwError(() => new HttpErrorResponse({ error: {}, status: 400 })),
+      );
+
+      component.onSave({ zoneCode: 'SECO', zoneName: 'Zona Seca' });
+
+      expect(component.saving()).toBe(false);
+    });
+
+    it('should pass the in-flight flag down to the form', () => {
+      const zoneService = TestBed.inject(StoreZoneService) as unknown as MockStoreZoneService;
+      zoneService.createZone.mockReturnValue(new Subject<StoreZone>().asObservable());
+
+      component.onSave({ zoneCode: 'SECO', zoneName: 'Zona Seca' });
+      fixture.detectChanges();
+
+      expect(zoneForm().saving()).toBe(true);
+    });
+  });
+
+  describe('save lifecycle (edit mode)', () => {
+    beforeEach(async () => {
+      await setup('store-zone-1');
+    });
+
+    it('should notify a successful update', () => {
+      const notifications = TestBed.inject(NotificationService) as unknown as {
+        showSuccess: ReturnType<typeof vi.fn>;
+      };
+
+      component.onSave({ zoneCode: 'SECO', zoneName: 'Zona Seca' });
+
+      expect(notifications.showSuccess).toHaveBeenCalledWith('Zona actualizada correctamente.');
+    });
+
+    it('should leave the form pristine so the route guard lets the post-save navigation through', () => {
+      zoneForm().formGroup.markAsDirty();
+      expect(component.hasUnsavedChanges()).toBe(true);
+
+      component.onSave({ zoneCode: 'SECO', zoneName: 'Zona Seca' });
+
+      expect(component.hasUnsavedChanges()).toBe(false);
+      expect(routerMock.navigate).toHaveBeenCalled();
+    });
+  });
+
+  describe('unsaved changes', () => {
+    const createParams = {
+      companyId: 'company-1',
+      countryId: 'cc-1',
+      regionId: 'reg-1',
+      zoneId: 'zone-1',
+      storeId: 'store-1',
+      areaId: 'area-1',
+    };
+
+    it('should report no unsaved changes right after loading an entity', async () => {
+      await setup('store-zone-1');
+
+      expect(component.hasUnsavedChanges()).toBe(false);
+    });
+
+    it('should report unsaved changes once the form is edited', async () => {
+      await setup('store-zone-1');
+
+      zoneForm().formGroup.markAsDirty();
+
+      expect(component.hasUnsavedChanges()).toBe(true);
+    });
+
+    it('should report no unsaved changes in a fresh create form', async () => {
+      await setup(null, createParams);
+
+      expect(component.hasUnsavedChanges()).toBe(false);
+    });
+
+    it('should report unsaved changes after editing a create form', async () => {
+      await setup(null, createParams);
+
+      zoneForm().formGroup.markAsDirty();
+
+      expect(component.hasUnsavedChanges()).toBe(true);
+    });
+  });
+
+  describe('role gating', () => {
+    const createParams = {
+      companyId: 'company-1',
+      countryId: 'cc-1',
+      regionId: 'reg-1',
+      zoneId: 'zone-1',
+      storeId: 'store-1',
+      areaId: 'area-1',
+    };
+
+    it('should not render the submit control for a read-only user', async () => {
+      await setup(null, createParams, ['lc-company-store-read']);
+
+      expect(fixture.nativeElement.querySelector('button[type="submit"]')).toBeNull();
+    });
+
+    it('should render the submit control for a store writer', async () => {
+      await setup(null, createParams, ['lc-company-store']);
+
+      expect(fixture.nativeElement.querySelector('button[type="submit"]')).toBeTruthy();
     });
   });
 });

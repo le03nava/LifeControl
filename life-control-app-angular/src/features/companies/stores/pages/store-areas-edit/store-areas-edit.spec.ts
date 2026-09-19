@@ -1,3 +1,4 @@
+/// <reference types="vitest/globals" />
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
@@ -9,6 +10,8 @@ import { StoreAreasEdit } from './store-areas-edit';
 import { StoreAreaForm } from '../../components/store-area-form/store-area-form';
 import { StoreAreaService } from '../../data/store-area.service';
 import { CreateStoreAreaRequest, StoreArea } from '../../models/store-area.models';
+import { NotificationService } from '@shared/data/notification';
+import Keycloak from 'keycloak-js';
 
 describe('StoreAreasEdit', () => {
   let component: StoreAreasEdit;
@@ -55,12 +58,21 @@ describe('StoreAreasEdit', () => {
   async function setup(
     id: string | null = null,
     queryParams: Record<string, string> = {},
+    roles: string[] = ['lc-admin'],
   ): Promise<void> {
     await TestBed.configureTestingModule({
       imports: [StoreAreasEdit, NoopAnimationsModule, HttpClientTestingModule],
       providers: [
         { provide: StoreAreaService, useClass: MockStoreAreaService },
         { provide: Router, useValue: routerMock },
+        {
+          provide: NotificationService,
+          useValue: { showSuccess: vi.fn(), showError: vi.fn(), showWarning: vi.fn() },
+        },
+        {
+          provide: Keycloak,
+          useValue: { tokenParsed: { resource_access: { 'life-control-client': { roles } } } },
+        },
         { provide: ActivatedRoute, useValue: activatedRouteWith(id, queryParams) },
       ],
     }).compileComponents();
@@ -343,6 +355,16 @@ describe('StoreAreasEdit', () => {
         providers: [
           { provide: StoreAreaService, useClass: MockStoreAreaService },
           { provide: Router, useValue: routerMock },
+          {
+            provide: NotificationService,
+            useValue: { showSuccess: vi.fn(), showError: vi.fn(), showWarning: vi.fn() },
+          },
+          {
+            provide: Keycloak,
+            useValue: {
+              tokenParsed: { resource_access: { 'life-control-client': { roles: ['lc-admin'] } } },
+            },
+          },
           { provide: ActivatedRoute, useValue: activatedRouteWith('area-1') },
         ],
       }).compileComponents();
@@ -375,6 +397,16 @@ describe('StoreAreasEdit', () => {
         providers: [
           { provide: StoreAreaService, useClass: MockStoreAreaService },
           { provide: Router, useValue: routerMock },
+          {
+            provide: NotificationService,
+            useValue: { showSuccess: vi.fn(), showError: vi.fn(), showWarning: vi.fn() },
+          },
+          {
+            provide: Keycloak,
+            useValue: {
+              tokenParsed: { resource_access: { 'life-control-client': { roles: ['lc-admin'] } } },
+            },
+          },
           { provide: ActivatedRoute, useValue: activatedRouteWith('area-404') },
         ],
       }).compileComponents();
@@ -463,6 +495,168 @@ describe('StoreAreasEdit', () => {
       const banner = fixture.nativeElement.querySelector('app-error-banner');
       expect(banner).toBeTruthy();
       expect(banner.textContent).toContain('Error inesperado. Intente de nuevo más tarde.');
+    });
+  });
+
+  // ─── Save lifecycle, feedback and route guard ───────────────
+
+  describe('save lifecycle (create mode)', () => {
+    const createParams = {
+      companyId: 'company-1',
+      countryId: 'cc-1',
+      regionId: 'reg-1',
+      zoneId: 'zone-1',
+      storeId: 'store-1',
+    };
+
+    beforeEach(async () => {
+      await setup(null, createParams);
+    });
+
+    it('should start with no save in flight', () => {
+      expect(component.saving()).toBe(false);
+    });
+
+    it('should notify a successful create', () => {
+      const notifications = TestBed.inject(NotificationService) as unknown as {
+        showSuccess: ReturnType<typeof vi.fn>;
+      };
+
+      component.onSave({ areaCode: 'ALMACEN', areaName: 'Almacén' });
+
+      expect(notifications.showSuccess).toHaveBeenCalledWith('Área creada correctamente.');
+    });
+
+    it('should not fire a second request while the first is still in flight', () => {
+      const areaService = TestBed.inject(StoreAreaService) as unknown as MockStoreAreaService;
+      areaService.createArea.mockReturnValue(new Subject<StoreArea>().asObservable());
+      const request = { areaCode: 'ALMACEN', areaName: 'Almacén' };
+
+      component.onSave(request);
+      expect(component.saving()).toBe(true);
+
+      component.onSave(request);
+
+      expect(areaService.createArea).toHaveBeenCalledTimes(1);
+    });
+
+    it('should clear the in-flight flag when the request completes', () => {
+      const areaService = TestBed.inject(StoreAreaService) as unknown as MockStoreAreaService;
+      const pending = new Subject<StoreArea>();
+      areaService.createArea.mockReturnValue(pending.asObservable());
+
+      component.onSave({ areaCode: 'ALMACEN', areaName: 'Almacén' });
+      pending.next(mockArea);
+      pending.complete();
+
+      expect(component.saving()).toBe(false);
+    });
+
+    it('should clear the in-flight flag when the request fails', () => {
+      const areaService = TestBed.inject(StoreAreaService) as unknown as MockStoreAreaService;
+      areaService.createArea.mockReturnValue(
+        throwError(() => new HttpErrorResponse({ error: {}, status: 400 })),
+      );
+
+      component.onSave({ areaCode: 'ALMACEN', areaName: 'Almacén' });
+
+      expect(component.saving()).toBe(false);
+    });
+
+    it('should pass the in-flight flag down to the form', () => {
+      const areaService = TestBed.inject(StoreAreaService) as unknown as MockStoreAreaService;
+      areaService.createArea.mockReturnValue(new Subject<StoreArea>().asObservable());
+
+      component.onSave({ areaCode: 'ALMACEN', areaName: 'Almacén' });
+      fixture.detectChanges();
+
+      expect(areaForm().saving()).toBe(true);
+    });
+  });
+
+  describe('save lifecycle (edit mode)', () => {
+    beforeEach(async () => {
+      await setup('area-1');
+    });
+
+    it('should notify a successful update', () => {
+      const notifications = TestBed.inject(NotificationService) as unknown as {
+        showSuccess: ReturnType<typeof vi.fn>;
+      };
+
+      component.onSave({ areaCode: 'ALMACEN', areaName: 'Almacén Nuevo' });
+
+      expect(notifications.showSuccess).toHaveBeenCalledWith('Área actualizada correctamente.');
+    });
+
+    it('should leave the form pristine so the route guard lets the post-save navigation through', () => {
+      areaForm().formGroup.markAsDirty();
+      expect(component.hasUnsavedChanges()).toBe(true);
+
+      component.onSave({ areaCode: 'ALMACEN', areaName: 'Almacén Nuevo' });
+
+      expect(component.hasUnsavedChanges()).toBe(false);
+      expect(routerMock.navigate).toHaveBeenCalled();
+    });
+  });
+
+  describe('unsaved changes', () => {
+    const createParams = {
+      companyId: 'company-1',
+      countryId: 'cc-1',
+      regionId: 'reg-1',
+      zoneId: 'zone-1',
+      storeId: 'store-1',
+    };
+
+    it('should report no unsaved changes right after loading an entity', async () => {
+      await setup('area-1');
+
+      expect(component.hasUnsavedChanges()).toBe(false);
+    });
+
+    it('should report unsaved changes once the form is edited', async () => {
+      await setup('area-1');
+
+      areaForm().formGroup.markAsDirty();
+
+      expect(component.hasUnsavedChanges()).toBe(true);
+    });
+
+    it('should report no unsaved changes in a fresh create form', async () => {
+      await setup(null, createParams);
+
+      expect(component.hasUnsavedChanges()).toBe(false);
+    });
+
+    it('should report unsaved changes after editing a create form', async () => {
+      await setup(null, createParams);
+
+      areaForm().formGroup.markAsDirty();
+
+      expect(component.hasUnsavedChanges()).toBe(true);
+    });
+  });
+
+  describe('role gating', () => {
+    const createParams = {
+      companyId: 'company-1',
+      countryId: 'cc-1',
+      regionId: 'reg-1',
+      zoneId: 'zone-1',
+      storeId: 'store-1',
+    };
+
+    it('should not render the submit control for a read-only user', async () => {
+      await setup(null, createParams, ['lc-company-store-read']);
+
+      expect(fixture.nativeElement.querySelector('button[type="submit"]')).toBeNull();
+    });
+
+    it('should render the submit control for a store writer', async () => {
+      await setup(null, createParams, ['lc-company-store']);
+
+      expect(fixture.nativeElement.querySelector('button[type="submit"]')).toBeTruthy();
     });
   });
 });

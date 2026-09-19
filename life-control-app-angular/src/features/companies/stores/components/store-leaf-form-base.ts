@@ -40,6 +40,19 @@ export abstract class StoreLeafFormBase<TRequest> {
 
   readonly serverErrors = input<Record<string, string>>({});
 
+  /**
+   * True while the owning page has a save request in flight. The submit button is
+   * disabled and `onSave()` refuses to emit, so a double click / Enter cannot create a
+   * duplicate row.
+   */
+  readonly saving = input(false);
+
+  /**
+   * False for a read-only user (`lc-company-store-read`). The submit control is not
+   * rendered at all — a control the user can never use should not exist.
+   */
+  readonly canWrite = input(true);
+
   readonly save = output<TRequest>();
   /**
    * Named `cancelForm` (not `cancel`) because `cancel` is a native DOM event name and
@@ -110,7 +123,7 @@ export abstract class StoreLeafFormBase<TRequest> {
   onSave(): void {
     this.formGroup.markAllAsTouched();
 
-    if (this.formGroup.invalid) return;
+    if (this.formGroup.invalid || this.saving()) return;
 
     this.save.emit(this.buildRequest());
   }

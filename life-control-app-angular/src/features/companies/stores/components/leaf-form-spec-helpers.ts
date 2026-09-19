@@ -122,6 +122,15 @@ export function runLeafFormBehavioralSuite<TRequest>(caseDef: LeafFormCaseDef<TR
       return () => emitted;
     }
 
+    /** Fills the two required controls so the group is valid and `saving` is the only blocker. */
+    function fillValidForm(): void {
+      component.formGroup.patchValue({ [codeKey]: 'VALID', [nameKey]: 'Valid' });
+    }
+
+    function submitButton(): HTMLButtonElement {
+      return fixture.nativeElement.querySelector('button[type="submit"]') as HTMLButtonElement;
+    }
+
     // ─── Mode ────────────────────────────────────────────────
     it('should create the component', () => {
       expect(component).toBeTruthy();
@@ -218,6 +227,15 @@ export function runLeafFormBehavioralSuite<TRequest>(caseDef: LeafFormCaseDef<TR
       expect(displayOrder.errors).toBeNull();
     });
 
+    it('should reject a fractional displayOrder', () => {
+      const displayOrder = control('displayOrder');
+      displayOrder.setValue(1.5);
+      expect(displayOrder.errors?.['integer']).toBeTruthy();
+
+      displayOrder.setValue(2);
+      expect(displayOrder.errors).toBeNull();
+    });
+
     it('should render the Spanish required message', () => {
       const name = control(nameKey);
       name.markAsTouched();
@@ -243,6 +261,15 @@ export function runLeafFormBehavioralSuite<TRequest>(caseDef: LeafFormCaseDef<TR
       fixture.detectChanges();
 
       expect(matErrorText()).toContain('mínimo');
+    });
+
+    it('should render the Spanish integer message', () => {
+      const displayOrder = control('displayOrder');
+      displayOrder.setValue(1.5);
+      displayOrder.markAsTouched();
+      fixture.detectChanges();
+
+      expect(matErrorText()).toContain('entero');
     });
 
     // ─── Save ────────────────────────────────────────────────
@@ -307,6 +334,47 @@ export function runLeafFormBehavioralSuite<TRequest>(caseDef: LeafFormCaseDef<TR
 
       // 0 is a valid display order and must not be dropped as "empty".
       expect(emitted()).toEqual(caseDef.expectedRequest);
+    });
+
+    // ─── Submit gating ──────────────────────────────────────
+    it('should disable the submit control while the form is invalid', () => {
+      expect(submitButton().disabled).toBe(true);
+    });
+
+    it('should disable the submit control while a save is in flight', () => {
+      fillValidForm();
+      fixture.componentRef.setInput('saving', true);
+      fixture.detectChanges();
+
+      expect(submitButton().disabled).toBe(true);
+    });
+
+    it('should not emit save while a save is already in flight', () => {
+      fillValidForm();
+      fixture.componentRef.setInput('saving', true);
+      fixture.detectChanges();
+      let emitted = false;
+      component.save.subscribe(() => {
+        emitted = true;
+      });
+
+      component.onSave();
+
+      expect(emitted).toBe(false);
+    });
+
+    it('should not render the submit control for a read-only user', () => {
+      fixture.componentRef.setInput('canWrite', false);
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.querySelector('button[type="submit"]')).toBeNull();
+    });
+
+    it('should keep the cancel control for a read-only user', () => {
+      fixture.componentRef.setInput('canWrite', false);
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.querySelector('button[type="button"]')).toBeTruthy();
     });
 
     // ─── Cancel ──────────────────────────────────────────────

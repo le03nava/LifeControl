@@ -1,15 +1,18 @@
+/// <reference types="vitest/globals" />
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { By } from '@angular/platform-browser';
 import { signal, Type, WritableSignal } from '@angular/core';
-import { of, throwError } from 'rxjs';
+import { Subject, of, throwError } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router } from '@angular/router';
 import { MatDialog } from '@angular/material/dialog';
 import { MatSelect } from '@angular/material/select';
 import { StoreLocationsPage } from './store-locations-page';
 import { ConfirmDialog } from '@shared/ui';
+import { NotificationService } from '@shared/data/notification';
+import Keycloak from 'keycloak-js';
 import { CompanyService } from '../../../companies/data/company.service';
 import { CompanyCountryService } from '../../../countries/data/company-country.service';
 import { CompanyRegionService } from '../../../regions/data/company-region.service';
@@ -370,7 +373,10 @@ describe('StoreLocationsPage', () => {
     });
   }
 
-  async function setup(queryParams: Record<string, string> = {}): Promise<void> {
+  async function setup(
+    queryParams: Record<string, string> = {},
+    roles: string[] = ['lc-admin'],
+  ): Promise<void> {
     TestBed.configureTestingModule({
       imports: [StoreLocationsPage, NoopAnimationsModule, HttpClientTestingModule],
       providers: [
@@ -383,6 +389,14 @@ describe('StoreLocationsPage', () => {
         { provide: StoreZoneService, useClass: MockStoreZoneService },
         { provide: Router, useValue: routerMock },
         { provide: MatDialog, useValue: dialogMock },
+        {
+          provide: NotificationService,
+          useValue: { showSuccess: vi.fn(), showError: vi.fn(), showWarning: vi.fn() },
+        },
+        {
+          provide: Keycloak,
+          useValue: { tokenParsed: { resource_access: { 'life-control-client': { roles } } } },
+        },
         { provide: ActivatedRoute, useValue: activatedRouteWith(queryParams) },
       ],
     });
@@ -1106,14 +1120,59 @@ describe('StoreLocationsPage', () => {
       expect(component.reload()).toBe(1);
     });
 
-    it('should render "Reactivar" for a disabled store location', async () => {
+    it('should render the visible "Reactivar" / "Deshabilitar" labels for a mixed list', async () => {
       await selectStoreZone();
 
-      const labels = Array.from(
-        fixture.nativeElement.querySelectorAll('button[aria-label]') as NodeListOf<Element>,
-      ).map((b) => b.getAttribute('aria-label'));
-      expect(labels).toContain('Reactivar ubicación');
-      expect(labels).toContain('Deshabilitar ubicación');
+      const actions = fixture.nativeElement.querySelectorAll(
+        '.store-location-card mat-card-actions',
+      );
+      const text = Array.from(actions as NodeListOf<Element>)
+        .map((node) => node.textContent ?? '')
+        .join(' ');
+
+      expect(text).toContain('Reactivar');
+      expect(text).toContain('Deshabilitar');
+    });
+
+    it('should not duplicate the visible button text in an aria-label', async () => {
+      await selectStoreZone();
+
+      expect(
+        fixture.nativeElement.querySelectorAll(
+          '.store-location-card mat-card-actions button[aria-label]',
+        ).length,
+      ).toBe(0);
+    });
+
+    it('should notify a successful disable', async () => {
+      const notifications = TestBed.inject(NotificationService) as unknown as {
+        showSuccess: ReturnType<typeof vi.fn>;
+      };
+      const storeLocationService = pageService(
+        StoreLocationService,
+      ) as unknown as MockStoreLocationService;
+      dialogMock.open.mockReturnValue({ afterClosed: () => of(true) });
+      storeLocationService.removeLocation.mockReturnValue(of(undefined));
+
+      await selectStoreZone();
+      component.onToggleStoreLocation(mockStoreLocations[0]);
+      await settle();
+
+      expect(notifications.showSuccess).toHaveBeenCalledWith(
+        'Ubicación deshabilitada correctamente.',
+      );
+    });
+
+    it('should notify a successful re-enable', async () => {
+      const notifications = TestBed.inject(NotificationService) as unknown as {
+        showSuccess: ReturnType<typeof vi.fn>;
+      };
+
+      await selectStoreZone();
+      component.onToggleStoreLocation(mockStoreLocations[1]); // enabled: false
+      await settle();
+
+      expect(notifications.showSuccess).toHaveBeenCalledWith('Ubicación reactivada correctamente.');
     });
 
     it('should surface the backend message when disabling fails', async () => {
@@ -1305,6 +1364,98 @@ describe('StoreLocationsPage', () => {
       const errorEl = fixture.nativeElement.querySelector('.error-state');
       expect(errorEl).toBeTruthy();
       expect(errorEl.textContent).toContain('Error al cargar las ubicaciones');
+      // The shared banner owns the alert role: the region must be announced, not just rendered.
+      expect(errorEl.querySelector('[role="alert"]')).toBeTruthy();
+    });
+  });
+
+  describe('leaf list region', () => {
+    beforeEach(async () => {
+      await setup();
+    });
+
+    it('should not be busy once the list has loaded', async () => {
+      await selectStoreZone();
+
+      const grid = fixture.nativeElement.querySelector('.store-locations-grid');
+      expect(grid).toBeTruthy();
+      expect(grid.getAttribute('aria-busy')).toBe('false');
+    });
+
+    it('should be busy while the list is loading', async () => {
+      const storeLocationService = pageService(
+        StoreLocationService,
+      ) as unknown as MockStoreLocationService;
+
+      // Resolve the cascade down to the area, then make only the leaf request hang.
+      await selectArea();
+
+      storeLocationService.getStoreLocations.mockReturnValue(
+        new Subject<StoreLocation>().asObservable(),
+      );
+      component.onSelectStoreZone(mockStoreZones[0]);
+      // Flushed by hand: a pending resource keeps the app unstable, so `settle()` (which awaits
+      // `whenStable()`) would never resolve.
+      fixture.detectChanges();
+      await Promise.resolve();
+      fixture.detectChanges();
+
+      const grid = fixture.nativeElement.querySelector('.store-locations-grid');
+      expect(grid).toBeTruthy();
+      expect(grid.getAttribute('aria-busy')).toBe('true');
+    });
+  });
+
+  describe('role gating', () => {
+    describe('read-only user (lc-company-store-read)', () => {
+      beforeEach(async () => {
+        await setup({}, ['lc-company-store-read']);
+      });
+
+      it('should not render the create control', async () => {
+        await selectStoreZone();
+
+        expect(fixture.nativeElement.querySelector('.header-actions button')).toBeNull();
+      });
+
+      it('should not render any per-card write control', async () => {
+        await selectStoreZone();
+
+        const actions = fixture.nativeElement.querySelector(
+          '.store-location-card mat-card-actions',
+        );
+        expect(actions).toBeTruthy();
+        expect(actions.querySelectorAll('button').length).toBe(0);
+      });
+
+      it('should still render the location cards themselves', async () => {
+        await selectStoreZone();
+
+        expect(fixture.nativeElement.querySelectorAll('.store-location-card').length).toBe(
+          mockStoreLocations.length,
+        );
+      });
+    });
+
+    describe('store writer (lc-company-store)', () => {
+      beforeEach(async () => {
+        await setup({}, ['lc-company-store']);
+      });
+
+      it('should render the create control', async () => {
+        await selectStoreZone();
+
+        expect(fixture.nativeElement.querySelector('.header-actions button')).toBeTruthy();
+      });
+
+      it('should render the per-card write controls', async () => {
+        await selectStoreZone();
+
+        const actions = fixture.nativeElement.querySelector(
+          '.store-location-card mat-card-actions',
+        );
+        expect(actions.querySelectorAll('button').length).toBeGreaterThan(0);
+      });
     });
   });
 });

@@ -10,6 +10,7 @@ import {
   UpdateStoreAreaRequest,
 } from '../../models/store-area.models';
 import { StoreLeafFormBase } from '../store-leaf-form-base';
+import { integerValidator } from '../form-errors';
 
 /**
  * Self-contained reactive form for creating and editing a store area.
@@ -37,7 +38,7 @@ export class StoreAreaForm extends StoreLeafFormBase<
     areaCode: this.fb.control('', [Validators.required, Validators.maxLength(10)]),
     areaName: this.fb.control('', [Validators.required, Validators.maxLength(100)]),
     description: this.fb.control<string | null>(null, [Validators.maxLength(255)]),
-    displayOrder: this.fb.control<number | null>(null, [Validators.min(0)]),
+    displayOrder: this.fb.control<number | null>(null, [Validators.min(0), integerValidator]),
   });
 
   constructor() {

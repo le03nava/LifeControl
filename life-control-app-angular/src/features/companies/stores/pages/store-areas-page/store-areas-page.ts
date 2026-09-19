@@ -7,7 +7,9 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
-import { PageHeader, ConfirmDialog } from '@shared/ui';
+import { PageHeader, ConfirmDialog, ErrorBanner } from '@shared/ui';
+import { NotificationService } from '@shared/data/notification';
+import { hasAnyClientRole, STORE_WRITE_ROLES } from '@core/security/roles';
 import { of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { StoreAreaService } from '../../data/store-area.service';
@@ -28,13 +30,22 @@ import { StoreCascadePage } from '../store-cascade-page';
     MatFormFieldModule,
     MatSlideToggleModule,
     PageHeader,
+    ErrorBanner,
   ],
   templateUrl: './store-areas-page.html',
   styleUrl: './store-areas-page.scss',
 })
 export class StoreAreasPage extends StoreCascadePage {
   private readonly storeAreaService = inject(StoreAreaService);
+  private readonly notifications = inject(NotificationService);
   private readonly actionErrorFallback = 'No se pudo actualizar el área de la tienda.';
+
+  /**
+   * `lc-company-store-read` reaches this page — its route allows every company role — but the
+   * backend answers `AccessDeniedException` on every write, so the create / edit / disable
+   * controls are not rendered for it.
+   */
+  readonly canWrite = hasAnyClientRole(STORE_WRITE_ROLES);
 
   /** Final list of the cascade: the only level that respects the toggle. */
   readonly areasResource = rxResource({
@@ -107,7 +118,7 @@ export class StoreAreasPage extends StoreCascadePage {
       const dialogRef = this.dialog.open(ConfirmDialog, {
         data: {
           title: 'Deshabilitar área',
-          message: `¿Confirmás que querés deshabilitar el área "${area.areaName}"? La información se conserva y podés reactivarla más adelante.`,
+          message: `¿Confirmás que querés deshabilitar el área "${area.areaName}"? También se deshabilitarán todas sus zonas y ubicaciones habilitadas. La información se conserva y podés reactivarla más adelante.`,
           confirmLabel: 'Deshabilitar',
           destructive: true,
         },
@@ -128,7 +139,10 @@ export class StoreAreasPage extends StoreCascadePage {
             )
             .pipe(takeUntilDestroyed(this.destroyRef))
             .subscribe({
-              next: () => this.reload.update((n) => n + 1),
+              next: () => {
+                this.notifications.showSuccess('Área deshabilitada correctamente.');
+                this.reload.update((n) => n + 1);
+              },
               error: (err: HttpErrorResponse) => this.setActionError(err, this.actionErrorFallback),
             });
         });
@@ -146,7 +160,10 @@ export class StoreAreasPage extends StoreCascadePage {
       )
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: () => this.reload.update((n) => n + 1),
+        next: () => {
+          this.notifications.showSuccess('Área reactivada correctamente.');
+          this.reload.update((n) => n + 1);
+        },
         error: (err: HttpErrorResponse) => this.setActionError(err, this.actionErrorFallback),
       });
   }
