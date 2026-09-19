@@ -1,0 +1,41 @@
+<mat-form-field appearance="outline" subscriptSizing="dynamic" class="variant-picker">
+  <mat-label>Variante</mat-label>
+
+  <mat-select
+    [value]="variantId()"
+    [disabled]="controlDisabled()"
+    (selectionChange)="onSelectionChange($event.value)"
+    aria-label="Seleccionar variante"
+  >
+    @for (variant of variants(); track variant.id) {
+      <mat-option [value]="variant.id">
+        <span class="variant-option-name">{{ variant.variantName }}</span>
+        <span class="variant-option-meta">
+          {{ variant.sku }} · {{ variant.costPrice | currency: 'MXN' }}
+        </span>
+      </mat-option>
+    }
+
+    @if (isEmpty()) {
+      <mat-option disabled>Sin variantes para este producto en esta tienda</mat-option>
+    }
+  </mat-select>
+
+  @if (loading()) {
+    <mat-hint>Cargando variantes...</mat-hint>
+  } @else if (loadFailed()) {
+    <mat-hint class="variant-picker__error">
+      No se pudieron cargar las variantes. Cambiá el producto o la tienda para reintentar.
+    </mat-hint>
+  } @else if (missingContext()) {
+    <mat-hint>Elegí un producto y una tienda para ver sus variantes.</mat-hint>
+  } @else if (isEmpty()) {
+    <mat-hint class="variant-picker__hint">
+      Sin variantes para este producto en esta tienda
+    </mat-hint>
+  } @else if (hasMore()) {
+    <mat-hint class="variant-picker__hint">
+      Mostrando las primeras {{ variants().length }} variantes.
+    </mat-hint>
+  }
+</mat-form-field>

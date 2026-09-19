@@ -44,6 +44,7 @@ const mockRequest: PurchaseOrderRequest = {
 
 const mockDetailRequest: PurchaseOrderDetailRequest = {
   productId: 'prod-1',
+  productVariantId: 'var-1',
   quantity: 10,
   unitPrice: 150,
 };
@@ -290,6 +291,8 @@ describe('PurchaseOrderService', () => {
             purchaseOrderId: 'po-1',
             productId: 'prod-1',
             productName: 'Widget A',
+            productVariantId: 'var-1',
+            productVariantName: 'Presentación 1L',
             quantity: 10,
             unitPrice: 150,
             total: 1500,
@@ -325,6 +328,8 @@ describe('PurchaseOrderService', () => {
             purchaseOrderId: 'po-1',
             productId: 'prod-1',
             productName: 'Widget A',
+            productVariantId: 'var-1',
+            productVariantName: 'Presentación 1L',
             quantity: 20,
             unitPrice: 150,
             total: 3000,

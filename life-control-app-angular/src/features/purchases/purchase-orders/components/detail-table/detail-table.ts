@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  effect,
   inject,
   input,
   output,
@@ -20,6 +21,8 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { ProductVariantPicker } from '../product-variant-picker/product-variant-picker';
+import type { ProductVariant } from '@features/products/models/product-variant.models';
 
 /** Viewport width below which the table switches to one card per line item. */
 const MOBILE_QUERY = '(max-width: 575px)';
@@ -33,6 +36,10 @@ export interface DetailTableRow {
   id?: string;
   productId: string;
   productName: string;
+  /** Variant the line is for. `null` only for legacy rows saved before the variant contract. */
+  productVariantId: string | null;
+  /** Display label for the variant. `null` on the same legacy rows. */
+  productVariantName: string | null;
   quantity: number;
   unitPrice: number;
 }
@@ -59,6 +66,7 @@ export interface DetailTableRow {
     MatCardModule,
     MatIconModule,
     MatTooltipModule,
+    ProductVariantPicker,
   ],
   templateUrl: './detail-table.html',
   styleUrl: './detail-table.scss',
@@ -75,6 +83,12 @@ export class DetailTable {
 
   /** Available products for the add-row product autocomplete. */
   readonly availableProducts = input.required<{ id: string; name: string; sku: string }[]>();
+
+  /**
+   * Store that scopes the variant picker. Required: a line without a store
+   * cannot resolve a variant.
+   */
+  readonly storeId = input.required<string>();
 
   /** Emits the full updated items array after any add or remove. */
   readonly itemsChanged = output<DetailTableRow[]>();
@@ -94,6 +108,19 @@ export class DetailTable {
   readonly newUnitPrice = signal(0);
   readonly searchQuery = signal('');
 
+  /** Variant id picked in the add-row form (two-way with the picker). */
+  readonly newVariantId = signal<string | null>(null);
+
+  /** Whole variant picked in the add-row form; carries `costPrice` and `variantName`. */
+  readonly selectedVariant = signal<ProductVariant | null>(null);
+
+  /**
+   * Whether the user typed a unit price for the current add-row selection.
+   * While it is false, picking a variant pre-fills the price with its cost.
+   * Reset whenever the product or the variant changes, and after a line is added.
+   */
+  private readonly priceManuallyEdited = signal(false);
+
   /** Products filtered by the local search query (client-side on the already supplier-filtered list). */
   readonly filteredProducts = computed(() => {
     const query = this.searchQuery().toLowerCase();
@@ -107,6 +134,7 @@ export class DetailTable {
   // ─── Computed ──────────────────────────────────────────
   readonly displayedColumns: string[] = [
     'productName',
+    'variantName',
     'quantity',
     'unitPrice',
     'subtotal',
@@ -117,16 +145,50 @@ export class DetailTable {
     this.items().reduce((sum, item) => sum + item.quantity * item.unitPrice, 0),
   );
 
+  /**
+   * The picked variant must belong to the current product and the current
+   * store. The picker reloads on a scope change, but a stale variant from the
+   * previous scope can still be held here until the reset lands, so the guard
+   * re-checks the variant's own ownership fields before any add.
+   */
+  private readonly isSelectedVariantInScope = computed(() => {
+    const variant = this.selectedVariant();
+    return (
+      variant !== null &&
+      variant.productId === this.newProductId() &&
+      variant.companyStoreId === this.storeId()
+    );
+  });
+
   readonly canAddItem = computed(
     () =>
       this.isDraft() &&
       this.newProductId() !== '' &&
+      this.newVariantId() !== null &&
+      this.isSelectedVariantInScope() &&
       this.newQuantity() > 0 &&
       this.newUnitPrice() > 0,
   );
 
+  constructor() {
+    // A store change invalidates any variant picked in the add-row form: the
+    // variant belongs to the previous store, so it can no longer be added even
+    // if the picker has not reported the reset yet.
+    effect(() => {
+      this.storeId();
+      this.newVariantId.set(null);
+      this.selectedVariant.set(null);
+    });
+  }
+
   /** Whether any existing row has a non-positive quantity or unit price. */
   readonly hasInvalidRows = computed(() => this.items().some((item) => this.isRowInvalid(item)));
+
+  /**
+   * Whether any existing row has no variant. Such a row cannot produce a valid
+   * payload since the API contract made the variant mandatory.
+   */
+  readonly hasMissingVariants = computed(() => this.items().some((item) => !item.productVariantId));
 
   isRowInvalid(row: DetailTableRow): boolean {
     return row.quantity <= 0 || row.unitPrice <= 0;
@@ -135,18 +197,26 @@ export class DetailTable {
   // ─── Mutations ─────────────────────────────────────────
 
   addItem(): void {
-    if (!this.isDraft() || !this.newProductId() || this.newUnitPrice() <= 0) {
+    if (
+      !this.isDraft() ||
+      !this.newProductId() ||
+      this.newUnitPrice() <= 0 ||
+      !this.isSelectedVariantInScope()
+    ) {
       return;
     }
 
     const product = this.availableProducts().find((p) => p.id === this.newProductId());
-    if (!product) {
+    const variant = this.selectedVariant();
+    if (!product || !variant) {
       return;
     }
 
     const newRow: DetailTableRow = {
       productId: this.newProductId(),
       productName: product.name,
+      productVariantId: variant.id,
+      productVariantName: variant.variantName,
       quantity: this.newQuantity(),
       unitPrice: this.newUnitPrice(),
     };
@@ -157,6 +227,10 @@ export class DetailTable {
     this.newProductId.set('');
     this.newQuantity.set(1);
     this.newUnitPrice.set(0);
+    this.newVariantId.set(null);
+    this.selectedVariant.set(null);
+    this.searchQuery.set('');
+    this.priceManuallyEdited.set(false);
   }
 
   removeItem(index: number): void {
@@ -171,6 +245,11 @@ export class DetailTable {
     this.newProductId.set(value);
     const product = this.availableProducts().find((p) => p.id === value);
     this.searchQuery.set(product?.name ?? '');
+    // A different product means a different set of variants and a fresh price.
+    this.newVariantId.set(null);
+    this.selectedVariant.set(null);
+    this.newUnitPrice.set(0);
+    this.priceManuallyEdited.set(false);
   }
 
   onSearchChange(value: string): void {
@@ -186,6 +265,28 @@ export class DetailTable {
 
   onNewUnitPriceChange(value: number): void {
     this.newUnitPrice.set(value || 0);
+    // From now on the user owns the price: picking another variant must not
+    // overwrite what they typed.
+    this.priceManuallyEdited.set(true);
+  }
+
+  /** Keeps the add-row form in sync with the picker's two-way model. */
+  onVariantIdChange(variantId: string | null): void {
+    this.newVariantId.set(variantId);
+  }
+
+  /**
+   * Pre-fills the unit price with the variant's cost, but only while the user
+   * has not typed a price for the current add-row selection. The flag is only
+   * cleared by a product change or by adding the line, so a price the user typed
+   * is never overwritten by a later variant change.
+   */
+  onVariantSelected(variant: ProductVariant): void {
+    this.selectedVariant.set(variant);
+
+    if (!this.priceManuallyEdited()) {
+      this.newUnitPrice.set(variant.costPrice);
+    }
   }
 
   /** Inline-edit the quantity of an already-saved row. */

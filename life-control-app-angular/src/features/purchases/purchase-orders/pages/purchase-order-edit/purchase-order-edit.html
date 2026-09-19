@@ -26,11 +26,15 @@
 
   <form [formGroup]="headerForm()" (ngSubmit)="onSave()" novalidate>
     <!-- Company Information (cascade + detail card) -->
+    <!-- `(storeResolved)` is the silent-patch channel: the cascade patches
+         `companyStoreId` with `emitEvent: false`, so its `valueChanges` never
+         fires for the profile prefill or the cascade resets. -->
     <app-company-info-section
       [headerForm]="headerForm()"
       [isEditMode]="isEditMode()"
       [loadedOrder]="loadedOrder()"
       [serverErrors]="serverErrors()"
+      (storeResolved)="onStoreResolved($event)"
     />
 
     <!-- Supplier Information (supplier + payment method + comments) -->
@@ -46,6 +50,7 @@
       [items]="lineItems()"
       [isDraft]="isDraft()"
       [availableProducts]="supplierProducts()"
+      [storeId]="variantStoreId()"
       (itemsChanged)="onItemsChanged($event)"
     />
 

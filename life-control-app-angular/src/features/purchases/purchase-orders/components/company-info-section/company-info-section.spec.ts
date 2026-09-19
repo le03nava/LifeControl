@@ -438,6 +438,50 @@ describe('CompanyInfoSection', () => {
     });
   });
 
+  describe('store resolution output', () => {
+    // The cascade service patches `companyStoreId` with `emitEvent: false`, so
+    // `valueChanges` is blind to the profile prefill and the resets. The output
+    // is the channel the picker relies on, so both paths are covered here.
+
+    function createFixtureWithEmissions() {
+      const fixture = TestBed.createComponent(CompanyInfoSection);
+      fixture.componentRef.setInput('headerForm', headerForm);
+      const emitted: string[] = [];
+      fixture.componentInstance.storeResolved.subscribe((storeId) => emitted.push(storeId));
+      fixture.detectChanges();
+      fixture.detectChanges();
+      return { fixture, emitted };
+    }
+
+    it('should emit the store silently applied by the profile prefill', () => {
+      const { emitted } = createFixtureWithEmissions();
+
+      expect(headerForm.controls.companyStoreId.value).toBe('store-1');
+      expect(emitted).toContain('store-1');
+    });
+
+    it('should emit an empty store when a zone change resets it', () => {
+      const { fixture, emitted } = createFixtureWithEmissions();
+      expect(emitted.at(-1)).toBe('store-1');
+
+      fixture.componentInstance.onZoneChange('zone-2');
+      fixture.detectChanges();
+
+      expect(headerForm.controls.companyStoreId.value).toBe('');
+      expect(emitted.at(-1)).toBe('');
+    });
+
+    it('should emit an empty store when a company change resets it', () => {
+      const { fixture, emitted } = createFixtureWithEmissions();
+
+      fixture.componentInstance.onCompanyChange('comp-2');
+      fixture.detectChanges();
+
+      expect(headerForm.controls.companyStoreId.value).toBe('');
+      expect(emitted.at(-1)).toBe('');
+    });
+  });
+
   describe('form helpers', () => {
     function createFixture() {
       // Override profile mock so cascade doesn't auto-fill form values

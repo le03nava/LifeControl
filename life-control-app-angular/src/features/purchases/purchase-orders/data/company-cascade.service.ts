@@ -64,6 +64,18 @@ export class CompanyCascadeService {
   readonly zones = signal<SelectOption[]>([]);
   readonly stores = signal<SelectOption[]>([]);
 
+  /**
+   * Store the cascade last applied to the header's `companyStoreId` control.
+   *
+   * Every programmatic patch of that control uses `emitEvent: false` (the
+   * documented contract: silent patches must not mark the form dirty), so
+   * `companyStoreId.valueChanges` never sees them. Consumers that must follow
+   * the resolved store — like the variant picker scope — read this signal
+   * instead. All patches go through {@link patchStore} so it cannot drift from
+   * the control.
+   */
+  readonly storeId = signal('');
+
   private form: FormGroup<PurchaseOrderHeaderControl> | null = null;
   private targets: CascadeTargets | null = null;
   private detailCompanyId: string | null = null;
@@ -229,8 +241,20 @@ export class CompanyCascadeService {
       controls.zoneId.value === targets.zoneId &&
       this.stores().some((s) => s.id === targets.companyStoreId)
     ) {
-      this.form.controls.companyStoreId.setValue(targets.companyStoreId, { emitEvent: false });
+      this.patchStore(targets.companyStoreId);
     }
+  }
+
+  /**
+   * Single owner of every write to the header's `companyStoreId` control.
+   * Patches silently and mirrors the value into {@link storeId}.
+   */
+  private patchStore(storeId: string): void {
+    if (!this.form) {
+      return;
+    }
+    this.form.controls.companyStoreId.setValue(storeId, { emitEvent: false });
+    this.storeId.set(storeId);
   }
 
   // ══════════════════════════════════════════════════════════
@@ -358,7 +382,7 @@ export class CompanyCascadeService {
     controls.companyCountryId.setValue(null, { emitEvent: false });
     controls.regionId.setValue(null, { emitEvent: false });
     controls.zoneId.setValue(null, { emitEvent: false });
-    this.form.controls.companyStoreId.setValue('', { emitEvent: false });
+    this.patchStore('');
 
     this.targets = null;
     this.companyDetail.set(null);
@@ -383,7 +407,7 @@ export class CompanyCascadeService {
     controls.companyCountryId.setValue(companyCountryId || null, { emitEvent: false });
     controls.regionId.setValue(null, { emitEvent: false });
     controls.zoneId.setValue(null, { emitEvent: false });
-    this.form.controls.companyStoreId.setValue('', { emitEvent: false });
+    this.patchStore('');
 
     this.targets = null;
     this.regions.set([]);
@@ -404,7 +428,7 @@ export class CompanyCascadeService {
     const controls = this.form.controls.company.controls;
     controls.regionId.setValue(regionId || null, { emitEvent: false });
     controls.zoneId.setValue(null, { emitEvent: false });
-    this.form.controls.companyStoreId.setValue('', { emitEvent: false });
+    this.patchStore('');
 
     this.targets = null;
     this.zones.set([]);
@@ -424,7 +448,7 @@ export class CompanyCascadeService {
     }
     const controls = this.form.controls.company.controls;
     controls.zoneId.setValue(zoneId || null, { emitEvent: false });
-    this.form.controls.companyStoreId.setValue('', { emitEvent: false });
+    this.patchStore('');
 
     this.targets = null;
     this.stores.set([]);

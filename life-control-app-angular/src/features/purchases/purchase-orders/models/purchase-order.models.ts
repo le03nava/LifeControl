@@ -29,6 +29,10 @@ export interface PurchaseOrderDetail {
   purchaseOrderId: string;
   productId: string;
   productName: string;
+  /** Variant the line is for. `null` only on legacy rows saved before the variant contract. */
+  productVariantId: string | null;
+  /** Display label for the variant. `null` on the same legacy rows. */
+  productVariantName: string | null;
   quantity: number;
   unitPrice: number;
   total: number;
@@ -51,6 +55,8 @@ export interface PurchaseOrderRequest {
 
 export interface PurchaseOrderDetailRequest {
   productId: string;
+  /** Mandatory since the variant contract flip: the API rejects a payload without it. */
+  productVariantId: string;
   quantity: number;
   unitPrice: number;
   comments?: string;

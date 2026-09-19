@@ -126,6 +126,28 @@ export class PurchaseOrderEdit implements OnInit {
   /** Products filtered by the selected supplier, passed to DetailTable. */
   readonly supplierProducts = signal<{ id: string; name: string; sku: string }[]>([]);
 
+  /**
+   * Store that scopes the line-item variant picker. Two channels feed it:
+   *
+   * - `(storeResolved)` from `<app-company-info-section>`, which mirrors every
+   *   programmatic patch the cascade service makes (profile prefill on create,
+   *   order reconstruction on edit, and the company/country/region/zone resets).
+   * - the `companyStoreId.valueChanges` subscription below plus the explicit
+   *   set in `populateForm`, which cover a user picking a store directly.
+   *
+   * Both are required: `valueChanges` never sees `emitEvent: false` patches, and
+   * the output only fires when the cascade service itself applies a store.
+   */
+  readonly variantStoreId = signal('');
+
+  /**
+   * Legacy rows loaded without a variant cannot produce a valid payload: the API
+   * rejects a detail without `productVariantId`.
+   */
+  readonly hasLinesWithoutVariant = computed(() =>
+    this.lineItems().some((item) => !item.productVariantId),
+  );
+
   // ─── Unsaved-changes tracking ──────────────────────────
   private readonly supplierId$ = new Subject<string>();
   private readonly formDirty = signal(false);
@@ -135,6 +157,7 @@ export class PurchaseOrderEdit implements OnInit {
     JSON.stringify(
       this.lineItems().map((item) => ({
         productId: item.productId,
+        productVariantId: item.productVariantId,
         quantity: item.quantity,
         unitPrice: item.unitPrice,
       })),
@@ -187,6 +210,13 @@ export class PurchaseOrderEdit implements OnInit {
       .controls.supplierId.valueChanges.pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((supplierId) => this.supplierId$.next(supplierId));
 
+    // Channel 1: user-driven store selections emit an event, so `valueChanges`
+    // catches them here (channel 2 is the child's `(storeResolved)` output,
+    // which covers the silent programmatic patches).
+    this.headerForm()
+      .controls.companyStoreId.valueChanges.pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((storeId) => this.variantStoreId.set(storeId ?? ''));
+
     const id = this.orderId();
     if (id) {
       this.loadOrder(id);
@@ -196,6 +226,23 @@ export class PurchaseOrderEdit implements OnInit {
   // ══════════════════════════════════════════════════════════
   // DATA LOADING
   // ══════════════════════════════════════════════════════════
+
+  /**
+   * Called by `<app-company-info-section>` whenever the cascade resolves a store
+   * through a silent programmatic patch. `valueChanges` cannot see those, so
+   * this is what keeps the variant picker on the real store for the create-mode
+   * profile prefill and after every cascade reset.
+   */
+  onStoreResolved(storeId: string): void {
+    // Before the cascade resolves anything it reports '', which is not a reset.
+    // A genuine reset clears `companyStoreId` as well, so only a truly empty
+    // control accepts the empty emission — otherwise a still-loading cascade
+    // would wipe the store the page set from the loaded order.
+    if (!storeId && this.headerForm().controls.companyStoreId.value) {
+      return;
+    }
+    this.variantStoreId.set(storeId);
+  }
 
   private loadOrder(id: string): void {
     this.purchaseOrderService
@@ -229,6 +276,7 @@ export class PurchaseOrderEdit implements OnInit {
     );
     // valueChanges is suppressed above, so load the products explicitly.
     this.supplierId$.next(order.supplierId);
+    this.variantStoreId.set(order.companyStoreId);
     this.formDirty.set(false);
   }
 
@@ -237,6 +285,8 @@ export class PurchaseOrderEdit implements OnInit {
       id: d.id,
       productId: d.productId,
       productName: d.productName,
+      productVariantId: d.productVariantId,
+      productVariantName: d.productVariantName,
       quantity: d.quantity,
       unitPrice: d.unitPrice,
     }));
@@ -277,16 +327,46 @@ export class PurchaseOrderEdit implements OnInit {
       return;
     }
 
+    // A legacy line loaded without a variant has no valid payload. Abort before
+    // touching the request instead of letting the API answer with a raw 400; the
+    // detail table renders the actionable warning next to the offending lines and
+    // the error banner names which lines block the save.
+    const items = this.lineItems();
+    const details: PurchaseOrderDetailRequest[] = [];
+    const missingVariantLines: string[] = [];
+    items.forEach((item, index) => {
+      if (!item.productVariantId) {
+        missingVariantLines.push(`${index + 1}: ${item.productName}`);
+        return;
+      }
+      details.push({
+        productId: item.productId,
+        productVariantId: item.productVariantId,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+      });
+    });
+
+    if (missingVariantLines.length > 0) {
+      // Outside Draft the delete/add controls are disabled, so asking the user
+      // to remove and re-add the lines would be an impossible instruction.
+      const repairInstruction = this.isDraft()
+        ? 'Eliminá esas líneas y agregalas de nuevo eligiendo una variante.'
+        : 'Esas líneas no se pueden reparar en el estado actual de la orden.';
+      this.serverErrors.set({});
+      this.generalError.set(
+        `No se puede guardar: hay líneas sin variante (${missingVariantLines.join(
+          ', ',
+        )}). ${repairInstruction}`,
+      );
+      return;
+    }
+
     this.serverErrors.set({});
     this.generalError.set(null);
     this.saving.set(true);
 
     const formValue = form.getRawValue();
-    const details: PurchaseOrderDetailRequest[] = this.lineItems().map((item) => ({
-      productId: item.productId,
-      quantity: item.quantity,
-      unitPrice: item.unitPrice,
-    }));
 
     const request: PurchaseOrderRequest = {
       supplierId: formValue.supplierId,
