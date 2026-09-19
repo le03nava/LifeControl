@@ -124,6 +124,11 @@ LifeControl/
 ./docker/scripts/deploy.sh dev status
 ```
 
+> **Orden de build**: `deploy.sh start` compila primero los servicios Java porque sus
+> imágenes no compilan nada: el Dockerfile solo copia `build/libs/<servicio>-<version>.jar`.
+> Si corrés `docker compose build` por tu cuenta, la imagen se arma con el JAR que ya esté
+> en el directorio, sin garantía de que corresponda al código actual.
+
 ### 2. Base de datos
 
 PostgreSQL (`lifecontrol-postgres`) se levanta junto con el resto de servicios vía `deploy.sh start`. El schema y los datos se gestionan con **Flyway**, la única fuente de verdad de la base de datos. Las migraciones versionadas viven en `life-control-api/src/main/resources/db/migration/` y se aplican automáticamente al arrancar la API. Para DBs ya existentes se usa `baseline-on-migrate` (baseline en v1), por lo que no se recrea nada.
@@ -270,6 +275,45 @@ cd docker && ./scripts/validate-env.sh
 # Limpiar
 ./docker/scripts/cleanup.sh [stop|docker|volumes|local|builds|all]
 ```
+
+### Build antes de la imagen
+
+Las tres imágenes no se construyen igual:
+
+- `api-gateway` y `life-control-api` **no compilan**: su Dockerfile solo hace `COPY` de un
+  JAR generado localmente (`./gradlew bootJar`). Hay que compilar antes de construir la imagen.
+- `web-app` **sí compila**: su Dockerfile multi-stage corre `npm run build` dentro del build,
+  así que la imagen siempre refleja el working tree y no necesita pre-build.
+
+`deploy.sh` ahora aborta con exit code distinto de cero cuando:
+
+- falta `api-gateway/gradlew` o `life-control-api/gradlew`;
+- falla el build de Gradle;
+- el JAR está ausente, vacío o es más viejo que la fuente más nueva del módulo o que su
+  último commit.
+
+Antes seguía con un warning, lo que podía publicar una imagen armada con un JAR viejo sin
+que se notara. El guard resuelve la versión del JAR como lo hace `docker/docker-compose.yml`
+(shell, luego `--env-file`, luego `0.0.1-SNAPSHOT`).
+
+Los guardas tienen tests propios, sin Docker ni Gradle, que salen con 0 solo si pasan todos
+los casos:
+
+```bash
+./docker/scripts/tests/freshness-guard.test.sh
+```
+
+### Procedencia de la imagen
+
+Cada imagen construida lleva la revisión git desde la que se generó, así podés rastrear qué
+código contiene:
+
+```bash
+docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' lifecontrol-dev-lifecontrol-api
+```
+
+El valor lo sella `deploy.sh` con `git rev-parse HEAD` y cae a `unknown` cuando git no está
+disponible.
 
 ---
 

@@ -172,6 +172,12 @@ Flujo canónico vía scripts (ver [Docker Scripts](#docker-scripts) arriba):
 ./docker/scripts/deploy.sh dev status    # Estado
 ```
 
+> **Invariante de orden**: las imágenes de `api-gateway` y `life-control-api` no compilan:
+> su Dockerfile hace `COPY` de un JAR ya buildeado. No corras `docker compose build` para
+> esos servicios antes de generar sus JARs. `./docker/scripts/deploy.sh <env> start` hace el
+> orden correcto (compila y después construye las imágenes). `docker compose build` por sí
+> solo es seguro únicamente para `web-app`, que compila Angular dentro de su Dockerfile.
+
 Equivalente directo con `docker compose` v2 y `--env-file`:
 
 ```bash
