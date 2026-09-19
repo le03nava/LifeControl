@@ -128,12 +128,12 @@ verify_artifact_freshness() {
 	local artifact_abs="$root/$artifact"
 
 	if [ ! -s "$artifact_abs" ]; then
-		print_error "Artefacto ausente o vacío: $artifact"
-		print_status "Compilá el módulo antes de construir la imagen (ver README → Docker)."
+		print_error "Artifact missing or empty: $artifact"
+		print_status "Build the module before building its image (see README, Docker scripts)."
 		return 1
 	fi
 
-	# 1) Ninguna fuente del módulo puede ser más nueva que el artefacto.
+	# 1) No source file in the module may be newer than the artifact.
 	local newest_source
 	newest_source="$(find "$module_abs" -type f \
 		\( -name '*.java' -o -name '*.gradle' -o -name '*.properties' \
@@ -141,26 +141,26 @@ verify_artifact_freshness() {
 		-not -path '*/build/*' -newer "$artifact_abs" -print -quit 2>/dev/null)"
 
 	if [ -n "$newest_source" ]; then
-		print_error "Artefacto obsoleto: hay fuentes más nuevas que $artifact"
-		print_status "Más reciente: ${newest_source#"$root"/}"
+		print_error "Stale artifact: source files are newer than $artifact"
+		print_status "Newest: ${newest_source#"$root"/}"
 		print_status "Rebuild: (cd $module && ./gradlew bootJar -Pprofile=<env> -x test)"
 		return 1
 	fi
 
-	# 2) ...ni el último commit que toca el módulo.
+	# 2) Nor may the last commit touching the module.
 	if git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 		local commit_ts artifact_ts
 		commit_ts="$(git -C "$root" log -1 --format=%ct -- "$module" 2>/dev/null || true)"
 		artifact_ts="$(file_mtime "$artifact_abs")"
 		if [ -n "$commit_ts" ] && [ -n "$artifact_ts" ] && [ "$artifact_ts" -lt "$commit_ts" ]; then
-			print_error "Artefacto obsoleto: $module tiene commits posteriores a $artifact"
+			print_error "Stale artifact: commits touching $module are newer than $artifact"
 			while IFS= read -r line; do
 				print_status "$line"
 			done < <(git -C "$root" log -3 --format='%h %ad %s' --date=short -- "$module" 2>/dev/null)
 			return 1
 		fi
 	else
-		print_warning "Sin repositorio git en $root: no puedo comparar $artifact contra el último commit"
+		print_warning "No git repository at $root: cannot compare $artifact against its last commit"
 	fi
 
 	return 0

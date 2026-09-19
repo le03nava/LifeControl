@@ -151,7 +151,7 @@ printf 'fake jar' >"$root/$JAR_REL"
 run_guard "svc" "$JAR_REL" "$root"
 record "case 6: non-git fresh artifact returns 0" 0 "$GUARD_RC" "$GUARD_OUT"
 assert_contains "case 6: warns that the commit check is unavailable" \
-	"Sin repositorio git" "$GUARD_OUT"
+	"No git repository" "$GUARD_OUT"
 
 # ------------------------------------------
 # Case 7: non-git directory with a stale artifact -> 1
