@@ -897,7 +897,7 @@ Tres capas de control independientes:
 | Capa | Archivo | Lógica |
 |------|---------|--------|
 | **Menú lateral** | `header.ts` | `isCompanyRole` signal → `lc-admin \|\| lc-company \|\| lc-company-country \|\| lc-company-region \|\| lc-company-zone \|\| lc-company-store` |
-| **Admin menus** | `header.ts` | `isAdmin` signal → `lc-admin` solamente (Products, Compras, Users Admin) |
+| **Admin menus** | `header.ts` | `isAdmin` signal → `lc-admin` (Products, Users Admin); Compras → `isAdmin \|\| isReceiving` (`lc-receiving`) |
 | **Route guard** | `companies.routes.ts` | Roles por ruta con `BASE_ROLES`, `COMPANY_CRUD_ROLES`, `REGION_ROLES`, `ZONE_ROLES`, `STORE_ROLES` |
 | **Dashboard cards** | `companies-admin.component.ts` | `requiredRoles` por cada `STATIC_CARD`; las cards sin acceso se ocultan |
 
@@ -906,6 +906,7 @@ Tres capas de control independientes:
 | Rol | Menú Companies | Menús Admin | Companies CRUD | Countries | Regions | Zones | Stores |
 |-----|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | `lc-admin` | ✅ | ✅ (Products + Compras + Users Admin) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `lc-receiving` | ❌ | Compras ✅ (solo recibos); Products ❌, Users Admin ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | `lc-company` | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `lc-company-country` | ✅ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
 | `lc-company-region` | ✅ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ |
@@ -924,10 +925,12 @@ Solo **Users Admin** sigue usando un realm role: sus rutas declaran `data: { rol
 > **Importante:** `lc-admin` es un **rol de cliente** (no realm). `life-control-admin` es un **realm role**. Son distintos.
 >
 > **Corrección verificada en el código:** `life-control-admin` y `life-control-country` **no
-> aparecen en ninguna ruta actual** (solo en fixtures de tests). Products y Purchases declaran
+> aparecen en ninguna ruta actual** (solo en fixtures de tests). Products declara
 > `data: { roles: ['lc-admin'], clientId: 'life-control-client' }` — el rol de **cliente**
-> `lc-admin` — y Sales usa `['lc-admin', 'lc-sales']`, también de cliente.
-> `e2e/specs/navigation.spec.ts` lo afirma así, y el menú Compras cuelga de `isAdmin` (client role).
+> `lc-admin` —, Purchases relaja su padre a `['lc-admin', 'lc-receiving']` y deja los hijos de
+> órdenes admin-only, y Sales usa `['lc-admin', 'lc-sales']`, también de cliente.
+> `e2e/specs/navigation.spec.ts` lo afirma así, y el menú Compras cuelga de
+> `isAdmin || isReceiving` (client roles).
 > La tabla anterior que atribuía Products a `life-control-country` describía un RBAC que el código
 > no implementa: se corrige en vez de conservarla.
 
@@ -949,6 +952,7 @@ data: { roles: ['life-control-admin'] }
 const clientRoles = token?.resource_access?.['life-control-client']?.roles ?? [];
 
 this.isAdmin.set(clientRoles.includes('lc-admin'));
+this.isReceiving.set(clientRoles.includes('lc-receiving'));
 this.isCompanyRole.set(
   clientRoles.includes('lc-admin') ||
   clientRoles.includes('lc-company') ||
@@ -961,7 +965,9 @@ this.isCompanyRole.set(
 // items() computed:
 //   base: []  (Home se renderiza directo en el template, no via items())
 //   + isCompanyRole → [Companies]
-//   + isAdmin → [Products, Purchases, Users Admin]
+//   + isAdmin → [Products]
+//   + isAdmin || isReceiving → [Compras]
+//   + isAdmin → [Users Admin]
 ```
 
 ### Companies Route Guards
@@ -1015,6 +1021,23 @@ Dos reglas que este repo ya sigue y conviene no romper:
 
 Las rutas `create`/`edit/:id` de `store-areas`, `store-zones` y `store-locations` se gatean además
 con `STORE_WRITE_ROLES` y llevan `unsavedChangesGuard` (ver `Guard Pattern`).
+
+### Purchases Route Guards
+
+El padre de `/purchases` se relaja a recepción, y **solo** los hijos de órdenes re-declaran su
+propio guard admin-only. `receipts` queda cubierto por el padre.
+
+```typescript
+// purchases.routes.ts — split por área
+//   /purchases (parent)        → roles: [LC_ADMIN, LC_RECEIVING]
+//   /purchases/orders          → canActivate: [keycloakRoleGuard] + roles: [LC_ADMIN]
+//   /purchases/orders/create   → canActivate: [keycloakRoleGuard] + roles: [LC_ADMIN]
+//   /purchases/orders/:id      → canActivate: [keycloakRoleGuard] + roles: [LC_ADMIN]
+//   /purchases/receipts[/...]  → sin canActivate/data propios: cubiertos por el padre
+```
+
+El par guard+data del hijo es load-bearing: `keycloakRoleGuard` solo lee `route.data` cuando él
+mismo está listado en `canActivate`, así que un `data` de hijo sin su propio guard queda inerte.
 
 ### Dashboard Card Visibility
 
@@ -1085,16 +1108,25 @@ Estado verificado del código, no del diseño pendiente:
   que silencia **solo** el toast de `errorInterceptor`; el error se sigue rethrowing. Usalo para todo
   fallo que sea parte del flujo normal del llamador.
 - **Deuda registrada, fuera de alcance por ahora**: el contrato de `version`/concurrencia optimista
-  (ningún DTO de la tienda expone `version` y el conflicto de lock optimista responde 500, no 409) y
-  la habilitación del rol `lc-receiving` en el frontend. El `PUT …/inventory-settings` **sí** tiene
+  (ningún DTO de la tienda expone `version` y el conflicto de lock optimista responde 500, no 409).
+  El `PUT …/inventory-settings` **sí** tiene
   locking optimista (`@Version` en `StoreInventorySettings`, como todo el árbol de tienda desde `V8`):
   un commit stale falla en vez de ganar en silencio. La deuda es la de arriba: ningún DTO expone
   `version`, así que no hay request condicional, y ese conflicto sale como **500** en lugar de **409**.
-- **El rol `lc-receiving` es hoy API-only.** Existe en `Roles.java` y en `keycloak-setup.sh`, pero
-  `roles.ts` todavía no lo conoce, `/purchases` sigue exigiendo `lc-admin` y el menú Compras cuelga de
-  `isAdmin`. Consecuencia a tener presente al probar: un usuario sin los claims `company_*` recibe
-  **403 en todas las requests** de los endpoints store-scoped, y sin el rol no ve ninguna pantalla de
-  recibos. Habilitarlo es su propio slice, con su propia revisión de seguridad.
+- **El rol `lc-receiving` ya está habilitado en el frontend.** `roles.ts` exporta `LC_RECEIVING`
+  (`'lc-receiving'`) y lo incluye en `CLIENT_ROLES`. El padre `/purchases` acepta
+  `roles: [LC_ADMIN, LC_RECEIVING]`, así que un usuario de solo recepción entra al dashboard de
+  compras y al área de `receipts`. Los tres hijos `orders*` re-declaran
+  `canActivate: [keycloakRoleGuard]` **y** `data: { roles: [LC_ADMIN], clientId: CLIENT_ID }`: como
+  `keycloakRoleGuard` solo lee `route.data` cuando él mismo está en `canActivate`, el `data` del hijo
+  sin su propio guard es inerte — ese par es lo que mantiene el área de órdenes admin-only. El menú
+  Compras se agrega cuando `isAdmin() || isReceiving()`, y el dashboard de compras oculta la card de
+  Purchase Orders a un usuario de solo recepción.
+- **Precondición operativa del token.** El guard de ruta abre `/purchases/receipts`, pero eso no
+  alcanza: un usuario que solo tenga `lc-receiving` debe llevar en el token el camino de claims
+  `company_id → company_store_id`. `CurrentUserContext#verifyLevel` verifica los niveles padre contra
+  los claims, no contra los roles padre (`ScopeLevel.java:49-52`); sin esos claims, todos los
+  endpoints store-scoped responden **403** aunque la ruta esté abierta.
 
 ### Keycloak Config
 
