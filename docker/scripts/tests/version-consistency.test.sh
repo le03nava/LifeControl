@@ -85,6 +85,7 @@ compose_defaults=0
 while IFS= read -r line; do
 	file="${line%%:*}"
 	# APP_VERSION: ${APP_VERSION:-1.0.0}
+	# shellcheck disable=SC2016  # the compose default is matched literally, so it must not expand
 	value="$(printf '%s' "$line" | sed -n 's/.*APP_VERSION:[[:space:]]*\${APP_VERSION:-\([^}]*\)}.*/\1/p')"
 	if [ -z "$value" ]; then
 		# A literal (non-interpolated) value is just as wrong when it drifts.

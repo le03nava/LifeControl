@@ -31,6 +31,7 @@ TMP_BASE="$(mktemp -d)"
 # so the no-git cases (6 and 7) always exercise the no-git branch.
 export GIT_CEILING_DIRECTORIES="$TMP_BASE"
 
+# shellcheck disable=SC2329  # invoked by the EXIT trap below, which shellcheck cannot trace
 cleanup() {
 	if [ -n "${TMP_BASE:-}" ] && [ -d "$TMP_BASE" ]; then
 		rm -rf "$TMP_BASE"
