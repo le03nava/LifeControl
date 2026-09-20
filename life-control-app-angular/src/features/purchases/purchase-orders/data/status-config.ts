@@ -57,6 +57,19 @@ export const PO_STATUS_FLOW: string[] = [
   'Closed',
 ];
 
+// ─── Goods-receipt status family ────────────────────────────────────────
+//
+// The receipt statuses are seeded by the backend under the `GOODS_RECEIPT`
+// reference-data type. Today the backend seeds only `Registered`; the maps
+// keep the same shape as the order and detail families so an unknown or
+// future status always falls back safely.
+
+/** Receipt statuses (backend `GOODS_RECEIPT` family; the backend seeds only `Registered`). */
+export const GOODS_RECEIPT_STATUS_LABELS: Record<string, string> = { Registered: 'Registrado' };
+
+/** Status color mapping for Material chips, keyed by the stable English status name. */
+export const GOODS_RECEIPT_STATUS_COLORS: Record<string, string> = { Registered: '#4caf50' };
+
 // ─── Purchase-order DETAIL status family ────────────────────────────────
 //
 // The line (detail) statuses are seeded by the backend's V3 reference-data

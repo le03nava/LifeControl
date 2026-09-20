@@ -41,9 +41,7 @@ export const purchasesRoutes: Routes = [
       {
         path: 'receipts',
         loadComponent: () =>
-          import('./receipts/pages/receipts-placeholder/receipts-placeholder').then(
-            (m) => m.ReceiptsPlaceholder,
-          ),
+          import('./receipts/pages/receipt-list/receipt-list').then((m) => m.ReceiptList),
       },
     ],
   },

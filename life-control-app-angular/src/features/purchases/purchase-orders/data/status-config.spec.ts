@@ -6,6 +6,8 @@ import {
   RECEIVABLE_DETAIL_STATUSES,
   PO_DETAIL_STATUS_LABELS,
   PO_DETAIL_STATUS_COLORS,
+  GOODS_RECEIPT_STATUS_LABELS,
+  GOODS_RECEIPT_STATUS_COLORS,
   isOrderReceivable,
   isDetailStatusReceivable,
 } from './status-config';
@@ -292,6 +294,26 @@ describe('PO_DETAIL_STATUS_COLORS', () => {
     for (const status of SEEDED_DETAIL_STATUSES) {
       expect(PO_DETAIL_STATUS_COLORS[status]).toMatch(hexPattern);
     }
+  });
+});
+
+describe('GOODS_RECEIPT_STATUS_LABELS', () => {
+  it('should cover only the Registered status the backend seeds', () => {
+    expect(Object.keys(GOODS_RECEIPT_STATUS_LABELS)).toEqual(['Registered']);
+  });
+
+  it('should label Registered as "Registrado"', () => {
+    expect(GOODS_RECEIPT_STATUS_LABELS['Registered']).toBe('Registrado');
+  });
+});
+
+describe('GOODS_RECEIPT_STATUS_COLORS', () => {
+  it('should cover only the Registered status the backend seeds', () => {
+    expect(Object.keys(GOODS_RECEIPT_STATUS_COLORS)).toEqual(['Registered']);
+  });
+
+  it('should provide a valid hex color for Registered', () => {
+    expect(GOODS_RECEIPT_STATUS_COLORS['Registered']).toMatch(/^#[0-9A-Fa-f]{6}$/);
   });
 });
 
