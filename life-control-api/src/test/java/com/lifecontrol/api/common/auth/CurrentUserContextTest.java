@@ -1519,9 +1519,10 @@ class CurrentUserContextTest {
         // ── lc-receiving ──
 
         @Test
-        @DisplayName("ScopeLevel.STORE lists the lc-receiving role")
+        @DisplayName("ScopeLevel.STORE lists exactly the store roles, including lc-receiving")
         void storeScopeListsReceivingRole() {
-            assertThat(ScopeLevel.STORE.roleNames()).contains(Roles.RECEIVING);
+            assertThat(ScopeLevel.STORE.roleNames())
+                    .containsExactly(Roles.COMPANY_STORE, Roles.COMPANY_STORE_READ, Roles.RECEIVING);
         }
 
         @Test
@@ -1544,23 +1545,29 @@ class CurrentUserContextTest {
         }
 
         @Test
-        @DisplayName("lc-receiving is denied when a required hierarchy claim is missing")
+        @DisplayName("lc-receiving is denied at the claim path when a required hierarchy claim is missing")
         void receivingUserWithoutRequiredClaimIsDenied() {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-receiving"));
             UUID companyId = UUID.randomUUID();
+            UUID countryId = UUID.randomUUID();
             UUID storeId = UUID.randomUUID();
             when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
             // company_country_id (a required level) is deliberately absent: denial happens at the
             // country level, so no deeper claim is ever read.
 
-            assertThrows(
+            var denied = assertThrows(
                     AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyStoreAccess(
-                            companyId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), storeId));
+                            companyId, countryId, UUID.randomUUID(), UUID.randomUUID(), storeId));
+
+            // The claim-path denial (not "Insufficient role for company-store access") proves that
+            // lc-receiving was routed into the store branch rather than dropped by an incidental
+            // absence from ScopeLevel.STORE.
+            assertThat(denied.getMessage()).isEqualTo("Access denied to company country: " + countryId);
         }
 
         @Test
-        @DisplayName("lc-receiving cannot access a different company_store_id")
+        @DisplayName("lc-receiving is denied at the store claim when the store id is not claim-listed")
         void receivingUserCannotAccessDifferentStore() {
             mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-receiving"));
             UUID companyId = UUID.randomUUID();
@@ -1575,10 +1582,53 @@ class CurrentUserContextTest {
             when(jwt.getClaim("company_zone_id")).thenReturn(zoneId.toString());
             when(jwt.getClaim("company_store_id")).thenReturn(assignedStoreId.toString());
 
-            assertThrows(
+            var denied = assertThrows(
                     AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyStoreAccess(
                             companyId, countryId, regionId, zoneId, otherStoreId));
+
+            // The store-level claim denial (not "Insufficient role for company-store access")
+            // proves lc-receiving reached the store claim check on its own role.
+            assertThat(denied.getMessage()).isEqualTo("Access denied to company store: " + otherStoreId);
+        }
+
+        // ── lc-receiving combined with a broader role ──
+
+        @Test
+        @DisplayName("lc-company-zone together with lc-receiving keeps zone scope for an arbitrary store")
+        void zoneAndReceivingKeepZoneScope() {
+            mockAuthorities(List.of(
+                    (GrantedAuthority) () -> "ROLE_lc-company-zone", (GrantedAuthority) () -> "ROLE_lc-receiving"));
+            UUID companyId = UUID.randomUUID();
+            UUID countryId = UUID.randomUUID();
+            UUID regionId = UUID.randomUUID();
+            UUID zoneId = UUID.randomUUID();
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_country_id")).thenReturn(countryId.toString());
+            when(jwt.getClaim("company_region_id")).thenReturn(regionId.toString());
+            when(jwt.getClaim("company_zone_id")).thenReturn(zoneId.toString());
+            // The arbitrary store id is deliberately not claim-listed: the broader zone role must
+            // not be narrowed by the store role that accompanies it.
+
+            assertDoesNotThrow(() -> currentUserContext.verifyCompanyStoreAccess(
+                    companyId, countryId, regionId, zoneId, UUID.randomUUID()));
+        }
+
+        @Test
+        @DisplayName("lc-company-region together with lc-receiving keeps region scope for arbitrary zone/store ids")
+        void regionAndReceivingKeepRegionScope() {
+            mockAuthorities(List.of(
+                    (GrantedAuthority) () -> "ROLE_lc-company-region", (GrantedAuthority) () -> "ROLE_lc-receiving"));
+            UUID companyId = UUID.randomUUID();
+            UUID countryId = UUID.randomUUID();
+            UUID regionId = UUID.randomUUID();
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_country_id")).thenReturn(countryId.toString());
+            when(jwt.getClaim("company_region_id")).thenReturn(regionId.toString());
+            // Region scope stops at the region: the arbitrary zone and store ids are never checked.
+
+            assertDoesNotThrow(() -> currentUserContext.verifyCompanyStoreAccess(
+                    companyId, countryId, regionId, UUID.randomUUID(), UUID.randomUUID()));
         }
     }
 }

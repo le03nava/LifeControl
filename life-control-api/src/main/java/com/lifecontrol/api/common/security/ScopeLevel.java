@@ -37,13 +37,17 @@ public enum ScopeLevel {
     /**
      * Company-store level, scoped by the {@code company_store_id} claim.
      *
-     * <p>{@link Roles#RECEIVING} belongs in this list because
-     * {@code CurrentUserContext#verifyCompanyStoreAccess} routes on {@code hasAnyRole(STORE)}: a
-     * role absent from {@code roleNames()} takes the broadest-granted fallback and can never pass
-     * the store check on its own. Conversely, the parent levels of the store path are verified
-     * against {@linkplain #claim() claims}, not against the parent roles ({@code verifyLevel} never
-     * calls {@code hasAnyRole}), so a caller holding only {@code lc-receiving} must carry the
-     * {@code company_id} &rarr; {@code company_store_id} claim path in the token.</p>
+     * <p>{@link Roles#RECEIVING} belongs in this list because the list is what makes a receiving
+     * caller's broadest granted scope be this level: {@code CurrentUserContext#verifyCompanyStoreAccess}
+     * verifies the broadest role granted within the company&rarr;store hierarchy, so a role absent
+     * from {@code roleNames()} would leave such a caller with no scope in range and no way to pass
+     * the store check at all. Because the dispatch is by broadest granted scope, a caller who also
+     * holds a broader role keeps that broader scope.</p>
+     *
+     * <p>The parent levels of the store path are verified against {@linkplain #claim() claims}, not
+     * against the parent roles ({@code verifyLevel} never calls {@code hasAnyRole}), so a caller
+     * holding only {@code lc-receiving} must carry the {@code company_id} &rarr;
+     * {@code company_store_id} claim path in the token.</p>
      */
     STORE("company_store_id", "company store", false, Roles.COMPANY_STORE, Roles.COMPANY_STORE_READ, Roles.RECEIVING);
 
