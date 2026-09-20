@@ -989,13 +989,17 @@ const STORE_ROLES = [...STORE_WRITE_ROLES, 'lc-company-store-read'];
 //   /companies/store-inventory-settings → STORE_ROLES (lectura + escritura en una sola ruta)
 ```
 
-**Split lectura/escritura en las hojas de tienda.** El contenedor de una hoja bajo
-`/companies/stores` se gatea con `STORE_ROLES`, que incluye el rol de **solo lectura**
-`lc-company-store-read`. La ruta deja entrar a ese rol y **la pantalla decide qué mostrar**:
+**Split lectura/escritura en las hojas de tienda.** Cada hoja de tienda —hermana de
+`/companies/stores` bajo `/companies`, no hija suya— se gatea con `STORE_ROLES`, que incluye el rol
+de **solo lectura** `lc-company-store-read`. La ruta deja entrar a ese rol y **la pantalla decide qué
+mostrar**:
 
 ```typescript
-readonly canWrite = hasAnyClientRole(STORE_WRITE_ROLES);  // patrón de las 4 hojas de tienda
+readonly canWrite = hasAnyClientRole(STORE_WRITE_ROLES);
 ```
+
+La línea es idéntica en 7 archivos: las 4 páginas `store-areas-page.ts`, `store-zones-page.ts`,
+`store-locations-page.ts` y `store-inventory-settings.ts`, más los 3 `*-edit` de areas/zones/locations.
 
 Dos reglas que este repo ya sigue y conviene no romper:
 
@@ -1010,7 +1014,7 @@ Dos reglas que este repo ya sigue y conviene no romper:
    puede emitir un PUT sin pasar por el servidor.
 
 Las rutas `create`/`edit/:id` de `store-areas`, `store-zones` y `store-locations` se gatean además
-con `STORE_WRITE_ROLES` y llevan `unsavedChangesGuard` (ver `Guard Pattern`).`
+con `STORE_WRITE_ROLES` y llevan `unsavedChangesGuard` (ver `Guard Pattern`).
 
 ### Dashboard Card Visibility
 
@@ -1070,16 +1074,22 @@ Estado verificado del código, no del diseño pendiente:
     único que distingue los dos estados. Por eso ese aviso **no** se gatea con `canWrite`, y
     `canSubmit()` queda en falso hasta que un escritor re-elija. Deshabilitar una location es un soft
     delete en el backend, así que la fila sigue existiendo y el settings sigue apuntando a ella.
-  - El reload post-save corre con el formulario ya operable (el `saving` se libera cuando responde el
-    PUT). El `effect` que siembra el form desde el server **cede ante `dirty()`**, para no pisar una
-    edición del operador en esa ventana ni resetear el guard de cambios sin guardar.
+  - El reload post-save **no** deja el formulario operable: Angular reporta el estado de la recarga
+    como `'reloading'` y `isLoading()` lo incluye, así que el template muestra el skeleton y desmonta
+    el form (el `saving` sí se libera cuando responde el PUT, pero eso solo habilita el botón un
+    instante antes de que entre el skeleton). Aun así el `effect` que siembra el form desde el server
+    **cede ante `dirty()`**: como el effect lee `dirty`, cualquier escritor programático del form
+    —hoy solo el propio effect, mañana otro— puede pisar una edición del operador y resetear el guard
+    de cambios sin guardar. La guarda es defensa en profundidad, no el cierre de una ventana viva.
 - **`SKIP_ERROR_NOTIFICATION`** (`shared/data/skip-error-notification.ts`) es un `HttpContextToken`
   que silencia **solo** el toast de `errorInterceptor`; el error se sigue rethrowing. Usalo para todo
   fallo que sea parte del flujo normal del llamador.
 - **Deuda registrada, fuera de alcance por ahora**: el contrato de `version`/concurrencia optimista
   (ningún DTO de la tienda expone `version` y el conflicto de lock optimista responde 500, no 409) y
-  la habilitación del rol `lc-receiving` en el frontend. El `PUT …/inventory-settings` es hoy
-  **last-write-wins**: dos operadores que guarden a la vez no se enteran del conflicto.
+  la habilitación del rol `lc-receiving` en el frontend. El `PUT …/inventory-settings` **sí** tiene
+  locking optimista (`@Version` en `StoreInventorySettings`, como todo el árbol de tienda desde `V8`):
+  un commit stale falla en vez de ganar en silencio. La deuda es la de arriba: ningún DTO expone
+  `version`, así que no hay request condicional, y ese conflicto sale como **500** en lugar de **409**.
 - **El rol `lc-receiving` es hoy API-only.** Existe en `Roles.java` y en `keycloak-setup.sh`, pero
   `roles.ts` todavía no lo conoce, `/purchases` sigue exigiendo `lc-admin` y el menú Compras cuelga de
   `isAdmin`. Consecuencia a tener presente al probar: un usuario sin los claims `company_*` recibe
