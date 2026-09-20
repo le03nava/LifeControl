@@ -14,6 +14,7 @@ import { MatDividerModule } from '@angular/material/divider';
 import { MatIconModule } from '@angular/material/icon';
 import { MatMenuModule } from '@angular/material/menu';
 import { Router, RouterModule } from '@angular/router';
+import { LC_RECEIVING } from '@core/security/roles';
 import { Button, Hyperlink } from '@shared/ui';
 import { CompanyContextService } from '@shared/data/company-context.service';
 import Keycloak from 'keycloak-js';
@@ -48,6 +49,7 @@ export class Header implements OnInit {
   private readonly isSmallScreen = signal(false);
   isCompanyRole = signal(false);
   isAdmin = signal(false);
+  isReceiving = signal(false);
   isSalesRole = signal(false);
 
   /** User display name from Keycloak token — signal for template reactivity */
@@ -97,16 +99,33 @@ export class Header implements OnInit {
     }
 
     if (this.isAdmin()) {
-      menuItems.push(
-        { id: '3', routeLink: '/products', textLink: 'Products', icon: 'inventory_2' },
-        { id: '4', routeLink: '/purchases', textLink: 'Compras', icon: 'shopping_cart' },
-        {
-          id: '5',
-          routeLink: '/users-admin',
-          textLink: 'Users Admin',
-          icon: 'admin_panel_settings',
-        },
-      );
+      menuItems.push({
+        id: '3',
+        routeLink: '/products',
+        textLink: 'Products',
+        icon: 'inventory_2',
+      });
+    }
+
+    // Compras is the one purchase entry a receiving-only user may see: the
+    // purchases dashboard and its receipts area accept `lc-receiving`, while
+    // Products, Users Admin and the orders routes stay admin-only.
+    if (this.isAdmin() || this.isReceiving()) {
+      menuItems.push({
+        id: '4',
+        routeLink: '/purchases',
+        textLink: 'Compras',
+        icon: 'shopping_cart',
+      });
+    }
+
+    if (this.isAdmin()) {
+      menuItems.push({
+        id: '5',
+        routeLink: '/users-admin',
+        textLink: 'Users Admin',
+        icon: 'admin_panel_settings',
+      });
     }
 
     return menuItems;
@@ -141,6 +160,7 @@ export class Header implements OnInit {
         const token = this.keycloak.tokenParsed;
         const clientRoles: string[] = token?.resource_access?.['life-control-client']?.roles ?? [];
         this.isAdmin.set(clientRoles.includes('lc-admin'));
+        this.isReceiving.set(clientRoles.includes(LC_RECEIVING));
         this.isCompanyRole.set(
           clientRoles.includes('lc-admin') ||
             clientRoles.includes('lc-company') ||
@@ -155,6 +175,7 @@ export class Header implements OnInit {
       if (event?.type === KeycloakEventType.AuthLogout) {
         this.authenticated.set(false);
         this.isAdmin.set(false);
+        this.isReceiving.set(false);
         this.isCompanyRole.set(false);
         this.isSalesRole.set(false);
         this.userName.set('');

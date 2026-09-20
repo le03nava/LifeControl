@@ -569,6 +569,81 @@ describe('Header', () => {
     });
   });
 
+  // ─── Receiving menu gating (lc-receiving client role) ──────────
+
+  describe('receiving menu gating', () => {
+    it('should show only the Compras menu for a receiving-only user', () => {
+      const { component } = setup(['lc-receiving']);
+      expect(component.isReceiving()).toBe(true);
+      expect(component.isAdmin()).toBe(false);
+
+      const items = component.items();
+      const comprasItem = items.find((i) => i.routeLink === '/purchases');
+      expect(comprasItem).toBeDefined();
+      expect(comprasItem?.textLink).toBe('Compras');
+      expect(items.some((i) => i.routeLink === '/products')).toBe(false);
+      expect(items.some((i) => i.routeLink === '/users-admin')).toBe(false);
+      expect(items.length).toBe(1); // Compras only
+    });
+
+    it('should keep the admin menu unchanged: Products, Compras, Users Admin', () => {
+      const { component } = setup(['lc-admin']);
+      expect(component.isReceiving()).toBe(false);
+
+      const routes = component.items().map((i) => i.routeLink);
+      expect(routes).toContain('/products');
+      expect(routes).toContain('/purchases');
+      expect(routes).toContain('/users-admin');
+      // Compras stays between Products and Users Admin for an admin.
+      expect(routes.indexOf('/products')).toBeLessThan(routes.indexOf('/purchases'));
+      expect(routes.indexOf('/purchases')).toBeLessThan(routes.indexOf('/users-admin'));
+    });
+
+    it('should reset isReceiving on AuthLogout event', () => {
+      const keycloakEventSignal = signal({
+        type: KeycloakEventType.Ready,
+        token: null,
+      });
+
+      TestBed.configureTestingModule({
+        providers: [
+          provideRouter([]),
+          provideLocationMocks(),
+          provideHttpClient(),
+          {
+            provide: Keycloak,
+            useValue: {
+              login: vi.fn(),
+              logout: vi.fn(),
+              accountManagement: vi.fn(),
+              hasRealmRole: vi.fn().mockReturnValue(false),
+              tokenParsed: {
+                resource_access: {
+                  'life-control-client': { roles: ['lc-receiving'] },
+                },
+              },
+              authenticated: true,
+            } as Partial<Keycloak>,
+          },
+          { provide: KEYCLOAK_EVENT_SIGNAL, useValue: keycloakEventSignal },
+        ],
+      });
+
+      const fixture = TestBed.createComponent(Header);
+      const component = fixture.componentInstance;
+      fixture.detectChanges();
+
+      expect(component.isReceiving()).toBe(true);
+
+      keycloakEventSignal.set({ type: KeycloakEventType.AuthLogout, token: null });
+      fixture.detectChanges();
+
+      expect(component.isReceiving()).toBe(false);
+      const comprasItem = component.items().find((i) => i.routeLink === '/purchases');
+      expect(comprasItem).toBeUndefined();
+    });
+  });
+
   // ─── Company selector fully removed ────────────────────────────
 
   describe('company selector removal', () => {
