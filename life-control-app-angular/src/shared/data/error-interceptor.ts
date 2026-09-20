@@ -3,6 +3,7 @@ import { inject } from '@angular/core';
 import { catchError, throwError } from 'rxjs';
 import { NotificationService } from './notification';
 import { httpErrorMessage } from './http-error-message';
+import { SKIP_ERROR_NOTIFICATION } from './skip-error-notification';
 
 /**
  * Functional HTTP interceptor for error handling
@@ -16,7 +17,9 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
     catchError((error: HttpErrorResponse) => {
       // NO llamar keycloak.login() aquí - causa loop infinito
       // El usuario debe iniciar sesión manualmente
-      notificationService.showError(httpErrorMessage(error));
+      if (!req.context.get(SKIP_ERROR_NOTIFICATION)) {
+        notificationService.showError(httpErrorMessage(error));
+      }
       return throwError(() => error);
     }),
   );

@@ -1,4 +1,16 @@
-import { PO_STATUS_TRANSITIONS, PO_STATUS_COLORS, PO_STATUS_LABELS } from './status-config';
+import {
+  PO_STATUS_TRANSITIONS,
+  PO_STATUS_COLORS,
+  PO_STATUS_LABELS,
+  ORDER_RECEIVABLE_STATUSES,
+  RECEIVABLE_DETAIL_STATUSES,
+  PO_DETAIL_STATUS_LABELS,
+  PO_DETAIL_STATUS_COLORS,
+  GOODS_RECEIPT_STATUS_LABELS,
+  GOODS_RECEIPT_STATUS_COLORS,
+  isOrderReceivable,
+  isDetailStatusReceivable,
+} from './status-config';
 
 describe('PO_STATUS_TRANSITIONS', () => {
   it('should have 8 status keys', () => {
@@ -241,5 +253,140 @@ describe('PO_STATUS_LABELS', () => {
       expect(PO_STATUS_LABELS[key]).toBeDefined();
       expect(typeof PO_STATUS_LABELS[key]).toBe('string');
     }
+  });
+});
+
+const SEEDED_DETAIL_STATUSES = [
+  'Pending',
+  'In Process',
+  'In Transit',
+  'Partial Received',
+  'Received',
+  'Rejected',
+  'Cancelled',
+];
+
+describe('PO_DETAIL_STATUS_LABELS', () => {
+  it('should cover all seven seeded PURCHASE_ORDER_DETAIL statuses', () => {
+    expect(Object.keys(PO_DETAIL_STATUS_LABELS).sort()).toEqual([...SEEDED_DETAIL_STATUSES].sort());
+  });
+
+  it('should provide a Spanish label for every seeded detail status', () => {
+    for (const status of SEEDED_DETAIL_STATUSES) {
+      expect(typeof PO_DETAIL_STATUS_LABELS[status]).toBe('string');
+      expect(PO_DETAIL_STATUS_LABELS[status].length).toBeGreaterThan(0);
+    }
+  });
+
+  it('should map the two receiving-relevant labels', () => {
+    expect(PO_DETAIL_STATUS_LABELS['Partial Received']).toBe('Parcialmente Recibida');
+    expect(PO_DETAIL_STATUS_LABELS['In Process']).toBe('En Proceso');
+  });
+});
+
+describe('PO_DETAIL_STATUS_COLORS', () => {
+  it('should cover all seven seeded PURCHASE_ORDER_DETAIL statuses', () => {
+    expect(Object.keys(PO_DETAIL_STATUS_COLORS).sort()).toEqual([...SEEDED_DETAIL_STATUSES].sort());
+  });
+
+  it('should provide a valid hex color for every seeded detail status', () => {
+    const hexPattern = /^#[0-9A-Fa-f]{6}$/;
+    for (const status of SEEDED_DETAIL_STATUSES) {
+      expect(PO_DETAIL_STATUS_COLORS[status]).toMatch(hexPattern);
+    }
+  });
+});
+
+describe('GOODS_RECEIPT_STATUS_LABELS', () => {
+  it('should cover only the Registered status the backend seeds', () => {
+    expect(Object.keys(GOODS_RECEIPT_STATUS_LABELS)).toEqual(['Registered']);
+  });
+
+  it('should label Registered as "Registrado"', () => {
+    expect(GOODS_RECEIPT_STATUS_LABELS['Registered']).toBe('Registrado');
+  });
+});
+
+describe('GOODS_RECEIPT_STATUS_COLORS', () => {
+  it('should cover only the Registered status the backend seeds', () => {
+    expect(Object.keys(GOODS_RECEIPT_STATUS_COLORS)).toEqual(['Registered']);
+  });
+
+  it('should provide a valid hex color for Registered', () => {
+    expect(GOODS_RECEIPT_STATUS_COLORS['Registered']).toMatch(/^#[0-9A-Fa-f]{6}$/);
+  });
+});
+
+describe('isOrderReceivable', () => {
+  it('should accept the two receivable order statuses', () => {
+    expect(isOrderReceivable('Accepted')).toBe(true);
+    expect(isOrderReceivable('In Transit')).toBe(true);
+  });
+
+  it('should expose exactly Accepted and In Transit as receivable', () => {
+    expect(ORDER_RECEIVABLE_STATUSES).toEqual(['Accepted', 'In Transit']);
+  });
+
+  it('should reject every other known order status', () => {
+    for (const status of ['Draft', 'Sent', 'Received', 'Billed', 'Closed', 'Rejected']) {
+      expect(isOrderReceivable(status)).toBe(false);
+    }
+  });
+
+  it('should not admit a non-canonical casing of a receivable status', () => {
+    expect(isOrderReceivable('accepted')).toBe(false);
+    expect(isOrderReceivable('ACCEPTED')).toBe(false);
+    expect(isOrderReceivable('in transit')).toBe(false);
+  });
+
+  it('should be fail-closed on null, undefined, empty and unknown names', () => {
+    expect(isOrderReceivable(null)).toBe(false);
+    expect(isOrderReceivable(undefined)).toBe(false);
+    expect(isOrderReceivable('')).toBe(false);
+    expect(isOrderReceivable('Nonsense')).toBe(false);
+  });
+});
+
+describe('isDetailStatusReceivable', () => {
+  it('should expose exactly the four non-terminal detail statuses', () => {
+    expect(RECEIVABLE_DETAIL_STATUSES).toEqual([
+      'Pending',
+      'In Process',
+      'In Transit',
+      'Partial Received',
+    ]);
+  });
+
+  it('should accept the four receivable detail statuses', () => {
+    for (const status of RECEIVABLE_DETAIL_STATUSES) {
+      expect(isDetailStatusReceivable(status)).toBe(true);
+    }
+  });
+
+  it('should NOT accept the terminal Received status', () => {
+    expect(isDetailStatusReceivable('Received')).toBe(false);
+  });
+
+  it('should accept Partial Received (a partially received line keeps receiving)', () => {
+    expect(isDetailStatusReceivable('Partial Received')).toBe(true);
+  });
+
+  it('should reject the terminal Rejected and Cancelled statuses', () => {
+    expect(isDetailStatusReceivable('Rejected')).toBe(false);
+    expect(isDetailStatusReceivable('Cancelled')).toBe(false);
+  });
+
+  it('should not admit a non-canonical casing of a receivable detail status', () => {
+    expect(isDetailStatusReceivable('pending')).toBe(false);
+    expect(isDetailStatusReceivable('PARTIAL RECEIVED')).toBe(false);
+    expect(isDetailStatusReceivable('partial received')).toBe(false);
+    expect(isDetailStatusReceivable('in process')).toBe(false);
+  });
+
+  it('should be fail-closed on null, undefined, empty and unknown names', () => {
+    expect(isDetailStatusReceivable(null)).toBe(false);
+    expect(isDetailStatusReceivable(undefined)).toBe(false);
+    expect(isDetailStatusReceivable('')).toBe(false);
+    expect(isDetailStatusReceivable('Nonsense')).toBe(false);
   });
 });

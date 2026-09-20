@@ -31,8 +31,13 @@ export function httpErrorMessage(error: unknown): string {
   }
 }
 
-/** Walks the `cause` chain (guarding against cycles) to find an HttpErrorResponse. */
-function unwrapHttpError(error: unknown): HttpErrorResponse | undefined {
+/**
+ * Walks the `cause` chain (guarding against cycles) to find an HttpErrorResponse.
+ *
+ * Exported so a caller that needs the status code rather than the copy can
+ * resolve the very same wrapped error instead of duplicating the walk.
+ */
+export function unwrapHttpError(error: unknown): HttpErrorResponse | undefined {
   let current: unknown = error;
   const visited = new Set<unknown>();
 

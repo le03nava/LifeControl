@@ -32,8 +32,8 @@ export class PurchasesAdminComponent {
       title: 'Receipts',
       icon: 'inventory_2',
       description: 'Manage procurement receipts and inventory reception.',
-      route: null,
-      disabled: true,
+      route: '/purchases/receipts',
+      disabled: false,
     },
   ];
 }

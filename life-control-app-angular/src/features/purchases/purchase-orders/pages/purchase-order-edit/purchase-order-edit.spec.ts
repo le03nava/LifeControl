@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
-import { provideRouter, Router, ActivatedRoute } from '@angular/router';
+import { provideRouter, Router, RouterLink, ActivatedRoute } from '@angular/router';
 import { By } from '@angular/platform-browser';
 import { of, throwError } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
@@ -261,6 +261,19 @@ describe('PurchaseOrderEdit', () => {
       expect(component.supplierProducts()).toEqual([]);
     });
 
+    it('should keep the receipt progress view off while no order is loaded', () => {
+      const table = fixture.debugElement.query(By.directive(DetailTable))
+        .componentInstance as DetailTable;
+
+      expect(table.showReceiptProgress()).toBe(false);
+    });
+
+    it('should not offer the receipt action without a loaded order', () => {
+      expect(component.loadedOrder()).toBeNull();
+      const buttons = fixture.debugElement.queryAll(By.css('.header-tools button'));
+      expect(buttons.length).toBe(1);
+    });
+
     it('should load supplier products when supplier changes', () => {
       const mockProducts = [{ productId: 'prod-1', productName: 'Widget A', sku: 'SKU-001' }];
       productService.getProductsBySupplier = vi.fn().mockReturnValue(of(mockProducts));
@@ -412,6 +425,14 @@ describe('PurchaseOrderEdit', () => {
       fixture.detectChanges();
     });
 
+    // The receipt action is only rendered for a receivable order. It has to be
+    // a router link so the `receipts/create` route guard runs.
+    function receiptAction(f: ComponentFixture<PurchaseOrderEdit>) {
+      return f.debugElement
+        .queryAll(By.css('.header-tools button'))
+        .find((button) => (button.nativeElement.textContent ?? '').includes('Recibir mercadería'));
+    }
+
     it('should be in edit mode (isEditMode = true)', () => {
       expect(component.isEditMode()).toBe(true);
     });
@@ -437,6 +458,76 @@ describe('PurchaseOrderEdit', () => {
       expect(items[0].unitPrice).toBe(150);
       expect(items[0].productVariantId).toBe('var-1');
       expect(items[0].productVariantName).toBe('Presentación 1L');
+    });
+
+    it('should enable the receipt progress view of the detail table for a loaded order', () => {
+      const table = fixture.debugElement.query(By.directive(DetailTable))
+        .componentInstance as DetailTable;
+
+      expect(table.showReceiptProgress()).toBe(true);
+    });
+
+    it('should map receivedQuantity and statusName into the loaded line items', () => {
+      const row = component.lineItems()[0];
+      expect(row.receivedQuantity).toBe(0);
+      expect(row.statusName).toBe('Draft');
+    });
+
+    it('should keep the unsaved-changes baseline after loading a received line', () => {
+      const receivedOrder: PurchaseOrder = {
+        ...mockOrder,
+        statusName: 'Accepted',
+        details: [{ ...mockOrder.details[0], receivedQuantity: 4, statusName: 'Partial Received' }],
+      };
+      purchaseOrderService.getPurchaseOrder = vi.fn().mockReturnValue(of(receivedOrder));
+
+      const f = TestBed.createComponent(PurchaseOrderEdit);
+      const comp = f.componentInstance;
+      f.detectChanges();
+
+      expect(comp.lineItems()[0].receivedQuantity).toBe(4);
+      expect(comp.lineItems()[0].statusName).toBe('Partial Received');
+      // The baseline is taken from the same mapped rows, so the receipt fields
+      // must not make a freshly loaded order look dirty.
+      expect(comp.hasUnsavedChanges()).toBe(false);
+    });
+
+    it('should offer the receipt action for a receivable order, pointing at the create page', () => {
+      component.loadedOrder.set({ ...mockOrder, statusName: 'Accepted' });
+      fixture.detectChanges();
+
+      const action = receiptAction(fixture);
+      expect(action).toBeDefined();
+
+      const link = action!.injector.get(RouterLink);
+      expect(link.urlTree?.toString()).toBe('/purchases/receipts/create?purchaseOrderId=po-1');
+      expect(link.queryParams).toEqual({ purchaseOrderId: 'po-1' });
+    });
+
+    it('should offer the receipt action while the order is In Transit', () => {
+      component.loadedOrder.set({ ...mockOrder, statusName: 'In Transit' });
+      fixture.detectChanges();
+
+      expect(receiptAction(fixture)).toBeDefined();
+    });
+
+    it('should not offer the receipt action for a Draft order', () => {
+      expect(component.loadedOrder()?.statusName).toBe('Draft');
+      expect(receiptAction(fixture)).toBeUndefined();
+    });
+
+    it('should not offer the receipt action for a disabled order', () => {
+      component.loadedOrder.set({ ...mockOrder, statusName: 'Accepted', enabled: false });
+      fixture.detectChanges();
+
+      expect(receiptAction(fixture)).toBeUndefined();
+    });
+
+    it('should not offer the receipt action for a Closed order', () => {
+      component.loadedOrder.set({ ...mockOrder, statusName: 'Closed' });
+      fixture.detectChanges();
+
+      expect(receiptAction(fixture)).toBeUndefined();
     });
 
     it('should scope the line-item variant picker to the loaded order store', () => {

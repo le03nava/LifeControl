@@ -22,10 +22,17 @@ import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { ProductVariantPicker } from '../product-variant-picker/product-variant-picker';
+import { StatusChip } from '../status-chip/status-chip';
 import type { ProductVariant } from '@features/products/models/product-variant.models';
 
 /** Viewport width below which the table switches to one card per line item. */
 const MOBILE_QUERY = '(max-width: 575px)';
+
+/** Column ids of the editable draft view, in render order. */
+const BASE_COLUMNS = ['productName', 'variantName', 'quantity', 'unitPrice', 'subtotal', 'actions'];
+
+/** Column ids the opt-in reception progress view inserts after `quantity`. */
+const RECEIPT_PROGRESS_COLUMNS = ['received', 'lineStatus'];
 
 /**
  * Simplified row type for the detail table.
@@ -42,6 +49,13 @@ export interface DetailTableRow {
   productVariantName: string | null;
   quantity: number;
   unitPrice: number;
+  /**
+   * Quantity already received against the line. Only the reception progress
+   * view reads it, so the draft editor leaves it `undefined`.
+   */
+  receivedQuantity?: number;
+  /** Line (detail) status name; `null` when the row carries no status yet. */
+  statusName?: string | null;
 }
 
 /**
@@ -67,6 +81,7 @@ export interface DetailTableRow {
     MatIconModule,
     MatTooltipModule,
     ProductVariantPicker,
+    StatusChip,
   ],
   templateUrl: './detail-table.html',
   styleUrl: './detail-table.scss',
@@ -89,6 +104,12 @@ export class DetailTable {
    * cannot resolve a variant.
    */
   readonly storeId = input.required<string>();
+
+  /**
+   * Opt-in reception progress view: adds the received-quantity and line-status
+   * columns. Defaults to `false`, so the draft editor renders exactly as before.
+   */
+  readonly showReceiptProgress = input<boolean>(false);
 
   /** Emits the full updated items array after any add or remove. */
   readonly itemsChanged = output<DetailTableRow[]>();
@@ -132,14 +153,19 @@ export class DetailTable {
   });
 
   // ─── Computed ──────────────────────────────────────────
-  readonly displayedColumns: string[] = [
-    'productName',
-    'variantName',
-    'quantity',
-    'unitPrice',
-    'subtotal',
-    'actions',
-  ];
+  /**
+   * Rendered columns. The reception progress columns are inserted between
+   * `quantity` and `unitPrice` only while `showReceiptProgress` is on.
+   */
+  readonly displayedColumns = computed(() => {
+    if (!this.showReceiptProgress()) {
+      return BASE_COLUMNS;
+    }
+
+    const columns = [...BASE_COLUMNS];
+    columns.splice(columns.indexOf('quantity') + 1, 0, ...RECEIPT_PROGRESS_COLUMNS);
+    return columns;
+  });
 
   readonly lineItemsTotal = computed(() =>
     this.items().reduce((sum, item) => sum + item.quantity * item.unitPrice, 0),

@@ -22,6 +22,7 @@ import { StatusChip } from '../../components/status-chip/status-chip';
 import { DetailTable, type DetailTableRow } from '../../components/detail-table/detail-table';
 import { CompanyInfoSection } from '../../components/company-info-section/company-info-section';
 import { SupplierInfoSection } from '../../components/supplier-info-section/supplier-info-section';
+import { isOrderReceivable } from '../../data/status-config';
 import type {
   PurchaseOrder,
   PurchaseOrderDetail,
@@ -81,6 +82,10 @@ export class PurchaseOrderEdit implements OnInit {
 
   // ─── Loaded order data (edit mode) ─────────────────────
   readonly loadedOrder = signal<PurchaseOrder | null>(null);
+
+  /** Exposed to the template so the receipt action can gate on the order status. */
+  // The receipt page re-validates the order status server side anyway.
+  protected readonly isOrderReceivable = isOrderReceivable;
 
   /**
    * New orders start as drafts (the backend defaults them to Draft), so the
@@ -289,8 +294,12 @@ export class PurchaseOrderEdit implements OnInit {
       productVariantName: d.productVariantName,
       quantity: d.quantity,
       unitPrice: d.unitPrice,
+      receivedQuantity: d.receivedQuantity,
+      statusName: d.statusName,
     }));
     this.lineItems.set(rows);
+    // `lineItemsKey` only projects the editable pricing fields, so the receipt
+    // fields above can never make a freshly loaded order look dirty.
     this.lineItemsBaseline.set(this.lineItemsKey());
   }
 

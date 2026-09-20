@@ -1,6 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { By } from '@angular/platform-browser';
+import { BreakpointObserver } from '@angular/cdk/layout';
 import { of } from 'rxjs';
 import { DetailTable, type DetailTableRow } from './detail-table';
 import { ProductVariantPicker } from '../product-variant-picker/product-variant-picker';
@@ -38,6 +39,9 @@ const VARIANT_B: ProductVariant = {
   stock: 3,
   enabled: true,
 };
+
+/** Viewport width below which the table switches to one card per line item. */
+const MOBILE_QUERY = '(max-width: 575px)';
 
 const VARIANT_FROM_OTHER_STORE: ProductVariant = {
   ...VARIANT_A,
@@ -82,14 +86,24 @@ describe('DetailTable', () => {
     }).compileComponents();
   });
 
-  function createTable(items: DetailTableRow[], isDraft = true): ComponentFixture<DetailTable> {
+  function createTable(
+    items: DetailTableRow[],
+    isDraft = true,
+    showReceiptProgress = false,
+  ): ComponentFixture<DetailTable> {
     const f = TestBed.createComponent(DetailTable);
     f.componentRef.setInput('items', items);
     f.componentRef.setInput('isDraft', isDraft);
     f.componentRef.setInput('availableProducts', PRODUCTS);
     f.componentRef.setInput('storeId', 'store-1');
+    f.componentRef.setInput('showReceiptProgress', showReceiptProgress);
     f.detectChanges();
     return f;
+  }
+
+  function cellText(f: ComponentFixture<DetailTable>, column: string): string | undefined {
+    const cell = (f.nativeElement as HTMLElement).querySelector(`td.mat-column-${column}`);
+    return cell?.textContent?.trim();
   }
 
   function pickerOf(f: ComponentFixture<DetailTable>): ProductVariantPicker {
@@ -155,6 +169,71 @@ describe('DetailTable', () => {
       f.componentInstance.removeItem(0);
 
       expect(emitted).toBe(false);
+    });
+  });
+
+  describe('receipt progress', () => {
+    const RECEIVED_ROW: DetailTableRow = {
+      ...SAVED_ROW,
+      receivedQuantity: 3,
+      statusName: 'Partial Received',
+    };
+
+    it('should keep the column set and the rendering when the progress view is off (default)', () => {
+      const f = createTable([SAVED_ROW]);
+
+      expect(f.componentInstance.showReceiptProgress()).toBe(false);
+      expect(f.componentInstance.displayedColumns()).toEqual([
+        'productName',
+        'variantName',
+        'quantity',
+        'unitPrice',
+        'subtotal',
+        'actions',
+      ]);
+
+      const text = (f.nativeElement as HTMLElement).textContent ?? '';
+      expect(text).not.toContain('Recibido');
+      expect(text).not.toContain('Estado');
+      expect(cellText(f, 'received')).toBeUndefined();
+      expect(cellText(f, 'lineStatus')).toBeUndefined();
+    });
+
+    it('should insert the two progress columns between quantity and unit price when on', () => {
+      const f = createTable([RECEIVED_ROW], true, true);
+
+      expect(f.componentInstance.displayedColumns()).toEqual([
+        'productName',
+        'variantName',
+        'quantity',
+        'received',
+        'lineStatus',
+        'unitPrice',
+        'subtotal',
+        'actions',
+      ]);
+    });
+
+    it('should render the received quantity and the Spanish detail status', () => {
+      const f = createTable([RECEIVED_ROW], true, true);
+      const text = (f.nativeElement as HTMLElement).textContent ?? '';
+
+      expect(text).toContain('Recibido');
+      expect(text).toContain('Parcialmente Recibida');
+      expect(cellText(f, 'received')).toBe('3');
+    });
+
+    it('should render an em dash when the line carries no status', () => {
+      const f = createTable([{ ...RECEIVED_ROW, statusName: null }], true, true);
+
+      expect(cellText(f, 'lineStatus')).toBe('—');
+    });
+
+    it('should render an em dash when the row carries no receivedQuantity', () => {
+      const f = createTable([SAVED_ROW], true, true);
+
+      expect(cellText(f, 'received')).toBe('—');
+      expect(cellText(f, 'lineStatus')).toBe('—');
     });
   });
 
@@ -337,5 +416,60 @@ describe('DetailTable', () => {
 
       expect(emitted).toBeNull();
     });
+  });
+});
+
+describe('DetailTable (mobile)', () => {
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [DetailTable, NoopAnimationsModule],
+      providers: [
+        {
+          provide: ProductService,
+          useValue: { getProductVariants: vi.fn().mockReturnValue(of(variantPage([VARIANT_A]))) },
+        },
+        {
+          provide: BreakpointObserver,
+          useValue: {
+            observe: () => of({ matches: true, breakpoints: { [MOBILE_QUERY]: true } }),
+          },
+        },
+      ],
+    }).compileComponents();
+  });
+
+  function createMobileTable(
+    items: DetailTableRow[],
+    showReceiptProgress: boolean,
+  ): ComponentFixture<DetailTable> {
+    const f = TestBed.createComponent(DetailTable);
+    f.componentRef.setInput('items', items);
+    f.componentRef.setInput('isDraft', true);
+    f.componentRef.setInput('availableProducts', PRODUCTS);
+    f.componentRef.setInput('storeId', 'store-1');
+    f.componentRef.setInput('showReceiptProgress', showReceiptProgress);
+    f.detectChanges();
+    return f;
+  }
+
+  it('should render the receipt progress facts in the per-line card', () => {
+    const f = createMobileTable(
+      [{ ...SAVED_ROW, receivedQuantity: 3, statusName: 'Partial Received' }],
+      true,
+    );
+
+    const cards = (f.nativeElement as HTMLElement).querySelectorAll('.line-item-card');
+    expect(cards.length).toBe(1);
+
+    const text = (f.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Recibido');
+    expect(text).toContain('Parcialmente Recibida');
+  });
+
+  it('should keep the per-line card unchanged when the progress view is off', () => {
+    const f = createMobileTable([SAVED_ROW], false);
+
+    const text = (f.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).not.toContain('Recibido');
   });
 });
