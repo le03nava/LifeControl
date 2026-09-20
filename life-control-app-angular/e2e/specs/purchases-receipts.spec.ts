@@ -117,7 +117,10 @@ app.describe('Purchases — receipts access for a receiving-only user', () => {
     // header) instead of a deep-link, so the mocked silent-SSO race cannot
     // decide this assertion.
     await openReceipts(page);
-    await expect(page.getByRole('heading', { name: 'Recibos' })).toBeVisible();
+    // `level: 1` pins the page title: the accessible-name match is substring-based,
+    // so a bare `{ name: 'Recibos' }` also matches the empty-state heading
+    // "No hay recibos registrados" and trips strict mode.
+    await expect(page.getByRole('heading', { level: 1, name: 'Recibos' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Access Denied' })).toHaveCount(0);
 
     // The orders children re-declare their own admin-only guard, so the same
