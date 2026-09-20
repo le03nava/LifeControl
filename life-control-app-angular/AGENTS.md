@@ -1161,6 +1161,14 @@ Los **pages** son componentes ruteables (`loadComponent` en las rutas). Los **co
 - ❌ **No usar `@import` en SCSS** — usar `@use`
 - ❌ **No mezclar signals y RxJS sin criterio** — signals para UI, RxJS para streams HTTP/eventos
 
+### Formateo y Documentación
+
+El código de `src/**` lo formatea prettier (por `lint-staged` en el pre-commit). **La documentación de este paquete no**: `.prettierignore` la excluye con `*.md`, y eso es intencional, no un descuido.
+
+- ❌ **No borrar `.prettierignore`** ni quitarle el patrón `*.md` por parecer "config sin uso". El pipeline de escritura corre `prettier --write <archivo>` sobre cada edición, y sin ese archivo re-emite el `.md` entero: el cambio real queda enterrado bajo cientos de líneas de formato (ya bloqueó un rebase una vez).
+- ✅ Los `.md` de este paquete se mantienen a mano, con las tablas alineadas por columna.
+- ✅ Si alguna vez se decide que prettier también administre la doc, formatear el archivo en su **propio commit**, nunca mezclado con una edición de contenido.
+
 ---
 
 ## Referencias
