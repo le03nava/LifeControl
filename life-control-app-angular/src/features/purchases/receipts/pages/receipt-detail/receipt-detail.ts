@@ -2,11 +2,10 @@ import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/c
 import { toSignal, rxResource } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { DatePipe } from '@angular/common';
-import { HttpErrorResponse } from '@angular/common/http';
 import { BreakpointObserver } from '@angular/cdk/layout';
 import { map } from 'rxjs';
 import { PageHeader } from '@shared/ui';
-import { httpErrorMessage } from '@shared/data';
+import { httpErrorMessage, unwrapHttpError } from '@shared/data';
 import { MatTableModule } from '@angular/material/table';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
@@ -161,7 +160,7 @@ export class ReceiptDetail {
       return this.id === null ? 'No se encontró el recibo.' : null;
     }
 
-    const status = resolveHttpError(error)?.status;
+    const status = unwrapHttpError(error)?.status;
     if (status === 404) {
       return 'No se encontró el recibo.';
     }
@@ -176,20 +175,4 @@ export class ReceiptDetail {
   goBack(): void {
     this.router.navigate(['/purchases/receipts']);
   }
-}
-
-/** Walks the `cause` chain (guarding against cycles) to find an `HttpErrorResponse`. */
-function resolveHttpError(error: unknown): HttpErrorResponse | undefined {
-  let current: unknown = error;
-  const visited = new Set<unknown>();
-
-  while (current != null && !visited.has(current)) {
-    if (current instanceof HttpErrorResponse) {
-      return current;
-    }
-    visited.add(current);
-    current = (current as { cause?: unknown }).cause;
-  }
-
-  return undefined;
 }

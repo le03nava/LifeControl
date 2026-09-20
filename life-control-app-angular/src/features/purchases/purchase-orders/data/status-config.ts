@@ -80,7 +80,12 @@ export const GOODS_RECEIPT_STATUS_COLORS: Record<string, string> = { Registered:
  * Order statuses a goods receipt may be registered against.
  *
  * Mirrors `PurchaseOrderService.requireReceivable`, which admits only
- * `Accepted` and `In Transit` (compared case-insensitively on the backend).
+ * `Accepted` and `In Transit`. Those two names are compared with
+ * `equalsIgnoreCase` on the backend, but the line-level guard that runs later in
+ * the same request (`isDetailStatusReachable`) looks its `DETAIL_TRANSITIONS`
+ * table up with a CASE-SENSITIVE key, so a non-canonical casing is rejected
+ * further down anyway. The client therefore matches only the canonical names
+ * seeded by the backend reference data and stays fail-closed on anything else.
  */
 export const ORDER_RECEIVABLE_STATUSES = ['Accepted', 'In Transit'];
 
@@ -119,15 +124,17 @@ export const PO_DETAIL_STATUS_COLORS: Record<string, string> = {
  *
  * Fail-closed by design: a `null`, `undefined`, empty or unrecognised status
  * returns `false`, because an unknown status must never be offered as
- * receivable. The comparison is case-insensitive to match
- * `PurchaseOrderService.requireReceivable`.
+ * receivable. The comparison is exact against the canonical seeded names:
+ * `requireReceivable` itself is case-insensitive, but the case-sensitive
+ * `DETAIL_TRANSITIONS` lookup in `isDetailStatusReachable` rejects a
+ * non-canonical casing on the very same request, so offering it would only
+ * promise a reception the server refuses.
  */
 export function isOrderReceivable(statusName: string | null | undefined): boolean {
   if (!statusName) {
     return false;
   }
-  const normalized = statusName.toLowerCase();
-  return ORDER_RECEIVABLE_STATUSES.some((status) => status.toLowerCase() === normalized);
+  return ORDER_RECEIVABLE_STATUSES.includes(statusName);
 }
 
 /**
@@ -135,13 +142,15 @@ export function isOrderReceivable(statusName: string | null | undefined): boolea
  *
  * Fail-closed by design: a `null`, `undefined`, empty or unrecognised status
  * returns `false`, so the terminal `Received`/`Rejected`/`Cancelled` lines are
- * never offered as receivable. The comparison is case-insensitive to match the
- * backend's reachability walk in `PurchaseOrderService.requireDetailReceivable`.
+ * never offered as receivable. The comparison is exact against the canonical
+ * seeded names, mirroring the reachable-to-`Partial Received` set of
+ * `PurchaseOrderService.isDetailStatusReachable`, whose `DETAIL_TRANSITIONS`
+ * lookup is case-sensitive: a non-canonical casing has no outgoing edges there
+ * and is rejected by the server.
  */
 export function isDetailStatusReceivable(statusName: string | null | undefined): boolean {
   if (!statusName) {
     return false;
   }
-  const normalized = statusName.toLowerCase();
-  return RECEIVABLE_DETAIL_STATUSES.some((status) => status.toLowerCase() === normalized);
+  return RECEIVABLE_DETAIL_STATUSES.includes(statusName);
 }

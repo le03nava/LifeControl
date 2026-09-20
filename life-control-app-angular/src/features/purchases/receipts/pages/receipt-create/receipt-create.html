@@ -98,8 +98,8 @@
                       color="primary"
                       type="button"
                       class="receive-button"
-                      [disabled]="!isOrderReceivable(row.statusName)"
-                      [matTooltip]="receiveTooltip"
+                      [disabled]="!canReceiveOrder(row)"
+                      [matTooltip]="receiveTooltipFor(row)"
                       (click)="onReceiveOrder(row)"
                     >
                       Recibir
@@ -152,6 +152,14 @@
       <div class="error-state">
         <mat-icon fontIcon="error" />
         <p>{{ httpErrorMessage(err) }}</p>
+        <button mat-stroked-button type="button" (click)="chooseAnotherOrder()">
+          Elegir otra orden
+        </button>
+      </div>
+    } @else if (orderDisabled()) {
+      <div class="blocked-state">
+        <mat-icon fontIcon="block" />
+        <p>Esta orden está deshabilitada y no puede recibir mercadería.</p>
         <button mat-stroked-button type="button" (click)="chooseAnotherOrder()">
           Elegir otra orden
         </button>
@@ -271,7 +279,12 @@
           <mat-card-title>Ubicación de recepción</mat-card-title>
         </mat-card-header>
         <mat-card-content>
-          @if (requiresLocation()) {
+          @if (settingsFailed()) {
+            <p class="location-warning">
+              No se pudieron leer los ajustes de inventario de la tienda. Elegí una ubicación de
+              recepción para continuar.
+            </p>
+          } @else if (requiresLocation()) {
             <p class="location-warning">
               Esta tienda no tiene una ubicación de recepción configurada. Elegí una ubicación para
               continuar.

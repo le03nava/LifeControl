@@ -286,6 +286,37 @@ describe('ReceiptCreate', () => {
       expect(buttons[1].disabled).toBe(true);
     });
 
+    it('should keep the receive action disabled for a disabled but receivable order', async () => {
+      const disabledAccepted: PurchaseOrder = {
+        ...mockOrderAccepted,
+        id: 'po-3',
+        orderNumber: 'PO-00003',
+        enabled: false,
+      };
+      purchaseOrderService.getPurchaseOrders.mockReturnValue(
+        of(orderPage([mockOrderAccepted, disabledAccepted])),
+      );
+      const fixture = await createPicker();
+      const component = fixture.componentInstance;
+      const buttons = receiveButtons(fixture);
+
+      expect(buttons[0].disabled).toBe(false);
+      expect(buttons[1].disabled).toBe(true);
+      // The row explains the disabled reason instead of the status reason.
+      expect(component.receiveTooltipFor(component.orders()!.content[0])).toBe(
+        component.receiveTooltip,
+      );
+      expect(component.receiveTooltipFor(disabledAccepted)).toBe(
+        'Esta orden está deshabilitada y no puede recibir mercadería.',
+      );
+
+      component.onReceiveOrder(disabledAccepted);
+      fixture.detectChanges();
+
+      expect(component.isPickerState()).toBe(true);
+      expect(purchaseOrderService.getPurchaseOrder).not.toHaveBeenCalled();
+    });
+
     it('should show the empty copy when there is no order', async () => {
       purchaseOrderService.getPurchaseOrders.mockReturnValue(of(orderPage([])));
       const fixture = await createPicker();
@@ -516,6 +547,47 @@ describe('ReceiptCreate', () => {
         expect.objectContaining({ receivingLocationId: 'loc-9' }),
       );
     });
+
+    it('should surface a failed settings read and require an explicit location', async () => {
+      settingsService.getSettings.mockReturnValue(
+        throwError(() => new HttpErrorResponse({ status: 500 })),
+      );
+      const fixture = await createWithOrder();
+      const component = fixture.componentInstance;
+
+      expect(component.settingsFailed()).toBe(true);
+      expect(component.requiresLocation()).toBe(true);
+      expect(textOf(fixture)).toContain(
+        'No se pudieron leer los ajustes de inventario de la tienda. Elegí una ubicación de recepción para continuar.',
+      );
+      // The unreadable-settings copy must not be confused with the 404 one.
+      expect(textOf(fixture)).not.toContain(
+        'Esta tienda no tiene una ubicación de recepción configurada',
+      );
+      expect(submitButton(fixture).disabled).toBe(true);
+
+      component.onSubmit();
+      expect(goodsReceiptService.createReceipt).not.toHaveBeenCalled();
+    });
+
+    it('should unblock the submit once a location is chosen after a failed settings read', async () => {
+      settingsService.getSettings.mockReturnValue(
+        throwError(() => new HttpErrorResponse({ status: 500 })),
+      );
+      const fixture = await createWithOrder();
+      const component = fixture.componentInstance;
+
+      component.onLocationChange('loc-9');
+      fixture.detectChanges();
+
+      expect(component.locationMissing()).toBe(false);
+      expect(submitButton(fixture).disabled).toBe(false);
+
+      component.onSubmit();
+      expect(goodsReceiptService.createReceipt).toHaveBeenCalledWith(
+        expect.objectContaining({ receivingLocationId: 'loc-9' }),
+      );
+    });
   });
 
   describe('server errors', () => {
@@ -599,6 +671,28 @@ describe('ReceiptCreate', () => {
       expect(textOf(fixture)).toContain(
         'Esta orden no está en un estado que permita recibir. Solo se puede recibir una orden Aceptada o En Tránsito.',
       );
+      expect(goodsReceiptService.createReceipt).not.toHaveBeenCalled();
+
+      component.chooseAnotherOrder();
+      fixture.detectChanges();
+
+      expect(component.isPickerState()).toBe(true);
+      expect(purchaseOrderService.getPurchaseOrders).toHaveBeenCalled();
+    });
+
+    it('should block an order that is disabled and offer another order', async () => {
+      purchaseOrderService.getPurchaseOrder.mockReturnValue(
+        of({ ...mockOrderAccepted, enabled: false }),
+      );
+      const fixture = await createWithOrder();
+      const component = fixture.componentInstance;
+
+      expect(component.orderDisabled()).toBe(true);
+      expect(textOf(fixture)).toContain(
+        'Esta orden está deshabilitada y no puede recibir mercadería.',
+      );
+      // The lines form is never rendered, so there is nothing to submit.
+      expect(fixture.debugElement.query(By.css('.lines-card'))).toBeNull();
       expect(goodsReceiptService.createReceipt).not.toHaveBeenCalled();
 
       component.chooseAnotherOrder();

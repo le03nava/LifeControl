@@ -473,7 +473,9 @@ export async function installApiMock(page: Page, options: ApiMockOptions = {}): 
         statusId: 'status-registered',
         statusName: 'Registered',
         receivedBy: usernameFromAuthHeader(request.headers()['authorization']),
-        receivedAt: new Date().toISOString(),
+        // `GoodsReceiptResponse.receivedAt` is a zone-less `LocalDateTime`, so the
+        // fixture keeps the same shape the real API serializes (no trailing `Z`).
+        receivedAt: new Date().toISOString().slice(0, 19),
         comments: body.comments ?? null,
         enabled: true,
         lines: body.lines.map((line, index) => ({

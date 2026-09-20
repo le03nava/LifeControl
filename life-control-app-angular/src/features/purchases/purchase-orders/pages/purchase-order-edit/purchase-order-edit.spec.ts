@@ -516,6 +516,13 @@ describe('PurchaseOrderEdit', () => {
       expect(receiptAction(fixture)).toBeUndefined();
     });
 
+    it('should not offer the receipt action for a disabled order', () => {
+      component.loadedOrder.set({ ...mockOrder, statusName: 'Accepted', enabled: false });
+      fixture.detectChanges();
+
+      expect(receiptAction(fixture)).toBeUndefined();
+    });
+
     it('should not offer the receipt action for a Closed order', () => {
       component.loadedOrder.set({ ...mockOrder, statusName: 'Closed' });
       fixture.detectChanges();

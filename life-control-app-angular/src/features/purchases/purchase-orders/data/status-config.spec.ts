@@ -333,10 +333,10 @@ describe('isOrderReceivable', () => {
     }
   });
 
-  it('should compare case-insensitively (matching the backend)', () => {
-    expect(isOrderReceivable('accepted')).toBe(true);
-    expect(isOrderReceivable('ACCEPTED')).toBe(true);
-    expect(isOrderReceivable('in transit')).toBe(true);
+  it('should not admit a non-canonical casing of a receivable status', () => {
+    expect(isOrderReceivable('accepted')).toBe(false);
+    expect(isOrderReceivable('ACCEPTED')).toBe(false);
+    expect(isOrderReceivable('in transit')).toBe(false);
   });
 
   it('should be fail-closed on null, undefined, empty and unknown names', () => {
@@ -376,10 +376,11 @@ describe('isDetailStatusReceivable', () => {
     expect(isDetailStatusReceivable('Cancelled')).toBe(false);
   });
 
-  it('should compare case-insensitively (matching the backend)', () => {
-    expect(isDetailStatusReceivable('pending')).toBe(true);
-    expect(isDetailStatusReceivable('PARTIAL RECEIVED')).toBe(true);
-    expect(isDetailStatusReceivable('in process')).toBe(true);
+  it('should not admit a non-canonical casing of a receivable detail status', () => {
+    expect(isDetailStatusReceivable('pending')).toBe(false);
+    expect(isDetailStatusReceivable('PARTIAL RECEIVED')).toBe(false);
+    expect(isDetailStatusReceivable('partial received')).toBe(false);
+    expect(isDetailStatusReceivable('in process')).toBe(false);
   });
 
   it('should be fail-closed on null, undefined, empty and unknown names', () => {

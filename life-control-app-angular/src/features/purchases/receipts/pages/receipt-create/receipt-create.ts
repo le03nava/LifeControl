@@ -87,10 +87,10 @@ export class ReceiptCreate implements UnsavedChangesAware {
 
   /** Tooltip that explains why a non-receivable order cannot be picked. */
   readonly receiveTooltip = 'Solo se puede recibir una orden Aceptada o En Tránsito';
+  /** Tooltip for a soft-deleted order, whose reception the backend rejects. */
+  readonly disabledOrderTooltip = 'Esta orden está deshabilitada y no puede recibir mercadería.';
 
   protected readonly httpErrorMessage = httpErrorMessage;
-  /** Exposed to the template so each row can gate its own receive action. */
-  protected readonly isOrderReceivable = isOrderReceivable;
 
   // ─── State A: order picker ─────────────────────────────
   readonly pageSize = signal(12);
@@ -206,6 +206,13 @@ export class ReceiptCreate implements UnsavedChangesAware {
   );
   /** True once the settings read resolved; a `null` value then means "not configured". */
   readonly settingsLoaded = computed(() => this.settingsResource.hasValue());
+  /**
+   * True when the settings read failed. The failure is silent at the HTTP layer
+   * (`SKIP_ERROR_NOTIFICATION`), so the page owns the visible error: without it
+   * the operator would submit believing the store's configured location is used
+   * while the client cannot read that configuration at all.
+   */
+  readonly settingsFailed = computed(() => this.settingsResource.error() !== undefined);
 
   /** Enabled locations of the store, used for the optional override. */
   readonly locationsResource = rxResource({
@@ -233,8 +240,17 @@ export class ReceiptCreate implements UnsavedChangesAware {
   );
   readonly formErrors = computed(() => validateDrafts(this.drafts()));
 
-  /** The store has no receiving location configured, so the override is required. */
-  readonly requiresLocation = computed(() => this.settingsLoaded() && this.settings() === null);
+  /**
+   * Whether the receiving location must be picked explicitly.
+   *
+   * That is the case when the client cannot resolve the store's configured
+   * default: the store has none configured (`null`), or the settings read itself
+   * failed and the default is therefore unknown. Both keep the submit blocked
+   * until the operator chooses a location.
+   */
+  readonly requiresLocation = computed(
+    () => this.settingsFailed() || (this.settingsLoaded() && this.settings() === null),
+  );
   readonly locationMissing = computed(
     () => this.requiresLocation() && this.locationOverride() === null,
   );
@@ -259,6 +275,11 @@ export class ReceiptCreate implements UnsavedChangesAware {
   readonly orderNotReceivable = computed(() => {
     const order = this.order();
     return order !== null && !isOrderReceivable(order.statusName);
+  });
+  /** The order was soft-deleted; the backend rejects any reception for it. */
+  readonly orderDisabled = computed(() => {
+    const order = this.order();
+    return order !== null && order.enabled === false;
   });
   readonly storeUnresolved = computed(() => this.order() !== null && this.chain() === null);
 
@@ -340,9 +361,19 @@ export class ReceiptCreate implements UnsavedChangesAware {
     this.ordersResource.reload();
   }
 
-  /** Only a receivable order can start a reception. */
+  /** Only a receivable and enabled order can start a reception. */
+  canReceiveOrder(order: PurchaseOrder): boolean {
+    return isOrderReceivable(order.statusName) && order.enabled === true;
+  }
+
+  /** Row tooltip; the soft-deleted reason takes precedence over the status reason. */
+  receiveTooltipFor(order: PurchaseOrder): string {
+    return order.enabled === false ? this.disabledOrderTooltip : this.receiveTooltip;
+  }
+
+  /** Only a receivable and enabled order can start a reception. */
   onReceiveOrder(order: PurchaseOrder): void {
-    if (!isOrderReceivable(order.statusName)) {
+    if (!this.canReceiveOrder(order)) {
       return;
     }
     this.selectedOrderId.set(order.id);
