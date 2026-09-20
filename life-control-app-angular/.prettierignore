@@ -1,0 +1,6 @@
+# Markdown in this package is hand-maintained. prettier owns the code (src/**), not the docs.
+# Without this file, any doc edit is re-emitted end to end: the write pipeline runs
+# `prettier --write <file>` and this file is not prettier-clean by design, so the real
+# change gets buried in hundreds of formatting lines (and has already blocked a rebase).
+# See AGENTS.md > Convenciones y Reglas > Formateo y Documentación.
+*.md
