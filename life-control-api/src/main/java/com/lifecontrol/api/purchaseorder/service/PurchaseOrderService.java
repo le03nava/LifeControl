@@ -418,6 +418,52 @@ public class PurchaseOrderService {
     }
 
     /**
+     * Detail-level companion of {@link #requireReceivable(PurchaseOrder)}: a
+     * purchase-order line whose current status can no longer reach the receiving
+     * state — a terminal {@code Received}, {@code Cancelled} or {@code Rejected}
+     * line — cannot register received quantities, whatever the ordered amount says.
+     * Any other line status is left to {@code registerReceivedQuantity} to derive
+     * {@code Partial Received} / {@code Received}.
+     *
+     * <p>It delegates to {@link #isDetailStatusReachable(String, String)} so
+     * {@code DETAIL_TRANSITIONS} stays the single source of truth. The
+     * goods-receipt use case calls it during its pre-write validation, so the
+     * rejection happens before the receipt row and its inventory effect are
+     * written instead of after.</p>
+     *
+     * <p>The check asks for {@code Partial Received} only, deliberately: the walk
+     * in {@link #isDetailStatusReachable(String, String)} is <em>reflexive</em> —
+     * it seeds the visited set with the starting status — so
+     * {@code isDetailStatusReachable(current, "Received")} is trivially
+     * {@code true} for a line already sitting in the terminal {@code Received}
+     * state. An "or {@code Received}" disjunct therefore admitted exactly that
+     * terminal line, the receipt row and the inventory effect were written, and
+     * only {@code registerReceivedQuantity} rejected the line afterwards with a
+     * {@code 409}. {@code Partial Received} is the real prerequisite:
+     * {@code Pending}, {@code In Process} and {@code In Transit} reach it through
+     * the existing chain, {@code Partial Received} matches by reflexivity (a
+     * partially received line keeps receiving), and every admitted status reaches
+     * <strong>both</strong> of the mutator's derived targets ({@code Partial
+     * Received} and {@code Received}) — so the guarded set equals the mutator's
+     * accepted set without the quantity ever being needed as an input, which is
+     * why the quantity is not a parameter.</p>
+     *
+     * @param detail the already-loaded purchase order detail to check
+     * @throws InvalidStatusTransitionException when the detail cannot reach the
+     *     receiving state
+     */
+    public void requireDetailReceivable(PurchaseOrderDetail detail) {
+        var currentStatus = detail.getStatus().getStatusName();
+        // "Partial Received" is the receiving prerequisite. The reachability walk is reflexive, so
+        // an extra "or Received" disjunct would wrongly admit a terminal Received line; every
+        // status admitted here reaches both of the mutator's derived targets, so the mutator can
+        // never reject an admitted line and the quantity is not needed as an input.
+        if (!isDetailStatusReachable(currentStatus, "Partial Received")) {
+            throw new InvalidStatusTransitionException(currentStatus, "reception");
+        }
+    }
+
+    /**
      * Purchase-order reception entry point. Called by the goods-receipt use case
      * (workstream W2) to register how much of a line was physically received; this
      * class owns the reception state machine.

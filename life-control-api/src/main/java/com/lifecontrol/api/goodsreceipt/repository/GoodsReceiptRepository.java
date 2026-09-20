@@ -1,6 +1,7 @@
 package com.lifecontrol.api.goodsreceipt.repository;
 
 import com.lifecontrol.api.goodsreceipt.model.GoodsReceipt;
+import java.util.Collection;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -41,4 +42,36 @@ public interface GoodsReceiptRepository extends JpaRepository<GoodsReceipt, UUID
      * past the padded width ordering the text no longer orders the sequence.</p>
      */
     long countByPurchaseOrderId(UUID purchaseOrderId);
+
+    /**
+     * One store-scoped page of receipts with no free-text filter (W2-D10 tenant scoping). The caller
+     * selects this finder instead of passing a {@code null} search to the searched one: PostgreSQL
+     * cannot type a null-bound {@code :search IS NULL} predicate, so the search/no-search choice is
+     * made here as two plain finders, mirroring
+     * {@code PurchaseOrderService#getAllPurchaseOrders} and the unscoped {@link
+     * #findBySearchTerm(String, Pageable)} / {@link #findByEnabledTrueOrderByReceivedAtDesc(Pageable)}
+     * pair. The ordering matches the searched variant: most recent first.
+     */
+    Page<GoodsReceipt> findByEnabledTrueAndCompanyStoreIdInOrderByReceivedAtDesc(
+            Collection<UUID> storeIds, Pageable pageable);
+
+    /**
+     * One store-scoped page of receipts filtered by a free-text search over the receipt number and
+     * the order number of the purchase order it settles (W2-D10 tenant scoping).
+     *
+     * <p>Call it only with a non-blank {@code search}: the predicate has no null guard on purpose,
+     * so the parameter is always bound as text and the null-parameter typing hazard that broke the
+     * previous single-finder form cannot occur. The unsearched case uses
+     * {@link #findByEnabledTrueAndCompanyStoreIdInOrderByReceivedAtDesc(Collection, Pageable)}.</p>
+     */
+    @Query("""
+        SELECT gr FROM GoodsReceipt gr
+        WHERE gr.enabled = true
+          AND gr.companyStore.id IN :storeIds
+          AND (LOWER(gr.receiptNumber) LIKE LOWER(CONCAT('%', :search, '%'))
+             OR LOWER(gr.purchaseOrder.orderNumber) LIKE LOWER(CONCAT('%', :search, '%')))
+        ORDER BY gr.receivedAt DESC
+        """)
+    Page<GoodsReceipt> findByCompanyStoreIdInAndSearchTerm(
+            @Param("storeIds") Collection<UUID> storeIds, @Param("search") String search, Pageable pageable);
 }
