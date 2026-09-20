@@ -33,7 +33,13 @@ HELP.md
 /**/gradlew
 /**/gradlew.bat
 
-# Gradle wrapper tracked for CI (life-control-api)
+# Gradle wrappers tracked for CI (both Java modules).
+# The wrapper directory itself must be re-included here: git cannot re-include a
+# file whose parent directory is excluded, which is why the exception already
+# present in api-gateway/.gitignore never had any effect on its own.
+!api-gateway/gradlew
+!api-gateway/gradle/
+!api-gateway/gradle/wrapper/gradle-wrapper.jar
 !life-control-api/gradlew
 !life-control-api/gradle/
 !life-control-api/gradle/wrapper/gradle-wrapper.jar
