@@ -3,6 +3,16 @@
     <div class="header-tools">
       @if (loadedOrder(); as order) {
         <app-status-chip [statusName]="order.statusName" />
+        @if (isOrderReceivable(order.statusName)) {
+          <button
+            mat-flat-button
+            color="primary"
+            [routerLink]="['/purchases/receipts/create']"
+            [queryParams]="{ purchaseOrderId: order.id }"
+          >
+            <mat-icon fontIcon="inventory_2" /> Recibir mercadería
+          </button>
+        }
       }
       <button mat-stroked-button routerLink="/purchases/orders">
         <mat-icon fontIcon="arrow_back" /> Volver
@@ -51,6 +61,7 @@
       [isDraft]="isDraft()"
       [availableProducts]="supplierProducts()"
       [storeId]="variantStoreId()"
+      [showReceiptProgress]="!!loadedOrder()"
       (itemsChanged)="onItemsChanged($event)"
     />
 

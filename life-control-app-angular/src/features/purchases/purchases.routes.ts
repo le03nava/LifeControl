@@ -43,6 +43,19 @@ export const purchasesRoutes: Routes = [
         loadComponent: () =>
           import('./receipts/pages/receipt-list/receipt-list').then((m) => m.ReceiptList),
       },
+      {
+        // The literal `create` path must stay declared before `receipts/:id`,
+        // otherwise the parameterised route captures it as an id.
+        path: 'receipts/create',
+        canDeactivate: [unsavedChangesGuard],
+        loadComponent: () =>
+          import('./receipts/pages/receipt-create/receipt-create').then((m) => m.ReceiptCreate),
+      },
+      {
+        path: 'receipts/:id',
+        loadComponent: () =>
+          import('./receipts/pages/receipt-detail/receipt-detail').then((m) => m.ReceiptDetail),
+      },
     ],
   },
 ];
