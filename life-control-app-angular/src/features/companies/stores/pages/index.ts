@@ -6,3 +6,4 @@ export { StoreZonesPage } from './store-zones-page/store-zones-page';
 export { StoreZonesEdit } from './store-zones-edit/store-zones-edit';
 export { StoreLocationsPage } from './store-locations-page/store-locations-page';
 export { StoreLocationsEdit } from './store-locations-edit/store-locations-edit';
+export { StoreInventorySettings } from './store-inventory-settings/store-inventory-settings';

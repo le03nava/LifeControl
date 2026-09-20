@@ -983,7 +983,38 @@ const STORE_ROLES = [...STORE_WRITE_ROLES, 'lc-company-store-read'];
 //   /companies/regions      → REGION_ROLES
 //   /companies/zones        → ZONE_ROLES
 //   /companies/stores       → STORE_ROLES
+//   /companies/store-areas  → STORE_ROLES  (hijas create/edit → STORE_WRITE_ROLES)
+//   /companies/store-zones  → STORE_ROLES  (hijas create/edit → STORE_WRITE_ROLES)
+//   /companies/store-locations → STORE_ROLES (hijas create/edit → STORE_WRITE_ROLES)
+//   /companies/store-inventory-settings → STORE_ROLES (lectura + escritura en una sola ruta)
 ```
+
+**Split lectura/escritura en las hojas de tienda.** Cada hoja de tienda —hermana de
+`/companies/stores` bajo `/companies`, no hija suya— se gatea con `STORE_ROLES`, que incluye el rol
+de **solo lectura** `lc-company-store-read`. La ruta deja entrar a ese rol y **la pantalla decide qué
+mostrar**:
+
+```typescript
+readonly canWrite = hasAnyClientRole(STORE_WRITE_ROLES);
+```
+
+La línea es idéntica en 7 archivos: las 4 páginas `store-areas-page.ts`, `store-zones-page.ts`,
+`store-locations-page.ts` y `store-inventory-settings.ts`, más los 3 `*-edit` de areas/zones/locations.
+
+Dos reglas que este repo ya sigue y conviene no romper:
+
+1. `canWrite` gatea **acciones** (botones de alta, edición, guardado). **Nunca gatea texto
+   informativo**: un usuario de solo lectura necesita la información tanto como un escritor. El caso
+   concreto que lo motivó es el aviso de location *stale* de la pantalla de settings, que sin el
+   aviso deja un select en blanco indistinguible de "esta tienda no está configurada".
+2. Cuando una pantalla tiene **un solo formulario de lectura+escritura en la misma ruta** (no hay
+   `create`/`edit` separadas, como en `store-inventory-settings`), el `canSubmit()` del componente
+   incluye `!canWrite`. Así la escritura queda bloqueada **por construcción**, y no solo por el
+   hecho de que el botón no se renderiza: cualquier refactor futuro que vuelva a mostrar el botón no
+   puede emitir un PUT sin pasar por el servidor.
+
+Las rutas `create`/`edit/:id` de `store-areas`, `store-zones` y `store-locations` se gatean además
+con `STORE_WRITE_ROLES` y llevan `unsavedChangesGuard` (ver `Guard Pattern`).
 
 ### Dashboard Card Visibility
 
@@ -1025,12 +1056,40 @@ Estado verificado del código, no del diseño pendiente:
   `purchases` porque lo consumen tanto el alta de recibos como la pantalla de settings de tienda.
   `getSettings` devuelve `null` ante 404 (una tienda sin configurar es un estado normal) y manda la
   request con `SKIP_ERROR_NOTIFICATION`, para que ese 404 esperado no dispare el toast rojo global.
+  `upsertSettings` es el PUT de la misma URL y **no** silencia el toast: un write rechazado no es
+  parte del flujo normal, así que el operador tiene que verlo.
+- **Pantalla de configuración de inventario** (`/companies/store-inventory-settings`, hermana de
+  `store-areas`; ruta `STORE_ROLES` + `unsavedChangesGuard`). Es la **primera pantalla de settings del
+  repo**, así que fija el patrón:
+  - Es una **hoja**: la cadena de 5 niveles llega entera por query params (`companyId`, `countryId`,
+    `regionId`, `zoneId`, `storeId`; ojo con el mapeo `countryId` → `companyCountryId` del modelo).
+    Si falta cualquiera, la página **falla cerrada**: no emite request y ofrece volver a la lista.
+    La puerta de entrada es la card de la tienda, igual que la acción que abre `store-areas`. No hay
+    entrada propia en el menú del header: el menú de Companies lista `store-zones` y
+    `store-locations`, no esta pantalla.
+  - Un `getSettings` 404 es **el estado inicial normal**, no un error: la página renderiza un
+    formulario vacío listo para crear, en silencio.
+  - El listado de locations trae **solo las habilitadas**. Si la location configurada se deshabilitó,
+    el select queda en blanco —indistinguible de "sin configurar"— y el aviso `.stale-warning` es lo
+    único que distingue los dos estados. Por eso ese aviso **no** se gatea con `canWrite`, y
+    `canSubmit()` queda en falso hasta que un escritor re-elija. Deshabilitar una location es un soft
+    delete en el backend, así que la fila sigue existiendo y el settings sigue apuntando a ella.
+  - El reload post-save **no** deja el formulario operable: Angular reporta el estado de la recarga
+    como `'reloading'` y `isLoading()` lo incluye, así que el template muestra el skeleton y desmonta
+    el form (el `saving` sí se libera cuando responde el PUT, pero eso solo habilita el botón un
+    instante antes de que entre el skeleton). Aun así el `effect` que siembra el form desde el server
+    **cede ante `dirty()`**: como el effect lee `dirty`, cualquier escritor programático del form
+    —hoy solo el propio effect, mañana otro— puede pisar una edición del operador y resetear el guard
+    de cambios sin guardar. La guarda es defensa en profundidad, no el cierre de una ventana viva.
 - **`SKIP_ERROR_NOTIFICATION`** (`shared/data/skip-error-notification.ts`) es un `HttpContextToken`
   que silencia **solo** el toast de `errorInterceptor`; el error se sigue rethrowing. Usalo para todo
   fallo que sea parte del flujo normal del llamador.
 - **Deuda registrada, fuera de alcance por ahora**: el contrato de `version`/concurrencia optimista
   (ningún DTO de la tienda expone `version` y el conflicto de lock optimista responde 500, no 409) y
-  la habilitación del rol `lc-receiving` en el frontend.
+  la habilitación del rol `lc-receiving` en el frontend. El `PUT …/inventory-settings` **sí** tiene
+  locking optimista (`@Version` en `StoreInventorySettings`, como todo el árbol de tienda desde `V8`):
+  un commit stale falla en vez de ganar en silencio. La deuda es la de arriba: ningún DTO expone
+  `version`, así que no hay request condicional, y ese conflicto sale como **500** en lugar de **409**.
 - **El rol `lc-receiving` es hoy API-only.** Existe en `Roles.java` y en `keycloak-setup.sh`, pero
   `roles.ts` todavía no lo conoce, `/purchases` sigue exigiendo `lc-admin` y el menú Compras cuelga de
   `isAdmin`. Consecuencia a tener presente al probar: un usuario sin los claims `company_*` recibe

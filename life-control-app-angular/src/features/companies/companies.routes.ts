@@ -150,6 +150,19 @@ export const companyRoutes: Routes = [
           },
         ],
       },
+      // Store inventory settings — the PUT is a store write, but this page is reached
+      // from the store list exactly like its siblings, so the gate stays at STORE_ROLES;
+      // the server still enforces write authority.
+      {
+        path: 'store-inventory-settings',
+        canActivate: [keycloakRoleGuard],
+        canDeactivate: [unsavedChangesGuard],
+        data: { roles: STORE_ROLES, clientId: CLIENT_ID },
+        loadComponent: () =>
+          import('./stores/pages/store-inventory-settings/store-inventory-settings').then(
+            (m) => m.StoreInventorySettings,
+          ),
+      },
       // Store areas — all company roles
       {
         path: 'store-areas',

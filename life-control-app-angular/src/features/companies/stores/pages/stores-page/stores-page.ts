@@ -319,6 +319,25 @@ export class StoresPage {
     });
   }
 
+  /** Bridge: open the inventory settings for the card's store, preserving the cascade. */
+  onCardConfigureInventory(storeId: string): void {
+    const store = this.stores().find((s) => s.id === storeId);
+    const cc = this.selectedCountry();
+    const region = this.selectedRegion();
+    const zone = this.selectedZone();
+    if (!store || !cc || !region || !zone) return;
+
+    this.router.navigate(['/companies/store-inventory-settings'], {
+      queryParams: {
+        companyId: cc.companyId,
+        countryId: cc.id,
+        regionId: region.id,
+        zoneId: zone.id,
+        storeId,
+      },
+    });
+  }
+
   onToggleStore(storeId: string): void {
     const store = this.stores().find((s) => s.id === storeId);
     if (!store) return;

@@ -3,7 +3,11 @@ import { HttpClient, HttpContext, HttpErrorResponse } from '@angular/common/http
 import { catchError, Observable, of, throwError } from 'rxjs';
 import { ConfigService } from '@app/services/config.service';
 import { SKIP_ERROR_NOTIFICATION } from '@shared/data/skip-error-notification';
-import type { StoreChain, StoreInventorySettings } from '../models/store-location-summary.models';
+import type {
+  StoreChain,
+  StoreInventorySettings,
+  StoreInventorySettingsRequest,
+} from '../models/store-location-summary.models';
 
 /**
  * HTTP access to a store's inventory settings (its receiving and sales
@@ -14,6 +18,10 @@ import type { StoreChain, StoreInventorySettings } from '../models/store-locatio
  * exact status to `null` instead of an error. The request also opts out of the
  * global error toast (see {@link SKIP_ERROR_NOTIFICATION}) so the expected 404
  * never surfaces as a red notification. Every other error is rethrown unchanged.
+ *
+ * `upsertSettings` deliberately does **not** opt out of the toast: a failed write
+ * is not part of the normal control flow, so the operator must see it. The backend
+ * answers **200** with the persisted settings (both location ids are required).
  */
 @Injectable({
   providedIn: 'root',
@@ -43,5 +51,17 @@ export class StoreInventorySettingsService {
           return throwError(() => error);
         }),
       );
+  }
+
+  /**
+   * Create or update the store's inventory settings. A failed write rejects
+   * unchanged so the page can map the status to its own operator-facing copy; the
+   * global error toast stays active on purpose (see the class docblock).
+   */
+  upsertSettings(
+    chain: StoreChain,
+    request: StoreInventorySettingsRequest,
+  ): Observable<StoreInventorySettings> {
+    return this.http.put<StoreInventorySettings>(this.settingsUrl(chain), request);
   }
 }

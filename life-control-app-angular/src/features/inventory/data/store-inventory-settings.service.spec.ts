@@ -112,4 +112,52 @@ describe('StoreInventorySettingsService', () => {
       await expect(promise).rejects.toEqual(expect.objectContaining({ status: 403 }));
     });
   });
+
+  describe('upsertSettings', () => {
+    const request = {
+      receivingLocationId: 'loc-receive',
+      salesLocationId: 'loc-sales',
+    };
+
+    it('should PUT the exact nested inventory-settings URL with the request body', async () => {
+      const promise = firstValueFrom(service.upsertSettings(mockChain, request));
+
+      const req = httpMock.expectOne(EXPECTED_URL);
+      expect(req.request.method).toBe('PUT');
+      expect(req.request.url).toBe(EXPECTED_URL);
+      expect(req.request.body).toEqual(request);
+      req.flush(mockSettings);
+
+      const result = await promise;
+      expect(result).toEqual(mockSettings);
+    });
+
+    it('should NOT mark the write with SKIP_ERROR_NOTIFICATION', async () => {
+      const promise = firstValueFrom(service.upsertSettings(mockChain, request));
+
+      const req = httpMock.expectOne(EXPECTED_URL);
+      expect(req.request.context.get(SKIP_ERROR_NOTIFICATION)).toBe(false);
+      req.flush(mockSettings);
+
+      await promise;
+    });
+
+    it.each([400, 404, 500])('should reject a %s without swallowing it', async (status) => {
+      const promise = firstValueFrom(service.upsertSettings(mockChain, request));
+
+      const req = httpMock.expectOne(EXPECTED_URL);
+      req.flush({ message: 'Write rejected' }, { status, statusText: 'Error' });
+
+      await expect(promise).rejects.toEqual(expect.objectContaining({ status }));
+    });
+
+    it('should reject a 404 instead of mapping it to null like the read does', async () => {
+      const promise = firstValueFrom(service.upsertSettings(mockChain, request));
+
+      const req = httpMock.expectOne(EXPECTED_URL);
+      req.flush({ message: 'Store not found' }, { status: 404, statusText: 'Not Found' });
+
+      await expect(promise).rejects.toEqual(expect.objectContaining({ status: 404 }));
+    });
+  });
 });
