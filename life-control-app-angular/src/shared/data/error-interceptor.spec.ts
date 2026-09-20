@@ -1,9 +1,16 @@
-import { HttpErrorResponse, HttpHandlerFn, HttpRequest, HttpResponse } from '@angular/common/http';
+import {
+  HttpContext,
+  HttpErrorResponse,
+  HttpHandlerFn,
+  HttpRequest,
+  HttpResponse,
+} from '@angular/common/http';
 import { TestBed } from '@angular/core/testing';
 import Keycloak from 'keycloak-js';
 import { firstValueFrom, of, throwError } from 'rxjs';
 import { errorInterceptor } from './error-interceptor';
 import { NotificationService } from './notification';
+import { SKIP_ERROR_NOTIFICATION } from './skip-error-notification';
 
 const API_URL = 'http://localhost:9000/api/test';
 
@@ -31,7 +38,7 @@ describe('errorInterceptor', () => {
     });
   });
 
-  function runRequest(status: number | null): Promise<unknown> {
+  function runRequest(status: number | null, context?: HttpContext): Promise<unknown> {
     const next: HttpHandlerFn = () => {
       if (status === null) {
         return of(new HttpResponse({ status: 200 }));
@@ -46,7 +53,7 @@ describe('errorInterceptor', () => {
       );
     };
 
-    const req = new HttpRequest('GET', API_URL);
+    const req = new HttpRequest('GET', API_URL, { context });
     return firstValueFrom(TestBed.runInInjectionContext(() => errorInterceptor(req, next)));
   }
 
@@ -78,6 +85,13 @@ describe('errorInterceptor', () => {
   it('should pass through successful responses without notification', async () => {
     const response = await runRequest(null);
     expect(response).toBeInstanceOf(HttpResponse);
+    expect(notificationMock.showError).not.toHaveBeenCalled();
+  });
+
+  it('should NOT toast when SKIP_ERROR_NOTIFICATION is set, and still rethrow', async () => {
+    const context = new HttpContext().set(SKIP_ERROR_NOTIFICATION, true);
+
+    await expect(runRequest(404, context)).rejects.toBeInstanceOf(HttpErrorResponse);
     expect(notificationMock.showError).not.toHaveBeenCalled();
   });
 });
