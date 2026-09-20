@@ -202,7 +202,11 @@ services:
       dockerfile: Dockerfile
       args:
         BUILD_PROFILE: prod
-        APP_VERSION: ${APP_VERSION:-1.0.0}
+        # APP_VERSION is deliberately not set here: it is not environment-specific,
+        # so docker-compose.yml owns it. A prod-only default of 1.0.0 used to make
+        # this build look for build/libs/api-gateway-1.0.0.jar, which Gradle never
+        # produces (build.gradle pins 0.0.1-SNAPSHOT), so the prod image could not
+        # be built at all.
     ports:
       - "${API_GATEWAY_PORT:-9200}:${API_GATEWAY_SERVER_PORT:-9200}"
       - "${API_GATEWAY_MANAGEMENT_PORT:-9201}:${API_GATEWAY_MANAGEMENT_PORT:-9201}"

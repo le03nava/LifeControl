@@ -16,6 +16,8 @@ ARG APP_USER=appuser
 ARG APP_GROUP=appgroup
 ARG APP_VERSION=0.0.1-SNAPSHOT
 ARG JAR_FILE=build/libs/api-gateway-${APP_VERSION}.jar
+# Revisión git inyectada en build-time para trazabilidad de la imagen
+ARG GIT_COMMIT=unknown
 
 ENV SERVER_PORT=${SERVER_PORT:-9000}
 ENV MANAGEMENT_PORT=${MANAGEMENT_PORT:-9000}
@@ -47,7 +49,8 @@ WORKDIR /app
 
 LABEL maintainer="LifeControl Team" \
       version="${APP_VERSION}" \
-      description="API Gateway with multi-environment support"
+      description="API Gateway with multi-environment support" \
+      org.opencontainers.image.revision="${GIT_COMMIT}"
 
 HEALTHCHECK --interval=30s \
             --timeout=3s \
