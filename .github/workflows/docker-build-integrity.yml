@@ -1,0 +1,41 @@
+name: Docker Build Integrity
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'docker/**'
+      - 'api-gateway/Dockerfile'
+      - 'api-gateway/build.gradle'
+      - 'life-control-api/Dockerfile'
+      - 'life-control-api/build.gradle'
+      - '.github/workflows/docker-build-integrity.yml'
+
+concurrency:
+  group: docker-build-integrity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: "Shell & Artifact Integrity"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: ShellCheck
+        shell: bash
+        run: |
+          mapfile -t scripts < <(find docker/scripts -type f -name '*.sh' | sort)
+          printf 'Checking %d script(s)\n' "${#scripts[@]}"
+          # Pinned container image so the verdict does not drift with the runner
+          # image, and so it matches the version used locally.
+          docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:stable \
+            --severity=warning "${scripts[@]}"
+
+      - name: Freshness guard tests
+        run: ./docker/scripts/tests/freshness-guard.test.sh
+
+      - name: JAR version consistency tests
+        run: ./docker/scripts/tests/version-consistency.test.sh
