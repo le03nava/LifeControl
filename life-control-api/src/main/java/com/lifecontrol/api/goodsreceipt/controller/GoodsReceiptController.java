@@ -7,6 +7,7 @@ import static com.lifecontrol.api.common.security.Roles.COMPANY_REGION;
 import static com.lifecontrol.api.common.security.Roles.COMPANY_STORE;
 import static com.lifecontrol.api.common.security.Roles.COMPANY_STORE_READ;
 import static com.lifecontrol.api.common.security.Roles.COMPANY_ZONE;
+import static com.lifecontrol.api.common.security.Roles.RECEIVING;
 
 import com.lifecontrol.api.goodsreceipt.dto.GoodsReceiptRequest;
 import com.lifecontrol.api.goodsreceipt.dto.GoodsReceiptResponse;
@@ -40,7 +41,8 @@ import org.springframework.web.bind.annotation.RestController;
  * store-scoped role; {@link GoodsReceiptService} additionally scopes the list to the caller's
  * {@code company_store_ids} and authorizes each single receipt against its own store chain.</p>
  *
- * <p>Read endpoints additionally allow {@code lc-company-store-read}; the create does not.</p>
+ * <p>Read endpoints additionally allow {@code lc-company-store-read}; the create does not. Both the
+ * create and the reads allow {@code lc-receiving}.</p>
  */
 @RestController
 @RequestMapping("/api/goods-receipts")
@@ -55,7 +57,7 @@ public class GoodsReceiptController {
 
     @PostMapping
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','"
-            + COMPANY_ZONE + "','" + COMPANY_STORE + "')")
+            + COMPANY_ZONE + "','" + COMPANY_STORE + "','" + RECEIVING + "')")
     @Operation(
             summary = "Register a goods receipt",
             description =
@@ -74,7 +76,7 @@ public class GoodsReceiptController {
 
     @GetMapping
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','"
-            + COMPANY_ZONE + "','" + COMPANY_STORE + "','" + COMPANY_STORE_READ + "')")
+            + COMPANY_ZONE + "','" + COMPANY_STORE + "','" + COMPANY_STORE_READ + "','" + RECEIVING + "')")
     @Operation(
             summary = "Get all goods receipts",
             description =
@@ -87,7 +89,7 @@ public class GoodsReceiptController {
 
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','"
-            + COMPANY_ZONE + "','" + COMPANY_STORE + "','" + COMPANY_STORE_READ + "')")
+            + COMPANY_ZONE + "','" + COMPANY_STORE + "','" + COMPANY_STORE_READ + "','" + RECEIVING + "')")
     @Operation(
             summary = "Get a goods receipt by ID",
             description =

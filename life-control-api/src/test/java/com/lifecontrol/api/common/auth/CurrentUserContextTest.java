@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
+import com.lifecontrol.api.common.security.Roles;
+import com.lifecontrol.api.common.security.ScopeLevel;
 import java.util.Collection;
 import java.util.List;
 import java.util.Set;
@@ -42,7 +44,7 @@ class CurrentUserContextTest {
 
     @BeforeEach
     void setUp() {
-        when(securityContext.getAuthentication()).thenReturn(authentication);
+        lenient().when(securityContext.getAuthentication()).thenReturn(authentication);
         lenient().when(authentication.getPrincipal()).thenReturn(jwt);
         SecurityContextHolder.setContext(securityContext);
         currentUserContext = new CurrentUserContext();
@@ -1512,6 +1514,71 @@ class CurrentUserContextTest {
                             UUID.randomUUID(),
                             UUID.randomUUID(),
                             UUID.randomUUID()));
+        }
+
+        // ── lc-receiving ──
+
+        @Test
+        @DisplayName("ScopeLevel.STORE lists the lc-receiving role")
+        void storeScopeListsReceivingRole() {
+            assertThat(ScopeLevel.STORE.roleNames()).contains(Roles.RECEIVING);
+        }
+
+        @Test
+        @DisplayName("lc-receiving can access assigned store with all hierarchy matching")
+        void receivingUserCanAccessMatchingStore() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-receiving"));
+            UUID companyId = UUID.randomUUID();
+            UUID countryId = UUID.randomUUID();
+            UUID regionId = UUID.randomUUID();
+            UUID zoneId = UUID.randomUUID();
+            UUID storeId = UUID.randomUUID();
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_country_id")).thenReturn(countryId.toString());
+            when(jwt.getClaim("company_region_id")).thenReturn(regionId.toString());
+            when(jwt.getClaim("company_zone_id")).thenReturn(zoneId.toString());
+            when(jwt.getClaim("company_store_id")).thenReturn(storeId.toString());
+
+            assertDoesNotThrow(
+                    () -> currentUserContext.verifyCompanyStoreAccess(companyId, countryId, regionId, zoneId, storeId));
+        }
+
+        @Test
+        @DisplayName("lc-receiving is denied when a required hierarchy claim is missing")
+        void receivingUserWithoutRequiredClaimIsDenied() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-receiving"));
+            UUID companyId = UUID.randomUUID();
+            UUID storeId = UUID.randomUUID();
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
+            // company_country_id (a required level) is deliberately absent: denial happens at the
+            // country level, so no deeper claim is ever read.
+
+            assertThrows(
+                    AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyStoreAccess(
+                            companyId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), storeId));
+        }
+
+        @Test
+        @DisplayName("lc-receiving cannot access a different company_store_id")
+        void receivingUserCannotAccessDifferentStore() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-receiving"));
+            UUID companyId = UUID.randomUUID();
+            UUID countryId = UUID.randomUUID();
+            UUID regionId = UUID.randomUUID();
+            UUID zoneId = UUID.randomUUID();
+            UUID assignedStoreId = UUID.randomUUID();
+            UUID otherStoreId = UUID.randomUUID();
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_country_id")).thenReturn(countryId.toString());
+            when(jwt.getClaim("company_region_id")).thenReturn(regionId.toString());
+            when(jwt.getClaim("company_zone_id")).thenReturn(zoneId.toString());
+            when(jwt.getClaim("company_store_id")).thenReturn(assignedStoreId.toString());
+
+            assertThrows(
+                    AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyStoreAccess(
+                            companyId, countryId, regionId, zoneId, otherStoreId));
         }
     }
 }

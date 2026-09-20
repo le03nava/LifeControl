@@ -57,4 +57,5 @@ public final class Roles {
     public static final String COMPANY_ZONE_READ = "lc-company-zone-read";
     public static final String COMPANY_STORE = "lc-company-store";
     public static final String COMPANY_STORE_READ = "lc-company-store-read";
+    public static final String RECEIVING = "lc-receiving";
 }

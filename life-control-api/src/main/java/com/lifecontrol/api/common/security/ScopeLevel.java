@@ -34,8 +34,18 @@ public enum ScopeLevel {
     /** Company-zone level, scoped by the {@code company_zone_id} claim. */
     ZONE("company_zone_id", "company zone", false, Roles.COMPANY_ZONE, Roles.COMPANY_ZONE_READ),
 
-    /** Company-store level, scoped by the {@code company_store_id} claim. */
-    STORE("company_store_id", "company store", false, Roles.COMPANY_STORE, Roles.COMPANY_STORE_READ);
+    /**
+     * Company-store level, scoped by the {@code company_store_id} claim.
+     *
+     * <p>{@link Roles#RECEIVING} belongs in this list because
+     * {@code CurrentUserContext#verifyCompanyStoreAccess} routes on {@code hasAnyRole(STORE)}: a
+     * role absent from {@code roleNames()} takes the broadest-granted fallback and can never pass
+     * the store check on its own. Conversely, the parent levels of the store path are verified
+     * against {@linkplain #claim() claims}, not against the parent roles ({@code verifyLevel} never
+     * calls {@code hasAnyRole}), so a caller holding only {@code lc-receiving} must carry the
+     * {@code company_id} &rarr; {@code company_store_id} claim path in the token.</p>
+     */
+    STORE("company_store_id", "company store", false, Roles.COMPANY_STORE, Roles.COMPANY_STORE_READ, Roles.RECEIVING);
 
     private static final List<ScopeLevel> ORDERED = List.of(values());
 

@@ -260,7 +260,8 @@ public class CurrentUserContext {
     /**
      * Access check for CompanyStore records.
      *
-     * <p>A store-scoped role ({@code lc-company-store} / {@code lc-company-store-read}) verifies
+     * <p>A store-scoped role — any role listed in {@link ScopeLevel#STORE}, today
+     * {@code lc-company-store}, {@code lc-company-store-read} and {@code lc-receiving} — verifies
      * the full company&rarr;store path. Any other authorized role falls back to the
      * company&rarr;zone hierarchy, so broader roles keep their broadest granted scope.</p>
      *

@@ -42,7 +42,8 @@ import org.springframework.test.web.servlet.MockMvc;
 
 /**
  * Pins the {@code @PreAuthorize} role sets of the goods receipt endpoints: the reads add
- * {@code lc-company-store-read}, the create does not. No receiving role exists yet, so none is used.
+ * {@code lc-company-store-read}, the create does not, and both the create and the reads accept the
+ * {@code lc-receiving} warehouse role.
  */
 @WebMvcTest(GoodsReceiptController.class)
 @Import({GlobalExceptionHandler.class, GoodsReceiptControllerSecurityTest.TestSecurityConfig.class})
@@ -158,6 +159,16 @@ class GoodsReceiptControllerSecurityTest {
         }
 
         @Test
+        @WithMockUser(roles = {"lc-receiving"})
+        @DisplayName("returns 201 for the receiving role")
+        void receivingRoleCanWrite() throws Exception {
+            mockMvc.perform(post(BASE_URL)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isCreated());
+        }
+
+        @Test
         @WithMockUser(roles = {"lc-admin"})
         @DisplayName("returns 201 for lc-admin")
         void adminCanWrite() throws Exception {
@@ -192,6 +203,13 @@ class GoodsReceiptControllerSecurityTest {
         void storeRoleCanRead() throws Exception {
             mockMvc.perform(get(BASE_URL)).andExpect(status().isOk());
         }
+
+        @Test
+        @WithMockUser(roles = {"lc-receiving"})
+        @DisplayName("returns 200 for the receiving role")
+        void receivingRoleCanRead() throws Exception {
+            mockMvc.perform(get(BASE_URL)).andExpect(status().isOk());
+        }
     }
 
     @Nested
@@ -216,6 +234,13 @@ class GoodsReceiptControllerSecurityTest {
         @WithMockUser(roles = {"lc-company-store"})
         @DisplayName("returns 200 for an authorized store role")
         void storeRoleCanRead() throws Exception {
+            mockMvc.perform(get(BASE_URL + "/{id}", UUID.randomUUID())).andExpect(status().isOk());
+        }
+
+        @Test
+        @WithMockUser(roles = {"lc-receiving"})
+        @DisplayName("returns 200 for the receiving role")
+        void receivingRoleCanRead() throws Exception {
             mockMvc.perform(get(BASE_URL + "/{id}", UUID.randomUUID())).andExpect(status().isOk());
         }
     }
