@@ -61,6 +61,7 @@ public class Routes {
         .route(RequestPredicates.path("/api/users-admin/**"), HandlerFunctions.http(props.lifeControlApiUri()))
         .route(RequestPredicates.path("/api/suppliers/**"), HandlerFunctions.http(props.lifeControlApiUri()))
         .route(RequestPredicates.path("/api/purchase-orders/**"), HandlerFunctions.http(props.lifeControlApiUri()))
+        .route(RequestPredicates.path("/api/goods-receipts/**"), HandlerFunctions.http(props.lifeControlApiUri()))
         .route(RequestPredicates.path("/api/payment-methods/**"), HandlerFunctions.http(props.lifeControlApiUri()))
         .route(RequestPredicates.path("/api/status-types/**"), HandlerFunctions.http(props.lifeControlApiUri()))
         .route(RequestPredicates.path("/api/statuses/**"), HandlerFunctions.http(props.lifeControlApiUri()))
