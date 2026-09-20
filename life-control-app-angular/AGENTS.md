@@ -454,11 +454,9 @@ const BASE_ROLES = ['lc-admin', 'lc-company', 'lc-company-country'];
 const COMPANY_CRUD_ROLES = ['lc-admin', 'lc-company'];
 const REGION_ROLES = [...BASE_ROLES, 'lc-company-region'];
 const ZONE_ROLES = [...REGION_ROLES, 'lc-company-zone'];
-// Los roles *-read existen y STORE_ROLES los incluye: `lc-company-store-read`
-// llega a los listados sin poder escribir. El archivo real es
-// `const STORE_ROLES = [...STORE_WRITE_ROLES, 'lc-company-store-read'];`
-// con STORE_WRITE_ROLES importado de `@core/security/roles`.
-const STORE_ROLES = [...ZONE_ROLES, 'lc-company-store'];
+// Los roles *-read existen: `lc-company-store-read` llega a los listados sin poder
+// escribir. STORE_WRITE_ROLES se importa de `@core/security/roles`.
+const STORE_ROLES = [...STORE_WRITE_ROLES, 'lc-company-store-read'];
 const CLIENT_ID = 'life-control-client';
 
 export const companyRoutes: Routes = [
@@ -916,21 +914,22 @@ Tres capas de control independientes:
 
 ### Realm Roles (legacy)
 
-Usados por features fuera de Companies (Users Admin). No usan `clientId` en los datos
-de ruta, por lo que el guard resuelve contra `realm_access.roles`.
+Solo **Users Admin** sigue usando un realm role: sus rutas declaran `data: { role: 'admin' }`
+(sin `clientId`) y el guard resuelve contra `realm_access.roles`.
 
 | Rol | Acceso |
 |-----|--------|
-| `life-control-admin` | (documentado como Products/Purchases, **no** es lo que hace el código hoy) |
-| `life-control-country` | Products |
-| `admin` | Users Admin |
+| `admin` | Users Admin (`users-admin.routes.ts`, `data: { role: 'admin' }`) |
 
 > **Importante:** `lc-admin` es un **rol de cliente** (no realm). `life-control-admin` es un **realm role**. Son distintos.
 >
-> **Corrección verificada en el código:** `/purchases` **no** usa el realm role: su ruta padre
-> declara `data: { roles: ['lc-admin'], clientId: 'life-control-client' }`, es decir el rol de
-> cliente `lc-admin`, y `e2e/specs/navigation.spec.ts` lo afirma así. El menú **Compras** también
-> cuelga de `isAdmin` (client role). `life-control-admin` no aparece en ninguna ruta actual.
+> **Corrección verificada en el código:** `life-control-admin` y `life-control-country` **no
+> aparecen en ninguna ruta actual** (solo en fixtures de tests). Products y Purchases declaran
+> `data: { roles: ['lc-admin'], clientId: 'life-control-client' }` — el rol de **cliente**
+> `lc-admin` — y Sales usa `['lc-admin', 'lc-sales']`, también de cliente.
+> `e2e/specs/navigation.spec.ts` lo afirma así, y el menú Compras cuelga de `isAdmin` (client role).
+> La tabla anterior que atribuía Products a `life-control-country` describía un RBAC que el código
+> no implementa: se corrige en vez de conservarla.
 
 ### Guard Dual-Mode
 
@@ -973,7 +972,7 @@ const BASE_ROLES = ['lc-admin', 'lc-company', 'lc-company-country'];
 const COMPANY_CRUD_ROLES = ['lc-admin', 'lc-company'];
 const REGION_ROLES = [...BASE_ROLES, 'lc-company-region'];
 const ZONE_ROLES = [...REGION_ROLES, 'lc-company-zone'];
-const STORE_ROLES = [...ZONE_ROLES, 'lc-company-store']; // ver corrección arriba: además incluye lc-company-store-read
+const STORE_ROLES = [...STORE_WRITE_ROLES, 'lc-company-store-read'];
 
 // Aplicación:
 //   /companies (parent)     → STORE_ROLES
@@ -1014,7 +1013,7 @@ Estado verificado del código, no del diseño pendiente:
 - **Qué es recibible** sale de `status-config.ts`, espejo de las reglas del backend:
   `isOrderReceivable` (la orden debe estar `Accepted` o `In Transit`) e `isDetailStatusReceivable`
   (`Received`/`Rejected`/`Cancelled` no pueden recibir). **Las dos son fail-closed**: un estado
-  desconocido devuelve `false`. La familia de estados de **línea** (`PENDING`, `In Process`,
+  desconocido devuelve `false`. La familia de estados de **línea** (`Pending`, `In Process`,
   `In Transit`, `Partial Received`, …) es distinta de la de la orden y tiene sus propios mapas
   (`PO_DETAIL_STATUS_LABELS`/`_COLORS`).
 - **`app-status-chip` tiene un input `family`** (`'order' | 'detail' | 'receipt'`, default
