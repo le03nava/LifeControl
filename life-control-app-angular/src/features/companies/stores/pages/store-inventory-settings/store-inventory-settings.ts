@@ -99,6 +99,11 @@ export class StoreInventorySettings implements UnsavedChangesAware {
     // Seed the form from the loaded settings. This is the only writer that does
     // not mark the form dirty: a programmatic load is not an operator edit.
     effect(() => {
+      // A reload runs while the selects are already live again, because `saving`
+      // is released as soon as the PUT responds. Do not clobber an operator edit
+      // that lands in that window: a fresh reload must yield to `dirty` instead
+      // of overwriting the selection and resetting the guard to `false`.
+      if (this.dirty()) return;
       if (!this.settingsResource.hasValue()) return;
       const settings = this.settingsResource.value();
       this.receivingLocationId.set(settings?.receivingLocationId ?? null);
@@ -157,7 +162,7 @@ export class StoreInventorySettings implements UnsavedChangesAware {
 
   /** Both locations are required, and a stale side must be re-picked. */
   readonly canSubmit = computed(() => {
-    if (this.saving() || !this.hasLocations()) return false;
+    if (!this.canWrite || this.saving() || !this.hasLocations()) return false;
     if (!this.receivingLocationId() || !this.salesLocationId()) return false;
     return !this.receivingIsStale() && !this.salesIsStale();
   });

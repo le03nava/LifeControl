@@ -7,7 +7,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, provideRouter } from '@angular/router';
 import { MatSelect } from '@angular/material/select';
 import Keycloak from 'keycloak-js';
-import { of, throwError } from 'rxjs';
+import { of, ReplaySubject, throwError } from 'rxjs';
 import { StoreInventorySettings } from './store-inventory-settings';
 import { StoreInventorySettingsService } from '@features/inventory/data/store-inventory-settings.service';
 import { StoreLocationLookupService } from '@features/inventory/data/store-location-lookup.service';
@@ -88,6 +88,20 @@ describe('StoreInventorySettings', () => {
 
   class MockStoreLocationLookupService {
     getStoreLocations = vi.fn().mockReturnValue(of(mockLocations));
+  }
+
+  /**
+   * A settings read the test controls explicitly: the reload can be held in flight
+   * (`resolve` is called on demand) instead of resolving synchronously like `of`.
+   */
+  class DeferredSettingsRead {
+    private readonly subject = new ReplaySubject<StoreInventorySettingsModel | null>(1);
+    readonly stream = this.subject.asObservable();
+
+    resolve(value: StoreInventorySettingsModel | null): void {
+      this.subject.next(value);
+      this.subject.complete();
+    }
   }
 
   const notificationsMock = {
@@ -385,11 +399,34 @@ describe('StoreInventorySettings', () => {
     });
 
     it('should clear the dirty flag even before the reload resolves', () => {
+      const reload = new DeferredSettingsRead();
+      settingsService.getSettings.mockReturnValue(reload.stream);
+
       component.onSelectReceiving('loc-3');
 
       component.onSave();
 
+      // The reload is still pending: the dirty flag is already cleared.
       expect(component.hasUnsavedChanges()).toBe(false);
+
+      reload.resolve(mockSettings);
+    });
+
+    it('should keep an operator edit made while the post-save reload is in flight', async () => {
+      const reload = new DeferredSettingsRead();
+      settingsService.getSettings.mockReturnValue(reload.stream);
+
+      component.onSave();
+
+      // The PUT answered and released the form while the reload is still pending.
+      component.onSelectReceiving('loc-3');
+      expect(component.hasUnsavedChanges()).toBe(true);
+
+      reload.resolve({ ...mockSettings });
+      await settle();
+
+      expect(component.receivingLocationId()).toBe('loc-3');
+      expect(component.hasUnsavedChanges()).toBe(true);
     });
 
     it.each([
@@ -544,6 +581,14 @@ describe('StoreInventorySettings', () => {
       it('should keep the unsaved-changes guard inert', () => {
         expect(component.hasUnsavedChanges()).toBe(false);
       });
+
+      it('should refuse to write even with a complete and valid chain', () => {
+        expect(component.canSubmit()).toBe(false);
+
+        component.onSave();
+
+        expect(settingsService.upsertSettings).not.toHaveBeenCalled();
+      });
     });
 
     describe('store writer (lc-company-store)', () => {
@@ -563,6 +608,33 @@ describe('StoreInventorySettings', () => {
         expect(selects.some((select) => (select.componentInstance as MatSelect).disabled)).toBe(
           false,
         );
+      });
+    });
+
+    describe('read-only user with a stale configured location', () => {
+      beforeEach(async () => {
+        await setup(
+          chainQuery,
+          ({ settings }) =>
+            settings.getSettings.mockReturnValue(
+              of({
+                companyStoreId: 'store-1',
+                receivingLocationId: 'loc-gone',
+                salesLocationId: 'loc-1',
+              }),
+            ),
+          ['lc-company-store-read'],
+        );
+        await settle();
+      });
+
+      it('should still render the stale-location notice, because it is information', () => {
+        expect(component.receivingIsStale()).toBe(true);
+        expect(component.canSubmit()).toBe(false);
+
+        const warning = fixture.nativeElement.querySelector('.stale-warning');
+        expect(warning).toBeTruthy();
+        expect(warning.textContent).toContain('La ubicación configurada ya no está habilitada');
       });
     });
   });

@@ -57,7 +57,7 @@
           }
         </mat-select>
       </mat-form-field>
-      @if (canWrite && receivingIsStale()) {
+      @if (receivingIsStale()) {
         <p class="stale-warning full-width">
           <mat-icon fontIcon="warning" />
           La ubicación configurada ya no está habilitada. Elegí una nueva.
@@ -81,7 +81,7 @@
           }
         </mat-select>
       </mat-form-field>
-      @if (canWrite && salesIsStale()) {
+      @if (salesIsStale()) {
         <p class="stale-warning full-width">
           <mat-icon fontIcon="warning" />
           La ubicación configurada ya no está habilitada. Elegí una nueva.
