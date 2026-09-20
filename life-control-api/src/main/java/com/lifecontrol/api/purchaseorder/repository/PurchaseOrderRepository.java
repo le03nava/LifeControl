@@ -1,6 +1,7 @@
 package com.lifecontrol.api.purchaseorder.repository;
 
 import com.lifecontrol.api.purchaseorder.model.PurchaseOrder;
+import jakarta.persistence.LockModeType;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -8,6 +9,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -48,4 +50,14 @@ public interface PurchaseOrderRepository extends JpaRepository<PurchaseOrder, UU
     boolean existsByOrderNumber(String orderNumber);
 
     Optional<PurchaseOrder> findTopByOrderNumberStartingWithOrderByOrderNumberDesc(String orderNumberPrefix);
+
+    /**
+     * Pessimistic write lock on the purchase order, mirroring
+     * {@code ProductVariantRepository#findByIdForUpdate}. The goods receipt takes this lock before it
+     * numbers the receipt and applies the reception, so two concurrent receptions against the same
+     * order queue instead of racing the per-order receipt counter.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT po FROM PurchaseOrder po WHERE po.id = :id")
+    Optional<PurchaseOrder> findByIdForUpdate(@Param("id") UUID id);
 }

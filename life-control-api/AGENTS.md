@@ -198,6 +198,7 @@ com.lifecontrol.api/
 | `/api/countries, /api/measure-units, /api/payment-methods, /api/statuses, /api/status-types` | authenticated (read) / `lc-admin\|lc-country\|lc-measure-unit\|lc-payment-method\|lc-status\|lc-status-type` (write) | Catalog CRUD — method-level `@PreAuthorize` (`Roles.ADMIN` + domain role for writes) |
 | `/api/activity-logs`                            | `lc-admin`                 | Audit trail query (paginated, filterable) |
 | `/api/purchase-orders`                          | authenticated (read) / `lc-admin\|lc-sales` (write, method-level) | Purchase order CRUD + line items (sales "orders" domain) |
+| `/api/goods-receipts`                           | `lc-admin\|lc-company\|lc-company-country\|lc-company-region\|lc-company-zone\|lc-company-store\|lc-receiving` (write) / same set + `lc-company-store-read` (read, method-level) | Goods receipts (receptions): register against a purchase order (`POST`, 201) and read (paginated list + `GET /{id}`); non-admins are scoped to their `company_store_id` claim |
 | `/api/suppliers`                                | authenticated (read) / `lc-admin\|lc-product-supplier` (write, method-level) | Supplier CRUD (soft delete) |
 | `/api/products`                                 | authenticated (read) / `lc-admin\|lc-product-supplier` (supplier assignment) / `lc-admin\|lc-sales` (variants, method-level) | Product catalog, supplier assignments, product variants |
 | `/api/product-variants`                         | `lc-admin\|lc-sales`       | Product variant search |
@@ -522,6 +523,7 @@ Role-based access:
 | `lc-company-zone-read` | `ROLE_lc-company-zone-read`        | Read-only GET on zones, scoped by `company_id` |
 | `lc-company-store`     | `ROLE_lc-company-store`            | Scoped by `company_id`, CRUD on company zones' stores |
 | `lc-company-store-read` | `ROLE_lc-company-store-read`     | Read-only GET on stores, scoped by `company_id` |
+| `lc-receiving`         | `ROLE_lc-receiving`                | Store-scoped reception (goods receipts): create + read, scoped by the `company_store_id` claim path — see the claim dependency in [Keycloak Role Setup](#keycloak-role-setup) |
 | `lc-country`           | `ROLE_lc-country`                  | Write access to country catalog (read requires any authenticated user) |
 | `lc-status`            | `ROLE_lc-status`                   | Write access to status values (read requires any authenticated user) |
 | `lc-status-type`       | `ROLE_lc-status-type`              | Write access to status types (read requires any authenticated user) |
@@ -949,9 +951,37 @@ Client roles (`life-control-client`) are provisioned idempotently by
 - **`lc-company-region`** / **`lc-company-region-read`** — Region CRUD / read-only GET, scoped by `company_id`
 - **`lc-company-zone`** / **`lc-company-zone-read`** — Zone CRUD / read-only GET, scoped by `company_id`
 - **`lc-company-store`** / **`lc-company-store-read`** — Store CRUD / read-only GET, scoped by `company_id`
+- **`lc-receiving`** — Store-scoped reception (goods receipts): create + read. **Deployment dependencies: API-only until the frontend wires it, the role alone is not sufficient, and the gateway route is provisioned separately — see the warnings below.**
 - **`lc-country`**, **`lc-status`**, **`lc-status-type`**, **`lc-payment-method`**, **`lc-measure-unit`** — write access to catalog domains (reads require any authenticated user)
 - **`lc-product-supplier`** — Supplier CRUD and product-supplier assignment endpoints (supersedes `life-control-country`)
 - **`lc-sales`** — Sales domain: customers, sales orders, purchase orders, shifts, promotions, product variants
+
+> **Deployment dependency — `lc-receiving` alone is not sufficient.** `lc-receiving` is a
+> store-scoped role. `CurrentUserContext#verifyCompanyStoreAccess` verifies the claim path up to
+> the broadest role granted, so for a principal holding **only** `lc-receiving` (or only
+> `lc-company-store` / `lc-company-store-read`) the full hierarchy of **claims** is verified —
+> `company_id` → `company_country_id` → `company_region_id` → `company_zone_id` →
+> `company_store_id`. The parent levels are verified against claims, never against the parent
+> roles (`verifyLevel` never consults roles), so the operator must ensure those five claims reach
+> the token through the same mechanism the existing store roles (`lc-company-store` /
+> `lc-company-store-read`) already rely on. Granting the role
+> without the claims yields `403 Forbidden`, not access — the role is necessary but not
+> sufficient.
+>
+> **API-only until the frontend slice wires it.** The Angular client does not know this role yet:
+> `life-control-app-angular/src/core/security/roles.ts` has no `LC_RECEIVING`, and the receipts
+> route is currently admin-gated. Granting `lc-receiving` in Keycloak therefore does not, on its
+> own, surface any reception UI to a non-admin user — the role is API-only until the frontend
+> slice wires it.
+>
+> **Gateway route is provisioned separately.** `/api/goods-receipts/**` must be routed explicitly
+> by the API gateway. A deployment that fronts the API with the gateway cannot reach those
+> endpoints — role and backend endpoint notwithstanding — until that route exists.
+>
+> **Not verifiable from this repository:** the `company_*` claims are not provisioned by any file
+> in this tree (no claim mapper, protocol mapper or group-to-claim configuration is versioned
+> here), so the claim-mapping side of this dependency must be confirmed against the Keycloak
+> realm configuration.
 
 **Realm roles (manual):**
 

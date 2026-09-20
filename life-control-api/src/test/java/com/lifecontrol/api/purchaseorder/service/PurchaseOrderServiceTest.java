@@ -948,6 +948,60 @@ class PurchaseOrderServiceTest {
         }
     }
 
+    // ─── requireDetailReceivable ─────────────────────────────────────────
+
+    /**
+     * Whole-matrix unit coverage for the detail-level guard. It is deliberately direct: the guard
+     * previously relied on the goods-receipt integration case, which exercised only the Cancelled
+     * line and therefore never pinned the terminal {@code Received} regression.
+     */
+    @Nested
+    @DisplayName("requireDetailReceivable")
+    class RequireDetailReceivableTests {
+
+        @Test
+        @DisplayName("should admit every status that can still reach Partial Received")
+        void admitsNonTerminalStatuses() {
+            for (var status : List.of(pendingStatus, inProcessStatus, inTransitStatus, partialReceivedStatus)) {
+                detail.setStatus(status);
+
+                assertThatCode(() -> service.requireDetailReceivable(detail))
+                        .as("line in %s must be receivable", status.getStatusName())
+                        .doesNotThrowAnyException();
+            }
+        }
+
+        @Test
+        @DisplayName("should reject the terminal statuses: Received, Rejected and Cancelled")
+        void rejectsTerminalStatuses() {
+            for (var status : List.of(receivedStatus, rejectedStatus, cancelledStatus)) {
+                detail.setStatus(status);
+
+                assertThatThrownBy(() -> service.requireDetailReceivable(detail))
+                        .as("line in %s must be unreceivable", status.getStatusName())
+                        .isInstanceOf(InvalidStatusTransitionException.class)
+                        .hasMessageContaining(status.getStatusName())
+                        .hasMessageContaining("reception");
+            }
+        }
+
+        @Test
+        @DisplayName("should reject a terminal Received line even though the reachability walk is reflexive")
+        void terminalReceivedLineIsRejected() {
+            // The regression that motivated this guard: receivedQuantity is below quantity, so the
+            // mutator would derive Partial Received, but the reflexive walk made the old
+            // "... || isDetailStatusReachable(current, \"Received\")" predicate admit the terminal
+            // Received line and let the write happen before the mutator threw a 409.
+            detail.setStatus(receivedStatus);
+            detail.setReceivedQuantity(0);
+
+            assertThatThrownBy(() -> service.requireDetailReceivable(detail))
+                    .isInstanceOf(InvalidStatusTransitionException.class)
+                    .hasMessageContaining("Received")
+                    .hasMessageContaining("reception");
+        }
+    }
+
     // ─── registerReceivedQuantity ────────────────────────────────────────
 
     @Nested

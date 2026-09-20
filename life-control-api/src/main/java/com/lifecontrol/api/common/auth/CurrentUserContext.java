@@ -258,11 +258,18 @@ public class CurrentUserContext {
     }
 
     /**
-     * Access check for CompanyStore records.
+     * Access check for CompanyStore records. The broadest role granted within the
+     * company&rarr;store hierarchy determines how far the claim path is verified, exactly like the
+     * sibling {@code verifyCompany*Access} methods.
      *
-     * <p>A store-scoped role ({@code lc-company-store} / {@code lc-company-store-read}) verifies
-     * the full company&rarr;store path. Any other authorized role falls back to the
-     * company&rarr;zone hierarchy, so broader roles keep their broadest granted scope.</p>
+     * <p>A store-scoped role — any role listed in {@link ScopeLevel#STORE}, today
+     * {@code lc-company-store}, {@code lc-company-store-read} and {@code lc-receiving} — has
+     * {@link ScopeLevel#STORE} as its broadest granted scope and therefore verifies the full
+     * company&rarr;store path. A broader role ({@code lc-company} down to
+     * {@code lc-company-zone}) verifies only up to its own scope, so broader roles keep their
+     * broadest granted scope even when the principal also holds a store-scoped role. A principal
+     * whose only role in range is store-scoped must carry the whole claim path in the token,
+     * because parent levels are verified against claims and never against parent roles.</p>
      *
      * @param companyId        the company UUID to verify (company-level check)
      * @param companyCountryId the company-country UUID to verify (country-level check)
@@ -276,12 +283,10 @@ public class CurrentUserContext {
         if (isAdmin()) {
             return;
         }
-        UUID[] ids = {companyId, companyCountryId, regionId, zoneId, storeId};
-        if (hasAnyRole(ScopeLevel.STORE)) {
-            verifyLevelsUpTo(ScopeLevel.STORE, ids);
-            return;
-        }
-        verifyBroadestGranted(ScopeLevel.ZONE, ids, ScopeLevel.STORE);
+        verifyBroadestGranted(
+                ScopeLevel.STORE,
+                new UUID[] {companyId, companyCountryId, regionId, zoneId, storeId},
+                ScopeLevel.STORE);
     }
 
     /**
