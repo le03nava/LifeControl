@@ -929,7 +929,8 @@ Solo **Users Admin** sigue usando un realm role: sus rutas declaran `data: { rol
 > `data: { roles: ['lc-admin'], clientId: 'life-control-client' }` — el rol de **cliente**
 > `lc-admin` —, Purchases relaja su padre a `['lc-admin', 'lc-receiving']` y deja los hijos de
 > órdenes admin-only, y Sales usa `['lc-admin', 'lc-sales']`, también de cliente.
-> `e2e/specs/navigation.spec.ts` lo afirma así, y el menú Compras cuelga de
+> El menú lo afirma `e2e/specs/navigation.spec.ts` (visibilidad de menú, no strings de ruta) y los
+> `data` de ruta los fija `purchases.routes.spec.ts` con literales; el menú Compras cuelga de
 > `isAdmin || isReceiving` (client roles).
 > La tabla anterior que atribuía Products a `life-control-country` describía un RBAC que el código
 > no implementa: se corrige en vez de conservarla.
@@ -1057,7 +1058,8 @@ Stores:   [...Zones, 'lc-company-store']
 
 Estado verificado del código, no del diseño pendiente:
 
-- **Rutas de recibos** (`purchases.routes.ts`, hijas del padre `roles: ['lc-admin']`):
+- **Rutas de recibos** (`purchases.routes.ts`, hijas del padre `roles: [LC_ADMIN, LC_RECEIVING]`,
+  sin `canActivate` ni `data` propios: el padre las cubre):
   `receipts` → `ReceiptList`, `receipts/create` → `ReceiptCreate` (con
   `canDeactivate: [unsavedChangesGuard]`) y `receipts/:id` → `ReceiptDetail`. **La ruta literal
   `create` va declarada antes que `:id`**: si no, el parámetro la captura como id.
@@ -1122,11 +1124,18 @@ Estado verificado del código, no del diseño pendiente:
   sin su propio guard es inerte — ese par es lo que mantiene el área de órdenes admin-only. El menú
   Compras se agrega cuando `isAdmin() || isReceiving()`, y el dashboard de compras oculta la card de
   Purchase Orders a un usuario de solo recepción.
+- **Es una restricción de UI y de ruteo, no del backend.** Los `GET` de órdenes de compra están
+  detrás de `isAuthenticated()` (`PurchaseOrderController.java:50,61,143`), no de un rol: solo las
+  escrituras exigen `lc-admin`/`lc-sales`. La deuda del read cross-tenant sigue abierta.
 - **Precondición operativa del token.** El guard de ruta abre `/purchases/receipts`, pero eso no
   alcanza: un usuario que solo tenga `lc-receiving` debe llevar en el token el camino de claims
-  `company_id → company_store_id`. `CurrentUserContext#verifyLevel` verifica los niveles padre contra
-  los claims, no contra los roles padre (`ScopeLevel.java:49-52`); sin esos claims, todos los
-  endpoints store-scoped responden **403** aunque la ruta esté abierta.
+  `company_id` → `company_country_id` → `company_store_id`. `verifyLevel`
+  (`CurrentUserContext.java:348-354`) compara cada nivel contra los claims, nunca contra los roles
+  padre, y `COMPANY` y `COUNTRY` son `required = true` (`ScopeLevel.java:26,29`); la regla está
+  documentada en el javadoc de `STORE` (`ScopeLevel.java:47-53`). Sin esos claims el resultado no es
+  uniforme: el alta y el detalle responden **403** (`GoodsReceiptService.java:171,297`), mientras que
+  el listado responde **200 con página vacía**, porque se filtra por `company_store_ids` y un
+  conjunto vacío nunca llega al chequeo de acceso (`GoodsReceiptService.java:314-333`).
 
 ### Keycloak Config
 
