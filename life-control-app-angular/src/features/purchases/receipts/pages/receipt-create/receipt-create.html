@@ -1,0 +1,337 @@
+<div class="receipt-create-page">
+  <app-page-header [title]="headerTitle()" [subtitle]="headerSubtitle()">
+    <button mat-stroked-button type="button" (click)="goToReceiptList()">
+      <mat-icon fontIcon="arrow_back" /> Volver al listado
+    </button>
+  </app-page-header>
+
+  @if (isPickerState()) {
+    <!-- ═══ State A: order picker ═══ -->
+    <div class="filters-section">
+      <mat-form-field appearance="outline" class="search-field" subscriptSizing="dynamic">
+        <mat-icon matPrefix>search</mat-icon>
+        <input
+          matInput
+          type="text"
+          [value]="searchQuery()"
+          (input)="onSearchInput($any($event.target).value)"
+          placeholder="Buscar por número de orden o proveedor..."
+        />
+        @if (searchQuery()) {
+          <button
+            matSuffix
+            mat-icon-button
+            aria-label="Limpiar búsqueda"
+            type="button"
+            (click)="clearSearch()"
+          >
+            <mat-icon>close</mat-icon>
+          </button>
+        }
+      </mat-form-field>
+    </div>
+
+    <div class="table-section">
+      @if (ordersLoading()) {
+        <div class="loading-skeleton">
+          @for (_ of [1, 2, 3, 4, 5]; track $index) {
+            <div class="skeleton-row" [style.--i]="$index">
+              <div class="skeleton-cell order-number"></div>
+              <div class="skeleton-cell supplier"></div>
+              <div class="skeleton-cell store"></div>
+              <div class="skeleton-cell date"></div>
+              <div class="skeleton-cell status-badge"></div>
+              <div class="skeleton-cell actions"></div>
+            </div>
+          }
+        </div>
+      } @else if (ordersError(); as err) {
+        <div class="error-state">
+          <mat-icon fontIcon="error" />
+          <p>{{ httpErrorMessage(err) }}</p>
+          <button mat-stroked-button type="button" (click)="onRetryOrders()">Reintentar</button>
+        </div>
+      } @else {
+        @let page = orders();
+        @if (page && page.content.length) {
+          <mat-card appearance="outlined" class="table-card">
+            <mat-card-content>
+              <table mat-table [dataSource]="page.content">
+                <!-- Order number -->
+                <ng-container matColumnDef="orderNumber">
+                  <th mat-header-cell *matHeaderCellDef>Número de Orden</th>
+                  <td mat-cell *matCellDef="let row">{{ row.orderNumber }}</td>
+                </ng-container>
+
+                <!-- Supplier -->
+                <ng-container matColumnDef="supplierName">
+                  <th mat-header-cell *matHeaderCellDef>Proveedor</th>
+                  <td mat-cell *matCellDef="let row">{{ row.supplierName }}</td>
+                </ng-container>
+
+                <!-- Store -->
+                <ng-container matColumnDef="companyStoreName">
+                  <th mat-header-cell *matHeaderCellDef>Tienda</th>
+                  <td mat-cell *matCellDef="let row">{{ row.companyStoreName }}</td>
+                </ng-container>
+
+                <!-- Created at -->
+                <ng-container matColumnDef="createdAt">
+                  <th mat-header-cell *matHeaderCellDef>Fecha de Creación</th>
+                  <td mat-cell *matCellDef="let row">{{ row.createdAt | date: 'dd/MM/yyyy' }}</td>
+                </ng-container>
+
+                <!-- Status -->
+                <ng-container matColumnDef="status">
+                  <th mat-header-cell *matHeaderCellDef>Estado</th>
+                  <td mat-cell *matCellDef="let row">
+                    <app-status-chip [statusName]="row.statusName" />
+                  </td>
+                </ng-container>
+
+                <!-- Action -->
+                <ng-container matColumnDef="actions">
+                  <th mat-header-cell *matHeaderCellDef>Acciones</th>
+                  <td mat-cell *matCellDef="let row">
+                    <button
+                      mat-stroked-button
+                      color="primary"
+                      type="button"
+                      class="receive-button"
+                      [disabled]="!isOrderReceivable(row.statusName)"
+                      [matTooltip]="receiveTooltip"
+                      (click)="onReceiveOrder(row)"
+                    >
+                      Recibir
+                    </button>
+                  </td>
+                </ng-container>
+
+                <tr mat-header-row *matHeaderRowDef="displayedOrderColumns"></tr>
+                <tr mat-row *matRowDef="let row; columns: displayedOrderColumns"></tr>
+              </table>
+            </mat-card-content>
+          </mat-card>
+        } @else {
+          <div class="empty-state">
+            <mat-icon fontIcon="inventory_2" />
+            <h3 class="empty-title">No hay órdenes de compra para mostrar</h3>
+            <p class="empty-subtitle">Solo se pueden recibir órdenes Aceptadas o En Tránsito</p>
+          </div>
+        }
+      }
+    </div>
+
+    @let page = orders();
+    @if (page && hasMultiplePages()) {
+      <div class="pagination-section">
+        <mat-paginator
+          [length]="page.totalElements"
+          [pageSize]="pageSize()"
+          [pageIndex]="pageIndex()"
+          [pageSizeOptions]="[6, 12, 24, 48]"
+          (page)="onPageChange($event)"
+          showFirstLastButtons
+          aria-label="Paginación de órdenes de compra"
+        >
+        </mat-paginator>
+      </div>
+    }
+  } @else {
+    <!-- ═══ State B: receipt form ═══ -->
+    @if (orderLoading()) {
+      <div class="loading-skeleton">
+        @for (_ of [1, 2, 3]; track $index) {
+          <div class="skeleton-row" [style.--i]="$index">
+            <div class="skeleton-cell label"></div>
+            <div class="skeleton-cell value"></div>
+          </div>
+        }
+      </div>
+    } @else if (orderError(); as err) {
+      <div class="error-state">
+        <mat-icon fontIcon="error" />
+        <p>{{ httpErrorMessage(err) }}</p>
+        <button mat-stroked-button type="button" (click)="chooseAnotherOrder()">
+          Elegir otra orden
+        </button>
+      </div>
+    } @else if (storeUnresolved()) {
+      <div class="blocked-state">
+        <mat-icon fontIcon="warning_amber" />
+        <p>No se pudo resolver la tienda de esta orden.</p>
+        <button mat-stroked-button type="button" (click)="chooseAnotherOrder()">
+          Elegir otra orden
+        </button>
+      </div>
+    } @else if (orderNotReceivable()) {
+      <div class="blocked-state">
+        <mat-icon fontIcon="block" />
+        <p>
+          Esta orden no está en un estado que permita recibir. Solo se puede recibir una orden
+          Aceptada o En Tránsito.
+        </p>
+        <button mat-stroked-button type="button" (click)="chooseAnotherOrder()">
+          Elegir otra orden
+        </button>
+      </div>
+    } @else if (!hasReceivableLines()) {
+      <div class="blocked-state">
+        <mat-icon fontIcon="playlist_remove" />
+        <p>Esta orden no tiene líneas pendientes de recepción.</p>
+        <button mat-stroked-button type="button" (click)="chooseAnotherOrder()">
+          Elegir otra orden
+        </button>
+      </div>
+    } @else {
+      <app-error-banner [message]="generalError()" />
+      @if (serverDetail(); as detail) {
+        <p class="server-detail">{{ detail }}</p>
+      }
+
+      <mat-card appearance="outlined" class="lines-card">
+        <mat-card-header>
+          <mat-card-title>Líneas a recibir</mat-card-title>
+          <mat-card-subtitle>
+            {{ pendingLines() }} de {{ drafts().length }} líneas seleccionadas
+          </mat-card-subtitle>
+        </mat-card-header>
+        <mat-card-content>
+          <table mat-table [dataSource]="drafts()">
+            <!-- Product -->
+            <ng-container matColumnDef="product">
+              <th mat-header-cell *matHeaderCellDef>Producto</th>
+              <td mat-cell *matCellDef="let draft">{{ draft.productName }}</td>
+            </ng-container>
+
+            <!-- Variant -->
+            <ng-container matColumnDef="variant">
+              <th mat-header-cell *matHeaderCellDef>Variante</th>
+              <td mat-cell *matCellDef="let draft">
+                {{ draft.variantName?.trim() || 'Sin variante' }}
+              </td>
+            </ng-container>
+
+            <!-- Ordered -->
+            <ng-container matColumnDef="ordered">
+              <th mat-header-cell *matHeaderCellDef>Ordenado</th>
+              <td mat-cell *matCellDef="let draft">{{ draft.ordered }}</td>
+            </ng-container>
+
+            <!-- Already received -->
+            <ng-container matColumnDef="alreadyReceived">
+              <th mat-header-cell *matHeaderCellDef>Ya recibido</th>
+              <td mat-cell *matCellDef="let draft">{{ draft.alreadyReceived }}</td>
+            </ng-container>
+
+            <!-- Pending -->
+            <ng-container matColumnDef="pending">
+              <th mat-header-cell *matHeaderCellDef>Pendiente</th>
+              <td mat-cell *matCellDef="let draft">{{ draft.pending }}</td>
+            </ng-container>
+
+            <!-- Quantity to receive -->
+            <ng-container matColumnDef="quantity">
+              <th mat-header-cell *matHeaderCellDef>Cantidad a recibir</th>
+              <td mat-cell *matCellDef="let draft; let i = index">
+                <mat-form-field
+                  appearance="outline"
+                  subscriptSizing="dynamic"
+                  class="quantity-field"
+                >
+                  <mat-label>Cantidad</mat-label>
+                  <input
+                    matInput
+                    type="number"
+                    min="0"
+                    step="1"
+                    [value]="draft.quantity"
+                    (input)="onQuantityInput(i, $any($event.target).value)"
+                    [attr.aria-label]="'Cantidad a recibir de ' + draft.productName"
+                  />
+                </mat-form-field>
+                @if (rowError(draft); as error) {
+                  <p class="row-error">{{ error }}</p>
+                }
+              </td>
+            </ng-container>
+
+            <tr mat-header-row *matHeaderRowDef="displayedLineColumns"></tr>
+            <tr mat-row *matRowDef="let draft; columns: displayedLineColumns"></tr>
+          </table>
+
+          @if (formErrors().errors['lines']; as selectionError) {
+            <p class="selection-error">{{ selectionError }}</p>
+          }
+        </mat-card-content>
+      </mat-card>
+
+      <mat-card appearance="outlined" class="location-card">
+        <mat-card-header>
+          <mat-card-title>Ubicación de recepción</mat-card-title>
+        </mat-card-header>
+        <mat-card-content>
+          @if (requiresLocation()) {
+            <p class="location-warning">
+              Esta tienda no tiene una ubicación de recepción configurada. Elegí una ubicación para
+              continuar.
+            </p>
+          }
+
+          <mat-form-field appearance="outline" class="location-field">
+            <mat-label>Ubicación</mat-label>
+            <mat-select
+              [value]="locationOverride()"
+              [compareWith]="compareLocationIds"
+              (selectionChange)="onLocationChange($event.value)"
+              aria-label="Ubicación de recepción"
+            >
+              <mat-option [value]="null">Usar la configuración de la tienda</mat-option>
+              @for (location of locations(); track location.id) {
+                <mat-option [value]="location.id">
+                  {{ location.locationName }} ({{ location.zoneName }} · {{ location.areaName }})
+                </mat-option>
+              }
+            </mat-select>
+          </mat-form-field>
+
+          @if (locationMissing()) {
+            <p class="location-error">Elegí una ubicación de recepción</p>
+          } @else if (settings()) {
+            <p class="location-hint">Ubicación configurada: {{ defaultLocationName() ?? '—' }}</p>
+          }
+        </mat-card-content>
+      </mat-card>
+
+      <mat-card appearance="outlined" class="comments-card">
+        <mat-card-header>
+          <mat-card-title>Comentarios</mat-card-title>
+        </mat-card-header>
+        <mat-card-content>
+          <mat-form-field appearance="outline" class="comments-field">
+            <mat-label>Comentarios</mat-label>
+            <textarea
+              matInput
+              maxlength="500"
+              [value]="comments()"
+              (input)="onCommentsInput($any($event.target).value)"
+            ></textarea>
+            <mat-hint>Máximo 500 caracteres</mat-hint>
+          </mat-form-field>
+        </mat-card-content>
+      </mat-card>
+
+      <div class="form-actions">
+        <button
+          mat-flat-button
+          color="primary"
+          type="button"
+          [disabled]="!canSubmit()"
+          (click)="onSubmit()"
+        >
+          Registrar recepción
+        </button>
+      </div>
+    }
+  }
+</div>
