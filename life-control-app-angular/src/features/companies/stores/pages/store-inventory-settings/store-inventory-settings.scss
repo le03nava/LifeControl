@@ -1,0 +1,87 @@
+@use '../../../../../shared/styles/form-layout' as form;
+@use '../../../../../shared/styles/variables' as *;
+
+:host {
+  display: block;
+  width: 100%;
+  padding: 0 var(--space-md);
+}
+
+.store-inventory-settings-page {
+  width: 100%;
+}
+
+.blocking-state,
+.error-state,
+.empty-locations {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-2xl) var(--space-xl);
+  text-align: center;
+  color: var(--mat-sys-on-surface-variant);
+
+  mat-icon {
+    font-size: 32px;
+    width: 32px;
+    height: 32px;
+  }
+
+  p {
+    margin: 0;
+    max-width: 640px;
+    line-height: 1.5;
+  }
+}
+
+.loading-skeleton {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.skeleton-line {
+  height: 56px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--mat-sys-on-surface) 8%, transparent);
+  animation: skeleton 1.5s infinite;
+}
+
+.stale-warning {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin: 0;
+  color: var(--mat-sys-error);
+  font-size: 0.875rem;
+
+  mat-icon {
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+  }
+}
+
+.server-detail {
+  margin: 0 0 var(--space-md);
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 0.8125rem;
+}
+
+@keyframes skeleton {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (max-width: $bp-sm) {
+  :host {
+    padding: 0 var(--space-sm);
+  }
+}

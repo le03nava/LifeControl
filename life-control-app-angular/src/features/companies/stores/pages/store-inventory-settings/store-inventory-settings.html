@@ -1,0 +1,106 @@
+<div class="store-inventory-settings-page">
+  <app-page-header
+    title="Configuración de inventario"
+    subtitle="Ubicaciones de recepción y venta de la tienda"
+    [showActions]="false"
+  />
+
+  @if (!chain) {
+    <div class="blocking-state">
+      <mat-icon fontIcon="info" />
+      <p>No se pudo determinar la tienda. Volvé a la lista de tiendas y elegí una.</p>
+      <a mat-stroked-button routerLink="/companies/stores">Ir a la lista de tiendas</a>
+    </div>
+  } @else if (isLoading()) {
+    <div class="loading-skeleton" aria-busy="true">
+      @for (_ of [1, 2, 3]; track $index) {
+        <div class="skeleton-line"></div>
+      }
+    </div>
+  } @else if (loadError(); as errorMessage) {
+    <div class="error-state">
+      <mat-icon fontIcon="error_outline" />
+      <p>{{ errorMessage }}</p>
+      <button mat-stroked-button type="button" (click)="onRetry()">Reintentar</button>
+    </div>
+  } @else if (!hasLocations()) {
+    <div class="empty-locations">
+      <mat-icon fontIcon="inventory_2" />
+      <p>
+        Esta tienda no tiene ubicaciones habilitadas. Creá o habilitá una ubicación en Zonas y
+        ubicaciones antes de configurar el inventario.
+      </p>
+    </div>
+  } @else {
+    @if (saveError(); as errorMessage) {
+      <app-error-banner [message]="errorMessage" />
+    }
+    @if (saveErrorDetail(); as detail) {
+      <p class="server-detail">{{ detail }}</p>
+    }
+
+    <form class="form-card">
+      <mat-form-field appearance="outline" class="full-width">
+        <mat-label>Ubicación de recepción</mat-label>
+        <mat-select
+          class="receiving-location-select"
+          [value]="receivingLocationId()"
+          [compareWith]="compareById"
+          [disabled]="!canWrite"
+          (selectionChange)="onSelectReceiving($event.value)"
+        >
+          @for (location of locations(); track location.id) {
+            <mat-option [value]="location.id"
+              >{{ location.locationName }} ({{ location.zoneName }} · {{ location.areaName }}) —
+              {{ location.locationCode }}</mat-option
+            >
+          }
+        </mat-select>
+      </mat-form-field>
+      @if (canWrite && receivingIsStale()) {
+        <p class="stale-warning full-width">
+          <mat-icon fontIcon="warning" />
+          La ubicación configurada ya no está habilitada. Elegí una nueva.
+        </p>
+      }
+
+      <mat-form-field appearance="outline" class="full-width">
+        <mat-label>Ubicación de venta</mat-label>
+        <mat-select
+          class="sales-location-select"
+          [value]="salesLocationId()"
+          [compareWith]="compareById"
+          [disabled]="!canWrite"
+          (selectionChange)="onSelectSales($event.value)"
+        >
+          @for (location of locations(); track location.id) {
+            <mat-option [value]="location.id"
+              >{{ location.locationName }} ({{ location.zoneName }} · {{ location.areaName }}) —
+              {{ location.locationCode }}</mat-option
+            >
+          }
+        </mat-select>
+      </mat-form-field>
+      @if (canWrite && salesIsStale()) {
+        <p class="stale-warning full-width">
+          <mat-icon fontIcon="warning" />
+          La ubicación configurada ya no está habilitada. Elegí una nueva.
+        </p>
+      }
+
+      @if (canWrite) {
+        <div class="form-actions">
+          <button
+            mat-flat-button
+            color="primary"
+            type="button"
+            [disabled]="!canSubmit()"
+            (click)="onSave()"
+          >
+            Guardar configuración
+          </button>
+        </div>
+      }
+    </form>
+  }
+</div>

@@ -110,6 +110,15 @@
               (storeToggle)="onToggleStore($event)"
               (locations)="onCardManageLocations($event)"
             />
+            <button
+              mat-stroked-button
+              color="primary"
+              type="button"
+              class="configure-inventory-action"
+              (click)="onCardConfigureInventory(store.id)"
+            >
+              <mat-icon fontIcon="inventory_2" /> Configurar inventario
+            </button>
           </div>
         }
       } @else if (!storesResource.isLoading()) {
