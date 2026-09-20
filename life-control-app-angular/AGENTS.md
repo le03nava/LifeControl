@@ -77,6 +77,17 @@ src/
 │   ├── countries/                # Feature independiente: catálogo de países
 │   │   ├── data/
 │   │   └── index.ts
+│   ├── inventory/                # Feature: inventario (lo comparten compras y tiendas)
+│   │   ├── data/                 # store-location lookup + inventory settings
+│   │   ├── models/               # StoreChain, StoreLocationSummary, settings
+│   │   └── index.ts
+│   ├── products/                  # Feature: productos y proveedores
+│   ├── purchases/                 # Feature: compras
+│   │   ├── purchase-orders/       # Sub-feature: órdenes de compra
+│   │   ├── receipts/              # Sub-feature: recibos (lista, alta, detalle)
+│   │   ├── pages/                 # Dashboard de compras
+│   │   └── purchases.routes.ts
+│   ├── sales/                     # Feature: ventas
 │   ├── home/
 │   │   ├── home.ts
 │   │   ├── home.html
@@ -95,6 +106,7 @@ src/
 │   │   ├── loading-interceptor.ts
 │   │   ├── loading.ts
 │   │   ├── notification.ts
+│   │   ├── skip-error-notification.ts  # HttpContextToken: silencia el toast, no el rethrow
 │   │   └── index.ts
 │   ├── models/
 │   │   ├── api-error.model.ts
@@ -442,6 +454,10 @@ const BASE_ROLES = ['lc-admin', 'lc-company', 'lc-company-country'];
 const COMPANY_CRUD_ROLES = ['lc-admin', 'lc-company'];
 const REGION_ROLES = [...BASE_ROLES, 'lc-company-region'];
 const ZONE_ROLES = [...REGION_ROLES, 'lc-company-zone'];
+// Los roles *-read existen y STORE_ROLES los incluye: `lc-company-store-read`
+// llega a los listados sin poder escribir. El archivo real es
+// `const STORE_ROLES = [...STORE_WRITE_ROLES, 'lc-company-store-read'];`
+// con STORE_WRITE_ROLES importado de `@core/security/roles`.
 const STORE_ROLES = [...ZONE_ROLES, 'lc-company-store'];
 const CLIENT_ID = 'life-control-client';
 
@@ -716,7 +732,10 @@ $bp-lg: 1440px;
 }
 ```
 
-**Uso:** `@use '../../shared/styles/variables' as *;`
+**Uso:** `@use '../../shared/styles/variables' as *;` — la profundidad relativa depende de la
+página; en una página de feature típica es `@use '../../../../shared/styles/variables' as *;`.
+Lo que importa es que el partial se resuelva y que los breakpoints salgan siempre de
+`_variables.scss`, nunca de valores literales.
 
 ---
 
@@ -897,15 +916,21 @@ Tres capas de control independientes:
 
 ### Realm Roles (legacy)
 
-Usados por features fuera de Companies (Products, Purchases, Users Admin). No usan `clientId` en los datos de ruta, por lo que el guard resuelve contra `realm_access.roles`.
+Usados por features fuera de Companies (Users Admin). No usan `clientId` en los datos
+de ruta, por lo que el guard resuelve contra `realm_access.roles`.
 
 | Rol | Acceso |
 |-----|--------|
-| `life-control-admin` | Products, Purchases |
+| `life-control-admin` | (documentado como Products/Purchases, **no** es lo que hace el código hoy) |
 | `life-control-country` | Products |
 | `admin` | Users Admin |
 
 > **Importante:** `lc-admin` es un **rol de cliente** (no realm). `life-control-admin` es un **realm role**. Son distintos.
+>
+> **Corrección verificada en el código:** `/purchases` **no** usa el realm role: su ruta padre
+> declara `data: { roles: ['lc-admin'], clientId: 'life-control-client' }`, es decir el rol de
+> cliente `lc-admin`, y `e2e/specs/navigation.spec.ts` lo afirma así. El menú **Compras** también
+> cuelga de `isAdmin` (client role). `life-control-admin` no aparece en ninguna ruta actual.
 
 ### Guard Dual-Mode
 
@@ -948,7 +973,7 @@ const BASE_ROLES = ['lc-admin', 'lc-company', 'lc-company-country'];
 const COMPANY_CRUD_ROLES = ['lc-admin', 'lc-company'];
 const REGION_ROLES = [...BASE_ROLES, 'lc-company-region'];
 const ZONE_ROLES = [...REGION_ROLES, 'lc-company-zone'];
-const STORE_ROLES = [...ZONE_ROLES, 'lc-company-store'];
+const STORE_ROLES = [...ZONE_ROLES, 'lc-company-store']; // ver corrección arriba: además incluye lc-company-store-read
 
 // Aplicación:
 //   /companies (parent)     → STORE_ROLES
@@ -974,6 +999,44 @@ Stores:   [...Zones, 'lc-company-store']
 // cards computed: filtra .filter(card => !card.disabled)
 // → cards sin acceso NO aparecen (deshabilitadas = ocultas)
 ```
+
+### Compras: recibos, inventario y el rol `lc-receiving`
+
+Estado verificado del código, no del diseño pendiente:
+
+- **Rutas de recibos** (`purchases.routes.ts`, hijas del padre `roles: ['lc-admin']`):
+  `receipts` → `ReceiptList`, `receipts/create` → `ReceiptCreate` (con
+  `canDeactivate: [unsavedChangesGuard]`) y `receipts/:id` → `ReceiptDetail`. **La ruta literal
+  `create` va declarada antes que `:id`**: si no, el parámetro la captura como id.
+- **Dos entradas al alta**: la lista ("Nuevo recibo" + selector de órdenes recibibles) y el botón
+  "Recibir mercadería" del detalle de una orden recibible, que deep-linkea con
+  `?purchaseOrderId=`. El mismo componente atiende las dos.
+- **Qué es recibible** sale de `status-config.ts`, espejo de las reglas del backend:
+  `isOrderReceivable` (la orden debe estar `Accepted` o `In Transit`) e `isDetailStatusReceivable`
+  (`Received`/`Rejected`/`Cancelled` no pueden recibir). **Las dos son fail-closed**: un estado
+  desconocido devuelve `false`. La familia de estados de **línea** (`PENDING`, `In Process`,
+  `In Transit`, `Partial Received`, …) es distinta de la de la orden y tiene sus propios mapas
+  (`PO_DETAIL_STATUS_LABELS`/`_COLORS`).
+- **`app-status-chip` tiene un input `family`** (`'order' | 'detail' | 'receipt'`, default
+  `'order'`): un solo chip sirve a las tres familias. El fallback al nombre crudo en inglés sigue
+  existiendo para un estado desconocido.
+- **Feature `inventory`** (`src/features/inventory/`): models + `StoreLocationLookupService`
+  (listado de locations de una tienda, `…/stores/{storeId}/store-locations`) y
+  `StoreInventorySettingsService` (lectura de `…/inventory-settings`). Vive en `inventory` y no en
+  `purchases` porque lo consumen tanto el alta de recibos como la pantalla de settings de tienda.
+  `getSettings` devuelve `null` ante 404 (una tienda sin configurar es un estado normal) y manda la
+  request con `SKIP_ERROR_NOTIFICATION`, para que ese 404 esperado no dispare el toast rojo global.
+- **`SKIP_ERROR_NOTIFICATION`** (`shared/data/skip-error-notification.ts`) es un `HttpContextToken`
+  que silencia **solo** el toast de `errorInterceptor`; el error se sigue rethrowing. Usalo para todo
+  fallo que sea parte del flujo normal del llamador.
+- **Deuda registrada, fuera de alcance por ahora**: el contrato de `version`/concurrencia optimista
+  (ningún DTO de la tienda expone `version` y el conflicto de lock optimista responde 500, no 409) y
+  la habilitación del rol `lc-receiving` en el frontend.
+- **El rol `lc-receiving` es hoy API-only.** Existe en `Roles.java` y en `keycloak-setup.sh`, pero
+  `roles.ts` todavía no lo conoce, `/purchases` sigue exigiendo `lc-admin` y el menú Compras cuelga de
+  `isAdmin`. Consecuencia a tener presente al probar: un usuario sin los claims `company_*` recibe
+  **403 en todas las requests** de los endpoints store-scoped, y sin el rol no ve ninguna pantalla de
+  recibos. Habilitarlo es su propio slice, con su propia revisión de seguridad.
 
 ### Keycloak Config
 
