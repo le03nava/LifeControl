@@ -47,6 +47,7 @@ Los skills propios del repo viven en `.agents/skills/` y se versionan. Pi y Open
 | Action | Skill |
 |--------|-------|
 | Cualquier cambio de código, seguridad, CI/CD o release | `project-conventions` |
+| Trabajo en paralelo, worktrees, varios agentes a la vez | `project-conventions` → `references/worktrees.md` |
 | Frontend Angular development | `angular-21` |
 | Backend Spring Boot services | `spring-boot-3` |
 | Initialize SDD in project | `sdd-init` |
@@ -58,6 +59,31 @@ Los skills propios del repo viven en `.agents/skills/` y se versionan. Pi y Open
 | Verify implementation | `sdd-verify` |
 | Archive completed change | `sdd-archive` |
 | Create new AI skill | `skill-creator` |
+
+---
+
+## Trabajo en paralelo con worktrees
+
+Aislamiento para trabajo concurrente. El detalle completo, los comandos y los anti-patrones están en
+[`references/worktrees.md`](.agents/skills/project-conventions/references/worktrees.md).
+
+| Regla | Valor |
+|-------|-------|
+| Un worktree por unidad de trabajo | Una feature, un fix, un PR |
+| Un agente por worktree | Dos agentes en el mismo cwd se pisan los archivos a nivel filesystem; Git no lo puede evitar |
+| El anchor queda en `main` y limpio | `~/workspace/LifeControl` es la referencia para `fetch`, `log` y `rebase` |
+| Path del worktree | `~/workspace/LifeControl-worktrees/<slug>`, hermano del repo, nunca adentro |
+| Slug del directorio | Igual al de la rama, con `/` → `-`: `feat/x` → `feat-x` |
+| Creación | `herdr worktree create --path ... --base main --no-focus` |
+| Limpieza | `herdr workspace close` → `git worktree remove` → `git worktree prune`, en ese orden |
+
+> **Requisito de trust**: Pi carga `.agents/skills/` desde el `cwd` y sus directorios **ancestros**, y sólo
+> después de confiar el proyecto. Un worktree no es hijo del repo, así que una entrada de trust para el
+> anchor **no lo cubre**. Hay que confiar `~/workspace/LifeControl-worktrees` como carpeta padre: una sola
+> entrada cubre todos los worktrees actuales y futuros.
+>
+> **`herdr workspace close --group` cierra el workspace primario y todos los worktrees linkeados.** No lo
+> uses para saltear un error de cierre.
 
 ---
 

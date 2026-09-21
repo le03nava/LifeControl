@@ -10,6 +10,11 @@ Shared repository references live here. Component-specific detail lives in `refe
 - `life-control-app-angular/AGENTS.md` — component governance for the Angular app (RBAC, visibility, dual-mode guard).
 - Absent: `CONTRIBUTING.md`, `SECURITY.md`, `CODEOWNERS`, `docs/**` (see Gaps).
 
+## Workflow
+
+- `references/worktrees.md` — isolation model for parallel work: invariants, path and naming, create and cleanup commands, the Pi trust requirement, and anti-patterns.
+- Absent: no automated guard enforces one-worktree-one-unit; it is a review-time convention.
+
 ## Architecture
 
 - `life-control-api/` — see `references/api.md`; overview in `life-control-api/README.md`.
