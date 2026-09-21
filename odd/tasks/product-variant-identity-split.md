@@ -3,7 +3,7 @@
 **Repository**: LifeControl — modules `life-control-api/` and `life-control-app-angular/`
 **Branch**: `refactor/product-variant-identity`
 **Worktree**: `~/workspace/LifeControl-worktrees/refactor-product-variant-identity`
-**Status**: in progress — S1 and S2 done, S3 (frontend adapters) pending
+**Status**: done — S1, S2 and S3 complete; PR pending (user-owned)
 **Created**: 2026-09-20
 **Risk**: high — schema change, API contract change, tenant-boundary semantics
 
@@ -191,13 +191,13 @@ Tests:
 - [x] `SalesOrderServiceTest`, `SalesOrderIntegrationTest`.
 - [x] Gate: `./gradlew spotlessCheck spotbugsMain --no-daemon` then `./gradlew test --no-daemon`.
 
-### S3 — Frontend adapters
+### S3 — Frontend adapters — DONE
 
-- [ ] `product-variant.models.ts`: definition vs per-store split; new store-row request type.
-- [ ] `product.service.ts` variant methods plus the store-row endpoint client.
-- [ ] Screens: PO variant picker, PO detail table, receipt-create, receipt-detail, sales variant
+- [x] `product-variant.models.ts`: definition vs per-store split; new store-row request type.
+- [x] `product.service.ts` variant methods plus the store-row endpoint client.
+- [x] Screens: PO variant picker, PO detail table, receipt-create, receipt-detail, sales variant
       selector, sales item table.
-- [ ] Gate: `npm run lint`, `npm run build`, `npm run test:coverage:check`.
+- [x] Gate: `npm run lint`, `npm run build`, `npm run test:coverage:check`.
 
 ## Review workload
 
@@ -228,6 +228,31 @@ valid); (C) merge S2 and S3 into one PR (largest review, no intermediate state a
 |---|---|---|---|
 | 2026-09-20 | S1 | `bd17f07` | `spotlessCheck compileJava` → BUILD SUCCESSFUL; `LifeControlApiApplicationTests` → BUILD SUCCESSFUL (Flyway `V1`–`V13`, `ddl-auto=validate`) |
 | 2026-09-20 | S2 | `2d991de` | `spotlessCheck spotbugsMain` → BUILD SUCCESSFUL; `test` → BUILD SUCCESSFUL, 612 classes / 2006 tests / 0 failures / 0 errors / 0 skipped (Testcontainers Postgres, Flyway `V1`–`V14`, `ddl-auto=validate`) |
+| 2026-09-20 | S3 | `2c3d688` | `npm run lint` → All files pass; `npm run build` → OK (only pre-existing SCSS budget warnings); `npm run test:coverage:check` → 113 files / 2131 tests passed, 92.41% statements / 74.64% branches / 88.08% functions / 92.41% lines, all within thresholds |
+
+### S3 outcome notes
+
+- The frontend has **no variant CRUD**: `ProductService.getProductVariants` is the only variant call, and
+  nothing ever posts a `ProductVariantRequest`. So the backend request change broke no client, and the
+  response field names were frozen on purpose in S2.
+- What did need fixing: the model lied about its types (`barCode`, `companyStoreId`, `listPrice`,
+  `costPrice`, `stock` were all non-nullable, while the backend returns `null` for the store-scoped
+  four when the request omits `?storeId=`) and `sku` silently changed meaning to the PRODUCT sku.
+- The purchase-order picker labelled each option with `variant.sku`. After the split that sku is
+  identical for every size of a product, so the label no longer told variants apart; it now shows
+  `barCode`, which is the variant identifier. Caught by reading the consumers, not by a failing test.
+- `detail-table.onVariantSelected` now uses `costPrice ?? 0`, matching that component's own `0`
+  "no price yet" sentinel (it already resets to `0` on product change and on line add).
+- **Deliberately not added:** Angular clients for the two new write endpoints
+  (`POST .../variants`, `PUT /api/variants/{id}/stores/{storeId}`). No screen consumes them yet and
+  shipping unused client methods is dead code; they belong to the variant management UI, which stays
+  out of scope.
+- Environment note: `npm ci` fails with an ERESOLVE peer conflict on `zone.js`; the repository's own
+  CI documents the fix (`.github/workflows/angular-ci.yml:34-36`), so the install used is
+  `npm ci --legacy-peer-deps`. CI pins Node 22 while this run used Node 24.
+- The frontend commits carry a `lint-staged` pre-commit hook (`eslint --fix` + `prettier --write`).
+  It reformatted these files after the first gate run, so `lint` and `test:coverage:check` were re-run
+  against the committed content: 113 files / 2131 tests passed, coverage inside thresholds.
 
 ### S2 outcome notes
 

@@ -311,7 +311,9 @@ export class DetailTable {
     this.selectedVariant.set(variant);
 
     if (!this.priceManuallyEdited()) {
-      this.newUnitPrice.set(variant.costPrice);
+      // `costPrice` is null when no store scopes the variant; this add-row keeps 0
+      // as its "no price yet" sentinel, which is what the reset paths use too.
+      this.newUnitPrice.set(variant.costPrice ?? 0);
     }
   }
 
