@@ -28,8 +28,11 @@ const VARIANT_PAGE_SIZE = 50;
  * Variant picker for one purchase order line.
  *
  * Loads `GET /api/products/{productId}/variants?storeId=<uuid>` once both the
- * product and the store are known, and renders `variantName` next to `sku` and
- * `costPrice` so two variants of the same product stay distinguishable.
+ * product and the store are known, and renders `variantName` next to the
+ * `barCode` and `costPrice` so two variants of the same product stay
+ * distinguishable. The barcode labels the option rather than the sku: the sku
+ * belongs to the product, so it is identical across sizes and would not tell two
+ * variants apart.
  *
  * The selected variant id is a two-way `model` so the parent can reset it after
  * adding a line; `variantSelected` carries the whole variant, because the parent
