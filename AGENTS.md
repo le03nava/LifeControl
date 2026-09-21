@@ -10,24 +10,35 @@
 
 ## Available Skills
 
-### Generic Skills
-| Skill | Description | URL |
-|-------|-------------|-----|
-| `angular-21` | Angular 18+ patterns (signals, standalone, control flow) | [SKILL.md](.opencode/skill/angular-21/SKILL.md) |
-| `spring-boot-3` | Spring Boot 3 patterns (DI, config, web services) | [SKILL.md](.opencode/skill/spring-boot-3/SKILL.md) |
-| `sdd-init` | Spec-Driven Development initialization | [SKILL.md](.opencode/skill/sdd-init/SKILL.md) |
-| `skill-creator` | Create new AI agent skills | [SKILL.md](.opencode/skill/skill-creator/SKILL.md) |
+Los skills propios del repo viven en `.agents/skills/` y se versionan. Pi y OpenCode los descubren automáticamente: caminan hacia arriba desde el `cwd` hasta la raíz del repo y cargan todo `.agents/skills/**/SKILL.md`. No hace falta registrarlos en ningún config.
 
-### Project-Specific Skills
-| Skill | Description | URL |
-|-------|-------------|-----|
-| `sdd-explore` | Explore and investigate ideas | [SKILL.md](.opencode/skills/sdd-explore/SKILL.md) |
-| `sdd-propose` | Create change proposals | [SKILL.md](.opencode/skills/sdd-propose/SKILL.md) |
-| `sdd-spec` | Write detailed specifications | [SKILL.md](.opencode/skills/sdd-spec/SKILL.md) |
-| `sdd-tasks` | Break down specs into tasks | [SKILL.md](.opencode/skills/sdd-tasks/SKILL.md) |
-| `sdd-apply` | Implement tasks from specs | [SKILL.md](.opencode/skills/sdd-apply/SKILL.md) |
-| `sdd-verify` | Validate implementation against specs | [SKILL.md](.opencode/skills/sdd-verify/SKILL.md) |
-| `sdd-archive` | Sync specs and archive changes | [SKILL.md](.opencode/skills/sdd-archive/SKILL.md) |
+### Repo Skills (versionados)
+| Skill | Description | Ruta |
+|-------|-------------|------|
+| `project-conventions` | Convenciones enterprise, gates de seguridad, controles de release y evidencia auditable | [SKILL.md](.agents/skills/project-conventions/SKILL.md) |
+
+### Generic Skills (provistos por gentle-ai, NO versionados acá)
+| Skill | Description |
+|-------|-------------|
+| `angular-21` | Angular 18+ patterns (signals, standalone, control flow) |
+| `spring-boot-3` | Spring Boot 3 patterns (DI, config, web services) |
+| `sdd-init` | Spec-Driven Development initialization |
+| `skill-creator` | Create new AI agent skills |
+
+### Project-Specific Skills (provistos por gentle-ai, NO versionados acá)
+| Skill | Description |
+|-------|-------------|
+| `sdd-explore` | Explore and investigate ideas |
+| `sdd-propose` | Create change proposals |
+| `sdd-spec` | Write detailed specifications |
+| `sdd-tasks` | Break down specs into tasks |
+| `sdd-apply` | Implement tasks from specs |
+| `sdd-verify` | Validate implementation against specs |
+| `sdd-archive` | Sync specs and archive changes |
+
+> **Skills de usuario**: los de estas dos tablas están instalados en la máquina por gentle-ai (hoy en `~/.config/opencode/skills/`), no en este repo, por eso no tienen ruta relativa. Si falta alguno, corré `gentle-ai sync`.
+>
+> **Dónde van los skills compartidos**: sólo `.agents/skills/` se versiona. `.opencode/`, `.pi/`, `.atl/`, `sdd/` y `openspec/` están en `.gitignore`, así que un skill guardado ahí es local y el equipo no lo recibe.
 
 ---
 
@@ -35,6 +46,7 @@
 
 | Action | Skill |
 |--------|-------|
+| Cualquier cambio de código, seguridad, CI/CD o release | `project-conventions` |
 | Frontend Angular development | `angular-21` |
 | Backend Spring Boot services | `spring-boot-3` |
 | Initialize SDD in project | `sdd-init` |
