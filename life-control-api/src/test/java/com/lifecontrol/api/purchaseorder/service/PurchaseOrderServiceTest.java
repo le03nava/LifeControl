@@ -23,6 +23,7 @@ import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.model.ProductVariant;
 import com.lifecontrol.api.product.repository.ProductRepository;
 import com.lifecontrol.api.product.repository.ProductVariantRepository;
+import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderDetailRequest;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderRequest;
 import com.lifecontrol.api.purchaseorder.dto.UpdatePurchaseOrderStatusRequest;
@@ -86,6 +87,9 @@ class PurchaseOrderServiceTest {
 
     @Mock
     private ProductVariantRepository productVariantRepository;
+
+    @Mock
+    private ProductVariantStoreStockRepository productVariantStoreStockRepository;
 
     @Mock
     private PaymentMethodRepository paymentMethodRepository;
@@ -177,7 +181,6 @@ class PurchaseOrderServiceTest {
         productVariant = new ProductVariant();
         productVariant.setId(variantId);
         productVariant.setProductId(productId);
-        productVariant.setCompanyStoreId(storeId);
         productVariant.setVariantName("Test Variant");
         productVariant.setEnabled(true);
 
@@ -382,7 +385,7 @@ class PurchaseOrderServiceTest {
         @DisplayName("should compute detail totals automatically")
         void computesDetailTotals() {
             var detailReq = new PurchaseOrderDetailRequest(
-                    productId, null, 3, new BigDecimal("150.00"), "Detail comments", pendingStatus.getId());
+                    productId, variantId, 3, new BigDecimal("150.00"), "Detail comments", pendingStatus.getId());
             var request =
                     new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, "Comments", List.of(detailReq));
 
@@ -392,6 +395,10 @@ class PurchaseOrderServiceTest {
             when(statusRepository.findById(draftStatusId)).thenReturn(Optional.of(draftStatus));
             when(statusRepository.findById(pendingStatus.getId())).thenReturn(Optional.of(pendingStatus));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
+            when(productVariantRepository.findByIdAndProductIdAndEnabledTrue(variantId, productId))
+                    .thenReturn(Optional.of(productVariant));
+            when(productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(variantId, storeId))
+                    .thenReturn(true);
             when(purchaseOrderRepository.findTopByOrderNumberStartingWithOrderByOrderNumberDesc(anyString()))
                     .thenReturn(Optional.empty());
 
@@ -520,9 +527,10 @@ class PurchaseOrderServiceTest {
             when(statusRepository.findByTypeNameAndStatusName("PURCHASE_ORDER_DETAIL", "Pending"))
                     .thenReturn(Optional.of(pendingStatus));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
-            when(productVariantRepository.findByIdAndProductIdAndCompanyStoreIdAndEnabledTrue(
-                            variantId, productId, storeId))
+            when(productVariantRepository.findByIdAndProductIdAndEnabledTrue(variantId, productId))
                     .thenReturn(Optional.of(productVariant));
+            when(productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(variantId, storeId))
+                    .thenReturn(true);
             when(statusRepository.findById(pendingStatus.getId())).thenReturn(Optional.of(pendingStatus));
             when(purchaseOrderRepository.save(any(PurchaseOrder.class))).thenReturn(purchaseOrder);
 
@@ -647,10 +655,14 @@ class PurchaseOrderServiceTest {
         @DisplayName("should add detail when PO is Draft")
         void addsDetailWhenDraft() {
             var detailReq = new PurchaseOrderDetailRequest(
-                    productId, null, 2, new BigDecimal("50.00"), "Note", pendingStatus.getId());
+                    productId, variantId, 2, new BigDecimal("50.00"), "Note", pendingStatus.getId());
 
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
+            when(productVariantRepository.findByIdAndProductIdAndEnabledTrue(variantId, productId))
+                    .thenReturn(Optional.of(productVariant));
+            when(productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(variantId, storeId))
+                    .thenReturn(true);
             when(statusRepository.findById(pendingStatus.getId())).thenReturn(Optional.of(pendingStatus));
             when(detailRepository.save(any(PurchaseOrderDetail.class))).thenAnswer(inv -> {
                 var d = inv.getArgument(0, PurchaseOrderDetail.class);
@@ -689,11 +701,15 @@ class PurchaseOrderServiceTest {
         @DisplayName("should update detail fields and recompute total")
         void updatesDetailAndRecomputesTotal() {
             var updatedReq = new PurchaseOrderDetailRequest(
-                    productId, null, 10, new BigDecimal("25.00"), "Updated", pendingStatus.getId());
+                    productId, variantId, 10, new BigDecimal("25.00"), "Updated", pendingStatus.getId());
 
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
             when(detailRepository.findById(detailId)).thenReturn(Optional.of(detail));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
+            when(productVariantRepository.findByIdAndProductIdAndEnabledTrue(variantId, productId))
+                    .thenReturn(Optional.of(productVariant));
+            when(productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(variantId, storeId))
+                    .thenReturn(true);
             when(statusRepository.findById(pendingStatus.getId())).thenReturn(Optional.of(pendingStatus));
             when(detailRepository.save(any(PurchaseOrderDetail.class))).thenReturn(detail);
 
@@ -753,8 +769,8 @@ class PurchaseOrderServiceTest {
     class ProductVariantResolutionTests {
 
         @Test
-        @DisplayName("createPurchaseOrder leaves the relation unset and skips the lookup when productVariantId is null")
-        void createWithNullVariantLeavesRelationUnset() {
+        @DisplayName("createPurchaseOrder rejects a null productVariantId: the legacy null tolerance was dropped")
+        void createWithNullVariantIsRejected() {
             var detailReq = new PurchaseOrderDetailRequest(
                     productId, null, 3, new BigDecimal("150.00"), "Detail comments", pendingStatus.getId());
             var request =
@@ -764,24 +780,17 @@ class PurchaseOrderServiceTest {
             when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
             when(statusRepository.findById(draftStatusId)).thenReturn(Optional.of(draftStatus));
-            when(statusRepository.findById(pendingStatus.getId())).thenReturn(Optional.of(pendingStatus));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
             when(purchaseOrderRepository.findTopByOrderNumberStartingWithOrderByOrderNumberDesc(anyString()))
                     .thenReturn(Optional.empty());
 
-            var captor = ArgumentCaptor.forClass(PurchaseOrder.class);
-            when(purchaseOrderRepository.save(captor.capture())).thenAnswer(inv -> {
-                var po = captor.getValue();
-                po.setId(poId);
-                return po;
-            });
+            // The column is NOT NULL since V14 and the request is @NotNull, so the null branch of
+            // resolveProductVariant was removed: a null id now fails the resolution instead of
+            // silently leaving the relation unset.
+            assertThatThrownBy(() -> service.createPurchaseOrder(request))
+                    .isInstanceOf(ProductVariantNotFoundException.class);
 
-            service.createPurchaseOrder(request);
-
-            assertThat(captor.getValue().getDetails().getFirst().getProductVariant())
-                    .isNull();
-            verify(productVariantRepository, never())
-                    .findByIdAndProductIdAndCompanyStoreIdAndEnabledTrue(any(), any(), any());
+            verify(productVariantRepository, never()).save(any());
         }
 
         @Test
@@ -798,9 +807,10 @@ class PurchaseOrderServiceTest {
             when(statusRepository.findById(draftStatusId)).thenReturn(Optional.of(draftStatus));
             when(statusRepository.findById(pendingStatus.getId())).thenReturn(Optional.of(pendingStatus));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
-            when(productVariantRepository.findByIdAndProductIdAndCompanyStoreIdAndEnabledTrue(
-                            variantId, productId, storeId))
+            when(productVariantRepository.findByIdAndProductIdAndEnabledTrue(variantId, productId))
                     .thenReturn(Optional.of(productVariant));
+            when(productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(variantId, storeId))
+                    .thenReturn(true);
             when(purchaseOrderRepository.findTopByOrderNumberStartingWithOrderByOrderNumberDesc(anyString()))
                     .thenReturn(Optional.empty());
 
@@ -830,8 +840,7 @@ class PurchaseOrderServiceTest {
             when(paymentMethodRepository.findById(pmId)).thenReturn(Optional.of(paymentMethod));
             when(statusRepository.findById(draftStatusId)).thenReturn(Optional.of(draftStatus));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
-            when(productVariantRepository.findByIdAndProductIdAndCompanyStoreIdAndEnabledTrue(
-                            variantId, productId, storeId))
+            when(productVariantRepository.findByIdAndProductIdAndEnabledTrue(variantId, productId))
                     .thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> service.createPurchaseOrder(request))
@@ -847,9 +856,10 @@ class PurchaseOrderServiceTest {
 
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
-            when(productVariantRepository.findByIdAndProductIdAndCompanyStoreIdAndEnabledTrue(
-                            variantId, productId, storeId))
+            when(productVariantRepository.findByIdAndProductIdAndEnabledTrue(variantId, productId))
                     .thenReturn(Optional.of(productVariant));
+            when(productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(variantId, storeId))
+                    .thenReturn(true);
             when(statusRepository.findById(pendingStatus.getId())).thenReturn(Optional.of(pendingStatus));
 
             var captor = ArgumentCaptor.forClass(PurchaseOrderDetail.class);
@@ -872,8 +882,7 @@ class PurchaseOrderServiceTest {
 
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
-            when(productVariantRepository.findByIdAndProductIdAndCompanyStoreIdAndEnabledTrue(
-                            variantId, productId, storeId))
+            when(productVariantRepository.findByIdAndProductIdAndEnabledTrue(variantId, productId))
                     .thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> service.addPurchaseOrderDetail(poId, detailReq))
@@ -889,8 +898,7 @@ class PurchaseOrderServiceTest {
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
             when(detailRepository.findById(detailId)).thenReturn(Optional.of(detail));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
-            when(productVariantRepository.findByIdAndProductIdAndCompanyStoreIdAndEnabledTrue(
-                            variantId, productId, storeId))
+            when(productVariantRepository.findByIdAndProductIdAndEnabledTrue(variantId, productId))
                     .thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> service.updatePurchaseOrderDetail(poId, detailId, updatedReq))
@@ -906,9 +914,10 @@ class PurchaseOrderServiceTest {
             when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
             when(detailRepository.findById(detailId)).thenReturn(Optional.of(detail));
             when(productRepository.findById(productId)).thenReturn(Optional.of(product));
-            when(productVariantRepository.findByIdAndProductIdAndCompanyStoreIdAndEnabledTrue(
-                            variantId, productId, storeId))
+            when(productVariantRepository.findByIdAndProductIdAndEnabledTrue(variantId, productId))
                     .thenReturn(Optional.of(productVariant));
+            when(productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(variantId, storeId))
+                    .thenReturn(true);
             when(statusRepository.findById(pendingStatus.getId())).thenReturn(Optional.of(pendingStatus));
             when(detailRepository.save(any(PurchaseOrderDetail.class))).thenReturn(detail);
 

@@ -2,10 +2,23 @@ package com.lifecontrol.api.product.model;
 
 import com.lifecontrol.api.common.model.Auditable;
 import jakarta.persistence.*;
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
+/**
+ * Global sellable definition of a product variant: which product it belongs to, its name/size
+ * and its barcode.
+ *
+ * <p>This row is GLOBAL, not per store. The stock and the prices that differ per store live in
+ * {@link ProductVariantStoreStock}, one row per {@code (variant, store)}. The split exists because
+ * the barcode of a given product in a given size is identical in every branch, so a store-scoped
+ * row under a global unique barcode could never represent the same variant in two stores.</p>
+ *
+ * <p>Constraints owned by the database: {@code bar_code} is {@code NOT NULL} and globally unique
+ * (D2), and {@code (product_id, variant_name)} is unique (D3). The entity deliberately carries no
+ * {@code sku}: the variant sku was removed by decision D2, and the product sku is the only sku
+ * that remains.</p>
+ */
 @Entity
 @Table(name = "product_variants")
 public class ProductVariant extends Auditable {
@@ -17,26 +30,11 @@ public class ProductVariant extends Auditable {
     @Column(name = "product_id", nullable = false)
     private UUID productId;
 
-    @Column(name = "company_store_id", nullable = false)
-    private UUID companyStoreId;
-
-    @Column(name = "bar_code", length = 100)
+    @Column(name = "bar_code", nullable = false, length = 100)
     private String barCode;
 
-    @Column(name = "sku", length = 50)
-    private String sku;
-
-    @Column(name = "variant_name", length = 255)
+    @Column(name = "variant_name", nullable = false, length = 255)
     private String variantName;
-
-    @Column(name = "list_price", precision = 12, scale = 2)
-    private BigDecimal listPrice;
-
-    @Column(name = "cost_price", precision = 12, scale = 2)
-    private BigDecimal costPrice;
-
-    @Column(name = "stock", precision = 12, scale = 2)
-    private BigDecimal stock = BigDecimal.ZERO;
 
     @Column(name = "enabled", nullable = false)
     private Boolean enabled = true;
@@ -53,32 +51,12 @@ public class ProductVariant extends Auditable {
         return productId;
     }
 
-    public UUID getCompanyStoreId() {
-        return companyStoreId;
-    }
-
     public String getBarCode() {
         return barCode;
     }
 
-    public String getSku() {
-        return sku;
-    }
-
     public String getVariantName() {
         return variantName;
-    }
-
-    public BigDecimal getListPrice() {
-        return listPrice;
-    }
-
-    public BigDecimal getCostPrice() {
-        return costPrice;
-    }
-
-    public BigDecimal getStock() {
-        return stock;
     }
 
     public Boolean getEnabled() {
@@ -94,32 +72,12 @@ public class ProductVariant extends Auditable {
         this.productId = productId;
     }
 
-    public void setCompanyStoreId(UUID companyStoreId) {
-        this.companyStoreId = companyStoreId;
-    }
-
     public void setBarCode(String barCode) {
         this.barCode = barCode;
     }
 
-    public void setSku(String sku) {
-        this.sku = sku;
-    }
-
     public void setVariantName(String variantName) {
         this.variantName = variantName;
-    }
-
-    public void setListPrice(BigDecimal listPrice) {
-        this.listPrice = listPrice;
-    }
-
-    public void setCostPrice(BigDecimal costPrice) {
-        this.costPrice = costPrice;
-    }
-
-    public void setStock(BigDecimal stock) {
-        this.stock = stock;
     }
 
     public void setEnabled(Boolean enabled) {
@@ -144,38 +102,13 @@ public class ProductVariant extends Auditable {
             return this;
         }
 
-        public Builder companyStoreId(UUID companyStoreId) {
-            variant.companyStoreId = companyStoreId;
-            return this;
-        }
-
         public Builder barCode(String barCode) {
             variant.barCode = barCode;
             return this;
         }
 
-        public Builder sku(String sku) {
-            variant.sku = sku;
-            return this;
-        }
-
         public Builder variantName(String variantName) {
             variant.variantName = variantName;
-            return this;
-        }
-
-        public Builder listPrice(BigDecimal listPrice) {
-            variant.listPrice = listPrice;
-            return this;
-        }
-
-        public Builder costPrice(BigDecimal costPrice) {
-            variant.costPrice = costPrice;
-            return this;
-        }
-
-        public Builder stock(BigDecimal stock) {
-            variant.stock = stock;
             return this;
         }
 

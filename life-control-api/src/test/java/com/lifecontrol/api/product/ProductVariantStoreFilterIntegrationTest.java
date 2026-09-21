@@ -18,8 +18,10 @@ import com.lifecontrol.api.company.repository.CompanyZoneRepository;
 import com.lifecontrol.api.country.repository.CountryRepository;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.model.ProductVariant;
+import com.lifecontrol.api.product.model.ProductVariantStoreStock;
 import com.lifecontrol.api.product.repository.ProductRepository;
 import com.lifecontrol.api.product.repository.ProductVariantRepository;
+import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
@@ -41,10 +43,11 @@ import org.springframework.test.web.servlet.MockMvc;
  * Persistence-level verification that {@code GET /api/products/{productId}/variants} can be
  * narrowed to a single store through the optional {@code storeId} query param.
  *
- * <p>{@code product_variants} rows are per {@code (product, company_store)}, so the filter must
- * be applied by the derived query, not by the controller. Runs against real PostgreSQL with
- * Flyway enabled; a valid result proves the derived finder name maps to real SQL. The
- * parameterless call must keep returning the product's variants across every store.</p>
+ * <p>After the variant-identity split the definitions are GLOBAL and the per-store presence lives
+ * in {@code product_variant_store_stock}, so the filter is applied by the explicit {@code @Query}
+ * join, not by the controller. Runs against real PostgreSQL with Flyway enabled; a valid result
+ * proves the join maps to real SQL. The parameterless call must keep returning the product's
+ * definitions, with the store-scoped fields null.</p>
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -59,6 +62,9 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
 
     @Autowired
     private ProductVariantRepository productVariantRepository;
+
+    @Autowired
+    private ProductVariantStoreStockRepository productVariantStoreStockRepository;
 
     @Autowired
     private ProductRepository productRepository;
@@ -90,6 +96,7 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
     private UUID variantBId;
 
     private final List<UUID> createdVariantIds = new ArrayList<>();
+    private final List<UUID> createdStoreStockIds = new ArrayList<>();
     private UUID createdProductId;
 
     @BeforeEach
@@ -111,6 +118,8 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
     @AfterEach
     void tearDown() {
         // Delete only this test's rows so other suites sharing the per-JVM container are untouched.
+        productVariantStoreStockRepository.deleteAllById(createdStoreStockIds);
+        createdStoreStockIds.clear();
         productVariantRepository.deleteAllById(createdVariantIds);
         createdVariantIds.clear();
 
@@ -180,16 +189,22 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
     private ProductVariant createVariant(UUID targetProductId, UUID companyStoreId, String variantName) {
         var variant = ProductVariant.builder()
                 .productId(targetProductId)
-                .companyStoreId(companyStoreId)
+                .barCode("VF-BAR-" + UUID.randomUUID().toString().substring(0, 12))
                 .variantName(variantName)
-                .listPrice(new BigDecimal("10.00"))
-                .costPrice(new BigDecimal("5.00"))
-                .stock(BigDecimal.ZERO)
                 .enabled(true)
                 .build();
 
         var saved = productVariantRepository.save(variant);
         createdVariantIds.add(saved.getId());
+
+        var storeStock = productVariantStoreStockRepository.save(ProductVariantStoreStock.builder()
+                .productVariantId(saved.getId())
+                .companyStoreId(companyStoreId)
+                .listPrice(new BigDecimal("10.00"))
+                .costPrice(new BigDecimal("5.00"))
+                .stock(BigDecimal.ZERO)
+                .build());
+        createdStoreStockIds.add(storeStock.getId());
         return saved;
     }
 
