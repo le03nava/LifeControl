@@ -1,5 +1,6 @@
 package com.lifecontrol.api.product.service;
 
+import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.product.dto.ProductVariantRequest;
 import com.lifecontrol.api.product.dto.ProductVariantResponse;
 import com.lifecontrol.api.product.dto.ProductVariantSearchResponse;
@@ -15,6 +16,7 @@ import com.lifecontrol.api.product.repository.ProductRepository;
 import com.lifecontrol.api.product.repository.ProductVariantRepository;
 import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository;
 import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
+import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -41,16 +43,19 @@ public class ProductVariantService {
     private final ProductVariantStoreStockRepository productVariantStoreStockRepository;
     private final ProductRepository productRepository;
     private final CompanyStoreRepository companyStoreRepository;
+    private final CurrentUserContext currentUserContext;
 
     public ProductVariantService(
             ProductVariantRepository productVariantRepository,
             ProductVariantStoreStockRepository productVariantStoreStockRepository,
             ProductRepository productRepository,
-            CompanyStoreRepository companyStoreRepository) {
+            CompanyStoreRepository companyStoreRepository,
+            CurrentUserContext currentUserContext) {
         this.productVariantRepository = productVariantRepository;
         this.productVariantStoreStockRepository = productVariantStoreStockRepository;
         this.productRepository = productRepository;
         this.companyStoreRepository = companyStoreRepository;
+        this.currentUserContext = currentUserContext;
     }
 
     @Transactional(readOnly = true)
@@ -206,6 +211,8 @@ public class ProductVariantService {
      *
      * @throws ProductVariantNotFoundException when the variant does not exist
      * @throws CompanyStoreNotFoundException when the store does not exist
+     * @throws org.springframework.security.access.AccessDeniedException when the caller holds no
+     *     grant for the store's scope (403)
      */
     @Transactional
     public ProductVariantStoreStockResponse upsertStoreStock(
@@ -213,9 +220,11 @@ public class ProductVariantService {
         if (!productVariantRepository.existsById(variantId)) {
             throw new ProductVariantNotFoundException(variantId);
         }
-        if (!companyStoreRepository.existsById(companyStoreId)) {
-            throw new CompanyStoreNotFoundException(companyStoreId);
-        }
+
+        var store = companyStoreRepository
+                .findById(companyStoreId)
+                .orElseThrow(() -> new CompanyStoreNotFoundException(companyStoreId));
+        verifyStoreAccess(store);
 
         logger.info("Upserting variant store stock: variantId={}, companyStoreId={}", variantId, companyStoreId);
 
@@ -253,6 +262,29 @@ public class ProductVariantService {
 
     private Product validateProductExists(UUID productId) {
         return productRepository.findById(productId).orElseThrow(() -> new ProductNotFoundException(productId));
+    }
+
+    /**
+     * Authorizes the caller for the store that owns the row being written.
+     *
+     * <p>The path carries only the store id, so the company &rarr; country &rarr; region &rarr; zone
+     * &rarr; store chain the guard needs is derived from the store itself. This mirrors the check
+     * every other store-scoped write applies ({@code StoreLocationService},
+     * {@code StoreInventorySettingsService}, {@code GoodsReceiptService}); {@code lc-admin} is
+     * exempt inside {@link CurrentUserContext#verifyCompanyStoreAccess}. Without it, any principal
+     * holding {@code lc-sales} could set the sellable stock and the list and cost prices of a store
+     * of another company.</p>
+     *
+     * @throws org.springframework.security.access.AccessDeniedException when the caller holds no
+     *     grant for the store's scope
+     */
+    private void verifyStoreAccess(CompanyStore store) {
+        var zone = store.getCompanyZone();
+        var region = zone.getCompanyRegion();
+        var country = region.getCompanyCountry();
+
+        currentUserContext.verifyCompanyStoreAccess(
+                country.getCompany().getId(), country.getId(), region.getId(), zone.getId(), store.getId());
     }
 
     private ProductVariant findVariantOfProduct(UUID productId, UUID variantId) {

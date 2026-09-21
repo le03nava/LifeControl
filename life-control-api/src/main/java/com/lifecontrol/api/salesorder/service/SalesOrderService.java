@@ -722,7 +722,9 @@ public class SalesOrderService {
     }
 
     private void validateProductVariantExists(UUID id) {
-        if (!productVariantRepository.existsById(id)) {
+        // Requires a live definition, not merely a row: the split removed findByIdForUpdate, whose
+        // query filtered enabled = true, so a soft-deleted variant must not become sellable again.
+        if (!productVariantRepository.existsByIdAndEnabledTrue(id)) {
             throw new ProductVariantNotFoundException(id);
         }
     }
@@ -879,6 +881,13 @@ public class SalesOrderService {
             var available = orZero(storeStock.getStock());
 
             if (delta.compareTo(BigDecimal.ZERO) > 0) {
+                // Selling requires a live definition. The inline-items paths (createSalesOrder,
+                // updateSalesOrder) reach this loop without passing through
+                // validateProductVariantExists, so the gate is repeated here. Restorations
+                // (delta < 0) stay ungated: reversing a past sale must still work after the
+                // variant was discontinued.
+                validateProductVariantExists(vid);
+
                 // Deduction needed — validate sufficient stock in THIS store
                 if (available.compareTo(delta) < 0) {
                     throw new InsufficientStockException(vid, delta, available);

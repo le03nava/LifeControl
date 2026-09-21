@@ -43,6 +43,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableHandlerMethodArgumentResolver;
 import org.springframework.http.MediaType;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -449,6 +450,23 @@ class ProductVariantControllerTest {
                             .content(objectMapper.writeValueAsString(request)))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.errors.listPrice").exists());
+        }
+
+        @Test
+        @DisplayName("should return 403 when the caller holds no grant for the store")
+        void upsertStoreStock_StoreOutsideCallerScope_Returns403() throws Exception {
+            var request = new ProductVariantStoreStockRequest(BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE);
+
+            when(productVariantService.upsertStoreStock(
+                            eq(variantId), eq(storeId), any(ProductVariantStoreStockRequest.class)))
+                    .thenThrow(new AccessDeniedException("Access denied"));
+
+            storeMockMvc
+                    .perform(put("/api/variants/{variantId}/stores/{storeId}", variantId, storeId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.status").value(403));
         }
     }
 
