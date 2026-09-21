@@ -13,6 +13,7 @@ import Keycloak from 'keycloak-js';
 export const CLIENT_ID = 'life-control-client';
 
 export const LC_ADMIN = 'lc-admin';
+export const LC_SALES = 'lc-sales';
 export const LC_RECEIVING = 'lc-receiving';
 export const LC_COMPANY = 'lc-company';
 export const LC_COMPANY_READ = 'lc-company-read';
@@ -28,6 +29,7 @@ export const LC_COMPANY_STORE_READ = 'lc-company-store-read';
 /** Const array mirroring `Roles.java`. */
 export const CLIENT_ROLES = [
   LC_ADMIN,
+  LC_SALES,
   LC_RECEIVING,
   LC_COMPANY,
   LC_COMPANY_READ,
@@ -40,6 +42,18 @@ export const CLIENT_ROLES = [
   LC_COMPANY_STORE,
   LC_COMPANY_STORE_READ,
 ] as const;
+
+/**
+ * Roles allowed to reach the variant administration screens.
+ *
+ * Mirrors the `@PreAuthorize` set of every variant endpoint in
+ * `ProductController`, `ProductVariantStoreController` and
+ * `ProductVariantSearchController`, which all gate on
+ * `hasAnyRole('lc-admin','lc-sales')`. A flat allow-list, not a role
+ * hierarchy, and the single list shared by the `products` route gates and the
+ * navigation entry that exposes the variant screens.
+ */
+export const VARIANT_ROLES = [LC_ADMIN, LC_SALES];
 
 /**
  * Roles allowed to create, edit, disable or re-enable a store sub-entity
