@@ -145,5 +145,11 @@ sdd/
 # ============================================
 node_modules/
 .vitest/
-odd/
+# `odd/tasks/` IS versioned: each ODD feature document travels with its branch and
+# merges with it, so it survives worktree removal. Everything else under `odd/`
+# stays local. The negation must be `odd/*` plus `!odd/tasks/`: a bare `odd/`
+# would hide `odd/tasks/` too, because git does not descend into an ignored
+# directory.
+odd/*
+!odd/tasks/
 life-control-api-improvement-prompts.md
