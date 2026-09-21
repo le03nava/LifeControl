@@ -138,7 +138,7 @@ class ProductVariantControllerTest {
             var pageable = PageRequest.of(0, 12);
             var page = new PageImpl<>(List.of(testVariantResponse), pageable, 1);
 
-            when(productVariantService.listVariants(eq(productId), isNull(), any(Pageable.class)))
+            when(productVariantService.listVariants(eq(productId), isNull(), eq(false), any(Pageable.class)))
                     .thenReturn(page);
 
             mockMvc.perform(get("/api/products/{productId}/variants", productId)
@@ -156,7 +156,39 @@ class ProductVariantControllerTest {
                     .andExpect(jsonPath("$.number").value(0))
                     .andExpect(jsonPath("$.size").value(12));
 
-            verify(productVariantService).listVariants(eq(productId), isNull(), any(Pageable.class));
+            verify(productVariantService).listVariants(eq(productId), isNull(), eq(false), any(Pageable.class));
+        }
+
+        @Test
+        @DisplayName("should default includeDisabled to false when the param is absent")
+        void listVariants_IncludeDisabledAbsent_DefaultsFalse() throws Exception {
+            var pageable = PageRequest.of(0, 12);
+            var page = new PageImpl<>(List.of(testVariantResponse), pageable, 1);
+
+            when(productVariantService.listVariants(eq(productId), isNull(), eq(false), any(Pageable.class)))
+                    .thenReturn(page);
+
+            mockMvc.perform(get("/api/products/{productId}/variants", productId))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.totalElements").value(1));
+
+            verify(productVariantService).listVariants(eq(productId), isNull(), eq(false), any(Pageable.class));
+        }
+
+        @Test
+        @DisplayName("should forward includeDisabled=true to the service")
+        void listVariants_IncludeDisabledTrue_ForwardsTrue() throws Exception {
+            var pageable = PageRequest.of(0, 12);
+            var page = new PageImpl<>(List.of(testVariantResponse), pageable, 1);
+
+            when(productVariantService.listVariants(eq(productId), isNull(), eq(true), any(Pageable.class)))
+                    .thenReturn(page);
+
+            mockMvc.perform(get("/api/products/{productId}/variants", productId).param("includeDisabled", "true"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.totalElements").value(1));
+
+            verify(productVariantService).listVariants(eq(productId), isNull(), eq(true), any(Pageable.class));
         }
 
         @Test
@@ -165,7 +197,7 @@ class ProductVariantControllerTest {
             var pageable = PageRequest.of(0, 12);
             var page = new PageImpl<>(List.of(testVariantResponse), pageable, 1);
 
-            when(productVariantService.listVariants(eq(productId), eq(storeId), any(Pageable.class)))
+            when(productVariantService.listVariants(eq(productId), eq(storeId), eq(false), any(Pageable.class)))
                     .thenReturn(page);
 
             mockMvc.perform(get("/api/products/{productId}/variants", productId).param("storeId", storeId.toString()))
@@ -173,13 +205,13 @@ class ProductVariantControllerTest {
                     .andExpect(jsonPath("$.content[0].id").value(variantId.toString()))
                     .andExpect(jsonPath("$.totalElements").value(1));
 
-            verify(productVariantService).listVariants(eq(productId), eq(storeId), any(Pageable.class));
+            verify(productVariantService).listVariants(eq(productId), eq(storeId), eq(false), any(Pageable.class));
         }
 
         @Test
         @DisplayName("should return 403 when the caller holds no grant for the store")
         void listVariants_StoreOutsideCallerScope_Returns403() throws Exception {
-            when(productVariantService.listVariants(eq(productId), eq(storeId), any(Pageable.class)))
+            when(productVariantService.listVariants(eq(productId), eq(storeId), eq(false), any(Pageable.class)))
                     .thenThrow(new AccessDeniedException("Access denied"));
 
             mockMvc.perform(get("/api/products/{productId}/variants", productId).param("storeId", storeId.toString()))
@@ -193,7 +225,7 @@ class ProductVariantControllerTest {
             var pageable = PageRequest.of(0, 12);
             var page = new PageImpl<ProductVariantResponse>(List.of(), pageable, 0);
 
-            when(productVariantService.listVariants(eq(productId), isNull(), any(Pageable.class)))
+            when(productVariantService.listVariants(eq(productId), isNull(), eq(false), any(Pageable.class)))
                     .thenReturn(page);
 
             mockMvc.perform(get("/api/products/{productId}/variants", productId)
@@ -203,7 +235,7 @@ class ProductVariantControllerTest {
                     .andExpect(jsonPath("$.content").isEmpty())
                     .andExpect(jsonPath("$.totalElements").value(0));
 
-            verify(productVariantService).listVariants(eq(productId), isNull(), any(Pageable.class));
+            verify(productVariantService).listVariants(eq(productId), isNull(), eq(false), any(Pageable.class));
         }
     }
 

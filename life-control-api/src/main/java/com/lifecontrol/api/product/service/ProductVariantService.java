@@ -60,23 +60,34 @@ public class ProductVariantService {
 
     @Transactional(readOnly = true)
     public Page<ProductVariantResponse> listVariants(UUID productId, Pageable pageable) {
-        return listVariants(productId, null, pageable);
+        return listVariants(productId, null, false, pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<ProductVariantResponse> listVariants(UUID productId, UUID companyStoreId, Pageable pageable) {
+        return listVariants(productId, companyStoreId, false, pageable);
     }
 
     /**
-     * Lists a product's enabled variants, optionally narrowed to a single store.
+     * Lists a product's variants, optionally narrowed to a single store, with an opt-in switch for
+     * the soft-deleted global definitions.
      *
      * <p>When {@code companyStoreId} is {@code null} the global definitions are returned and the
      * store-scoped fields of {@link ProductVariantResponse} ({@code companyStoreId},
      * {@code listPrice}, {@code costPrice}, {@code stock}) are {@code null}. That branch reads no
-     * store and applies no guard.</p>
+     * store and applies no guard. {@code includeDisabled} affects this branch only: it defaults to
+     * {@code false} (the soft-deleted definitions are filtered out, so the parameterless read keeps
+     * its previous behavior) and, when {@code true}, lists them too so a soft-deleted definition can
+     * be re-enabled with {@code PATCH .../enable}.</p>
      *
      * <p>When {@code companyStoreId} is present the store row is joined and those fields are
      * populated from it, so the caller must hold a grant covering that store: the store id comes from
      * the query string, so {@code @PreAuthorize} alone only proves the caller holds some variant role.
      * The company &rarr; country &rarr; region &rarr; zone &rarr; store chain is derived from the
      * store and verified with {@link #verifyStoreAccess} before the query, exactly like
-     * {@link #searchVariants}.</p>
+     * {@link #searchVariants}. This branch and {@link #searchVariants} always filter
+     * {@code enabled = true} regardless of {@code includeDisabled}, because they feed the
+     * purchase-order variant picker and the point-of-sale selector.</p>
      *
      * @throws CompanyStoreNotFoundException when the store-scoped branch names a store that does not
      *     exist
@@ -84,13 +95,15 @@ public class ProductVariantService {
      *     names a store the caller holds no grant for (403)
      */
     @Transactional(readOnly = true)
-    public Page<ProductVariantResponse> listVariants(UUID productId, UUID companyStoreId, Pageable pageable) {
+    public Page<ProductVariantResponse> listVariants(
+            UUID productId, UUID companyStoreId, boolean includeDisabled, Pageable pageable) {
         var product = validateProductExists(productId);
 
         if (companyStoreId == null) {
-            return productVariantRepository
-                    .findByProductIdAndEnabledTrueOrderByCreatedAtDesc(productId, pageable)
-                    .map(variant -> toResponse(variant, product.getSku()));
+            var page = includeDisabled
+                    ? productVariantRepository.findByProductIdOrderByCreatedAtDesc(productId, pageable)
+                    : productVariantRepository.findByProductIdAndEnabledTrueOrderByCreatedAtDesc(productId, pageable);
+            return page.map(variant -> toResponse(variant, product.getSku()));
         }
 
         var store = companyStoreRepository
