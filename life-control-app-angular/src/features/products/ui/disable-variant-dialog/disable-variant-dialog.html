@@ -1,0 +1,14 @@
+<h2 mat-dialog-title>Deshabilitar variante</h2>
+<mat-dialog-content>
+  <p>
+    ¿Estás seguro que querés deshabilitar
+    <strong>{{ data.variant.variantName }}</strong> ({{ data.variant.barCode }})?
+  </p>
+  <p class="warning-text">
+    La variante dejará de estar disponible, pero podés volver a habilitarla cuando quieras.
+  </p>
+</mat-dialog-content>
+<mat-dialog-actions align="end">
+  <button mat-button mat-dialog-close>Cancelar</button>
+  <button mat-flat-button color="warn" [mat-dialog-close]="true">Deshabilitar</button>
+</mat-dialog-actions>

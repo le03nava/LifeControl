@@ -71,6 +71,11 @@
               (editProduct)="editProduct($event.id)"
               (deleteProduct)="confirmDelete({ id: $event.id, name: $event.name })"
             />
+            <div class="card-extra-actions">
+              <button mat-stroked-button (click)="manageVariants(product.id)">
+                <mat-icon fontIcon="category" /> Variantes
+              </button>
+            </div>
           </div>
         }
       } @else {

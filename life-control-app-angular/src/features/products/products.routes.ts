@@ -44,6 +44,18 @@ export const productRoutes: Routes = [
         loadComponent: () => import('./pages/product-edit/product-edit').then((m) => m.ProductEdit),
       },
       {
+        // The only child that is NOT admin-only: the variant screens exist for
+        // `lc-admin` and `lc-sales` alike, mirroring the backend
+        // `hasAnyRole('lc-admin','lc-sales')` on every variant endpoint.
+        path: 'edit/:id/variants',
+        canActivate: [keycloakRoleGuard],
+        data: { roles: VARIANT_ROLES, clientId: CLIENT_ID },
+        loadComponent: () =>
+          import('./pages/product-variant-list/product-variant-list').then(
+            (m) => m.ProductVariantList,
+          ),
+      },
+      {
         path: 'edit/:id/suppliers/create',
         canActivate: [keycloakRoleGuard],
         data: { roles: PRODUCT_ADMIN_ROLES, clientId: CLIENT_ID },
