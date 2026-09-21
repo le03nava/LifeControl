@@ -113,6 +113,16 @@ Prefer the parent entry. Trusting a project lets Pi load project settings, insta
 | Removing the worktree before closing the workspace | Workspace pointing at a missing path |
 | Assuming `node_modules`, `build/`, or `.gradle/` are shared | Every worktree needs its own install and build |
 
+## Verifying a background process
+
+`pgrep -f <pattern>` matches every command line containing the pattern, **including the shell that runs the check** when the pattern sits in its own command line. `bash -c "pgrep -f 'deploy.sh dev start'"` therefore always reports the job as still running. Background builds and cleanups are routine here, so a false "still running" stalls the next step while a false "done" reads a half-written log.
+
+| Do | Don't |
+| --- | --- |
+| Capture the PID at launch — `./script.sh & PID=$!` — then test it with `kill -0 $PID` or wait on `wait $PID` | Trust a bare `pgrep -f 'script.sh args'` issued from a shell whose own command line contains `script.sh args` |
+| Break the self-match with a character class: `pgrep -f '[d]eploy.sh dev start'` | Read an empty `pgrep` output as proof the job finished |
+| `ps -eo pid,etime,cmd \| grep '[d]eploy.sh'` when the PID was not captured | Grep the process table without the bracket, which matches the grep itself |
+
 ## Gaps
 
 - No automated guard enforces one-worktree-one-unit; it is a review-time convention.

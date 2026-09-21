@@ -42,6 +42,15 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
 
     boolean existsByProductIdAndVariantNameAndIdNot(UUID productId, String variantName, UUID id);
 
+    /**
+     * Whether the definition exists AND is still sellable.
+     *
+     * <p>The sales path must use this rather than {@code existsById}: the split removed
+     * {@code ProductVariantRepository#findByIdForUpdate}, whose query filtered {@code enabled = true},
+     * so a soft-deleted variant silently became sellable again.</p>
+     */
+    boolean existsByIdAndEnabledTrue(UUID id);
+
     // ─── Store-scoped projections ─────────────────────────────────────────
 
     /**

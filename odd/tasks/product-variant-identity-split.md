@@ -271,3 +271,48 @@ valid); (C) merge S2 and S3 into one PR (largest review, no intermediate state a
 - Not covered by a dedicated test: a direct DB-level constraint-violation test for `UNIQUE(bar_code)`
   and `UNIQUE(product_id, variant_name)`. They are covered at the service/controller layer (409) and
   enforced by `ddl-auto=validate`; adding a constraint-violation integration test would strengthen it.
+
+## Judgment Day review
+
+A blind dual review ran over the frozen tree `e33eda9` (ledger `3b41dfae…`) with two independent
+reviewers on identical criteria and the same injected skill paths. Both reported the same CRITICAL, so
+the finding is corroborated rather than incidental. Nine rows were frozen: 2 CRITICAL, 4 WARNING,
+3 SUGGESTION.
+
+| Finding | Severity | Disposition |
+|---|---|---|
+| `JD-A-001` / `JD-B-001` — reassigning a sales order's store left the original store permanently understated and credited phantom sellable stock to the other store | CRITICAL | **Fixed** in `f56566d`; re-judgment resolved both as `verified` |
+| `JD-B-002` — the sales stock path lost its `enabled` gate, so a soft-deleted variant could be sold | WARNING | **Fixed** in `09f0fd2` (maintainer-authorized follow-up round) |
+| `JD-B-003` — the new store-scoped write endpoint authorized by role only and never checked the caller's store claim | WARNING | **Fixed** in `09f0fd2` |
+| `JD-B-004` — `V14` truncates the operational chain unguarded in the normal Flyway startup path | WARNING | **Accepted as a release risk**: the application is not in production, so there is no environment whose history matters (maintainer decision). The migration header keeps the warning for any future reader. |
+| `JD-B-002` note / `JD-A-002` — an unknown `productVariantId` now returns a generic 409 instead of the documented 404 | WARNING | Left as follow-up: the new gate turns the missing-variant case into a `ProductVariantNotFoundException` (404) on the deduction path, but the create/update inline paths still surface the FK conflict as 409. Cosmetic; no data impact. |
+| `JD-A-003` — duplicate gates count soft-deleted rows, so re-creating a barcode returns 409 with no identifier to act on | SUGGESTION | Left as follow-up. |
+| `JD-B-005` — the new write endpoint has no end-to-end coverage, so the `ON CONFLICT` insert never executes in tests | SUGGESTION | Left as follow-up; belongs with the variant management UI. |
+| `JD-B-006` — no test proves that one definition can serve two stores with distinct stock | SUGGESTION | Left as follow-up; belongs with the variant management UI. |
+
+Root cause of the CRITICAL worth recording: the refactor moved the store dimension out of the variant
+row, but the *restoration* paths kept asking for "the order's store". Before the split that was the
+same thing as "the variant's store"; after it, it is not. No line of the restoration code changed, and
+no test changed an order's store, so a green suite did not notice.
+
+### Follow-up round outcome (`09f0fd2`)
+
+- **`JD-B-002`**: `ProductVariantRepository.existsByIdAndEnabledTrue` was added and
+  `validateProductVariantExists` now uses it, restoring the semantics of the removed
+  `findByIdForUpdate`. The inline-items path (`createSalesOrder`, `updateSalesOrder`) reaches the
+deduction loop without the early validation, so the gate is repeated in the deduction branch.
+  Restorations stay ungated on purpose: reversing a past sale must still work after the variant was
+discontinued.
+- **`JD-B-003`**: `ProductVariantService.upsertStoreStock` now resolves the store and calls
+  `CurrentUserContext.verifyCompanyStoreAccess`, deriving the company → country → region → zone → store
+  chain from the store itself because the endpoint path carries only the store id. `lc-admin` stays
+exempt inside `CurrentUserContext`. Covered by a unit test asserting the derived chain and a controller
+  test asserting the 403 mapping.
+- Still open beyond this round: the older variant endpoints (`GET`/`POST`/`PUT`/`DELETE` under
+  `/api/products/{productId}/variants`) never had a store-claim check either; adding one there changes
+  behavior for existing readers and was left out deliberately.
+
+| Date | Slice | Commit | Gate result |
+|---|---|---|---|
+| 2026-09-20 | Review round 1 | `f56566d` | CRITICAL fixed; `613 classes / 2009 tests / 0 failures`; CI pass |
+| 2026-09-20 | Review follow-up | `09f0fd2` | `spotlessCheck spotbugsMain` → BUILD SUCCESSFUL; `test` → BUILD SUCCESSFUL, 613 classes / 2011 tests / 0 failures / 0 errors / 0 skipped |

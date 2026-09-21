@@ -20,6 +20,7 @@ import com.lifecontrol.api.salesorder.exception.InvalidSalesOrderChargeException
 import com.lifecontrol.api.salesorder.exception.SalesOrderAlreadyFinalizedException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderItemNotFoundException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderNotFoundException;
+import com.lifecontrol.api.salesorder.exception.SalesOrderStoreReassignmentNotAllowedException;
 import com.lifecontrol.api.salesorder.model.SalesOrder;
 import com.lifecontrol.api.salesorder.model.SalesOrderItem;
 import com.lifecontrol.api.salesorder.repository.SalesOrderItemRepository;
@@ -207,6 +208,18 @@ public class SalesOrderService {
         validateCompanyStoreExists(request.companyStoreId());
         if (request.shiftId() != null) {
             validateShiftExists(request.shiftId());
+        }
+
+        // The order's store owns the stock its items already deducted: stock lives on the
+        // (variant, store) row and every restoration path credits so.getCompanyStoreId().
+        // Re-attributing an order that still holds items would leave the original store
+        // permanently understated and credit stock to a store that never received the goods,
+        // so the change is refused before anything is mutated. With no active items nothing
+        // is deducted and the reassignment stays allowed.
+        if (!request.companyStoreId().equals(so.getCompanyStoreId())
+                && !itemRepository.findBySalesOrderIdAndEnabledTrue(id).isEmpty()) {
+            throw new SalesOrderStoreReassignmentNotAllowedException(
+                    id, so.getCompanyStoreId(), request.companyStoreId());
         }
 
         so.setCustomerId(request.customerId());
@@ -709,7 +722,9 @@ public class SalesOrderService {
     }
 
     private void validateProductVariantExists(UUID id) {
-        if (!productVariantRepository.existsById(id)) {
+        // Requires a live definition, not merely a row: the split removed findByIdForUpdate, whose
+        // query filtered enabled = true, so a soft-deleted variant must not become sellable again.
+        if (!productVariantRepository.existsByIdAndEnabledTrue(id)) {
             throw new ProductVariantNotFoundException(id);
         }
     }
@@ -866,6 +881,13 @@ public class SalesOrderService {
             var available = orZero(storeStock.getStock());
 
             if (delta.compareTo(BigDecimal.ZERO) > 0) {
+                // Selling requires a live definition. The inline-items paths (createSalesOrder,
+                // updateSalesOrder) reach this loop without passing through
+                // validateProductVariantExists, so the gate is repeated here. Restorations
+                // (delta < 0) stay ungated: reversing a past sale must still work after the
+                // variant was discontinued.
+                validateProductVariantExists(vid);
+
                 // Deduction needed — validate sufficient stock in THIS store
                 if (available.compareTo(delta) < 0) {
                     throw new InsufficientStockException(vid, delta, available);

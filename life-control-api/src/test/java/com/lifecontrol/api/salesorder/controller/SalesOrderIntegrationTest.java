@@ -1006,4 +1006,64 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             }
         }
     }
+
+    // ─── 5.11 Store reassignment refused while items hold stock ──
+
+    @Nested
+    @DisplayName("5.11 Store reassignment — refused while the order has items")
+    class StoreReassignmentTests {
+
+        @Test
+        @DisplayName("should refuse moving an order to another store and leave the original store stock untouched")
+        void updateOrderStore_WithActiveItems_RefusedAndOriginalStockUnchanged() throws Exception {
+            var variant = createTestVariant(new BigDecimal("10.00"));
+
+            var itemRequest = new SalesOrderItemRequest(
+                    null, variant.getId(), new BigDecimal("2.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
+            var createRequest =
+                    new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(itemRequest));
+
+            var created = mockMvc.perform(post("/api/sales-orders")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(createRequest))
+                            .with(jwt().authorities(ROLE_LC_SALES)))
+                    .andExpect(status().isCreated())
+                    .andReturn();
+
+            var orderId = UUID.fromString(objectMapper
+                    .readTree(created.getResponse().getContentAsString())
+                    .get("id")
+                    .asText());
+
+            // The order deducted its 2 units from its own store: 10 - 2 = 8
+            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("8.00"));
+
+            var zone = companyStoreRepository
+                    .findById(companyStoreId)
+                    .orElseThrow()
+                    .getCompanyZone();
+            var otherStore = companyStoreRepository.save(CompanyStore.builder()
+                    .companyZone(zone)
+                    .storeName("Other Store " + UUID.randomUUID().toString().substring(0, 8))
+                    .enabled(true)
+                    .build());
+
+            var moveRequest = new SalesOrderRequest(customerId, otherStore.getId(), shiftId, "user123", null);
+
+            var refused = mockMvc.perform(put("/api/sales-orders/{id}", orderId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(moveRequest))
+                            .with(jwt().authorities(ROLE_LC_SALES)))
+                    .andExpect(status().isConflict())
+                    .andReturn();
+
+            assertThat(refused.getResponse().getContentAsString()).contains("cannot be reassigned from company store");
+
+            // The original store keeps its deduction and the other store gains nothing.
+            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("8.00"));
+            assertThat(productVariantStoreStockRepository.findByProductVariantIdAndCompanyStoreId(
+                            variant.getId(), otherStore.getId()))
+                    .isEmpty();
+        }
+    }
 }

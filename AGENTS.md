@@ -150,6 +150,12 @@ Limpia recursos de Docker y archivos locales.
 # help    - Muestra la ayuda
 ```
 
+> **`docker` detiene el stack antes de limpiar**: su primer paso es `compose down --remove-orphans`.
+> El prune de contenedores, imágenes y redes va filtrado por
+> `label=com.docker.compose.project=<COMPOSE_PROJECT_NAME>`, así que no toca otros proyectos pero
+> tampoco deja nada corriendo. `all` también baja el stack (vía `stop_containers`) y encima borra
+> volúmenes y datos locales. Para volver a levantar sin rebuild: `./docker/scripts/deploy.sh <env> up`.
+
 ### Secretos
 Todas las contraseñas viajan por archivos `docker/secrets/*` (NO por los `.env.*`) con el **mismo patrón en dev, staging y prod**: `setup-env.sh` materializa cada `*.template` (strip de comentarios, `chmod 0444`), compose los monta read-only en `/run/secrets/<nombre>`, y los wrappers en `docker/entrypoints/*.sh` leen el archivo y exportan la env var que la imagen espera (`KC_DB_PASSWORD`, `POSTGRES_PASSWORD`, `DATABASE_PASSWORD`, `GF_SECURITY_ADMIN_PASSWORD`, `KEYCLOAK_ADMIN_CLIENT_SECRET`).
 - Secretos: `keycloak_postgres_password`, `keycloak_admin_password`, `keycloak_admin_client_secret`, `lifecontrol_postgres_password`, `grafana_admin_password`.

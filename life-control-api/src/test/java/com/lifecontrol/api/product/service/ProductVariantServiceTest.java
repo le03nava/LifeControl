@@ -3,10 +3,16 @@ package com.lifecontrol.api.product.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.lifecontrol.api.common.auth.CurrentUserContext;
+import com.lifecontrol.api.company.model.Company;
+import com.lifecontrol.api.company.model.CompanyCountry;
+import com.lifecontrol.api.company.model.CompanyRegion;
+import com.lifecontrol.api.company.model.CompanyZone;
 import com.lifecontrol.api.product.dto.ProductVariantRequest;
 import com.lifecontrol.api.product.dto.ProductVariantResponse;
 import com.lifecontrol.api.product.dto.ProductVariantSearchResponse;
@@ -22,6 +28,7 @@ import com.lifecontrol.api.product.repository.ProductRepository;
 import com.lifecontrol.api.product.repository.ProductVariantRepository;
 import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository;
 import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
+import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -39,6 +46,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.security.access.AccessDeniedException;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("ProductVariantService Tests")
@@ -55,6 +63,15 @@ class ProductVariantServiceTest {
 
     @Mock
     private CompanyStoreRepository companyStoreRepository;
+
+    @Mock
+    private CurrentUserContext currentUserContext;
+
+    private UUID companyId;
+    private UUID companyCountryId;
+    private UUID regionId;
+    private UUID zoneId;
+    private CompanyStore testCompanyStore;
 
     @InjectMocks
     private ProductVariantService productVariantService;
@@ -91,6 +108,44 @@ class ProductVariantServiceTest {
                 .build();
 
         testVariantRequest = new ProductVariantRequest("7501234567890", "Talla M");
+
+        companyId = UUID.randomUUID();
+        companyCountryId = UUID.randomUUID();
+        regionId = UUID.randomUUID();
+        zoneId = UUID.randomUUID();
+
+        var company = Company.builder()
+                .id(companyId)
+                .companyKey("TEST-KEY")
+                .companyName("Test Company")
+                .rfc("TEST123456ABC")
+                .enabled(true)
+                .build();
+        var companyCountry =
+                CompanyCountry.builder().id(companyCountryId).company(company).build();
+        var region = CompanyRegion.builder()
+                .id(regionId)
+                .companyCountry(companyCountry)
+                .regionCode("01")
+                .regionName("Test Region")
+                .enabled(true)
+                .build();
+        var zone = CompanyZone.builder()
+                .id(zoneId)
+                .companyRegion(region)
+                .zoneCode("01")
+                .zoneName("Test Zone")
+                .enabled(true)
+                .build();
+        // The store guard derives company -> country -> region -> zone -> store from the store
+        // itself, because the endpoint path carries only the store id, so the fixture must carry
+        // the whole chain.
+        testCompanyStore = CompanyStore.builder()
+                .id(companyStoreId)
+                .companyZone(zone)
+                .storeName("Test Store")
+                .enabled(true)
+                .build();
     }
 
     // ─────────────────────────────────────────────
@@ -584,7 +639,7 @@ class ProductVariantServiceTest {
                     .build();
 
             when(productVariantRepository.existsById(variantId)).thenReturn(true);
-            when(companyStoreRepository.existsById(companyStoreId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(productVariantStoreStockRepository.findByProductVariantIdAndCompanyStoreIdForUpdate(
                             variantId, companyStoreId))
                     .thenReturn(Optional.of(row));
@@ -615,7 +670,7 @@ class ProductVariantServiceTest {
                     .build();
 
             when(productVariantRepository.existsById(variantId)).thenReturn(true);
-            when(companyStoreRepository.existsById(companyStoreId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(productVariantStoreStockRepository.findByProductVariantIdAndCompanyStoreIdForUpdate(
                             variantId, companyStoreId))
                     .thenReturn(Optional.of(row));
@@ -650,7 +705,7 @@ class ProductVariantServiceTest {
         @DisplayName("should throw CompanyStoreNotFoundException when the store does not exist")
         void upsertStoreStock_UnknownStore_ThrowsException() {
             when(productVariantRepository.existsById(variantId)).thenReturn(true);
-            when(companyStoreRepository.existsById(companyStoreId)).thenReturn(false);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> productVariantService.upsertStoreStock(
                             variantId,
@@ -660,6 +715,28 @@ class ProductVariantServiceTest {
                     .hasMessageContaining("Store not found with id");
 
             verify(productVariantStoreStockRepository, never()).insertStoreStockIfAbsent(any(), any());
+        }
+
+        @Test
+        @DisplayName("should reject a store outside the caller's scope and write nothing")
+        void upsertStoreStock_StoreOutsideCallerScope_IsRejected() {
+            when(productVariantRepository.existsById(variantId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            doThrow(new AccessDeniedException("Access denied"))
+                    .when(currentUserContext)
+                    .verifyCompanyStoreAccess(companyId, companyCountryId, regionId, zoneId, companyStoreId);
+
+            assertThatThrownBy(() -> productVariantService.upsertStoreStock(
+                            variantId,
+                            companyStoreId,
+                            new ProductVariantStoreStockRequest(BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE)))
+                    .isInstanceOf(AccessDeniedException.class);
+
+            // The guard must receive the chain derived from the store, not the raw store id.
+            verify(currentUserContext)
+                    .verifyCompanyStoreAccess(companyId, companyCountryId, regionId, zoneId, companyStoreId);
+            verify(productVariantStoreStockRepository, never()).insertStoreStockIfAbsent(any(), any());
+            verify(productVariantStoreStockRepository, never()).save(any());
         }
     }
 
