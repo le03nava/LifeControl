@@ -74,6 +74,7 @@ public class ProductController {
     }
 
     @PostMapping
+    @PreAuthorize("hasRole('" + ADMIN + "')")
     @Operation(
             summary = "Create a new product",
             description = "Creates a new product with the provided details. SKU must be unique.")
@@ -83,6 +84,7 @@ public class ProductController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasRole('" + ADMIN + "')")
     @Operation(
             summary = "Update a product",
             description =
@@ -93,6 +95,7 @@ public class ProductController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('" + ADMIN + "')")
     @Operation(summary = "Delete a product", description = "Soft-deletes a product by setting enabled to false")
     public ResponseEntity<Void> deleteProduct(@PathVariable UUID id) {
         productService.deleteProduct(id);
