@@ -30,6 +30,7 @@ import com.lifecontrol.api.salesorder.exception.InvalidSalesOrderChargeException
 import com.lifecontrol.api.salesorder.exception.SalesOrderAlreadyFinalizedException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderItemNotFoundException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderNotFoundException;
+import com.lifecontrol.api.salesorder.exception.SalesOrderStoreReassignmentNotAllowedException;
 import com.lifecontrol.api.salesorder.model.SalesOrder;
 import com.lifecontrol.api.salesorder.model.SalesOrderItem;
 import com.lifecontrol.api.salesorder.repository.SalesOrderItemRepository;
@@ -467,6 +468,47 @@ class SalesOrderServiceTest {
             assertThat(result.id()).isEqualTo(orderId);
             assertThat(result.customerId()).isEqualTo(customerId);
             assertThat(result.companyStoreId()).isEqualTo(companyStoreId);
+            verify(salesOrderRepository).save(any(SalesOrder.class));
+        }
+
+        @Test
+        @DisplayName("should reject a store reassignment while the order has active items")
+        void updateSalesOrder_StoreReassignmentWithActiveItems_ThrowsException() {
+            var requestedStoreId = UUID.randomUUID();
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(customerRepository.existsById(customerId)).thenReturn(true);
+            when(companyStoreRepository.existsById(requestedStoreId)).thenReturn(true);
+            when(shiftRepository.existsById(shiftId)).thenReturn(true);
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of(testItem));
+
+            var request = new SalesOrderRequest(customerId, requestedStoreId, shiftId, "user123", null);
+
+            assertThatThrownBy(() -> salesOrderService.updateSalesOrder(orderId, request))
+                    .isInstanceOf(SalesOrderStoreReassignmentNotAllowedException.class)
+                    .hasMessageContaining("cannot be reassigned from company store");
+
+            // The rejection must leave the order and every stock row untouched.
+            verify(salesOrderRepository, never()).save(any(SalesOrder.class));
+            verify(productVariantStoreStockRepository, never()).save(any(ProductVariantStoreStock.class));
+        }
+
+        @Test
+        @DisplayName("should allow a store reassignment when the order has no active items")
+        void updateSalesOrder_StoreReassignmentWithoutActiveItems_Succeeds() {
+            var requestedStoreId = UUID.randomUUID();
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(customerRepository.existsById(customerId)).thenReturn(true);
+            when(companyStoreRepository.existsById(requestedStoreId)).thenReturn(true);
+            when(shiftRepository.existsById(shiftId)).thenReturn(true);
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
+            when(salesOrderRepository.save(any(SalesOrder.class))).thenReturn(testOrder);
+            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
+
+            var request = new SalesOrderRequest(customerId, requestedStoreId, shiftId, "user123", null);
+
+            var result = salesOrderService.updateSalesOrder(orderId, request);
+
+            assertThat(result).isNotNull();
             verify(salesOrderRepository).save(any(SalesOrder.class));
         }
 
