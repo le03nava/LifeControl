@@ -1,0 +1,17 @@
+<app-page-header [title]="product()?.name ?? 'Variante'" [subtitle]="headerSubtitle()" />
+
+@if (productResource.error(); as err) {
+  <app-error-banner [message]="httpErrorMessage(err)" />
+}
+
+@if (generalError(); as errorMessage) {
+  <app-error-banner [message]="errorMessage" />
+}
+
+<app-product-variant-form
+  [formGroup]="variantForm()"
+  [serverErrors]="serverErrors()"
+  [editMode]="isEditMode()"
+  (saveVariant)="onSaveVariant($event)"
+  (cancelForm)="cancelForm()"
+/>

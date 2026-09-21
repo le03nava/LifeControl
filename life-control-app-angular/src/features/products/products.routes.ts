@@ -1,5 +1,6 @@
 import { Routes } from '@angular/router';
 import { keycloakRoleGuard } from '@core/guards/auth-keycloak-guard';
+import { unsavedChangesGuard } from '@core/guards/unsaved-changes.guard';
 import { LC_ADMIN, VARIANT_ROLES } from '@core/security/roles';
 
 const CLIENT_ID = 'life-control-client';
@@ -42,6 +43,30 @@ export const productRoutes: Routes = [
         canActivate: [keycloakRoleGuard],
         data: { roles: PRODUCT_ADMIN_ROLES, clientId: CLIENT_ID },
         loadComponent: () => import('./pages/product-edit/product-edit').then((m) => m.ProductEdit),
+      },
+      {
+        // `create` is declared before the `edit/:id/variants` list below so the
+        // literal segment is never shadowed by the parameterised one. Mirrors
+        // the `suppliers/create` + `suppliers/edit/:supplierId` sibling order.
+        path: 'edit/:id/variants/create',
+        canActivate: [keycloakRoleGuard],
+        data: { roles: VARIANT_ROLES, clientId: CLIENT_ID },
+        // A half-filled definition must not be discarded by a stray navigation.
+        canDeactivate: [unsavedChangesGuard],
+        loadComponent: () =>
+          import('./pages/product-variant-edit/product-variant-edit').then(
+            (m) => m.ProductVariantEdit,
+          ),
+      },
+      {
+        path: 'edit/:id/variants/edit/:variantId',
+        canActivate: [keycloakRoleGuard],
+        data: { roles: VARIANT_ROLES, clientId: CLIENT_ID },
+        canDeactivate: [unsavedChangesGuard],
+        loadComponent: () =>
+          import('./pages/product-variant-edit/product-variant-edit').then(
+            (m) => m.ProductVariantEdit,
+          ),
       },
       {
         // The only child that is NOT admin-only: the variant screens exist for

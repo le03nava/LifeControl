@@ -1,0 +1,49 @@
+<div class="form-card">
+  <h2>
+    @if (editMode()) {
+      Editar Variante
+    } @else {
+      Nueva Variante
+    }
+  </h2>
+  <form [formGroup]="formGroup()" (ngSubmit)="onSave()">
+    <mat-form-field appearance="outline">
+      <mat-label>Código de Barras</mat-label>
+      <input
+        matInput
+        type="text"
+        formControlName="barCode"
+        placeholder="Ingrese el código de barras"
+        maxlength="100"
+      />
+      @if (getErrorMessage(formGroup().controls.barCode); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Nombre de la Variante</mat-label>
+      <input
+        matInput
+        type="text"
+        formControlName="variantName"
+        placeholder="Ej: Talla 38"
+        maxlength="255"
+      />
+      @if (getErrorMessage(formGroup().controls.variantName); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <div class="form-actions">
+      <button mat-button type="button" (click)="onCancel()">Cancelar</button>
+      <button mat-flat-button color="primary" type="submit">
+        @if (editMode()) {
+          Actualizar
+        } @else {
+          Guardar
+        }
+      </button>
+    </div>
+  </form>
+</div>
