@@ -1,6 +1,5 @@
 import { inject, Injectable, signal } from '@angular/core';
 import { Product, Page } from '../models/product.models';
-import { ProductVariant } from '../models/product-variant.models';
 import { Observable, throwError } from 'rxjs';
 import { catchError, finalize } from 'rxjs/operators';
 import { HttpClient, HttpParams } from '@angular/common/http';
@@ -53,31 +52,6 @@ export class ProductService {
       params = params.set('search', search);
     }
     return this.http.get<SupplierProduct[]>(`${this.apiUrl}/by-supplier/${supplierId}`, { params });
-  }
-
-  /**
-   * Loads a product's variants scoped to a single store.
-   *
-   * The endpoint paginates. The default size covers a product's realistic
-   * variant count in one store; callers that paginate further can override it.
-   *
-   * @param productId the product whose variants are wanted
-   * @param storeId the store that owns the variants (narrowing filter)
-   * @param page zero-based page index
-   * @param size page size
-   */
-  getProductVariants(
-    productId: string,
-    storeId: string,
-    page = 0,
-    size = 50,
-  ): Observable<Page<ProductVariant>> {
-    const params = new HttpParams()
-      .set('storeId', storeId)
-      .set('page', page.toString())
-      .set('size', size.toString());
-
-    return this.http.get<Page<ProductVariant>>(`${this.apiUrl}/${productId}/variants`, { params });
   }
 
   createProduct(data: Product): Observable<Product> {

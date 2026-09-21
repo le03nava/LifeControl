@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { of, Subject, throwError } from 'rxjs';
 import { ProductVariantPicker } from './product-variant-picker';
-import { ProductService } from '@features/products/data/product.service';
+import { ProductVariantService } from '@features/products/data/product-variant.service';
 import type { Page } from '@features/products/models/product.models';
 import type { ProductVariant } from '@features/products/models/product-variant.models';
 
@@ -51,16 +51,16 @@ function variantPage(
 describe('ProductVariantPicker', () => {
   let fixture: ComponentFixture<ProductVariantPicker>;
   let component: ProductVariantPicker;
-  let productService: { getProductVariants: ReturnType<typeof vi.fn> };
+  let variantService: { getVariants: ReturnType<typeof vi.fn> };
 
   beforeEach(async () => {
-    productService = {
-      getProductVariants: vi.fn().mockReturnValue(of(variantPage([variantA, variantB]))),
+    variantService = {
+      getVariants: vi.fn().mockReturnValue(of(variantPage([variantA, variantB]))),
     };
 
     await TestBed.configureTestingModule({
       imports: [ProductVariantPicker, NoopAnimationsModule],
-      providers: [{ provide: ProductService, useValue: productService }],
+      providers: [{ provide: ProductVariantService, useValue: variantService }],
     }).compileComponents();
 
     fixture = TestBed.createComponent(ProductVariantPicker);
@@ -78,7 +78,7 @@ describe('ProductVariantPicker', () => {
       fixture.componentRef.setInput('storeId', 'store-1');
       fixture.detectChanges();
 
-      expect(productService.getProductVariants).toHaveBeenCalledWith('prod-1', 'store-1', 0, 50);
+      expect(variantService.getVariants).toHaveBeenCalledWith('prod-1', 'store-1', 0, 50);
       expect(component.variants().length).toBe(2);
       expect(component.variants()[0].variantName).toBe('Presentación 1L');
     });
@@ -87,7 +87,7 @@ describe('ProductVariantPicker', () => {
       fixture.componentRef.setInput('storeId', 'store-1');
       fixture.detectChanges();
 
-      expect(productService.getProductVariants).not.toHaveBeenCalled();
+      expect(variantService.getVariants).not.toHaveBeenCalled();
       expect(component.variants()).toEqual([]);
       expect(component.controlDisabled()).toBe(true);
     });
@@ -96,7 +96,7 @@ describe('ProductVariantPicker', () => {
       fixture.componentRef.setInput('productId', 'prod-1');
       fixture.detectChanges();
 
-      expect(productService.getProductVariants).not.toHaveBeenCalled();
+      expect(variantService.getVariants).not.toHaveBeenCalled();
       expect(component.variants()).toEqual([]);
       expect(component.controlDisabled()).toBe(true);
     });
@@ -105,18 +105,13 @@ describe('ProductVariantPicker', () => {
       fixture.componentRef.setInput('productId', 'prod-1');
       fixture.componentRef.setInput('storeId', 'store-1');
       fixture.detectChanges();
-      expect(productService.getProductVariants).toHaveBeenCalledTimes(1);
+      expect(variantService.getVariants).toHaveBeenCalledTimes(1);
 
       fixture.componentRef.setInput('storeId', 'store-2');
       fixture.detectChanges();
 
-      expect(productService.getProductVariants).toHaveBeenCalledTimes(2);
-      expect(productService.getProductVariants).toHaveBeenLastCalledWith(
-        'prod-1',
-        'store-2',
-        0,
-        50,
-      );
+      expect(variantService.getVariants).toHaveBeenCalledTimes(2);
+      expect(variantService.getVariants).toHaveBeenLastCalledWith('prod-1', 'store-2', 0, 50);
     });
 
     it('should clear the options when the store is cleared', () => {
@@ -133,7 +128,7 @@ describe('ProductVariantPicker', () => {
     });
 
     it('should clear the options, the total and the selection when the store changes', () => {
-      productService.getProductVariants.mockReturnValue(of(variantPage([variantA, variantB], 120)));
+      variantService.getVariants.mockReturnValue(of(variantPage([variantA, variantB], 120)));
 
       fixture.componentRef.setInput('productId', 'prod-1');
       fixture.componentRef.setInput('storeId', 'store-1');
@@ -145,7 +140,7 @@ describe('ProductVariantPicker', () => {
 
       // The reload stays pending so the intermediate state is observable: the
       // previous store's options must already be gone.
-      productService.getProductVariants.mockReturnValue(new Subject<Page<ProductVariant>>());
+      variantService.getVariants.mockReturnValue(new Subject<Page<ProductVariant>>());
       fixture.componentRef.setInput('storeId', 'store-2');
       fixture.detectChanges();
 
@@ -157,14 +152,14 @@ describe('ProductVariantPicker', () => {
     });
 
     it('should clear a previous load failure when the scope changes', () => {
-      productService.getProductVariants.mockReturnValue(throwError(() => new Error('boom')));
+      variantService.getVariants.mockReturnValue(throwError(() => new Error('boom')));
 
       fixture.componentRef.setInput('productId', 'prod-1');
       fixture.componentRef.setInput('storeId', 'store-1');
       fixture.detectChanges();
       expect(component.loadFailed()).toBe(true);
 
-      productService.getProductVariants.mockReturnValue(new Subject<Page<ProductVariant>>());
+      variantService.getVariants.mockReturnValue(new Subject<Page<ProductVariant>>());
       fixture.componentRef.setInput('storeId', 'store-2');
       fixture.detectChanges();
 
@@ -174,7 +169,7 @@ describe('ProductVariantPicker', () => {
 
   describe('empty and error states', () => {
     it('should render the explicit empty state when the store has no variants', () => {
-      productService.getProductVariants.mockReturnValue(of(variantPage([])));
+      variantService.getVariants.mockReturnValue(of(variantPage([])));
 
       fixture.componentRef.setInput('productId', 'prod-1');
       fixture.componentRef.setInput('storeId', 'store-1');
@@ -187,7 +182,7 @@ describe('ProductVariantPicker', () => {
     });
 
     it('should render an inline error when the request fails', () => {
-      productService.getProductVariants.mockReturnValue(throwError(() => new Error('boom')));
+      variantService.getVariants.mockReturnValue(throwError(() => new Error('boom')));
 
       fixture.componentRef.setInput('productId', 'prod-1');
       fixture.componentRef.setInput('storeId', 'store-1');
@@ -205,7 +200,7 @@ describe('ProductVariantPicker', () => {
     });
 
     it('should render a quiet hint when the response reports more variants than loaded', () => {
-      productService.getProductVariants.mockReturnValue(of(variantPage([variantA], 120)));
+      variantService.getVariants.mockReturnValue(of(variantPage([variantA], 120)));
 
       fixture.componentRef.setInput('productId', 'prod-1');
       fixture.componentRef.setInput('storeId', 'store-1');
