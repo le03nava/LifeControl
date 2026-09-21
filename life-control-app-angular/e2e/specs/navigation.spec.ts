@@ -30,6 +30,18 @@ app.describe('Navigation and role-based menus', () => {
     });
   });
 
+  app.describe('as a receiving operator', () => {
+    app.use({ clientRoles: ['lc-receiving'] });
+
+    app('shows only the Compras menu', async ({ page }) => {
+      await page.goto('/');
+
+      await expect(page.getByRole('link', { name: 'Compras' })).toBeVisible();
+      await expect(page.getByRole('link', { name: 'Products' })).toHaveCount(0);
+      await expect(page.getByRole('link', { name: 'Users Admin' })).toHaveCount(0);
+    });
+  });
+
   app.describe('as a company manager', () => {
     app.use({ clientRoles: ['lc-company'] });
 

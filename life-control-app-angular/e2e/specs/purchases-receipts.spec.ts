@@ -108,3 +108,24 @@ app.describe('Purchases — goods receipts', () => {
     await expect(orderRow('OC-2026-002').getByRole('button', { name: 'Recibir' })).toBeDisabled();
   });
 });
+
+app.describe('Purchases — receipts access for a receiving-only user', () => {
+  app.use({ clientRoles: ['lc-receiving'] });
+
+  app('opens the receipts area but is denied the orders area', async ({ page }) => {
+    // Reach receipts through the deterministic menu/card path (see the file
+    // header) instead of a deep-link, so the mocked silent-SSO race cannot
+    // decide this assertion.
+    await openReceipts(page);
+    // `level: 1` pins the page title: the accessible-name match is substring-based,
+    // so a bare `{ name: 'Recibos' }` also matches the empty-state heading
+    // "No hay recibos registrados" and trips strict mode.
+    await expect(page.getByRole('heading', { level: 1, name: 'Recibos' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Access Denied' })).toHaveCount(0);
+
+    // The orders children re-declare their own admin-only guard, so the same
+    // receiving-only user is bounced to /unauthorized.
+    await page.goto('/purchases/orders');
+    await expect(page.getByRole('heading', { name: 'Access Denied' })).toBeVisible();
+  });
+});

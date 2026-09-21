@@ -13,6 +13,7 @@ import Keycloak from 'keycloak-js';
 export const CLIENT_ID = 'life-control-client';
 
 export const LC_ADMIN = 'lc-admin';
+export const LC_RECEIVING = 'lc-receiving';
 export const LC_COMPANY = 'lc-company';
 export const LC_COMPANY_READ = 'lc-company-read';
 export const LC_COMPANY_COUNTRY = 'lc-company-country';
@@ -27,6 +28,7 @@ export const LC_COMPANY_STORE_READ = 'lc-company-store-read';
 /** Const array mirroring `Roles.java`. */
 export const CLIENT_ROLES = [
   LC_ADMIN,
+  LC_RECEIVING,
   LC_COMPANY,
   LC_COMPANY_READ,
   LC_COMPANY_COUNTRY,
