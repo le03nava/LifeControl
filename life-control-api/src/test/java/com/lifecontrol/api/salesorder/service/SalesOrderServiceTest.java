@@ -5,12 +5,18 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.atLeast;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.lifecontrol.api.common.auth.CurrentUserContext;
+import com.lifecontrol.api.company.model.Company;
+import com.lifecontrol.api.company.model.CompanyCountry;
+import com.lifecontrol.api.company.model.CompanyRegion;
+import com.lifecontrol.api.company.model.CompanyZone;
 import com.lifecontrol.api.customer.exception.CustomerNotFoundException;
 import com.lifecontrol.api.customer.repository.CustomerRepository;
 import com.lifecontrol.api.paymentmethod.exception.PaymentMethodNotFoundException;
@@ -44,6 +50,7 @@ import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.status.model.StatusType;
 import com.lifecontrol.api.status.repository.StatusRepository;
 import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
+import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -63,6 +70,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.security.access.AccessDeniedException;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("SalesOrderService Tests")
@@ -95,6 +103,9 @@ class SalesOrderServiceTest {
     @Mock
     private PaymentMethodRepository paymentMethodRepository;
 
+    @Mock
+    private CurrentUserContext currentUserContext;
+
     @InjectMocks
     private SalesOrderService salesOrderService;
 
@@ -104,6 +115,11 @@ class SalesOrderServiceTest {
     private UUID shiftId;
     private UUID variantId;
     private UUID itemId;
+    private UUID companyId;
+    private UUID companyCountryId;
+    private UUID regionId;
+    private UUID zoneId;
+    private CompanyStore testCompanyStore;
 
     private Status borradorStatus;
     private Status activoStatus;
@@ -131,6 +147,43 @@ class SalesOrderServiceTest {
         shiftId = UUID.randomUUID();
         variantId = UUID.randomUUID();
         itemId = UUID.randomUUID();
+
+        // The store guard derives company -> country -> region -> zone -> store from the store
+        // itself, because the request carries only the store id, so the fixture must carry the
+        // whole chain.
+        companyId = UUID.randomUUID();
+        companyCountryId = UUID.randomUUID();
+        regionId = UUID.randomUUID();
+        zoneId = UUID.randomUUID();
+        var company = Company.builder()
+                .id(companyId)
+                .companyKey("TEST-KEY")
+                .companyName("Test Company")
+                .rfc("TEST123456ABC")
+                .enabled(true)
+                .build();
+        var companyCountry =
+                CompanyCountry.builder().id(companyCountryId).company(company).build();
+        var region = CompanyRegion.builder()
+                .id(regionId)
+                .companyCountry(companyCountry)
+                .regionCode("01")
+                .regionName("Test Region")
+                .enabled(true)
+                .build();
+        var zone = CompanyZone.builder()
+                .id(zoneId)
+                .companyRegion(region)
+                .zoneCode("01")
+                .zoneName("Test Zone")
+                .enabled(true)
+                .build();
+        testCompanyStore = CompanyStore.builder()
+                .id(companyStoreId)
+                .companyZone(zone)
+                .storeName("Test Store")
+                .enabled(true)
+                .build();
 
         salesOrderType = StatusType.builder()
                 .id(UUID.randomUUID())
@@ -375,7 +428,7 @@ class SalesOrderServiceTest {
         @DisplayName("should create sales order with Draft status and auto-generated order number")
         void createSalesOrder_Success() {
             when(customerRepository.existsById(customerId)).thenReturn(true);
-            when(companyStoreRepository.existsById(companyStoreId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(shiftRepository.findById(shiftId)).thenReturn(Optional.of(openShift("ABIERTO")));
             when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER", "Draft"))
                     .thenReturn(Optional.of(borradorStatus));
@@ -413,7 +466,7 @@ class SalesOrderServiceTest {
         @DisplayName("should throw CompanyStoreNotFoundException when store FK invalid")
         void createSalesOrder_CompanyStoreNotFound() {
             when(customerRepository.existsById(customerId)).thenReturn(true);
-            when(companyStoreRepository.existsById(companyStoreId)).thenReturn(false);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> salesOrderService.createSalesOrder(testOrderRequest))
                     .isInstanceOf(CompanyStoreNotFoundException.class)
@@ -426,7 +479,7 @@ class SalesOrderServiceTest {
         @DisplayName("should throw ShiftNotFoundException when shift FK invalid")
         void createSalesOrder_ShiftNotFound() {
             when(customerRepository.existsById(customerId)).thenReturn(true);
-            when(companyStoreRepository.existsById(companyStoreId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(shiftRepository.findById(shiftId)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> salesOrderService.createSalesOrder(testOrderRequest))
@@ -440,7 +493,7 @@ class SalesOrderServiceTest {
         @DisplayName("should throw ShiftNotOpenException when shift exists but is closed")
         void createSalesOrder_ShiftClosed_ThrowsException() {
             when(customerRepository.existsById(customerId)).thenReturn(true);
-            when(companyStoreRepository.existsById(companyStoreId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(shiftRepository.findById(shiftId)).thenReturn(Optional.of(openShift("CERRADO")));
 
             assertThatThrownBy(() -> salesOrderService.createSalesOrder(testOrderRequest))
@@ -448,6 +501,24 @@ class SalesOrderServiceTest {
                     .hasMessageContaining(shiftId.toString())
                     .hasMessageContaining("CERRADO");
 
+            verify(salesOrderRepository, never()).save(any(SalesOrder.class));
+        }
+
+        @Test
+        @DisplayName("should throw AccessDeniedException when the caller holds no grant for the store")
+        void createSalesOrder_StoreOutsideCallerScope_Throws403() {
+            when(customerRepository.existsById(customerId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            doThrow(new AccessDeniedException("Access denied"))
+                    .when(currentUserContext)
+                    .verifyCompanyStoreAccess(companyId, companyCountryId, regionId, zoneId, companyStoreId);
+
+            assertThatThrownBy(() -> salesOrderService.createSalesOrder(testOrderRequest))
+                    .isInstanceOf(AccessDeniedException.class);
+
+            // The guard must receive the chain derived from the store, not the raw store id.
+            verify(currentUserContext)
+                    .verifyCompanyStoreAccess(companyId, companyCountryId, regionId, zoneId, companyStoreId);
             verify(salesOrderRepository, never()).save(any(SalesOrder.class));
         }
     }
@@ -464,7 +535,7 @@ class SalesOrderServiceTest {
         void updateSalesOrder_Success() {
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(customerRepository.existsById(customerId)).thenReturn(true);
-            when(companyStoreRepository.existsById(companyStoreId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(shiftRepository.existsById(shiftId)).thenReturn(true);
             when(salesOrderRepository.save(any(SalesOrder.class))).thenReturn(testOrder);
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
@@ -480,12 +551,28 @@ class SalesOrderServiceTest {
         }
 
         @Test
+        @DisplayName("should throw AccessDeniedException when the caller holds no grant for the store")
+        void updateSalesOrder_StoreOutsideCallerScope_Throws403() {
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(customerRepository.existsById(customerId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            doThrow(new AccessDeniedException("Access denied"))
+                    .when(currentUserContext)
+                    .verifyCompanyStoreAccess(companyId, companyCountryId, regionId, zoneId, companyStoreId);
+
+            assertThatThrownBy(() -> salesOrderService.updateSalesOrder(orderId, testOrderRequest))
+                    .isInstanceOf(AccessDeniedException.class);
+
+            verify(salesOrderRepository, never()).save(any(SalesOrder.class));
+        }
+
+        @Test
         @DisplayName("should reject a store reassignment while the order has active items")
         void updateSalesOrder_StoreReassignmentWithActiveItems_ThrowsException() {
             var requestedStoreId = UUID.randomUUID();
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(customerRepository.existsById(customerId)).thenReturn(true);
-            when(companyStoreRepository.existsById(requestedStoreId)).thenReturn(true);
+            when(companyStoreRepository.findById(requestedStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(shiftRepository.existsById(shiftId)).thenReturn(true);
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of(testItem));
 
@@ -506,7 +593,7 @@ class SalesOrderServiceTest {
             var requestedStoreId = UUID.randomUUID();
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(customerRepository.existsById(customerId)).thenReturn(true);
-            when(companyStoreRepository.existsById(requestedStoreId)).thenReturn(true);
+            when(companyStoreRepository.findById(requestedStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(shiftRepository.existsById(shiftId)).thenReturn(true);
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
             when(salesOrderRepository.save(any(SalesOrder.class))).thenReturn(testOrder);
@@ -2134,7 +2221,7 @@ class SalesOrderServiceTest {
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(customerRepository.existsById(customerId)).thenReturn(true);
-            when(companyStoreRepository.existsById(companyStoreId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(shiftRepository.existsById(shiftId)).thenReturn(true);
             when(salesOrderRepository.save(any(SalesOrder.class))).thenReturn(testOrder);
             when(itemRepository.findBySalesOrderId(orderId))
@@ -2182,7 +2269,7 @@ class SalesOrderServiceTest {
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(customerRepository.existsById(customerId)).thenReturn(true);
-            when(companyStoreRepository.existsById(companyStoreId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(shiftRepository.existsById(shiftId)).thenReturn(true);
             when(salesOrderRepository.save(any(SalesOrder.class))).thenAnswer(inv -> inv.getArgument(0));
             when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(testItem));
@@ -2225,7 +2312,7 @@ class SalesOrderServiceTest {
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(customerRepository.existsById(customerId)).thenReturn(true);
-            when(companyStoreRepository.existsById(companyStoreId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(shiftRepository.existsById(shiftId)).thenReturn(true);
             when(salesOrderRepository.save(any(SalesOrder.class))).thenReturn(testOrder);
             when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of());
@@ -2256,7 +2343,7 @@ class SalesOrderServiceTest {
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(customerRepository.existsById(customerId)).thenReturn(true);
-            when(companyStoreRepository.existsById(companyStoreId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(shiftRepository.existsById(shiftId)).thenReturn(true);
             when(salesOrderRepository.save(any(SalesOrder.class))).thenReturn(testOrder);
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
@@ -2277,7 +2364,7 @@ class SalesOrderServiceTest {
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(customerRepository.existsById(customerId)).thenReturn(true);
-            when(companyStoreRepository.existsById(companyStoreId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(shiftRepository.existsById(shiftId)).thenReturn(true);
             when(salesOrderRepository.save(any(SalesOrder.class))).thenAnswer(inv -> inv.getArgument(0));
             when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of());
@@ -2318,7 +2405,7 @@ class SalesOrderServiceTest {
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(customerRepository.existsById(customerId)).thenReturn(true);
-            when(companyStoreRepository.existsById(companyStoreId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(shiftRepository.existsById(shiftId)).thenReturn(true);
             when(salesOrderRepository.save(any(SalesOrder.class))).thenReturn(testOrder);
             when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of());
@@ -2379,7 +2466,7 @@ class SalesOrderServiceTest {
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(customerRepository.existsById(customerId)).thenReturn(true);
-            when(companyStoreRepository.existsById(companyStoreId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(shiftRepository.existsById(shiftId)).thenReturn(true);
             when(salesOrderRepository.save(any(SalesOrder.class))).thenReturn(testOrder);
             when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(existingKept, existingToDelete));
@@ -2418,7 +2505,7 @@ class SalesOrderServiceTest {
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(customerRepository.existsById(customerId)).thenReturn(true);
-            when(companyStoreRepository.existsById(companyStoreId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(shiftRepository.existsById(shiftId)).thenReturn(true);
             when(salesOrderRepository.save(any(SalesOrder.class))).thenAnswer(inv -> inv.getArgument(0));
             when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(testItem));
@@ -2452,7 +2539,7 @@ class SalesOrderServiceTest {
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(customerRepository.existsById(customerId)).thenReturn(true);
-            when(companyStoreRepository.existsById(companyStoreId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(shiftRepository.existsById(shiftId)).thenReturn(true);
             when(salesOrderRepository.save(any(SalesOrder.class))).thenAnswer(inv -> inv.getArgument(0));
             when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(testItem));
@@ -2512,7 +2599,7 @@ class SalesOrderServiceTest {
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(customerRepository.existsById(customerId)).thenReturn(true);
-            when(companyStoreRepository.existsById(companyStoreId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(shiftRepository.existsById(shiftId)).thenReturn(true);
             when(salesOrderRepository.save(any(SalesOrder.class))).thenAnswer(inv -> inv.getArgument(0));
             when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(testItem, existingToDelete));
@@ -2573,7 +2660,7 @@ class SalesOrderServiceTest {
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(customerRepository.existsById(customerId)).thenReturn(true);
-            when(companyStoreRepository.existsById(companyStoreId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(shiftRepository.existsById(shiftId)).thenReturn(true);
             when(salesOrderRepository.save(any(SalesOrder.class))).thenAnswer(inv -> inv.getArgument(0));
             when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(existingItem));
@@ -2613,7 +2700,7 @@ class SalesOrderServiceTest {
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(customerRepository.existsById(customerId)).thenReturn(true);
-            when(companyStoreRepository.existsById(companyStoreId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
             when(shiftRepository.existsById(shiftId)).thenReturn(true);
             when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(testItem));
             when(productVariantStoreStockRepository.findByProductVariantIdAndCompanyStoreIdForUpdate(

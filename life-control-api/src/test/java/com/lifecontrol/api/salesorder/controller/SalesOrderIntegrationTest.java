@@ -47,11 +47,14 @@ import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -62,6 +65,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -121,6 +127,9 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @Autowired
     private CompanyZoneRepository companyZoneRepository;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     private UUID customerId;
     private UUID companyStoreId;
@@ -386,7 +395,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             mockMvc.perform(post("/api/sales-orders")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request))
-                            .with(jwt().authorities(ROLE_LC_SALES)))
+                            .with(scopedSalesJwt()))
                     .andExpect(status().isCreated())
                     .andExpect(jsonPath("$.id").exists())
                     .andExpect(jsonPath("$.statusName").value("Draft"))
@@ -418,7 +427,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             mockMvc.perform(post("/api/sales-orders")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request))
-                            .with(jwt().authorities(ROLE_LC_SALES)))
+                            .with(scopedSalesJwt()))
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.status").value(409))
                     .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Insufficient stock")));
@@ -447,7 +456,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var createResult = mockMvc.perform(post("/api/sales-orders")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request))
-                            .with(jwt().authorities(ROLE_LC_SALES)))
+                            .with(scopedSalesJwt()))
                     .andExpect(status().isCreated())
                     .andReturn();
 
@@ -466,7 +475,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             mockMvc.perform(post("/api/sales-orders/{id}/items", orderId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(itemRequest))
-                            .with(jwt().authorities(ROLE_LC_SALES)))
+                            .with(scopedSalesJwt()))
                     .andExpect(status().isCreated())
                     .andExpect(jsonPath("$.id").exists())
                     .andExpect(jsonPath("$.quantity").value(3.00));
@@ -498,7 +507,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var createResult = mockMvc.perform(post("/api/sales-orders")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(createRequest))
-                            .with(jwt().authorities(ROLE_LC_SALES)))
+                            .with(scopedSalesJwt()))
                     .andExpect(status().isCreated())
                     .andReturn();
 
@@ -522,7 +531,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             mockMvc.perform(put("/api/sales-orders/{id}/items/{itemId}", orderId, itemId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(increaseRequest))
-                            .with(jwt().authorities(ROLE_LC_SALES)))
+                            .with(scopedSalesJwt()))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.quantity").value(8.00));
 
@@ -541,7 +550,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             mockMvc.perform(put("/api/sales-orders/{id}/items/{itemId}", orderId, itemId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(decreaseRequest))
-                            .with(jwt().authorities(ROLE_LC_SALES)))
+                            .with(scopedSalesJwt()))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.quantity").value(2.00));
 
@@ -571,7 +580,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var createResult = mockMvc.perform(post("/api/sales-orders")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(createRequest))
-                            .with(jwt().authorities(ROLE_LC_SALES)))
+                            .with(scopedSalesJwt()))
                     .andExpect(status().isCreated())
                     .andReturn();
 
@@ -585,7 +594,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
             // Delete the item
             mockMvc.perform(delete("/api/sales-orders/{id}/items/{itemId}", orderId, itemId)
-                            .with(jwt().authorities(ROLE_LC_SALES)))
+                            .with(scopedSalesJwt()))
                     .andExpect(status().isNoContent());
 
             // Verify stock restored to 100
@@ -618,7 +627,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var createResult = mockMvc.perform(post("/api/sales-orders")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(createRequest))
-                            .with(jwt().authorities(ROLE_LC_SALES)))
+                            .with(scopedSalesJwt()))
                     .andExpect(status().isCreated())
                     .andReturn();
 
@@ -633,7 +642,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
             // Soft-delete item1
             mockMvc.perform(delete("/api/sales-orders/{id}/items/{itemId}", orderId, item1Id)
-                            .with(jwt().authorities(ROLE_LC_SALES)))
+                            .with(scopedSalesJwt()))
                     .andExpect(status().isNoContent());
 
             // Stock after delete item1: 92 + 3 = 95 (item1 already restored its stock)
@@ -647,7 +656,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             mockMvc.perform(patch("/api/sales-orders/{id}/status", orderId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(cancelRequest))
-                            .with(jwt().authorities(ROLE_LC_SALES)))
+                            .with(scopedSalesJwt()))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.statusName").value("Cancelled"));
 
@@ -678,7 +687,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var createResult = mockMvc.perform(post("/api/sales-orders")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(createRequest))
-                            .with(jwt().authorities(ROLE_LC_SALES)))
+                            .with(scopedSalesJwt()))
                     .andExpect(status().isCreated())
                     .andReturn();
 
@@ -692,7 +701,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("96.00"));
 
             // Soft-delete the entire order
-            mockMvc.perform(delete("/api/sales-orders/{id}", orderId).with(jwt().authorities(ROLE_LC_SALES)))
+            mockMvc.perform(delete("/api/sales-orders/{id}", orderId).with(scopedSalesJwt()))
                     .andExpect(status().isNoContent());
 
             // Verify stock restored to 100
@@ -722,7 +731,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var createResult = mockMvc.perform(post("/api/sales-orders")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(createRequest))
-                            .with(jwt().authorities(ROLE_LC_SALES)))
+                            .with(scopedSalesJwt()))
                     .andExpect(status().isCreated())
                     .andReturn();
 
@@ -740,7 +749,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             mockMvc.perform(patch("/api/sales-orders/{id}/status", orderId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(activeReq))
-                            .with(jwt().authorities(ROLE_LC_SALES)))
+                            .with(scopedSalesJwt()))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.statusName").value("Active"));
 
@@ -749,7 +758,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             mockMvc.perform(patch("/api/sales-orders/{id}/status", orderId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(pendingReq))
-                            .with(jwt().authorities(ROLE_LC_SALES)))
+                            .with(scopedSalesJwt()))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.statusName").value("Pending"));
 
@@ -758,7 +767,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             mockMvc.perform(patch("/api/sales-orders/{id}/status", orderId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(completeReq))
-                            .with(jwt().authorities(ROLE_LC_SALES)))
+                            .with(scopedSalesJwt()))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.statusName").value("Completed"));
 
@@ -800,7 +809,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     var result = mockMvc.perform(post("/api/sales-orders")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request1))
-                            .with(jwt().authorities(ROLE_LC_SALES)));
+                            .with(scopedSalesJwt()));
                     results[0] = result.andReturn().getResponse().getStatus();
                 } catch (Exception e) {
                     results[0] = 500;
@@ -815,7 +824,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     var result = mockMvc.perform(post("/api/sales-orders")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request2))
-                            .with(jwt().authorities(ROLE_LC_SALES)));
+                            .with(scopedSalesJwt()));
                     results[1] = result.andReturn().getResponse().getStatus();
                 } catch (Exception e) {
                     results[1] = 500;
@@ -873,7 +882,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             mockMvc.perform(post("/api/sales-orders")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request))
-                            .with(jwt().authorities(ROLE_LC_SALES)))
+                            .with(scopedSalesJwt()))
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.status").value(409));
 
@@ -907,7 +916,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var createResult = mockMvc.perform(post("/api/sales-orders")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(createRequest))
-                            .with(jwt().authorities(ROLE_LC_SALES)))
+                            .with(scopedSalesJwt()))
                     .andExpect(status().isCreated())
                     .andExpect(jsonPath("$.statusName").value("Draft"))
                     .andExpect(jsonPath("$.items").isEmpty())
@@ -925,7 +934,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             mockMvc.perform(post("/api/sales-orders/{id}/items", orderId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(firstItem))
-                            .with(jwt().authorities(ROLE_LC_SALES)))
+                            .with(scopedSalesJwt()))
                     .andExpect(status().isCreated())
                     .andExpect(jsonPath("$.id").exists())
                     .andExpect(jsonPath("$.quantity").value(3.00));
@@ -948,7 +957,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             mockMvc.perform(post("/api/sales-orders/{id}/items", orderId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(secondItem))
-                            .with(jwt().authorities(ROLE_LC_SALES)))
+                            .with(scopedSalesJwt()))
                     .andExpect(status().isCreated())
                     .andExpect(jsonPath("$.id").exists())
                     .andExpect(jsonPath("$.quantity").value(2.00));
@@ -978,7 +987,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             mockMvc.perform(patch("/api/sales-orders/{id}/charge", orderId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(chargeRequest))
-                            .with(jwt().authorities(ROLE_LC_SALES)))
+                            .with(scopedSalesJwt()))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.statusName").value("Completed"))
                     .andExpect(jsonPath("$.paymentMethodId").value(paymentMethodId.toString()));
@@ -1026,7 +1035,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var created = mockMvc.perform(post("/api/sales-orders")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(createRequest))
-                            .with(jwt().authorities(ROLE_LC_SALES)))
+                            .with(scopedSalesJwt()))
                     .andExpect(status().isCreated())
                     .andReturn();
 
@@ -1050,10 +1059,12 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
             var moveRequest = new SalesOrderRequest(customerId, otherStore.getId(), shiftId, "user123", null);
 
+            // The caller is authorized for BOTH stores (a multi-store manager), so the store guard
+            // passes and the request reaches the reassignment rule this test is about: the 409.
             var refused = mockMvc.perform(put("/api/sales-orders/{id}", orderId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(moveRequest))
-                            .with(jwt().authorities(ROLE_LC_SALES)))
+                            .with(scopedSalesJwt(otherStore.getId())))
                     .andExpect(status().isConflict())
                     .andReturn();
 
@@ -1066,4 +1077,81 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .isEmpty();
         }
     }
+
+    // ─── 5.12 Create order without a store claim → 403 ───────────
+
+    @Nested
+    @DisplayName("5.12 Create order without a store claim — 403")
+    class StoreClaimDenialTests {
+
+        @Test
+        @DisplayName("should deny an lc-sales principal with no store claim and persist nothing")
+        void createOrderWithoutStoreClaim_Returns403() throws Exception {
+            var variant = createTestVariant(new BigDecimal("100.00"));
+
+            var itemRequest = new SalesOrderItemRequest(
+                    null, variant.getId(), new BigDecimal("5.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
+            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(itemRequest));
+
+            // The role passes @PreAuthorize and ScopeLevel.STORE grants it a store scope, but the
+            // token carries no store claim, so the company -> country -> region -> zone -> store
+            // check in CurrentUserContext.verifyCompanyStoreAccess throws, GlobalExceptionHandler
+            // maps it to 403 and the write phase never starts.
+            mockMvc.perform(post("/api/sales-orders")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request))
+                            .with(jwt().authorities(ROLE_LC_SALES)))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.status").value(403));
+
+            // @BeforeEach deletes all orders, so an empty table proves nothing was persisted.
+            assertThat(salesOrderRepository.findAll()).isEmpty();
+            // The denied request must not have deducted stock.
+            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
+        }
+    }
+
+    /**
+     * A store-scoped {@code lc-sales} principal whose claims carry the real company -> country ->
+     * region -> zone -> store chain, so the store guard passes through the real stack instead of
+     * being short-circuited. Extra store ids are appended to the {@code company_store_id} claim for
+     * the multi-store reassignment case; the claim accepts a comma-separated list.
+     */
+    private RequestPostProcessor scopedSalesJwt(UUID... extraStoreIds) {
+        var chain = storeChain();
+        var storeIds = new ArrayList<UUID>();
+        storeIds.add(chain.storeId());
+        storeIds.addAll(List.of(extraStoreIds));
+        var storeClaim = storeIds.stream().map(UUID::toString).collect(Collectors.joining(","));
+
+        return jwt().authorities(ROLE_LC_SALES)
+                .jwt(builder -> builder.claim("preferred_username", "seller")
+                        .claim("company_id", chain.companyId().toString())
+                        .claim("company_country_id", chain.companyCountryId().toString())
+                        .claim("company_region_id", chain.regionId().toString())
+                        .claim("company_zone_id", chain.zoneId().toString())
+                        .claim("company_store_id", storeClaim));
+    }
+
+    /** The real company -> country -> region -> zone -> store ids behind the seeded store. */
+    private StoreChain storeChain() {
+        return inTransaction(() -> {
+            var s = companyStoreRepository.findById(companyStoreId).orElseThrow();
+            var z = s.getCompanyZone();
+            var r = z.getCompanyRegion();
+            var c = r.getCompanyCountry();
+            return new StoreChain(c.getCompany().getId(), c.getId(), r.getId(), z.getId(), s.getId());
+        });
+    }
+
+    /**
+     * Reads a lazy association inside a transaction: the store chain is LAZY and the service commits
+     * its own transaction, so reading it on a detached entity would throw.
+     */
+    private <T> T inTransaction(Supplier<T> reader) {
+        return new TransactionTemplate(transactionManager).execute(status -> reader.get());
+    }
+
+    /** The store chain ids, resolved inside a transaction so the lazy associations are readable. */
+    private record StoreChain(UUID companyId, UUID companyCountryId, UUID regionId, UUID zoneId, UUID storeId) {}
 }

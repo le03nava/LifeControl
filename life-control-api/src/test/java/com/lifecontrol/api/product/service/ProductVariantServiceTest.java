@@ -202,11 +202,10 @@ class ProductVariantServiceTest {
         @DisplayName("should use the store-joined projection when a store id is supplied")
         void listVariants_WithStoreId_UsesStoreScopedQuery() {
             var pageable = PageRequest.of(0, 12);
-            var storeId = UUID.randomUUID();
             var storeResponse = new ProductVariantResponse(
                     variantId,
                     productId,
-                    storeId,
+                    companyStoreId,
                     "7501234567890",
                     "PROD-001",
                     "Talla M",
@@ -219,18 +218,54 @@ class ProductVariantServiceTest {
             var expectedPage = new PageImpl<>(List.of(storeResponse), pageable, 1);
 
             when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
-            when(productVariantRepository.findStoreScopedByProductIdAndStoreId(productId, storeId, pageable))
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            when(productVariantRepository.findStoreScopedByProductIdAndStoreId(productId, companyStoreId, pageable))
                     .thenReturn(expectedPage);
 
-            Page<ProductVariantResponse> result = productVariantService.listVariants(productId, storeId, pageable);
+            Page<ProductVariantResponse> result =
+                    productVariantService.listVariants(productId, companyStoreId, pageable);
 
             assertThat(result).isNotNull();
             assertThat(result.getContent()).hasSize(1);
-            assertThat(result.getContent().get(0).companyStoreId()).isEqualTo(storeId);
+            assertThat(result.getContent().get(0).companyStoreId()).isEqualTo(companyStoreId);
             assertThat(result.getContent().get(0).stock()).isEqualByComparingTo(new BigDecimal("50.00"));
             assertThat(result.getContent().get(0).sku()).isEqualTo("PROD-001");
-            verify(productVariantRepository).findStoreScopedByProductIdAndStoreId(productId, storeId, pageable);
+            // The store-scoped branch must verify the chain derived from the store, not the raw id.
+            verify(currentUserContext)
+                    .verifyCompanyStoreAccess(companyId, companyCountryId, regionId, zoneId, companyStoreId);
+            verify(productVariantRepository).findStoreScopedByProductIdAndStoreId(productId, companyStoreId, pageable);
             verify(productVariantRepository, never()).findByProductIdAndEnabledTrueOrderByCreatedAtDesc(any(), any());
+        }
+
+        @Test
+        @DisplayName("should reject a store outside the caller's scope and read nothing")
+        void listVariants_StoreOutsideCallerScope_Throws403() {
+            var pageable = PageRequest.of(0, 12);
+            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            doThrow(new AccessDeniedException("Access denied"))
+                    .when(currentUserContext)
+                    .verifyCompanyStoreAccess(companyId, companyCountryId, regionId, zoneId, companyStoreId);
+
+            assertThatThrownBy(() -> productVariantService.listVariants(productId, companyStoreId, pageable))
+                    .isInstanceOf(AccessDeniedException.class);
+
+            verify(productVariantRepository, never()).findStoreScopedByProductIdAndStoreId(any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("should throw CompanyStoreNotFoundException when the store does not exist")
+        void listVariants_UnknownStore_ThrowsException() {
+            var pageable = PageRequest.of(0, 12);
+            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> productVariantService.listVariants(productId, companyStoreId, pageable))
+                    .isInstanceOf(CompanyStoreNotFoundException.class)
+                    .hasMessageContaining("Store not found with id");
+
+            verify(currentUserContext, never()).verifyCompanyStoreAccess(any(), any(), any(), any(), any());
+            verify(productVariantRepository, never()).findStoreScopedByProductIdAndStoreId(any(), any(), any());
         }
 
         @Test
@@ -248,6 +283,9 @@ class ProductVariantServiceTest {
             assertThat(result).isNotNull();
             assertThat(result.getContent()).hasSize(1);
             assertThat(result.getContent().get(0).id()).isEqualTo(variantId);
+            // The global branch must neither read nor guard the store.
+            verify(companyStoreRepository, never()).findById(any());
+            verify(currentUserContext, never()).verifyCompanyStoreAccess(any(), any(), any(), any(), any());
             verify(productVariantRepository).findByProductIdAndEnabledTrueOrderByCreatedAtDesc(productId, pageable);
             verify(productVariantRepository, never()).findStoreScopedByProductIdAndStoreId(any(), any(), any());
         }
@@ -751,12 +789,11 @@ class ProductVariantServiceTest {
         @DisplayName("should return variants matching exact barcode query")
         void searchVariants_ExactBarcode() {
             var query = "7501234567890";
-            var storeId = UUID.randomUUID();
             var pageable = PageRequest.of(0, 20);
             var searchResponse = new ProductVariantSearchResponse(
                     variantId,
                     productId,
-                    storeId,
+                    companyStoreId,
                     "7501234567890",
                     "PROD-001",
                     "Talla M",
@@ -770,10 +807,11 @@ class ProductVariantServiceTest {
                     testVariant.getUpdatedAt());
             var expectedPage = new PageImpl<>(List.of(searchResponse), pageable, 1);
 
-            when(productVariantRepository.searchByQuery(query, storeId, pageable))
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            when(productVariantRepository.searchByQuery(query, companyStoreId, pageable))
                     .thenReturn(expectedPage);
 
-            var result = productVariantService.searchVariants(query, storeId, pageable);
+            var result = productVariantService.searchVariants(query, companyStoreId, pageable);
 
             assertThat(result).isNotNull();
             assertThat(result.getContent()).hasSize(1);
@@ -784,7 +822,57 @@ class ProductVariantServiceTest {
             assertThat(item.productName()).isEqualTo("Producto Test");
             assertThat(item.productSku()).isEqualTo("PROD-001");
             assertThat(item.variantName()).isEqualTo("Talla M");
-            verify(productVariantRepository).searchByQuery(query, storeId, pageable);
+            verify(productVariantRepository).searchByQuery(query, companyStoreId, pageable);
+        }
+
+        @Test
+        @DisplayName("should verify the derived store chain before querying")
+        void searchVariants_VerifiesDerivedChain() {
+            var query = "7501234567890";
+            var pageable = PageRequest.of(0, 20);
+
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            when(productVariantRepository.searchByQuery(query, companyStoreId, pageable))
+                    .thenReturn(Page.empty(pageable));
+
+            productVariantService.searchVariants(query, companyStoreId, pageable);
+
+            // The guard must receive the chain derived from the store, not the raw store id.
+            verify(currentUserContext)
+                    .verifyCompanyStoreAccess(companyId, companyCountryId, regionId, zoneId, companyStoreId);
+        }
+
+        @Test
+        @DisplayName("should reject a store outside the caller's scope and read nothing")
+        void searchVariants_StoreOutsideCallerScope_Throws403() {
+            var query = "7501234567890";
+            var pageable = PageRequest.of(0, 20);
+
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            doThrow(new AccessDeniedException("Access denied"))
+                    .when(currentUserContext)
+                    .verifyCompanyStoreAccess(companyId, companyCountryId, regionId, zoneId, companyStoreId);
+
+            assertThatThrownBy(() -> productVariantService.searchVariants(query, companyStoreId, pageable))
+                    .isInstanceOf(AccessDeniedException.class);
+
+            verify(productVariantRepository, never()).searchByQuery(any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("should throw CompanyStoreNotFoundException when the store does not exist")
+        void searchVariants_UnknownStore_ThrowsException() {
+            var query = "7501234567890";
+            var pageable = PageRequest.of(0, 20);
+
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> productVariantService.searchVariants(query, companyStoreId, pageable))
+                    .isInstanceOf(CompanyStoreNotFoundException.class)
+                    .hasMessageContaining("Store not found with id");
+
+            verify(currentUserContext, never()).verifyCompanyStoreAccess(any(), any(), any(), any(), any());
+            verify(productVariantRepository, never()).searchByQuery(any(), any(), any());
         }
 
         @Test
@@ -797,6 +885,9 @@ class ProductVariantServiceTest {
 
             assertThat(result).isNotNull();
             assertThat(result.getContent()).isEmpty();
+            // The blank short-circuit must neither read nor guard the store.
+            verify(companyStoreRepository, never()).findById(any());
+            verify(currentUserContext, never()).verifyCompanyStoreAccess(any(), any(), any(), any(), any());
             verify(productVariantRepository, never()).searchByQuery(any(), any(), any());
         }
 
@@ -810,6 +901,9 @@ class ProductVariantServiceTest {
 
             assertThat(result).isNotNull();
             assertThat(result.getContent()).isEmpty();
+            // The blank short-circuit must neither read nor guard the store.
+            verify(companyStoreRepository, never()).findById(any());
+            verify(currentUserContext, never()).verifyCompanyStoreAccess(any(), any(), any(), any(), any());
             verify(productVariantRepository, never()).searchByQuery(any(), any(), any());
         }
 
@@ -817,12 +911,11 @@ class ProductVariantServiceTest {
         @DisplayName("should pass pageable through to repository")
         void searchVariants_Pagination() {
             var query = "test";
-            var storeId = UUID.randomUUID();
             var pageable = PageRequest.of(1, 5);
             var searchResponse = new ProductVariantSearchResponse(
                     variantId,
                     productId,
-                    storeId,
+                    companyStoreId,
                     "7501234567890",
                     "PROD-001",
                     "Talla M",
@@ -836,14 +929,15 @@ class ProductVariantServiceTest {
                     testVariant.getUpdatedAt());
             var expectedPage = new PageImpl<>(List.of(searchResponse), pageable, 1);
 
-            when(productVariantRepository.searchByQuery(query, storeId, pageable))
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            when(productVariantRepository.searchByQuery(query, companyStoreId, pageable))
                     .thenReturn(expectedPage);
 
-            var result = productVariantService.searchVariants(query, storeId, pageable);
+            var result = productVariantService.searchVariants(query, companyStoreId, pageable);
 
             assertThat(result.getNumber()).isEqualTo(1);
             assertThat(result.getSize()).isEqualTo(5);
-            verify(productVariantRepository).searchByQuery(query, storeId, pageable);
+            verify(productVariantRepository).searchByQuery(query, companyStoreId, pageable);
         }
     }
 }

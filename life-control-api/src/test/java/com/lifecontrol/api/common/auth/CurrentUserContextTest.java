@@ -1516,13 +1516,56 @@ class CurrentUserContextTest {
                             UUID.randomUUID()));
         }
 
+        // ── lc-sales ──
+
+        @Test
+        @DisplayName("lc-sales can access assigned store with all hierarchy matching")
+        void salesUserCanAccessMatchingStore() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-sales"));
+            UUID companyId = UUID.randomUUID();
+            UUID countryId = UUID.randomUUID();
+            UUID regionId = UUID.randomUUID();
+            UUID zoneId = UUID.randomUUID();
+            UUID storeId = UUID.randomUUID();
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
+            when(jwt.getClaim("company_country_id")).thenReturn(countryId.toString());
+            when(jwt.getClaim("company_region_id")).thenReturn(regionId.toString());
+            when(jwt.getClaim("company_zone_id")).thenReturn(zoneId.toString());
+            when(jwt.getClaim("company_store_id")).thenReturn(storeId.toString());
+
+            assertDoesNotThrow(
+                    () -> currentUserContext.verifyCompanyStoreAccess(companyId, countryId, regionId, zoneId, storeId));
+        }
+
+        @Test
+        @DisplayName("lc-sales is denied at the claim path when a required hierarchy claim is missing")
+        void salesUserWithoutRequiredClaimIsDenied() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-sales"));
+            UUID companyId = UUID.randomUUID();
+            UUID countryId = UUID.randomUUID();
+            UUID storeId = UUID.randomUUID();
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
+            // company_country_id (a required level) is deliberately absent: denial happens at the
+            // country level, so no deeper claim is ever read.
+
+            var denied = assertThrows(
+                    AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyStoreAccess(
+                            companyId, countryId, UUID.randomUUID(), UUID.randomUUID(), storeId));
+
+            // The claim-path denial (not "Insufficient role for company-store access") proves that
+            // lc-sales was routed into the store branch rather than dropped by an absence from
+            // ScopeLevel.STORE.
+            assertThat(denied.getMessage()).isEqualTo("Access denied to company country: " + countryId);
+        }
+
         // ── lc-receiving ──
 
         @Test
-        @DisplayName("ScopeLevel.STORE lists exactly the store roles, including lc-receiving")
-        void storeScopeListsReceivingRole() {
+        @DisplayName("ScopeLevel.STORE lists exactly the store roles, including lc-receiving and lc-sales")
+        void storeScopeListsStoreRoles() {
             assertThat(ScopeLevel.STORE.roleNames())
-                    .containsExactly(Roles.COMPANY_STORE, Roles.COMPANY_STORE_READ, Roles.RECEIVING);
+                    .containsExactly(Roles.COMPANY_STORE, Roles.COMPANY_STORE_READ, Roles.RECEIVING, Roles.SALES);
         }
 
         @Test
