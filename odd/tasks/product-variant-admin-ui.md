@@ -1,11 +1,11 @@
 # ODD feature: product-variant-admin-ui
 
 **Repository**: LifeControl — component `life-control-app-angular/` (+ backend integration tests in `life-control-api/`)
-**Branch**: `feat/product-variant-admin-ui`
-**Worktree**: `~/workspace/LifeControl-worktrees/feat-product-variant-admin-ui`
-**Base**: `main` @ `7958dd0` (PR #136 merge)
-**Status**: S1 complete — 6 commits on this branch, plus one chained branch for a pre-existing
-backend gap found by the review. S2 pending.
+**Branch**: `feat/variant-definitions-ui`
+**Worktree**: `~/workspace/LifeControl-worktrees/feat/variant-definitions-ui`
+**Base**: `feat/variant-include-disabled` (the backend slice PR), itself `main` @ `7958dd0` (PR #136 merge)
+**Status**: S1 complete — 7 commits on this branch, stacked on the one-commit backend slice. Delivery
+split into three PRs (see `## Delivery`). S2 pending.
 **Created**: 2026-09-21
 **Risk**: **high** — route guard and role-set change (`assets/risk-classification-matrix.md`: "Auth, permissions, role, or guard change")
 
@@ -53,12 +53,12 @@ Error mapping the UI must render: 404 `ResourceNotFoundException`, 409 `Conflict
 | # | Decision | Value |
 |---|---|---|
 | D1 | Roles that reach the new screens | **`lc-admin` + `lc-sales`**, mirroring the backend's `@PreAuthorize`. Requires adding `LC_SALES` to `core/security/roles.ts` and broadening the `products` parent gate. |
-| D2 | Delivery structure | **One feature, two slices.** S1 variant definitions, S2 per-store stock and prices. Minimum two work-unit commits; one PR or two sequential PRs decided at delivery. |
+| D2 | Delivery structure | **One feature, two slices.** S1 variant definitions, S2 per-store stock and prices. Minimum two work-unit commits. **Delivery decided at the S1 gate: three PRs** (see `## Delivery`), superseding the earlier "one PR or two sequential PRs". |
 | D3 | Keycloak claim mappers | **Out of scope**, declared follow-up. This feature assumes the claim chain exists, exactly as `store-claim-hardening` did. |
 | D4 | How the parent gate is broadened | **Follow the `companies.routes.ts` mold**: the parent gate becomes the union any child needs (`lc-admin` + `lc-sales`) and **every pre-existing child route is re-gated to `lc-admin`**, so the products ABM does not open to sales. A route-config spec must prove it. |
 | D5 | How `lc-sales` reaches the variant screens in S1 | **Deferred to S2.** S1 ships the screens with their `VARIANT_ROLES` gates and reaches them from the product list (admin), because variants are nested under a product and the only product-picking UI is admin-only. The sales entry point is built in S2 with the per-store stock editor, which is where sales has a real job. Declared consequence: `lc-sales` has no discoverable entry until S2. |
 | D6 | The re-enable gap the review found (F2) | **Fix it properly**: add the opt-in `includeDisabled` to the variant list endpoint, mirroring `listProducts`, plus a "Mostrar deshabilitadas" toggle. |
-| D7 | The pre-existing backend gap the review found (F1) | **Its own branch and PR, chained to this one**: `fix/product-abm-authz`. |
+| D7 | The pre-existing backend gap the review found (F1) | **Its own branch and PR, on `main`, deliberately not stacked on this one**: `fix/product-write-authz`. |
 
 ### Design facts established by read-only exploration (not open decisions)
 
@@ -166,6 +166,56 @@ New files live under the existing products feature layout, mirroring `suppliers/
       insert path end to end; `JD-B-006` proves one definition serves two stores with distinct stock.
 - [ ] T13 — S2 gate: frontend gates plus `./gradlew test --no-daemon` for the touched backend tests.
       Work-unit commit.
+
+## Delivery (3 PRs)
+
+Decided at the S1 gate. The plan was one PR for the whole of S1 (~3471 changed lines). It was sliced
+once, honestly, and the outcome is recorded here.
+
+| PR | Branch | Base | Changed lines | What it carries |
+|---|---|---|---|---|
+| A | `fix/product-write-authz` | `main` | **410** | Finding F1: the three unguarded `/api/products` writes. |
+| B | `feat/variant-include-disabled` | `main` | **219** | The backend opt-in `includeDisabled`, alone. |
+| C | `feat/variant-definitions-ui` | `feat/variant-include-disabled` | **2976** + the ODD record | This branch: the Angular screens, plus the record. |
+
+**Why A is not stacked on C.** It was, and that was backwards: it queued a CRITICAL security fix
+behind a 3471-line review. A security fix wants the shortest path to `main`, and its review is the
+cheapest of the three.
+
+**Why B is its own PR.** It is the only part of the feature with an invariant worth reviewing in
+isolation: the `includeDisabled` opt-in must not weaken the store-scoped and `search` reads, which
+keep filtering `enabled = true` unconditionally because they feed the purchase-order picker and the
+point of sale. Separating it keeps that invariant out of 3000 lines of Angular.
+
+**What each PR measures, and why one number is left open.** B is 219 changed lines across 6
+backend files. C is 2976 changed lines of Angular surface plus the ODD record; at the moment of the
+split that record was 276 lines, so the original single-branch artifact measured
+219 + 2976 + 276 = **3471**, and that decomposition is fixed history.
+
+C's *total* is deliberately not restated here. Writing this record is itself part of C's diff, so
+any total committed into the record is wrong the moment it is committed, and every attempt to
+correct it moves the number again. Read C's total from the PR; read the Angular surface here
+(2976), which does not move.
+
+**Split verification.** Branch C was rebuilt from the original single branch by replaying its seven
+web commits onto B's tip. The resulting tree is **identical** to the original
+(`fab4a2dd8b3e0b91872a29fea1dbcfbccdf0b593` on both), so the restructure changed the delivery shape
+and not one byte of the artifact.
+
+**`size:exception` required for C.** One honest slicing pass cannot bring C under the 400-line
+review budget: its specs alone are ~1330 lines (`product-variant-list.spec.ts` 393,
+`product-variant.service.spec.ts` 330, `product-variant-edit.spec.ts` 282,
+`product-variant-form.spec.ts` 153, `products.routes.spec.ts` 80, `roles.spec.ts` 90). Compressing
+tests or dropping documentation to fit the number would trade review honesty for a metric. Repo
+precedent: PR #134 merged at 3307 changed lines.
+
+**A lands at 410**, i.e. 10 over budget: 3 lines are the fix, 303 the security test that proves it,
+2 the endpoint-map row, and the rest the record. Separating the evidence from the fix to shave 10
+lines would be worse than the overage.
+
+**Chain hygiene.** Retarget C's base **before** merging B. Deleting the base branch of an open PR
+closes it, and it can be neither reopened nor retargeted. A is independent of both and may land in
+any order; if it lands before B, B needs a trivial rebase (disjoint hunks in `ProductController`).
 
 ## Review workload
 
