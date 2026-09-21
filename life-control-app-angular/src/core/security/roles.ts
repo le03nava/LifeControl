@@ -50,8 +50,9 @@ export const CLIENT_ROLES = [
  * `ProductController`, `ProductVariantStoreController` and
  * `ProductVariantSearchController`, which all gate on
  * `hasAnyRole('lc-admin','lc-sales')`. A flat allow-list, not a role
- * hierarchy, and the single list shared by the `products` route gates and the
- * navigation entry that exposes the variant screens.
+ * hierarchy. The `products` route gates are its only consumer today; the
+ * navigation entry that exposes the variant screens arrives with the sales
+ * flow in the next slice.
  */
 export const VARIANT_ROLES = [LC_ADMIN, LC_SALES];
 

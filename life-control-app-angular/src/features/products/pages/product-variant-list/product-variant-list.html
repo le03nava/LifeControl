@@ -8,6 +8,16 @@
     </button>
   </app-page-header>
 
+  <!-- Disabled filter: the default read excludes soft-deleted definitions -->
+  <div class="filters-section">
+    <mat-slide-toggle
+      [checked]="includeDisabled()"
+      (change)="onIncludeDisabledChange($event.checked)"
+    >
+      Mostrar deshabilitadas
+    </mat-slide-toggle>
+  </div>
+
   <div class="table-section">
     @if (loading()) {
       <!-- Loading State -->
@@ -80,6 +90,11 @@
                         <mat-icon>block</mat-icon>
                       </button>
                     } @else {
+                      <!--
+                        Only reachable with the filter on: the default read
+                        excludes disabled definitions, so this row cannot appear
+                        while "Mostrar deshabilitadas" is off.
+                      -->
                       <button
                         mat-icon-button
                         (click)="enableVariant(row.id)"

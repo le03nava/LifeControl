@@ -45,9 +45,11 @@ export const productRoutes: Routes = [
         loadComponent: () => import('./pages/product-edit/product-edit').then((m) => m.ProductEdit),
       },
       {
-        // `create` is declared before the `edit/:id/variants` list below so the
-        // literal segment is never shadowed by the parameterised one. Mirrors
-        // the `suppliers/create` + `suppliers/edit/:supplierId` sibling order.
+        // Declaration order is not load-bearing: Angular's `defaultUrlMatcher`
+        // requires full segment consumption and this path has a different
+        // segment count than `edit/:id/variants`, so it cannot be shadowed.
+        // The order still mirrors the `suppliers/create` +
+        // `suppliers/edit/:supplierId` sibling pair.
         path: 'edit/:id/variants/create',
         canActivate: [keycloakRoleGuard],
         data: { roles: VARIANT_ROLES, clientId: CLIENT_ID },

@@ -16,6 +16,7 @@ import { MatChipsModule } from '@angular/material/chips';
 import { MatDialog } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
 import { MatPaginatorModule } from '@angular/material/paginator';
+import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatTableModule } from '@angular/material/table';
 import { PageHeader } from '@shared/ui';
 import { httpErrorMessage } from '@shared/data';
@@ -49,7 +50,9 @@ const EMPTY_PAGE: Page<ProductVariant> = {
  *
  * `DELETE` is a soft delete that flips `enabled` to `false`; `PATCH .../enable`
  * brings the variant back. The user-facing actions are therefore "Deshabilitar"
- * and "Habilitar", never a hard delete.
+ * and "Habilitar", never a hard delete. Since the default read excludes the
+ * soft-deleted definitions, the "Mostrar deshabilitadas" toggle opts the list
+ * into them (`includeDisabled`); only then can a disabled row offer "Habilitar".
  */
 @Component({
   selector: 'app-product-variant-list',
@@ -61,6 +64,7 @@ const EMPTY_PAGE: Page<ProductVariant> = {
     MatButtonModule,
     MatChipsModule,
     MatPaginatorModule,
+    MatSlideToggleModule,
     MatCardModule,
     PageHeader,
   ],
@@ -79,6 +83,15 @@ export class ProductVariantList {
 
   readonly pageSize = signal(12);
   readonly pageIndex = signal(0);
+
+  /**
+   * Opt-in for the disabled global definitions.
+   *
+   * The backend excludes soft-deleted variants by default, so without this the
+   * "Habilitar" affordance could never render. Only meaningful on the
+   * global-definition read (this page always calls it without a `storeId`).
+   */
+  readonly includeDisabled = signal(false);
 
   /** The owning product, only for the page header. */
   readonly productResource = rxResource({
@@ -99,6 +112,7 @@ export class ProductVariantList {
       productId: this.productId(),
       page: this.pageIndex(),
       size: this.pageSize(),
+      includeDisabled: this.includeDisabled(),
     }),
     stream: ({ params }) => {
       if (!params.productId) {
@@ -110,6 +124,7 @@ export class ProductVariantList {
         undefined,
         params.page,
         params.size,
+        params.includeDisabled,
       );
     },
   });
@@ -183,6 +198,18 @@ export class ProductVariantList {
   onPageChange(event: { pageIndex: number; pageSize: number }): void {
     this.pageIndex.set(event.pageIndex);
     this.pageSize.set(event.pageSize);
+  }
+
+  /**
+   * Flips the "show disabled" filter.
+   *
+   * Resetting the page keeps the paginator honest: flipping the filter changes
+   * the result set, so staying on the old page could land on an empty page. The
+   * signal feeds the resource params, which reloads the list.
+   */
+  onIncludeDisabledChange(includeDisabled: boolean): void {
+    this.includeDisabled.set(includeDisabled);
+    this.pageIndex.set(0);
   }
 
   onRetry(): void {

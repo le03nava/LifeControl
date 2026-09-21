@@ -11,6 +11,12 @@
   margin: 0 auto;
 }
 
+// Filter row for the opt-in disabled definitions. Mirrors the shared
+// entity-list section so the page keeps its spacing source in the stylesheet.
+.filters-section {
+  margin-bottom: var(--space-sm);
+}
+
 .error-state {
   display: flex;
   flex-direction: column;

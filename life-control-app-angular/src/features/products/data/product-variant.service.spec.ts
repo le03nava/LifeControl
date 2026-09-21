@@ -108,6 +108,36 @@ describe('ProductVariantService', () => {
       await promise;
     });
 
+    it('should omit includeDisabled from the request by default', async () => {
+      const promise = firstValueFrom(service.getVariants('prod-1'));
+
+      const req = httpMock.expectOne((r) => r.url === `${productsUrl}/prod-1/variants`);
+      expect(req.request.params.has('includeDisabled')).toBe(false);
+      req.flush(variantPage([]));
+
+      await promise;
+    });
+
+    it('should omit includeDisabled when explicitly passed as false', async () => {
+      const promise = firstValueFrom(service.getVariants('prod-1', undefined, 0, 12, false));
+
+      const req = httpMock.expectOne((r) => r.url === `${productsUrl}/prod-1/variants`);
+      expect(req.request.params.has('includeDisabled')).toBe(false);
+      req.flush(variantPage([]));
+
+      await promise;
+    });
+
+    it('should send includeDisabled=true only when the caller opts in', async () => {
+      const promise = firstValueFrom(service.getVariants('prod-1', undefined, 0, 12, true));
+
+      const req = httpMock.expectOne((r) => r.url === `${productsUrl}/prod-1/variants`);
+      expect(req.request.params.get('includeDisabled')).toBe('true');
+      req.flush(variantPage([]));
+
+      await promise;
+    });
+
     it('should map a 404 to the not-found message on the error signal', async () => {
       const promise = firstValueFrom(service.getVariants('prod-missing'));
 

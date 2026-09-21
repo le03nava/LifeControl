@@ -74,14 +74,27 @@ describe('ProductVariantList', () => {
     } = {},
   ) {
     const productId = options.productId !== undefined ? options.productId : mockProductId;
-    const variants = options.variants ?? [createVariant(1), createVariant(2, { enabled: false })];
+    const variants = options.variants ?? [createVariant(1), createVariant(2)];
 
     variantServiceMock = {
       getVariants: options.variantsError
         ? vi.fn().mockReturnValue(throwError(() => new HttpErrorResponse({ status: 401 })))
         : options.variantsPending
           ? vi.fn().mockReturnValue(new Subject<Page<ProductVariant>>())
-          : vi.fn().mockReturnValue(of(createPage(variants, options.totalPages ?? 1))),
+          : vi.fn(
+              (
+                _productId: string,
+                _storeId?: string,
+                _page = 0,
+                _size = 12,
+                includeDisabled = false,
+              ) => {
+                // Mirrors the real backend: only the opt-in read returns the
+                // soft-deleted (disabled) global definitions.
+                const visible = includeDisabled ? variants : variants.filter((v) => v.enabled);
+                return of(createPage(visible, options.totalPages ?? 1));
+              },
+            ),
       deleteVariant: vi.fn().mockReturnValue(of(void 0)),
       enableVariant: vi.fn().mockReturnValue(of(createVariant(1))),
     };
@@ -128,9 +141,15 @@ describe('ProductVariantList', () => {
       expect(component.productId()).toBe(mockProductId);
     });
 
-    it('should fetch the variants without a storeId on init', () => {
+    it('should fetch the variants without a storeId on init and without disabled ones', () => {
       setup();
-      expect(variantServiceMock.getVariants).toHaveBeenCalledWith(mockProductId, undefined, 0, 12);
+      expect(variantServiceMock.getVariants).toHaveBeenCalledWith(
+        mockProductId,
+        undefined,
+        0,
+        12,
+        false,
+      );
     });
 
     it('should load the product for the header', () => {
@@ -151,8 +170,8 @@ describe('ProductVariantList', () => {
       expect(el.textContent).toContain('SKU-001');
     });
 
-    it('should render the identity columns and the enabled state', async () => {
-      setup();
+    it('should render the enabled state without offering Habilitar by default', async () => {
+      setup({ variants: [createVariant(1), createVariant(2)] });
       await fixture.whenStable();
       fixture.detectChanges();
 
@@ -164,7 +183,10 @@ describe('ProductVariantList', () => {
       expect(el.textContent).toContain('Talla 2');
       expect(el.textContent).toContain('77900000001');
       expect(el.textContent).toContain('Habilitada');
-      expect(el.textContent).toContain('Deshabilitada');
+      expect(el.textContent).not.toContain('Deshabilitada');
+      expect(
+        fixture.debugElement.query(By.css('button[aria-label="Habilitar variante"]')),
+      ).toBeNull();
     });
 
     it('should show the loading skeleton while the request is in flight', () => {
@@ -210,7 +232,45 @@ describe('ProductVariantList', () => {
 
       expect(component.pageIndex()).toBe(1);
       expect(component.pageSize()).toBe(24);
-      expect(variantServiceMock.getVariants).toHaveBeenCalledWith(mockProductId, undefined, 1, 24);
+      expect(variantServiceMock.getVariants).toHaveBeenCalledWith(
+        mockProductId,
+        undefined,
+        1,
+        24,
+        false,
+      );
+    });
+  });
+
+  describe('Disabled filter', () => {
+    it('should not request disabled variants while the toggle is off', () => {
+      setup();
+      expect(component.includeDisabled()).toBe(false);
+      expect(variantServiceMock.getVariants).toHaveBeenCalledWith(
+        mockProductId,
+        undefined,
+        0,
+        12,
+        false,
+      );
+    });
+
+    it('should request disabled variants and reload when the toggle turns on', async () => {
+      setup();
+      variantServiceMock.getVariants.mockClear();
+
+      component.onIncludeDisabledChange(true);
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(component.includeDisabled()).toBe(true);
+      expect(variantServiceMock.getVariants).toHaveBeenCalledWith(
+        mockProductId,
+        undefined,
+        0,
+        12,
+        true,
+      );
     });
   });
 
@@ -261,11 +321,32 @@ describe('ProductVariantList', () => {
   });
 
   describe('Enable flow', () => {
-    it('should re-enable the variant and reload the list', () => {
-      setup();
-      const reloadSpy = vi.spyOn(component.variantsResource, 'reload');
+    it('should reveal the disabled row and re-enable it from the rendered button', async () => {
+      setup({ variants: [createVariant(1), createVariant(2, { enabled: false })] });
+      await fixture.whenStable();
+      fixture.detectChanges();
 
-      component.enableVariant('var-2');
+      // Toggle off: the backend would not return the disabled row.
+      expect(
+        fixture.debugElement.query(By.css('button[aria-label="Habilitar variante"]')),
+      ).toBeNull();
+
+      // Toggle on: the disabled row now renders with the Habilitar affordance.
+      component.onIncludeDisabledChange(true);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const el = fixture.nativeElement as HTMLElement;
+      expect(el.textContent).toContain('Deshabilitada');
+
+      const reloadSpy = vi.spyOn(component.variantsResource, 'reload');
+      const enableButton = fixture.debugElement.query(
+        By.css('button[aria-label="Habilitar variante"]'),
+      );
+      expect(enableButton).toBeTruthy();
+      (enableButton.nativeElement as HTMLButtonElement).click();
+      fixture.detectChanges();
 
       expect(variantServiceMock.enableVariant).toHaveBeenCalledWith(mockProductId, 'var-2');
       expect(reloadSpy).toHaveBeenCalled();
@@ -291,12 +372,13 @@ describe('ProductVariantList', () => {
       await fixture.whenStable();
       fixture.detectChanges();
 
-      expect(() => component.variants()).not.toThrow();
       expect(component.variants()).toBeUndefined();
+      expect(component.hasMultiplePages()).toBe(false);
       expect(component.error()).toBeTruthy();
 
       const el: HTMLElement = fixture.nativeElement;
       expect(el.querySelector('.error-state')).toBeTruthy();
+      expect(el.querySelector('tr.mat-mdc-row')).toBeNull();
       expect(el.querySelector('.loading-skeleton')).toBeNull();
       expect(el.textContent).toContain('Tu sesión expiró');
     });

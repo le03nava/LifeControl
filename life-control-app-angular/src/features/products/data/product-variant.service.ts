@@ -58,16 +58,26 @@ export class ProductVariantService {
    * store in play" and answers with the global definitions. An empty string would
    * be rejected as an invalid UUID, so it is never sent.
    *
+   * By default the global-definition read excludes the soft-deleted definitions
+   * (`enabled = false`). `includeDisabled` opts back into them and is sent only
+   * when `true`, so a default call stays byte-identical to the original URL. The
+   * flag is honored only on the global-definition branch (no `storeId`): the
+   * store-scoped and search reads always exclude disabled variants, so callers
+   * must never combine it with `storeId`.
+   *
    * @param productId the product whose variants are wanted
    * @param storeId the store that narrows the list and fills in prices and stock
    * @param page zero-based page index
    * @param size page size
+   * @param includeDisabled when `true`, the global-definition read also returns the
+   * soft-deleted definitions; defaults to `false` (excludes them)
    */
   getVariants(
     productId: string,
     storeId?: string,
     page = 0,
     size = 12,
+    includeDisabled = false,
   ): Observable<Page<ProductVariant>> {
     this._loading.set(true);
     this._error.set(null);
@@ -76,6 +86,10 @@ export class ProductVariantService {
 
     if (storeId) {
       params = params.set('storeId', storeId);
+    }
+
+    if (includeDisabled) {
+      params = params.set('includeDisabled', 'true');
     }
 
     return this.http
