@@ -1,5 +1,6 @@
 package com.lifecontrol.api.salesorder.service;
 
+import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.customer.exception.CustomerNotFoundException;
 import com.lifecontrol.api.customer.repository.CustomerRepository;
 import com.lifecontrol.api.paymentmethod.exception.PaymentMethodNotFoundException;
@@ -33,6 +34,7 @@ import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.status.repository.StatusRepository;
 import com.lifecontrol.api.status.service.StatusValidator;
 import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
+import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -85,6 +87,7 @@ public class SalesOrderService {
     private final ProductVariantStoreStockRepository productVariantStoreStockRepository;
     private final StatusRepository statusRepository;
     private final PaymentMethodRepository paymentMethodRepository;
+    private final CurrentUserContext currentUserContext;
 
     public SalesOrderService(
             SalesOrderRepository salesOrderRepository,
@@ -95,7 +98,8 @@ public class SalesOrderService {
             ProductVariantRepository productVariantRepository,
             ProductVariantStoreStockRepository productVariantStoreStockRepository,
             StatusRepository statusRepository,
-            PaymentMethodRepository paymentMethodRepository) {
+            PaymentMethodRepository paymentMethodRepository,
+            CurrentUserContext currentUserContext) {
         this.salesOrderRepository = salesOrderRepository;
         this.itemRepository = itemRepository;
         this.customerRepository = customerRepository;
@@ -105,6 +109,7 @@ public class SalesOrderService {
         this.productVariantStoreStockRepository = productVariantStoreStockRepository;
         this.statusRepository = statusRepository;
         this.paymentMethodRepository = paymentMethodRepository;
+        this.currentUserContext = currentUserContext;
     }
 
     // ─── Sales Order CRUD ────────────────────────────────────────────────
@@ -702,10 +707,39 @@ public class SalesOrderService {
         }
     }
 
+    /**
+     * Resolves the store an order belongs to and authorizes the caller for it.
+     *
+     * <p>The request carries only the store id, so the company &rarr; country &rarr; region &rarr;
+     * zone &rarr; store chain the guard needs is derived from the store itself. This mirrors the
+     * check every other store-scoped write applies ({@code StoreLocationService},
+     * {@code StoreInventorySettingsService}, {@code GoodsReceiptService},
+     * {@code ProductVariantService}); {@code lc-admin} is exempt inside
+     * {@link CurrentUserContext#verifyCompanyStoreAccess}. Without it any principal holding
+     * {@code lc-sales} could create or move an order onto a store of another company, which is the
+     * precondition that makes the store-scoped variant search readable.</p>
+     *
+     * @throws CompanyStoreNotFoundException when the store does not exist
+     * @throws org.springframework.security.access.AccessDeniedException when the caller holds no
+     *     grant for the store's scope (403)
+     */
     private void validateCompanyStoreExists(UUID id) {
-        if (!companyStoreRepository.existsById(id)) {
-            throw new CompanyStoreNotFoundException(id);
-        }
+        var store = companyStoreRepository.findById(id).orElseThrow(() -> new CompanyStoreNotFoundException(id));
+        verifyStoreAccess(store);
+    }
+
+    /**
+     * Authorizes the caller for the store an order references, deriving the full
+     * company &rarr; country &rarr; region &rarr; zone &rarr; store chain from the store itself
+     * because the request carries only the store id.
+     */
+    private void verifyStoreAccess(CompanyStore store) {
+        var zone = store.getCompanyZone();
+        var region = zone.getCompanyRegion();
+        var country = region.getCompanyCountry();
+
+        currentUserContext.verifyCompanyStoreAccess(
+                country.getCompany().getId(), country.getId(), region.getId(), zone.getId(), store.getId());
     }
 
     private void validateShiftExists(UUID id) {

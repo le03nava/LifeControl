@@ -37,19 +37,29 @@ public enum ScopeLevel {
     /**
      * Company-store level, scoped by the {@code company_store_id} claim.
      *
-     * <p>{@link Roles#RECEIVING} belongs in this list because the list is what makes a receiving
-     * caller's broadest granted scope be this level: {@code CurrentUserContext#verifyCompanyStoreAccess}
-     * verifies the broadest role granted within the company&rarr;store hierarchy, so a role absent
-     * from {@code roleNames()} would leave such a caller with no scope in range and no way to pass
-     * the store check at all. Because the dispatch is by broadest granted scope, a caller who also
-     * holds a broader role keeps that broader scope.</p>
+     * <p>{@link Roles#RECEIVING} and {@link Roles#SALES} belong in this list because the list is what
+     * makes such a caller's broadest granted scope be this level:
+     * {@code CurrentUserContext#verifyCompanyStoreAccess} verifies the broadest role granted within
+     * the company&rarr;store hierarchy, so a role absent from {@code roleNames()} would leave such a
+     * caller with no scope in range and no way to pass the store check at all. {@code lc-receiving}
+     * is the receiving persona and {@code lc-sales} is the sales persona (the frontend gates the
+     * whole sales module on {@code lc-admin}/{@code lc-sales}); both are store-scoped and both reach
+     * store-scoped endpoints through this same check. Because the dispatch is by broadest granted
+     * scope, a caller who also holds a broader role keeps that broader scope.</p>
      *
      * <p>The parent levels of the store path are verified against {@linkplain #claim() claims}, not
      * against the parent roles ({@code verifyLevel} never calls {@code hasAnyRole}), so a caller
-     * holding only {@code lc-receiving} must carry the {@code company_id} &rarr;
+     * holding only {@code lc-receiving} or {@code lc-sales} must carry the {@code company_id} &rarr;
      * {@code company_store_id} claim path in the token.</p>
      */
-    STORE("company_store_id", "company store", false, Roles.COMPANY_STORE, Roles.COMPANY_STORE_READ, Roles.RECEIVING);
+    STORE(
+            "company_store_id",
+            "company store",
+            false,
+            Roles.COMPANY_STORE,
+            Roles.COMPANY_STORE_READ,
+            Roles.RECEIVING,
+            Roles.SALES);
 
     private static final List<ScopeLevel> ORDERED = List.of(values());
 

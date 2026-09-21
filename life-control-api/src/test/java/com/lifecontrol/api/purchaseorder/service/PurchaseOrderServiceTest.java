@@ -6,10 +6,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
@@ -65,6 +67,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.security.access.AccessDeniedException;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("PurchaseOrderService Tests")
@@ -102,6 +105,9 @@ class PurchaseOrderServiceTest {
 
     @Mock
     private ApplicationEventPublisher eventPublisher;
+
+    @Mock
+    private CurrentUserContext currentUserContext;
 
     @InjectMocks
     private PurchaseOrderService service;
@@ -474,6 +480,23 @@ class PurchaseOrderServiceTest {
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("PURCHASE_ORDER");
         }
+
+        @Test
+        @DisplayName("should throw AccessDeniedException when the caller holds no grant for the store")
+        void throwsWhenStoreOutsideCallerScope() {
+            var request = new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, null, List.of());
+            when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(supplier));
+            when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
+            doThrow(new AccessDeniedException("Access denied"))
+                    .when(currentUserContext)
+                    .verifyCompanyStoreAccess(companyId, companyCountryId, regionId, zoneId, storeId);
+
+            assertThatThrownBy(() -> service.createPurchaseOrder(request)).isInstanceOf(AccessDeniedException.class);
+
+            // The guard must receive the chain derived from the store, not the raw store id.
+            verify(currentUserContext).verifyCompanyStoreAccess(companyId, companyCountryId, regionId, zoneId, storeId);
+            verify(purchaseOrderRepository, never()).save(any(PurchaseOrder.class));
+        }
     }
 
     // ─── updatePurchaseOrder ─────────────────────────────────────────────
@@ -540,6 +563,23 @@ class PurchaseOrderServiceTest {
             service.updatePurchaseOrder(poId, request);
 
             assertThat(captor.getValue().getProductVariant()).isSameAs(productVariant);
+        }
+
+        @Test
+        @DisplayName("should throw AccessDeniedException when the caller holds no grant for the store")
+        void throwsWhenStoreOutsideCallerScope() {
+            var request = new PurchaseOrderRequest(supplierId, storeId, pmId, draftStatusId, null, List.of());
+            when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(purchaseOrder));
+            when(supplierRepository.findById(supplierId)).thenReturn(Optional.of(supplier));
+            when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(store));
+            doThrow(new AccessDeniedException("Access denied"))
+                    .when(currentUserContext)
+                    .verifyCompanyStoreAccess(companyId, companyCountryId, regionId, zoneId, storeId);
+
+            assertThatThrownBy(() -> service.updatePurchaseOrder(poId, request))
+                    .isInstanceOf(AccessDeniedException.class);
+
+            verify(purchaseOrderRepository, never()).save(any(PurchaseOrder.class));
         }
     }
 

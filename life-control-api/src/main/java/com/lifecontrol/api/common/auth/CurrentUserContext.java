@@ -262,14 +262,15 @@ public class CurrentUserContext {
      * company&rarr;store hierarchy determines how far the claim path is verified, exactly like the
      * sibling {@code verifyCompany*Access} methods.
      *
-     * <p>A store-scoped role — any role listed in {@link ScopeLevel#STORE}, today
-     * {@code lc-company-store}, {@code lc-company-store-read} and {@code lc-receiving} — has
+     * <p>A store-scoped role — any role returned by {@code ScopeLevel.STORE.roleNames()} — has
      * {@link ScopeLevel#STORE} as its broadest granted scope and therefore verifies the full
-     * company&rarr;store path. A broader role ({@code lc-company} down to
-     * {@code lc-company-zone}) verifies only up to its own scope, so broader roles keep their
-     * broadest granted scope even when the principal also holds a store-scoped role. A principal
-     * whose only role in range is store-scoped must carry the whole claim path in the token,
-     * because parent levels are verified against claims and never against parent roles.</p>
+     * company&rarr;store path. The {@link ScopeLevel} registry is the single source of truth for that
+     * set, so this prose deliberately names no role literal and cannot drift again. A broader role
+     * ({@code lc-company} down to {@code lc-company-zone}) verifies only up to its own scope, so
+     * broader roles keep their broadest granted scope even when the principal also holds a
+     * store-scoped role. A principal whose only role in range is store-scoped must carry the whole
+     * claim path in the token, because parent levels are verified against claims and never against
+     * parent roles.</p>
      *
      * @param companyId        the company UUID to verify (company-level check)
      * @param companyCountryId the company-country UUID to verify (country-level check)

@@ -177,6 +177,17 @@ class ProductVariantControllerTest {
         }
 
         @Test
+        @DisplayName("should return 403 when the caller holds no grant for the store")
+        void listVariants_StoreOutsideCallerScope_Returns403() throws Exception {
+            when(productVariantService.listVariants(eq(productId), eq(storeId), any(Pageable.class)))
+                    .thenThrow(new AccessDeniedException("Access denied"));
+
+            mockMvc.perform(get("/api/products/{productId}/variants", productId).param("storeId", storeId.toString()))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.status").value(403));
+        }
+
+        @Test
         @DisplayName("should return 200 with empty page when product has no variants")
         void listVariants_EmptyPage_Returns200() throws Exception {
             var pageable = PageRequest.of(0, 12);
@@ -531,6 +542,20 @@ class ProductVariantControllerTest {
                     .andExpect(jsonPath("$.content").isEmpty())
                     .andExpect(jsonPath("$.totalElements").value(0))
                     .andExpect(jsonPath("$.totalPages").value(0));
+        }
+
+        @Test
+        @DisplayName("should return 403 when the caller holds no grant for the store")
+        void searchVariants_StoreOutsideCallerScope_Returns403() throws Exception {
+            when(productVariantService.searchVariants(eq("7501234567890"), eq(storeId), any(Pageable.class)))
+                    .thenThrow(new AccessDeniedException("Access denied"));
+
+            searchMockMvc
+                    .perform(get("/api/product-variants/search")
+                            .param("q", "7501234567890")
+                            .param("storeId", storeId.toString()))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.status").value(403));
         }
     }
 }

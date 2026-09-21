@@ -1,5 +1,6 @@
 package com.lifecontrol.api.purchaseorder.service;
 
+import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
@@ -94,6 +95,7 @@ public class PurchaseOrderService {
     private final PaymentMethodRepository paymentMethodRepository;
     private final StatusRepository statusRepository;
     private final ApplicationEventPublisher eventPublisher;
+    private final CurrentUserContext currentUserContext;
 
     public PurchaseOrderService(
             PurchaseOrderRepository purchaseOrderRepository,
@@ -105,7 +107,8 @@ public class PurchaseOrderService {
             ProductVariantStoreStockRepository productVariantStoreStockRepository,
             PaymentMethodRepository paymentMethodRepository,
             StatusRepository statusRepository,
-            ApplicationEventPublisher eventPublisher) {
+            ApplicationEventPublisher eventPublisher,
+            CurrentUserContext currentUserContext) {
         this.purchaseOrderRepository = purchaseOrderRepository;
         this.detailRepository = detailRepository;
         this.supplierRepository = supplierRepository;
@@ -116,6 +119,7 @@ public class PurchaseOrderService {
         this.paymentMethodRepository = paymentMethodRepository;
         this.statusRepository = statusRepository;
         this.eventPublisher = eventPublisher;
+        this.currentUserContext = currentUserContext;
     }
 
     // ─── Purchase Order CRUD ────────────────────────────────────────────
@@ -577,11 +581,44 @@ public class PurchaseOrderService {
                 .orElseThrow(() -> new SupplierNotFoundException(id));
     }
 
+    /**
+     * Resolves the enabled store a purchase order belongs to and authorizes the caller for it,
+     * keeping the existing {@code enabled} filter and {@link CompanyStoreNotFoundException} for an
+     * unknown or disabled store.
+     *
+     * <p>The request carries only the store id, so the company &rarr; country &rarr; region &rarr;
+     * zone &rarr; store chain the guard needs is derived from the store itself. This mirrors the
+     * check every other store-scoped write applies ({@code StoreLocationService},
+     * {@code StoreInventorySettingsService}, {@code GoodsReceiptService},
+     * {@code ProductVariantService}); {@code lc-admin} is exempt inside
+     * {@link CurrentUserContext#verifyCompanyStoreAccess}. Without it any principal holding
+     * {@code lc-sales} could create or move a purchase order onto a store of another company.</p>
+     *
+     * @throws CompanyStoreNotFoundException when the store does not exist or is disabled
+     * @throws org.springframework.security.access.AccessDeniedException when the caller holds no
+     *     grant for the store's scope (403)
+     */
     private CompanyStore validateCompanyStoreExists(UUID id) {
-        return companyStoreRepository
+        var store = companyStoreRepository
                 .findById(id)
                 .filter(CompanyStore::getEnabled)
                 .orElseThrow(() -> new CompanyStoreNotFoundException(id));
+        verifyStoreAccess(store);
+        return store;
+    }
+
+    /**
+     * Authorizes the caller for the store a purchase order references, deriving the full
+     * company &rarr; country &rarr; region &rarr; zone &rarr; store chain from the store itself
+     * because the request carries only the store id.
+     */
+    private void verifyStoreAccess(CompanyStore store) {
+        var zone = store.getCompanyZone();
+        var region = zone.getCompanyRegion();
+        var country = region.getCompanyCountry();
+
+        currentUserContext.verifyCompanyStoreAccess(
+                country.getCompany().getId(), country.getId(), region.getId(), zone.getId(), store.getId());
     }
 
     private PaymentMethod validatePaymentMethodExists(UUID id) {

@@ -68,8 +68,20 @@ public class ProductVariantService {
      *
      * <p>When {@code companyStoreId} is {@code null} the global definitions are returned and the
      * store-scoped fields of {@link ProductVariantResponse} ({@code companyStoreId},
-     * {@code listPrice}, {@code costPrice}, {@code stock}) are {@code null}. When it is present, the
-     * store row is joined and those fields are populated from it.</p>
+     * {@code listPrice}, {@code costPrice}, {@code stock}) are {@code null}. That branch reads no
+     * store and applies no guard.</p>
+     *
+     * <p>When {@code companyStoreId} is present the store row is joined and those fields are
+     * populated from it, so the caller must hold a grant covering that store: the store id comes from
+     * the query string, so {@code @PreAuthorize} alone only proves the caller holds some variant role.
+     * The company &rarr; country &rarr; region &rarr; zone &rarr; store chain is derived from the
+     * store and verified with {@link #verifyStoreAccess} before the query, exactly like
+     * {@link #searchVariants}.</p>
+     *
+     * @throws CompanyStoreNotFoundException when the store-scoped branch names a store that does not
+     *     exist
+     * @throws org.springframework.security.access.AccessDeniedException when the store-scoped branch
+     *     names a store the caller holds no grant for (403)
      */
     @Transactional(readOnly = true)
     public Page<ProductVariantResponse> listVariants(UUID productId, UUID companyStoreId, Pageable pageable) {
@@ -80,6 +92,12 @@ public class ProductVariantService {
                     .findByProductIdAndEnabledTrueOrderByCreatedAtDesc(productId, pageable)
                     .map(variant -> toResponse(variant, product.getSku()));
         }
+
+        var store = companyStoreRepository
+                .findById(companyStoreId)
+                .orElseThrow(() -> new CompanyStoreNotFoundException(companyStoreId));
+        verifyStoreAccess(store);
+
         return productVariantRepository.findStoreScopedByProductIdAndStoreId(productId, companyStoreId, pageable);
     }
 
@@ -248,11 +266,30 @@ public class ProductVariantService {
         return toStoreResponse(saved);
     }
 
+    /**
+     * Searches the per-store rows of the variant table: stock and list and cost prices are read for
+     * the store named by {@code storeId}, so the caller must hold a grant covering that store.
+     *
+     * <p>The store id comes from the query string, so {@code @PreAuthorize} alone only proves the
+     * caller holds some variant role; the company &rarr; country &rarr; region &rarr; zone &rarr;
+     * store chain is derived from the store and verified with {@link #verifyStoreAccess}. Without it
+     * any store-scoped principal could read another company's stock and prices. A blank or absent
+     * query short-circuits to an empty page before the store is read, so it neither leaks nor
+     * requires the grant.</p>
+     *
+     * @throws CompanyStoreNotFoundException when the store does not exist
+     * @throws org.springframework.security.access.AccessDeniedException when the caller holds no
+     *     grant for the store's scope (403)
+     */
     @Transactional(readOnly = true)
     public Page<ProductVariantSearchResponse> searchVariants(String query, UUID storeId, Pageable pageable) {
         if (query == null || query.isBlank()) {
             return Page.empty(pageable);
         }
+
+        var store =
+                companyStoreRepository.findById(storeId).orElseThrow(() -> new CompanyStoreNotFoundException(storeId));
+        verifyStoreAccess(store);
 
         var trimmed = query.trim();
         return productVariantRepository.searchByQuery(trimmed, storeId, pageable);
