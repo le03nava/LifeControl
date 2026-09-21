@@ -39,8 +39,10 @@ import com.lifecontrol.api.paymentmethod.model.PaymentMethod;
 import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.model.ProductVariant;
+import com.lifecontrol.api.product.model.ProductVariantStoreStock;
 import com.lifecontrol.api.product.repository.ProductRepository;
 import com.lifecontrol.api.product.repository.ProductVariantRepository;
+import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository;
 import com.lifecontrol.api.purchaseorder.model.PurchaseOrder;
 import com.lifecontrol.api.purchaseorder.model.PurchaseOrderDetail;
 import com.lifecontrol.api.purchaseorder.repository.PurchaseOrderDetailRepository;
@@ -131,6 +133,9 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
     private ProductVariantRepository productVariantRepository;
 
     @Autowired
+    private ProductVariantStoreStockRepository productVariantStoreStockRepository;
+
+    @Autowired
     private SupplierRepository supplierRepository;
 
     @Autowired
@@ -210,6 +215,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
         // later integration classes in this shared JVM, so clean leaf-first before and after.
         inventoryMovementRepository.deleteAll();
         productVariantLocationRepository.deleteAll();
+        productVariantStoreStockRepository.deleteAll();
         storeInventorySettingsRepository.deleteAll();
         goodsReceiptItemRepository.deleteAll();
         goodsReceiptRepository.deleteAll();
@@ -246,6 +252,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
     void tearDown() {
         inventoryMovementRepository.deleteAll();
         productVariantLocationRepository.deleteAll();
+        productVariantStoreStockRepository.deleteAll();
         storeInventorySettingsRepository.deleteAll();
         goodsReceiptItemRepository.deleteAll();
         goodsReceiptRepository.deleteAll();
@@ -386,13 +393,11 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
 
         var variant = productVariantRepository.save(ProductVariant.builder()
                 .productId(product.getId())
-                .companyStoreId(store.getId())
+                .barCode("GR-BAR-" + UUID.randomUUID().toString().substring(0, 12))
                 .variantName("Variant-" + UUID.randomUUID().toString().substring(0, 8))
-                .costPrice(new BigDecimal("10.00"))
-                .listPrice(new BigDecimal("20.00"))
-                .stock(BigDecimal.ZERO)
                 .enabled(true)
                 .build());
+        saveStoreStock(variant.getId());
 
         var order = purchaseOrderRepository.save(PurchaseOrder.builder()
                 .orderNumber("PO-GR-" + UUID.randomUUID().toString().substring(0, 8))
@@ -445,6 +450,24 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                 .build();
     }
 
+    /** Per-store row backing the variant: stock starts at zero, prices mirror the old fixture. */
+    private void saveStoreStock(UUID variantId) {
+        productVariantStoreStockRepository.save(ProductVariantStoreStock.builder()
+                .productVariantId(variantId)
+                .companyStoreId(store.getId())
+                .stock(BigDecimal.ZERO)
+                .costPrice(new BigDecimal("10.00"))
+                .listPrice(new BigDecimal("20.00"))
+                .build());
+    }
+
+    /** Reads the per-store stock row, the only place stock lives after the variant split. */
+    private ProductVariantStoreStock storeStockOf(UUID variantId) {
+        return productVariantStoreStockRepository
+                .findByProductVariantIdAndCompanyStoreId(variantId, store.getId())
+                .orElseThrow();
+    }
+
     /** A store configured to receive at {@link #receivingLocation}. */
     private void seedReceivingSettings() {
         storeInventorySettingsRepository.save(StoreInventorySettings.builder()
@@ -476,13 +499,11 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                 .build());
         var variant = productVariantRepository.save(ProductVariant.builder()
                 .productId(product.getId())
-                .companyStoreId(store.getId())
+                .barCode("GR-BAR-" + UUID.randomUUID().toString().substring(0, 12))
                 .variantName("Variant-" + UUID.randomUUID().toString().substring(0, 8))
-                .costPrice(new BigDecimal("10.00"))
-                .listPrice(new BigDecimal("20.00"))
-                .stock(BigDecimal.ZERO)
                 .enabled(true)
                 .build());
+        saveStoreStock(variant.getId());
         return purchaseOrderDetailRepository.save(PurchaseOrderDetail.builder()
                 .purchaseOrder(order)
                 .product(product)
@@ -548,10 +569,10 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
     private record ReceptionFixtures(PurchaseOrder order, PurchaseOrderDetail detail, ProductVariant variant) {}
 
     @Test
-    @DisplayName("should apply V12 and start the context with ddl-auto=validate")
-    void flywayAppliesV12AndSchemaValidates() {
+    @DisplayName("should apply every migration up to V14 and start the context with ddl-auto=validate")
+    void flywayAppliesLatestAndSchemaValidates() {
         assertThat(flyway.info().current()).isNotNull();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("12");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("14");
         assertThat(flyway.info().pending()).isEmpty();
 
         // The table exists and is empty: the read itself is the "schema is there" proof.
@@ -753,11 +774,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                     .findByProductVariantIdAndStoreLocationId(variantId, receivingLocation.getId())
                     .orElseThrow();
             assertThat(balance.getStock()).isEqualByComparingTo("3");
-            assertThat(productVariantRepository
-                            .findById(variantId)
-                            .orElseThrow()
-                            .getStock())
-                    .isEqualByComparingTo("3");
+            assertThat(storeStockOf(variantId).getStock()).isEqualByComparingTo("3");
 
             var reloadedDetail =
                     purchaseOrderDetailRepository.findById(detail.getId()).orElseThrow();
@@ -821,11 +838,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                     .isZero();
             assertThat(detailStatusName(firstLine.getId())).isEqualTo("In Transit");
             assertThat(orderStatusName(order.getId())).isEqualTo("In Transit");
-            assertThat(productVariantRepository
-                            .findById(secondVariantId)
-                            .orElseThrow()
-                            .getStock())
-                    .isEqualByComparingTo("0");
+            assertThat(storeStockOf(secondVariantId).getStock()).isEqualByComparingTo("0");
         }
     }
 
@@ -987,10 +1000,7 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                                 .orElseThrow()
                                 .getReceivedQuantity())
                         .isZero();
-                assertThat(productVariantRepository
-                                .findById(detail.getProductVariant().getId())
-                                .orElseThrow()
-                                .getStock())
+                assertThat(storeStockOf(detail.getProductVariant().getId()).getStock())
                         .isEqualByComparingTo("0");
             }
             assertThat(orderStatusName(order.getId())).isEqualTo("In Transit");

@@ -36,6 +36,7 @@ import com.lifecontrol.api.inventory.model.StoreInventorySettings;
 import com.lifecontrol.api.inventory.repository.StoreInventorySettingsRepository;
 import com.lifecontrol.api.inventory.service.InventoryService;
 import com.lifecontrol.api.product.model.ProductVariant;
+import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository;
 import com.lifecontrol.api.purchaseorder.exception.InvalidStatusTransitionException;
 import com.lifecontrol.api.purchaseorder.exception.PurchaseOrderDetailNotFoundException;
 import com.lifecontrol.api.purchaseorder.exception.PurchaseOrderNotFoundException;
@@ -117,6 +118,9 @@ class GoodsReceiptServiceTest {
     private StoreLocationRepository storeLocationRepository;
 
     @Mock
+    private ProductVariantStoreStockRepository productVariantStoreStockRepository;
+
+    @Mock
     private StatusRepository statusRepository;
 
     @Mock
@@ -141,6 +145,7 @@ class GoodsReceiptServiceTest {
                 goodsReceiptRepository,
                 storeInventorySettingsRepository,
                 storeLocationRepository,
+                productVariantStoreStockRepository,
                 statusRepository,
                 currentUserContext);
 
@@ -162,8 +167,8 @@ class GoodsReceiptServiceTest {
 
         variant = ProductVariant.builder()
                 .id(VARIANT_ID)
-                .companyStoreId(STORE_ID)
-                .stock(BigDecimal.ZERO)
+                .barCode("7501234567890")
+                .variantName("Talla M")
                 .enabled(true)
                 .build();
 
@@ -217,6 +222,8 @@ class GoodsReceiptServiceTest {
         when(purchaseOrderDetailRepository.findById(DETAIL_ID)).thenReturn(Optional.of(detail));
         when(storeLocationRepository.findById(LOCATION_ID)).thenReturn(Optional.of(location));
         when(storeLocationRepository.findEnabledByCompanyStoreId(STORE_ID)).thenReturn(List.of(location));
+        when(productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(VARIANT_ID, STORE_ID))
+                .thenReturn(true);
     }
 
     private void stubHappyPath() {
@@ -495,6 +502,8 @@ class GoodsReceiptServiceTest {
             when(storeLocationRepository.findById(LOCATION_ID)).thenReturn(Optional.of(location));
             when(storeLocationRepository.findEnabledByCompanyStoreId(STORE_ID)).thenReturn(List.of(location));
             when(purchaseOrderDetailRepository.findById(DETAIL_ID)).thenReturn(Optional.of(detail));
+            when(productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(VARIANT_ID, STORE_ID))
+                    .thenReturn(true);
         }
 
         @Test
@@ -544,9 +553,10 @@ class GoodsReceiptServiceTest {
         }
 
         @Test
-        @DisplayName("should reject a variant that belongs to another store")
+        @DisplayName("should reject a variant with no per-store row in the order's store")
         void foreignVariant() {
-            variant.setCompanyStoreId(OTHER_STORE_ID);
+            when(productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(VARIANT_ID, STORE_ID))
+                    .thenReturn(false);
 
             assertThatThrownBy(() -> service.createReceipt(requestWith(LOCATION_ID, line(DETAIL_ID, "1"))))
                     .isInstanceOf(PurchaseOrderVariantNotInStoreException.class)

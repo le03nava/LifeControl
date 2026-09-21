@@ -52,10 +52,10 @@ public interface PurchaseOrderRepository extends JpaRepository<PurchaseOrder, UU
     Optional<PurchaseOrder> findTopByOrderNumberStartingWithOrderByOrderNumberDesc(String orderNumberPrefix);
 
     /**
-     * Pessimistic write lock on the purchase order, mirroring
-     * {@code ProductVariantRepository#findByIdForUpdate}. The goods receipt takes this lock before it
+     * Pessimistic write lock on the purchase order. The goods receipt takes this lock before it
      * numbers the receipt and applies the reception, so two concurrent receptions against the same
-     * order queue instead of racing the per-order receipt counter.
+     * order queue instead of racing the per-order receipt counter. It is the first lock of the
+     * documented {@code purchaseOrder -> storeStock -> locationBalance} order.
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT po FROM PurchaseOrder po WHERE po.id = :id")

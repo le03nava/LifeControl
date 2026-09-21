@@ -1,6 +1,7 @@
 package com.lifecontrol.api.purchaseorder;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -24,8 +25,10 @@ import com.lifecontrol.api.paymentmethod.model.PaymentMethod;
 import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.model.ProductVariant;
+import com.lifecontrol.api.product.model.ProductVariantStoreStock;
 import com.lifecontrol.api.product.repository.ProductRepository;
 import com.lifecontrol.api.product.repository.ProductVariantRepository;
+import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderDetailRequest;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderRequest;
 import com.lifecontrol.api.purchaseorder.dto.UpdatePurchaseOrderStatusRequest;
@@ -51,6 +54,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
@@ -88,6 +92,9 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
 
     @Autowired
     private ProductVariantRepository productVariantRepository;
+
+    @Autowired
+    private ProductVariantStoreStockRepository productVariantStoreStockRepository;
 
     @Autowired
     private ProductRepository productRepository;
@@ -238,13 +245,19 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
     private ProductVariant createVariant(UUID productId, UUID variantStoreId) {
         var variant = new ProductVariant();
         variant.setProductId(productId);
-        variant.setCompanyStoreId(variantStoreId);
+        variant.setBarCode("PO-BAR-" + UUID.randomUUID().toString().substring(0, 12));
         variant.setVariantName("Variant-" + UUID.randomUUID().toString().substring(0, 8));
-        variant.setCostPrice(new BigDecimal("10.00"));
-        variant.setListPrice(new BigDecimal("20.00"));
-        variant.setStock(BigDecimal.ZERO);
         variant.setEnabled(true);
-        return productVariantRepository.save(variant);
+        variant = productVariantRepository.save(variant);
+
+        productVariantStoreStockRepository.save(ProductVariantStoreStock.builder()
+                .productVariantId(variant.getId())
+                .companyStoreId(variantStoreId)
+                .costPrice(new BigDecimal("10.00"))
+                .listPrice(new BigDecimal("20.00"))
+                .stock(BigDecimal.ZERO)
+                .build());
+        return variant;
     }
 
     private UUID createEmptyPurchaseOrder() throws Exception {
@@ -447,48 +460,28 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
         }
 
         @Test
-        @DisplayName("should render a legacy null-variant row with an explicit JSON null")
-        void legacyRowWithoutVariantRendersExplicitNull() throws Exception {
+        @DisplayName("V14 makes product_variant_id NOT NULL: a variant-less row can no longer be persisted")
+        void variantlessRowIsRejectedByDatabase() throws Exception {
             var product = createProduct();
             var purchaseOrderId = createEmptyPurchaseOrder();
             var po = purchaseOrderRepository.findById(purchaseOrderId).orElseThrow();
             var pendingStatus = statusRepository.findById(pendingDetailStatusId).orElseThrow();
 
-            // Seeded straight through the repository: the HTTP contract can no longer
-            // produce this shape, but pre-flip rows still exist in the database.
-            purchaseOrderDetailRepository.save(PurchaseOrderDetail.builder()
-                    .purchaseOrder(po)
-                    .product(product)
-                    .quantity(2)
-                    .unitPrice(new BigDecimal("15.00"))
-                    .total(new BigDecimal("30.00"))
-                    .receivedQuantity(0)
-                    .comments("Legacy row")
-                    .status(pendingStatus)
-                    .enabled(true)
-                    .build());
-
-            var result = mockMvc.perform(get("/api/purchase-orders/{id}/details", purchaseOrderId)
-                            .with(jwt().authorities(ROLE_LC_ADMIN)))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.length()").value(1))
-                    .andReturn();
-
-            var line = objectMapper
-                    .readTree(result.getResponse().getContentAsString())
-                    .get(0);
-            assertThat(line.has("productVariantId"))
-                    .as("productVariantId key present")
-                    .isTrue();
-            assertThat(line.get("productVariantId").isNull())
-                    .as("productVariantId null")
-                    .isTrue();
-            assertThat(line.has("productVariantName"))
-                    .as("productVariantName key present")
-                    .isTrue();
-            assertThat(line.get("productVariantName").isNull())
-                    .as("productVariantName null")
-                    .isTrue();
+            // V9 left the column nullable for legacy rows; V14 dropped that tolerance together
+            // with the discarded data (D5), so the database itself now rejects the shape the old
+            // HTTP contract could still produce.
+            assertThatThrownBy(() -> purchaseOrderDetailRepository.saveAndFlush(PurchaseOrderDetail.builder()
+                            .purchaseOrder(po)
+                            .product(product)
+                            .quantity(2)
+                            .unitPrice(new BigDecimal("15.00"))
+                            .total(new BigDecimal("30.00"))
+                            .receivedQuantity(0)
+                            .comments("Legacy row")
+                            .status(pendingStatus)
+                            .enabled(true)
+                            .build()))
+                    .isInstanceOf(DataIntegrityViolationException.class);
         }
     }
 

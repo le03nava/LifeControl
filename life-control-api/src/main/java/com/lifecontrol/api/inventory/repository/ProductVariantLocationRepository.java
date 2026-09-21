@@ -17,9 +17,10 @@ public interface ProductVariantLocationRepository extends JpaRepository<ProductV
 
     /**
      * Pessimistic write lock on the {@code (variant, location)} balance, mirroring
-     * {@code ProductVariantRepository#findByIdForUpdate}. Callers must take this lock (or
-     * {@code ProductVariantRepository#findByIdForUpdate}) before moving stock, so two concurrent
-     * receipts against the same balance queue instead of losing an update.
+     * {@code ProductVariantStoreStockRepository#findByProductVariantIdAndCompanyStoreIdForUpdate}.
+     * Callers must take the per-store stock lock first and then this balance lock, so two concurrent
+     * receipts against the same balance queue instead of losing an update; the documented order is
+     * {@code storeStock -> locationBalance}.
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""

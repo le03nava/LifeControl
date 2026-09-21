@@ -5,8 +5,9 @@ import com.lifecontrol.api.customer.repository.CustomerRepository;
 import com.lifecontrol.api.paymentmethod.exception.PaymentMethodNotFoundException;
 import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
-import com.lifecontrol.api.product.model.ProductVariant;
+import com.lifecontrol.api.product.model.ProductVariantStoreStock;
 import com.lifecontrol.api.product.repository.ProductVariantRepository;
+import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository;
 import com.lifecontrol.api.purchaseorder.exception.InvalidStatusTransitionException;
 import com.lifecontrol.api.salesorder.dto.ChargeSalesOrderRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderItemRequest;
@@ -80,6 +81,7 @@ public class SalesOrderService {
     private final CompanyStoreRepository companyStoreRepository;
     private final ShiftRepository shiftRepository;
     private final ProductVariantRepository productVariantRepository;
+    private final ProductVariantStoreStockRepository productVariantStoreStockRepository;
     private final StatusRepository statusRepository;
     private final PaymentMethodRepository paymentMethodRepository;
 
@@ -90,6 +92,7 @@ public class SalesOrderService {
             CompanyStoreRepository companyStoreRepository,
             ShiftRepository shiftRepository,
             ProductVariantRepository productVariantRepository,
+            ProductVariantStoreStockRepository productVariantStoreStockRepository,
             StatusRepository statusRepository,
             PaymentMethodRepository paymentMethodRepository) {
         this.salesOrderRepository = salesOrderRepository;
@@ -98,6 +101,7 @@ public class SalesOrderService {
         this.companyStoreRepository = companyStoreRepository;
         this.shiftRepository = shiftRepository;
         this.productVariantRepository = productVariantRepository;
+        this.productVariantStoreStockRepository = productVariantStoreStockRepository;
         this.statusRepository = statusRepository;
         this.paymentMethodRepository = paymentMethodRepository;
     }
@@ -160,7 +164,7 @@ public class SalesOrderService {
 
         // Save items and deduct stock inline
         if (request.items() != null && !request.items().isEmpty()) {
-            applyStockChanges(request.items(), Map.of(), Set.of(), Map.of());
+            applyStockChanges(request.items(), Map.of(), Set.of(), Map.of(), request.companyStoreId());
 
             var defaultItemStatus = statusRepository
                     .findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Pending")
@@ -238,7 +242,8 @@ public class SalesOrderService {
             }
 
             // Apply stock changes BEFORE saving any item mutations
-            applyStockChanges(request.items(), oldQuantities, deletedItemIds, itemIdToVariantId);
+            applyStockChanges(
+                    request.items(), oldQuantities, deletedItemIds, itemIdToVariantId, request.companyStoreId());
 
             // DELETE: items in DB but not in request → soft-delete
             for (var existing : existingItems) {
@@ -413,18 +418,17 @@ public class SalesOrderService {
                         .add(item);
             }
 
+            var companyStoreId = so.getCompanyStoreId();
             var sortedVariantIds = itemsByVariant.keySet().stream().sorted().toList();
             for (var variantId : sortedVariantIds) {
-                var variant = productVariantRepository
-                        .findByIdForUpdate(variantId)
-                        .orElseThrow(() -> new ProductVariantNotFoundException(variantId));
+                var storeStock = lockStoreStock(variantId, companyStoreId);
 
                 var totalQty = itemsByVariant.get(variantId).stream()
                         .map(SalesOrderItem::getQuantity)
                         .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-                variant.setStock(variant.getStock().add(totalQty));
-                productVariantRepository.save(variant);
+                storeStock.setStock(orZero(storeStock.getStock()).add(totalQty));
+                productVariantStoreStockRepository.save(storeStock);
             }
         }
 
@@ -458,18 +462,17 @@ public class SalesOrderService {
                             .add(item);
                 }
 
+                var companyStoreId = so.getCompanyStoreId();
                 var sortedVariantIds = itemsByVariant.keySet().stream().sorted().toList();
                 for (var variantId : sortedVariantIds) {
-                    var variant = productVariantRepository
-                            .findByIdForUpdate(variantId)
-                            .orElseThrow(() -> new ProductVariantNotFoundException(variantId));
+                    var storeStock = lockStoreStock(variantId, companyStoreId);
 
                     var totalQty = itemsByVariant.get(variantId).stream()
                             .map(SalesOrderItem::getQuantity)
                             .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-                    variant.setStock(variant.getStock().add(totalQty));
-                    productVariantRepository.save(variant);
+                    storeStock.setStock(orZero(storeStock.getStock()).add(totalQty));
+                    productVariantStoreStockRepository.save(storeStock);
                 }
             }
         }
@@ -543,7 +546,7 @@ public class SalesOrderService {
         logger.info("Item added: id={}, soId={}", saved.getId(), salesOrderId);
 
         // Deduct stock for the new item
-        applyStockChanges(List.of(request), Map.of(), Set.of(), Map.of());
+        applyStockChanges(List.of(request), Map.of(), Set.of(), Map.of(), so.getCompanyStoreId());
 
         // Recalculate order total
         recalculateTotalAmount(salesOrderId);
@@ -570,7 +573,7 @@ public class SalesOrderService {
     public SalesOrderItemResponse updateSalesOrderItem(UUID salesOrderId, UUID itemId, SalesOrderItemRequest request) {
         logger.info("Updating item: soId={}, itemId={}", salesOrderId, itemId);
 
-        loadAndValidateModifiableSO(salesOrderId);
+        var so = loadAndValidateModifiableSO(salesOrderId);
 
         var item = itemRepository.findById(itemId).orElseThrow(() -> new SalesOrderItemNotFoundException(itemId));
 
@@ -579,7 +582,6 @@ public class SalesOrderService {
         }
 
         validateProductVariantExists(request.productVariantId());
-
         // Reconcile stock BEFORE saving. On variant change, applyStockChanges restores
         // the old variant's full quantity and deducts the new variant's full quantity;
         // on a simple quantity change the delta is applied to the current variant.
@@ -591,7 +593,8 @@ public class SalesOrderService {
                     List.of(request),
                     Map.of(item.getId(), item.getQuantity()),
                     Set.of(),
-                    Map.of(item.getId(), item.getProductVariantId()));
+                    Map.of(item.getId(), item.getProductVariantId()),
+                    so.getCompanyStoreId());
         }
 
         var discountApplied = request.discountApplied() != null ? request.discountApplied() : BigDecimal.ZERO;
@@ -616,7 +619,7 @@ public class SalesOrderService {
     public void deleteSalesOrderItem(UUID salesOrderId, UUID itemId) {
         logger.info("Soft-deleting item: soId={}, itemId={}", salesOrderId, itemId);
 
-        loadAndValidateModifiableSO(salesOrderId);
+        var so = loadAndValidateModifiableSO(salesOrderId);
 
         var item = itemRepository.findById(itemId).orElseThrow(() -> new SalesOrderItemNotFoundException(itemId));
 
@@ -624,12 +627,10 @@ public class SalesOrderService {
             throw new SalesOrderItemNotFoundException(itemId);
         }
 
-        // Restore stock BEFORE soft-deleting the item
-        var variant = productVariantRepository
-                .findByIdForUpdate(item.getProductVariantId())
-                .orElseThrow(() -> new ProductVariantNotFoundException(item.getProductVariantId()));
-        variant.setStock(variant.getStock().add(item.getQuantity()));
-        productVariantRepository.save(variant);
+        // Restore stock BEFORE soft-deleting the item, on the per-store row of the order's store.
+        var storeStock = lockStoreStock(item.getProductVariantId(), so.getCompanyStoreId());
+        storeStock.setStock(orZero(storeStock.getStock()).add(item.getQuantity()));
+        productVariantStoreStockRepository.save(storeStock);
 
         item.setEnabled(false);
         itemRepository.save(item);
@@ -762,7 +763,15 @@ public class SalesOrderService {
 
     /**
      * Applies stock mutations for a set of items atomically within the caller's transaction.
-     * Acquires pessimistic write locks on all affected variants, sorted by ID to prevent deadlocks.
+     * Acquires pessimistic write locks on all affected per-store stock rows, sorted by the
+     * store-scoped row identity to prevent deadlocks.
+     *
+     * <p>The sort key is the pair {@code (companyStoreId, variantId)}, not the bare
+     * {@code variantId}: after the variant-identity split the serialization point is the
+     * {@code (variant, store)} row, so two orders in <em>different</em> stores that share a variant
+     * definition must NOT queue on the same lock, and two orders that touch several rows must take
+     * them in the same order. Sorting by the composite identity gives that order; sorting by
+     * {@code variantId} alone would let two stores' orders interleave and deadlock.</p>
      *
      * @param newItems            items from the request (with variantId + quantity)
      * @param oldQuantities       map of existing item ID → quantity (empty for create/add)
@@ -770,12 +779,14 @@ public class SalesOrderService {
      * @param itemIdToVariantId   map of existing item ID → its current variant ID
      *                            (used to restore the old variant on variant change
      *                            and to restore stock for deleted items)
+     * @param companyStoreId      the store whose stock rows are moved (the order's store)
      */
     private void applyStockChanges(
             List<SalesOrderItemRequest> newItems,
             Map<UUID, BigDecimal> oldQuantities,
             Set<UUID> deletedItemIds,
-            Map<UUID, UUID> itemIdToVariantId) {
+            Map<UUID, UUID> itemIdToVariantId,
+            UUID companyStoreId) {
 
         // 1. Collect distinct variant IDs from new items (including the old variant of
         //    items whose variant changes) and from deleted items
@@ -800,16 +811,16 @@ public class SalesOrderService {
             return;
         }
 
-        // 2. Sort to prevent deadlocks
-        var sortedIds = variantIds.stream().sorted().toList();
+        // 2. Sort by the composite store-scoped row identity to prevent deadlocks
+        var sortedKeys = variantIds.stream()
+                .map(vid -> new StoreVariantKey(companyStoreId, vid))
+                .sorted()
+                .toList();
 
-        // 3. Acquire pessimistic write locks in sorted order
-        var lockedVariants = new HashMap<UUID, ProductVariant>();
-        for (var vid : sortedIds) {
-            var variant = productVariantRepository
-                    .findByIdForUpdate(vid)
-                    .orElseThrow(() -> new ProductVariantNotFoundException(vid));
-            lockedVariants.put(vid, variant);
+        // 3. Acquire pessimistic write locks on the per-store rows in sorted order
+        var lockedRows = new HashMap<UUID, ProductVariantStoreStock>();
+        for (var key : sortedKeys) {
+            lockedRows.put(key.variantId(), lockStoreStock(key.variantId(), key.companyStoreId()));
         }
 
         // 4. Compute net stock delta per variant
@@ -847,25 +858,55 @@ public class SalesOrderService {
             }
         }
 
-        // 6. Validate and apply
+        // 6. Validate and apply against the per-store row of the order's store
         for (var entry : stockDelta.entrySet()) {
             var vid = entry.getKey();
             var delta = entry.getValue();
-            var variant = lockedVariants.get(vid);
+            var storeStock = lockedRows.get(vid);
+            var available = orZero(storeStock.getStock());
 
             if (delta.compareTo(BigDecimal.ZERO) > 0) {
-                // Deduction needed — validate sufficient stock
-                if (variant.getStock().compareTo(delta) < 0) {
-                    throw new InsufficientStockException(vid, delta, variant.getStock());
+                // Deduction needed — validate sufficient stock in THIS store
+                if (available.compareTo(delta) < 0) {
+                    throw new InsufficientStockException(vid, delta, available);
                 }
-                variant.setStock(variant.getStock().subtract(delta));
-                productVariantRepository.save(variant);
+                storeStock.setStock(available.subtract(delta));
+                productVariantStoreStockRepository.save(storeStock);
             } else if (delta.compareTo(BigDecimal.ZERO) < 0) {
                 // Restoration (delta is negative)
-                variant.setStock(variant.getStock().add(delta.negate()));
-                productVariantRepository.save(variant);
+                storeStock.setStock(available.add(delta.negate()));
+                productVariantStoreStockRepository.save(storeStock);
             }
             // delta == 0: no change, skip save
+        }
+    }
+
+    /**
+     * Locks the {@code (variant, store)} stock row, creating it first when it does not exist yet.
+     * The conflict-tolerant insert mirrors {@code ProductVariantLocationRepository}'s balance
+     * insert: it keeps the unique violation from aborting the transaction, so the pessimistic lock
+     * that follows is always held over an existing row.
+     */
+    private ProductVariantStoreStock lockStoreStock(UUID variantId, UUID companyStoreId) {
+        productVariantStoreStockRepository.insertStoreStockIfAbsent(variantId, companyStoreId);
+        return productVariantStoreStockRepository
+                .findByProductVariantIdAndCompanyStoreIdForUpdate(variantId, companyStoreId)
+                .orElseThrow(() -> new IllegalStateException("Product variant store stock row not found for variant "
+                        + variantId + " and store " + companyStoreId + " after it was locked or created"));
+    }
+
+    /** NULL stock only means "never set" — the column default is 0. */
+    private static BigDecimal orZero(BigDecimal stock) {
+        return stock != null ? stock : BigDecimal.ZERO;
+    }
+
+    /** Composite identity of a per-store stock row: the lock/sort key of the stock movers. */
+    private record StoreVariantKey(UUID companyStoreId, UUID variantId) implements Comparable<StoreVariantKey> {
+
+        @Override
+        public int compareTo(StoreVariantKey other) {
+            var storeOrder = companyStoreId.compareTo(other.companyStoreId);
+            return storeOrder != 0 ? storeOrder : variantId.compareTo(other.variantId);
         }
     }
 

@@ -24,6 +24,7 @@ import com.lifecontrol.api.inventory.exception.StoreLocationNotInStoreException;
 import com.lifecontrol.api.inventory.repository.StoreInventorySettingsRepository;
 import com.lifecontrol.api.inventory.service.InventoryService;
 import com.lifecontrol.api.product.model.ProductVariant;
+import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository;
 import com.lifecontrol.api.purchaseorder.exception.InvalidStatusTransitionException;
 import com.lifecontrol.api.purchaseorder.exception.PurchaseOrderDetailNotFoundException;
 import com.lifecontrol.api.purchaseorder.exception.PurchaseOrderNotFoundException;
@@ -55,10 +56,11 @@ import org.springframework.util.StringUtils;
  * inventory effects and the purchase-order line statuses.
  *
  * <h2>Lock order of the slice</h2>
- * <p>{@code purchaseOrder -> variant -> balance}. The receipt takes the purchase-order row lock
- * first and keeps it for the whole transaction; {@link InventoryService#applyReceipt} then locks the
- * variant and the balance. No existing path locks a variant before a purchase order, so the global
- * order is cycle-free.</p>
+ * <p>{@code purchaseOrder -> storeStock -> locationBalance}. The receipt takes the purchase-order row
+ * lock first and keeps it for the whole transaction; {@link InventoryService#applyReceipt} then locks
+ * the per-store stock row (the serialization point after the variant-identity split) and the location
+ * balance. No existing path locks a store stock row before a purchase order, so the global order is
+ * cycle-free.</p>
  *
  * <h2>Why one transaction</h2>
  * <p>{@link #createReceipt} runs in a single transaction with no {@code REQUIRES_NEW} and no
@@ -89,6 +91,7 @@ public class GoodsReceiptService {
     private final GoodsReceiptRepository goodsReceiptRepository;
     private final StoreInventorySettingsRepository storeInventorySettingsRepository;
     private final StoreLocationRepository storeLocationRepository;
+    private final ProductVariantStoreStockRepository productVariantStoreStockRepository;
     private final StatusRepository statusRepository;
     private final CurrentUserContext currentUserContext;
 
@@ -100,6 +103,7 @@ public class GoodsReceiptService {
             GoodsReceiptRepository goodsReceiptRepository,
             StoreInventorySettingsRepository storeInventorySettingsRepository,
             StoreLocationRepository storeLocationRepository,
+            ProductVariantStoreStockRepository productVariantStoreStockRepository,
             StatusRepository statusRepository,
             CurrentUserContext currentUserContext) {
         this.purchaseOrderRepository = purchaseOrderRepository;
@@ -109,6 +113,7 @@ public class GoodsReceiptService {
         this.goodsReceiptRepository = goodsReceiptRepository;
         this.storeInventorySettingsRepository = storeInventorySettingsRepository;
         this.storeLocationRepository = storeLocationRepository;
+        this.productVariantStoreStockRepository = productVariantStoreStockRepository;
         this.statusRepository = statusRepository;
         this.currentUserContext = currentUserContext;
     }
@@ -247,7 +252,8 @@ public class GoodsReceiptService {
         for (var line : resolvedLines) {
             // Ledger movement FIRST, line status SECOND: the movement must already exist when the
             // status change fires its event. applyReceipt also keeps the documented
-            // purchaseOrder -> variant -> balance lock order (the purchase order is locked above).
+            // purchaseOrder -> storeStock -> locationBalance lock order (the purchase order is
+            // locked above).
             inventoryService.applyReceipt(
                     line.variant().getId(),
                     companyStore.getId(),
@@ -400,7 +406,11 @@ public class GoodsReceiptService {
             if (variant == null) {
                 throw new MissingPurchaseOrderVariantException(lineIndex, detail.getId());
             }
-            if (!companyStore.getId().equals(variant.getCompanyStoreId())) {
+            // Store membership is no longer a column on the definition: it is the existence of the
+            // per-store row `(variant, store)` in `product_variant_store_stock`. A definition that
+            // exists globally but was never registered in this store is as unusable as a foreign one.
+            if (!productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(
+                    variant.getId(), companyStore.getId())) {
                 throw new PurchaseOrderVariantNotInStoreException(lineIndex, detail.getId(), variant.getId());
             }
             // A disabled variant must be rejected here and not left to InventoryService.applyReceipt:

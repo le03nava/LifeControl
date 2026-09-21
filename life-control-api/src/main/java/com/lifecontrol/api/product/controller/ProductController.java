@@ -147,7 +147,7 @@ public class ProductController {
     @Operation(
             summary = "List variants for a product",
             description =
-                    "Returns a paginated list of variants for a given product. Use ?storeId=<uuid> to narrow the list to a single store. Omitting storeId returns the product's variants across every store.")
+                    "Returns a paginated list of variants for a given product. Use ?storeId=<uuid> to narrow the list to one store and populate the store prices and stock. Omitting storeId returns the product's GLOBAL definitions with the store-scoped fields null.")
     public ResponseEntity<Page<ProductVariantResponse>> listVariants(
             @PathVariable UUID productId,
             @RequestParam(required = false) UUID storeId,
@@ -159,7 +159,8 @@ public class ProductController {
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(
             summary = "Create variant for a product",
-            description = "Creates a new product variant for the specified product")
+            description =
+                    "Creates the GLOBAL definition of a product variant (barcode + name). It does not take a store: stock and prices are written per store through PUT /api/variants/{variantId}/stores/{storeId}.")
     public ResponseEntity<ProductVariantResponse> createVariant(
             @PathVariable UUID productId, @Valid @RequestBody ProductVariantRequest request) {
         var response = productVariantService.createVariant(productId, request);
@@ -178,7 +179,10 @@ public class ProductController {
 
     @PutMapping("/{productId}/variants/{variantId}")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
-    @Operation(summary = "Update variant", description = "Updates an existing product variant")
+    @Operation(
+            summary = "Update variant",
+            description =
+                    "Updates the GLOBAL definition of a product variant. The per-store stock and prices are not part of this payload.")
     public ResponseEntity<ProductVariantResponse> updateVariant(
             @PathVariable UUID productId,
             @PathVariable UUID variantId,
@@ -192,5 +196,13 @@ public class ProductController {
     public ResponseEntity<Void> deleteVariant(@PathVariable UUID productId, @PathVariable UUID variantId) {
         productVariantService.deleteVariant(productId, variantId);
         return ResponseEntity.noContent().build();
+    }
+
+    @PatchMapping("/{productId}/variants/{variantId}/enable")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
+    @Operation(summary = "Re-enable a variant", description = "Re-enables a soft-deleted product variant")
+    public ResponseEntity<ProductVariantResponse> enableVariant(
+            @PathVariable UUID productId, @PathVariable UUID variantId) {
+        return ResponseEntity.ok(productVariantService.enableVariant(productId, variantId));
     }
 }

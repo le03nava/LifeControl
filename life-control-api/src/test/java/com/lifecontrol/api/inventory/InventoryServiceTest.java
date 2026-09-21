@@ -17,7 +17,9 @@ import com.lifecontrol.api.inventory.repository.ProductVariantLocationRepository
 import com.lifecontrol.api.inventory.service.InventoryService;
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
 import com.lifecontrol.api.product.model.ProductVariant;
+import com.lifecontrol.api.product.model.ProductVariantStoreStock;
 import com.lifecontrol.api.product.repository.ProductVariantRepository;
+import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository;
 import java.math.BigDecimal;
 import java.util.Optional;
 import java.util.UUID;
@@ -34,9 +36,12 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 /**
  * Unit coverage of {@link InventoryService#applyReceipt}: the quantity guard, the store guard, the
- * additive mutations and the global lock order. Persistence behaviour (unique constraint, ledger
- * rows, the resurrection regression) is covered by {@code InventoryIntegrationTest} on real
- * PostgreSQL.
+ * additive mutations and the lock order. Persistence behaviour (unique constraint, ledger rows, the
+ * resurrection regression) is covered by {@code InventoryIntegrationTest} on real PostgreSQL.
+ *
+ * <p>After the variant-identity split the serialization point is the per-store stock row, so the
+ * lock order verified here is {@code storeStock -> locationBalance}, with the definition read
+ * (unlocked) first only to reject a missing or disabled variant.</p>
  */
 @ExtendWith(MockitoExtension.class)
 @DisplayName("InventoryService Tests")
@@ -48,6 +53,9 @@ class InventoryServiceTest {
 
     @Mock
     private ProductVariantRepository productVariantRepository;
+
+    @Mock
+    private ProductVariantStoreStockRepository productVariantStoreStockRepository;
 
     @Mock
     private ProductVariantLocationRepository productVariantLocationRepository;
@@ -63,15 +71,27 @@ class InventoryServiceTest {
     @BeforeEach
     void setUp() {
         inventoryService = new InventoryService(
-                productVariantRepository, productVariantLocationRepository, inventoryMovementRepository);
+                productVariantRepository,
+                productVariantStoreStockRepository,
+                productVariantLocationRepository,
+                inventoryMovementRepository);
     }
 
-    private ProductVariant variantWithStock(String stock) {
+    private ProductVariant enabledVariant() {
         return ProductVariant.builder()
                 .id(VARIANT_ID)
-                .companyStoreId(STORE_ID)
-                .stock(new BigDecimal(stock))
+                .barCode("7501234567890")
+                .variantName("Talla M")
                 .enabled(true)
+                .build();
+    }
+
+    private ProductVariantStoreStock storeRowWithStock(String stock) {
+        return ProductVariantStoreStock.builder()
+                .id(UUID.fromString("00000000-0000-0000-0000-000000000003"))
+                .productVariantId(VARIANT_ID)
+                .companyStoreId(STORE_ID)
+                .stock(stock != null ? new BigDecimal(stock) : null)
                 .build();
     }
 
@@ -132,6 +152,7 @@ class InventoryServiceTest {
 
         private void assertNoRepositoryInteraction() {
             verifyNoInteractions(productVariantRepository);
+            verifyNoInteractions(productVariantStoreStockRepository);
             verifyNoInteractions(productVariantLocationRepository);
             verifyNoInteractions(inventoryMovementRepository);
         }
@@ -142,12 +163,14 @@ class InventoryServiceTest {
     class StoreGuardTests {
 
         @Test
-        @DisplayName("should reject a variant that belongs to another store and write nothing")
-        void rejectsVariantFromAnotherStore() {
+        @DisplayName("should reject a variant with no stock row in the supplied store and write nothing")
+        void rejectsVariantWithNoStoreRow() {
             var otherStoreId = UUID.fromString("00000000-0000-0000-0000-0000000000ee");
-            var variant = variantWithStock("5.00");
 
-            when(productVariantRepository.findByIdForUpdate(VARIANT_ID)).thenReturn(Optional.of(variant));
+            when(productVariantRepository.findById(VARIANT_ID)).thenReturn(Optional.of(enabledVariant()));
+            when(productVariantStoreStockRepository.findByProductVariantIdAndCompanyStoreIdForUpdate(
+                            VARIANT_ID, otherStoreId))
+                    .thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> inventoryService.applyReceipt(
                             VARIANT_ID,
@@ -161,11 +184,10 @@ class InventoryServiceTest {
                     .hasMessageContaining(VARIANT_ID.toString())
                     .hasMessageContaining(otherStoreId.toString());
 
-            // No ledger row, no balance row and no mutation of the locked aggregate.
+            // No ledger row, no balance row and no stock mutation.
             verifyNoInteractions(inventoryMovementRepository);
             verifyNoInteractions(productVariantLocationRepository);
-            verify(productVariantRepository, never()).save(any(ProductVariant.class));
-            assertThat(variant.getStock()).isEqualByComparingTo("5.00");
+            verify(productVariantStoreStockRepository, never()).save(any(ProductVariantStoreStock.class));
         }
     }
 
@@ -179,14 +201,16 @@ class InventoryServiceTest {
             var balanceId = UUID.fromString("00000000-0000-0000-0000-000000000002");
             var referenceId = UUID.randomUUID();
 
-            when(productVariantRepository.findByIdForUpdate(VARIANT_ID))
-                    .thenReturn(Optional.of(variantWithStock("10.00")));
+            when(productVariantRepository.findById(VARIANT_ID)).thenReturn(Optional.of(enabledVariant()));
+            when(productVariantStoreStockRepository.findByProductVariantIdAndCompanyStoreIdForUpdate(
+                            VARIANT_ID, STORE_ID))
+                    .thenReturn(Optional.of(storeRowWithStock("10.00")));
+            when(productVariantStoreStockRepository.save(any(ProductVariantStoreStock.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
             when(productVariantLocationRepository.findByProductVariantIdAndStoreLocationIdForUpdate(
                             VARIANT_ID, LOCATION_ID))
                     .thenReturn(Optional.of(balanceWith(balanceId, "0.00")));
             when(productVariantLocationRepository.save(any(ProductVariantLocation.class)))
-                    .thenAnswer(invocation -> invocation.getArgument(0));
-            when(productVariantRepository.save(any(ProductVariant.class)))
                     .thenAnswer(invocation -> invocation.getArgument(0));
 
             inventoryService.applyReceipt(
@@ -201,10 +225,8 @@ class InventoryServiceTest {
             var savedBalance = captureSavedBalance();
             assertThat(savedBalance.getStock()).isEqualByComparingTo("12.50");
 
-            verify(productVariantRepository).save(any(ProductVariant.class));
-            var savedVariant = ArgumentCaptor.forClass(ProductVariant.class);
-            verify(productVariantRepository).save(savedVariant.capture());
-            assertThat(savedVariant.getValue().getStock()).isEqualByComparingTo("22.50");
+            var savedStoreStock = captureSavedStoreStock();
+            assertThat(savedStoreStock.getStock()).isEqualByComparingTo("22.50");
 
             verify(inventoryMovementRepository).save(movementCaptor.capture());
             var movement = movementCaptor.getValue();
@@ -219,37 +241,31 @@ class InventoryServiceTest {
         }
 
         @Test
-        @DisplayName("should accumulate on a balance row that already exists")
+        @DisplayName("should accumulate on a store row and a balance row that already exist")
         void secondReceiptAccumulates() {
             var balanceId = UUID.fromString("00000000-0000-0000-0000-000000000002");
 
-            when(productVariantRepository.findByIdForUpdate(VARIANT_ID))
-                    .thenReturn(Optional.of(variantWithStock("3.00")));
+            when(productVariantRepository.findById(VARIANT_ID)).thenReturn(Optional.of(enabledVariant()));
+            when(productVariantStoreStockRepository.findByProductVariantIdAndCompanyStoreIdForUpdate(
+                            VARIANT_ID, STORE_ID))
+                    .thenReturn(Optional.of(storeRowWithStock("3.00")));
+            when(productVariantStoreStockRepository.save(any(ProductVariantStoreStock.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
             when(productVariantLocationRepository.findByProductVariantIdAndStoreLocationIdForUpdate(
                             VARIANT_ID, LOCATION_ID))
                     .thenReturn(Optional.of(balanceWith(balanceId, "5.00")));
             when(productVariantLocationRepository.save(any(ProductVariantLocation.class)))
                     .thenAnswer(invocation -> invocation.getArgument(0));
-            when(productVariantRepository.save(any(ProductVariant.class)))
-                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             applyReceipt("2.25");
 
             assertThat(captureSavedBalance().getStock()).isEqualByComparingTo("7.25");
-            var savedVariant = ArgumentCaptor.forClass(ProductVariant.class);
-            verify(productVariantRepository).save(savedVariant.capture());
-            assertThat(savedVariant.getValue().getStock()).isEqualByComparingTo("5.25");
+            assertThat(captureSavedStoreStock().getStock()).isEqualByComparingTo("5.25");
         }
 
         @Test
-        @DisplayName("should treat a NULL stock as zero and land on exactly the received quantity")
+        @DisplayName("should treat a NULL store stock as zero and land on exactly the received quantity")
         void nullStockCountsAsZero() {
-            var variant = ProductVariant.builder()
-                    .id(VARIANT_ID)
-                    .companyStoreId(STORE_ID)
-                    .stock(null)
-                    .enabled(true)
-                    .build();
             var nullBalance = ProductVariantLocation.builder()
                     .id(UUID.fromString("00000000-0000-0000-0000-000000000002"))
                     .productVariantId(VARIANT_ID)
@@ -257,36 +273,63 @@ class InventoryServiceTest {
                     .stock(null)
                     .build();
 
-            when(productVariantRepository.findByIdForUpdate(VARIANT_ID)).thenReturn(Optional.of(variant));
+            when(productVariantRepository.findById(VARIANT_ID)).thenReturn(Optional.of(enabledVariant()));
+            when(productVariantStoreStockRepository.findByProductVariantIdAndCompanyStoreIdForUpdate(
+                            VARIANT_ID, STORE_ID))
+                    .thenReturn(Optional.of(storeRowWithStock(null)));
+            when(productVariantStoreStockRepository.save(any(ProductVariantStoreStock.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
             when(productVariantLocationRepository.findByProductVariantIdAndStoreLocationIdForUpdate(
                             VARIANT_ID, LOCATION_ID))
                     .thenReturn(Optional.of(nullBalance));
             when(productVariantLocationRepository.save(any(ProductVariantLocation.class)))
                     .thenAnswer(invocation -> invocation.getArgument(0));
-            when(productVariantRepository.save(any(ProductVariant.class)))
-                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             applyReceipt("8.00");
 
             assertThat(captureSavedBalance().getStock()).isEqualByComparingTo("8.00");
-            assertThat(variant.getStock()).isEqualByComparingTo("8.00");
+            assertThat(captureSavedStoreStock().getStock()).isEqualByComparingTo("8.00");
         }
 
         @Test
         @DisplayName("should fail with ProductVariantNotFoundException and write no ledger row")
         void unknownVariantFails() {
-            when(productVariantRepository.findByIdForUpdate(VARIANT_ID)).thenReturn(Optional.empty());
+            when(productVariantRepository.findById(VARIANT_ID)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> applyReceipt("1.00")).isInstanceOf(ProductVariantNotFoundException.class);
 
             verifyNoInteractions(inventoryMovementRepository);
+            verifyNoInteractions(productVariantStoreStockRepository);
             verifyNoInteractions(productVariantLocationRepository);
-            verify(productVariantRepository, never()).save(any(ProductVariant.class));
+        }
+
+        @Test
+        @DisplayName("should fail with ProductVariantNotFoundException when the variant is disabled")
+        void disabledVariantFails() {
+            var disabled = ProductVariant.builder()
+                    .id(VARIANT_ID)
+                    .barCode("7501234567890")
+                    .variantName("Talla M")
+                    .enabled(false)
+                    .build();
+            when(productVariantRepository.findById(VARIANT_ID)).thenReturn(Optional.of(disabled));
+
+            assertThatThrownBy(() -> applyReceipt("1.00")).isInstanceOf(ProductVariantNotFoundException.class);
+
+            verifyNoInteractions(inventoryMovementRepository);
+            verifyNoInteractions(productVariantStoreStockRepository);
+            verifyNoInteractions(productVariantLocationRepository);
         }
 
         private ProductVariantLocation captureSavedBalance() {
             var captured = ArgumentCaptor.forClass(ProductVariantLocation.class);
             verify(productVariantLocationRepository).save(captured.capture());
+            return captured.getValue();
+        }
+
+        private ProductVariantStoreStock captureSavedStoreStock() {
+            var captured = ArgumentCaptor.forClass(ProductVariantStoreStock.class);
+            verify(productVariantStoreStockRepository).save(captured.capture());
             return captured.getValue();
         }
     }
@@ -296,55 +339,62 @@ class InventoryServiceTest {
     class LockOrderTests {
 
         @Test
-        @DisplayName("should lock the variant before any interaction with the balance repository")
-        void locksVariantBeforeAnyBalanceInteraction() {
-            // The balance id deliberately sorts BELOW the variant id: under the removed sorted-id
-            // rule this pair would have touched the balance repository first.
+        @DisplayName("should lock the per-store stock row before any interaction with the balance repository")
+        void locksStoreStockBeforeAnyBalanceInteraction() {
             var balanceId = UUID.fromString("00000000-0000-0000-0000-000000000000");
 
-            when(productVariantRepository.findByIdForUpdate(VARIANT_ID))
-                    .thenReturn(Optional.of(variantWithStock("1.00")));
+            when(productVariantRepository.findById(VARIANT_ID)).thenReturn(Optional.of(enabledVariant()));
+            when(productVariantStoreStockRepository.findByProductVariantIdAndCompanyStoreIdForUpdate(
+                            VARIANT_ID, STORE_ID))
+                    .thenReturn(Optional.of(storeRowWithStock("1.00")));
+            when(productVariantStoreStockRepository.save(any(ProductVariantStoreStock.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
             when(productVariantLocationRepository.findByProductVariantIdAndStoreLocationIdForUpdate(
                             VARIANT_ID, LOCATION_ID))
                     .thenReturn(Optional.of(balanceWith(balanceId, "1.00")));
             when(productVariantLocationRepository.save(any(ProductVariantLocation.class)))
                     .thenAnswer(invocation -> invocation.getArgument(0));
-            when(productVariantRepository.save(any(ProductVariant.class)))
-                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             applyReceipt("1.00");
 
-            // Not vacuous: both balance-repository interactions are verified as really invoked, and
-            // the variant lock must come first.
-            InOrder lockOrder = inOrder(productVariantRepository, productVariantLocationRepository);
-            lockOrder.verify(productVariantRepository).findByIdForUpdate(VARIANT_ID);
+            // Not vacuous: the definition read, the store-stock lock and both balance-repository
+            // interactions are verified as really invoked, and the store-stock lock must come first.
+            InOrder lockOrder = inOrder(
+                    productVariantRepository, productVariantStoreStockRepository, productVariantLocationRepository);
+            lockOrder.verify(productVariantRepository).findById(VARIANT_ID);
+            lockOrder
+                    .verify(productVariantStoreStockRepository)
+                    .findByProductVariantIdAndCompanyStoreIdForUpdate(VARIANT_ID, STORE_ID);
             lockOrder.verify(productVariantLocationRepository).insertBalanceIfAbsent(VARIANT_ID, LOCATION_ID);
             lockOrder
                     .verify(productVariantLocationRepository)
                     .findByProductVariantIdAndStoreLocationIdForUpdate(VARIANT_ID, LOCATION_ID);
 
-            // The deleted id probe read the balance before the variant lock; it must not come back.
-            verify(productVariantLocationRepository, never()).findByProductVariantIdAndStoreLocationId(any(), any());
+            // The definition must NOT be locked any more: it no longer carries stock.
         }
 
         @Test
         @DisplayName("should create the balance row through the conflict-tolerant insert when it is missing")
         void createsMissingBalanceWithConflictTolerantInsert() {
-            when(productVariantRepository.findByIdForUpdate(VARIANT_ID))
-                    .thenReturn(Optional.of(variantWithStock("0.00")));
+            when(productVariantRepository.findById(VARIANT_ID)).thenReturn(Optional.of(enabledVariant()));
+            when(productVariantStoreStockRepository.findByProductVariantIdAndCompanyStoreIdForUpdate(
+                            VARIANT_ID, STORE_ID))
+                    .thenReturn(Optional.of(storeRowWithStock("0.00")));
+            when(productVariantStoreStockRepository.save(any(ProductVariantStoreStock.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
             when(productVariantLocationRepository.findByProductVariantIdAndStoreLocationIdForUpdate(
                             VARIANT_ID, LOCATION_ID))
                     .thenReturn(
                             Optional.of(balanceWith(UUID.fromString("00000000-0000-0000-0000-000000000002"), "0.00")));
             when(productVariantLocationRepository.save(any(ProductVariantLocation.class)))
                     .thenAnswer(invocation -> invocation.getArgument(0));
-            when(productVariantRepository.save(any(ProductVariant.class)))
-                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             applyReceipt("4.00");
 
-            InOrder lockOrder = inOrder(productVariantRepository, productVariantLocationRepository);
-            lockOrder.verify(productVariantRepository).findByIdForUpdate(VARIANT_ID);
+            InOrder lockOrder = inOrder(productVariantStoreStockRepository, productVariantLocationRepository);
+            lockOrder
+                    .verify(productVariantStoreStockRepository)
+                    .findByProductVariantIdAndCompanyStoreIdForUpdate(VARIANT_ID, STORE_ID);
             lockOrder.verify(productVariantLocationRepository).insertBalanceIfAbsent(VARIANT_ID, LOCATION_ID);
         }
     }

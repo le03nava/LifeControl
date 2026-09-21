@@ -13,6 +13,7 @@ import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.model.ProductVariant;
 import com.lifecontrol.api.product.repository.ProductRepository;
 import com.lifecontrol.api.product.repository.ProductVariantRepository;
+import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderDetailRequest;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderDetailResponse;
 import com.lifecontrol.api.purchaseorder.dto.PurchaseOrderRequest;
@@ -89,6 +90,7 @@ public class PurchaseOrderService {
     private final CompanyStoreRepository companyStoreRepository;
     private final ProductRepository productRepository;
     private final ProductVariantRepository productVariantRepository;
+    private final ProductVariantStoreStockRepository productVariantStoreStockRepository;
     private final PaymentMethodRepository paymentMethodRepository;
     private final StatusRepository statusRepository;
     private final ApplicationEventPublisher eventPublisher;
@@ -100,6 +102,7 @@ public class PurchaseOrderService {
             CompanyStoreRepository companyStoreRepository,
             ProductRepository productRepository,
             ProductVariantRepository productVariantRepository,
+            ProductVariantStoreStockRepository productVariantStoreStockRepository,
             PaymentMethodRepository paymentMethodRepository,
             StatusRepository statusRepository,
             ApplicationEventPublisher eventPublisher) {
@@ -109,6 +112,7 @@ public class PurchaseOrderService {
         this.companyStoreRepository = companyStoreRepository;
         this.productRepository = productRepository;
         this.productVariantRepository = productVariantRepository;
+        this.productVariantStoreStockRepository = productVariantStoreStockRepository;
         this.paymentMethodRepository = paymentMethodRepository;
         this.statusRepository = statusRepository;
         this.eventPublisher = eventPublisher;
@@ -595,22 +599,27 @@ public class PurchaseOrderService {
     }
 
     /**
-     * Resolves the variant reference against the line's product and the purchase
-     * order's store. A variant that is not reachable through both keys is a 404.
+     * Resolves the variant reference against the line's product and the purchase order's store:
+     * the {@code (variant, product)} pair must exist on the global definition, and the
+     * {@code (variant, store)} pair must exist on the per-store row. A variant that is not reachable
+     * through both is a 404.
      *
-     * <p>The HTTP contract now requires the variant: {@link PurchaseOrderDetailRequest}
-     * rejects a missing {@code productVariantId} with 400 before this method runs.
-     * The {@code null} tolerance is kept only for legacy rows written before the
-     * contract flip and for programmatic callers that construct requests directly,
-     * so a {@code null} id still leaves the relation unset instead of failing.</p>
+     * <p>The HTTP contract requires the variant: {@link PurchaseOrderDetailRequest} rejects a missing
+     * {@code productVariantId} with 400 before this method runs, and since V14 the database column is
+     * {@code NOT NULL} too. The legacy {@code null} tolerance was dropped with the discarded data
+     * (decision D5): a {@code null} id now fails the {@code @NotNull} gate instead of silently
+     * leaving the relation unset.</p>
      */
     private ProductVariant resolveProductVariant(UUID productVariantId, Product product, UUID companyStoreId) {
-        if (productVariantId == null) {
-            return null;
-        }
-        return productVariantRepository
-                .findByIdAndProductIdAndCompanyStoreIdAndEnabledTrue(productVariantId, product.getId(), companyStoreId)
+        var variant = productVariantRepository
+                .findByIdAndProductIdAndEnabledTrue(productVariantId, product.getId())
                 .orElseThrow(() -> new ProductVariantNotFoundException(productVariantId));
+
+        if (!productVariantStoreStockRepository.existsByProductVariantIdAndCompanyStoreId(
+                productVariantId, companyStoreId)) {
+            throw new ProductVariantNotFoundException(productVariantId);
+        }
+        return variant;
     }
 
     // ─── Status Transition Validation ───────────────────────────────────

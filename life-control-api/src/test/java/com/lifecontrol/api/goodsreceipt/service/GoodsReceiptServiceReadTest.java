@@ -19,6 +19,7 @@ import com.lifecontrol.api.goodsreceipt.model.GoodsReceipt;
 import com.lifecontrol.api.goodsreceipt.repository.GoodsReceiptRepository;
 import com.lifecontrol.api.inventory.repository.StoreInventorySettingsRepository;
 import com.lifecontrol.api.inventory.service.InventoryService;
+import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository;
 import com.lifecontrol.api.purchaseorder.model.PurchaseOrder;
 import com.lifecontrol.api.purchaseorder.repository.PurchaseOrderDetailRepository;
 import com.lifecontrol.api.purchaseorder.repository.PurchaseOrderRepository;
@@ -95,6 +96,9 @@ class GoodsReceiptServiceReadTest {
     private StoreLocationRepository storeLocationRepository;
 
     @Mock
+    private ProductVariantStoreStockRepository productVariantStoreStockRepository;
+
+    @Mock
     private StatusRepository statusRepository;
 
     @Mock
@@ -115,6 +119,7 @@ class GoodsReceiptServiceReadTest {
                 goodsReceiptRepository,
                 storeInventorySettingsRepository,
                 storeLocationRepository,
+                productVariantStoreStockRepository,
                 statusRepository,
                 currentUserContext);
 

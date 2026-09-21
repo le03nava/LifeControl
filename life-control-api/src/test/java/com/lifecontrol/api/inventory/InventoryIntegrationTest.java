@@ -23,8 +23,10 @@ import com.lifecontrol.api.inventory.repository.ProductVariantLocationRepository
 import com.lifecontrol.api.inventory.service.InventoryService;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.model.ProductVariant;
+import com.lifecontrol.api.product.model.ProductVariantStoreStock;
 import com.lifecontrol.api.product.repository.ProductRepository;
 import com.lifecontrol.api.product.repository.ProductVariantRepository;
+import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository;
 import com.lifecontrol.api.store.dto.CreateStoreAreaRequest;
 import com.lifecontrol.api.store.dto.CreateStoreLocationRequest;
 import com.lifecontrol.api.store.dto.CreateStoreZoneRequest;
@@ -96,6 +98,9 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
     private ProductVariantRepository productVariantRepository;
 
     @Autowired
+    private ProductVariantStoreStockRepository productVariantStoreStockRepository;
+
+    @Autowired
     private ProductRepository productRepository;
 
     @Autowired
@@ -139,6 +144,7 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
         // that runs later in this shared JVM can delete products and locations wholesale.
         inventoryMovementRepository.deleteAll();
         productVariantLocationRepository.deleteAll();
+        productVariantStoreStockRepository.deleteAll();
 
         seedCompanyHierarchy();
         locationId = ensureLocation();
@@ -148,6 +154,7 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
     void tearDown() {
         inventoryMovementRepository.deleteAll();
         productVariantLocationRepository.deleteAll();
+        productVariantStoreStockRepository.deleteAll();
     }
 
     /**
@@ -294,15 +301,21 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
                 .enabled(true)
                 .build());
 
-        return productVariantRepository.save(ProductVariant.builder()
+        var variant = productVariantRepository.save(ProductVariant.builder()
                 .productId(product.getId())
-                .companyStoreId(storeId)
+                .barCode("INV-BAR-" + UUID.randomUUID().toString().substring(0, 12))
                 .variantName("Variant-" + UUID.randomUUID().toString().substring(0, 8))
+                .enabled(true)
+                .build());
+
+        productVariantStoreStockRepository.save(ProductVariantStoreStock.builder()
+                .productVariantId(variant.getId())
+                .companyStoreId(storeId)
                 .costPrice(new BigDecimal("10.00"))
                 .listPrice(new BigDecimal("20.00"))
                 .stock(new BigDecimal(stock))
-                .enabled(true)
                 .build());
+        return variant;
     }
 
     private void applyReceipt(UUID variantId, String quantity) {
@@ -315,7 +328,10 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     private BigDecimal aggregateStockOf(UUID variantId) {
-        return productVariantRepository.findById(variantId).orElseThrow().getStock();
+        return productVariantStoreStockRepository
+                .findByProductVariantIdAndCompanyStoreId(variantId, storeId)
+                .orElseThrow()
+                .getStock();
     }
 
     @Nested

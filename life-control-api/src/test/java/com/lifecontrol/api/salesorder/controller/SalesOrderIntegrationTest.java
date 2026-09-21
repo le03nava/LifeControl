@@ -26,8 +26,10 @@ import com.lifecontrol.api.paymentmethod.model.PaymentMethod;
 import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
 import com.lifecontrol.api.product.model.Product;
 import com.lifecontrol.api.product.model.ProductVariant;
+import com.lifecontrol.api.product.model.ProductVariantStoreStock;
 import com.lifecontrol.api.product.repository.ProductRepository;
 import com.lifecontrol.api.product.repository.ProductVariantRepository;
+import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository;
 import com.lifecontrol.api.salesorder.dto.ChargeSalesOrderRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderItemRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderRequest;
@@ -80,6 +82,9 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @Autowired
     private ProductVariantRepository productVariantRepository;
+
+    @Autowired
+    private ProductVariantStoreStockRepository productVariantStoreStockRepository;
 
     @Autowired
     private ProductRepository productRepository;
@@ -136,6 +141,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
         // Clean up mutable data in reverse FK dependency order
         itemRepository.deleteAll();
         salesOrderRepository.deleteAll();
+        productVariantStoreStockRepository.deleteAll();
         productVariantRepository.deleteAll();
         productRepository.deleteAll();
         shiftRepository.deleteAll();
@@ -322,13 +328,12 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
     private ProductVariant createTestVariant(BigDecimal stock) {
         var variant = new ProductVariant();
         variant.setProductId(createTestProduct().getId());
-        variant.setCompanyStoreId(companyStoreId);
+        variant.setBarCode("BAR-" + UUID.randomUUID().toString().substring(0, 12));
         variant.setVariantName("Variant-" + UUID.randomUUID().toString().substring(0, 8));
-        variant.setListPrice(new BigDecimal("100.00"));
-        variant.setCostPrice(new BigDecimal("60.00"));
-        variant.setStock(stock);
         variant.setEnabled(true);
-        return productVariantRepository.save(variant);
+        variant = productVariantRepository.save(variant);
+        saveStoreStock(variant.getId(), stock, new BigDecimal("100.00"), new BigDecimal("60.00"));
+        return variant;
     }
 
     /**
@@ -337,13 +342,29 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
     private ProductVariant createTestVariantB(BigDecimal stock) {
         var variant = new ProductVariant();
         variant.setProductId(createTestProduct().getId());
-        variant.setCompanyStoreId(companyStoreId);
+        variant.setBarCode("BAR-" + UUID.randomUUID().toString().substring(0, 12));
         variant.setVariantName("VariantB-" + UUID.randomUUID().toString().substring(0, 8));
-        variant.setListPrice(new BigDecimal("50.00"));
-        variant.setCostPrice(new BigDecimal("30.00"));
-        variant.setStock(stock);
         variant.setEnabled(true);
-        return productVariantRepository.save(variant);
+        variant = productVariantRepository.save(variant);
+        saveStoreStock(variant.getId(), stock, new BigDecimal("50.00"), new BigDecimal("30.00"));
+        return variant;
+    }
+
+    private void saveStoreStock(UUID variantId, BigDecimal stock, BigDecimal listPrice, BigDecimal costPrice) {
+        productVariantStoreStockRepository.save(ProductVariantStoreStock.builder()
+                .productVariantId(variantId)
+                .companyStoreId(companyStoreId)
+                .stock(stock)
+                .listPrice(listPrice)
+                .costPrice(costPrice)
+                .build());
+    }
+
+    /** Reads the per-store stock row, the only place stock lives after the variant split. */
+    private ProductVariantStoreStock storeStockOf(UUID variantId) {
+        return productVariantStoreStockRepository
+                .findByProductVariantIdAndCompanyStoreId(variantId, companyStoreId)
+                .orElseThrow();
     }
 
     // ─── 5.1 Create order with items → stock deducted ─────────────
@@ -373,8 +394,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(jsonPath("$.items.length()").value(1));
 
             // Verify stock was deducted: 100 - 5 = 95
-            var updatedVariant =
-                    productVariantRepository.findById(variant.getId()).orElseThrow();
+            var updatedVariant = storeStockOf(variant.getId());
             assertThat(updatedVariant.getStock()).isEqualByComparingTo(new BigDecimal("95.00"));
         }
     }
@@ -407,8 +427,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(salesOrderRepository.findAll()).isEmpty();
 
             // Verify variant stock unchanged
-            var updatedVariant =
-                    productVariantRepository.findById(variant.getId()).orElseThrow();
+            var updatedVariant = storeStockOf(variant.getId());
             assertThat(updatedVariant.getStock()).isEqualByComparingTo(new BigDecimal("5.00"));
         }
     }
@@ -453,8 +472,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(jsonPath("$.quantity").value(3.00));
 
             // Verify stock: 50 - 3 = 47
-            var updatedVariant =
-                    productVariantRepository.findById(variant.getId()).orElseThrow();
+            var updatedVariant = storeStockOf(variant.getId());
             assertThat(updatedVariant.getStock()).isEqualByComparingTo(new BigDecimal("47.00"));
         }
     }
@@ -489,7 +507,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var itemId = root.get("items").get(0).get("id").asText();
 
             // Verify initial stock: 100 - 5 = 95
-            var v = productVariantRepository.findById(variant.getId()).orElseThrow();
+            var v = storeStockOf(variant.getId());
             assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("95.00"));
 
             // Update quantity to 8 (increase by 3 → stock becomes 92)
@@ -508,7 +526,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.quantity").value(8.00));
 
-            v = productVariantRepository.findById(variant.getId()).orElseThrow();
+            v = storeStockOf(variant.getId());
             assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("92.00"));
 
             // Update quantity to 2 (decrease by 6 → stock becomes 98)
@@ -527,7 +545,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.quantity").value(2.00));
 
-            v = productVariantRepository.findById(variant.getId()).orElseThrow();
+            v = storeStockOf(variant.getId());
             assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("98.00"));
         }
     }
@@ -562,7 +580,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             var itemId = root.get("items").get(0).get("id").asText();
 
             // Verify stock after create: 93
-            var v = productVariantRepository.findById(variant.getId()).orElseThrow();
+            var v = storeStockOf(variant.getId());
             assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("93.00"));
 
             // Delete the item
@@ -571,7 +589,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(status().isNoContent());
 
             // Verify stock restored to 100
-            v = productVariantRepository.findById(variant.getId()).orElseThrow();
+            v = storeStockOf(variant.getId());
             assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
         }
     }
@@ -610,7 +628,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             // item2Id is not needed directly
 
             // Stock after create: 100 - 3 - 5 = 92
-            var v = productVariantRepository.findById(variant.getId()).orElseThrow();
+            var v = storeStockOf(variant.getId());
             assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("92.00"));
 
             // Soft-delete item1
@@ -619,7 +637,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(status().isNoContent());
 
             // Stock after delete item1: 92 + 3 = 95 (item1 already restored its stock)
-            v = productVariantRepository.findById(variant.getId()).orElseThrow();
+            v = storeStockOf(variant.getId());
             assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("95.00"));
 
             // Cancel order: restores ONLY the enabled item2(qty 5). The soft-deleted
@@ -634,7 +652,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(jsonPath("$.statusName").value("Cancelled"));
 
             // Stock should be: 95 + 5 (item2) = 100 — no double-restore of item1
-            v = productVariantRepository.findById(variant.getId()).orElseThrow();
+            v = storeStockOf(variant.getId());
             assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
         }
     }
@@ -670,7 +688,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .asText();
 
             // Verify stock after create: 96
-            var v = productVariantRepository.findById(variant.getId()).orElseThrow();
+            var v = storeStockOf(variant.getId());
             assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("96.00"));
 
             // Soft-delete the entire order
@@ -678,7 +696,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(status().isNoContent());
 
             // Verify stock restored to 100
-            v = productVariantRepository.findById(variant.getId()).orElseThrow();
+            v = storeStockOf(variant.getId());
             assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
         }
     }
@@ -714,7 +732,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .asText();
 
             // Verify stock: 94
-            var v = productVariantRepository.findById(variant.getId()).orElseThrow();
+            var v = storeStockOf(variant.getId());
             assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("94.00"));
 
             // Transition Draft → Active
@@ -745,7 +763,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(jsonPath("$.statusName").value("Completed"));
 
             // Stock should remain 94 (no restoration on Complete)
-            v = productVariantRepository.findById(variant.getId()).orElseThrow();
+            v = storeStockOf(variant.getId());
             assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("94.00"));
         }
     }
@@ -811,7 +829,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             CompletableFuture.allOf(future1, future2).get(30, TimeUnit.SECONDS);
 
             // Verify final state is consistent
-            var v = productVariantRepository.findById(variant.getId()).orElseThrow();
+            var v = storeStockOf(variant.getId());
             var stock = v.getStock();
 
             // Stock should be consistent: either 2 (thread-1 took 8, thread-2 got 409),
@@ -863,11 +881,11 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(salesOrderRepository.findAll()).isEmpty();
 
             // Verify variant A stock UNCHANGED (rollback)
-            var va = productVariantRepository.findById(variantA.getId()).orElseThrow();
+            var va = storeStockOf(variantA.getId());
             assertThat(va.getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
 
             // Verify variant B stock UNCHANGED
-            var vb = productVariantRepository.findById(variantB.getId()).orElseThrow();
+            var vb = storeStockOf(variantB.getId());
             assertThat(vb.getStock()).isEqualByComparingTo(new BigDecimal("2.00"));
         }
     }
@@ -920,7 +938,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(statusAfterFirstItem.getStatusName()).isEqualTo("Active");
 
             // Verify stock deducted: 100 - 3 = 97
-            var v = productVariantRepository.findById(variant.getId()).orElseThrow();
+            var v = storeStockOf(variant.getId());
             assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("97.00"));
 
             // Step 3: Add second item → stays Active
@@ -944,7 +962,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(statusAfterSecondItem.getStatusName()).isEqualTo("Active");
 
             // Verify stock deducted: 97 - 2 = 95
-            v = productVariantRepository.findById(variant.getId()).orElseThrow();
+            v = storeStockOf(variant.getId());
             assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("95.00"));
 
             // Step 4: Charge → auto-promotes Active → Pending → Completed
@@ -974,7 +992,7 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
             assertThat(finalOrder.getPaymentMethodId()).isEqualTo(paymentMethodId);
 
             // Verify stock unchanged after charge (no restoration on Complete)
-            v = productVariantRepository.findById(variant.getId()).orElseThrow();
+            v = storeStockOf(variant.getId());
             assertThat(v.getStock()).isEqualByComparingTo(new BigDecimal("95.00"));
 
             // Verify items transitioned to Added
