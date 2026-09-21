@@ -4,7 +4,8 @@
 **Branch**: `feat/product-variant-admin-ui`
 **Worktree**: `~/workspace/LifeControl-worktrees/feat-product-variant-admin-ui`
 **Base**: `main` @ `7958dd0` (PR #136 merge)
-**Status**: in progress — S1 pending
+**Status**: S1 complete — 6 commits on this branch, plus one chained branch for a pre-existing
+backend gap found by the review. S2 pending.
 **Created**: 2026-09-21
 **Risk**: **high** — route guard and role-set change (`assets/risk-classification-matrix.md`: "Auth, permissions, role, or guard change")
 
@@ -55,6 +56,9 @@ Error mapping the UI must render: 404 `ResourceNotFoundException`, 409 `Conflict
 | D2 | Delivery structure | **One feature, two slices.** S1 variant definitions, S2 per-store stock and prices. Minimum two work-unit commits; one PR or two sequential PRs decided at delivery. |
 | D3 | Keycloak claim mappers | **Out of scope**, declared follow-up. This feature assumes the claim chain exists, exactly as `store-claim-hardening` did. |
 | D4 | How the parent gate is broadened | **Follow the `companies.routes.ts` mold**: the parent gate becomes the union any child needs (`lc-admin` + `lc-sales`) and **every pre-existing child route is re-gated to `lc-admin`**, so the products ABM does not open to sales. A route-config spec must prove it. |
+| D5 | How `lc-sales` reaches the variant screens in S1 | **Deferred to S2.** S1 ships the screens with their `VARIANT_ROLES` gates and reaches them from the product list (admin), because variants are nested under a product and the only product-picking UI is admin-only. The sales entry point is built in S2 with the per-store stock editor, which is where sales has a real job. Declared consequence: `lc-sales` has no discoverable entry until S2. |
+| D6 | The re-enable gap the review found (F2) | **Fix it properly**: add the opt-in `includeDisabled` to the variant list endpoint, mirroring `listProducts`, plus a "Mostrar deshabilitadas" toggle. |
+| D7 | The pre-existing backend gap the review found (F1) | **Its own branch and PR, chained to this one**: `fix/product-abm-authz`. |
 
 ### Design facts established by read-only exploration (not open decisions)
 
@@ -127,23 +131,28 @@ New files live under the existing products feature layout, mirroring `suppliers/
 
 ## Tasks
 
-### S1 — Variant definitions UI
+### S1 — Variant definitions UI — DONE
 
-- [ ] T1 — `core/security/roles.ts`: add `LC_SALES`, register it in `CLIENT_ROLES`, and export the two
-      allow-lists (`PRODUCT_ADMIN_ROLES`, `VARIANT_ROLES`). Spec covers the new constants.
-- [ ] T2 — Models: `ProductVariantRequest`, `ProductVariantStoreStockRequest`,
-      `ProductVariantStoreStock`, and the `ProductVariant` nullability correction. Spec covers them.
-- [ ] T3 — Data layer: clients for the seven endpoints (`getVariantById`, `createVariant`,
-      `updateVariant`, `deleteVariant`, `enableVariant`, `upsertStoreStock`, plus the existing list).
-      Spec with `HttpTestingController` asserts URL, method, body and error mapping per call.
-- [ ] T4 — Route restructure per D4 + `products.routes.spec.ts` asserting every pre-existing child is
-      still `['lc-admin']` and only the variant children carry `['lc-admin','lc-sales']`.
-- [ ] T5 — Definitions list page: paginated list, enable/disable action, delete confirmation dialog,
-      empty and error states. Spec.
-- [ ] T6 — Definition create/edit page + form component: reactive form with a typed control map,
-      per-field server errors, `ApiError` banner, cancel/navigate. Specs.
-- [ ] T7 — Reachability: menu entry and/or dashboard card, gated by role. Spec.
-- [ ] T8 — S1 gate: `npm run lint`, `npm run build`, `npm run test:coverage:check`. Work-unit commit.
+- [x] T1 — `core/security/roles.ts`: `LC_SALES` added, registered in `CLIENT_ROLES`, and
+      `VARIANT_ROLES` exported with a JSDoc that pins its backend source. `roles.spec.ts` covers the
+      primitives including `hasAnyClientRole` in an injection context. (`3f02a5e`)
+- [x] T2 — Models: `ProductVariantRequest`, `ProductVariantStoreStockRequest` and
+      `ProductVariantStoreStock`. **Correction to this plan**: the `ProductVariant` nullability was
+      already fixed by S3 of the parent feature, so no correction was needed here. (`2d43793`)
+- [x] T3 — Data layer: `ProductVariantService` owns all seven endpoints. The existing read was moved
+      out of `ProductService` so no resource has two owners; the purchase-order picker was its only
+      production call site. (`2d43793`)
+- [x] T4 — Route restructure per D4, plus the variant children, with a derived-walk control spec.
+      (`3f02a5e`, `3d6d484`, `372d773`)
+- [x] T5 — Definitions list page, reversible-disable dialog, and the additive "Variantes" row action
+      on the product list. (`3d6d484`)
+- [x] T6 — Create/edit page and form component, with the 409 rendered as one honest form-level
+      banner. (`372d773`)
+- [x] T7 — Reachability for admin: the product list row action. The sales entry is D5. (`3d6d484`)
+- [x] T8 — S1 gate on the committed tip: `npm run lint`, `npm run build`,
+      `npm run test:coverage:check` → 120 files / 2210 tests / 0 failures.
+- [x] T9 — Review follow-up: `includeDisabled` end to end (backend opt-in + the
+      "Mostrar deshabilitadas" toggle) and the two inaccurate comments. (`3bc7524`, `ba73bb5`)
 
 ### S2 — Per-store stock and prices
 
@@ -195,12 +204,73 @@ must be declared in the PR body rather than absorbed silently.
 | Date | Slice | Commit | Gate result |
 |---|---|---|---|
 | 2026-09-21 | exploration | — | Read-only mapping of the backend contract, the `companies/stores` mold, the current variant consumers, the gates and the JD follow-ups. No files written. |
+| 2026-09-21 | data layer | `2d43793` | Parent-run gate: `npm run lint` clean; `npm run test:coverage:check` → 92.47/74.87/88.18/92.47 (baseline 92.41/74.64/88.08/92.41). |
+| 2026-09-21 | roles + route gates | `3f02a5e` | Parent-run gate → 92.74/74.88/87.41/92.74, all within thresholds. |
+| 2026-09-21 | definitions list | `3d6d484` | Parent-run gate → 92.82/74.95/87.52/92.82. |
+| 2026-09-21 | create/edit screens | `372d773` | Parent-run gate → 92.87/75.10/87.55/92.87. |
+| 2026-09-21 | **S1 gate (T8)** | tip of S1 | Parent, on the committed content: `npm run lint` clean; `npm run build` complete with no warnings; `npm run test:coverage:check` → **120 files / 2210 tests / 0 failures**. |
+| 2026-09-21 | review follow-up (F2) | `3bc7524`, `ba73bb5` | Backend: `./gradlew spotlessCheck spotbugsMain cleanTest test --no-daemon` → BUILD SUCCESSFUL in 1m 33s, **614 suites / 2033 tests / 0 failures / 0 errors / 0 skipped** (baseline 614/2025, +8). Frontend: 120 files / 2215 tests / 0 failures, coverage 92.87/75.13/87.56/92.87. |
+| 2026-09-21 | chained F1 branch | `ffcb38c` on `fix/product-abm-authz` | `./gradlew spotlessCheck spotbugsMain cleanTest test --no-daemon` → BUILD SUCCESSFUL in 1m 35s, **620 suites / 2049 tests / 0 failures / 0 errors / 0 skipped** (+16). |
+
+### Controls proven by mutation, not by assertion
+
+A green control spec is not evidence that the control works. Both security-relevant specs on this
+branch were falsified deliberately:
+
+| Control | Mutation applied | Observed |
+|---|---|---|
+| `products.routes.spec.ts` | A non-variant child lost its `canActivate` | **Failed**: `expected undefined to deeply equal [ [AsyncFunction keycloakRoleGuard] ]` |
+| `products.routes.spec.ts` | A variant child lost `lc-sales` | **Failed**: `expected { roles: [ 'lc-admin' ], …(1) } to deeply equal { …(2) }` |
+| `ProductControllerSecurityTest` | `@PreAuthorize` removed from `POST /api/products` | **Failed**: 3 tests, including the two 403 + `verify(never())` cases |
+
+### The vacuous-assertion trap (cost a full investigation; carry it forward)
+
+The first version of the route control used `expect(route.canActivate).toContain(keycloakRoleGuard)`.
+That assertion **passes when `canActivate` is `undefined`**, because chai only rejects a non-indexable
+actual when the expected value is a string. Verified empirically on this repo's stack:
+
+| Assertion | `actual = undefined` |
+|---|---|
+| `expect(undefined).toContain('x')` | **throws** |
+| `expect(undefined).toContain(fn)` | **passes** (vacuous) |
+| `expect(undefined).not.toContain('x')` | **throws** |
+| `expect(undefined).toEqual([fn])` | **throws** |
+
+A child with `data.roles = ['lc-admin']` but no `canActivate` of its own is **inert**, so it would have
+been reachable by anyone the broadened parent gate admits — exactly the `lc-sales` leak the spec
+existed to prevent. The repo already had the correct form in
+`src/features/purchases/purchases.routes.spec.ts` ("should re-guard each orders child as admin-only");
+the branch now follows it. **Rule: never assert a possibly-undefined route property with `toContain`.**
+
+## Independent security review
+
+A read-only `gentle-ai-verify` subagent reviewed the branch adversarially (`git diff main...HEAD`) with
+eight claims to refute rather than confirm. It reproduced the gate state exactly and returned the
+following. It also independently reproduced the matcher-semantics table above.
+
+| # | Severity | Finding | Disposition |
+|---|---|---|---|
+| F1 | **CRITICAL** | The product ABM writes (`POST`/`PUT`/`DELETE /api/products`) carried **no `@PreAuthorize`** and `SecurityConfig` only requires `.authenticated()` for `/api/**`, so any authenticated principal could create, update or soft-delete products. The client guard was the only boundary. **Pre-existing**, not introduced by this branch. | **Fixed** on the chained branch `fix/product-abm-authz` (`ffcb38c`), per D7. |
+| F2 | **WARNING** | A disabled variant could never be re-enabled from the UI: the global-definition read filtered `enabled = true` with no opt-in, so the row vanished and the dialog promised a reversal the UI could not perform. **Introduced** by this branch's copy. | **Fixed** per D6 (`3bc7524`, `ba73bb5`). |
+| F3 | WARNING | The `VARIANT_ROLES` JSDoc claimed a navigation entry that does not exist (D5 defers it). | **Fixed**: the JSDoc now states only what is true. (`ba73bb5`) |
+| F4 | SUGGESTION | The route-order comment overstated declaration order as load-bearing; `defaultUrlMatcher`'s full-consumption rule already prevents shadowing. | **Fixed**: comment rewritten. (`ba73bb5`) |
+| F5 | SUGGESTION | The root-scoped service's `loading`/`error` signals have no consumer today. | **Accepted**: it is the repository's service convention (`ProductService` has the same shape); the cross-component clobbering risk is a repo-wide pattern question, not this branch's. |
+| F6 | SUGGESTION | A list spec rendered a `{ enabled: false }` row the backend could never return, and one assertion was near-vacuous. | **Fixed**: the spec now mocks the real contract and the vacuous assertion is replaced. (`ba73bb5`) |
+
+The review upheld the branch's core claims: no pre-existing `/products` child is reachable by an
+`lc-sales`-only principal (client-side); the variant children are the only ones carrying `lc-sales`;
+the UI is never broader than the backend on the endpoints it calls; the 409 renders no fabricated
+field attribution; the unsaved-changes guard cannot trap the user; and no secret or sensitive value is
+introduced.
 
 ## Declared follow-ups
 
 | Item | Why deferred |
 |---|---|
 | Keycloak protocol mappers for `company_id` → `company_store_id` (D3) | Non-code precondition, separate component (`docker/`), blocking for any real environment; already a precondition of `lc-receiving` and `lc-sales`. |
+| Read authorization on `GET /api/products` and `GET /api/products/{id}` | Both stay authenticated-only. `GET /{id}` is consumed by these variant screens, which are reachable by `lc-sales`, so narrowing the read is a contract change, not a one-line guard. The review's consumer map is the input for that decision. |
+| The discoverable `lc-sales` entry point (D5) | Lands in S2 with the per-store stock editor. |
 | `JD-A-003` — duplicate gates count soft-deleted rows | Changes the 409 contract; the UI does not require it. |
 | `JD-A-002` — 409 instead of the documented 404 on inline paths | Cosmetic, pre-existing. |
 | Store-claim checks on the older variant endpoints | Contract change for existing readers, deliberately left by `store-claim-hardening`. |
+| Residual English copy in the products dashboard (`Products Administration`, `All Products`) | Pre-existing legacy copy inside an otherwise Spanish feature; unrelated to this slice. |
