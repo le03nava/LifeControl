@@ -7,6 +7,7 @@ import { Page } from '../models/product.models';
 import {
   ProductVariant,
   ProductVariantRequest,
+  ProductVariantSearchResult,
   ProductVariantStoreStock,
   ProductVariantStoreStockRequest,
 } from '../models/product-variant.models';
@@ -204,6 +205,50 @@ export class ProductVariantService {
       .pipe(
         catchError((err: HttpErrorResponse) => {
           this._error.set(this.mapError(err, 'Error al guardar el stock de la variante'));
+          return throwError(() => err);
+        }),
+        finalize(() => this._loading.set(false)),
+      );
+  }
+
+  /**
+   * Searches the variants of ONE store.
+   *
+   * `q` matches the barcode, the product sku, the variant name or the product name
+   * (`ProductVariantRepository.searchByQuery`). The barcode predicate is an equality
+   * and a barcode is globally unique, so searching a variant's barcode scoped to a
+   * store returns that variant's store row or nothing at all — which is how the
+   * per-store editor reads the row it edits.
+   *
+   * Distinct from {@link getVariants}: that read lists a product's variants and only
+   * populates the store fields when a store is passed, while this one always runs
+   * inside a store and only returns variants that already have a row there.
+   */
+  searchVariants(
+    q: string,
+    storeId: string,
+    page = 0,
+    size = 20,
+  ): Observable<Page<ProductVariantSearchResult>> {
+    const params = new HttpParams()
+      .set('q', q)
+      .set('storeId', storeId)
+      .set('page', String(page))
+      .set('size', String(size));
+
+    this._loading.set(true);
+    this._error.set(null);
+
+    return this.http
+      .get<Page<ProductVariantSearchResult>>(
+        `${this.configService.apiUrl}/product-variants/search`,
+        {
+          params,
+        },
+      )
+      .pipe(
+        catchError((err: HttpErrorResponse) => {
+          this._error.set(this.mapError(err, 'Error al buscar las variantes de la tienda'));
           return throwError(() => err);
         }),
         finalize(() => this._loading.set(false)),

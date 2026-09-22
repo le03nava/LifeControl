@@ -15,3 +15,18 @@
   (saveVariant)="onSaveVariant($event)"
   (cancelForm)="cancelForm()"
 />
+
+<!--
+  Per-store stock and prices. Only in edit mode: the row hangs off a variant that has
+  to exist, and only once the stored barcode is known, because that is what keys the
+  row read.
+-->
+@if (variantId(); as id) {
+  @if (loadedBarCode(); as barcode) {
+    <app-product-variant-store-stock
+      [variantId]="id"
+      [barCode]="barcode"
+      (dirtyChange)="onStoreStockDirtyChange($event)"
+    />
+  }
+}
