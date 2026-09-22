@@ -1,0 +1,45 @@
+name: Gateway CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'api-gateway/**'
+      # The guard reads API @RequestMapping prefixes, so a new API
+      # prefix must re-run this workflow even if the gateway is untouched.
+      - 'life-control-api/src/main/java/**/controller/**'
+      - '.github/workflows/gateway-ci.yml'
+
+concurrency:
+  group: gateway-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: Check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api-gateway
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Java
+        uses: actions/setup-java@v6
+        with:
+          java-version: 21
+          distribution: temurin
+          cache: gradle
+
+      - name: Run tests
+        run: ./gradlew test --no-daemon
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: gateway-test-results
+          path: api-gateway/build/reports/tests/test
+          if-no-files-found: warn
