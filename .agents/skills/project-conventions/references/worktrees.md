@@ -89,6 +89,37 @@ git worktree prune                              # 3. clear orphaned metadata
 
 **`herdr workspace close --group` closes the primary workspace and every linked worktree workspace.** Never add it to bypass a close error.
 
+### Deleting a branch a worktree holds
+
+The merge command that deletes a branch on merge deletes the **local** branch as well as the remote
+one. Git refuses to delete a branch a worktree has checked out, so the command reports a
+local-branch error — and the remote ref is left alive in the same run. The merge itself succeeded, so
+the output reads as cosmetic and the stale ref survives on both sides.
+
+| Symptom | Reality |
+| --- | --- |
+| `error: cannot delete branch '<branch>' used by worktree at '<path>'` | The local deletion failed, and the remote deletion failed with it |
+| The pull request shows as merged | True and unrelated: the merge landed before the deletion was attempted |
+
+Either remove the worktree before merging, or run the cleanup order above and delete the branch
+yourself, then realign the anchor:
+
+```bash
+herdr workspace close <workspace_id>
+git worktree remove <path>
+git worktree prune
+git branch -d <branch>
+git push origin --delete <branch>
+git merge --ff-only origin/main
+```
+
+Verify the deletion instead of trusting the merge output:
+
+```bash
+git ls-remote origin <branch>                                            # empty once the ref is gone
+gh api "repos/{owner}/{repo}/branches?per_page=100" --jq '.[].name'
+```
+
 ## Trust requirement
 
 Pi loads project skills from `.agents/skills/` in the `cwd` and its **ancestor directories**, and only after the project is trusted. Trust resolves against the folder **or a parent folder** in `~/.pi/agent/trust.json`.
@@ -112,6 +143,8 @@ Prefer the parent entry. Trusting a project lets Pi load project settings, insta
 | `herdr worktree remove` without a workspace ID | Fails: that command requires a linked workspace. Use `git worktree remove` |
 | Removing the worktree before closing the workspace | Workspace pointing at a missing path |
 | Assuming `node_modules`, `build/`, or `.gradle/` are shared | Every worktree needs its own install and build |
+| Merging a PR with branch deletion while a worktree still holds the branch | The merge succeeds, both the local and the remote deletion fail, and the output reports only the local one |
+| Trusting a merge command's output as proof the branch is gone | A live remote ref looks exactly like a deleted one until it is queried |
 
 ## Verifying a background process
 
