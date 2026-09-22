@@ -200,7 +200,7 @@ com.lifecontrol.api/
 | `/api/purchase-orders`                          | authenticated (read) / `lc-admin\|lc-sales` (write, method-level) | Purchase order CRUD + line items (sales "orders" domain) |
 | `/api/goods-receipts`                           | `lc-admin\|lc-company\|lc-company-country\|lc-company-region\|lc-company-zone\|lc-company-store\|lc-receiving` (write) / same set + `lc-company-store-read` (read, method-level) | Goods receipts (receptions): register against a purchase order (`POST`, 201) and read (paginated list + `GET /{id}`); non-admins are scoped to their `company_store_id` claim |
 | `/api/suppliers`                                | authenticated (read) / `lc-admin\|lc-product-supplier` (write, method-level) | Supplier CRUD (soft delete) |
-| `/api/products`                                 | authenticated (read) / `lc-admin\|lc-product-supplier` (supplier assignment) / `lc-admin\|lc-sales` (variants, method-level) | Product catalog, supplier assignments, product variants |
+| `/api/products`                                 | authenticated (read) / `lc-admin` (write, method-level) / `lc-admin\|lc-product-supplier` (supplier assignment) / `lc-admin\|lc-sales` (variants, method-level) | Product catalog, supplier assignments, product variants |
 | `/api/product-variants`                         | `lc-admin\|lc-sales`       | Product variant search |
 | `/api/customers, /api/sales-orders, /api/shifts, /api/promotions` | `lc-admin\|lc-sales` (method-level) | Sales domain — customers, sales orders, shifts, promotions |
 | `/api/users-admin/users`                        | `admin`                   | Keycloak user search, roles, attributes |
