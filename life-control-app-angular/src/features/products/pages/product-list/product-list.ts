@@ -107,6 +107,16 @@ export class ProductList {
     this.router.navigate([`/products/edit/${id}`]);
   }
 
+  /**
+   * Opens the product's variant definitions list.
+   *
+   * Additive row action for the page's existing audience: it does not change the
+   * page's route gate, its visibility rules or any other action.
+   */
+  manageVariants(id: string): void {
+    this.router.navigate(['/products/edit', id, 'variants']);
+  }
+
   confirmDelete(productInfo: { id: string; name: string }): void {
     const dialogRef = this.dialog.open(DeleteProductDialogComponent, {
       data: { productName: productInfo.name },

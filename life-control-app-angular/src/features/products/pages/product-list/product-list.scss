@@ -1,3 +1,15 @@
 @use '../../../../shared/styles/entity-list-page' as list;
 
 @include list.entity-list-page($page: '.product-list-page', $grid: '.products-grid');
+
+/* Additive per-card entry point to the product's variant list. */
+.card-wrapper {
+  display: flex;
+  flex-direction: column;
+}
+
+.card-extra-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: var(--space-sm);
+}

@@ -12,7 +12,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CurrencyPipe } from '@angular/common';
-import { ProductService } from '@features/products/data/product.service';
+import { ProductVariantService } from '@features/products/data/product-variant.service';
 import type { ProductVariant } from '@features/products/models/product-variant.models';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatSelectModule } from '@angular/material/select';
@@ -51,7 +51,7 @@ const VARIANT_PAGE_SIZE = 50;
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ProductVariantPicker {
-  private readonly productService = inject(ProductService);
+  private readonly variantService = inject(ProductVariantService);
   private readonly destroyRef = inject(DestroyRef);
 
   /** Product whose variants are offered. */
@@ -118,8 +118,8 @@ export class ProductVariantPicker {
 
       this._loading.set(true);
 
-      this.productService
-        .getProductVariants(productId, storeId, 0, VARIANT_PAGE_SIZE)
+      this.variantService
+        .getVariants(productId, storeId, 0, VARIANT_PAGE_SIZE)
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
           next: (page) => {

@@ -84,6 +84,11 @@ describe('ProductList', () => {
     expect(router.navigate).toHaveBeenCalledWith(['/products/edit/123']);
   });
 
+  it('should navigate to the product variants page', () => {
+    component.manageVariants('123');
+    expect(router.navigate).toHaveBeenCalledWith(['/products/edit', '123', 'variants']);
+  });
+
   it('should open delete dialog', () => {
     const dialogOpen = vi.spyOn(TestBed.inject(MatDialog), 'open');
     component.confirmDelete({ id: '1', name: 'Alpha Widget' });

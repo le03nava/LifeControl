@@ -1,0 +1,159 @@
+@use '../../../../shared/styles/variables' as *;
+
+:host {
+  display: block;
+  width: 100%;
+}
+
+.product-variant-list-page {
+  padding: var(--space-md);
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+// Filter row for the opt-in disabled definitions. Mirrors the shared
+// entity-list section so the page keeps its spacing source in the stylesheet.
+.filters-section {
+  margin-bottom: var(--space-sm);
+}
+
+.error-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2xl);
+  gap: var(--space-md);
+  color: var(--mat-sys-error);
+  text-align: center;
+
+  mat-icon {
+    font-size: 48px;
+    width: 48px;
+    height: 48px;
+  }
+}
+
+.loading-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+
+  .skeleton-row {
+    display: grid;
+    grid-template-columns: 1.5fr 1.5fr 1fr 0.6fr;
+    gap: var(--space-md);
+    padding: var(--space-md);
+    background: var(--mat-sys-surface-container-lowest, #fff);
+    border-radius: var(--radius-md);
+    animation: skeleton-pulse 1.5s infinite;
+    animation-delay: calc(var(--i, 0) * 100ms);
+
+    .skeleton-cell {
+      height: 16px;
+      border-radius: 4px;
+      background: linear-gradient(
+        90deg,
+        var(--mat-sys-outline-variant, #e2e8f0) 25%,
+        var(--mat-sys-surface-container-low, #f1f5f9) 50%,
+        var(--mat-sys-outline-variant, #e2e8f0) 75%
+      );
+      background-size: 200% 100%;
+
+      &.status-badge {
+        width: 96px;
+        height: 24px;
+        border-radius: 16px;
+      }
+
+      &.actions {
+        width: 80px;
+        height: 40px;
+        margin-left: auto;
+      }
+    }
+  }
+}
+
+@keyframes skeleton-pulse {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.table-section {
+  .table-card {
+    overflow: hidden;
+
+    mat-card-content {
+      padding: 0;
+    }
+
+    table {
+      width: 100%;
+    }
+
+    .mat-mdc-row:hover {
+      background-color: var(--mat-sys-surface-container-highest, rgba(0, 0, 0, 0.04));
+    }
+  }
+}
+
+.actions-cell {
+  display: flex;
+  gap: var(--space-xs);
+}
+
+/* Enabled/disabled chips */
+.enabled-chip {
+  --mdc-chip-container-color: var(--mat-sys-primary-container, #e0e7ff);
+  --mdc-chip-label-text-color: var(--mat-sys-on-primary-container, #1e3a8a);
+}
+
+.disabled-chip {
+  --mdc-chip-container-color: var(--mat-sys-surface-container-highest, #e2e8f0);
+  --mdc-chip-label-text-color: var(--mat-sys-on-surface-variant, #64748b);
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2xl);
+  text-align: center;
+
+  .empty-illustration {
+    margin-bottom: var(--space-lg);
+
+    .empty-svg {
+      width: 200px;
+      height: 200px;
+    }
+  }
+
+  .empty-title {
+    margin: 0 0 var(--space-sm);
+    color: var(--mat-sys-on-surface, #1e293b);
+    font-size: 1.25rem;
+    font-weight: 600;
+  }
+
+  .empty-subtitle {
+    margin: 0 0 var(--space-lg);
+    color: var(--mat-sys-on-surface-variant, #64748b);
+    font-size: 0.875rem;
+  }
+}
+
+.pagination-section {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-md) 0;
+}

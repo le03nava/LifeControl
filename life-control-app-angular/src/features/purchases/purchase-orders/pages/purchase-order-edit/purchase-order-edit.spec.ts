@@ -117,7 +117,6 @@ describe('PurchaseOrderEdit', () => {
       provide: ProductService,
       useValue: {
         getProductsBySupplier: vi.fn().mockReturnValue(of([])),
-        getProductVariants: vi.fn().mockReturnValue(of(emptyPage)),
       },
     },
     {

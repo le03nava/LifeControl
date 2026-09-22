@@ -5,7 +5,7 @@ import { BreakpointObserver } from '@angular/cdk/layout';
 import { of } from 'rxjs';
 import { DetailTable, type DetailTableRow } from './detail-table';
 import { ProductVariantPicker } from '../product-variant-picker/product-variant-picker';
-import { ProductService } from '@features/products/data/product.service';
+import { ProductVariantService } from '@features/products/data/product-variant.service';
 import type { Page } from '@features/products/models/product.models';
 import type { ProductVariant } from '@features/products/models/product-variant.models';
 
@@ -73,16 +73,16 @@ const SAVED_ROW: DetailTableRow = {
 };
 
 describe('DetailTable', () => {
-  let productService: { getProductVariants: ReturnType<typeof vi.fn> };
+  let variantService: { getVariants: ReturnType<typeof vi.fn> };
 
   beforeEach(async () => {
-    productService = {
-      getProductVariants: vi.fn().mockReturnValue(of(variantPage([VARIANT_A, VARIANT_B]))),
+    variantService = {
+      getVariants: vi.fn().mockReturnValue(of(variantPage([VARIANT_A, VARIANT_B]))),
     };
 
     await TestBed.configureTestingModule({
       imports: [DetailTable, NoopAnimationsModule],
-      providers: [{ provide: ProductService, useValue: productService }],
+      providers: [{ provide: ProductVariantService, useValue: variantService }],
     }).compileComponents();
   });
 
@@ -256,7 +256,7 @@ describe('DetailTable', () => {
 
       component.onNewProductChange('prod-1');
       f.detectChanges();
-      expect(productService.getProductVariants).toHaveBeenCalledWith('prod-1', 'store-1', 0, 50);
+      expect(variantService.getVariants).toHaveBeenCalledWith('prod-1', 'store-1', 0, 50);
 
       pickerOf(f).onSelectionChange('var-2');
       f.detectChanges();
@@ -425,8 +425,8 @@ describe('DetailTable (mobile)', () => {
       imports: [DetailTable, NoopAnimationsModule],
       providers: [
         {
-          provide: ProductService,
-          useValue: { getProductVariants: vi.fn().mockReturnValue(of(variantPage([VARIANT_A]))) },
+          provide: ProductVariantService,
+          useValue: { getVariants: vi.fn().mockReturnValue(of(variantPage([VARIANT_A]))) },
         },
         {
           provide: BreakpointObserver,
