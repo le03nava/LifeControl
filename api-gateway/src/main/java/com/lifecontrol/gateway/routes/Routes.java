@@ -56,6 +56,7 @@ public class Routes {
   @Bean
   public RouterFunction<ServerResponse> lifeControlApiRoute() {
     return GatewayRouterFunctions.route("lifecontrol_api")
+        .route(RequestPredicates.path("/api/activity-logs/**"), HandlerFunctions.http(props.lifeControlApiUri()))
         .route(RequestPredicates.path("/api/user/**"), HandlerFunctions.http(props.lifeControlApiUri()))
         .route(RequestPredicates.path("/api/countries/**"), HandlerFunctions.http(props.lifeControlApiUri()))
         .route(RequestPredicates.path("/api/users-admin/**"), HandlerFunctions.http(props.lifeControlApiUri()))
@@ -71,6 +72,7 @@ public class Routes {
         .route(RequestPredicates.path("/api/shifts/**"), HandlerFunctions.http(props.lifeControlApiUri()))
         .route(RequestPredicates.path("/api/sales-orders/**"), HandlerFunctions.http(props.lifeControlApiUri()))
         .route(RequestPredicates.path("/api/product-variants/**"), HandlerFunctions.http(props.lifeControlApiUri()))
+        .route(RequestPredicates.path("/api/variants/**"), HandlerFunctions.http(props.lifeControlApiUri()))
         .route(RequestPredicates.path("/api/profile/**"), HandlerFunctions.http(props.lifeControlApiUri()))
         .route(RequestPredicates.path("/api/store-areas/**"), HandlerFunctions.http(props.lifeControlApiUri()))
         .route(RequestPredicates.path("/api/store-zones/**"), HandlerFunctions.http(props.lifeControlApiUri()))
