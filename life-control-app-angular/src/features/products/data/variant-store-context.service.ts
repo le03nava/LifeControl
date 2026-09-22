@@ -74,11 +74,21 @@ export class VariantStoreContext {
   );
 
   /**
-   * Whether the screens have nothing to render yet: the request was never made or
-   * it is still in flight. Distinct from the fail-closed state, which is a settled
-   * resolution with no store.
+   * Whether the screens have nothing to render yet: the request was never made, or
+   * the resolution has neither produced a store nor failed.
+   *
+   * Deliberately not `rxResource.isLoading()`: that flag turns true one reactive
+   * step *after* the params are defined, so a consumer gating its own read on it can
+   * be evaluated before the load starts, see `false`, and issue a read with no store
+   * followed by a second one with the store. Settling on `hasValue() || error`
+   * is order-independent.
    */
-  readonly pending = computed(() => this.request() === undefined || this.resolution.isLoading());
+  readonly pending = computed(() => {
+    if (this.request() === undefined) {
+      return true;
+    }
+    return !this.resolution.hasValue() && this.resolution.error() === undefined;
+  });
 
   /** Whether the store came from the URL or from the user's profile. */
   readonly source = computed<VariantStoreSource>(() => {
