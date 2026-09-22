@@ -122,7 +122,7 @@ describe('Header', () => {
       expect(companiesItem).toBeDefined();
       expect(companiesItem?.textLink).toBe('Companies');
       expect(items.some((i) => i.routeLink === '/users-admin')).toBe(true);
-      expect(items.length).toBe(5); // Companies + Sales + Products + Purchases + Users Admin
+      expect(items.length).toBe(6); // Companies + Sales + Products + Stock by store + Purchases + Users Admin
     });
 
     it('should NOT show Companies menu when user has no company client roles', () => {
@@ -213,7 +213,7 @@ describe('Header', () => {
       expect(component.isCompanyRole()).toBe(true);
       const items = component.items();
       expect(items.some((i) => i.routeLink === '/users-admin')).toBe(true);
-      expect(items.length).toBe(5); // Companies + Sales + Products + Purchases + Users Admin
+      expect(items.length).toBe(6); // Companies + Sales + Products + Stock by store + Purchases + Users Admin
     });
 
     it('should NOT show Users Admin for lc-company role', () => {
@@ -490,7 +490,7 @@ describe('Header', () => {
       const items = component.items();
       const salesItem = items.find((i) => i.routeLink === '/sales');
       expect(salesItem).toBeDefined();
-      expect(items.length).toBe(1); // Sales only
+      expect(items.length).toBe(2); // Sales + Stock by store
     });
 
     it('should NOT show Sales menu when user has no lc-sales role', () => {
@@ -520,7 +520,7 @@ describe('Header', () => {
       const items = component.items();
       const salesItem = items.find((i) => i.routeLink === '/sales');
       expect(salesItem).toBeDefined();
-      expect(items.length).toBe(5); // Companies + Sales + Products + Purchases + Users Admin
+      expect(items.length).toBe(6); // Companies + Sales + Products + Stock by store + Purchases + Users Admin
     });
 
     it('should reset isSalesRole on AuthLogout event', () => {
@@ -570,6 +570,40 @@ describe('Header', () => {
   });
 
   // ─── Receiving menu gating (lc-receiving client role) ──────────
+
+  // ─── Store-scoped stock entry (lc-admin / lc-sales, not the company roles) ────
+
+  describe('stock by store menu gating', () => {
+    it('should show the store-scoped stock entry for a sales-only user', () => {
+      const { component } = setup(['lc-sales']);
+      const stockItem = component.items().find((i) => i.routeLink === '/products/variants');
+
+      expect(stockItem).toBeDefined();
+      expect(stockItem?.textLink).toBe('Stock por tienda');
+      expect(stockItem?.icon).toBe('storefront');
+    });
+
+    it('should show the store-scoped stock entry for an admin', () => {
+      const { component } = setup(['lc-admin']);
+
+      expect(component.items().some((i) => i.routeLink === '/products/variants')).toBe(true);
+    });
+
+    it('should NOT show the store-scoped stock entry to a company role', () => {
+      // The company roles reach the store administration pages; the backend only
+      // authorises lc-admin and lc-sales on the variant endpoints, so offering them the
+      // entry would promise a screen the API refuses.
+      const { component } = setup(['lc-company-store']);
+
+      expect(component.items().some((i) => i.routeLink === '/products/variants')).toBe(false);
+    });
+
+    it('should NOT show the store-scoped stock entry to a receiving-only user', () => {
+      const { component } = setup(['lc-receiving']);
+
+      expect(component.items().some((i) => i.routeLink === '/products/variants')).toBe(false);
+    });
+  });
 
   describe('receiving menu gating', () => {
     it('should show only the Compras menu for a receiving-only user', () => {

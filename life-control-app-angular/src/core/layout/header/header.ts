@@ -107,6 +107,19 @@ export class Header implements OnInit {
       });
     }
 
+    // Stock by store is the one variant screen that is not admin-only, so it cannot be a
+    // child of Products: sales has a store and a real job there (per-store stock and
+    // prices), while the products ABM stays admin-only. Gated on exactly the role pair
+    // the backend authorises on the variant endpoints.
+    if (this.isAdmin() || this.isSalesRole()) {
+      menuItems.push({
+        id: '7',
+        routeLink: '/products/variants',
+        textLink: 'Stock por tienda',
+        icon: 'storefront',
+      });
+    }
+
     // Compras is the one purchase entry a receiving-only user may see: the
     // purchases dashboard and its receipts area accept `lc-receiving`, while
     // Products, Users Admin and the orders routes stay admin-only.

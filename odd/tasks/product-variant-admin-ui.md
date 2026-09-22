@@ -5,9 +5,13 @@
 **Worktree (S1)**: `~/workspace/LifeControl-worktrees/feat-variant-definitions-ui` (removed after merge)
 **Base (S1)**: `feat/variant-include-disabled` (the backend slice PR), itself `main` @ `7958dd0` (PR #136 merge)
 **Status**: **S1 delivered** — PRs #137/#138/#139 merged into `main` and the S1 branch/worktree cleaned
-up. **S2 in progress** on `feat/variant-store-stock-ui`, branched from `main` @ `2704a6e`. The S2 store
-source was resolved with evidence on 2026-09-22 (see `### S2 store source`), which superseded the
-premise of the original T9.
+up. **S2 complete (T9–T15)** on `feat/variant-store-stock-ui`: seven commits from `main` @ `2704a6e`,
+both gates green (see the evidence log). The S2 store source was resolved with evidence on 2026-09-22
+(see `### S2 store source`), which superseded the premise of the original T9.
+
+**Nothing is pushed and no PR is open.** The delivery split is decided — four units, one concern each —
+and the slice measured **3490 changed lines against a declared forecast of 500–800**. Both are in
+`## Review workload`.
 **Created**: 2026-09-21
 **Risk**: **high** — route guard and role-set change (`assets/risk-classification-matrix.md`: "Auth, permissions, role, or guard change")
 
@@ -182,8 +186,8 @@ New files live under the existing products feature layout, mirroring `suppliers/
 
 | # | Slice | Contents | Risk | Status |
 |---|---|---|---|---|
-| S1 | Variant definitions UI | Role constants; variant models; endpoint clients; D4 route restructure + guard spec; definitions list, create, edit, enable, delete; reachability; frontend gate. | High (guard/role) | pending |
-| S2 | Per-store stock and prices | Store selection (extraction or narrower selector, decided with evidence); store-row read and upsert UI; integration into the definitions screens; backend integration tests `JD-B-005`/`JD-B-006`; both gates. | Medium | pending |
+| S1 | Variant definitions UI | Role constants; variant models; endpoint clients; D4 route restructure + guard spec; definitions list, create, edit, enable, delete; reachability; frontend gate. | High (guard/role) | delivered (3 PRs merged) |
+| S2 | Per-store stock and prices | Store source resolved by evidence (query param -> profile -> null, no new picker); store-scoped list view; per-store editor; backend integration tests `JD-B-005`/`JD-B-006`; both gates. | Medium | complete (T9–T15) |
 
 ## Tasks
 
@@ -219,27 +223,45 @@ Renumbered 2026-09-22 to make room for the resolved store source and the D5 entr
       **DONE 2026-09-22** — see `### S2 store source`. Chosen: a resolved store id (query param →
       profile → `null`), no new picker, no cascade in `products`, no `purchases` refactor, no backend
       contract change. Blast radius: `features/products/**` only.
-- [ ] T10 — Store source resolver: `?storeId=` → profile `companyStoreId` → `null`, fail closed,
+- [x] T10 — Store source resolver: `?storeId=` → profile `companyStoreId` → `null`, fail closed,
       one owner, with a spec that proves each branch and that an unknown/absent store issues no
-      store-scoped request.
-- [ ] T11 — Store-scoped definitions list: pass the resolved store to `getVariants`, render the
+      store-scoped request. (`f33be2f`)
+- [x] T11 — Store-scoped definitions list: pass the resolved store to `getVariants`, render the
       `listPrice`/`costPrice`/`stock` columns only when a store is resolved, suppress the
       `includeDisabled` toggle while store-scoped (the backend ignores it on that branch), and render
-      the fail-closed state with the "change my store" action. Spec.
-- [ ] T12 — Per-store editor panel on the variant edit page: read the current row through
+      the fail-closed state with the "change my store" action. Spec. (`677a77a`)
+      **Added beyond the plan**: the store scope is an operator control, not just a resolution. The
+      store-scoped read cannot list a soft-deleted definition nor one with no row in that store, so
+      defaulting to it with no way back would have made S1's re-enable affordance unreachable for any
+      operator with a configured store.
+- [x] T12 — Per-store editor panel on the variant edit page: read the current row through
       `search?q={barCode}&storeId={storeId}` (exact equality, 0 rows = not configured yet), upsert via
       the existing `PUT /api/variants/{variantId}/stores/{storeId}`, sending **only** the fields the
       operator filled so an absent field keeps the stored value, role-gated save, unsaved-changes
-      aware. Spec.
-- [ ] T13 — Backend integration tests (Testcontainers Postgres): `JD-B-005` exercises the `ON CONFLICT`
+      aware. Spec. (`ea41fe2`) **Correction to this plan**: no role gate was added. This route admits
+      exactly `VARIANT_ROLES`, which is the same pair the endpoint's `@PreAuthorize` accepts, so an
+      extra gate would mirror nothing. A test asserts the absences instead: an empty field is sent as
+      an absent key, never `null` and never `0`.
+- [x] T13 — Backend integration tests (Testcontainers Postgres): `JD-B-005` exercises the `ON CONFLICT`
       insert path end to end; `JD-B-006` proves one definition serves two stores with distinct stock.
-- [ ] T14 — S2 gate: frontend gates plus the focused backend tests. Work-unit commit.
-- [ ] T15 — The D5 entry point: `lc-sales` can reach the variant screens only by deep link today (the
-      `/products` `''` child is re-gated admin-only, so there is no discoverable path). Give sales a
-      store-scoped variant search entry built on `GET /api/product-variants/search?q=&storeId=`, which
-      exists for exactly this and is authorised for `lc-admin` + `lc-sales`, linking each row to the
-      T12 editor. Route + menu entry + spec. **Confirm the shape with the user at this boundary** — it
-      is the one part of S2 the plan did not size.
+      (`96e03de`) Five tests; the `ON CONFLICT` claim is proven by mutation, not by the green run.
+- [x] T14 — S2 gate: backend `spotlessCheck spotbugsMain cleanTest test` → 621 suites / 2054 tests / 0
+      failures; frontend lint, build and `test:coverage:check` → 122 files / 2258 tests / 0 failures.
+      Commits: `0ec4464`, `f33be2f`, `677a77a`, `ea41fe2`, `96e03de`.
+- [x] T15 — The D5 entry point: `lc-sales` could reach the variant screens only by deep link (the
+      `/products` `''` child is re-gated admin-only, so there was no discoverable path). A store-scoped
+      variant search page on `GET /api/product-variants/search` — authorised for exactly
+      `lc-admin` + `lc-sales`, and built for this — plus a menu entry for that role pair and a row
+      action into the T12 editor. (`e66feb1`)
+      **Deliberate divergence**: search runs on **submit**, not on every keystroke. The sales variant
+      selector debounces because it is an autocomplete; this is a page of results whose primary flow is
+      scanning or typing an identifier and pressing Enter, and skipping the debounce keeps the surface
+      deterministic instead of time-dependent.
+      **Corrected two comments the new child falsified**: the parent gate no longer admits sales for
+      "upcoming" screens, and `edit/:id/variants` is no longer described as the only non-admin child.
+      **No spec change was needed for the route control**: its derived walk classifies children by
+      whether the path contains `variants`, so the new child was already covered by both the variant
+      and the admin-only assertions. One explicit path-pinned assertion was added.
 
 ## Delivery (3 PRs)
 
@@ -293,16 +315,61 @@ any order; if it lands before B, B needs a trivial rebase (disjoint hunks in `Pr
 
 ## Review workload
 
-Declared forecast, to be corrected with real numbers at each slice close:
+### S1 — delivered
 
-- S1: role constants, models, service clients, the route restructure, three pages/components, a dialog
-  and their specs. **~700–1000 changed lines including specs.**
-- S2: store selection (extraction if chosen), the editor component, integration into the list, and two
-  backend integration test classes. **~500–800 changed lines including specs.**
+Role constants, models, service clients, the route restructure, three pages/components, a dialog and
+their specs. **Declared ~700–1000 changed lines including specs.**
 
-Two slices, two review units, minimum two work-unit commits. If S2's store selection is resolved by
-extracting `CompanyCascadeService` into `shared/data/`, S2 grows and its blast radius on `purchases`
-must be declared in the PR body rather than absorbed silently.
+### S2 — measured, and the forecast was wrong
+
+**Declared: ~500–800 changed lines including specs. Actual: 2514** (`git diff --shortstat main..HEAD`
+→ 19 files, 2395 insertions, 119 deletions), i.e. **~3.1x the forecast and ~6x the 400-line review
+budget**. Split by what the reviewer is actually reading:
+
+| Bucket | Changed lines |
+|---|---|
+| Frontend source (the feature) | 1034 |
+| Frontend specs | 991 |
+| Backend integration tests | 377 |
+| The ODD record | 112 |
+| **Total** | **2514** |
+
+**Where the forecast went wrong.** It assumed the editor was one component. It is a component plus the
+read path: there is no `GET` for a single store row, so the editor also needed a store-scoped search
+client, a search projection model, and the service method and specs around them. The specs are 40% of
+the slice, and the repo's own precedent is that compressing tests or dropping documentation to fit a
+number trades review honesty for a metric.
+
+**Slicing cannot fix it.** The three natural work units measure 1048 (T9+T10+T11), 1097 (T12) and 377
+(T13 + the record). Only the backend tests fit under 400 without cutting evidence, and the backend
+tests are the one part that is *cheap* to review anyway: five tests, one file, no production change.
+
+### S2 delivery units — decided 2026-09-22 (user-ratified)
+
+**Four units, one concern each.** T15 was left out of the original count; with it the branch measures
+**3490 changed lines**, 27 files.
+
+| Unit | Commits | Lines | Depends on | What it carries |
+|---|---|---|---|---|
+| 1 | `0ec4464`, `f33be2f`, `677a77a` | **1048** | `main` | The record + the resolved store source + the store-scoped **read** lens. No writes. |
+| 2 | `ea41fe2` | **1097** | unit 1 | The per-store **write** editor on the variant edit page. |
+| 3 | `96e03de` | **377** | `main` | The backend integration tests closing `JD-B-005`/`JD-B-006`. |
+| 4 | `e66feb1` | **916** | units 1 and 2 | The discoverable `lc-sales` entry point, whose row action lands on unit 2's editor. |
+
+Unit 3 is deliberately independent of the frontend: it closes two findings that predate this slice, and
+the same reasoning that gave the security fix its own branch applies — a closed finding wants the
+shortest path to `main`, and its review is the cheapest of the four.
+
+Unit 1 is the only unit that is both a prerequisite and small enough to review first, so units 2 and 4
+stack on it. Order: **3 (independent) → 1 → 2 → 4**.
+
+The record is one document that every unit touches, so the record commits travel with unit 1 and the
+later units append their own evidence rows. That is the S1 precedent, where the record shipped inside
+the last PR of the chain; here it moves to the first because unit 1 carries the decisions the rest of
+the slice is judged against.
+
+When these become PRs, each branch is rebuilt by replaying its commits and verified by tree identity
+against the linear branch, the same technique the S1 delivery used.
 
 ## Risks
 
@@ -335,6 +402,13 @@ must be declared in the PR body rather than absorbed silently.
 | 2026-09-21 | **S1 gate (T8)** | tip of S1 | Parent, on the committed content: `npm run lint` clean; `npm run build` complete with no warnings; `npm run test:coverage:check` → **120 files / 2210 tests / 0 failures**. |
 | 2026-09-21 | review follow-up (F2) | `3bc7524`, `ba73bb5` | Backend: `./gradlew spotlessCheck spotbugsMain cleanTest test --no-daemon` → BUILD SUCCESSFUL in 1m 33s, **614 suites / 2033 tests / 0 failures / 0 errors / 0 skipped** (baseline 614/2025, +8). Frontend: 120 files / 2215 tests / 0 failures, coverage 92.87/75.13/87.56/92.87. |
 | 2026-09-21 | chained F1 branch | `ffcb38c` on `fix/product-abm-authz` | `./gradlew spotlessCheck spotbugsMain cleanTest test --no-daemon` → BUILD SUCCESSFUL in 1m 35s, **620 suites / 2049 tests / 0 failures / 0 errors / 0 skipped** (+16). |
+| 2026-09-22 | S2 store source (T9) | `0ec4464` | Read-only exploration, no source written: the `store-inventory-settings` mold, the profile chain's real source (`user_preferences`), the exact search read, the four existing copies of the cascade ladder. |
+| 2026-09-22 | S2 store resolver (T10) | `f33be2f` | `npm run lint` clean; focused spec 9/9; the new service at 100% statements/lines/functions. |
+| 2026-09-22 | S2 store-scoped list (T11) | `677a77a` | `npm run lint` clean; `src/features/products/**` → 19 files / 200 tests / 0 failures. |
+| 2026-09-22 | S2 per-store editor (T12) | `ea41fe2` | `npm run lint` clean; `npm run build` complete; `npm run test:coverage:check` → 20 products files / 222 tests / 0 failures. |
+| 2026-09-22 | S2 backend IT (T13) | `96e03de` | Focused `./gradlew test --tests '…ProductVariantStoreStockWriteIntegrationTest'` → BUILD SUCCESSFUL, XML reports **5 tests / 0 failures / 0 errors / 0 skipped**. No `@Nested`, so the outer report carries the real count and the vacuous-green trap does not apply. |
+| 2026-09-22 | **S2 gate (T14)** | `96e03de` (tip) | Backend: `./gradlew spotlessCheck spotbugsMain cleanTest test --no-daemon` → BUILD SUCCESSFUL in 1m 36s, **621 suites / 2054 tests / 0 failures / 0 errors / 0 skipped** (baseline 620/2049 → +1 suite, +5 tests: exactly the new IT class, no collateral). Frontend: `npm run lint` clean, `npm run build` complete, `npm run test:coverage:check` → **122 files / 2258 tests / 0 failures** (baseline 120/2215) and coverage **93.01/75.37/87.84/93.01** against thresholds 80/60/75/80 (S1 baseline 92.87/75.13/87.56/92.87). |
+| 2026-09-22 | S2 T15 sales entry point | `e66feb1` | `npm run lint` clean; `npm run build` complete with no warnings; `npm run test:coverage:check` → **123 files / 2279 tests / 0 failures**, coverage 93.06/75.38/87.85/93.06, all above thresholds. The route control and the menu gating are covered by the existing derived specs plus one path-pinned assertion and four new menu cases. |
 
 ### Controls proven by mutation, not by assertion
 
@@ -346,6 +420,7 @@ branch were falsified deliberately:
 | `products.routes.spec.ts` | A non-variant child lost its `canActivate` | **Failed**: `expected undefined to deeply equal [ [AsyncFunction keycloakRoleGuard] ]` |
 | `products.routes.spec.ts` | A variant child lost `lc-sales` | **Failed**: `expected { roles: [ 'lc-admin' ], …(1) } to deeply equal { …(2) }` |
 | `ProductControllerSecurityTest` | `@PreAuthorize` removed from `POST /api/products` | **Failed**: 3 tests, including the two 403 + `verify(never())` cases |
+| `ProductVariantStoreStockWriteIntegrationTest` | `ON CONFLICT (product_variant_id, company_store_id) DO NOTHING` removed from `insertStoreStockIfAbsent` | **Failed**: 1 of 5 — "JD-B-005: the first write inserts the row, and the next one keeps what it did not send". Without `DO NOTHING` the second write meets the unique constraint, so the endpoint answers 409 instead of 200. Source restored byte for byte (same sha256, empty `git diff`). |
 
 ### The vacuous-assertion trap (cost a full investigation; carry it forward)
 
@@ -398,3 +473,6 @@ introduced.
 | `JD-A-002` — 409 instead of the documented 404 on inline paths | Cosmetic, pre-existing. |
 | Store-claim checks on the older variant endpoints | Contract change for existing readers, deliberately left by `store-claim-hardening`. |
 | Residual English copy in the products dashboard (`Products Administration`, `All Products`) | Pre-existing legacy copy inside an otherwise Spanish feature; unrelated to this slice. |
+| Two frontend clients for `GET /api/product-variants/search` | S2 added `ProductVariantService.searchVariants`; `sales-orders/components/product-variant-selector` still calls the endpoint with its own inline `HttpClient`. That is pre-existing, not introduced here, and consolidating it is a `sales` refactor with its own review surface. |
+| `ProductVariantOption` in `sales-order.models.ts` declares `listPrice`/`stock` non-nullable | That model is search-projection shaped, and a store row can exist with its prices unset. Pre-existing; the products-side `ProductVariantSearchResult` types them as `number | null`. |
+| The fail-closed store notice is duplicated between the list and the per-store panel | Two consumers with slightly different branch sets and different copy; extracting it now would define a component by whatever both happen to need. Cheaper to reach for once a third consumer exists. |

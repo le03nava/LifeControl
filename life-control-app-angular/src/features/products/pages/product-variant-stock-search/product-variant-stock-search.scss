@@ -1,0 +1,131 @@
+@use '../../../../shared/styles/variables' as *;
+
+:host {
+  display: block;
+  width: 100%;
+}
+
+.search-section {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.store-scope {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.search-form {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.search-field {
+  min-width: 320px;
+}
+
+.results-section {
+  padding: 0 var(--space-md) var(--space-md);
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.prompt {
+  margin: 0;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.error-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2xl);
+  gap: var(--space-md);
+  color: var(--mat-sys-error);
+  text-align: center;
+
+  mat-icon {
+    font-size: 48px;
+    width: 48px;
+    height: 48px;
+  }
+}
+
+.loading-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+
+  .skeleton-row {
+    display: grid;
+    grid-template-columns: 1.5fr 1.5fr 1fr;
+    gap: var(--space-md);
+    padding: var(--space-md);
+    background: var(--mat-sys-surface-container-lowest, #fff);
+    border-radius: var(--radius-md);
+    animation: skeleton-pulse 1.5s infinite;
+    animation-delay: calc(var(--i, 0) * 100ms);
+
+    .skeleton-cell {
+      height: 16px;
+      border-radius: 4px;
+      background: linear-gradient(
+        90deg,
+        var(--mat-sys-outline-variant, #e2e8f0) 25%,
+        var(--mat-sys-surface-container-low, #f1f5f9) 50%,
+        var(--mat-sys-outline-variant, #e2e8f0) 75%
+      );
+      background-size: 200% 100%;
+    }
+  }
+}
+
+@keyframes skeleton-pulse {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-2xl);
+  text-align: center;
+
+  .empty-title {
+    margin: 0;
+  }
+
+  .empty-subtitle {
+    margin: 0;
+    color: var(--mat-sys-on-surface-variant);
+  }
+}
+
+.table-card {
+  overflow-x: auto;
+}
+
+.pagination-section {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-md);
+}

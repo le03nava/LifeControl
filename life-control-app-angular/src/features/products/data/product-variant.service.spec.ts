@@ -324,6 +324,7 @@ describe('ProductVariantService', () => {
       companyStoreId: 'store-1',
       barCode: 'BAR-001',
       variantName: 'Product A — 1L',
+      productName: 'Product A',
       listPrice: 150,
       costPrice: 80,
       stock: 5,
