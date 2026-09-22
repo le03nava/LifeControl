@@ -35,6 +35,7 @@ describe('ProductVariantStoreStock', () => {
     companyStoreId: 'store-1',
     barCode,
     variantName: 'Talla 38',
+    productName: 'Camisa Oxford',
     listPrice: 150,
     costPrice: 90,
     stock: 8,

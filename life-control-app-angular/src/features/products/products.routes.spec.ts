@@ -52,6 +52,19 @@ describe('productRoutes', () => {
     }
   });
 
+  it('should gate the store-scoped variant search as a variant screen', () => {
+    // Pinned by path because this child is the discoverable entry point the sales role
+    // was missing; a rename that leaves the gate intact would still break that.
+    const search = children().find((route) => route.path === 'variants');
+
+    expect(search).toBeDefined();
+    expect(search?.canActivate).toEqual([keycloakRoleGuard]);
+    expect(search?.data).toEqual({
+      roles: ['lc-admin', 'lc-sales'],
+      clientId: 'life-control-client',
+    });
+  });
+
   it('should re-gate every non-variant child as admin-only', () => {
     const routes = nonVariantChildren();
 

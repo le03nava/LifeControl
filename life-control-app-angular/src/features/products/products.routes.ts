@@ -10,7 +10,7 @@ export const productRoutes: Routes = [
   {
     path: '',
     // The parent admits the variant roles (lc-admin + lc-sales) so a sales
-    // principal can reach the upcoming variant screens. The products ABM stays
+    // principal can reach the variant screens. The products ABM stays
     // admin-only: every child below re-declares both the guard and its own
     // data, because `keycloakRoleGuard` only reads `route.data` when it is
     // itself listed in `canActivate`.
@@ -71,8 +71,8 @@ export const productRoutes: Routes = [
           ),
       },
       {
-        // The only child that is NOT admin-only: the variant screens exist for
-        // `lc-admin` and `lc-sales` alike, mirroring the backend
+        // Not admin-only, like the store-scoped search child: the variant screens
+        // exist for `lc-admin` and `lc-sales` alike, mirroring the backend
         // `hasAnyRole('lc-admin','lc-sales')` on every variant endpoint.
         path: 'edit/:id/variants',
         canActivate: [keycloakRoleGuard],
@@ -80,6 +80,20 @@ export const productRoutes: Routes = [
         loadComponent: () =>
           import('./pages/product-variant-list/product-variant-list').then(
             (m) => m.ProductVariantList,
+          ),
+      },
+      {
+        // Store-scoped variant search: the one variant screen that stands on its own
+        // instead of hanging off a product id, because a sales principal has no
+        // product-picking UI — the `/products` ABM is admin-only, which is the whole
+        // reason this child exists. Reads `GET /api/product-variants/search`, which is
+        // authorised for the same role pair.
+        path: 'variants',
+        canActivate: [keycloakRoleGuard],
+        data: { roles: VARIANT_ROLES, clientId: CLIENT_ID },
+        loadComponent: () =>
+          import('./pages/product-variant-stock-search/product-variant-stock-search').then(
+            (m) => m.ProductVariantStockSearch,
           ),
       },
       {
