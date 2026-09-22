@@ -7,6 +7,7 @@ import { Page } from '../models/product.models';
 import {
   ProductVariant,
   ProductVariantRequest,
+  ProductVariantSearchResult,
   ProductVariantStoreStock,
   ProductVariantStoreStockRequest,
 } from '../models/product-variant.models';
@@ -311,6 +312,62 @@ describe('ProductVariantService', () => {
 
       await expect(promise).rejects.toBeInstanceOf(HttpErrorResponse);
       expect(service.error()).toBe('No se encontró la variante');
+    });
+  });
+
+  describe('searchVariants', () => {
+    const searchUrl = 'http://localhost:9000/api/product-variants/search';
+
+    const result: ProductVariantSearchResult = {
+      id: 'var-1',
+      productId: 'prod-1',
+      companyStoreId: 'store-1',
+      barCode: 'BAR-001',
+      variantName: 'Product A — 1L',
+      listPrice: 150,
+      costPrice: 80,
+      stock: 5,
+    };
+
+    it('should GET the search endpoint with the query, the store and the paging', async () => {
+      const promise = firstValueFrom(service.searchVariants('BAR-001', 'store-1', 0, 1));
+
+      const req = httpMock.expectOne(
+        (request) =>
+          request.url === searchUrl &&
+          request.params.get('q') === 'BAR-001' &&
+          request.params.get('storeId') === 'store-1' &&
+          request.params.get('page') === '0' &&
+          request.params.get('size') === '1',
+      );
+      expect(req.request.method).toBe('GET');
+      req.flush({
+        content: [result],
+        totalElements: 1,
+        totalPages: 1,
+        size: 1,
+        number: 0,
+        first: true,
+        last: true,
+        empty: false,
+      });
+
+      const page = await promise;
+      expect(page.content).toEqual([result]);
+    });
+
+    it('should map an unexpected failure to the search fallback on the error signal', async () => {
+      const promise = firstValueFrom(service.searchVariants('BAR-001', 'store-1'));
+
+      httpMock
+        .expectOne((request) => request.url === searchUrl)
+        .flush('boom', {
+          status: 500,
+          statusText: 'Server Error',
+        });
+
+      await expect(promise).rejects.toBeInstanceOf(HttpErrorResponse);
+      expect(service.error()).toBe('Error al buscar las variantes de la tienda');
     });
   });
 

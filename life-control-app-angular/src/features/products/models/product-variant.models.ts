@@ -90,3 +90,28 @@ export interface ProductVariantStoreStock {
   /** Sellable units in that store, or `null` when unset. */
   stock: number | null;
 }
+
+/**
+ * A variant as returned by the store-scoped search
+ * (`GET /api/product-variants/search?q=&storeId=`).
+ *
+ * Only the subset this feature consumes is declared, mirroring the S3 decision that
+ * unused client surface is dead code; the backend also sends `productName`,
+ * `productSku`, `enabled` and the timestamps, and the fields can be added here
+ * without a breaking change when a screen needs them.
+ *
+ * The store-scoped fields are `null`-able even though search always runs inside one
+ * store: a store row can exist with its prices never set. `sku` carries the PRODUCT
+ * sku — the variant sku no longer exists (D2).
+ */
+export interface ProductVariantSearchResult {
+  id: string;
+  productId: string;
+  /** The store the search ran in. Never `null` here, unlike {@link ProductVariant}. */
+  companyStoreId: string;
+  barCode: string;
+  variantName: string;
+  listPrice: number | null;
+  costPrice: number | null;
+  stock: number | null;
+}

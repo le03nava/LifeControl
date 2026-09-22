@@ -1,0 +1,56 @@
+@use '../../../../shared/styles/variables' as *;
+
+:host {
+  display: block;
+}
+
+.store-stock {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+  padding: var(--space-md);
+  border: 1px solid var(--mat-sys-outline-variant, #e2e8f0);
+  border-radius: var(--radius-md);
+}
+
+.store-stock__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+// Which store the panel is writing to. The panel never names it: only the store id
+// reaches the client, and a bare UUID in the UI would be noise.
+.store-stock__scope {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.store-stock__state {
+  margin: 0;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+// Explains the "an empty field keeps the stored value" contract. Load-bearing copy:
+// without it, clearing a field reads like "set it to zero".
+.store-stock__hint {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.store-stock__form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-md);
+  align-items: start;
+}
+
+// The hint and the action span the whole grid so the three fields stay on one row.
+.store-stock__form .store-stock__hint,
+.store-stock__form button {
+  grid-column: 1 / -1;
+  justify-self: start;
+}

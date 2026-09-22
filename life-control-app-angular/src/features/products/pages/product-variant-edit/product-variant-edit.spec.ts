@@ -8,6 +8,9 @@ import { ProductService } from '../../data/product.service';
 import { ProductVariantService } from '../../data/product-variant.service';
 import { Product } from '../../models/product.models';
 import { ProductVariant, ProductVariantRequest } from '../../models/product-variant.models';
+import { ProfileResponse } from '@features/user/profile/data/profile.models';
+import { ProfileService } from '@features/user/profile/data/profile.service';
+import { NotificationService } from '@shared/data/notification';
 
 describe('ProductVariantEdit', () => {
   let component: ProductVariantEdit;
@@ -16,6 +19,7 @@ describe('ProductVariantEdit', () => {
     getVariantById: ReturnType<typeof vi.fn>;
     createVariant: ReturnType<typeof vi.fn>;
     updateVariant: ReturnType<typeof vi.fn>;
+    searchVariants: ReturnType<typeof vi.fn>;
   };
   let productServiceMock: { getProductById: ReturnType<typeof vi.fn> };
   let routerMock: { navigate: ReturnType<typeof vi.fn> };
@@ -45,6 +49,35 @@ describe('ProductVariantEdit', () => {
     enabled: true,
   };
 
+  function profileResponse(): ProfileResponse {
+    return {
+      keycloakUserId: 'user-1',
+      username: 'operator',
+      email: 'operator@lifecontrol.test',
+      firstName: 'Oper',
+      lastName: 'Ator',
+      companyId: 'company-1',
+      companyCountryId: 'cc-1',
+      companyRegionId: 'region-1',
+      companyZoneId: 'zone-1',
+      companyStoreId: 'store-1',
+    };
+  }
+
+  /** Empty search page: the store has no row for this variant yet. */
+  function emptySearchPage() {
+    return {
+      content: [],
+      totalElements: 0,
+      totalPages: 0,
+      size: 0,
+      number: 0,
+      first: true,
+      last: true,
+      empty: true,
+    };
+  }
+
   function createApiError(
     status: number,
     overrides: Partial<Record<string, unknown>> = {},
@@ -68,10 +101,12 @@ describe('ProductVariantEdit', () => {
       productId?: string | null;
       variantId?: string | null;
       getVariantError?: HttpErrorResponse;
+      queryStoreId?: string | null;
     } = {},
   ): Promise<void> {
     const productId = options.productId !== undefined ? options.productId : mockProductId;
     const variantId = options.variantId !== undefined ? options.variantId : null;
+    const queryStoreId = options.queryStoreId ?? null;
 
     productVariantServiceMock = {
       getVariantById: options.getVariantError
@@ -79,6 +114,7 @@ describe('ProductVariantEdit', () => {
         : vi.fn().mockReturnValue(of(mockVariant)),
       createVariant: vi.fn().mockReturnValue(of(mockVariant)),
       updateVariant: vi.fn().mockReturnValue(of(mockVariant)),
+      searchVariants: vi.fn().mockReturnValue(of(emptySearchPage())),
     };
     productServiceMock = { getProductById: vi.fn().mockReturnValue(of(mockProduct)) };
     routerMock = { navigate: vi.fn() };
@@ -90,6 +126,11 @@ describe('ProductVariantEdit', () => {
         { provide: ProductVariantService, useValue: productVariantServiceMock },
         { provide: Router, useValue: routerMock },
         {
+          provide: ProfileService,
+          useValue: { getProfile: vi.fn().mockReturnValue(of(profileResponse())) },
+        },
+        { provide: NotificationService, useValue: { showSuccess: vi.fn(), showError: vi.fn() } },
+        {
           provide: ActivatedRoute,
           useValue: {
             snapshot: {
@@ -99,6 +140,9 @@ describe('ProductVariantEdit', () => {
                   if (key === 'variantId') return variantId;
                   return null;
                 },
+              },
+              queryParamMap: {
+                get: (key: string) => (key === 'storeId' ? queryStoreId : null),
               },
             },
           },
@@ -169,6 +213,43 @@ describe('ProductVariantEdit', () => {
     });
   });
 
+  describe('store scope', () => {
+    it('should account for the per-store panel in the unsaved-changes guard', async () => {
+      await setup({ variantId: mockVariantId });
+      expect(component.hasUnsavedChanges()).toBe(false);
+
+      component.onStoreStockDirtyChange(true);
+      expect(component.hasUnsavedChanges()).toBe(true);
+
+      component.onStoreStockDirtyChange(false);
+      expect(component.hasUnsavedChanges()).toBe(false);
+    });
+
+    it('should carry a link-named store back to the list', async () => {
+      await setup({ variantId: mockVariantId, queryStoreId: 'store-9' });
+
+      component.cancelForm();
+
+      // Without it, the list would re-resolve the store from the profile and the
+      // operator would land on a different one than they came from.
+      expect(routerMock.navigate).toHaveBeenCalledWith(
+        ['/products/edit', mockProductId, 'variants'],
+        { queryParams: { storeId: 'store-9' } },
+      );
+    });
+
+    it('should not write a profile-resolved store into the link', async () => {
+      await setup({ variantId: mockVariantId });
+
+      component.cancelForm();
+
+      expect(routerMock.navigate).toHaveBeenCalledWith(
+        ['/products/edit', mockProductId, 'variants'],
+        { queryParams: undefined },
+      );
+    });
+  });
+
   describe('onSaveVariant', () => {
     const request: ProductVariantRequest = { barCode: '7791234567891', variantName: 'Talla 40' };
 
@@ -180,11 +261,10 @@ describe('ProductVariantEdit', () => {
 
       expect(productVariantServiceMock.createVariant).toHaveBeenCalledWith(mockProductId, request);
       expect(component.variantForm().pristine).toBe(true);
-      expect(routerMock.navigate).toHaveBeenCalledWith([
-        '/products/edit',
-        mockProductId,
-        'variants',
-      ]);
+      expect(routerMock.navigate).toHaveBeenCalledWith(
+        ['/products/edit', mockProductId, 'variants'],
+        { queryParams: undefined },
+      );
     });
 
     it('should update the variant in edit mode', async () => {
@@ -197,11 +277,10 @@ describe('ProductVariantEdit', () => {
         mockVariantId,
         request,
       );
-      expect(routerMock.navigate).toHaveBeenCalledWith([
-        '/products/edit',
-        mockProductId,
-        'variants',
-      ]);
+      expect(routerMock.navigate).toHaveBeenCalledWith(
+        ['/products/edit', mockProductId, 'variants'],
+        { queryParams: undefined },
+      );
     });
 
     it('should redirect to the product list when the route carries no productId', async () => {
@@ -266,11 +345,10 @@ describe('ProductVariantEdit', () => {
     it('should return to the variant list', async () => {
       await setup();
       component.cancelForm();
-      expect(routerMock.navigate).toHaveBeenCalledWith([
-        '/products/edit',
-        mockProductId,
-        'variants',
-      ]);
+      expect(routerMock.navigate).toHaveBeenCalledWith(
+        ['/products/edit', mockProductId, 'variants'],
+        { queryParams: undefined },
+      );
     });
 
     it('should redirect to the product list without a productId', async () => {

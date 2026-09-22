@@ -1,0 +1,80 @@
+<section class="store-stock">
+  <h3 class="store-stock__title">Stock y precios por tienda</h3>
+
+  @if (storePending()) {
+    <p class="store-stock__state">Resolviendo la tienda…</p>
+  } @else if (storeError(); as storeFailure) {
+    <app-error-banner [message]="'No pudimos determinar la tienda: ' + storeFailure" />
+    <button mat-stroked-button type="button" (click)="retryStore()">Reintentar</button>
+  } @else if (storeUnconfigured()) {
+    <p class="store-stock__state">
+      No hay una tienda configurada para tu usuario, así que no se puede leer ni guardar el stock
+      por tienda.
+    </p>
+    <button mat-stroked-button type="button" (click)="goToProfile()">Configurar mi tienda</button>
+  } @else if (readError(); as readFailure) {
+    <app-error-banner [message]="'No pudimos leer el stock de esta tienda: ' + readFailure" />
+    <button mat-stroked-button type="button" (click)="retryRead()">Reintentar</button>
+  } @else if (storeRow() === undefined) {
+    <p class="store-stock__state">Cargando el stock y los precios de esta tienda…</p>
+  } @else {
+    <p class="store-stock__scope">
+      {{
+        storeSource() === 'query'
+          ? 'Tienda indicada en el enlace.'
+          : 'Tienda configurada en tu perfil.'
+      }}
+    </p>
+
+    @if (storeRow() === null) {
+      <p class="store-stock__hint">
+        Esta tienda todavía no tiene stock ni precios para esta variante: completá lo que quieras
+        cargar y guardá para crear la fila de esta tienda.
+      </p>
+    }
+
+    @if (saveError(); as saveFailure) {
+      <app-error-banner [message]="saveFailure" />
+    }
+
+    <form [formGroup]="storeForm()" (ngSubmit)="onSave()" class="store-stock__form">
+      <mat-form-field appearance="outline">
+        <mat-label>Precio de venta</mat-label>
+        <input matInput type="number" min="0" step="0.01" formControlName="listPrice" />
+        @if (storeForm().controls.listPrice.touched && storeForm().controls.listPrice.invalid) {
+          <mat-error>El precio no puede ser negativo.</mat-error>
+        }
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Costo</mat-label>
+        <input matInput type="number" min="0" step="0.01" formControlName="costPrice" />
+        @if (storeForm().controls.costPrice.touched && storeForm().controls.costPrice.invalid) {
+          <mat-error>El costo no puede ser negativo.</mat-error>
+        }
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Stock</mat-label>
+        <input matInput type="number" min="0" step="0.01" formControlName="stock" />
+        @if (storeForm().controls.stock.touched && storeForm().controls.stock.invalid) {
+          <mat-error>El stock no puede ser negativo.</mat-error>
+        }
+      </mat-form-field>
+
+      <p class="store-stock__hint">
+        Un campo vacío deja el valor guardado tal como está; no lo pone en cero. Un 0 es un valor
+        real y sí se guarda.
+      </p>
+
+      <button
+        mat-flat-button
+        color="primary"
+        type="submit"
+        [disabled]="saving() || !storeFormDirty()"
+      >
+        {{ saving() ? 'Guardando…' : 'Guardar stock y precios' }}
+      </button>
+    </form>
+  }
+</section>

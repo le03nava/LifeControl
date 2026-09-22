@@ -21,6 +21,7 @@ import {
   ProductVariantControl,
   ProductVariantForm,
 } from '../../components/product-variant-form/product-variant-form';
+import { ProductVariantStoreStock } from '../../components/product-variant-store-stock/product-variant-store-stock';
 import { ErrorBanner, PageHeader } from '@shared/ui';
 import { httpErrorMessage } from '@shared/data';
 import type { UnsavedChangesAware } from '@core/guards/unsaved-changes.guard';
@@ -52,7 +53,13 @@ const VARIANT_DUPLICATE_MESSAGE =
 @Component({
   selector: 'app-product-variant-edit',
   standalone: true,
-  imports: [ReactiveFormsModule, ErrorBanner, ProductVariantForm, PageHeader],
+  imports: [
+    ReactiveFormsModule,
+    ErrorBanner,
+    ProductVariantForm,
+    ProductVariantStoreStock,
+    PageHeader,
+  ],
   templateUrl: './product-variant-edit.html',
   styleUrl: './product-variant-edit.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -68,6 +75,32 @@ export class ProductVariantEdit implements OnInit, UnsavedChangesAware {
   readonly productId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
   /** Present only in edit mode; its absence is what makes this a create page. */
   readonly variantId = signal<string | null>(this.route.snapshot.paramMap.get('variantId'));
+
+  /**
+   * The **stored** barcode of the variant being edited, or `null` until it is loaded.
+   *
+   * The per-store panel keys its row read on it instead of the live form value: an
+   * edited barcode is not saved yet, and searching for one the server does not have
+   * would answer "this store has no row".
+   */
+  readonly loadedBarCode = signal<string | null>(null);
+
+  /**
+   * Whether the per-store panel holds unsaved edits.
+   *
+   * The panel owns its own form, so its dirty state is not visible through
+   * {@link variantForm}; the guard has to account for both or an edit made there would
+   * be dropped silently on navigation.
+   */
+  readonly storeStockDirty = signal(false);
+
+  /**
+   * The store the link named, echoed back on every navigation this page makes.
+   *
+   * Without it, an operator who arrived through `?storeId=` would land on a list that
+   * re-resolves the store from the profile, quietly changing the store in view.
+   */
+  private readonly linkedStoreId = this.route.snapshot.queryParamMap.get('storeId');
 
   readonly isEditMode = signal(false);
 
@@ -135,6 +168,7 @@ export class ProductVariantEdit implements OnInit, UnsavedChangesAware {
             barCode: variant.barCode,
             variantName: variant.variantName,
           });
+          this.loadedBarCode.set(variant.barCode);
         },
         error: (err: HttpErrorResponse) => this.handleLoadError(err),
       });
@@ -158,7 +192,9 @@ export class ProductVariantEdit implements OnInit, UnsavedChangesAware {
         // The route is guarded by `unsavedChangesGuard`; a successful save must
         // reach the list without the discard prompt firing.
         this.variantForm().markAsPristine();
-        this.router.navigate(['/products/edit', productId, 'variants']);
+        this.router.navigate(['/products/edit', productId, 'variants'], {
+          queryParams: this.storeQueryParams(),
+        });
       },
       error: (err: HttpErrorResponse) => this.handleServerError(err),
     });
@@ -167,15 +203,31 @@ export class ProductVariantEdit implements OnInit, UnsavedChangesAware {
   cancelForm(): void {
     const productId = this.productId();
     if (productId) {
-      this.router.navigate(['/products/edit', productId, 'variants']);
+      this.router.navigate(['/products/edit', productId, 'variants'], {
+        queryParams: this.storeQueryParams(),
+      });
     } else {
       this.router.navigate(['/products/list']);
     }
   }
 
-  /** Exposed to `unsavedChangesGuard`: the live form decides. */
+  /** Mirrors the per-store panel's dirty state into the page's guard. */
+  onStoreStockDirtyChange(dirty: boolean): void {
+    this.storeStockDirty.set(dirty);
+  }
+
+  /**
+   * Query params that carry the store back to the list, only when the link named it.
+   * A profile-resolved store is re-resolved there, and writing it into the link would
+   * claim a store the operator never chose.
+   */
+  private storeQueryParams(): { storeId: string } | undefined {
+    return this.linkedStoreId ? { storeId: this.linkedStoreId } : undefined;
+  }
+
+  /** Exposed to `unsavedChangesGuard`: both forms decide. */
   hasUnsavedChanges(): boolean {
-    return this.variantForm().dirty;
+    return this.variantForm().dirty || this.storeStockDirty();
   }
 
   private handleLoadError(err: HttpErrorResponse): void {
