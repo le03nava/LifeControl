@@ -25,17 +25,19 @@ Invoke when a change touches code, architecture, CI/CD, dependencies, security, 
 | Security | touches auth / permissions / sensitive data | mandatory security review |
 | Contracts | changes contracts / API / schema | backward compatibility or a migration plan |
 | Pipeline | changes pipeline / deploy | rollback plan and post-deploy verification |
+| Chain | a PR branch is the base of another open PR | retarget the dependents before merging, or do not delete the branch |
 | Unknown | documented conventions are missing | record the gap; never invent final policy |
 
 ## Execution Steps
 
 1. Read the component reference: `references/api.md` for `life-control-api`, `references/angular.md` for `life-control-app-angular`, both when a change spans both.
 2. When work is parallelized, read `references/worktrees.md` before creating a worktree or starting a second writer.
-3. Discover conventions (docs + code + CI).
-4. Classify impact (low / medium / high risk).
-5. Define the mandatory controls per change type.
-6. Run applicable validations (lint / test / security checks).
-7. Produce traceable evidence.
+3. When a PR branch is the base of another open PR, read `references/pr-chains.md` before merging or deleting any branch in the chain.
+4. Discover conventions (docs + code + CI).
+5. Classify impact (low / medium / high risk).
+6. Define the mandatory controls per change type.
+7. Run applicable validations (lint / test / security checks).
+8. Produce traceable evidence.
 
 ## Risk & Compliance Controls
 
@@ -75,6 +77,7 @@ Uncertain risk counts as the higher level.
 - `references/index.md` — domain index, dispatch table and the gaps registry.
 - `references/api.md`, `references/angular.md` — per-component conventions, gates and gaps. Read the matching one first.
 - `references/worktrees.md` — isolation model for parallel work: invariants, path and naming, create and cleanup commands, the Pi trust requirement, and anti-patterns.
+- `references/pr-chains.md` — chained and stacked PRs: the base-branch deletion failure mode, invariants, the pre-merge guard, the order of operations, and anti-patterns.
 - `assets/convention-checklist.md`, `assets/security-gates.md`, `assets/pr-evidence-template.md`, `assets/risk-classification-matrix.md` — the operator artifacts.
 
 Cite only existing local paths; record an absent path as `GAP` under a Gaps heading.

@@ -13,7 +13,9 @@ Shared repository references live here. Component-specific detail lives in `refe
 ## Workflow
 
 - `references/worktrees.md` — isolation model for parallel work: invariants, path and naming, create and cleanup commands, the Pi trust requirement, and anti-patterns.
+- `references/pr-chains.md` — chained and stacked PRs: the base-branch deletion failure mode, invariants, the pre-merge guard, the order of operations, and anti-patterns.
 - Absent: no automated guard enforces one-worktree-one-unit; it is a review-time convention.
+- Absent: no automated guard prevents deleting a base branch that an open PR depends on; it is a review-time convention.
 
 ## Architecture
 
@@ -68,5 +70,6 @@ Run each gate command from the component directory.
 - `CONTRIBUTING.md`, `SECURITY.md`, `CODEOWNERS`, `docs/**` absent at root and component level.
 - No secret-scanning configuration.
 - No SBOM configuration.
+- No CI check or repository setting prevents deleting a base branch that an open PR depends on.
 - No documented rollback plan or post-deploy checklist.
 - Provider-side settings (branch protection, required checks, review rules) are unverifiable from the repository.

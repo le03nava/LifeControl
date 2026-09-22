@@ -202,3 +202,55 @@ the 1000 hard maximum. Trimming further would drop mandated content.
 - Probe was created for the docs, so Claude Code will only see this skill if later bridged.
 - The MD060 markdownlint advisories on the edited tables are pre-existing repo style, not
   introduced by these edits.
+
+## Revision 3 — PR chains and base branches (2026-09-22)
+
+Motivation: the S2 delivery of `product-variant-admin-ui` hit the base-branch deletion trap. Its own
+record already carried the rule ("Chain hygiene", retarget before merging), and it was followed by
+hand. A rule that lives only in one feature record and one person's memory is not a convention: the
+next chain will not read it. This revision moves it into the skill as a gate plus a reference.
+
+### Why it is a gate and not a fifth Hard Rule
+
+The verified Revision 2 invariant pins the Hard Rules count at 4. The chain rule is a
+trigger-plus-required-action, which is exactly what the Decision Gates table is for, so it was added
+there and the count stays at 4.
+
+### Files touched by Revision 3
+
+| File | Change |
+| --- | --- |
+| `references/pr-chains.md` | New. The failure mode (four mechanisms), four invariants, the pre-merge guard, the order of operations, anti-patterns, gaps. |
+| `SKILL.md` | One Decision Gates row, one Execution Step (inserted as 3, steps 3-7 renumbered to 4-8), one References bullet. Frontmatter byte-identical. |
+| `references/index.md` | One Workflow bullet, one `Absent` line, one Gaps line. |
+
+### What the reference refuses to assert
+
+The Revision 2 invariant (no version, threshold, percentage or dependency inventory in any skill
+file) applies here too. The reference therefore names the provider setting by its declaring check
+(`gh api repos/{owner}/{repo} --jq .delete_branch_on_merge`) instead of recording its current value,
+and cites the upstream tracker as an external reference for provider behavior, which Hard Rule 3
+permits precisely because no local documentation covers it.
+
+### Evidence (parent, read-only)
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Invariant grep, frontmatter excluded | `grep -rnE '[0-9]+\.[0-9]+\|[0-9]+ ?(kB\|MB\|%)' .agents/skills/project-conventions/` minus the two frontmatter hits | empty |
+| Top-level sections | `grep -n '^## ' SKILL.md` | exactly 8, mandated order, unchanged |
+| Execution Steps numbering | `sed -n '/^## Execution Steps/,/^## Risk/p' SKILL.md` | `1.`-`8.` sequential, no gap or duplicate |
+| Decision Gates rows | row count | 5 gates (header + separator + 5) |
+| Path tokens resolve | every `` `references/*.md` `` and `` `assets/*.md` `` token in `SKILL.md` and `references/index.md` | 9 checked, 0 unresolved |
+| Frontmatter | `sed -n '1,9p' SKILL.md` | byte-identical to Revision 2 |
+| Diffstat | `git diff --shortstat` | 2 files changed, 11 insertions(+), 5 deletions(-) plus the untracked new reference |
+
+Upstream evidence for the failure mode, gathered 2026-09-22 and not committed into the skill: the
+provider's documented intent is to retarget dependents, the observed behavior is a plain close with
+no retarget, a closed PR cannot be retargeted, the interface's restore action covers head branches
+only, and the interface's delete-branch action is hidden while an open PR references the branch
+while the command-line path is not. Recorded in Engram as observation 2345.
+
+### Status
+
+Uncommitted on `main`, same as T5. Not committed: committing needs explicit user authorization, and
+this change should land on a branch cut from `main` rather than on the default branch.
