@@ -1,11 +1,13 @@
 # ODD feature: product-variant-admin-ui
 
 **Repository**: LifeControl — component `life-control-app-angular/` (+ backend integration tests in `life-control-api/`)
-**Branch**: `feat/variant-definitions-ui`
-**Worktree**: `~/workspace/LifeControl-worktrees/feat/variant-definitions-ui`
-**Base**: `feat/variant-include-disabled` (the backend slice PR), itself `main` @ `7958dd0` (PR #136 merge)
-**Status**: S1 complete — 7 commits on this branch, stacked on the one-commit backend slice. Delivery
-split into three PRs (see `## Delivery`). S2 pending.
+**Branch (S1)**: `feat/variant-definitions-ui`
+**Worktree (S1)**: `~/workspace/LifeControl-worktrees/feat-variant-definitions-ui` (removed after merge)
+**Base (S1)**: `feat/variant-include-disabled` (the backend slice PR), itself `main` @ `7958dd0` (PR #136 merge)
+**Status**: **S1 delivered** — PRs #137/#138/#139 merged into `main` and the S1 branch/worktree cleaned
+up. **S2 in progress** on `feat/variant-store-stock-ui`, branched from `main` @ `2704a6e`. The S2 store
+source was resolved with evidence on 2026-09-22 (see `### S2 store source`), which superseded the
+premise of the original T9.
 **Created**: 2026-09-21
 **Risk**: **high** — route guard and role-set change (`assets/risk-classification-matrix.md`: "Auth, permissions, role, or guard change")
 
@@ -68,11 +70,65 @@ Error mapping the UI must render: 404 `ResourceNotFoundException`, 409 `Conflict
   chain as user preferences (`features/user/profile/data/profile.models.ts:10-15`), and
   `CompanyCascadeService` already uses it to preselect.
 - **`CompanyCascadeService` is not directly promotable.** It is 463 lines under
-  `features/purchases/purchase-orders/data/` and imports `PurchaseOrderHeaderControl` and
-  `PurchaseOrder` from the purchase-order models, so it is coupled to that feature. Reuse requires
-  either extracting the generic cascade into `shared/data/` (blast radius: `purchases` + its specs) or
-  building a narrower store selector on the per-level `companies/*` services. **Resolve at S2 start
-  with evidence**, then record the choice here.
+  `features/purchases/purchase-orders/data/`; its form binding is the spine of the class (all four
+  change handlers open with `if (!this.form) return;` and write `controls.*`), it imports
+  `PurchaseOrderHeaderControl` and `PurchaseOrder`, and **it has no spec of its own** — the only
+  reference from a spec is a comment at `purchase-order-edit.spec.ts:796`. Extraction is therefore a
+  rewrite of a live purchase-order path with no safety net. Resolved 2026-09-22, see below.
+
+### S2 store source — DECIDED 2026-09-22 (supersedes the T9 premise)
+
+T9 assumed the store picker has to live inside `products`, forcing a choice between extracting
+`CompanyCascadeService` and duplicating the ladder. Evidence gathered at S2 start shows a third shape
+that the repo already standardised, so neither was chosen.
+
+1. **The repo already has a standard for "per-store leaf page": `store-inventory-settings`**
+   (`features/companies/stores/pages/store-inventory-settings/store-inventory-settings.ts`, 260 lines
+   + 106 HTML + 641 spec). Its contract, recorded in its own class JSDoc: *"the whole chain arrives
+   through the five query params (`companyId`, `countryId`, `regionId`, `zoneId`, `storeId`) and the
+   page never cascades. When any of the five is missing it fails closed — no request is issued and the
+   operator is sent back to the store list — instead of guessing a store."* It is entered from a card
+   action that preserves the chain (`stores-page.ts:322-338` → `/companies/store-inventory-settings?…`).
+2. **The profile is a user-editable preference, not a token claim.** `ProfileService.getProfile()`
+   (`ProfileService.java:47-70`) builds the store chain from `user_preferences` via
+   `UserPreferencesRepository`, creating an empty row when none exists. An `lc-admin` who never set a
+   preference gets five `null`s. The frontend mirror is `profile.models.ts:11-15`. So the profile is
+   usable as a **best-effort default and a “change my store” target**, never as an authorization
+   source.
+3. **The store-scoped read already needs only `storeId`.** `listVariants`'s store branch derives and
+   verifies the whole company → country → region → zone → store chain server-side from the single
+   `storeId` query param (`ProductVariantService.java:83-96`). The frontend does not have to carry five
+   levels to read or write a store row.
+4. **The store-scoped read is an inner join and ignores `includeDisabled`.**
+   `ProductVariantRepository.findStoreScopedByProductIdAndStoreId` (`:68-82`) starts `FROM
+   ProductVariantStoreStock pvss JOIN ProductVariant pv …` and filters `pv.enabled = true`; the service
+   JSDoc (`:88-90`) states the branch *"always filter `enabled = true` regardless of
+   `includeDisabled`, because they feed the purchase-order variant picker and the point-of-sale
+   selector"*. Two consequences: a variant with **no row for that store is absent from the
+   store-scoped list**, and the `includeDisabled` toggle from S1 is inapplicable while a store is
+   selected.
+5. **The single-row read needs no new endpoint.** `GET /api/product-variants/search?q=&storeId=`
+   matches `pv.barCode = :query` by **equality** as its first predicate
+   (`ProductVariantRepository.searchByQuery`, `:100`), and `barCode` is globally unique by D2 of the
+   parent feature. So searching the variant's barcode scoped to a store returns exactly 0 rows (not
+   configured yet) or 1 row (the store row), with no pagination ambiguity. No backend contract change
+   is required for S2.
+6. **The ladder is already duplicated four times**: `StoreCascadePage` (372 lines, base of four store
+   pages), `CompanyCascadeService` (463 lines, PO), and `user-profile.component.ts` (464 lines). A
+   fifth copy was rejected; consolidating the existing ones is a separate refactor, not this slice.
+
+**Decision (user-ratified 2026-09-22).** The store reaches the variant screens as a *resolved id*, not
+as a picker:
+
+- `?storeId=` on the URL wins when present; otherwise the profile's `companyStoreId`; otherwise
+  `null`. No cascade is built in `products`, and `purchases` is not touched.
+- When the store is `null`, the screens **fail closed**: no store-scoped request is issued, the global
+  definition read keeps working, and the per-store editor is disabled behind a "change my store" call
+  to action that reuses the cascade that already exists (`/user/profile`).
+- The store-scoped definition **list** shows the store's `listPrice`/`costPrice`/`stock` columns, and
+  the **editor is an upsert panel on the variant edit page** (read the current row, write it back).
+  Reading and writing each live where they belong; the read half is nearly free because the backend
+  already returns those columns.
 - `lc-admin` is exempt from the store guard inside `CurrentUserContext`, and an admin profile may carry
   no `companyStoreId`. The stock editor therefore **cannot** rely on the profile default alone: admin
   needs an explicit store selector.
@@ -156,16 +212,34 @@ New files live under the existing products feature layout, mirroring `suppliers/
 
 ### S2 — Per-store stock and prices
 
-- [ ] T9 — Resolve the store-selection design with evidence (extract a generic cascade into
-      `shared/data/` vs a narrower store selector) and record the choice and blast radius here.
-- [ ] T10 — Stock and prices editor: store selection, read of the current store row, upsert of
-      `listPrice`/`costPrice`/`stock` with the backend's "null leaves the value" semantics. Spec.
-- [ ] T11 — Integrate the editor into the definitions screens so one definition shows its per-store
-      rows. Spec.
-- [ ] T12 — Backend integration tests (Testcontainers Postgres): `JD-B-005` exercises the `ON CONFLICT`
+Renumbered 2026-09-22 to make room for the resolved store source and the D5 entry point; the
+*contents* of the old T10 (editor) and old T11 (integration) are preserved, the numbers moved.
+
+- [x] T9 — Resolve the store-selection design with evidence and record the choice and blast radius.
+      **DONE 2026-09-22** — see `### S2 store source`. Chosen: a resolved store id (query param →
+      profile → `null`), no new picker, no cascade in `products`, no `purchases` refactor, no backend
+      contract change. Blast radius: `features/products/**` only.
+- [ ] T10 — Store source resolver: `?storeId=` → profile `companyStoreId` → `null`, fail closed,
+      one owner, with a spec that proves each branch and that an unknown/absent store issues no
+      store-scoped request.
+- [ ] T11 — Store-scoped definitions list: pass the resolved store to `getVariants`, render the
+      `listPrice`/`costPrice`/`stock` columns only when a store is resolved, suppress the
+      `includeDisabled` toggle while store-scoped (the backend ignores it on that branch), and render
+      the fail-closed state with the "change my store" action. Spec.
+- [ ] T12 — Per-store editor panel on the variant edit page: read the current row through
+      `search?q={barCode}&storeId={storeId}` (exact equality, 0 rows = not configured yet), upsert via
+      the existing `PUT /api/variants/{variantId}/stores/{storeId}`, sending **only** the fields the
+      operator filled so an absent field keeps the stored value, role-gated save, unsaved-changes
+      aware. Spec.
+- [ ] T13 — Backend integration tests (Testcontainers Postgres): `JD-B-005` exercises the `ON CONFLICT`
       insert path end to end; `JD-B-006` proves one definition serves two stores with distinct stock.
-- [ ] T13 — S2 gate: frontend gates plus `./gradlew test --no-daemon` for the touched backend tests.
-      Work-unit commit.
+- [ ] T14 — S2 gate: frontend gates plus the focused backend tests. Work-unit commit.
+- [ ] T15 — The D5 entry point: `lc-sales` can reach the variant screens only by deep link today (the
+      `/products` `''` child is re-gated admin-only, so there is no discoverable path). Give sales a
+      store-scoped variant search entry built on `GET /api/product-variants/search?q=&storeId=`, which
+      exists for exactly this and is authorised for `lc-admin` + `lc-sales`, linking each row to the
+      T12 editor. Route + menu entry + spec. **Confirm the shape with the user at this boundary** — it
+      is the one part of S2 the plan did not size.
 
 ## Delivery (3 PRs)
 

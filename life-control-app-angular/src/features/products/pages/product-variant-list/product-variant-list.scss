@@ -11,10 +11,43 @@
   margin: 0 auto;
 }
 
-// Filter row for the opt-in disabled definitions. Mirrors the shared
-// entity-list section so the page keeps its spacing source in the stylesheet.
+// Filter row: the store scope and the opt-in disabled definitions. Mirrors the
+// shared entity-list section so the page keeps its spacing source in the
+// stylesheet. Wraps because the store notices can take a row of their own.
 .filters-section {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-md);
   margin-bottom: var(--space-sm);
+}
+
+// Which store, if any, the list is narrowed to. Informative by default; the error
+// variant is a resolution that failed, which is not the same fact as a store that
+// was never configured.
+.store-scope {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--mat-sys-on-surface-variant);
+
+  mat-icon {
+    font-size: 20px;
+    width: 20px;
+    height: 20px;
+  }
+
+  &--error {
+    color: var(--mat-sys-error);
+  }
+}
+
+// Explains what the list is showing while no store is in play. Takes its own row.
+.store-scope-hint {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--mat-sys-on-surface-variant);
 }
 
 .error-state {
