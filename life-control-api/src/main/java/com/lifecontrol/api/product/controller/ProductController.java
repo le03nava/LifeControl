@@ -150,12 +150,13 @@ public class ProductController {
     @Operation(
             summary = "List variants for a product",
             description =
-                    "Returns a paginated list of variants for a given product. Use ?storeId=<uuid> to narrow the list to one store and populate the store prices and stock. Omitting storeId returns the product's GLOBAL definitions with the store-scoped fields null.")
+                    "Returns a paginated list of variants for a given product. Use ?storeId=<uuid> to narrow the list to one store and populate the store prices and stock. Omitting storeId returns the product's GLOBAL definitions with the store-scoped fields null; ?includeDisabled=true then also lists soft-deleted definitions so they can be re-enabled. The store-scoped and search reads always exclude disabled variants.")
     public ResponseEntity<Page<ProductVariantResponse>> listVariants(
             @PathVariable UUID productId,
             @RequestParam(required = false) UUID storeId,
+            @RequestParam(defaultValue = "false") boolean includeDisabled,
             @PageableDefault(size = 12) Pageable pageable) {
-        return ResponseEntity.ok(productVariantService.listVariants(productId, storeId, pageable));
+        return ResponseEntity.ok(productVariantService.listVariants(productId, storeId, includeDisabled, pageable));
     }
 
     @PostMapping("/{productId}/variants")

@@ -306,6 +306,88 @@ class ProductVariantServiceTest {
             assertThat(result.getContent()).isEmpty();
             assertThat(result.getTotalElements()).isZero();
         }
+
+        @Test
+        @DisplayName("should default the new overload to enabled-only when includeDisabled is false")
+        void listVariants_IncludeDisabledFalse_UsesEnabledOnlyFinder() {
+            var pageable = PageRequest.of(0, 12);
+            var expectedPage = new PageImpl<>(List.of(testVariant), pageable, 1);
+
+            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productVariantRepository.findByProductIdAndEnabledTrueOrderByCreatedAtDesc(productId, pageable))
+                    .thenReturn(expectedPage);
+
+            Page<ProductVariantResponse> result = productVariantService.listVariants(productId, null, false, pageable);
+
+            assertThat(result.getContent()).hasSize(1);
+            verify(productVariantRepository).findByProductIdAndEnabledTrueOrderByCreatedAtDesc(productId, pageable);
+            verify(productVariantRepository, never()).findByProductIdOrderByCreatedAtDesc(any(), any());
+        }
+
+        @Test
+        @DisplayName("should include disabled global definitions when includeDisabled is true")
+        void listVariants_IncludeDisabledTrue_UsesUnfilteredFinderAndIncludesDisabled() {
+            var pageable = PageRequest.of(0, 12);
+            var disabledVariant = ProductVariant.builder()
+                    .id(UUID.randomUUID())
+                    .productId(productId)
+                    .barCode("7509999999999")
+                    .variantName("Talla S")
+                    .enabled(false)
+                    .createdAt(testVariant.getCreatedAt())
+                    .updatedAt(testVariant.getUpdatedAt())
+                    .build();
+            var expectedPage = new PageImpl<>(List.of(testVariant, disabledVariant), pageable, 2);
+
+            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productVariantRepository.findByProductIdOrderByCreatedAtDesc(productId, pageable))
+                    .thenReturn(expectedPage);
+
+            Page<ProductVariantResponse> result = productVariantService.listVariants(productId, null, true, pageable);
+
+            assertThat(result.getContent()).hasSize(2);
+            assertThat(result.getContent())
+                    .extracting(ProductVariantResponse::enabled)
+                    .containsExactly(true, false);
+            verify(productVariantRepository).findByProductIdOrderByCreatedAtDesc(productId, pageable);
+            verify(productVariantRepository, never()).findByProductIdAndEnabledTrueOrderByCreatedAtDesc(any(), any());
+        }
+
+        @Test
+        @DisplayName("should keep the existing two-arg overload filtering disabled definitions")
+        void listVariants_DefaultOverload_KeepsEnabledOnlyBehavior() {
+            var pageable = PageRequest.of(0, 12);
+            var expectedPage = new PageImpl<>(List.of(testVariant), pageable, 1);
+
+            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(productVariantRepository.findByProductIdAndEnabledTrueOrderByCreatedAtDesc(productId, pageable))
+                    .thenReturn(expectedPage);
+
+            productVariantService.listVariants(productId, pageable);
+
+            verify(productVariantRepository).findByProductIdAndEnabledTrueOrderByCreatedAtDesc(productId, pageable);
+            verify(productVariantRepository, never()).findByProductIdOrderByCreatedAtDesc(any(), any());
+        }
+
+        @Test
+        @DisplayName("should ignore includeDisabled on the store-scoped branch and keep filtering enabled")
+        void listVariants_StoreScoped_IgnoresIncludeDisabled() {
+            var pageable = PageRequest.of(0, 12);
+            var expectedPage = new PageImpl<ProductVariantResponse>(List.of(), pageable, 0);
+
+            when(productRepository.findById(productId)).thenReturn(Optional.of(testProduct));
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            when(productVariantRepository.findStoreScopedByProductIdAndStoreId(productId, companyStoreId, pageable))
+                    .thenReturn(expectedPage);
+
+            productVariantService.listVariants(productId, companyStoreId, true, pageable);
+
+            verify(currentUserContext)
+                    .verifyCompanyStoreAccess(companyId, companyCountryId, regionId, zoneId, companyStoreId);
+            verify(productVariantRepository).findStoreScopedByProductIdAndStoreId(productId, companyStoreId, pageable);
+            verify(productVariantRepository, never()).findByProductIdOrderByCreatedAtDesc(any(), any());
+            verify(productVariantRepository, never()).findByProductIdAndEnabledTrueOrderByCreatedAtDesc(any(), any());
+        }
     }
 
     // ─────────────────────────────────────────────

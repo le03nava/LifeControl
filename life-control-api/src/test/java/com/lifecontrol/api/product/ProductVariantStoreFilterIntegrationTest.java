@@ -271,4 +271,54 @@ class ProductVariantStoreFilterIntegrationTest extends AbstractPostgresIntegrati
         assertThat(returnedIds(result.getResponse().getContentAsString()))
                 .containsExactlyInAnyOrder(variantAId.toString(), variantBId.toString());
     }
+
+    @Test
+    @DisplayName("should hide a disabled global definition by default and list it with includeDisabled=true")
+    void listVariants_IncludeDisabled_ControlsDisabledGlobalDefinitions() throws Exception {
+        softDeleteVariant(variantAId);
+
+        // Default: the soft-deleted definition is filtered out, so re-enable would be unreachable.
+        var defaultResult = mockMvc.perform(get(VARIANTS_URL, productId).with(jwt().authorities(ROLE_LC_ADMIN)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andReturn();
+        assertThat(returnedIds(defaultResult.getResponse().getContentAsString()))
+                .containsExactly(variantBId.toString());
+
+        // Opt-in: the disabled definition reappears so it can be re-enabled.
+        var includeResult = mockMvc.perform(get(VARIANTS_URL, productId)
+                        .param("includeDisabled", "true")
+                        .with(jwt().authorities(ROLE_LC_ADMIN)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(2))
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andReturn();
+        assertThat(returnedIds(includeResult.getResponse().getContentAsString()))
+                .containsExactlyInAnyOrder(variantAId.toString(), variantBId.toString());
+    }
+
+    @Test
+    @DisplayName("should keep excluding a disabled variant from the store-scoped branch even with includeDisabled=true")
+    void listVariants_StoreScoped_IgnoresIncludeDisabled() throws Exception {
+        softDeleteVariant(variantAId);
+
+        var result = mockMvc.perform(get(VARIANTS_URL, productId)
+                        .param("storeId", storeAId.toString())
+                        .param("includeDisabled", "true")
+                        .with(jwt().authorities(ROLE_LC_ADMIN)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(0))
+                .andExpect(jsonPath("$.totalElements").value(0))
+                .andReturn();
+
+        assertThat(returnedIds(result.getResponse().getContentAsString())).isEmpty();
+    }
+
+    /** Flips the definition's {@code enabled} flag without deleting the per-store row. */
+    private void softDeleteVariant(UUID targetVariantId) {
+        var variant = productVariantRepository.findById(targetVariantId).orElseThrow();
+        variant.setEnabled(false);
+        productVariantRepository.save(variant);
+    }
 }

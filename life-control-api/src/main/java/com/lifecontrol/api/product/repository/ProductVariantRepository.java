@@ -29,6 +29,13 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
 
     Page<ProductVariant> findByProductIdAndEnabledTrueOrderByCreatedAtDesc(UUID productId, Pageable pageable);
 
+    /**
+     * Unfiltered definition list, used by the opt-in {@code includeDisabled} read of the global
+     * branch. The store-scoped and search projections must keep their {@code enabled = true} filter:
+     * this finder exists only so a soft-deleted definition can be re-enabled from the admin UI.
+     */
+    Page<ProductVariant> findByProductIdOrderByCreatedAtDesc(UUID productId, Pageable pageable);
+
     /** Definition lookup scoped to its owning product, enabled only, for the purchase-order path. */
     Optional<ProductVariant> findByIdAndProductIdAndEnabledTrue(UUID id, UUID productId);
 
