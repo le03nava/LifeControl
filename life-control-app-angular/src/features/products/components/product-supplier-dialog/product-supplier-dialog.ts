@@ -3,13 +3,14 @@ import {
   Component,
   computed,
   DestroyRef,
+  effect,
   inject,
   OnInit,
   signal,
 } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { NonNullableFormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
-import { MAT_DIALOG_DATA, MatDialogRef, MatDialogTitle } from '@angular/material/dialog';
+import { MAT_DIALOG_DATA, MatDialog, MatDialogRef, MatDialogTitle } from '@angular/material/dialog';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
   catchError,
@@ -35,7 +36,7 @@ import {
   ProductSupplierForm,
   SupplierOption,
 } from '../product-supplier-form/product-supplier-form';
-import { ErrorBanner } from '@shared/ui';
+import { ErrorBanner, ConfirmDialog } from '@shared/ui';
 
 /** Number of suppliers fetched per server-side search. */
 const SUPPLIER_PAGE_SIZE = 20;
@@ -68,6 +69,7 @@ export class ProductSupplierDialog implements OnInit {
   private readonly fb = inject(NonNullableFormBuilder);
   private readonly productSupplierService = inject(ProductSupplierService);
   private readonly supplierService = inject(SupplierService);
+  private readonly dialog = inject(MatDialog);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly data = inject<ProductSupplierDialogData>(MAT_DIALOG_DATA);
@@ -83,12 +85,35 @@ export class ProductSupplierDialog implements OnInit {
   /** Read failures (assignments or supplier search) shown in the banner. */
   readonly loadError = signal<string | null>(null);
 
+  /** Mirrors the form's dirty flag as a signal: control state is not reactive. */
+  private readonly dirty = signal(false);
+  /**
+   * Whether the operator has edited the form. Drives the close guard and the
+   * cancel confirmation; a form built from the loaded assignment starts clean.
+   */
+  readonly formDirty = this.dirty.asReadonly();
+
   /** The current server result page for the picker. */
   readonly suppliers = signal<SupplierOption[]>([]);
   readonly searching = signal(false);
   readonly assignedSuppliers = signal<ProductSupplier[]>([]);
 
   private readonly supplierSearch$ = new Subject<string>();
+
+  constructor() {
+    // Only operator edits reach this: the form is built from the loaded assignment and
+    // is never patched afterwards, and the child form applies server errors with
+    // `emitEvent: false`. A freshly loaded form therefore starts clean.
+    this.assignmentForm()
+      .valueChanges.pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.dirty.set(true));
+
+    // Esc and backdrop must not discard typed input silently. `disableClose` is a
+    // mutable `MatDialogRef` property, so it is driven reactively from the signal.
+    effect(() => {
+      this.dialogRef.disableClose = this.formDirty();
+    });
+  }
 
   /** The options the picker may offer: already-assigned suppliers are excluded. */
   readonly availableSuppliers = computed<SupplierOption[]>(() => {
@@ -160,7 +185,31 @@ export class ProductSupplierDialog implements OnInit {
   }
 
   cancel(): void {
-    this.dialogRef.close(null);
+    if (!this.formDirty()) {
+      this.dialogRef.close(null);
+      return;
+    }
+
+    this.dialog
+      .open(ConfirmDialog, {
+        data: {
+          title: 'Cambios sin guardar',
+          message:
+            'Tenés cambios sin guardar. Si cerrás ahora, los datos que escribiste se van a perder.',
+          confirmLabel: 'Descartar cambios',
+          cancelLabel: 'Seguir editando',
+          destructive: true,
+        },
+        autoFocus: false,
+        restoreFocus: false,
+      })
+      .afterClosed()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((confirmed) => {
+        if (confirmed === true) {
+          this.dialogRef.close(null);
+        }
+      });
   }
 
   private loadSuppliers(term: string): Observable<SupplierOption[]> {

@@ -1,9 +1,10 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
-import { MAT_DIALOG_DATA, MatDialogRef } from '@angular/material/dialog';
+import { MAT_DIALOG_DATA, MatDialog, MatDialogRef } from '@angular/material/dialog';
 import { of, Subject, throwError } from 'rxjs';
 import { ProductSupplierDialog, ProductSupplierDialogData } from './product-supplier-dialog';
+import { ConfirmDialog } from '@shared/ui';
 import { ProductSupplierService } from '../../data/product-supplier.service';
 import { SupplierService } from '../../suppliers/data/supplier.service';
 import { ProductSupplier } from '../../models/product-supplier.models';
@@ -39,7 +40,8 @@ function supplierPage(content: Supplier[]): Page<Supplier> {
 describe('ProductSupplierDialog', () => {
   let component: ProductSupplierDialog;
   let fixture: ComponentFixture<ProductSupplierDialog>;
-  let dialogRef: { close: ReturnType<typeof vi.fn> };
+  let dialogRef: { close: ReturnType<typeof vi.fn>; disableClose: boolean };
+  let dialogMock: { open: ReturnType<typeof vi.fn> };
   let productSupplierServiceMock: {
     getSuppliers: ReturnType<typeof vi.fn>;
     addSupplier: ReturnType<typeof vi.fn>;
@@ -67,7 +69,8 @@ describe('ProductSupplierDialog', () => {
       assignments?: ProductSupplier[];
     } = {},
   ): void {
-    dialogRef = { close: vi.fn() };
+    dialogRef = { close: vi.fn(), disableClose: false };
+    dialogMock = { open: vi.fn().mockReturnValue({ afterClosed: () => of(true) }) };
     productSupplierServiceMock = {
       getSuppliers: vi.fn().mockReturnValue(of(options.assignments ?? [])),
       addSupplier: vi.fn().mockReturnValue(of(assignment)),
@@ -81,6 +84,7 @@ describe('ProductSupplierDialog', () => {
       imports: [ProductSupplierDialog, NoopAnimationsModule],
       providers: [
         { provide: MatDialogRef, useValue: dialogRef },
+        { provide: MatDialog, useValue: dialogMock },
         { provide: MAT_DIALOG_DATA, useValue: options.data ?? { productId } },
         { provide: ProductSupplierService, useValue: productSupplierServiceMock },
         { provide: SupplierService, useValue: supplierServiceMock },
@@ -453,5 +457,109 @@ describe('ProductSupplierDialog', () => {
     component.cancel();
 
     expect(dialogRef.close).toHaveBeenCalledWith(null);
+  });
+
+  describe('unsaved input protection', () => {
+    it('should start clean when the form is built from the loaded assignment', () => {
+      setup({ data: { productId, assignment } });
+      fixture.detectChanges();
+
+      expect(component.formDirty()).toBe(false);
+    });
+
+    it('should not mark the form dirty when a server error is applied to a control', () => {
+      setup();
+      fixture.detectChanges();
+
+      component
+        .assignmentForm()
+        .get('purchaseCost')
+        ?.setErrors({ serverError: 'No puede ser negativo.' }, { emitEvent: false });
+      fixture.detectChanges();
+
+      expect(component.formDirty()).toBe(false);
+    });
+
+    it('should mark the form dirty when the operator edits a control', () => {
+      setup();
+      fixture.detectChanges();
+
+      component.assignmentForm().get('purchaseCost')?.setValue(99);
+      fixture.detectChanges();
+
+      expect(component.formDirty()).toBe(true);
+    });
+
+    it('should keep Esc and backdrop working while the form is clean', () => {
+      setup();
+      fixture.detectChanges();
+
+      expect(dialogRef.disableClose).toBe(false);
+    });
+
+    it('should block Esc and backdrop once the form is dirty', () => {
+      setup();
+      fixture.detectChanges();
+      component.assignmentForm().get('purchaseCost')?.setValue(99);
+      fixture.detectChanges();
+
+      expect(dialogRef.disableClose).toBe(true);
+    });
+
+    it('should close immediately with null when cancel runs on a clean form', () => {
+      setup();
+      fixture.detectChanges();
+
+      component.cancel();
+
+      expect(dialogRef.close).toHaveBeenCalledWith(null);
+      expect(dialogMock.open).not.toHaveBeenCalled();
+    });
+
+    it('should ask for confirmation instead of closing when cancel runs on a dirty form', () => {
+      setup();
+      fixture.detectChanges();
+      component.assignmentForm().get('purchaseCost')?.setValue(99);
+      dialogMock.open.mockReturnValue({ afterClosed: () => of(undefined) });
+
+      component.cancel();
+
+      expect(dialogMock.open).toHaveBeenCalledWith(
+        ConfirmDialog,
+        expect.objectContaining({
+          data: {
+            title: 'Cambios sin guardar',
+            message:
+              'Tenés cambios sin guardar. Si cerrás ahora, los datos que escribiste se van a perder.',
+            confirmLabel: 'Descartar cambios',
+            cancelLabel: 'Seguir editando',
+            destructive: true,
+          },
+        }),
+      );
+      expect(dialogRef.close).not.toHaveBeenCalled();
+    });
+
+    it('should close with null when the operator confirms discarding the edits', () => {
+      setup();
+      fixture.detectChanges();
+      component.assignmentForm().get('purchaseCost')?.setValue(99);
+      dialogMock.open.mockReturnValue({ afterClosed: () => of(true) });
+
+      component.cancel();
+
+      expect(dialogRef.close).toHaveBeenCalledWith(null);
+    });
+
+    it('should keep the dialog open when the operator declines discarding the edits', () => {
+      setup();
+      fixture.detectChanges();
+      component.assignmentForm().get('purchaseCost')?.setValue(99);
+      dialogMock.open.mockReturnValue({ afterClosed: () => of(undefined) });
+
+      component.cancel();
+
+      expect(dialogRef.close).not.toHaveBeenCalled();
+    });
   });
 });
