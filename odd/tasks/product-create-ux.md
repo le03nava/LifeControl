@@ -11,11 +11,17 @@ to the verified S2b head. Gates on the S2b code tip `ae0cfb1`: lint clean, build
 proposed; the user chose one PR. The S2a and S2b sections below keep their "open PR" wording as the
 record of what was true when they were written; this line is the correction.
 
-**S3 is in progress** on branch `feat/product-create-stepper`, created from `main` @ `d7c6e16` in the
-same **reused** worktree `~/workspace/LifeControl-worktrees/feat-product-create-ux` (D7). S4 is not
-started. Shape agreed with the user on 2026-09-23 ("Tabs + stepper con skip", "propuesta primero";
-voseo adopted as the copy register). Product `attributes` handling and the `Activo` toggle were
-descoped the same day (see `## Descoped by user decision`).
+**S3 is delivered on branch `feat/product-create-stepper`**, created from `main` @ `d7c6e16` in the
+same **reused** worktree `~/workspace/LifeControl-worktrees/feat-product-create-ux` (D7), as three
+commits: `9855f2c` (this record's S3 plan and the status correction), `59d02bc` (the stepper, one work
+unit) and `1b8a507` (the independent verifier's findings round). Gates on `1b8a507`: lint clean, build
+**851.05 kB** initial exit 0, `test:coverage:check` **127 files / 2458 tests / 0 failures**, coverage
+**94.03/75.80/89.19/94.03** (thresholds 80/60/75/80). S3 measured **579 changed lines of code and
+specs** (221 source / 358 specs, 6 files) plus 203 lines of this record at the plan commit, so D20's
+~1.000 threshold was not reached and no split was proposed. S4 is not started. Shape agreed with the
+user on 2026-09-23 ("Tabs + stepper con skip", "propuesta primero"; voseo adopted as the copy
+register). Product `attributes` handling and the `Activo` toggle were descoped the same day (see
+`## Descoped by user decision`).
 **Created**: 2026-09-23
 **Risk**: **medium** — route and UI restructure over four existing pages. No auth, role-set or guard
 *set* change: the `unsavedChangesGuard` addition only tightens navigation on two routes that already
@@ -594,14 +600,16 @@ dialog (D22), the debounced server-side search (D23), the `suppliers/create` and
 `variants/create` redirect (D19). W2 stacks on W1 on the same branch; if D20's measurement forces the
 split, W1 and W2 are the two PRs.
 
-**S3 work units** (one work-unit commit each): **W1** = T10 + T12 — the create-mode stepper shell
-(steps, labels, optionality, laziness, the product header from step 2 on) plus the step-1 host
-contract (create → advance, back-edit → `PUT`) and the exit semantics (`Cancelar` before persist,
-`Terminar` after). **W2** = T11's re-scoped evidence — the partial-failure contract that D24 keeps is
-already implemented inside the two dialogs and their lists; W2 pins it from the stepper's side (a
-failed association never reaches the step's list, the dialog stays open, the step's list is unchanged)
-and adds the step-level tests. They land as separate commits on the same branch because W1 alone is a
-coherent, reviewable unit: the stepper works end to end with the existing containers.
+**S3 work units, corrected by the measurement: one work unit, not two.** The plan proposed
+**W1** = T10 + T12 (the stepper shell) and **W2** = T11's re-scoped evidence as separate commits. The
+code says otherwise: the stepper shell, the two step hosts, the step-1 host contract and the exit
+semantics all live in the same three files (`product-edit.ts`, `.html`, `.scss`), and the
+`the association steps reuse the workspace containers (D24/T11)` describe is a block in the same
+spec file. Splitting them would mean splitting one spec file across two commits to manufacture a
+boundary that does not exist in the code — the same conclusion D16 reached for T5/T6/T9. T10, T11 and
+T12 therefore land as a single commit (`59d02bc`), and the plan's W1/W2 wording is kept above as the
+record of what was forecast. A third commit (`1b8a507`) carries the independent verifier's findings
+round, which is its own reviewable unit by the same argument the S2b slice used for `717686a`.
 
 ## Backend dependencies
 
@@ -793,6 +801,41 @@ ratio the S2 sections predicted holds — the specs are where the stepper's beha
 `product-edit.spec.ts` already builds the page with the **real** list containers against mocked
 services, so the step tests inherit a working harness instead of needing a new one.
 
+#### S3 — measured, and this time the forecast held
+
+Measured on `1b8a507` with `git diff main...HEAD --numstat`.
+
+| Bucket | Files | Changed lines |
+|---|---|---|
+| Source | 4 | **221** (product-edit.html 86, product-edit.ts 98, product-edit.scss 23, products-form.ts 14) |
+| Specs | 2 | **358** (product-edit.spec.ts 325, products-form.spec.ts 33) |
+| This record | 1 | **203** at the plan commit (`9855f2c`) |
+| **Total** | **7** | **782** (733 insertions / 49 deletions) |
+
+Against the ~110 source / ~320 spec / ~430 total forecast. The code half measured 579 lines against a
+~430 forecast — low by ~1,35×, and this time the forecast error is in the *right* direction: S3 is the
+first slice of this feature whose forecast was not low by 2× or more. `git diff -w` moves 12 of the
+782 lines, so — unlike S2a — reindentation is not a factor; the diff is what it looks like. Excluding
+this record, the review load is **579 changed lines over 6 files**, comfortably inside a single review
+and well under D20's ~1.000 threshold, so no split was proposed.
+
+**Where the forecast was low, and why.** The plan assumed the step-1 host contract would be free
+because `onSaveProduct` already branched on `productData.id`. It is not free, for two reasons the
+recon did not anticipate: (1) `ProductsForm`'s `isEditMode` is a `computed` over the `formGroup`
+**input**, while `controls.id.value` is a plain property, so the id write-back D26 depends on cannot
+flip the form's copy — the fix is an explicit `editMode` input, which is what the verifier's F1
+finding forced (see the evidence log); and (2) the header had to start reading a signal the create
+path never populated before. The step shell itself measured about what was forecast.
+
+**The independent verification earned its keep.** It raised four findings, all closed in `1b8a507`:
+F1 (medium) the copy never flipped; F4 (low-medium) the header went stale after a back-edit `PUT`; F3
+(low) the `[completed]` test did not actually pin the binding, because the CDK marks the outgoing step
+`interacted` and a step with no `stepControl` is completed once interacted; F2 (low) Material's
+English `editableLabel` (`'Editable'`, visually hidden) reached the screen and only *happened* to be
+the right Spanish word. F1 is the one worth remembering: it is the same class of defect as the
+`MatAutocompleteTrigger.writeValue` microtask from S2b — a framework value that looks reactive and is
+not.
+
 ## Evidence log
 
 | Date | Slice | Commit | Evidence |
@@ -828,6 +871,14 @@ Rows below are added as each task closes, with the commit that carries it.
 | 2026-09-23 | **S2b gates (tip)** | `ae0cfb1` | `npm run lint` → `All files pass linting.`; `npm run build` → bundle generation complete, **850.87 kB** initial (S2a: 850.87 kB), exit 0; `npm run test:coverage:check` → **127 files / 2436 tests / 0 failures**, coverage **94.02/75.8/89.15/94.02** (thresholds 80/60/75/80). Delta over the S2a tip (`9d5eb5c`: 125 files / 2357 tests, 93.38/75.34/88.52/93.38): **+2 files, +79 tests, +0.64/+0.46/+0.63/+0.64**. The branch-coverage margin the S2a section flagged as thin (75.34 against 75) is now 0.8 pp. |
 | 2026-09-23 | **S2b measured** | `ae0cfb1` | 29 files, 2.431 insertions / 816 deletions = **3.247 changed lines** (source 1.283, specs 1.821, this record 143), 16 of them whitespace. See `#### S2b — measured` above. |
 | 2026-09-23 | **S2b delivered** | `2c7761a` | PR **#156** opened against `feat/product-workspace-tabs`: S2a is still an open PR, so the base is the S2a branch and GitHub retargets it to `main` when #155 merges. 29 files, 2.518 insertions / 817 deletions, label `enhancement`, `MERGEABLE`. Angular CI "Lint, Build & Test" **success** (run `35891274123`, the workflow's `pull_request` trigger has no branch filter, so a stacked base still runs it). Per D20 the two-PR split was proposed on the measured 3.247 lines; the user chose **one PR**. This docs-only commit does not re-trigger CI (the workflow's path filter is `life-control-app-angular/**`), and the code bytes CI verified are unchanged. |
+
+| 2026-09-23 | **S3 plan** | `9855f2c` | Read-only mapping of the S3 surface by a `gentle-ai-explore` scout, every claim `file:line`-anchored, plus the installed-framework reads (`@angular/material` 20.2.10 `stepper.mjs`, `@angular/cdk` `stepper.mjs`). The `## S3 reconciliation` above: the T11 shape conflict with the reuse S2b shipped, the three now-false S2b claims, the page-agnostic dialogs, the absence of any `beforeunload` or post-persist navigation block, the guard's single contract, and the CDK's `completed`/`isNavigable`/`selectedIndex` semantics. User decisions D24-D27 taken on 2026-09-23; D28/D29 recorded as engineering decisions. Also corrects the status header (S2a #155 and S2b #156 merged into `main` @ `d7c6e16`). No source written. |
+| 2026-09-23 | **S3 W1 (T10 + T11 re-scoped + T12)** | `59d02bc` | **4 files, 433 insertions / 19 deletions = 452 changed lines.** The create branch becomes a `mat-stepper`: `[linear]="false"` (required — see D28), `[completed]="productId() !== null"` on step 1, `<ng-template matStepContent>` on steps 2 and 3, and `(selectedIndexChange)` writing the new `stepIndex` signal. Steps 2 and 3 host the **real** `ProductSupplierList` / `ProductVariantList` with an explicit `.step-hint` before the product exists, and each gets a footer (`Atrás` / `Terminar` / `Siguiente`). `adoptCreatedProduct` sets `product`, `productId` and the form's `id` control and advances to step 2; the `updateProduct` branch keeps the operator in the stepper on a back-edit; `finish()` and `cancelForm()` implement D27. Focused products suite 25 files / 396 → **413 tests**. |
+| 2026-09-23 | **S3 W1 mutation controls** | `59d02bc` | Three, each restored byte for byte afterwards (`git status` clean). `[completed]="false"` → **1 failed** (exactly the completion test). `this.stepIndex.set(0)` in the adopt path → **8 failed**. Step 3 made eager (`<ng-container>` instead of `<ng-template matStepContent>`) → **2 failed**: the laziness pin plus the step-2 footer test, which is the same laziness observed one layer up. |
+| 2026-09-23 | S3 independent verification | `59d02bc` | A read-only `gentle-ai-verify` subagent checked sixteen claims against the installed Material/CDK sources rather than the commit message. Upheld: no route or guard change and the `create` route still carries `canDeactivate: [unsavedChangesGuard]`; the create branch no longer navigates and the retained `isEditMode()` guard is **defensible, not dead** (an edit-route load failure leaves an empty-id form); the write-back cannot arm the guard (`setValue` never marks dirty, `markAsPristine` clears it); the page injects no association service and opens no dialog; the step containers are the real ones; `[linear]="false"` is mandatory (`isNavigable()` = `isCompleted \|\| isSelected \|\| !linear`, and `_anyControlsInvalidOrPending` is inert without `linear`); the laziness pin is real because the inner `@if` would already pass; edit mode is behaviourally identical to `main`; no descope leak; exactly the five expected files moved; both rewritten pre-existing tests preserved their intent. **Findings: F1 (medium) D26's copy never flipped — `ProductsForm.isEditMode` is a `computed` over the `formGroup` input while `controls.id.value` is a plain property, so the write-back was invisible and the form said "Nuevo Producto" beside a `PUT`; F4 (low-medium) the header went stale after a back-edit `PUT`; F3 (low) the `[completed]` test did not pin the binding, because the CDK marks the outgoing step `interacted` and a step with no `stepControl` is completed once interacted; F2 (low) Material's English `editableLabel` reached the screen visually hidden and only *happened* to be the right Spanish word.** Its `could not verify` list is the same manual-browser checklist S2a and S2b already carry. |
+| 2026-09-23 | **S3 W3 (findings round)** | `1b8a507` | All four closed. **F1**: `ProductsForm` gains an optional `editMode` input that overrides the `id`-control derivation (documented as the host's escape hatch for exactly this non-reactivity) and the stepper binds it to `productId() !== null`, which is reactive; the false comment in the D26 test is corrected and the copy is pinned by a DOM test on the form's own `<h2>` and submit label. **F4**: the update branch adopts the response, and the header refresh is pinned. **F3**: the completion test now opens step 2 *before* the product exists — the state where the binding disagrees with the CDK's derivation and is therefore load-bearing. **F2**: the component declares its own `MatStepperIntl`, so no Material English default can reach the screen. Three mutation controls fail exactly one test each: dropping the `[editMode]` binding, dropping the `[completed]` binding, and dropping the `PUT` response adoption. |
+| 2026-09-23 | **S3 gates (tip)** | `1b8a507` | `npm run lint` → `All files pass linting.`; `npm run build` → bundle generation complete, **851.05 kB** initial (S2b: 850.87 kB), exit 0; `npm run test:coverage:check` → **127 files / 2458 tests / 0 failures**, coverage **94.03/75.80/89.19/94.03** (thresholds 80/60/75/80). Delta over the S2b tip (`ae0cfb1`: 127 files / 2436 tests, 94.02/75.8/89.15/94.02): **+22 tests, +0.01/+0.00/+0.04/+0.01**, same file count. |
+| 2026-09-23 | **S3 measured** | `1b8a507` | 7 files, 733 insertions / 49 deletions = **782 changed lines** (source 221, specs 358, this record 203 at the plan commit), 12 of them whitespace. See `#### S3 — measured` above. |
 
 ## Constraints
 
@@ -928,6 +979,34 @@ Rows below are added as each task closes, with the commit that carries it.
   means a deep link into `edit/:id/variants/edit/:variantId` shows the per-store panel plus one action,
   not an inline identity form. Worth a look when T15 moves the panel into the tab.
 - **`MatPaginatorIntl` labels are still English repo-wide** (carried from S2a, unchanged by S2b).
+
+### Raised by S3
+
+- **The stepper's step is not in the URL, so the flow does not survive a reload.** `/products/create`
+  after step 1 restarts at step 1 with an empty form while the product already exists and is listed.
+  Accepted rather than accidental: putting the step in `?step=` would need a re-read of the product to
+  rebuild step 1, which is the workspace's job. Recorded so a later slice can decide whether the create
+  flow deserves resumability.
+- **Double submit is still possible.** Neither `ProductsForm` nor the stepper disables the submit
+  button while the create request is in flight, so a fast double click can POST twice and the second
+  attempt surfaces a duplicate-SKU 409. Pre-existing on the create page; S3 neither worsens nor fixes
+  it. The durable fix is an in-flight input on `ProductsForm`, which would also close the same gap in
+  the two association forms.
+- **`ProductsForm`'s default `isEditMode` derivation is still fragile.** `controls.id.value` is a plain
+  property, so any future host that mutates the `id` control without replacing the form group will hit
+  F1 again. The `editMode` input is the escape hatch; making the derivation reactive, or dropping it in
+  favour of the input, is the durable fix.
+- **The `MatStepperIntl` provider is component-local.** A future stepper will need its own, exactly as
+  a future table needs `MatPaginatorIntl`. One repo-wide provider for both belongs in its own slice;
+  S3 only stopped its own surface from depending on an English default.
+- **The edit route with a failed product load still holds an empty-id form.** `ProductEdit` now binds
+  `[editMode]="productId() !== null"`, so on that path the copy says "Editar Producto" while
+  `onSaveProduct`'s `productData.id === ''` check would still POST. Pre-existing broken path — the load
+  error is only `console.error`ed, itself a recorded follow-up — now marginally more visible.
+- **No real-browser or real-router test covers the stepper either.** The step advance, the header click
+  before the product exists, and the guard's behaviour on a route navigation are pinned at the
+  component level only. The four redirect routes' real-router gap (S2a/S2b) is unchanged and remains
+  the single highest-value test to add.
 
 ## Relevant files
 
