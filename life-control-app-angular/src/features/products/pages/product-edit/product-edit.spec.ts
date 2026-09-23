@@ -975,4 +975,62 @@ describe('ProductEdit', () => {
       expect(component.generalError()).toBeNull();
     });
   });
+
+  describe('embedded variant panel dirty aggregation (D37)', () => {
+    it('should report unsaved changes when the embedded panel is dirty and false otherwise', async () => {
+      setup({ edit: true, queryParams: { tab: 'variantes' } });
+      await settle();
+
+      const variantList = fixture.debugElement.query(By.directive(ProductVariantList));
+      expect(variantList).not.toBeNull();
+      expect(component.hasUnsavedChanges()).toBe(false);
+
+      variantList.componentInstance.dirtyChange.emit(true);
+      fixture.detectChanges();
+
+      expect(component.variantPanelDirty()).toBe(true);
+      expect(component.hasUnsavedChanges()).toBe(true);
+
+      variantList.componentInstance.dirtyChange.emit(false);
+      fixture.detectChanges();
+
+      expect(component.variantPanelDirty()).toBe(false);
+      expect(component.hasUnsavedChanges()).toBe(false);
+    });
+
+    it('should aggregate the form and the embedded panel flags independently', async () => {
+      setup({ edit: true, queryParams: { tab: 'variantes' } });
+      await settle();
+
+      const variantList = fixture.debugElement.query(By.directive(ProductVariantList));
+      const sku = component.productForm().get('sku');
+      sku?.setValue('X');
+      sku?.markAsDirty();
+      expect(component.hasUnsavedChanges()).toBe(true);
+
+      component.productForm().markAsPristine();
+      variantList.componentInstance.dirtyChange.emit(true);
+      fixture.detectChanges();
+      expect(component.hasUnsavedChanges()).toBe(true);
+
+      variantList.componentInstance.dirtyChange.emit(false);
+      fixture.detectChanges();
+      expect(component.hasUnsavedChanges()).toBe(false);
+    });
+
+    it('should bind the dirty output on the create stepper variant step too', async () => {
+      setup();
+      createProductThroughStepOne();
+      component.goToStep(2);
+      await settle();
+
+      const variantList = fixture.debugElement.query(By.directive(ProductVariantList));
+      expect(variantList).not.toBeNull();
+      variantList.componentInstance.dirtyChange.emit(true);
+      fixture.detectChanges();
+
+      expect(component.variantPanelDirty()).toBe(true);
+      expect(component.hasUnsavedChanges()).toBe(true);
+    });
+  });
 });

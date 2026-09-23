@@ -101,6 +101,16 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
   readonly variantCount = signal(0);
 
   /**
+   * The embedded per-store panel's dirty flag, fed by the `Variantes` host's
+   * `dirtyChange` output (D37).
+   *
+   * The route already carries `canDeactivate: [unsavedChangesGuard]`, and a panel whose
+   * edits the guard cannot see would let a stray navigation discard stock and prices
+   * silently — the same defect the association dialogs closed on their own close.
+   */
+  readonly variantPanelDirty = signal(false);
+
+  /**
    * The query params, read reactively so an in-place tab switch is observed. A snapshot
    * read would never see the change the click itself writes.
    */
@@ -334,8 +344,8 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
     this.finish();
   }
 
-  /** Exposed to `unsavedChangesGuard`: the live form decides. */
+  /** Exposed to `unsavedChangesGuard`: the live form and the embedded panel decide. */
   hasUnsavedChanges(): boolean {
-    return this.productForm().dirty;
+    return this.productForm().dirty || this.variantPanelDirty();
   }
 }

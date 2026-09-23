@@ -133,6 +133,29 @@
       width: 100%;
     }
 
+    // The expanded detail row hosts the per-store panel. It renders for every data
+    // row, so a collapsed one must add no height, padding or border; the modifiers
+    // zero the row and its single cell and restore them only while expanded. Plain
+    // CSS on purpose: the specs run with `NoopAnimationsModule`, so Material's
+    // animation state cannot be relied on.
+    tr.detail-row {
+      height: 0;
+
+      > .mat-mdc-cell {
+        height: 0;
+        padding: 0;
+        border-bottom: none;
+      }
+
+      &--expanded {
+        height: auto;
+
+        > .mat-mdc-cell {
+          height: auto;
+        }
+      }
+    }
+
     .mat-mdc-row:hover {
       background-color: var(--mat-sys-surface-container-highest, rgba(0, 0, 0, 0.04));
     }

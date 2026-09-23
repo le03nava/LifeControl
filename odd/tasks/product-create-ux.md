@@ -997,6 +997,17 @@ flag also needed a dedicated `valueChanges` spy test: with `dirty.set(false)` in
 block, no behavioural test could tell a plain `reset()` from a silent one — the first mutation control
 on that line passed, and the test was added until it failed.
 
+**W2 measured (T15): 9 files, 611 insertions / 14 deletions = 625 changed lines** (source 233, specs 392,
+3 of the removed lines comment-only corrections). Against the ~180 source / ~300 spec forecast: the
+source half is ~1,3× and the spec half ~1,3×, the closest this feature's forecasts have come, and the
+remaining error is the table mechanics the recon could not see from the template alone —
+`multiTemplateDataRows` is mandatory for a second default `matRowDef` (the CDK throws without it), the
+detail row therefore renders once per data row, and the collapsed one needs real SCSS to add no height
+because the specs run with `NoopAnimationsModule` and cannot rely on Material's animation state. Two
+existing list assertions changed honestly rather than being weakened: the two column-header arrays gained
+the new leading empty header, and one row-count selector became `tr.mat-mdc-row:not(.detail-row)` because
+the detail row legitimately carries `mat-mdc-row`.
+
 ## Evidence log
 
 | Date | Slice | Commit | Evidence |
@@ -1041,6 +1052,8 @@ Rows below are added as each task closes, with the commit that carries it.
 | 2026-09-23 | **S3 gates (tip)** | `1b8a507` | `npm run lint` → `All files pass linting.`; `npm run build` → bundle generation complete, **851.05 kB** initial (S2b: 850.87 kB), exit 0; `npm run test:coverage:check` → **127 files / 2458 tests / 0 failures**, coverage **94.03/75.80/89.19/94.03** (thresholds 80/60/75/80). Delta over the S2b tip (`ae0cfb1`: 127 files / 2436 tests, 94.02/75.8/89.15/94.02): **+22 tests, +0.01/+0.00/+0.04/+0.01**, same file count. |
 | 2026-09-23 | **S3 measured** | `1b8a507` | 7 files, 733 insertions / 49 deletions = **782 changed lines** (source 221, specs 358, this record 203 at the plan commit), 12 of them whitespace. See `#### S3 — measured` above. |
 | 2026-09-23 | **S4 plan** | `ce88623` | Read-only two-scout mapping of the T13/T15 surface at `edbfb46`, every claim `file:line`-anchored. The `## S4 reconciliation` above: the two record claims D21 invalidated (D17's post-save return and D8's drifted anchor), the panel's single host and its per-instance store resolution, the list's single `matRowDef`, the shell's form-only `hasUnsavedChanges`, the tab/sales role asymmetry that keeps the store-scoped page alive, and the dialog's dirty/reset constraints. User decisions D30–D32 taken on 2026-09-23; D33–D37 recorded as engineering decisions. Also corrects the status header (S3 merged as `a98426e` via PR #157, `main` at `edbfb46`) and records that S4 runs in a **fresh** worktree because `gh` removed the S3 one on merge. No source written. |
+| 2026-09-23 | **S4 W1 (T13)** | `1ebc552` | **6 files, 374 insertions / 12 deletions = 386 changed lines** (source 119, specs 267). `ProductVariantForm` gains `saveVariantAndContinue` and a `saving` input; both handlers early-return while it is true, and the create-only `Guardar y agregar otra` button sits between `Cancelar` and the submit. `ProductVariantDialog` gains the read-only `saving` signal, `lastSaved`, two entry points over one private `submit`, and `resetForNextEntry()` (`reset({ … }, { emitEvent: false })` plus `dirty`, `serverErrors` and `generalError` cleared). The form's `serverErrors` effect now also **removes** a `serverError` key when the map becomes empty: without it the stale field error would survive the reset, which is a behaviour the S1 follow-up about that same effect never covered. Focused products suite 25 files / 418 tests → 25 / 435. |
+| 2026-09-23 | S4 W1 mutation controls | `1ebc552` | Fourteen, each restored byte for byte (`git status` clean). Form: dropping the in-flight guard (1 failed), dropping `[disabled]="saving()"` (1), reverting the empty-map branch (1), rendering the button in edit mode (1), routing the continue output through `saveVariant` (1). Dialog: dropping the submit guard (1), a plain `reset()` (see below), dropping `dirty.set(false)` (1), dropping `serverErrors.set({})` (1), dropping `generalError.set(null)` (1), dropping `lastSaved` (1), reverting either `cancel()` close value (1 each), dropping the `[saving]` binding (1). **The plain-`reset()` control passed on its first run** — `dirty.set(false)` in the same synchronous block masked the emission — so a direct `valueChanges` spy test was added until that mutation failed; the flag is now pinned by an assertion that can distinguish it, instead of by a comment. |
 
 ## Constraints
 
@@ -1169,6 +1182,29 @@ Rows below are added as each task closes, with the commit that carries it.
   before the product exists, and the guard's behaviour on a route navigation are pinned at the
   component level only. The four redirect routes' real-router gap (S2a/S2b) is unchanged and remains
   the single highest-value test to add.
+
+### Raised by S4
+
+- **The `edit/:id/variants` host route has no `canDeactivate`.** `ProductVariantList` is hosted there
+  (`pages/product-variant-list-host/`) and now carries the inline per-store panel, so an operator on that
+  route can edit stock and prices and navigate away with no prompt: `hasUnsavedChanges()` exists only on
+  `ProductEdit`, and that route does not load it. The sales principal reaches the panel through
+  `edit/:id/variants/edit/:variantId`, which **is** guarded, so the gap is the list host specifically.
+  Closing it means giving that host a guard of its own — a route-level change, deliberately outside
+  T15's surface.
+- **The store-scoped view now offers two affordances for the same edit.** The row action still navigates
+  to the store-scoped page (D18, untouched) while the expand toggle opens the same panel in place. Both
+  are honest; collapsing them into one needs a decision about the page's role for `lc-admin`, which D36
+  deliberately left alone.
+- **A collapsed detail row is still a DOM row.** `multiTemplateDataRows` renders one `tr.detail-row` per
+  data row with an empty cell, so the table carries twice the rows and the specs must select data rows
+  with `:not(.detail-row)`. Correct and cheap at 12 rows per page; worth revisiting if a page size grows.
+- **`product-variant-list.html` has a duplicated `id="variantGrad"`** across its two empty-state SVGs.
+  Pre-existing, unrelated to S4, flagged by the editor and left alone.
+- **The panel's store is still resolved per instance** (D36). With one expanded row at a time the cost is
+  at most one extra `GET /api/profile` per expansion, and the panel's store could in principle differ
+  from the list's store-scoped columns if the profile changes between the two resolutions. A `storeId`
+  input on the panel is the durable fix if multi-expansion ever lands.
 
 ## Relevant files
 

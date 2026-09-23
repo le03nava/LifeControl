@@ -12,9 +12,9 @@ import { ProductVariantList } from '../product-variant-list/product-variant-list
  * D17: this route does **not** redirect into the workspace. It is gated by
  * `VARIANT_ROLES` (`lc-admin` + `lc-sales`) while the workspace `edit/:id` is
  * admin-only, and the variant screens are the sales principal's only entry point.
- * Redirecting would deny `lc-sales` the list and break the post-save/post-cancel
- * return at `product-variant-edit.ts:195,206` and the sales entry at
- * `product-variant-stock-search.ts:157`.
+ * Redirecting would deny `lc-sales` the list, whose only entry point is the
+ * `product-variant-stock-search.ts:157` navigation: the variant screens exist for
+ * `lc-admin` and `lc-sales` alike, while `edit/:id` is admin-only.
  *
  * Since the list container became tab content and no longer renders its own
  * `app-page-header`, this host supplies the titled header and passes the product id

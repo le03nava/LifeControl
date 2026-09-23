@@ -21,14 +21,16 @@ import { MatPaginatorModule } from '@angular/material/paginator';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatTableModule } from '@angular/material/table';
 import { httpErrorMessage } from '@shared/data';
+import { ConfirmDialog } from '@shared/ui';
 import { ProductVariantService } from '../../data/product-variant.service';
 import { ProductVariantDialog } from '../../components/product-variant-dialog/product-variant-dialog';
+import { ProductVariantStoreStock } from '../../components/product-variant-store-stock/product-variant-store-stock';
 import { VariantStoreContext } from '../../data/variant-store-context.service';
 import { ProductVariant } from '../../models/product-variant.models';
 import { DisableVariantDialogComponent } from '../../ui/disable-variant-dialog/disable-variant-dialog';
 
 /** Columns of the global read: the store-scoped fields are `null` on every row. */
-const GLOBAL_COLUMNS = ['barCode', 'variantName', 'enabled', 'actions'];
+const GLOBAL_COLUMNS = ['expand', 'barCode', 'variantName', 'enabled', 'actions'];
 
 /**
  * Columns of the store-scoped read. The prices and the stock are joined in for
@@ -36,7 +38,15 @@ const GLOBAL_COLUMNS = ['barCode', 'variantName', 'enabled', 'actions'];
  * that branch filters `enabled = true` server-side and the column would state the
  * same thing on every row.
  */
-const STORE_COLUMNS = ['barCode', 'variantName', 'listPrice', 'costPrice', 'stock', 'actions'];
+const STORE_COLUMNS = [
+  'expand',
+  'barCode',
+  'variantName',
+  'listPrice',
+  'costPrice',
+  'stock',
+  'actions',
+];
 
 /**
  * A product's variant list, in one of two views.
@@ -80,6 +90,7 @@ const STORE_COLUMNS = ['barCode', 'variantName', 'listPrice', 'costPrice', 'stoc
     MatSlideToggleModule,
     MatCardModule,
     CurrencyPipe,
+    ProductVariantStoreStock,
   ],
   templateUrl: './product-variant-list.html',
   styleUrl: './product-variant-list.scss',
@@ -97,6 +108,32 @@ export class ProductVariantList {
    * counts that store's rows, and a paginated view must not report one page.
    */
   readonly countChange = output<number>();
+
+  /**
+   * Whether the expanded panel holds edits the shell has not persisted (D37).
+   *
+   * `true` while the open panel reports dirty, `false` when it reports clean and
+   * whenever it is destroyed (collapse, row switch, or the row leaving the page), so
+   * the shell can never hold a dirty flag for a panel that no longer exists.
+   */
+  readonly dirtyChange = output<boolean>();
+
+  /**
+   * The row whose per-store stock/prices panel is expanded, or `null` (D31/D33).
+   *
+   * One row at a time: a collapsed panel is destroyed, so switching rows silently
+   * would discard typed stock and prices.
+   */
+  readonly expandedVariantId = signal<string | null>(null);
+
+  /**
+   * Whether the open panel reported dirty and has not been destroyed or saved.
+   *
+   * A signal rather than the panel's own flag because the panel is destroyed on every
+   * collapse and row switch; this is the list's copy of the state it must aggregate.
+   */
+  private readonly panelDirtyState = signal(false);
+  readonly panelDirty = this.panelDirtyState.asReadonly();
 
   private readonly productVariantService = inject(ProductVariantService);
   private readonly storeContext = inject(VariantStoreContext);
@@ -195,6 +232,21 @@ export class ProductVariantList {
         this.countChange.emit(page.totalElements);
       }
     });
+
+    // A reload, filter or page change can drop the expanded row. The panel is
+    // destroyed with it, so the expansion and the dirty flag must go too, or the
+    // shell would keep a pending edit for a panel that no longer exists (D37).
+    effect(() => {
+      const page = this.variants();
+      const expandedId = this.expandedVariantId();
+      if (
+        expandedId !== null &&
+        page &&
+        !page.content.some((variant) => variant.id === expandedId)
+      ) {
+        this.applyExpansion(null);
+      }
+    });
   }
 
   /**
@@ -207,6 +259,82 @@ export class ProductVariantList {
   private storeQueryParams(): { storeId: string } | undefined {
     const storeId = this.storeId();
     return storeId && this.storeSource() === 'query' ? { storeId } : undefined;
+  }
+
+  /**
+   * Opens the per-store panel for `row`, or closes the one that is already open.
+   *
+   * A dirty panel is not discarded silently (D33): collapsing it or opening another
+   * row first asks through the shared {@link ConfirmDialog}, the same contract the
+   * variant dialogs use. Only a confirmation applies the pending target; a cancel
+   * leaves the open row exactly as it is.
+   */
+  toggleExpanded(row: ProductVariant): void {
+    const currentId = this.expandedVariantId();
+    const targetId = currentId === row.id ? null : row.id;
+
+    if (this.panelDirty() && currentId !== null) {
+      this.confirmDiscard(() => this.applyExpansion(targetId));
+      return;
+    }
+
+    this.applyExpansion(targetId);
+  }
+
+  /** Mirrors the open panel's dirty flag and re-emits it for the shell (D37). */
+  onPanelDirtyChange(dirty: boolean): void {
+    this.setPanelDirty(dirty);
+  }
+
+  /** Applies an expansion change, reporting the destroyed panel as no longer dirty. */
+  private applyExpansion(targetId: string | null): void {
+    if (this.expandedVariantId() === targetId) {
+      return;
+    }
+    const hadOpenPanel = this.expandedVariantId() !== null;
+    this.expandedVariantId.set(targetId);
+    if (hadOpenPanel) {
+      // The panel that was open is destroyed by the change: its edits are gone, so the
+      // shell must stop seeing them.
+      this.setPanelDirty(false);
+    }
+  }
+
+  private setPanelDirty(dirty: boolean): void {
+    this.panelDirtyState.set(dirty);
+    this.dirtyChange.emit(dirty);
+  }
+
+  /** The row whose panel is open, for the discard copy; `undefined` when none is. */
+  private expandedVariant(): ProductVariant | undefined {
+    const id = this.expandedVariantId();
+    if (id === null) {
+      return undefined;
+    }
+    return this.variants()?.content.find((variant) => variant.id === id);
+  }
+
+  private confirmDiscard(onConfirm: () => void): void {
+    const variant = this.expandedVariant();
+    this.dialog
+      .open(ConfirmDialog, {
+        data: {
+          title: 'Cambios sin guardar',
+          message: `Tenés cambios sin guardar en el stock y los precios de "${
+            variant?.variantName ?? ''
+          }". Si continuás, se pierden.`,
+          confirmLabel: 'Descartar cambios',
+          cancelLabel: 'Seguir editando',
+          destructive: true,
+        },
+      })
+      .afterClosed()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((confirmed) => {
+        if (confirmed === true) {
+          onConfirm();
+        }
+      });
   }
 
   /**

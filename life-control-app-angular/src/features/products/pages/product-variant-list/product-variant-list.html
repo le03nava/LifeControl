@@ -95,7 +95,33 @@
       <!-- Table State -->
       <mat-card appearance="outlined" class="table-card">
         <mat-card-content>
-          <table mat-table [dataSource]="page.content">
+          <table mat-table [dataSource]="page.content" multiTemplateDataRows>
+            <!--
+              Expand toggle. The inline per-store stock/prices affordance (D31), the
+              same in both views; the store-scoped row action keeps navigating (D18).
+            -->
+            <ng-container matColumnDef="expand">
+              <th mat-header-cell *matHeaderCellDef></th>
+              <td mat-cell *matCellDef="let row">
+                <button
+                  mat-icon-button
+                  type="button"
+                  class="expand-toggle"
+                  [attr.aria-expanded]="expandedVariantId() === row.id"
+                  [attr.aria-label]="
+                    expandedVariantId() === row.id
+                      ? 'Cerrar el editor de stock y precios de ' + row.variantName
+                      : 'Abrir el editor de stock y precios de ' + row.variantName
+                  "
+                  (click)="toggleExpanded(row)"
+                >
+                  <mat-icon>
+                    {{ expandedVariantId() === row.id ? 'expand_less' : 'expand_more' }}
+                  </mat-icon>
+                </button>
+              </td>
+            </ng-container>
+
             <!-- Barcode -->
             <ng-container matColumnDef="barCode">
               <th mat-header-cell *matHeaderCellDef>Código de Barras</th>
@@ -177,8 +203,32 @@
               </td>
             </ng-container>
 
+            <!--
+              Expanded detail row. It renders for every data row so the table keeps a
+              stable row count; the cell is empty while collapsed, and the SCSS zeroes
+              the row and its cell so a collapsed one adds no height, padding or border.
+            -->
+            <ng-container matColumnDef="expandedDetail">
+              <td mat-cell *matCellDef="let row" [attr.colspan]="displayedColumns().length">
+                @if (expandedVariantId() === row.id) {
+                  <app-product-variant-store-stock
+                    [variantId]="row.id"
+                    [barCode]="row.barCode"
+                    (dirtyChange)="onPanelDirtyChange($event)"
+                  />
+                }
+              </td>
+            </ng-container>
+
             <tr mat-header-row *matHeaderRowDef="displayedColumns()"></tr>
             <tr mat-row *matRowDef="let row; columns: displayedColumns()"></tr>
+            <tr
+              mat-row
+              *matRowDef="let row; columns: ['expandedDetail']"
+              class="detail-row"
+              [class.detail-row--expanded]="expandedVariantId() === row.id"
+              [class.detail-row--collapsed]="expandedVariantId() !== row.id"
+            ></tr>
           </table>
         </mat-card-content>
       </mat-card>
