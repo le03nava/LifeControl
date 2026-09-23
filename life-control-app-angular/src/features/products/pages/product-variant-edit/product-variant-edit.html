@@ -1,4 +1,11 @@
-<app-page-header [title]="product()?.name ?? 'Variante'" [subtitle]="headerSubtitle()" />
+<app-page-header [title]="product()?.name ?? 'Variante'" [subtitle]="headerSubtitle()">
+  @if (loadedVariant()) {
+    <button mat-flat-button color="primary" (click)="openDefinitionDialog()">
+      <mat-icon>edit</mat-icon>
+      Editar la definición
+    </button>
+  }
+</app-page-header>
 
 @if (productResource.error(); as err) {
   <app-error-banner [message]="httpErrorMessage(err)" />
@@ -8,18 +15,9 @@
   <app-error-banner [message]="errorMessage" />
 }
 
-<app-product-variant-form
-  [formGroup]="variantForm()"
-  [serverErrors]="serverErrors()"
-  [editMode]="isEditMode()"
-  (saveVariant)="onSaveVariant($event)"
-  (cancelForm)="cancelForm()"
-/>
-
 <!--
-  Per-store stock and prices. Only in edit mode: the row hangs off a variant that has
-  to exist, and only once the stored barcode is known, because that is what keys the
-  row read.
+  Per-store stock and prices. The row hangs off a variant that has to exist, and
+  only once the stored barcode is known, because that is what keys the row read.
 -->
 @if (variantId(); as id) {
   @if (loadedBarCode(); as barcode) {

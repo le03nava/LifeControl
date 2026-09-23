@@ -1,6 +1,8 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
+import { By } from '@angular/platform-browser';
 import { AbstractControl, FormControl, FormGroup, Validators } from '@angular/forms';
+import { MatAutocompleteTrigger } from '@angular/material/autocomplete';
 import { ProductSupplierForm } from './product-supplier-form';
 import {
   ProductSupplierControl,
@@ -57,26 +59,53 @@ describe('ProductSupplierForm', () => {
     expect(component).toBeTruthy();
   });
 
+  /** The supplier input, distinguished from the numeric purchase-cost input. */
+  function supplierInput(): HTMLInputElement {
+    return fixture.nativeElement.querySelector('input[type="text"]') as HTMLInputElement;
+  }
+
+  /** Opens the autocomplete overlay so its projected options are in the DOM. */
+  function openPanel(): void {
+    fixture.debugElement
+      .query(By.directive(MatAutocompleteTrigger))
+      .injector.get(MatAutocompleteTrigger)
+      .openPanel();
+    fixture.detectChanges();
+  }
+
+  /** The visible option labels inside the open autocomplete panel. */
+  function panelOptionTexts(): string[] {
+    return Array.from(
+      document.querySelectorAll('.mat-mdc-autocomplete-panel mat-option') as NodeListOf<Element>,
+    ).map((option) => option.textContent?.trim() ?? '');
+  }
+
+  function panelOptions(): Element[] {
+    return Array.from(
+      document.querySelectorAll('.mat-mdc-autocomplete-panel mat-option') as NodeListOf<Element>,
+    );
+  }
+
   describe('rendered copy', () => {
-    it('should render the create-mode heading and submit label in voseo', () => {
+    it('should render the submit label in voseo', () => {
       const el = fixture.nativeElement as HTMLElement;
-      expect(el.querySelector('h2')?.textContent?.trim()).toBe('Asignar un proveedor al producto');
       expect(el.querySelector('button[type="submit"]')?.textContent?.trim()).toBe(
         'Asignar proveedor',
       );
     });
 
-    it('should switch the heading and submit label in edit mode', () => {
+    it('should switch the submit label in edit mode', () => {
       fixture.componentRef.setInput('editMode', true);
       fixture.detectChanges();
 
       const el = fixture.nativeElement as HTMLElement;
-      expect(el.querySelector('h2')?.textContent?.trim()).toBe(
-        'Editar la asignación del proveedor',
-      );
       expect(el.querySelector('button[type="submit"]')?.textContent?.trim()).toBe(
         'Actualizar asignación',
       );
+    });
+
+    it('should not render its own heading: the hosting dialog owns the title', () => {
+      expect(fixture.nativeElement.querySelector('h2')).toBeNull();
     });
 
     it('should render the field labels', () => {
@@ -207,6 +236,11 @@ describe('ProductSupplierForm', () => {
       const spy = vi.fn();
       component.saveSupplier.subscribe(spy);
 
+      // The picker only accepts an id it actually offered, so the option list has to
+      // contain the selected supplier for the form to be submittable (D23).
+      fixture.componentRef.setInput('availableSuppliers', [
+        { id: 'sup-1', supplierName: 'Proveedor Uno' },
+      ]);
       component.formGroup().patchValue({
         supplierId: 'sup-1',
         purchaseCost: 12.5,
@@ -246,5 +280,199 @@ describe('ProductSupplierForm', () => {
     component.onCancel();
 
     expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  describe('supplier picker', () => {
+    it('should render an autocomplete input instead of a mat-select', () => {
+      expect(supplierInput()).toBeTruthy();
+      expect(fixture.nativeElement.querySelector('mat-select')).toBeNull();
+    });
+
+    it('should emit supplierSearch with the term typed into the input', () => {
+      const spy = vi.fn();
+      component.supplierSearch.subscribe(spy);
+
+      const input = supplierInput();
+      input.value = 'prove';
+      input.dispatchEvent(new Event('input'));
+
+      expect(spy).toHaveBeenCalledWith('prove');
+    });
+
+    it('should render the options it is given as a non-empty list', () => {
+      fixture.componentRef.setInput('availableSuppliers', [
+        { id: 'sup-1', supplierName: 'Proveedor Uno' },
+        { id: 'sup-2', supplierName: 'Proveedor Dos' },
+      ]);
+      fixture.detectChanges();
+
+      openPanel();
+
+      expect(panelOptionTexts()).toEqual(['Proveedor Uno', 'Proveedor Dos']);
+    });
+
+    it('should show a non-selectable searching row while searching', () => {
+      fixture.componentRef.setInput('searching', true);
+      fixture.componentRef.setInput('availableSuppliers', []);
+      fixture.detectChanges();
+
+      openPanel();
+
+      expect(panelOptionTexts()).toEqual(['Buscando proveedores…']);
+      expect(panelOptions()[0].hasAttribute('disabled')).toBe(true);
+    });
+
+    it('should show a non-selectable empty row when not searching and there are no options', () => {
+      fixture.componentRef.setInput('searching', false);
+      fixture.componentRef.setInput('availableSuppliers', []);
+      fixture.detectChanges();
+
+      openPanel();
+
+      expect(panelOptionTexts()).toEqual(['No se encontraron proveedores.']);
+      expect(panelOptions()[0].hasAttribute('disabled')).toBe(true);
+    });
+
+    it('should display the selected supplier name, never its raw id', async () => {
+      fixture.componentRef.setInput('availableSuppliers', [
+        { id: 'sup-1', supplierName: 'Proveedor Uno' },
+      ]);
+      fixture.detectChanges();
+
+      component.formGroup().controls.supplierId.setValue('sup-1');
+      fixture.detectChanges();
+      // `MatAutocompleteTrigger.writeValue` assigns the display value on a microtask.
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(supplierInput().value).toBe('Proveedor Uno');
+    });
+  });
+
+  describe('free-text guard (D23)', () => {
+    it('should reject a value that is not one of the options and never emit saveSupplier', () => {
+      fixture.componentRef.setInput('availableSuppliers', [
+        { id: 'sup-1', supplierName: 'Proveedor Uno' },
+      ]);
+      fixture.detectChanges();
+
+      const spy = vi.fn();
+      component.saveSupplier.subscribe(spy);
+
+      component.formGroup().patchValue({ supplierId: 'proveedor-inventado', purchaseCost: 10 });
+      component.onSave();
+
+      expect(spy).not.toHaveBeenCalled();
+      expect(component.formGroup().controls.supplierId.errors?.['invalidSelection']).toBe(true);
+    });
+
+    it('should still emit saveSupplier for a value that is one of the options', () => {
+      fixture.componentRef.setInput('availableSuppliers', [
+        { id: 'sup-1', supplierName: 'Proveedor Uno' },
+      ]);
+      fixture.detectChanges();
+
+      const spy = vi.fn();
+      component.saveSupplier.subscribe(spy);
+
+      component.formGroup().patchValue({ supplierId: 'sup-1', purchaseCost: 10 });
+      component.onSave();
+
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    it('should not submit free text typed into the picker', () => {
+      fixture.componentRef.setInput('availableSuppliers', [
+        { id: 'sup-1', supplierName: 'Proveedor Uno' },
+      ]);
+      fixture.detectChanges();
+
+      const spy = vi.fn();
+      component.saveSupplier.subscribe(spy);
+
+      const input = supplierInput();
+      input.value = 'Proveedor Inventado';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+
+      // Measured: with `requireSelection`, the trigger is the value accessor and it
+      // deliberately does not write while the user is typing, so the control keeps
+      // its previous value and `required` fails.
+      expect(component.formGroup().controls.supplierId.value).toBe('');
+
+      component.onSave();
+
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('should not submit a stale selection when the user types over it (edit mode)', () => {
+      fixture.componentRef.setInput('editMode', true);
+      fixture.componentRef.setInput('availableSuppliers', [
+        { id: 'sup-1', supplierName: 'Proveedor Uno' },
+      ]);
+      fixture.detectChanges();
+
+      component.formGroup().patchValue({ supplierId: 'sup-1', purchaseCost: 10 });
+      const spy = vi.fn();
+      component.saveSupplier.subscribe(spy);
+
+      // `requireSelection` keeps the pre-typing id in the control while the field
+      // shows the typed text, and Enter-submit reaches `onSave` in that window. The
+      // membership check alone would pass because `sup-1` is offered, so the
+      // visible-text check is what must block the stale submit.
+      const input = supplierInput();
+      input.value = 'Proveedor Inventado';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+
+      expect(component.formGroup().controls.supplierId.value).toBe('sup-1');
+
+      component.onSave();
+
+      expect(spy).not.toHaveBeenCalled();
+      expect(component.formGroup().controls.supplierId.errors?.['invalidSelection']).toBe(true);
+    });
+
+    it('should submit the newly selected option after typing over a selection (edit mode)', () => {
+      fixture.componentRef.setInput('editMode', true);
+      fixture.componentRef.setInput('availableSuppliers', [
+        { id: 'sup-1', supplierName: 'Proveedor Uno' },
+        { id: 'sup-2', supplierName: 'Proveedor Dos' },
+      ]);
+      fixture.detectChanges();
+
+      component.formGroup().patchValue({ supplierId: 'sup-1', purchaseCost: 10 });
+      const spy = vi.fn();
+      component.saveSupplier.subscribe(spy);
+
+      const input = supplierInput();
+      input.value = 'Proveedor Dos';
+      input.dispatchEvent(new Event('input'));
+      // What the template's `(optionSelected)` binding invokes on a real pick.
+      component.onSupplierSelected('sup-2');
+      fixture.detectChanges();
+
+      component.onSave();
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect((spy.mock.calls[0][0] as ProductSupplierRequest).supplierId).toBe('sup-2');
+    });
+
+    it('should submit a freshly selected option in create mode', () => {
+      fixture.componentRef.setInput('availableSuppliers', [
+        { id: 'sup-1', supplierName: 'Proveedor Uno' },
+      ]);
+      fixture.detectChanges();
+
+      const spy = vi.fn();
+      component.saveSupplier.subscribe(spy);
+
+      component.onSupplierSelected('sup-1');
+      component.formGroup().patchValue({ purchaseCost: 10 });
+      component.onSave();
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect((spy.mock.calls[0][0] as ProductSupplierRequest).supplierId).toBe('sup-1');
+    });
   });
 });

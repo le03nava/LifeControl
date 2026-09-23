@@ -10,7 +10,6 @@ import {
 } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
 import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { Router } from '@angular/router';
 import { MatTableModule } from '@angular/material/table';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
@@ -19,6 +18,8 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatCardModule } from '@angular/material/card';
 import { MatDialog } from '@angular/material/dialog';
 import { ProductSupplierService } from '../../data/product-supplier.service';
+import { ProductSupplierDialog } from '../../components/product-supplier-dialog/product-supplier-dialog';
+import { ProductSupplier } from '../../models/product-supplier.models';
 import { RemoveSupplierDialog } from '../../ui/remove-supplier-dialog/remove-supplier-dialog';
 import { httpErrorMessage } from '@shared/data';
 
@@ -46,7 +47,6 @@ export class ProductSupplierList {
   readonly countChange = output<number>();
 
   private readonly productSupplierService = inject(ProductSupplierService);
-  private readonly router = inject(Router);
   private readonly dialog = inject(MatDialog);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -81,11 +81,35 @@ export class ProductSupplierList {
   }
 
   addSupplier(): void {
-    this.router.navigate(['/products/edit', this.productId(), 'suppliers', 'create']);
+    this.openSupplierDialog();
   }
 
-  editSupplier(psId: string): void {
-    this.router.navigate(['/products/edit', this.productId(), 'suppliers', 'edit', psId]);
+  editSupplier(row: ProductSupplier): void {
+    this.openSupplierDialog(row);
+  }
+
+  /**
+   * Opens the create/edit dialog and reloads the list only when it closed with a
+   * saved entity (D22: `null` on cancel or dismissal). The dialog owns the write
+   * and stays open with its own error banner on failure, so no error handling here.
+   */
+  private openSupplierDialog(assignment?: ProductSupplier): void {
+    this.dialog
+      .open<
+        ProductSupplierDialog,
+        { productId: string; assignment?: ProductSupplier },
+        ProductSupplier | null
+      >(ProductSupplierDialog, {
+        data: { productId: this.productId(), assignment },
+        width: '560px',
+      })
+      .afterClosed()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((saved) => {
+        if (saved) {
+          this.suppliersResource.reload();
+        }
+      });
   }
 
   confirmDelete(psId: string, supplierName: string): void {

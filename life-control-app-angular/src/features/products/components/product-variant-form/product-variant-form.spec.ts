@@ -36,19 +36,21 @@ describe('ProductVariantForm', () => {
     expect(component).toBeTruthy();
   });
 
-  it('should title the form for create mode', () => {
+  it('should render the create-mode submit label', () => {
     const el = fixture.nativeElement as HTMLElement;
-    expect(el.textContent).toContain('Nueva Variante');
-    expect(el.textContent).toContain('Guardar');
+    expect(el.querySelector('button[type="submit"]')?.textContent?.trim()).toBe('Guardar');
   });
 
-  it('should title the form for edit mode', () => {
+  it('should render the edit-mode submit label', () => {
     fixture.componentRef.setInput('editMode', true);
     fixture.detectChanges();
 
     const el = fixture.nativeElement as HTMLElement;
-    expect(el.textContent).toContain('Editar Variante');
-    expect(el.textContent).toContain('Actualizar');
+    expect(el.querySelector('button[type="submit"]')?.textContent?.trim()).toBe('Actualizar');
+  });
+
+  it('should not render its own heading: the hosting dialog owns the title', () => {
+    expect(fixture.nativeElement.querySelector('h2')).toBeNull();
   });
 
   it('should emit saveVariant with the two global fields when valid', () => {

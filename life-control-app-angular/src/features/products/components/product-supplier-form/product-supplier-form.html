@@ -1,20 +1,31 @@
 <div class="form-card">
-  <h2>
-    @if (editMode()) {
-      Editar la asignación del proveedor
-    } @else {
-      Asignar un proveedor al producto
-    }
-  </h2>
   <form [formGroup]="formGroup()" (ngSubmit)="onSave()">
-    <!-- Supplier Dropdown -->
+    <!-- Supplier picker: server-side autocomplete -->
     <mat-form-field appearance="outline">
       <mat-label>Proveedor</mat-label>
-      <mat-select formControlName="supplierId">
-        @for (supplier of availableSuppliers(); track supplier.id) {
-          <mat-option [value]="supplier.id">{{ supplier.supplierName }}</mat-option>
+      <input
+        type="text"
+        matInput
+        formControlName="supplierId"
+        [matAutocomplete]="supplierAuto"
+        (input)="onSupplierSearch($event)"
+      />
+      <mat-autocomplete
+        #supplierAuto="matAutocomplete"
+        [displayWith]="displaySupplier"
+        [requireSelection]="true"
+        (optionSelected)="onSupplierSelected($event.option.value)"
+      >
+        @if (searching()) {
+          <mat-option disabled>Buscando proveedores…</mat-option>
+        } @else if (availableSuppliers().length === 0) {
+          <mat-option disabled>No se encontraron proveedores.</mat-option>
+        } @else {
+          @for (supplier of availableSuppliers(); track supplier.id) {
+            <mat-option [value]="supplier.id">{{ supplier.supplierName }}</mat-option>
+          }
         }
-      </mat-select>
+      </mat-autocomplete>
       @if (getErrorMessage(formGroup().controls.supplierId); as msg) {
         <mat-error>{{ msg }}</mat-error>
       }

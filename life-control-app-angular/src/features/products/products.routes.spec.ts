@@ -202,4 +202,144 @@ describe('productRoutes', () => {
       expect(name.replace(/^_/, '')).toBe('ProductVariantListHost');
     });
   });
+
+  describe('legacy supplier create/edit redirects (D19)', () => {
+    const legacySupplierPaths = [
+      'edit/:id/suppliers/create',
+      'edit/:id/suppliers/edit/:supplierId',
+    ];
+
+    it('should redirect edit/:id/suppliers/create into the workspace Proveedores tab', () => {
+      const create = children().find((route) => route.path === 'edit/:id/suppliers/create');
+
+      expect(create).toBeDefined();
+      expect(typeof create?.redirectTo).toBe('function');
+      // A redirect route never activates, so a `loadComponent` here would be dead config.
+      expect(create?.loadComponent).toBeUndefined();
+
+      const redirect = create?.redirectTo as RedirectFunction;
+      const produced = TestBed.runInInjectionContext(() =>
+        redirect(redirectData({ id: 'prod-1' })),
+      );
+
+      expect((produced as UrlTree).toString()).toBe('/products/edit/prod-1?tab=proveedores');
+    });
+
+    it('should redirect edit/:id/suppliers/edit/:supplierId into the workspace Proveedores tab', () => {
+      const edit = children().find((route) => route.path === 'edit/:id/suppliers/edit/:supplierId');
+
+      expect(edit).toBeDefined();
+      expect(typeof edit?.redirectTo).toBe('function');
+      expect(edit?.loadComponent).toBeUndefined();
+
+      const redirect = edit?.redirectTo as RedirectFunction;
+      const produced = TestBed.runInInjectionContext(() =>
+        redirect(redirectData({ id: 'prod-1', supplierId: 'ps-1' })),
+      );
+
+      expect((produced as UrlTree).toString()).toBe('/products/edit/prod-1?tab=proveedores');
+    });
+
+    it('should preserve storeId on both legacy supplier redirects', () => {
+      for (const path of legacySupplierPaths) {
+        const route = children().find((candidate) => candidate.path === path);
+        expect(route).toBeDefined();
+        const redirect = route!.redirectTo as RedirectFunction;
+
+        const produced = TestBed.runInInjectionContext(() =>
+          redirect(redirectData({ id: 'prod-1', supplierId: 'ps-1' }, { storeId: 'store-9' })),
+        );
+
+        expect((produced as UrlTree).toString()).toBe(
+          '/products/edit/prod-1?tab=proveedores&storeId=store-9',
+        );
+      }
+    });
+
+    it('should carry no inert canActivate/data on either legacy redirect route', () => {
+      for (const path of legacySupplierPaths) {
+        const route = children().find((candidate) => candidate.path === path);
+        // Asserted first, or the property assertions below pass vacuously on an
+        // undefined lookup.
+        expect(route).toBeDefined();
+
+        // Deliberate: a redirect never activates, so a guard would never run and
+        // Angular throws `RuntimeError 4014` when `redirectTo` is combined with
+        // `canActivate`. `data` is omitted because it would be inert on a route that
+        // never activates and would read as a gate. The target `edit/:id` keeps its
+        // own admin gate, so effective access is unchanged.
+        expect(route!.canActivate).toBeUndefined();
+        expect(route!.data).toBeUndefined();
+      }
+    });
+  });
+
+  describe('legacy variant create redirect (D19)', () => {
+    it('should redirect edit/:id/variants/create into the Variantes workspace', () => {
+      const create = children().find((route) => route.path === 'edit/:id/variants/create');
+
+      expect(create).toBeDefined();
+      // A function, not a string: the target is built from the route params.
+      expect(typeof create?.redirectTo).toBe('function');
+      // A redirect route never activates, so a `loadComponent` here would be dead config.
+      expect(create?.loadComponent).toBeUndefined();
+
+      const redirect = create?.redirectTo as RedirectFunction;
+      const produced = TestBed.runInInjectionContext(() =>
+        redirect(redirectData({ id: 'prod-1' })),
+      );
+
+      // Assert the produced value, not merely that a function is present.
+      expect((produced as UrlTree).toString()).toBe('/products/edit/prod-1/variants');
+    });
+
+    it('should preserve storeId when redirecting the legacy variant create URL', () => {
+      const create = children().find((route) => route.path === 'edit/:id/variants/create');
+
+      // Asserted first, or the property assertions below pass vacuously on an
+      // undefined lookup.
+      expect(create).toBeDefined();
+
+      const redirect = create?.redirectTo as RedirectFunction;
+
+      const produced = TestBed.runInInjectionContext(() =>
+        redirect(redirectData({ id: 'prod-1' }, { storeId: 'store-9' })),
+      );
+
+      expect((produced as UrlTree).toString()).toBe(
+        '/products/edit/prod-1/variants?storeId=store-9',
+      );
+    });
+
+    it('should carry no inert canActivate/data on the legacy variant create redirect', () => {
+      const create = children().find((route) => route.path === 'edit/:id/variants/create');
+
+      // Asserted first, or the property assertions below pass vacuously on an
+      // undefined lookup.
+      expect(create).toBeDefined();
+
+      // Deliberate: a redirect never activates, so a guard would never run and
+      // Angular throws `RuntimeError 4014` when `redirectTo` is combined with
+      // `canActivate`. `data` is omitted because it would be inert on a route that
+      // never activates and would read as a gate. The target `edit/:id/variants`
+      // keeps its own `VARIANT_ROLES` gate.
+      expect(create!.canActivate).toBeUndefined();
+      expect(create!.data).toBeUndefined();
+    });
+
+    it('should keep edit/:id/variants/edit/:variantId resolving with its guard and variant roles (D18)', () => {
+      const edit = children().find((route) => route.path === 'edit/:id/variants/edit/:variantId');
+
+      expect(edit).toBeDefined();
+      // D18: the store-scoped editor keeps resolving; it is the sales principal's
+      // only route to the per-store stock/prices panel.
+      expect(edit?.redirectTo).toBeUndefined();
+      expect(edit?.canActivate).toEqual([keycloakRoleGuard]);
+      expect(edit?.data).toEqual({
+        roles: ['lc-admin', 'lc-sales'],
+        clientId: 'life-control-client',
+      });
+      expect(typeof edit?.loadComponent).toBe('function');
+    });
+  });
 });

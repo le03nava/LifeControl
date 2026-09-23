@@ -2,9 +2,9 @@ import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { ProductSupplierList } from './product-supplier-list';
+import { ProductSupplierDialog } from '../../components/product-supplier-dialog/product-supplier-dialog';
 import { ProductSupplierService } from '../../data/product-supplier.service';
 import { ProductSupplier } from '../../models/product-supplier.models';
-import { Router } from '@angular/router';
 import { MatDialog } from '@angular/material/dialog';
 import { Subject, of, throwError } from 'rxjs';
 
@@ -17,7 +17,6 @@ describe('ProductSupplierList', () => {
   let component: ProductSupplierList;
   let fixture: ComponentFixture<ProductSupplierList>;
   let serviceMock: SupplierServiceMock;
-  let routerMock: { navigate: ReturnType<typeof vi.fn> };
   let dialogMock: { open: ReturnType<typeof vi.fn> };
 
   const mockProductId = 'prod-1';
@@ -63,10 +62,6 @@ describe('ProductSupplierList', () => {
       removeSupplier: vi.fn().mockReturnValue(of(void 0)),
     };
 
-    routerMock = {
-      navigate: vi.fn(),
-    };
-
     dialogMock = {
       open: vi.fn().mockReturnValue({
         afterClosed: () => of(false),
@@ -78,7 +73,6 @@ describe('ProductSupplierList', () => {
       providers: [
         provideHttpClient(),
         { provide: ProductSupplierService, useValue: serviceMock },
-        { provide: Router, useValue: routerMock },
         { provide: MatDialog, useValue: dialogMock },
       ],
     }).compileComponents();
@@ -201,12 +195,10 @@ describe('ProductSupplierList', () => {
       expect(actionButtons[0].textContent?.trim()).toBe('Agregar proveedor');
 
       actionButtons[0].click();
-      expect(routerMock.navigate).toHaveBeenCalledWith([
-        '/products/edit',
-        mockProductId,
-        'suppliers',
-        'create',
-      ]);
+      expect(dialogMock.open).toHaveBeenCalledWith(ProductSupplierDialog, {
+        data: { productId: mockProductId, assignment: undefined },
+        width: '560px',
+      });
     });
 
     it('should keep the empty state add button as the only affordance when empty', async () => {
@@ -224,41 +216,60 @@ describe('ProductSupplierList', () => {
       expect(emptyButtons[0].textContent?.trim()).toBe('Agregar proveedor');
 
       emptyButtons[0].click();
-      expect(routerMock.navigate).toHaveBeenCalledWith([
-        '/products/edit',
-        mockProductId,
-        'suppliers',
-        'create',
-      ]);
+      expect(dialogMock.open).toHaveBeenCalledWith(ProductSupplierDialog, {
+        data: { productId: mockProductId, assignment: undefined },
+        width: '560px',
+      });
     });
   });
 
-  describe('Navigation', () => {
-    it('should navigate to create on addSupplier', async () => {
+  describe('Dialog opening', () => {
+    it('should open the dialog in create mode on addSupplier', async () => {
       setup();
       await settle();
 
       component.addSupplier();
-      expect(routerMock.navigate).toHaveBeenCalledWith([
-        '/products/edit',
-        mockProductId,
-        'suppliers',
-        'create',
-      ]);
+
+      expect(dialogMock.open).toHaveBeenCalledWith(ProductSupplierDialog, {
+        data: { productId: mockProductId, assignment: undefined },
+        width: '560px',
+      });
     });
 
-    it('should navigate to edit on editSupplier', async () => {
+    it('should open the dialog with the row as its assignment on editSupplier', async () => {
       setup();
       await settle();
 
-      component.editSupplier('ps-1');
-      expect(routerMock.navigate).toHaveBeenCalledWith([
-        '/products/edit',
-        mockProductId,
-        'suppliers',
-        'edit',
-        'ps-1',
-      ]);
+      const row = createSupplier(1);
+      component.editSupplier(row);
+
+      expect(dialogMock.open).toHaveBeenCalledWith(ProductSupplierDialog, {
+        data: { productId: mockProductId, assignment: row },
+        width: '560px',
+      });
+    });
+
+    it('should reload the list when the dialog returns a saved entity', async () => {
+      setup();
+      await settle();
+      expect(serviceMock.getSuppliers).toHaveBeenCalledTimes(1);
+
+      dialogMock.open = vi.fn().mockReturnValue({ afterClosed: () => of(createSupplier(0)) });
+      component.addSupplier();
+      await settle();
+
+      expect(serviceMock.getSuppliers).toHaveBeenCalledTimes(2);
+    });
+
+    it('should not reload the list when the dialog is cancelled', async () => {
+      setup();
+      await settle();
+      expect(serviceMock.getSuppliers).toHaveBeenCalledTimes(1);
+
+      component.addSupplier();
+      await settle();
+
+      expect(serviceMock.getSuppliers).toHaveBeenCalledTimes(1);
     });
   });
 

@@ -1,0 +1,19 @@
+<h2 mat-dialog-title>
+  @if (editMode()) {
+    Editar la definición de la variante
+  } @else {
+    Agregar una variante al producto
+  }
+</h2>
+
+@if (generalError(); as errorMessage) {
+  <app-error-banner [message]="errorMessage" />
+}
+
+<app-product-variant-form
+  [formGroup]="definitionForm()"
+  [serverErrors]="serverErrors()"
+  [editMode]="editMode()"
+  (saveVariant)="onSaveVariant($event)"
+  (cancelForm)="cancel()"
+/>

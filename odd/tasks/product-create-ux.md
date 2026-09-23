@@ -3,12 +3,20 @@
 **Repository**: LifeControl — frontend `life-control-app-angular/`. S1–S3 are frontend-only; only the
 bulk-creation item in `## Backend dependencies` needs `life-control-api/` work, and it gates S4.
 **Status**: **S1 merged** (PR #154 → `main` @ `158a6b3`, 2026-09-23) as five work-unit commits plus
-the gate evidence below. **S2a is implemented and verified, uncommitted to a PR**: one work-unit
-commit `9d5eb5c` on branch `feat/product-workspace-tabs` (created from `main` @ `158a6b3`) in the
-**reused** worktree `~/workspace/LifeControl-worktrees/feat-product-create-ux` (D7), whose original
-branch `feat/product-create-ux` stays untouched at its merged tip `648930b`. Nothing is pushed and no
-PR is open. S2 was split into S2a and S2b by user decision on 2026-09-23 (D6); **S2b, S3 and S4 are
-not started**. Shape agreed with the user on 2026-09-23 ("Tabs + stepper con skip", "propuesta
+the gate evidence below. **S2a is delivered in PR #155** (`feat/product-workspace-tabs` → `main`,
+open, `MERGEABLE`/`CLEAN`, CI green): work-unit commit `9d5eb5c` plus its evidence commit `90ef886`,
+on a branch created from `main` @ `158a6b3` in the **reused** worktree
+`~/workspace/LifeControl-worktrees/feat-product-create-ux` (D7), whose original branch
+`feat/product-create-ux` stays untouched at its merged tip `648930b`. **S2b is delivered in PR #156**
+(`feat/product-association-dialogs` → `feat/product-workspace-tabs`, open, `MERGEABLE`, Angular CI
+"Lint, Build & Test" success run `35891274123`): five commits on a branch stacked on the S2a tip
+`90ef886` (D6) — `ddc6898` (this record's S2b plan and the S2a status correction), `53c779f` (W1),
+`717686a` (the supplier dialog's unsaved-input guard), `ae0cfb1` (W2) and `2c7761a` (this record's
+S2b evidence). Gates on the code tip `ae0cfb1`: lint clean, build 850.87 kB exit 0,
+`test:coverage:check` **127 files / 2436 tests**, coverage **94.02/75.8/89.15/94.02** (thresholds
+80/60/75/80). **S2b measured 3.247 changed lines, so D20 fired; the user chose one PR over the
+proposed two-PR split**, and the PR is based on the S2a branch because #155 is still open — GitHub
+will retarget it to `main` when #155 merges. S3 and S4 are not started. Shape agreed with the user on 2026-09-23 ("Tabs + stepper con skip", "propuesta
 primero"; voseo adopted as the copy register). Product `attributes` handling and the `Activo` toggle
 were descoped the same day (see `## Descoped by user decision`).
 **Created**: 2026-09-23
@@ -53,6 +61,65 @@ not inferred.
 
 **Measured, not forecast.** S2 is ~23 files and ~1.550 changed lines (≈740 source / ≈810 specs), not
 the 8–12 files and 600–900 lines forecast below. That is why the user split it (D6).
+
+## S2b reconciliation (2026-09-23, read-only exploration, user decisions taken)
+
+S2b was re-scoped before any code was written. One claim in the S2 plan does not survive contact with
+the code, and one engineering decision the plan left open turns out to gate a live feature. Every
+claim below is anchored to `file:line`, verified by reading the source.
+
+**The blocking finding: `product-variant-edit` is the only host of the per-store stock/prices
+editor.** `app-product-variant-store-stock` is referenced in exactly one template in the repo —
+`pages/product-variant-edit/product-variant-edit.html:26` — and that page is the only path a sales
+principal has to it: `pages/product-variant-stock-search/product-variant-stock-search.ts:157`
+navigates to `edit/:id/variants/edit/:variantId` with `?storeId=`, and its own docblock (`:28`) says
+this page is the sales principal's only route to the per-store editor. The variant list's empty state
+says the same thing in copy (`product-variant-list.html:245`). D8 keeps the panel *out* of the dialog
+and hands it to T15 in S4, but it does not say who hosts it in between. Executing T7 as written —
+"the variant edit page becomes a dialog host" — would therefore delete a live feature for one slice.
+D18 and D21 resolve it.
+
+**Correction to the S2a note about the confirmation dialogs.** The S2a section says "the two
+confirmation dialogs (`remove-supplier-dialog.html`, `disable-variant-dialog.html`) are still English
+on purpose". That is true for the first and false for the second: `ui/disable-variant-dialog/
+disable-variant-dialog.html` is already Rioplatense voseo (`Deshabilitar variante`, `¿Estás seguro
+que querés deshabilitar …?`, `Cancelar`, `Deshabilitar`). Only `ui/remove-supplier-dialog/
+remove-supplier-dialog.html` is English (`Remove Supplier Assignment`, `Are you sure you want to
+remove the assignment for …?`, `This action cannot be undone.`, `Cancel`, `Remove`). S2b's D15 copy
+target is therefore exactly one file, not two.
+
+**Confirmed, not assumed.** `getAllSuppliers(0, 1000)` has exactly one call site in `src` —
+`pages/product-supplier-edit/product-supplier-edit.ts:77` — so T8 is a single-site replacement and
+no other screen carries the unbounded read. `suppliers/data/supplier.service.ts:37` already exposes
+`getSuppliers(page, size, search)` and `:82` forwards the term to it.
+
+**The T7 result contract has no precedent, and that is now a decision rather than a risk.** All ten
+`MatDialog.open` calls under `src` are confirmation dialogs, and every `afterClosed()` consumer reads
+a boolean (`product-supplier-list.ts:92-107`, `product-variant-list.ts:234-252`,
+`core/guards/unsaved-changes.guard.ts:32-44`). No dialog in the repo hosts a form component or returns
+an entity. D22 fixes the contract.
+
+**The forms can be hosted unchanged, but not for free.** Both form components are presentational — no
+router, no HTTP, no `ActivatedRoute` — and both own their `.form-card` wrapper, their own `<h2>`
+(`product-supplier-form.html:2-8`, `product-variant-form.html:2-6`) and their own `.form-actions` with
+a `Cancelar` that emits `cancelForm` instead of closing anything. Neither exposes an in-flight state,
+so a dialog cannot disable the submit button without new surface. The supplier picker is a plain
+`<mat-select>` (`product-supplier-form.html:11-18`) fed by an input, not the autocomplete the T8
+reference uses.
+
+**Measured for S2b before implementation**, with the same two-scout method as S2 (see
+`#### S2b — measured before implementation` under `## Review workload`).
+
+**One finding raised by S2b's own verification and then refuted by reading the write path.** The W2
+verifier reported that an operator with unsaved stock/prices on the per-store panel could change the
+variant's barcode through the definition dialog and have those in-progress values written against
+the wrong row, and the page briefly disabled the definition action for it. That hazard does not
+exist: the panel's **write** is keyed by `variantId` + `storeId`
+(`product-variant-store-stock.ts:211` → `PUT /api/variants/{variantId}/stores/{storeId}`), and only
+its **read** is keyed by the barcode (`:124`). A barcode change re-keys the read to the same variant's
+row, and the dirty form is preserved and written to the same row. The disable and its tooltip were
+reverted rather than shipped as an unnecessary restriction; the second verification round confirmed
+the write key independently.
 
 ## Objective
 
@@ -273,6 +340,63 @@ Consequences the design must carry:
   the container's did before. **Only `edit/:id/suppliers` redirects**: it is admin-only on both sides,
   so no principal loses access.
 
+### Locked with the user (2026-09-23, S2b)
+
+- D18: **the variant dialog covers the global definition only, and the store-scoped page survives as
+the per-store stock/prices editor.** The dialog edits `barCode` + `variantName` and nothing else. From
+the **global** view of the Variantes tab, "Editar variante" opens the dialog; from the **store-scoped**
+view, and from the stock-search screen, editing keeps navigating to `edit/:id/variants/edit/:variantId`
+— the page that hosts `app-product-variant-store-stock` and is the sales principal's only route to it.
+`edit/:id/variants/edit/:variantId` therefore **keeps resolving** and keeps its `canDeactivate` guard;
+it is not converted into a redirect. Rationale: D8 deliberately kept the panel out of the dialog
+(threading `storeId` through `MAT_DIALOG_DATA` and integrating the panel's `dirtyChange` into the
+dialog's close is net-new behaviour, and the panel reads `?storeId=` from `ActivatedRoute` at
+`product-variant-store-stock.ts:130`), and executing T7 as written would have made the per-store
+editor unreachable until T15 landed in S4 — a functional regression, not a refactor. The rule the UI
+expresses is: with a store in play, editing opens the full editor; without one, the dialog edits the
+identity.
+- D19: **the old create/edit URLs stay registered and redirect into the workspace** (the `## Target
+experience` promise: no existing URL 404s). `edit/:id/suppliers/create` and
+`edit/:id/suppliers/edit/:supplierId` redirect to `edit/:id?tab=proveedores` (admin-only on both
+sides, so no principal loses access — the same argument as D13); `edit/:id/variants/create` redirects
+to `edit/:id/variants` with `storeId` preserved, **not** to `edit/:id`, because the create route is
+`VARIANT_ROLES` while `edit/:id` is admin-only — the D17 argument again, applied to the third route.
+`edit/:id/variants/edit/:variantId` is the one create/edit route that keeps resolving (D18). A
+deep link to a create/edit URL therefore lands on the list and loses its intent; that is accepted and
+documented rather than paid for with a per-flow dialog-host component.
+- D20: **S2b ships as one PR stacked on S2a, and is split only if the measurement says so.** The
+measurement is taken on the finished branch, before the PR is opened: if the real changed lines
+(discounting pure Prettier reindentation, the way the S2a section does it) exceed ~1.000, the slice is
+proposed to the user as two chained PRs — W1 (suppliers) and W2 (variants) — which the work-unit
+commits already separate.
+
+### Engineering decisions (S2b)
+
+- D21: **the store-scoped variant page delegates identity editing to the dialog**, instead of keeping
+its own inline copy of the form. `ProductVariantEdit` drops the create branch (that route redirects,
+D19) and the inline `app-product-variant-form`, keeps the `app-page-header` and
+`app-product-variant-store-stock`, and gains one action that opens the variant dialog; the dialog's
+result refreshes `loadedBarCode`, which is what keys the panel's read. Rationale: with D18 the
+identity editor has two possible hosts, and leaving the page's inline form in place would ship two
+editors for one field pair plus ~120 duplicated lines of form creation, load, save and error
+handling. It also narrows the page's `hasUnsavedChanges()` to the panel's `storeStockDirty()`, which
+is now the only state that page can lose.
+- D22: **the association dialog closes with the saved entity, or `null`.** `afterClosed()` returns
+`ProductSupplier | ProductVariant | null`: `null` on cancel or dismissal, the entity the service
+returned on success. The list's consumer stays precedent-shaped — truthy means "reload the resource"
+(`if (saved) this.resource.reload()`) — and the store-scoped page additionally uses the entity to
+refresh its `barCode` input. The dialog owns the write (as the page it replaces did) and stays open
+with the error banner on failure, so the list needs no error handling of its own.
+- D23: **T8 copies the `supplier-info-section` idiom but fixes its two hazards.** The reference
+(`supplier-info-section.ts:94-96`, `:108-125`) is `Subject<string>` + `debounceTime(300)` +
+`subscribe`, with **no** `switchMap` and **no** `distinctUntilChanged`, so a slow earlier response can
+overwrite a later one. S2b uses `debounceTime(300)` + `distinctUntilChanged()` + `switchMap` +
+`takeUntilDestroyed`, which also cancels the in-flight request. Two more things the reference does not
+have and T8 adds because the ODD record says they are new work: a searching indicator and a
+no-results state. The picker also stops accepting free text as a supplier id: on `(input)`, a typed
+value that is not the display label of the current selection clears the control, so `required` fails
+instead of a garbage id reaching the API.
+
 ## Descoped by user decision
 
 ### Product `attributes` — out of scope (user decision, 2026-09-23)
@@ -343,6 +467,13 @@ the finding is not lost:
 | **S4** | T13 | Variant form: "Guardar y agregar otra" (no backend change) | form spec |
 | **S4** | T14 | Variant matrix generation — **blocked** on B1, and on the future attributes redesign | stepper/workspace spec |
 | **S4** | T15 | Embed per-store stock and prices in the Variantes tab | tab spec |
+
+**S2b work units** (D20, one work-unit commit each): **W1** = T7 for suppliers + T8 — the supplier
+dialog (D22), the debounced server-side search (D23), the `suppliers/create` and
+`suppliers/edit/:supplierId` redirects (D19) and the `remove-supplier-dialog` copy migration (D15).
+**W2** = T7 for variants — the variant dialog, the store-scoped page reduction (D21) and the
+`variants/create` redirect (D19). W2 stacks on W1 on the same branch; if D20's measurement forces the
+split, W1 and W2 are the two PRs.
 
 ## Backend dependencies
 
@@ -466,6 +597,55 @@ real work:
 **Carry forward for S2b:** forecast its source lines, then expect roughly 1:1 spec lines on top, and
 add whatever Prettier reindentation the template restructuring costs.
 
+#### S2b — measured before implementation
+
+Measured on `90ef886` by a read-only mapping scout, every claim `file:line`-anchored. This is a
+forecast with a method, not a guess: it is derived from the actual components T7 and T8 touch.
+
+| Work unit | Files | Source lines | Spec lines | Total |
+|---|---|---|---|---|
+| W1 (T7 suppliers + T8) | ~8 | ~350 | ~400 | ~750 |
+| W2 (T7 variants) | ~8 | ~300 | ~450 | ~750 |
+| **S2b total** | **~16** | **~650** | **~850** | **~1.500** |
+
+Against the ~9 files / ~200–350 source / ~600–1.000 spec / ~800–1.350 total forecast in the S2 table.
+The two things the forecast missed, both found by the recon above: T7 for suppliers is a **delete plus
+a rewrite** (the page and its spec go, the dialog and its spec arrive, so the changed-line count
+carries both sides), and T7 for variants is not a port but a **split** (D18/D21: the page keeps the
+panel and loses its form, the dialog takes the form).
+
+#### S2b — measured, and the forecast was low again
+
+Measured on `ae0cfb1` with `git diff 90ef886..HEAD --numstat`. The base is the S2a tip rather than
+`main`, because S2a is still an open PR and has not reached `main`.
+
+| Bucket | Files | Changed lines |
+|---|---|---|
+| Source | 18 | **1.283** (365 of them the four deleted `product-supplier-edit` files) |
+| Specs | 10 | **1.821** |
+| This record | 1 | **143** |
+| **Total** | **29** | **3.247** (2.431 insertions / 816 deletions) |
+
+Against the ~650 source / ~850 spec / ~1.500 total forecast above — low by ~2×, and this time **not**
+because of reindentation: `git diff -w` moves 16 lines out of 3.247, so the whitespace discount that
+dominated S2a's numbers is irrelevant here. Three reasons:
+
+- **T7 is a replacement, not a move, on both sides.** W1 deletes a 365-line page plus its 110-line
+  spec and writes a 283-line dialog plus a 565-line spec; W2 writes a 175-line dialog plus a 312-line
+  spec and rewrites the store-scoped page (251 → 190) and its spec (360 → 287). A literal "move"
+  would have cost the dialog and its spec; the deletions are the other half of the count.
+- **The dialog is where the behaviour now lives**, so it carries the coverage the page used to hold:
+  write ownership, the close contract (D22), the error discrimination, and — after the verifier's F1
+  finding — the unsaved-input guard with its four paths.
+- **Specs are ~1,4× the source**, above S2a's ratio, because both dialogs are new components with no
+  prior spec and because the two verification rounds added tests for defects that did not exist
+  before (`switchMap` response ordering, the stale-selection submit window, the guard's arming paths).
+
+**D20's threshold was ~1.000 changed lines and the measurement is 3.247, so the split is proposed and
+pending a user decision:** PR A = `ddc6898` + `53c779f` + `717686a`, the supplier flow (2.057 changed
+lines); PR B = `ae0cfb1`, the variant flow (1.202), chained on PR A's branch. Nothing is pushed either
+way.
+
 ## Evidence log
 
 | Date | Slice | Commit | Evidence |
@@ -488,7 +668,19 @@ Rows below are added as each task closes, with the commit that carries it.
 | 2026-09-23 | **S2a work unit** | `9d5eb5c` | D16: T5+T6+T9 land as one commit because no ordering gives a coherent intermediate commit. **18 files, 2041 insertions / 1053 deletions = 3094 changed lines** (13 source / 1576; 5 specs / 1518), of which **982 are pure Prettier reindentation** — see `#### S2a — measured` above. Focused products suite went 22 files / 275 tests (S1 tip) → **23 files / 317 tests**. Steps: (1) supplier list becomes tab content, RED observed as a compile-time `TS2339` on `countChange`, 20 → 22 tests; (2) variant list becomes tab content, 32 → 47 tests, and because its RED was also compile-time the worker ran a **mutation control** (swapping `totalElements` for `content.length` and duplicating the empty-state affordance) and observed exactly those two tests fail, then reverted byte for byte; (3) the workspace shell, 25 → 35 tests, including a **probe that settled D11 empirically**: `mat-tab-group` instantiates inactive-tab children (`instances=1, domCount=0`), so the labels do carry counts before their tab is visited; (4) the redirect plus the variant route host, route spec 7 → 11 tests, RED observed as 4 real assertion failures. |
 | 2026-09-23 | **S2a gates (baseline)** | `main` @ `158a6b3` | Already on record from S1: 124 files / 2315 tests, coverage 93.37/75.60/88.36/93.37. |
 | 2026-09-23 | **S2a gates (tip)** | `9d5eb5c` | `npm run lint` → `All files pass linting.`; `npm run build` → bundle complete, 850.87 kB initial (S1: 850.86 kB), exit 0; `npm run test:coverage:check` → **125 files / 2357 tests / 0 failures**, coverage **93.38/75.34/88.52/93.38** (thresholds 80/60/75/80). Delta over baseline: +1 file, +42 tests, +0.01/**−0.26**/+0.16/+0.01. **Branches are the thin gate: 75.34 against a 75 threshold — a 0.34 pp margin, down 0.26 pp.** Not a blocker, but recorded so S2b does not inherit it blind. |
+| 2026-09-23 | S2b plan | — | Read-only mapping of the T7/T8 surface by a `gentle-ai-explore` scout, plus the `## S2b reconciliation` above: the single-host finding for `app-product-variant-store-stock`, the correction to the S2a dialog-copy note, the confirmation that `getAllSuppliers(0, 1000)` has one call site, and the absence of any form-hosting dialog precedent. User decisions D18–D20 taken on 2026-09-23. No source written. |
 | 2026-09-23 | S2a independent verification | `9d5eb5c` | A read-only `gentle-ai-verify` subagent ran the three gates (all PASS) and adversarially checked ten claims against the **installed** `@angular/router` 20.3.31 source rather than the commit message. Upheld: no effective authorization change; the redirect config is legal — `RuntimeError 4014` forbids `redirectTo` together with `canActivate`/`canMatch` (`router2.mjs:1953-1956`), so dropping both was **mandatory, not stylistic** — and the redirect function really does run inside an injection context (`router2.mjs:3830`, `runInInjectionContext(injector, …)`), which is what makes the route's `inject(Router)` safe; `?tab=` is read reactively with a working feedback-loop guard; **query params do not participate in route reuse** (`BaseRouteReuseStrategy.shouldReuseRoute` compares only `routeConfig`, and the default `paramsChange` mode compares only `params` + `url` segments), so a tab click cannot fire `unsavedChangesGuard`; the counts are real and the specs would fail if `totalElements` were swapped for `content.length`; no descope leak (`git diff main...HEAD -- components/products-form/*` empty); no vacuous assertion in the changed specs; the D17 regression guard works; no dead code and no second header fetch. **One wording corrected:** the claim "no other route's guards or `data` changed" is literally false — `edit/:id/suppliers` sheds both when it becomes the redirect. That is deliberate and required by `RuntimeError 4014`; effective authorization is unchanged because the target `edit/:id` keeps the admin gate, and the route spec pins `canActivate`/`data` as `undefined` on the redirect route on purpose. Its `could not verify` list is the S2a-specific manual checklist above; the redirect having no real-router navigation test is the one worth closing later. |
+| 2026-09-23 | **S2b plan** | `ddc6898` | This record's S2b section: the reconciliation (the single-host finding for `app-product-variant-store-stock`, the correction to the S2a dialog-copy note, `getAllSuppliers(0, 1000)`'s single call site, the missing form-dialog precedent), decisions D18–D23, the W1/W2 decomposition, the S2b forecast, and the S2a status correction this file needed since PR #155 opened. |
+| 2026-09-23 | **S2b W1 (T7 suppliers + T8)** | `53c779f` | **17 files, 1.292 insertions / 453 deletions = 1.745 changed lines.** New `product-supplier-dialog` (283 + 26 + 565); the form's `<mat-select>` becomes a `mat-autocomplete` with `searching`/`supplierSearch` and a membership guard (74 + 21 + 234); the list opens the dialog and drops `Router` (29 + 47); `suppliers/create` and `suppliers/edit/:supplierId` become redirects (45); the route spec pins them (+140); `remove-supplier-dialog` copy to voseo (+11) with its first spec (+62); the 365-line `product-supplier-edit` page and its 110-line spec are deleted. RED observed on every behaviour (three compile-time, so three mutation controls); focused products suite 23 files / 317 tests → 24 / 357. |
+| 2026-09-23 | S2b W1 independent verification | `53c779f` | A read-only `gentle-ai-verify` subagent checked ten claims against the installed Material and router sources. Upheld: no `getAllSuppliers` call site survives, the dialog owns no route, the form stays presentational, the `switchMap` ordering pin is real (reproduced with a direct rxjs probe), the redirects are legal and non-vacuous, effective authorization is unchanged, nothing outside the slice moved, and the copy register is voseo. **One Medium finding:** in edit mode a typed-over field could submit the pre-typing `supplierId` on Enter (Material suppresses the value-accessor write while typing and only resets on a panel-closing action), and the membership guard could not catch it because the dialog keeps the current selection in its options. Also low: the seed read bypassed the cancelling stream, the `4014` justification wrongly included `data`, one route-spec loop was vacuously satisfiable, and one spec comment was false. |
+| 2026-09-23 | **S2b W1 fix round** | `717686a` | All six findings closed. The stale-selection window is now blocked by a second, visible-text check on top of the membership one (three new tests, RED observed as `expected "spy" to not be called at all`, plus a mutation control on the guard condition); the seed read was folded into the same `switchMap` stream with a late-seed ordering test; the `4014`/`data` rationale is exact; the route-spec loop asserts the route is found first; the false comment and the dead-file references are gone. 24 files / 357 → 361 tests. |
+| 2026-09-23 | **S2b W2 (T7 variants)** | `ae0cfb1` | **15 files, 845 insertions / 357 deletions = 1.202 changed lines.** New `product-variant-dialog` (175 + 19 + 312) carrying the global-definition write, the D22 close contract and the page's 409/`errors`/generic discrimination with its copy migrated to voseo; the variant form loses its `<h2>` (−7); `edit/:id/variants/create` becomes a redirect to `edit/:id/variants` (D19, role-safe, `storeId` preserved, no `canActivate`/`data`); `ProductVariantEdit` is reduced to the store-scoped editor (251 → 190) and delegates identity editing to the dialog (D21); `ProductVariantList` opens the dialog from the global view and keeps navigating from the store-scoped one (D18). RED observed on every behaviour (three compile-time, so three mutation controls); focused products suite 24 files / 361 tests → 25 / 378. |
+| 2026-09-23 | S2b W2 independent verification | `ae0cfb1` (uncommitted at the time) | A read-only `gentle-ai-verify` subagent checked twelve claims. Upheld: the redirect targets the role-safe host and not `edit/:id`; the sales principal's chain to the per-store editor is intact end to end (stock search → route → page → panel → `?storeId=` read); `loadedBarCode` still keys the panel read and is refreshed from the dialog's result; the dialog owns no route, no store and no panel; the 409 copy still names both uniqueness rules; the `<h2>` removal is safe (the form has exactly one consumer); the reformat is confined to the touched button; nothing outside the slice moved; the disposition of the deleted page-spec tests is honest. **Findings:** the definition form lost the unsaved-changes protection the guarded route used to give it (Medium), one route-spec test could throw instead of assert (Low), the page subtitle was an imperative rendered before the panel existed (Low), and a claimed barcode/write hazard on the panel (Low). |
+| 2026-09-23 | **S2b W3 (findings round)** | `ae0cfb1` (folded in) | The Medium finding is closed in both dialogs, identically: a dirty signal derived from `valueChanges`, `MatDialogRef.disableClose` set reactively from it, and a Cancel that opens the shared `ConfirmDialog` and closes with `null` only on confirmation — four paths pinned per dialog, RED observed, plus a mutation control that reverts the `disableClose` wiring and fails exactly the two Esc/backdrop tests. Also: the route-spec assertion (F2), the page subtitle now describes the page (F3), and the F4 disable was **reverted** after the write key was read (`product-variant-store-stock.ts:211` writes by `variantId`, so the claimed hazard does not exist — see the reconciliation above). 25 files / 378 → 396 tests. |
+| 2026-09-23 | S2b W3 independent verification | `ae0cfb1` (uncommitted at the time) | A second read-only `gentle-ai-verify` subagent checked eleven claims with its own throwaway probe. Upheld: an edit-mode dialog starts clean and neither `setErrors({ emitEvent: false })` nor `markAllAsTouched()` arms the guard; `disableClose` tracks the state both ways and cannot stick; all four cancel paths are pinned in both dialogs; the `ConfirmDialog` data follows the guard's precedent with voseo copy; the success contract is untouched; F2 and F3 are fixed; the reverted F4 hazard was **not real** (write keyed by `variantId` + `storeId`, read keyed by barcode) with no residual hazard; nothing outside the slice moved; no weakened or vacuous assertion anywhere. Three low findings remain open as comments-level contracts, recorded under `### Raised by S2b`. |
+| 2026-09-23 | **S2b gates (tip)** | `ae0cfb1` | `npm run lint` → `All files pass linting.`; `npm run build` → bundle generation complete, **850.87 kB** initial (S2a: 850.87 kB), exit 0; `npm run test:coverage:check` → **127 files / 2436 tests / 0 failures**, coverage **94.02/75.8/89.15/94.02** (thresholds 80/60/75/80). Delta over the S2a tip (`9d5eb5c`: 125 files / 2357 tests, 93.38/75.34/88.52/93.38): **+2 files, +79 tests, +0.64/+0.46/+0.63/+0.64**. The branch-coverage margin the S2a section flagged as thin (75.34 against 75) is now 0.8 pp. |
+| 2026-09-23 | **S2b measured** | `ae0cfb1` | 29 files, 2.431 insertions / 816 deletions = **3.247 changed lines** (source 1.283, specs 1.821, this record 143), 16 of them whitespace. See `#### S2b — measured` above. |
+| 2026-09-23 | **S2b delivered** | `2c7761a` | PR **#156** opened against `feat/product-workspace-tabs`: S2a is still an open PR, so the base is the S2a branch and GitHub retargets it to `main` when #155 merges. 29 files, 2.518 insertions / 817 deletions, label `enhancement`, `MERGEABLE`. Angular CI "Lint, Build & Test" **success** (run `35891274123`, the workflow's `pull_request` trigger has no branch filter, so a stacked base still runs it). Per D20 the two-PR split was proposed on the measured 3.247 lines; the user chose **one PR**. This docs-only commit does not re-trigger CI (the workflow's path filter is `life-control-app-angular/**`), and the code bytes CI verified are unchanged. |
 
 ## Constraints
 
@@ -560,7 +752,35 @@ Rows below are added as each task closes, with the commit that carries it.
   Spanish-trigger-to-English-confirmation.
 - **Branch coverage sits 0.34 pp above its threshold** (75.34 against 75), down 0.26 pp from the S1
   baseline. S2b adds dialog hosts and form wiring, which is coverage-dense territory; re-measure early
-  in that slice rather than discovering it at the gate.
+  in that slice rather than discovering it at the gate. **Closed in S2b:** the tip measures **75.8**,
+  up 0.46 pp from S2a, so the thin margin is gone.
+
+### Raised by S2b
+
+- **The dialogs' unsaved-input guard is structural, not defensive.** Both dialogs arm their dirty
+  signal from a bare `valueChanges` subscription (`product-supplier-dialog.ts:107-110`,
+  `product-variant-dialog.ts:92-94`) and rely on "the form is never patched after construction". The
+  per-store panel is defensive by contrast (`product-variant-store-stock.ts:169` patches with
+  `{ emitEvent: false }`). A future programmatic `patchValue`/`setValue` without that flag would arm
+  the close prompt on an untouched form. Verified clean today by an independent probe, and left as a
+  comment-level contract rather than a new guard.
+- **`disableClose` is pinned as a property, not as a dismissal.** The specs assert the flag both ways
+  (`product-variant-dialog.spec.ts:240,247` and its supplier twin), but no test performs a real Esc or
+  backdrop dismissal: the `MatDialogRef` is a mock. Source inspection shows the flag cannot stick
+  (a confirmed cancel destroys the dialog), so this is a gap in the evidence, not in the behaviour.
+- **Three redirect routes now have no real-router test.** D13's route, plus D19's two supplier ones
+  and `edit/:id/variants/create`, are all pinned by invoking the `redirectTo` function directly under
+  `runInInjectionContext`. That pins the function, never the recognizer's choice, and it is the same
+  gap S2a raised — now four routes wide. A real `Router.navigateByUrl` test in this suite would close
+  all four at once; the repo still has no precedent for one.
+- **The workspace shell swallows a product-load failure.** `ProductEdit` reports it with
+  `console.error` only (`product-edit.ts:131`), with no banner. The deleted `product-supplier-edit`
+  page spec was the last test that a product-fetch failure surfaced to the operator; the behaviour
+  moved to the shell in S2a and is now unpinned and invisible. S2a code, not S2b's diff.
+- **The store-scoped page reaches its definition edit through the dialog.** By design (D21), but it
+  means a deep link into `edit/:id/variants/edit/:variantId` shows the per-store panel plus one action,
+  not an inline identity form. Worth a look when T15 moves the panel into the tab.
+- **`MatPaginatorIntl` labels are still English repo-wide** (carried from S2a, unchanged by S2b).
 
 ## Relevant files
 
