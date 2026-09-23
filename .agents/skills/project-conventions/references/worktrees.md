@@ -93,13 +93,21 @@ git worktree prune                              # 3. clear orphaned metadata
 
 The merge command that deletes a branch on merge deletes the **local** branch as well as the remote
 one. Git refuses to delete a branch a worktree has checked out, so the command reports a
-local-branch error — and the remote ref is left alive in the same run. The merge itself succeeded, so
-the output reads as cosmetic and the stale ref survives on both sides.
+local-branch error. Whether the remote ref survives that error depends on the `gh` version, so
+**verify the remote ref instead of assuming either outcome** (see the version note below).
 
 | Symptom | Reality |
 | --- | --- |
-| `error: cannot delete branch '<branch>' used by worktree at '<path>'` | The local deletion failed, and the remote deletion failed with it |
+| `error: cannot delete branch '<branch>' used by worktree at '<path>'` | The local deletion failed. Whether the remote deletion failed with it depends on the `gh` version |
 | The pull request shows as merged | True and unrelated: the merge landed before the deletion was attempted |
+
+**Version note (measured 2026-09-23).** The remote outcome is `gh`-version-dependent, so treat the
+remote ref as unverified until you check it. On `gh` **2.45.0** the merge aborted *before* the remote
+deletion, and `git ls-remote --heads origin` confirmed the remote ref survived. On `gh` **2.101.0**
+the merge and the remote deletion both succeed, only the local deletion is skipped, and the command
+prints the follow-up (`git worktree remove <path> && git branch -D <branch>`). Both outcomes leave
+the local branch and the worktree untouched, which is the state you want, so the cleanup order below
+is correct either way.
 
 Either remove the worktree before merging, or run the cleanup order above and delete the branch
 yourself, then realign the anchor:
