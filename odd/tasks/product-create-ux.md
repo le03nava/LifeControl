@@ -34,12 +34,21 @@ round). Two independent read-only verifications ran, at `1b3fbe4` and at `98081a
 lint clean, build **851.05 kB** initial exit 0, `test:coverage:check` **127 files / 2506 tests /
 0 failures**, coverage **94.07/75.94/89.22/94.07** (thresholds 80/60/75/80). **S4 measured 1.403 changed
 lines of code and specs** — above D20's ~1.000 threshold — so the split is proposed below; the user chose
-**one PR**. **PR #159 is open** against `main` (`feat/product-variant-tab-stock` → `main`, label
-`enhancement`, 16 files / 1.644 insertions / 55 deletions, `MERGEABLE`) and Angular CI *Lint, Build & Test*
-is **green** on `d953e56` (run `35927601959`). Nothing is merged. Shape for the earlier slices was agreed the
+**one PR**. **PR #159 is merged into `main`** as merge commit **`84a17ef`** (parents `edbfb46` +
+`7a85a12`, a real two-parent merge commit, merged 2026-09-23T23:34:13Z); Angular CI *Lint, Build &
+Test* was **green** on `d953e56` (run `35927601959`) before the merge. That merge deleted the S4
+branch and its worktree, exactly as the S4 record forecast. Shape for the earlier slices was agreed the
 same way ("Tabs + stepper con skip", "propuesta primero"; voseo adopted as the copy register). Product
 `attributes` handling and the `Activo` toggle were descoped the same day (see
 `## Descoped by user decision`).
+
+**S5 is in progress on branch `fix/variant-list-host-guard`**, created from `main` @ `84a17ef` in a
+**fresh** worktree `~/workspace/LifeControl-worktrees/fix-variant-list-host-guard` (fresh because the
+S4 merge removed the previous one). Scope is **T16**, the only functional gap `### Raised by S4` left
+open: the `edit/:id/variants` host route carries no `canDeactivate`, so an operator — the `lc-sales`
+principal, for whom that route is the only variant entry point — can edit per-store stock and prices in
+the expanded panel and navigate away with no prompt. Decisions **D38–D40** in `## S5 reconciliation`
+below; the shape was agreed with the user on 2026-09-23 before any code was written.
 **Created**: 2026-09-23
 **Risk**: **medium** — route and UI restructure over four existing pages. No auth, role-set or guard
 *set* change: the `unsavedChangesGuard` addition only tightens navigation on two routes that already
@@ -321,6 +330,60 @@ exposes it as `storeId`/`storeScoped` (`:126-141`). Its table declares a single 
   `canDeactivate: [unsavedChangesGuard]`, and a panel whose edits the guard cannot see would let a
   stray navigation discard stock and prices silently — the same defect S2b's F-finding closed inside
   the dialogs.
+
+## S5 reconciliation (2026-09-23, read-only exploration, user decisions taken)
+
+**Trigger**: `### Raised by S4` records exactly one functional gap — "The `edit/:id/variants` host
+route has no `canDeactivate`" — and the user authorized closing it on 2026-09-23 ("si dale por ahi",
+after a read-only inventory of every pending ODD item). It is the only item in that inventory that
+loses operator input.
+
+**Measured at `84a17ef`** (read-only, `file:line` anchored):
+
+- `products.routes.ts` registers `canDeactivate: [unsavedChangesGuard]` on `create` (`:41`),
+  `edit/:id` (`:48`) and `edit/:id/variants/edit/:variantId` (`:75`). The sibling
+  `edit/:id/variants` (`:89`) — the route that hosts `ProductVariantListHost` — carries `canActivate`
+  and `data` only.
+- The container already publishes the panel's dirty flag: `ProductVariantList` declares
+  `readonly dirtyChange = output<boolean>()` (`product-variant-list.ts:121`) and emits it from
+  `setPanelDirty` (`:323-326`), including `false` when the panel it destroys was dirty.
+  `ProductEdit` binds it twice (`product-edit.html:34`, `:108`), aggregates it at
+  `product-edit.ts:348-349` — `productForm().dirty || variantPanelDirty()` — and `variantPanelDirty`
+  is declared at `:111`. The host binds `productId` only (`product-variant-list-host.html:11`), so on
+  that route the container's flag never leaves the child.
+- `unsavedChangesGuard` is `CanDeactivateFn<UnsavedChangesAware>` (`unsaved-changes.guard.ts:25`) and
+  decides on `component?.hasUnsavedChanges?.()`. On this route the activated component is the
+  **host**, not the container, so the host is the only object the guard can ask.
+- The store-scoped search page (`product-variant-stock-search`) neither imports the container nor
+  hosts the panel, so it is not a second surface for this gap.
+- Spec surfaces to extend: `products.routes.spec.ts:114` (the `canDeactivate` block, which also pins
+  at `:123` that `list` and `edit/:id/suppliers` stay unguarded) and
+  `product-variant-list-host.spec.ts` (the host contract: header text, `productId` hand-down, exactly
+  one header and one list).
+
+**Decisions**
+
+- **D38: the host forwards the container's dirty flag; the guard stays generic and untouched.** The
+  host binds `(dirtyChange)="panelDirty.set($event)"` and implements
+  `hasUnsavedChanges(): boolean { return this.panelDirty(); }`, mirroring `ProductEdit`'s aggregation
+  (D37). The route gains exactly `canDeactivate: [unsavedChangesGuard]`. No new guard, no change to
+  `unsavedChangesGuard`'s signature or its copy, and no change to the container: its `dirtyChange`
+  contract is already the one the workspace consumes.
+- **D39: the host holds no reset logic of its own.** The signal's lifetime is the route's and
+  `canDeactivate` runs before destruction, so a reset-on-destroy hook would be dead code; the
+  container already emits `false` when the panel it destroys was dirty (D37). Re-entering the route
+  builds a new host that starts at `false` — the same property `ProductEdit.variantPanelDirty` relies
+  on.
+- **D40: the guard goes on the host route only.** The store-scoped page hosts neither the container
+  nor the panel, and the variant edit route already carries the guard; widening `canDeactivate` to the
+  product list or the supplier routes is a different decision with a different owner, and `:123`
+  already pins the "unrelated routes stay unguarded" contract.
+
+**Scope: T16 only.** No dialog, container, service or backend change; the panel's per-instance store
+resolution (D36) and the two-affordance question stay open exactly as `### Raised by S4` records them.
+
+**Risk: low.** One `canDeactivate` registration and one output binding on an existing route; no auth,
+role-set or data-semantics change. The guard only tightens navigation on a route that already exists.
 
 ## Objective
 
@@ -734,6 +797,7 @@ the finding is not lost:
 | **S4** | T13 | Variant form: "Guardar y agregar otra" (no backend change). D32 shape, D34 close contract, D35 in-flight guard | form + dialog specs |
 | **S4** | T14 | Variant matrix generation — **blocked** on B1, and on the future attributes redesign. **Not in S4** (D30) | stepper/workspace spec |
 | **S4** | T15 | Embed per-store stock and prices in the Variantes tab. D31 per-row expansion, D33 one row at a time, D36 panel hosted unchanged, D37 dirty aggregation | list + shell specs |
+| **S5** | T16 | Guard the `edit/:id/variants` host: bind the container's `dirtyChange`, implement `hasUnsavedChanges()` on `ProductVariantListHost` and register `canDeactivate` (D38/D39/D40) | host spec + `products.routes.spec.ts` |
 
 **S2b work units** (D20, one work-unit commit each): **W1** = T7 for suppliers + T8 — the supplier
 dialog (D22), the debounced server-side search (D23), the `suppliers/create` and
@@ -752,6 +816,12 @@ boundary that does not exist in the code — the same conclusion D16 reached for
 T12 therefore land as a single commit (`59d02bc`), and the plan's W1/W2 wording is kept above as the
 record of what was forecast. A third commit (`1b8a507`) carries the independent verifier's findings
 round, which is its own reviewable unit by the same argument the S2b slice used for `717686a`.
+
+**S5 work units** (D20, one work-unit commit each): **W1** = T16 — the host's `dirtyChange` binding and
+its `hasUnsavedChanges()`, the route's `canDeactivate`, and both spec surfaces in one commit, because
+the route assertion and the host contract are the same change seen from two files and splitting them
+would ship a guard whose only caller is untested. The record's own status correction and S5 plan land
+first as a docs commit, per the S3/S4 precedent.
 
 **S4 work units** (D20, one work-unit commit each): **W1** = T13 — the second submit path in
 `product-variant-form`, its reset-and-stay-open handling and the in-flight guard in
@@ -775,6 +845,12 @@ Each item is a separate decision. None is in scope until approved.
 Per slice: `npm run lint`, `npm run build`, `npm test` in `life-control-app-angular/`. Because
 `angular-ci.yml` runs `test:coverage:check` on PRs touching the package, run
 `npm run test:coverage:check` too and treat a threshold failure as a blocker, not a warning.
+
+**S5**: the same three gates. The builder's `--include` overrides `angular.json`'s glob, so the
+focused loop is `npx ng test --no-watch --include='src/features/products/products.routes.spec.ts'` and
+the same with `.../pages/product-variant-list-host/product-variant-list-host.spec.ts`; measured at the
+S5 base, the routes file alone takes ~18 s and reports `1 passed / 19 tests`. Both files are the
+change's own surfaces, so run them together before the full gate.
 
 Existing specs that will need updating, not just passing: `product-edit.spec.ts` (243 lines) and
 `products.routes.spec.ts`. `products-form.spec.ts` (187) must keep passing **unchanged** — that it
@@ -1122,6 +1198,8 @@ files / 418 tests → 25 / 435. |
 | 2026-09-23 | **S4 measured** | `0622ed5` | 15 files, 1.359 insertions / 44 deletions = **1.403 changed lines** (source 474, specs 929), plus 252 lines of this record. See `#### S4 — measured` above; D20's threshold is exceeded and the split is proposed. |
 | 2026-09-23 | **S4 delivered** | `d953e56` | PR **#159** opened against `main`: `feat/product-variant-tab-stock` → `main`, 16 files / 1.644 insertions / 55 deletions, label `enhancement`, `MERGEABLE`, title `feat(products): embed the stock editor in the Variantes tab and add "Guardar y agregar otra" (S4)`. Angular CI *Lint, Build & Test* **success** on `d953e56` (run `35927601959`, 4m14s). The user chose **one PR** over the split this record proposed at 1.403 changed lines. Nothing is merged, and the branch and worktree stay until the merge decision, because `gh` deletes both on a merge that carries `--delete-branch`. |
 | 2026-09-23 | S4 delivery docs commit | `49ba68e` | `odd/tasks/product-create-ux.md` only: the status header and the constraints corrected from "nothing is pushed and no PR is open" to the real state, and the S2b row's wrong claim about the CI path filter corrected (see that row). The commit re-triggered Angular CI despite touching no package file — run `35928763944` **success** — which is the measurement that proves the correction. |
+| 2026-09-23 | **S4 merged** | `84a17ef` | PR **#159** merged into `main` as a real two-parent merge commit (parents `edbfb46` + `7a85a12`), 2026-09-23T23:34:13Z. The merge deleted the S4 branch and its worktree, as the record forecast; `origin` carries `main` only and no PR is open. |
+| 2026-09-23 | **S5 plan** | (this commit) | Read-only inventory of every pending ODD item plus a read-only mapping of the `edit/:id/variants` surface at `84a17ef`, every claim `file:line` anchored. The `## S5 reconciliation` above: the four guarded routes and the unguarded sibling, the container's `dirtyChange` contract and the host's missing binding, the guard's `CanDeactivateFn<UnsavedChangesAware>` shape and the fact that the host — not the container — is the activated component. User authorization taken the same day; D38–D40 recorded as engineering decisions. Also corrects the status header and the constraints bullet from "PR #159 is open, nothing is merged" to the merge commit. No source written. |
 
 ## Constraints
 
@@ -1138,8 +1216,10 @@ files / 418 tests → 25 / 435. |
   `angular-ci.yml`). `~/.npm` is shared, so the install is extraction-bound. The **root** `gradlew`
   is absent in a fresh worktree (`.gitignore:33` ignores it, lines 40/43 re-include only the module
   wrappers), so Gradle commands run from `life-control-api/`. S1 is frontend-only and needs neither.
-- PR #159 is open for S4 and nothing is merged; the branch and the worktree stay until the merge
-  decision, because `gh` deletes both on a merge that carries `--delete-branch`.
+- PR #159 is **merged** into `main` as `84a17ef`, and `gh` deleted both the S4 branch and its worktree
+  as forecast. S5 runs in a fresh worktree, `~/workspace/LifeControl-worktrees/fix-variant-list-host-guard`,
+  created with `herdr worktree create --base main --no-focus`; its own `node_modules` came from
+  `npm ci --legacy-peer-deps` (777 packages, 14 s, shared `~/.npm` cache).
 
 ## Follow-ups (not in this feature)
 
@@ -1260,7 +1340,8 @@ files / 418 tests → 25 / 435. |
   `ProductEdit`, and that route does not load it. The sales principal reaches the panel through
   `edit/:id/variants/edit/:variantId`, which **is** guarded, so the gap is the list host specifically.
   Closing it means giving that host a guard of its own — a route-level change, deliberately outside
-  T15's surface.
+  T15's surface. **Closed in S5 (T16)**: the host forwards the container's `dirtyChange` and the route
+  gained `canDeactivate`. The bullet stays as the record of the gap.
 - **The store-scoped view now offers two affordances for the same edit.** The row action still navigates
   to the store-scoped page (D18, untouched) while the expand toggle opens the same panel in place. Both
   are honest; collapsing them into one needs a decision about the page's role for `lc-admin`, which D36
