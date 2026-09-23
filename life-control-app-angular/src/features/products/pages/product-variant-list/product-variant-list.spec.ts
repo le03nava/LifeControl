@@ -6,9 +6,8 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { MatDialog } from '@angular/material/dialog';
 import { Subject, of, throwError } from 'rxjs';
 import { ProductVariantList } from './product-variant-list';
-import { ProductService } from '../../data/product.service';
 import { ProductVariantService } from '../../data/product-variant.service';
-import { Product, Page } from '../../models/product.models';
+import { Page } from '../../models/product.models';
 import { ProductVariant } from '../../models/product-variant.models';
 import { ProfileResponse } from '@features/user/profile/data/profile.models';
 import { ProfileService } from '@features/user/profile/data/profile.service';
@@ -29,15 +28,6 @@ describe('ProductVariantList', () => {
 
   const mockProductId = 'prod-1';
 
-  const mockProduct: Product = {
-    id: mockProductId,
-    sku: 'SKU-001',
-    name: 'Producto de prueba',
-    enabled: true,
-    createdAt: '',
-    updatedAt: '',
-  };
-
   function createVariant(index: number, overrides: Partial<ProductVariant> = {}): ProductVariant {
     return {
       id: `var-${index}`,
@@ -54,10 +44,19 @@ describe('ProductVariantList', () => {
     };
   }
 
-  function createPage(variants: ProductVariant[], totalPages = 1): Page<ProductVariant> {
+  /**
+   * The read result. `totalElements` defaults to the loaded rows, but the count
+   * contract has to be asserted with the two differing, so tests that care pass an
+   * explicit total.
+   */
+  function createPage(
+    variants: ProductVariant[],
+    totalPages = 1,
+    totalElements = variants.length,
+  ): Page<ProductVariant> {
     return {
       content: variants,
-      totalElements: variants.length,
+      totalElements,
       totalPages,
       size: 12,
       number: 0,
@@ -84,9 +83,10 @@ describe('ProductVariantList', () => {
 
   function setup(
     options: {
-      productId?: string | null;
+      productId?: string;
       variants?: ProductVariant[];
       totalPages?: number;
+      totalElements?: number;
       variantsError?: boolean;
       variantsPending?: boolean;
       queryStoreId?: string | null;
@@ -94,7 +94,7 @@ describe('ProductVariantList', () => {
       profileError?: boolean;
     } = {},
   ) {
-    const productId = options.productId !== undefined ? options.productId : mockProductId;
+    const productId = options.productId ?? mockProductId;
     const variants = options.variants ?? [createVariant(1), createVariant(2)];
     const queryStoreId = options.queryStoreId ?? null;
 
@@ -135,7 +135,13 @@ describe('ProductVariantList', () => {
                       costPrice: null,
                       stock: null,
                     }));
-                return of(createPage(content, options.totalPages ?? 1));
+                return of(
+                  createPage(
+                    content,
+                    options.totalPages ?? 1,
+                    options.totalElements ?? content.length,
+                  ),
+                );
               },
             ),
       deleteVariant: vi.fn().mockReturnValue(of(void 0)),
@@ -156,19 +162,14 @@ describe('ProductVariantList', () => {
       providers: [
         { provide: ProductVariantService, useValue: variantServiceMock },
         { provide: ProfileService, useValue: profileServiceMock },
-        {
-          provide: ProductService,
-          useValue: { getProductById: vi.fn().mockReturnValue(of(mockProduct)) },
-        },
         { provide: Router, useValue: routerMock },
         { provide: MatDialog, useValue: dialogMock },
         {
           provide: ActivatedRoute,
+          // Only the query params are stubbed: the product id is an input now, and
+          // `?storeId=` still feeds the store resolution.
           useValue: {
             snapshot: {
-              paramMap: {
-                get: (key: string) => (key === 'id' ? productId : null),
-              },
               queryParamMap: {
                 get: (key: string) => (key === 'storeId' ? queryStoreId : null),
               },
@@ -180,7 +181,7 @@ describe('ProductVariantList', () => {
 
     fixture = TestBed.createComponent(ProductVariantList);
     component = fixture.componentInstance;
-    fixture.detectChanges();
+    fixture.componentRef.setInput('productId', productId);
   }
 
   /**
@@ -193,6 +194,7 @@ describe('ProductVariantList', () => {
    * the DOM reflecting the settled state for the assertions.
    */
   async function settle(): Promise<void> {
+    fixture.detectChanges();
     await fixture.whenStable();
     fixture.detectChanges();
     await fixture.whenStable();
@@ -206,15 +208,49 @@ describe('ProductVariantList', () => {
       .map((toggle) => (toggle.nativeElement as HTMLElement).textContent?.trim() ?? '');
   }
 
+  /** Header cell texts of the rendered table, in DOM order. */
+  function columnHeaders(): string[] {
+    return fixture.debugElement
+      .queryAll(By.css('th.mat-mdc-header-cell'))
+      .map((header) => (header.nativeElement as HTMLElement).textContent?.trim() ?? '');
+  }
+
+  /** `aria-label`s of the rendered row action buttons, in DOM order. */
+  function actionLabels(): (string | null)[] {
+    return fixture.debugElement
+      .queryAll(By.css('.actions-cell button'))
+      .map((button) => button.nativeElement.getAttribute('aria-label'));
+  }
+
+  function host(): HTMLElement {
+    return fixture.nativeElement as HTMLElement;
+  }
+
   describe('Component creation', () => {
-    it('should create', () => {
+    it('should create', async () => {
       setup();
+      await settle();
       expect(component).toBeTruthy();
     });
 
-    it('should read productId from the route', () => {
+    it('should expose the productId input value', () => {
       setup();
       expect(component.productId()).toBe(mockProductId);
+    });
+
+    it('should fetch the variants for the productId it is given, not from the route', async () => {
+      // The route stub carries no `paramMap`, so a read that reached the route
+      // would come back undefined instead of this id.
+      setup({ productId: 'prod-42' });
+      await settle();
+
+      expect(variantServiceMock.getVariants).toHaveBeenCalledWith(
+        'prod-42',
+        undefined,
+        0,
+        12,
+        false,
+      );
     });
 
     it('should fetch the variants without a storeId on init and without disabled ones', async () => {
@@ -229,24 +265,240 @@ describe('ProductVariantList', () => {
         false,
       );
     });
+  });
 
-    it('should load the product for the header', () => {
+  describe('Page header removal', () => {
+    it('should not render a page header nor a page title', async () => {
       setup();
-      const productService = TestBed.inject(ProductService);
-      expect(productService.getProductById).toHaveBeenCalledWith(mockProductId);
+      await settle();
+
+      const el = host();
+      expect(el.querySelector('app-page-header')).toBeNull();
+      expect(el.querySelector('.page-title')).toBeNull();
+    });
+  });
+
+  describe('countChange', () => {
+    it('should emit the current view total, not the length of the loaded page', async () => {
+      setup({ variants: [createVariant(1), createVariant(2)], totalPages: 3, totalElements: 30 });
+
+      const emitted: number[] = [];
+      component.countChange.subscribe((count) => emitted.push(count));
+
+      await settle();
+
+      expect(emitted).toEqual([30]);
+    });
+
+    it('should emit the new view total on the reload that follows a disable', async () => {
+      setup({ variants: [createVariant(1), createVariant(2)] });
+
+      const emitted: number[] = [];
+      component.countChange.subscribe((count) => emitted.push(count));
+      await settle();
+      expect(emitted).toEqual([2]);
+
+      variantServiceMock.getVariants.mockReturnValue(of(createPage([createVariant(1)], 1, 1)));
+      dialogMock.open = vi.fn().mockReturnValue({ afterClosed: () => of(true) });
+
+      component.confirmDisable(createVariant(2));
+      await settle();
+
+      expect(variantServiceMock.deleteVariant).toHaveBeenCalledWith(mockProductId, 'var-2');
+      expect(emitted).toEqual([2, 1]);
+    });
+
+    it('should emit the total of the view that is in play after a view change', async () => {
+      setup({ profileStoreId: 'store-1' });
+
+      const emitted: number[] = [];
+      component.countChange.subscribe((count) => emitted.push(count));
+      await settle();
+      expect(emitted).toEqual([2]);
+
+      variantServiceMock.getVariants.mockReturnValue(of(createPage([createVariant(1)], 1, 1)));
+      component.onStoreScopeChange(false);
+      await settle();
+
+      expect(component.storeScoped()).toBe(false);
+      expect(emitted).toEqual([2, 1]);
+    });
+
+    it('should not emit while the read is still in flight', () => {
+      setup({ variantsPending: true });
+
+      const emitted: number[] = [];
+      component.countChange.subscribe((count) => emitted.push(count));
+
+      fixture.detectChanges();
+
+      expect(component.loading()).toBe(true);
+      expect(emitted).toEqual([]);
+    });
+  });
+
+  describe('Voseo copy', () => {
+    it('should render the global column headers in the repo register', async () => {
+      setup();
+      await settle();
+
+      expect(columnHeaders()).toEqual(['Código de Barras', 'Variante', 'Estado', 'Acciones']);
+    });
+
+    it('should render the store-scoped column headers in the repo register', async () => {
+      setup({ profileStoreId: 'store-1' });
+      await settle();
+
+      expect(columnHeaders()).toEqual([
+        'Código de Barras',
+        'Variante',
+        'Precio de venta',
+        'Costo',
+        'Stock',
+        'Acciones',
+      ]);
+    });
+
+    it('should render the state chips in the repo register', async () => {
+      setup({ variants: [createVariant(1), createVariant(2, { enabled: false })] });
+      await settle();
+      component.onIncludeDisabledChange(true);
+      await settle();
+
+      const el = host();
+      expect(el.querySelector('.enabled-chip')?.textContent?.trim()).toBe('Habilitada');
+      expect(el.querySelector('.disabled-chip')?.textContent?.trim()).toBe('Deshabilitada');
+    });
+
+    it('should render the row action labels in the repo register', async () => {
+      setup({ variants: [createVariant(1), createVariant(2, { enabled: false })] });
+      await settle();
+      component.onIncludeDisabledChange(true);
+      await settle();
+
+      expect(actionLabels()).toEqual([
+        'Editar variante',
+        'Deshabilitar variante',
+        'Editar variante',
+        'Habilitar variante',
+      ]);
+    });
+
+    it('should render the store-scope toggles in the repo register', async () => {
+      setup({ profileStoreId: 'store-1' });
+      await settle();
+      expect(toggleLabels()).toEqual(['Ver sólo la tienda']);
+
+      component.onStoreScopeChange(false);
+      await settle();
+      expect(toggleLabels()).toEqual(['Ver sólo la tienda', 'Mostrar deshabilitadas']);
+    });
+
+    it('should render the empty state copy in the repo register', async () => {
+      setup({ variants: [] });
+      await settle();
+
+      const el = host();
+      expect(el.querySelector('.empty-title')?.textContent?.trim()).toBe(
+        'No hay variantes registradas',
+      );
+      expect(el.querySelector('.empty-subtitle')?.textContent?.trim()).toBe(
+        'Clic en "Agregar variante" para crear la primera de este producto',
+      );
+      expect(el.querySelector('.empty-state button')?.textContent?.trim()).toBe('Agregar variante');
+    });
+
+    it('should render the store-scoped empty state copy in the repo register', async () => {
+      setup({ profileStoreId: 'store-1', variants: [createVariant(1, { enabled: false })] });
+      await settle();
+
+      const el = host();
+      expect(el.querySelector('.empty-title')?.textContent?.trim()).toBe(
+        'Esta tienda no tiene stock ni precios cargados',
+      );
+      expect(el.querySelector('.empty-state button')?.textContent?.trim()).toBe(
+        'Ver las definiciones globales',
+      );
+    });
+
+    it('should render the unconfigured-store notice in the repo register', async () => {
+      setup({ profileStoreId: null });
+      await settle();
+
+      const el = host();
+      expect(el.querySelector('.store-scope > span')?.textContent?.trim()).toBe(
+        'No hay una tienda configurada para tu usuario.',
+      );
+      expect(el.querySelector('.store-scope button')?.textContent?.trim()).toBe(
+        'Configurar mi tienda',
+      );
+      expect(el.querySelector('.store-scope-hint')?.textContent?.trim()).toBe(
+        'Estás viendo las definiciones globales: el stock y los precios se cargan por tienda.',
+      );
+    });
+
+    it('should render the resolved-store notice in the repo register', async () => {
+      setup({ profileStoreId: 'store-1' });
+      await settle();
+
+      expect(host().querySelector('.store-scope > span')?.textContent?.trim()).toBe(
+        'Viendo la tienda configurada en tu perfil.',
+      );
+    });
+
+    it('should label the paginator in the repo register', async () => {
+      setup({ totalPages: 2 });
+      await settle();
+
+      const paginator = host().querySelector('mat-paginator');
+      expect(paginator?.getAttribute('aria-label')).toBe('Paginación de variantes');
+    });
+  });
+
+  describe('Add variant affordance', () => {
+    it('should render exactly one add button in its own action row in the table state', async () => {
+      setup();
+      await settle();
+
+      const el = host();
+      expect(el.querySelector('.empty-state')).toBeNull();
+
+      const actionButtons = Array.from(
+        el.querySelectorAll('.action-row button'),
+      ) as HTMLButtonElement[];
+      expect(actionButtons.length).toBe(1);
+      expect(actionButtons[0].textContent?.trim()).toBe('Agregar variante');
+
+      actionButtons[0].click();
+      expect(routerMock.navigate).toHaveBeenCalledWith(
+        ['/products/edit', mockProductId, 'variants', 'create'],
+        { queryParams: undefined },
+      );
+    });
+
+    it('should keep the empty state add button as the only affordance when empty', async () => {
+      setup({ variants: [] });
+      await settle();
+
+      const el = host();
+      expect(el.querySelector('.empty-state')).toBeTruthy();
+      expect(el.querySelector('.action-row')).toBeNull();
+
+      const emptyButtons = Array.from(
+        el.querySelectorAll('.empty-state button'),
+      ) as HTMLButtonElement[];
+      expect(emptyButtons.length).toBe(1);
+      expect(emptyButtons[0].textContent?.trim()).toBe('Agregar variante');
+
+      emptyButtons[0].click();
+      expect(routerMock.navigate).toHaveBeenCalledWith(
+        ['/products/edit', mockProductId, 'variants', 'create'],
+        { queryParams: undefined },
+      );
     });
   });
 
   describe('Display states', () => {
-    it('should render the product name and SKU in the header', async () => {
-      setup();
-      await settle();
-
-      const el = fixture.nativeElement as HTMLElement;
-      expect(el.textContent).toContain('Producto de prueba');
-      expect(el.textContent).toContain('SKU-001');
-    });
-
     it('should render the enabled state without offering Habilitar by default', async () => {
       setup({ variants: [createVariant(1), createVariant(2)] });
       await settle();
@@ -254,7 +506,7 @@ describe('ProductVariantList', () => {
       const rows = fixture.debugElement.queryAll(By.css('tr.mat-mdc-row'));
       expect(rows.length).toBe(2);
 
-      const el = fixture.nativeElement as HTMLElement;
+      const el = host();
       expect(el.textContent).toContain('Talla 1');
       expect(el.textContent).toContain('Talla 2');
       expect(el.textContent).toContain('77900000001');
@@ -267,8 +519,9 @@ describe('ProductVariantList', () => {
 
     it('should show the loading skeleton while the request is in flight', () => {
       setup({ variantsPending: true });
+      fixture.detectChanges();
 
-      const el = fixture.nativeElement as HTMLElement;
+      const el = host();
       expect(component.loading()).toBe(true);
       expect(el.querySelector('.loading-skeleton')).toBeTruthy();
       expect(el.querySelector('.table-card')).toBeNull();
@@ -278,7 +531,7 @@ describe('ProductVariantList', () => {
       setup({ variants: [] });
       await settle();
 
-      const el = fixture.nativeElement as HTMLElement;
+      const el = host();
       expect(el.querySelector('.empty-state')).toBeTruthy();
       expect(el.textContent).toContain('No hay variantes registradas');
     });
@@ -289,7 +542,7 @@ describe('ProductVariantList', () => {
       setup({ totalPages: 2 });
       await settle();
 
-      const el = fixture.nativeElement as HTMLElement;
+      const el = host();
       expect(component.hasMultiplePages()).toBe(true);
       expect(el.querySelector('.pagination-section')).toBeTruthy();
     });
@@ -386,9 +639,7 @@ describe('ProductVariantList', () => {
       setup({ profileStoreId: 'store-1' });
       await settle();
 
-      const headers = fixture.debugElement
-        .queryAll(By.css('th.mat-mdc-header-cell'))
-        .map((header) => (header.nativeElement as HTMLElement).textContent?.trim() ?? '');
+      const headers = columnHeaders();
 
       expect(headers).toContain('Precio de venta');
       expect(headers).toContain('Costo');
@@ -411,8 +662,7 @@ describe('ProductVariantList', () => {
       await settle();
 
       expect(component.storeScoped()).toBe(true);
-      expect(toggleLabels()).toContain('Ver sólo la tienda');
-      expect(toggleLabels()).not.toContain('Mostrar deshabilitadas');
+      expect(toggleLabels()).toEqual(['Ver sólo la tienda']);
     });
 
     it('should keep the global view reachable and refetch without a store when widened', async () => {
@@ -435,14 +685,14 @@ describe('ProductVariantList', () => {
 
       fixture.detectChanges();
       // The disabled opt-in is only offered on the global read.
-      expect(toggleLabels()).toContain('Mostrar deshabilitadas');
+      expect(toggleLabels()).toEqual(['Ver sólo la tienda', 'Mostrar deshabilitadas']);
     });
 
     it('should tell the operator when a store view has no rows for that store', async () => {
       setup({ profileStoreId: 'store-1', variants: [createVariant(1, { enabled: false })] });
       await settle();
 
-      const el = fixture.nativeElement as HTMLElement;
+      const el = host();
       expect(el.textContent).toContain('Esta tienda no tiene stock ni precios cargados');
       expect(el.textContent).not.toContain('No hay variantes registradas');
     });
@@ -482,7 +732,7 @@ describe('ProductVariantList', () => {
 
       expect(component.storeUnconfigured()).toBe(true);
 
-      const el = fixture.nativeElement as HTMLElement;
+      const el = host();
       expect(el.textContent).toContain('No hay una tienda configurada');
 
       const button = fixture.debugElement.query(By.css('.store-scope button'));
@@ -574,7 +824,7 @@ describe('ProductVariantList', () => {
       fixture.detectChanges();
       await settle();
 
-      const el = fixture.nativeElement as HTMLElement;
+      const el = host();
       expect(el.textContent).toContain('Deshabilitada');
 
       const reloadSpy = vi.spyOn(component.variantsResource, 'reload');
@@ -587,18 +837,6 @@ describe('ProductVariantList', () => {
 
       expect(variantServiceMock.enableVariant).toHaveBeenCalledWith(mockProductId, 'var-2');
       expect(reloadSpy).toHaveBeenCalled();
-    });
-  });
-
-  describe('Missing productId', () => {
-    it('should redirect to the product list when the route has no id', async () => {
-      setup({ productId: null });
-
-      fixture.detectChanges();
-      await settle();
-      await settle();
-
-      expect(routerMock.navigate).toHaveBeenCalledWith(['/products/list']);
     });
   });
 

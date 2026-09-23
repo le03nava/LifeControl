@@ -1,0 +1,6 @@
+// Layout only: the routed host must fill the outlet so the header and the list
+// stack as one block, matching the two sibling product pages.
+:host {
+  display: block;
+  width: 100%;
+}

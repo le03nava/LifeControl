@@ -1,23 +1,54 @@
-@if (generalError(); as errorMessage) {
-  <app-error-banner [message]="errorMessage" />
-}
-
-<app-products-form
-  [formGroup]="productForm()"
-  [serverErrors]="serverErrors()"
-  (saveProduct)="onSaveProduct($event)"
-  (cancelForm)="cancelForm()"
-/>
-
 @if (isEditMode()) {
-  <div class="product-actions-section">
-    <button mat-stroked-button color="primary" (click)="navigateToSuppliers()">
-      <mat-icon fontIcon="inventory_2" />
-      Administrar proveedores
-    </button>
-    <button mat-stroked-button color="primary" (click)="navigateToVariants()">
-      <mat-icon fontIcon="style" />
-      Variantes
-    </button>
-  </div>
+  <app-page-header
+    [title]="product()?.name ?? ''"
+    [subtitle]="skuSubtitle()"
+    [showActions]="false"
+  />
+
+  <!--
+    Eager content (no `<ng-template matTabContent>`): both list children mount on
+    workspace entry and report their counts, so the labels are populated before either
+    tab is opened. `?tab=` drives `[selectedIndex]`; the handler writes it back.
+  -->
+  <mat-tab-group [selectedIndex]="selectedTabIndex()" (selectedIndexChange)="onTabChange($event)">
+    <mat-tab label="Datos">
+      <div class="tab-content">
+        <ng-container [ngTemplateOutlet]="datosTab" />
+      </div>
+    </mat-tab>
+
+    <mat-tab [label]="supplierTabLabel()">
+      <div class="tab-content">
+        <app-product-supplier-list
+          [productId]="productId()!"
+          (countChange)="supplierCount.set($event)"
+        />
+      </div>
+    </mat-tab>
+
+    <mat-tab [label]="variantTabLabel()">
+      <div class="tab-content">
+        <app-product-variant-list
+          [productId]="productId()!"
+          (countChange)="variantCount.set($event)"
+        />
+      </div>
+    </mat-tab>
+  </mat-tab-group>
+} @else {
+  <ng-container [ngTemplateOutlet]="datosTab" />
 }
+
+<!-- Create mode is not a workspace: no header, no tabs, the form exactly as it was. -->
+<ng-template #datosTab>
+  @if (generalError(); as errorMessage) {
+    <app-error-banner [message]="errorMessage" />
+  }
+
+  <app-products-form
+    [formGroup]="productForm()"
+    [serverErrors]="serverErrors()"
+    (saveProduct)="onSaveProduct($event)"
+    (cancelForm)="cancelForm()"
+  />
+</ng-template>

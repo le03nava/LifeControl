@@ -1,27 +1,42 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   DestroyRef,
   inject,
   signal,
   OnInit,
 } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { ActivatedRoute, Router } from '@angular/router';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ProductService } from '../../data/product.service';
 import { ApiError } from '@shared/models';
 import { Product, ProductControl } from '../../models/product.models';
-import { NonNullableFormBuilder, FormGroup, Validators, ReactiveFormsModule } from '@angular/forms';
+import { NonNullableFormBuilder, FormGroup, Validators } from '@angular/forms';
 import { ProductsForm } from '../../components/products-form/products-form';
-import { MatButtonModule } from '@angular/material/button';
-import { MatIconModule } from '@angular/material/icon';
-import { ErrorBanner } from '@shared/ui';
+import { ErrorBanner, PageHeader } from '@shared/ui';
+import { MatTabsModule } from '@angular/material/tabs';
+import { ProductSupplierList } from '../product-supplier-list/product-supplier-list';
+import { ProductVariantList } from '../product-variant-list/product-variant-list';
 import type { UnsavedChangesAware } from '@core/guards/unsaved-changes.guard';
+
+/** The three workspace tabs, in display order; the index doubles as `selectedIndex`. */
+const WORKSPACE_TABS = ['datos', 'proveedores', 'variantes'] as const;
+type WorkspaceTab = (typeof WORKSPACE_TABS)[number];
 
 @Component({
   selector: 'app-product-edit',
-  imports: [ReactiveFormsModule, ErrorBanner, ProductsForm, MatButtonModule, MatIconModule],
+  imports: [
+    NgTemplateOutlet,
+    ErrorBanner,
+    PageHeader,
+    ProductsForm,
+    MatTabsModule,
+    ProductSupplierList,
+    ProductVariantList,
+  ],
   templateUrl: './product-edit.html',
   styleUrl: './product-edit.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -37,9 +52,50 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
 
   productForm = signal<FormGroup<ProductControl>>(this.createForm());
 
+  /**
+   * The product as loaded, for the workspace header.
+   *
+   * Deliberately the loaded entity and not the live form value: the header identifies
+   * which product the workspace belongs to, so it must not flicker as the operator
+   * types in the `Datos` tab. Edits belong to the form, not to the page identity.
+   */
+  readonly product = signal<Product | null>(null);
+
   isEditMode = signal(false);
   serverErrors = signal<Record<string, string>>({});
   generalError = signal<string | null>(null);
+
+  /** The supplier count reported by the `Proveedores` tab, fed by its `countChange` output. */
+  readonly supplierCount = signal(0);
+
+  /** The variant count reported by the `Variantes` tab, fed by its `countChange` output. */
+  readonly variantCount = signal(0);
+
+  /**
+   * The query params, read reactively so an in-place tab switch is observed. A snapshot
+   * read would never see the change the click itself writes.
+   */
+  private readonly queryParamMap = toSignal(this.route.queryParamMap, {
+    initialValue: convertToParamMap({}),
+  });
+
+  /** The validated tab named by `?tab=`, defaulting to `datos` for a missing or unknown value. */
+  readonly activeTab = computed<WorkspaceTab>(() => {
+    const requested = this.queryParamMap().get('tab');
+    return (WORKSPACE_TABS as readonly string[]).includes(requested ?? '')
+      ? (requested as WorkspaceTab)
+      : 'datos';
+  });
+
+  readonly selectedTabIndex = computed(() => WORKSPACE_TABS.indexOf(this.activeTab()));
+
+  readonly skuSubtitle = computed(() => {
+    const sku = this.product()?.sku;
+    return sku ? `SKU: ${sku}` : '';
+  });
+
+  readonly supplierTabLabel = computed(() => `Proveedores (${this.supplierCount()})`);
+  readonly variantTabLabel = computed(() => `Variantes (${this.variantCount()})`);
 
   ngOnInit(): void {
     const id = this.productId();
@@ -55,6 +111,7 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (product) => {
+          this.product.set(product);
           this.productForm.set(
             this.fb.group({
               id: this.fb.control(product.id),
@@ -87,6 +144,38 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
       attributes: this.fb.control<string | null>(null),
       enabled: this.fb.control(true),
     });
+  }
+
+  /**
+   * Writes the selected tab into `?tab=`.
+   *
+   * The other query params are carried over explicitly, not via
+   * `queryParamsHandling: 'merge'`, so the preservation is visible and pinnable: dropping
+   * `storeId` would silently change which rows the `Variantes` tab reads.
+   *
+   * The equality check is the feedback-loop guard. `mat-tab-group` emits
+   * `selectedIndexChange` in a microtask after `[selectedIndex]` moves, so a reactive
+   * param change would otherwise navigate back into the value it came from.
+   */
+  onTabChange(index: number): void {
+    const requested = WORKSPACE_TABS[index];
+    if (!requested || requested === this.activeTab()) {
+      return;
+    }
+
+    const current = this.queryParamMap();
+    const queryParams: Record<string, string> = {};
+    current.keys.forEach((key) => {
+      if (key !== 'tab') {
+        const value = current.get(key);
+        if (value !== null) {
+          queryParams[key] = value;
+        }
+      }
+    });
+    queryParams['tab'] = requested;
+
+    this.router.navigate([], { relativeTo: this.route, queryParams });
   }
 
   onSaveProduct(productData: Product): void {
@@ -166,19 +255,5 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
   /** Exposed to `unsavedChangesGuard`: the live form decides. */
   hasUnsavedChanges(): boolean {
     return this.productForm().dirty;
-  }
-
-  navigateToSuppliers(): void {
-    const id = this.productId();
-    if (id) {
-      this.router.navigate(['/products/edit', id, 'suppliers']);
-    }
-  }
-
-  navigateToVariants(): void {
-    const id = this.productId();
-    if (id) {
-      this.router.navigate(['/products/edit', id, 'variants']);
-    }
   }
 }
