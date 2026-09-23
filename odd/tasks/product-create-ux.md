@@ -7,14 +7,16 @@ the gate evidence below. **S2a is delivered in PR #155** (`feat/product-workspac
 open, `MERGEABLE`/`CLEAN`, CI green): work-unit commit `9d5eb5c` plus its evidence commit `90ef886`,
 on a branch created from `main` @ `158a6b3` in the **reused** worktree
 `~/workspace/LifeControl-worktrees/feat-product-create-ux` (D7), whose original branch
-`feat/product-create-ux` stays untouched at its merged tip `648930b`. **S2b is implemented and
-verified, uncommitted to a PR**: four commits on `feat/product-association-dialogs`, stacked on the
-S2a tip `90ef886` (D6, D20) — `ddc6898` (this record's S2b plan and the S2a status correction),
-`53c779f` (W1), `717686a` (the supplier dialog's unsaved-input guard) and `ae0cfb1` (W2). Gates on
-the tip: lint clean, build 850.87 kB exit 0, `test:coverage:check` **127 files / 2436 tests**,
-coverage **94.02/75.8/89.15/94.02** (thresholds 80/60/75/80). **S2b measured 3.247 changed lines,
-so D20's split is proposed to the user and pending**; nothing is pushed and no PR is open. S3 and S4
-are not started. Shape agreed with the user on 2026-09-23 ("Tabs + stepper con skip", "propuesta
+`feat/product-create-ux` stays untouched at its merged tip `648930b`. **S2b is delivered in PR #156**
+(`feat/product-association-dialogs` → `feat/product-workspace-tabs`, open, `MERGEABLE`, Angular CI
+"Lint, Build & Test" success run `35891274123`): five commits on a branch stacked on the S2a tip
+`90ef886` (D6) — `ddc6898` (this record's S2b plan and the S2a status correction), `53c779f` (W1),
+`717686a` (the supplier dialog's unsaved-input guard), `ae0cfb1` (W2) and `2c7761a` (this record's
+S2b evidence). Gates on the code tip `ae0cfb1`: lint clean, build 850.87 kB exit 0,
+`test:coverage:check` **127 files / 2436 tests**, coverage **94.02/75.8/89.15/94.02** (thresholds
+80/60/75/80). **S2b measured 3.247 changed lines, so D20 fired; the user chose one PR over the
+proposed two-PR split**, and the PR is based on the S2a branch because #155 is still open — GitHub
+will retarget it to `main` when #155 merges. S3 and S4 are not started. Shape agreed with the user on 2026-09-23 ("Tabs + stepper con skip", "propuesta
 primero"; voseo adopted as the copy register). Product `attributes` handling and the `Activo` toggle
 were descoped the same day (see `## Descoped by user decision`).
 **Created**: 2026-09-23
@@ -678,6 +680,7 @@ Rows below are added as each task closes, with the commit that carries it.
 | 2026-09-23 | S2b W3 independent verification | `ae0cfb1` (uncommitted at the time) | A second read-only `gentle-ai-verify` subagent checked eleven claims with its own throwaway probe. Upheld: an edit-mode dialog starts clean and neither `setErrors({ emitEvent: false })` nor `markAllAsTouched()` arms the guard; `disableClose` tracks the state both ways and cannot stick; all four cancel paths are pinned in both dialogs; the `ConfirmDialog` data follows the guard's precedent with voseo copy; the success contract is untouched; F2 and F3 are fixed; the reverted F4 hazard was **not real** (write keyed by `variantId` + `storeId`, read keyed by barcode) with no residual hazard; nothing outside the slice moved; no weakened or vacuous assertion anywhere. Three low findings remain open as comments-level contracts, recorded under `### Raised by S2b`. |
 | 2026-09-23 | **S2b gates (tip)** | `ae0cfb1` | `npm run lint` → `All files pass linting.`; `npm run build` → bundle generation complete, **850.87 kB** initial (S2a: 850.87 kB), exit 0; `npm run test:coverage:check` → **127 files / 2436 tests / 0 failures**, coverage **94.02/75.8/89.15/94.02** (thresholds 80/60/75/80). Delta over the S2a tip (`9d5eb5c`: 125 files / 2357 tests, 93.38/75.34/88.52/93.38): **+2 files, +79 tests, +0.64/+0.46/+0.63/+0.64**. The branch-coverage margin the S2a section flagged as thin (75.34 against 75) is now 0.8 pp. |
 | 2026-09-23 | **S2b measured** | `ae0cfb1` | 29 files, 2.431 insertions / 816 deletions = **3.247 changed lines** (source 1.283, specs 1.821, this record 143), 16 of them whitespace. See `#### S2b — measured` above. |
+| 2026-09-23 | **S2b delivered** | `2c7761a` | PR **#156** opened against `feat/product-workspace-tabs`: S2a is still an open PR, so the base is the S2a branch and GitHub retargets it to `main` when #155 merges. 29 files, 2.518 insertions / 817 deletions, label `enhancement`, `MERGEABLE`. Angular CI "Lint, Build & Test" **success** (run `35891274123`, the workflow's `pull_request` trigger has no branch filter, so a stacked base still runs it). Per D20 the two-PR split was proposed on the measured 3.247 lines; the user chose **one PR**. This docs-only commit does not re-trigger CI (the workflow's path filter is `life-control-app-angular/**`), and the code bytes CI verified are unchanged. |
 
 ## Constraints
 
