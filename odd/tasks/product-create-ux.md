@@ -11,16 +11,26 @@ to the verified S2b head. Gates on the S2b code tip `ae0cfb1`: lint clean, build
 proposed; the user chose one PR. The S2a and S2b sections below keep their "open PR" wording as the
 record of what was true when they were written; this line is the correction.
 
-**S3 is delivered on branch `feat/product-create-stepper`**, created from `main` @ `d7c6e16` in the
-same **reused** worktree `~/workspace/LifeControl-worktrees/feat-product-create-ux` (D7), as three
-commits: `9855f2c` (this record's S3 plan and the status correction), `59d02bc` (the stepper, one work
-unit) and `1b8a507` (the independent verifier's findings round). Gates on `1b8a507`: lint clean, build
-**851.05 kB** initial exit 0, `test:coverage:check` **127 files / 2458 tests / 0 failures**, coverage
+**S3 is merged into `main`** as PR #157 (merge commit `a98426e`, branch `feat/product-create-stepper`,
+created from `main` @ `d7c6e16` in the **reused** worktree
+`~/workspace/LifeControl-worktrees/feat-product-create-ux` (D7)), as three commits: `9855f2c` (this
+record's S3 plan and the status correction), `59d02bc` (the stepper, one work unit) and `1b8a507` (the
+independent verifier's findings round). Gates on `1b8a507`: lint clean, build **851.05 kB** initial
+exit 0, `test:coverage:check` **127 files / 2458 tests / 0 failures**, coverage
 **94.03/75.80/89.19/94.03** (thresholds 80/60/75/80). S3 measured **579 changed lines of code and
 specs** (221 source / 358 specs, 6 files) plus 203 lines of this record at the plan commit, so D20's
-~1.000 threshold was not reached and no split was proposed. S4 is not started. Shape agreed with the
-user on 2026-09-23 ("Tabs + stepper con skip", "propuesta primero"; voseo adopted as the copy
-register). Product `attributes` handling and the `Activo` toggle were descoped the same day (see
+~1.000 threshold was not reached and no split was proposed. `main` is at **`edbfb46`** (PR #158, a
+docs-only change to the convention skill).
+
+**S4 is in progress on branch `feat/product-variant-tab-stock`**, created from `main` @ `edbfb46` in a
+**fresh** worktree `~/workspace/LifeControl-worktrees/feat-product-variant-tab-stock` — fresh because
+PR #157's merge deleted the S3 branch and `gh` removed its worktree. Scope is **T13 + T15**; **T14
+stays blocked** on the unapproved `B1` (D30). Shape agreed with the user on 2026-09-23 before any code
+was written: **per-row expansion** inside the Variantes table for T15 (D31) and **the dialog stays
+open and resets in place** for T13 (D32), after a read-only two-scout mapping of the surface and a
+`## S4 reconciliation` that corrects two record claims. Shape for the earlier slices was agreed the
+same way ("Tabs + stepper con skip", "propuesta primero"; voseo adopted as the copy register). Product
+`attributes` handling and the `Activo` toggle were descoped the same day (see
 `## Descoped by user decision`).
 **Created**: 2026-09-23
 **Risk**: **medium** — route and UI restructure over four existing pages. No auth, role-set or guard
@@ -179,6 +189,120 @@ navigation block anywhere under `src`; and `products.routes.ts` already register
   pending, and refuses a backward move into a step whose `editable` is false.
 - `MatStepperIntl`'s "Optional" label is Material's English default and the repo has no provider for
   it, so `[optional]="true"` would print English inside Spanish copy.
+
+## S4 reconciliation (2026-09-23, read-only exploration, user decisions taken)
+
+S4 was re-scoped before any code was written, by two read-only mapping scouts that anchored every claim
+to `file:line` at `edbfb46`. Two record claims are false at HEAD, one task is blocked by an unapproved
+backend item, and the locked shapes need five engineering decisions the plan did not carry.
+
+**Scope: T13 + T15. T14 stays blocked (D30).** `B1` (bulk variant creation) is not approved, so the
+matrix generator has no endpoint to call; without it T13 is the honest ceiling, exactly as the task
+table already says.
+
+**Two record claims are false at HEAD, both invalidated by S2b's own D21.**
+
+- **D17's "the redirect would break two live paths: the post-save/post-cancel return at
+  `product-variant-edit.ts:195,206`, which navigates back to `edit/:id/variants`" is false.** That page
+  now has exactly one `router.navigate`, `product-variant-edit.ts:104` → `['/products/list']`; D21
+  deleted the inline definition form and with it the return path. The stale sentence survives verbatim
+  as a comment in `pages/product-variant-list-host/product-variant-list-host.ts:16` and
+  `products.routes.spec.ts:188`. D17's argument does not depend on it — the target of that redirect is
+  `VARIANT_ROLES` while `edit/:id` is `PRODUCT_ADMIN_ROLES` — so the decision stands and only the
+  evidence is corrected. **The two stale comments are corrected in S4.**
+- **D8's anchor "`product-variant-store-stock.ts:130`" is now `:148`**, and S2b's
+  "`product-variant-edit.html:26`" is now `:24`. Same claims, drifted lines.
+
+**Confirmed by reading, not assumed.**
+
+- `app-product-variant-store-stock` still has exactly **one** template host,
+  `product-variant-edit.html:24`, and resolves its own store in its constructor
+  (`product-variant-store-stock.ts:148`) with `VariantStoreContext` provided **per instance** (`:72`).
+  Its read is keyed by `barCode` + `storeId` (`:124`) and its write by `variantId` + `storeId` (`:211`)
+  — unchanged since S2b, and the write key is what makes an embedded instance safe.
+- `ProductVariantList` resolves the same store from the same `?storeId=` snapshot (`:189`) and already
+exposes it as `storeId`/`storeScoped` (`:126-141`). Its table declares a single `matRowDef`
+  (`product-variant-list.html:181`): there is **no** expansion, selection or per-row state today, so
+  the row detail is net-new work, not a port.
+- `ProductEdit.hasUnsavedChanges()` reads **only** the product form (`product-edit.ts:338-340` →
+  `return this.productForm().dirty;`), so a dirty panel embedded in a tab is invisible to the route
+  guard until the shell aggregates it.
+- The workspace tab route `edit/:id` is `PRODUCT_ADMIN_ROLES` (`products.routes.ts:45-47`) while the
+  panel's only route is `VARIANT_ROLES` (`:72-74`). The tab is therefore **not** reachable by
+  `lc-sales`, and the store-scoped page cannot be deleted without denying the sales principal the
+  panel — the D17/D19 argument applied to T15. The page therefore **stays exactly as it is** (D36),
+  and both of its entry paths survive: `product-variant-list.ts:230-235` (store-scoped row action) and
+  `product-variant-stock-search.ts:156-159` (sales).
+- The dialogs' dirty-close guard is the repo's own idiom for "do not discard typed input":
+  `product-variant-dialog.ts:117-144` opens the shared `ConfirmDialog` before closing a dirty form.
+  T15's expansion switch copies it instead of inventing a second contract (D33).
+- `ProductVariantDialog`'s dirty signal is a bare `valueChanges` subscription
+  (`product-variant-dialog.ts:91-94`) and `disableClose` is driven from it (`:96-100`), so a `reset()`
+  that emits would immediately re-arm both. The child form's `serverErrors` effect
+  (`product-variant-form.ts:66-110`) is not reset-aware either, so a stale server error would survive
+  a reset unless the dialog clears it too. `ProductVariantForm` has no in-flight state
+  (`product-variant-form.ts:49-55`), so a second click during a create POST is a second POST.
+- `product-variant.service.ts:131-145` POSTs `{ barCode, variantName }` to
+  `/products/{productId}/variants`; `ProductController.java:162-172` validates and creates with no
+  session or one-shot constraint. **T13 needs no backend change**, and a repeat POST with a different
+  barcode/name can only fail with the 409 the dialog already discriminates.
+- No dialog in the repo resets a hosted form for a second entry. The closest precedent is the
+  signal-based clear in `purchases/purchase-orders/components/detail-table/detail-table.ts:252-259`,
+  which T13 follows in spirit: the reset is explicit state, not a framework `reset()` that would emit.
+
+### Locked with the user (2026-09-23, S4)
+
+- D30: **S4 is T13 + T15, and T14 stays blocked on `B1`.** `B1` is a separate decision and is not
+  approved, so the matrix generator is not in this slice and no `life-control-api/` file is touched.
+  Consequence: S4 stays frontend-only and the feature's risk stays **medium**; taking `B1` in the same
+  branch is what would reclassify it to high.
+- D31: **T15 embeds the per-store panel as a per-row expansion inside the existing variant table.** A
+  leading expand toggle column is added to both column sets; the expanded detail row hosts
+  `app-product-variant-store-stock` with the row's `variantId` and `barCode`. Rationale: the table is
+  already the view the operator is in, the panel is already the editor for exactly this data, and the
+  alternatives cost more for less — a master–detail side panel needs a new selection state, new layout
+  and the same dirty plumbing, and making the store-scoped columns editable leaves the global view
+  with no editor and duplicates the panel's validation and save surface.
+- D32: **T13's shape is "the dialog stays open and resets in place".** `ProductVariantForm` gains a
+  second submit output and a create-mode-only `Guardar y agregar otra` button; on success the dialog
+  resets the group with `emitEvent: false`, clears `dirty`, `serverErrors` and `generalError`, and
+  stays open for the next variant. The form spec is the evidence the task table already names.
+  Rationale: it is the smallest change that removes the close-and-reopen cycle, it needs no backend
+  change, and it keeps D22's close contract for the two existing consumers.
+
+### Engineering decisions (S4)
+
+- D33: **one expanded row at a time, and switching or collapsing a dirty one asks first.** The list
+  holds `expandedVariantId`; toggling another row (or the same one) while the open panel reports
+  `dirty` opens the shared `ConfirmDialog` with voseo copy and only then collapses. The panel already
+  emits `dirtyChange`, so this costs one handler, not a new state channel. Rationale: a collapsed panel
+  is destroyed, so silently switching rows would discard typed stock/prices with no prompt — the exact
+  class of loss the two S2b dialogs and the route guard already refuse to allow.
+- D34: **the dialog remembers the last saved variant and closes with it on every exit path.** `null`
+  still means "nothing was persisted". Without this, an operator who adds two variants and then closes
+  the dialog would leave the list stale, because `ProductVariantList` reloads only on a truthy result
+  (`product-variant-list.ts:252-261`) and the reset form makes the final `Cancelar` clean. The list's
+  consumer therefore needs no change; the store-scoped page cannot reach the new button at all (it
+  opens the dialog in edit mode), so its `saved.barCode` re-key is unaffected.
+- D35: **`ProductVariantForm` gains a `saving` input and both submit buttons honour it.** T13 makes the
+  recorded double-submit hazard materially worse — a double click on "y agregar otra" would create two
+  rows instead of surfacing a 409 — so the in-flight state the S3 follow-up asked for is added here,
+  scoped to the two buttons the form owns. The same input closes the gap for plain `Guardar`.
+- D36: **the panel is hosted unchanged — no new input, no hoisted store context.** It resolves the
+  store from its own `ActivatedRoute` snapshot, which inside the tab is the same `edit/:id` route with
+  the same `?storeId=`, and it is provided per instance. Trade-off accepted and recorded: with one
+  expansion at a time there is at most one extra `GET /api/profile` per expanded row, and the panel's
+  store can in principle resolve differently from the list's store-scoped columns if the profile
+  changes between the two resolutions. A `storeId` input on the panel is the durable fix if
+  multi-expansion ever lands; it is deliberately not taken now because it would change a component the
+  sales-reachable page also hosts, for a cost that one expanded row cannot currently exercise.
+- D37: **the shell aggregates the embedded panel's dirty flag.** `ProductVariantList` gains a
+  `dirtyChange` output fed by the expanded panel's own `dirtyChange` (and `false` when the panel is
+  destroyed), `ProductEdit` binds it on both hosts, and `hasUnsavedChanges()` becomes
+  `productForm().dirty || variantPanelDirty()`. Rationale: the route already carries
+  `canDeactivate: [unsavedChangesGuard]`, and a panel whose edits the guard cannot see would let a
+  stray navigation discard stock and prices silently — the same defect S2b's F-finding closed inside
+  the dialogs.
 
 ## Objective
 
@@ -589,9 +713,9 @@ the finding is not lost:
 | **S3** | T10 | Three-step create stepper on `/products/create`; steps 2 and 3 are optional and are expressed as such in the step label; `POST /products` at the end of step 1 | stepper spec |
 | **S3** | T11 | **Re-scoped by D24**: no batch and no "N of M" — each association is submitted by its own dialog, which is the failure surface and keeps the entered values; the step lists what already exists, nothing is rolled back, and "Terminar" is always available | list + dialog specs (existing) |
 | **S3** | T12 | Pre-persist leave confirmation and post-persist exit semantics wired to the guard (D27) | guard spec + `product-edit.spec.ts` |
-| **S4** | T13 | Variant form: "Guardar y agregar otra" (no backend change) | form spec |
-| **S4** | T14 | Variant matrix generation — **blocked** on B1, and on the future attributes redesign | stepper/workspace spec |
-| **S4** | T15 | Embed per-store stock and prices in the Variantes tab | tab spec |
+| **S4** | T13 | Variant form: "Guardar y agregar otra" (no backend change). D32 shape, D34 close contract, D35 in-flight guard | form + dialog specs |
+| **S4** | T14 | Variant matrix generation — **blocked** on B1, and on the future attributes redesign. **Not in S4** (D30) | stepper/workspace spec |
+| **S4** | T15 | Embed per-store stock and prices in the Variantes tab. D31 per-row expansion, D33 one row at a time, D36 panel hosted unchanged, D37 dirty aggregation | list + shell specs |
 
 **S2b work units** (D20, one work-unit commit each): **W1** = T7 for suppliers + T8 — the supplier
 dialog (D22), the debounced server-side search (D23), the `suppliers/create` and
@@ -610,6 +734,14 @@ boundary that does not exist in the code — the same conclusion D16 reached for
 T12 therefore land as a single commit (`59d02bc`), and the plan's W1/W2 wording is kept above as the
 record of what was forecast. A third commit (`1b8a507`) carries the independent verifier's findings
 round, which is its own reviewable unit by the same argument the S2b slice used for `717686a`.
+
+**S4 work units** (D20, one work-unit commit each): **W1** = T13 — the second submit path in
+`product-variant-form`, its reset-and-stay-open handling and the in-flight guard in
+`product-variant-dialog` (D32/D34/D35). **W2** = T15 — the expand column and detail row in
+`product-variant-list`, the one-at-a-time switch with its confirmation (D33), the shell's dirty
+aggregation (D37) and the two stale D17 comments the reconciliation corrects. W2 does not stack on W1
+functionally: they touch disjoint files, so either order is reviewable, and W1 comes first only because
+it is the smaller unit.
 
 ## Backend dependencies
 
@@ -835,6 +967,25 @@ English `editableLabel` (`'Editable'`, visually hidden) reached the screen and o
 the right Spanish word. F1 is the one worth remembering: it is the same class of defect as the
 `MatAutocompleteTrigger.writeValue` microtask from S2b — a framework value that looks reactive and is
 not.
+
+#### S4 — measured before implementation
+
+Measured on `main` @ `edbfb46` by two parallel read-only mapping scouts, every claim
+`file:line`-anchored, plus the store-resolution and dialog-guard reads above.
+
+| Work unit | Files | Source lines | Spec lines | Total |
+|---|---|---|---|---|
+| W1 (T13: form + dialog) | 4 | ~55 | ~150 | ~205 |
+| W2 (T15: list + shell) | 5–6 | ~180 | ~300 | ~480 |
+| **S4 total** | **9–10** | **~235** | **~450** | **~685** |
+
+Against the 4–8 files / 400–700 line forecast in the S4 row above. The forecast is low on files and
+roughly right on lines, and the reason is D31: the expansion is new behaviour in a container that has
+none today (`product-variant-list.html:181` is the only `matRowDef`), so the list gains a column, a
+detail row, a switch handler and a confirmation before it gains a single embedded panel — and the shell
+needs a dirty channel it does not have (`product-edit.ts:338-340`). D20's ~1.000 threshold is not
+reached by the forecast, so no split is proposed; the measurement at the tip is what confirms or
+corrects it, exactly as S3's did.
 
 ## Evidence log
 
