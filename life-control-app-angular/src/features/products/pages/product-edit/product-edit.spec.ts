@@ -15,6 +15,11 @@ describe('ProductEdit', () => {
   let routerMock: Partial<Router>;
 
   function createApiError(overrides: Partial<Record<string, unknown>> = {}): HttpErrorResponse {
+    // `overrides.status` drives both the body and the top-level HTTP status, so a
+    // 409 case reaches the handler through the same `HttpErrorResponse.status` a
+    // real response sets.
+    const status = typeof overrides['status'] === 'number' ? overrides['status'] : 400;
+
     return new HttpErrorResponse({
       error: {
         status: 400,
@@ -25,8 +30,8 @@ describe('ProductEdit', () => {
         correlationId: 'abc-123',
         ...overrides,
       },
-      status: 400,
-      statusText: 'Bad Request',
+      status,
+      statusText: status === 409 ? 'Conflict' : 'Bad Request',
     });
   }
 
@@ -390,6 +395,80 @@ describe('ProductEdit', () => {
       expect(component.serverErrors()).toEqual({
         name: 'Nombre ya existe',
       });
+      expect(component.generalError()).toBeNull();
+    });
+
+    it('should map a duplicate-SKU 409 onto the sku control and clear the banner on create', () => {
+      const httpError = createApiError({
+        status: 409,
+        message: "Product with SKU 'SKU-001' already exists",
+        errors: undefined,
+      });
+      productServiceMock.createProduct = vi.fn().mockReturnValue(throwError(() => httpError));
+
+      component.onSaveProduct(createProductData());
+
+      expect(component.serverErrors()).toEqual({ sku: 'Ya existe un producto con ese SKU.' });
+      expect(component.generalError()).toBeNull();
+    });
+
+    it('should reach the sku control, not just the serverErrors signal', () => {
+      const httpError = createApiError({
+        status: 409,
+        message: "Product with SKU 'SKU-001' already exists",
+        errors: undefined,
+      });
+      productServiceMock.createProduct = vi.fn().mockReturnValue(throwError(() => httpError));
+
+      component.onSaveProduct(createProductData());
+      fixture.detectChanges();
+
+      expect(component.productForm().get('sku')?.errors?.['serverError']).toBe(
+        'Ya existe un producto con ese SKU.',
+      );
+    });
+
+    it('should keep the general banner for a 409 that is not a SKU conflict', () => {
+      const httpError = createApiError({
+        status: 409,
+        message: 'The operation conflicts with an existing resource or violates a data constraint',
+        errors: undefined,
+      });
+      productServiceMock.createProduct = vi.fn().mockReturnValue(throwError(() => httpError));
+
+      component.onSaveProduct(createProductData());
+
+      expect(component.serverErrors()).toEqual({});
+      expect(component.generalError()).toBe(
+        'The operation conflicts with an existing resource or violates a data constraint',
+      );
+    });
+
+    it('should let an errors map win over a duplicate-SKU 409', () => {
+      const httpError = createApiError({
+        status: 409,
+        message: "Product with SKU 'SKU-001' already exists",
+        errors: { sku: 'SKU duplicado' },
+      });
+      productServiceMock.createProduct = vi.fn().mockReturnValue(throwError(() => httpError));
+
+      component.onSaveProduct(createProductData());
+
+      expect(component.serverErrors()).toEqual({ sku: 'SKU duplicado' });
+      expect(component.generalError()).toBeNull();
+    });
+
+    it('should map a duplicate-SKU 409 onto the sku control on update as well', () => {
+      const httpError = createApiError({
+        status: 409,
+        message: "Product with SKU 'SKU-001' already exists",
+        errors: undefined,
+      });
+      productServiceMock.updateProduct = vi.fn().mockReturnValue(throwError(() => httpError));
+
+      component.onSaveProduct(createProductData({ id: 'existing-id' }));
+
+      expect(component.serverErrors()).toEqual({ sku: 'Ya existe un producto con ese SKU.' });
       expect(component.generalError()).toBeNull();
     });
   });

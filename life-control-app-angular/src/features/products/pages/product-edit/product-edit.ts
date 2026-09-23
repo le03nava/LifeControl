@@ -124,10 +124,23 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
     }
   }
 
+  /**
+   * `GlobalExceptionHandler` answers 409 from two different sources: the explicit
+   * duplicate check (`DuplicateProductException`, message `Product with SKU 'X'
+   * already exists`) and the uncaught `DataIntegrityViolationException` path
+   * (generic "data constraint" message). D5 requires message-discriminated mapping:
+   * only the first one identifies a field conflict, so only it marks `sku`.
+   */
+  private static readonly DUPLICATE_SKU_PATTERN = /sku/i;
+  private static readonly DUPLICATE_SKU_MESSAGE = 'Ya existe un producto con ese SKU.';
+
   private handleServerError(err: HttpErrorResponse): void {
     const apiError = err.error as ApiError | undefined;
     if (apiError?.errors && Object.keys(apiError.errors).length > 0) {
       this.serverErrors.set(apiError.errors);
+      this.generalError.set(null);
+    } else if (this.isDuplicateSkuConflict(err, apiError)) {
+      this.serverErrors.set({ sku: ProductEdit.DUPLICATE_SKU_MESSAGE });
       this.generalError.set(null);
     } else if (apiError?.message) {
       this.serverErrors.set({});
@@ -136,6 +149,14 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
       this.serverErrors.set({});
       this.generalError.set('Error inesperado. Intente de nuevo más tarde.');
     }
+  }
+
+  private isDuplicateSkuConflict(err: HttpErrorResponse, apiError: ApiError | undefined): boolean {
+    return (
+      err.status === 409 &&
+      typeof apiError?.message === 'string' &&
+      ProductEdit.DUPLICATE_SKU_PATTERN.test(apiError.message)
+    );
   }
 
   cancelForm(): void {
