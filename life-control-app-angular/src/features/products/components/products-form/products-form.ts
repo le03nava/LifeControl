@@ -26,6 +26,18 @@ import { MatIconModule } from '@angular/material/icon';
 export class ProductsForm {
   formGroup = input.required<FormGroup<ProductControl>>();
   serverErrors = input<Record<string, string>>({});
+
+  /**
+   * Whether the form presents its edit copy.
+   *
+   * `null` (the default) keeps the derivation from the `id` control below. A host whose
+   * "does this entity exist yet" answer changes **without the form being replaced** must
+   * pass it explicitly: `controls.id.value` is a plain property, so a `computed` over it
+   * cannot react to a programmatic write-back. That is exactly the create stepper's case
+   * (D26): step 1 writes the created id into the control, and the copy has to follow.
+   */
+  editMode = input<boolean | null>(null);
+
   saveProduct = output<Product>();
   cancelForm = output<void>();
 
@@ -59,7 +71,7 @@ export class ProductsForm {
     return 'Campo inválido.';
   }
 
-  readonly isEditMode = computed(() => !!this.formGroup()?.controls.id.value);
+  readonly isEditMode = computed(() => this.editMode() ?? !!this.formGroup()?.controls.id.value);
 
   constructor() {
     effect((onCleanup) => {

@@ -7,6 +7,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { BehaviorSubject, Observable, of, throwError } from 'rxjs';
 import { MatDialog } from '@angular/material/dialog';
 import { MatTabGroup } from '@angular/material/tabs';
+import { MatStepper } from '@angular/material/stepper';
 import { ProductEdit } from './product-edit';
 import { Page, Product } from '../../models/product.models';
 import { ProductService } from '../../data/product.service';
@@ -16,6 +17,7 @@ import { ProductVariantService } from '../../data/product-variant.service';
 import { ProductVariant } from '../../models/product-variant.models';
 import { ProductSupplierList } from '../product-supplier-list/product-supplier-list';
 import { ProductVariantList } from '../product-variant-list/product-variant-list';
+import { ProductSupplierDialog } from '../../components/product-supplier-dialog/product-supplier-dialog';
 import { ProfileService } from '@features/user/profile/data/profile.service';
 import { ProfileResponse } from '@features/user/profile/data/profile.models';
 
@@ -239,6 +241,56 @@ describe('ProductEdit', () => {
     tabHeaders(f)[index]?.click();
   }
 
+  /** The step header labels, in stepper order. */
+  function stepLabels(f: ComponentFixture<ProductEdit>): string[] {
+    return Array.from<Element>(f.nativeElement.querySelectorAll('mat-step-header')).map((header) =>
+      (header.querySelector('.mat-step-label')?.textContent ?? '').trim(),
+    );
+  }
+
+  /** The footer buttons of whichever step is currently instantiated. */
+  function stepActionButtons(f: ComponentFixture<ProductEdit>): HTMLButtonElement[] {
+    return Array.from(
+      f.nativeElement.querySelectorAll('.step-actions button'),
+    ) as HTMLButtonElement[];
+  }
+
+  function stepActionLabels(f: ComponentFixture<ProductEdit>): string[] {
+    return stepActionButtons(f).map((button) => (button.textContent ?? '').trim());
+  }
+
+  /** The products form's own title, which is what its `isEditMode` drives. */
+  function formTitle(f: ComponentFixture<ProductEdit>): string {
+    return (f.nativeElement.querySelector('app-products-form h2')?.textContent ?? '').trim();
+  }
+
+  /** The products form's own submit label, driven by the same `isEditMode`. */
+  function formSubmitLabel(f: ComponentFixture<ProductEdit>): string {
+    return (
+      f.nativeElement.querySelector('app-products-form button[type="submit"]')?.textContent ?? ''
+    ).trim();
+  }
+
+  /**
+   * The completion state of the three steps, in order (D28's `[completed]` wiring).
+   *
+   * Read from the stepper's own `steps` query, not from the DOM: `MatStepper` renders its
+   * projected content only on the server, so the `mat-step` elements are not in the client
+   * tree at all — only the headers its own template generates are.
+   */
+  function stepCompletion(f: ComponentFixture<ProductEdit>): boolean[] {
+    const stepper = f.debugElement.query(By.directive(MatStepper)).componentInstance as MatStepper;
+    return stepper.steps.toArray().map((step) => step.completed);
+  }
+
+  /** Persists step 1 the way the form does, so the stepper adopts a real created product. */
+  function createProductThroughStepOne(overrides: Partial<Product> = {}): Product {
+    const createdProduct = createProductData({ id: 'new-id', ...overrides });
+    productServiceMock.createProduct = vi.fn().mockReturnValue(of(createdProduct));
+    component.onSaveProduct(createProductData());
+    return createdProduct;
+  }
+
   it('should create', () => {
     setup();
     expect(component).toBeTruthy();
@@ -267,25 +319,57 @@ describe('ProductEdit', () => {
     expect(component.productForm().controls.name.value).toBe('Existing Product');
   });
 
-  it('should navigate to product edit on create success', () => {
+  it('should adopt the created product and advance instead of navigating (D26)', () => {
     setup();
-    const createdProduct = createProductData({ id: 'new-id' });
+    const createdProduct = createProductData({ id: 'new-id', name: 'Zapatilla Runner' });
     productServiceMock.createProduct = vi.fn().mockReturnValue(of(createdProduct));
 
     component.onSaveProduct(createProductData());
-    expect(routerMock.navigate).toHaveBeenCalledWith(['/products/edit', 'new-id']);
+
+    expect(component.productId()).toBe('new-id');
+    expect(component.product()?.name).toBe('Zapatilla Runner');
+    // The id write-back is what makes a later step-1 save take the `updateProduct` branch:
+    // `onSaveProduct` reads `productData.id`, which comes from this control. The form's
+    // *copy* does not follow it — a `computed` cannot track a plain property — so that comes
+    // from the `editMode` input instead, pinned by its own test below.
+    expect(component.productForm().controls.id.value).toBe('new-id');
+    expect(component.stepIndex()).toBe(1);
+    expect(routerMock.navigate).not.toHaveBeenCalled();
+  });
+
+  it('should save step 1 with PUT once the product exists (D26)', () => {
+    setup();
+    const createdProduct = createProductData({ id: 'new-id' });
+    productServiceMock.createProduct = vi.fn().mockReturnValue(of(createdProduct));
+    productServiceMock.updateProduct = vi.fn().mockReturnValue(of(createdProduct));
+
+    component.onSaveProduct(createProductData());
+    component.onSaveProduct(createProductData({ id: 'new-id', name: 'Renombrado' }));
+
+    expect(productServiceMock.updateProduct).toHaveBeenCalledWith(
+      'new-id',
+      expect.objectContaining({ name: 'Renombrado' }),
+    );
+    // A back-edit on step 1 is not an exit: the operator stays in the stepper.
+    expect(routerMock.navigate).not.toHaveBeenCalled();
   });
 
   it('should navigate to products admin on update success', () => {
-    setup();
+    setup({ edit: true });
     productServiceMock.updateProduct = vi.fn().mockReturnValue(of({} as Product));
 
     component.onSaveProduct(createProductData({ id: 'existing-id' }));
     expect(routerMock.navigate).toHaveBeenCalledWith(['/products']);
   });
 
-  it('should navigate to products admin on cancel', () => {
+  it('should navigate to products admin on cancel in create mode', () => {
     setup();
+    component.cancelForm();
+    expect(routerMock.navigate).toHaveBeenCalledWith(['/products']);
+  });
+
+  it('should keep the edit workspace cancel going to the list, not to its own URL', () => {
+    setup({ edit: true });
     component.cancelForm();
     expect(routerMock.navigate).toHaveBeenCalledWith(['/products']);
   });
@@ -340,22 +424,39 @@ describe('ProductEdit', () => {
       component.onSaveProduct(createProductData());
 
       expect(component.hasUnsavedChanges()).toBe(false);
-      expect(routerMock.navigate).toHaveBeenCalledWith(['/products/edit', 'new-id']);
+      // Post-persist there is nothing unsaved, so the guard cannot prompt on the way to
+      // step 2 (T12/D27) — and the stepper advances rather than navigating.
+      expect(component.stepIndex()).toBe(1);
+      expect(routerMock.navigate).not.toHaveBeenCalled();
     });
   });
 
-  describe('create mode is not a workspace', () => {
-    it('should render neither the tab strip nor the page header', () => {
+  describe('create mode is the three-step stepper', () => {
+    it('should render the stepper instead of the tab strip', () => {
       setup();
       const el = fixture.nativeElement as HTMLElement;
 
+      expect(el.querySelector('mat-stepper')).not.toBeNull();
       expect(el.querySelector('mat-tab-group')).toBeNull();
-      expect(el.querySelector('app-page-header')).toBeNull();
     });
 
-    it('should still render the products form', () => {
+    it('should render the three steps, the two association ones marked optional (D24)', () => {
       setup();
-      expect(fixture.nativeElement.querySelector('app-products-form')).not.toBeNull();
+
+      expect(stepLabels(fixture)).toEqual([
+        'Datos',
+        'Proveedores (opcional)',
+        'Variantes (opcional)',
+      ]);
+    });
+
+    it('should render the products form in step 1 and no page header yet (D29)', () => {
+      setup();
+      const el = fixture.nativeElement as HTMLElement;
+
+      expect(el.querySelector('app-products-form')).not.toBeNull();
+      // Before the product exists the form's own `<h2>` is the only title on screen.
+      expect(el.querySelector('app-page-header')).toBeNull();
     });
 
     it('should still render the error banner when a general error is set', () => {
@@ -366,6 +467,210 @@ describe('ProductEdit', () => {
       const banner = fixture.nativeElement.querySelector('app-error-banner') as HTMLElement | null;
       expect(banner).not.toBeNull();
       expect(banner?.textContent?.trim()).toBe('Algo salió mal');
+    });
+
+    it('should show the product header once the product exists (D29)', () => {
+      setup();
+      createProductThroughStepOne({ name: 'Zapatilla Runner', sku: 'ZAP-001' });
+      fixture.detectChanges();
+
+      const header = fixture.nativeElement.querySelector('app-page-header') as HTMLElement | null;
+      expect(header).not.toBeNull();
+      expect(header?.textContent).toContain('Zapatilla Runner');
+      expect(header?.textContent).toContain('SKU: ZAP-001');
+    });
+
+    it('should not instantiate the association containers before the product exists (D28)', async () => {
+      setup();
+      component.goToStep(1);
+      await settle();
+
+      const el = fixture.nativeElement as HTMLElement;
+      expect(el.querySelector('app-product-supplier-list')).toBeNull();
+      expect(el.querySelector('.step-hint')?.textContent?.trim()).toBe(
+        'Primero guardá los datos del producto.',
+      );
+    });
+
+    it('should mark step 1 completed only once the product exists (D28)', async () => {
+      setup();
+      // Leaving step 1 without saving already marks it `interacted`, and a step with no
+      // `stepControl` counts as completed once interacted. So *this* state — step 2 opened
+      // before the product exists — is where the `[completed]` binding is load-bearing
+      // instead of agreeing with the CDK's own derivation.
+      component.goToStep(1);
+      await settle();
+      expect(stepCompletion(fixture)).toEqual([false, false, false]);
+
+      createProductThroughStepOne();
+      await settle();
+      expect(stepCompletion(fixture)).toEqual([true, false, false]);
+    });
+
+    it('should flip the form copy to edit once the product exists (D26)', () => {
+      setup();
+      expect(formTitle(fixture)).toBe('Nuevo Producto');
+      expect(formSubmitLabel(fixture)).toBe('Guardar');
+
+      createProductThroughStepOne();
+      fixture.detectChanges();
+
+      // The copy and the behaviour have to agree: the next save is a PUT, so the form must
+      // not keep saying "Nuevo Producto" beside a "Guardar" button.
+      expect(formTitle(fixture)).toBe('Editar Producto');
+      expect(formSubmitLabel(fixture)).toBe('Actualizar');
+    });
+
+    it('should refresh the product header after a back-edit save', () => {
+      setup();
+      createProductThroughStepOne({ name: 'Zapatilla Runner', sku: 'ZAP-001' });
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('app-page-header')?.textContent).toContain(
+        'Zapatilla Runner',
+      );
+
+      productServiceMock.updateProduct = vi
+        .fn()
+        .mockReturnValue(
+          of(createProductData({ id: 'new-id', name: 'Renombrado', sku: 'ZAP-002' })),
+        );
+
+      component.onSaveProduct(createProductData({ id: 'new-id', name: 'Renombrado' }));
+      fixture.detectChanges();
+
+      // The header reads the entity, not the live form, so a save has to refresh it or the
+      // stepper keeps showing the pre-edit identity.
+      const header = fixture.nativeElement.querySelector('app-page-header') as HTMLElement | null;
+      expect(header?.textContent).toContain('Renombrado');
+      expect(header?.textContent).toContain('SKU: ZAP-002');
+    });
+
+    it('should render the step-2 footer with Terminar as the skip affordance (D24)', async () => {
+      setup();
+      createProductThroughStepOne();
+      await settle();
+
+      expect(stepActionLabels(fixture)).toEqual(['Atrás', 'Terminar', 'Siguiente']);
+    });
+
+    it('should exit to the workspace when the step-2 Terminar button is clicked (D27)', async () => {
+      setup();
+      createProductThroughStepOne();
+      await settle();
+
+      const terminate = stepActionButtons(fixture).find(
+        (button) => (button.textContent ?? '').trim() === 'Terminar',
+      );
+      terminate?.click();
+
+      expect(routerMock.navigate).toHaveBeenCalledWith(['/products/edit', 'new-id']);
+    });
+
+    it('should navigate to the list on Terminar before the product exists (D27)', () => {
+      setup();
+      component.finish();
+
+      expect(routerMock.navigate).toHaveBeenCalledWith(['/products']);
+    });
+
+    it('should navigate to the workspace on Cancelar once the product exists (D27)', () => {
+      setup();
+      createProductThroughStepOne();
+      component.cancelForm();
+
+      expect(routerMock.navigate).toHaveBeenCalledWith(['/products/edit', 'new-id']);
+    });
+
+    it('should report unsaved changes after a back-edit on step 1 (T12)', () => {
+      setup();
+      createProductThroughStepOne();
+      expect(component.hasUnsavedChanges()).toBe(false);
+
+      const sku = component.productForm().get('sku');
+      sku?.setValue('OTRO');
+      sku?.markAsDirty();
+
+      expect(component.hasUnsavedChanges()).toBe(true);
+    });
+  });
+
+  describe('the association steps reuse the workspace containers (D24/T11)', () => {
+    it('should not instantiate an unvisited association step even after the product exists (D28)', async () => {
+      setup();
+      // The product now exists and step 2 is selected, so the `@if (productId())` guard
+      // inside step 3 would already pass: what keeps its container out is the laziness of
+      // `matStepContent`, and nothing else.
+      createProductThroughStepOne();
+      await settle();
+
+      expect(fixture.nativeElement.querySelector('app-product-variant-list')).toBeNull();
+    });
+
+    it('should host the real supplier container in step 2 with the created product id', async () => {
+      setup();
+      createProductThroughStepOne();
+      await settle();
+
+      const list = fixture.debugElement.query(By.directive(ProductSupplierList));
+      expect(list).not.toBeNull();
+      expect(list.componentInstance.productId()).toBe('new-id');
+    });
+
+    it('should host the real variant container in step 3 with the created product id', async () => {
+      setup();
+      createProductThroughStepOne();
+      component.goToStep(2);
+      await settle();
+
+      const list = fixture.debugElement.query(By.directive(ProductVariantList));
+      expect(list).not.toBeNull();
+      expect(list.componentInstance.productId()).toBe('new-id');
+    });
+
+    it('should let the step container own the dialog, receiving the created product id', async () => {
+      setup();
+      createProductThroughStepOne();
+      await settle();
+
+      const list = fixture.debugElement.query(By.directive(ProductSupplierList));
+      list.componentInstance.addSupplier();
+
+      expect(dialogMock.open).toHaveBeenCalledWith(
+        ProductSupplierDialog,
+        expect.objectContaining({ data: { productId: 'new-id', assignment: undefined } }),
+      );
+    });
+
+    it('should not reload the step list when the dialog closes with null (T11/D22)', async () => {
+      setup();
+      createProductThroughStepOne();
+      await settle();
+
+      const readsBefore = supplierServiceMock.getSuppliers.mock.calls.length;
+      // `null` is the close contract for a cancelled or failed association, so the
+      // failed item never reaches the step's list and nothing is rolled back.
+      dialogMock.open.mockReturnValue({ afterClosed: () => of(null) });
+
+      fixture.debugElement.query(By.directive(ProductSupplierList)).componentInstance.addSupplier();
+      await settle();
+
+      expect(supplierServiceMock.getSuppliers.mock.calls.length).toBe(readsBefore);
+    });
+
+    it('should reload the step list when the dialog closes with a saved entity', async () => {
+      setup();
+      createProductThroughStepOne();
+      await settle();
+
+      const readsBefore = supplierServiceMock.getSuppliers.mock.calls.length;
+      dialogMock.open.mockReturnValue({
+        afterClosed: () => of(createSupplier(0)),
+      });
+
+      fixture.debugElement.query(By.directive(ProductSupplierList)).componentInstance.addSupplier();
+      await settle();
+
+      expect(supplierServiceMock.getSuppliers.mock.calls.length).toBe(readsBefore + 1);
     });
   });
 

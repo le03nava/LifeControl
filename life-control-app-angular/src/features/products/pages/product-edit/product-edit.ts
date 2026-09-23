@@ -18,6 +18,8 @@ import { NonNullableFormBuilder, FormGroup, Validators } from '@angular/forms';
 import { ProductsForm } from '../../components/products-form/products-form';
 import { ErrorBanner, PageHeader } from '@shared/ui';
 import { MatTabsModule } from '@angular/material/tabs';
+import { MatStepperIntl, MatStepperModule } from '@angular/material/stepper';
+import { MatButtonModule } from '@angular/material/button';
 import { ProductSupplierList } from '../product-supplier-list/product-supplier-list';
 import { ProductVariantList } from '../product-variant-list/product-variant-list';
 import type { UnsavedChangesAware } from '@core/guards/unsaved-changes.guard';
@@ -25,6 +27,20 @@ import type { UnsavedChangesAware } from '@core/guards/unsaved-changes.guard';
 /** The three workspace tabs, in display order; the index doubles as `selectedIndex`. */
 const WORKSPACE_TABS = ['datos', 'proveedores', 'variantes'] as const;
 type WorkspaceTab = (typeof WORKSPACE_TABS)[number];
+
+/**
+ * The stepper's screen-reader labels.
+ *
+ * Material ships English defaults and this repo has no global provider (the English
+ * `MatPaginatorIntl` is a recorded follow-up), so the one stepper in the app declares its own
+ * instead of depending on `'Editable'` happening to be the same word in Spanish. A completed
+ * step that is still editable is the one that renders today.
+ */
+class SpanishStepperIntl extends MatStepperIntl {
+  override optionalLabel = 'Opcional';
+  override completedLabel = 'Completado';
+  override editableLabel = 'Editable';
+}
 
 @Component({
   selector: 'app-product-edit',
@@ -34,11 +50,14 @@ type WorkspaceTab = (typeof WORKSPACE_TABS)[number];
     PageHeader,
     ProductsForm,
     MatTabsModule,
+    MatStepperModule,
+    MatButtonModule,
     ProductSupplierList,
     ProductVariantList,
   ],
   templateUrl: './product-edit.html',
   styleUrl: './product-edit.scss',
+  providers: [{ provide: MatStepperIntl, useClass: SpanishStepperIntl }],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ProductEdit implements OnInit, UnsavedChangesAware {
@@ -62,6 +81,16 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
   readonly product = signal<Product | null>(null);
 
   isEditMode = signal(false);
+
+  /**
+   * The active create-stepper step.
+   *
+   * `mat-stepper` reads it through `[selectedIndex]` and writes it back through
+   * `(selectedIndexChange)`, so a header click and a footer button are the same code path
+   * and there is no `ViewChild` to keep in sync.
+   */
+  readonly stepIndex = signal(0);
+
   serverErrors = signal<Record<string, string>>({});
   generalError = signal<string | null>(null);
 
@@ -186,10 +215,19 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
           next: (createdProduct) => {
-            // The route is guarded by `unsavedChangesGuard`; a successful save
-            // must reach the edit page without the discard prompt firing.
+            if (this.isEditMode()) {
+              // Not reachable from the create route: the create branch needs an empty
+              // `id`, and the create route is the only one that renders the stepper. It
+              // stays for the pre-existing edit-mode case where the product load failed
+              // and the form still holds its empty-id initial value.
+              this.productForm().markAsPristine();
+              this.router.navigate(['/products/edit', createdProduct.id]);
+              return;
+            }
+            this.adoptCreatedProduct(createdProduct);
+            // After the id write-back, not before, so a write-back that ever started
+            // marking the control dirty could not arm the guard on the way to step 2.
             this.productForm().markAsPristine();
-            this.router.navigate(['/products/edit', createdProduct.id]);
           },
           error: (err: HttpErrorResponse) => {
             this.handleServerError(err);
@@ -200,17 +238,55 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
         .updateProduct(productData.id, productData)
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
-          next: () => {
-            // The route is guarded by `unsavedChangesGuard`; a successful save
-            // must reach the list without the discard prompt firing.
+          next: (updatedProduct) => {
+            // The header reads the entity, not the live form (it must not flicker while the
+            // operator types), so a saved back-edit has to refresh it — otherwise the
+            // stepper would keep showing the pre-edit name and SKU.
+            this.product.set(updatedProduct);
             this.productForm().markAsPristine();
-            this.router.navigate(['/products']);
+            if (this.isEditMode()) {
+              // The route is guarded by `unsavedChangesGuard`; a successful save
+              // must reach the list without the discard prompt firing.
+              this.router.navigate(['/products']);
+            }
+            // In the create stepper this is a back-edit of step 1 (D26) and the operator
+            // stays where they are: the step is the editing surface, and leaving would
+            // discard the context they came back for.
           },
           error: (err: HttpErrorResponse) => {
             this.handleServerError(err);
           },
         });
     }
+  }
+
+  /**
+   * Adopts the product the stepper's step 1 just created (D26).
+   *
+   * The id is written back into the form on purpose: `ProductsForm` derives its own
+   * `isEditMode` from `controls.id.value`, so this single write flips the form's copy to its
+   * edit register and makes a later step-1 save take the `updateProduct` branch above. The
+   * caller marks the form pristine afterwards.
+   */
+  private adoptCreatedProduct(created: Product): void {
+    this.product.set(created);
+    this.productId.set(created.id);
+    this.productForm().controls.id.setValue(created.id);
+    this.stepIndex.set(1);
+  }
+
+  /** Moves the create stepper to a step; the step header and the footer both come through here. */
+  goToStep(index: number): void {
+    this.stepIndex.set(index);
+  }
+
+  /**
+   * Post-persist exit (D27): the product exists, so leaving lands on its workspace. Before
+   * the product exists the same affordance is the pre-persist exit and lands on the list.
+   */
+  finish(): void {
+    const id = this.productId();
+    this.router.navigate(id ? ['/products/edit', id] : ['/products']);
   }
 
   /**
@@ -249,7 +325,13 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
   }
 
   cancelForm(): void {
-    this.router.navigate(['/products']);
+    // The edit workspace's Cancelar returns to the list, as it always has. The create
+    // stepper's Cancelar is the pre-persist exit and shares the post-persist one (D27).
+    if (this.isEditMode()) {
+      this.router.navigate(['/products']);
+      return;
+    }
+    this.finish();
   }
 
   /** Exposed to `unsavedChangesGuard`: the live form decides. */

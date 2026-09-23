@@ -8,3 +8,26 @@
 .tab-content {
   padding-top: var(--space-md);
 }
+
+// Create stepper (S3): the step content sits below the step header, like the tab content.
+.create-stepper {
+  display: block;
+  margin-top: var(--space-md);
+}
+
+.step-hint {
+  margin: 0 0 var(--space-md);
+}
+
+// Footer for steps 2 and 3. Step 1 deliberately has none: its primary action is the form's
+// own submit button, which is what persists the product and advances the stepper.
+.step-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding-top: var(--space-md);
+}
+
+.step-actions-spacer {
+  flex: 1 1 auto;
+}
