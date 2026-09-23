@@ -22,13 +22,19 @@ specs** (221 source / 358 specs, 6 files) plus 203 lines of this record at the p
 ~1.000 threshold was not reached and no split was proposed. `main` is at **`edbfb46`** (PR #158, a
 docs-only change to the convention skill).
 
-**S4 is in progress on branch `feat/product-variant-tab-stock`**, created from `main` @ `edbfb46` in a
+**S4 is delivered on branch `feat/product-variant-tab-stock`**, created from `main` @ `edbfb46` in a
 **fresh** worktree `~/workspace/LifeControl-worktrees/feat-product-variant-tab-stock` — fresh because
 PR #157's merge deleted the S3 branch and `gh` removed its worktree. Scope is **T13 + T15**; **T14
 stays blocked** on the unapproved `B1` (D30). Shape agreed with the user on 2026-09-23 before any code
 was written: **per-row expansion** inside the Variantes table for T15 (D31) and **the dialog stays
 open and resets in place** for T13 (D32), after a read-only two-scout mapping of the surface and a
-`## S4 reconciliation` that corrects two record claims. Shape for the earlier slices was agreed the
+`## S4 reconciliation` that corrects two record claims. Five commits: `ce88623` (this record's S4 plan),
+`1ebc552` (T13/W1), `1b3fbe4` (T15/W2), `98081ae` (first findings round) and `0622ed5` (second findings
+round). Two independent read-only verifications ran, at `1b3fbe4` and at `98081ae`. Gates on `0622ed5`:
+lint clean, build **851.05 kB** initial exit 0, `test:coverage:check` **127 files / 2506 tests /
+0 failures**, coverage **94.07/75.94/89.22/94.07** (thresholds 80/60/75/80). **S4 measured 1.403 changed
+lines of code and specs** — above D20's ~1.000 threshold — so the split is proposed below and awaits the
+user's decision. **Nothing is pushed and no PR is open.** Shape for the earlier slices was agreed the
 same way ("Tabs + stepper con skip", "propuesta primero"; voseo adopted as the copy register). Product
 `attributes` handling and the `Activo` toggle were descoped the same day (see
 `## Descoped by user decision`).
@@ -1021,6 +1027,37 @@ existing list assertions changed honestly rather than being weakened: the two co
 the new leading empty header, and one row-count selector became `tr.mat-mdc-row:not(.detail-row)` because
 the detail row legitimately carries `mat-mdc-row`.
 
+#### S4 — measured, and the forecast was low by 2×
+
+Measured on `0622ed5` with `git diff edbfb46..HEAD --numstat`.
+
+| Bucket | Files | Changed lines |
+|---|---|---|
+| Source | 9 | **474** (436 insertions / 38 deletions) |
+| Specs | 6 | **929** (923 / 6) |
+| **Code + specs** | **15** | **1.403** (1.359 / 44) |
+| This record | 1 | **252** (241 / 11) |
+
+Against the ~235 source / ~450 spec / ~685 total forecast. Both halves are ~2× low, and unlike S2a the
+reason is **not** reindentation: `git diff -w` moves 12 of the 1.403 lines. It is the verification that
+did not exist in the forecast. The two planned work units measured 1.011 lines together (W1 386, W2 625,
+the W2 figure already recorded above); the two findings rounds added the remaining ~392. That is the
+honest shape of this slice: the embed is one work unit, and making the dirty contract actually hold
+across every destruction path — the four user-driven view changes, the row leaving the page, a read
+error, and a request change that unmounts the table — is a second one. Two independent verifiers found
+four defects and one overstated test in that contract, all closed, and both were worth their cost: the
+first found the missing `trackBy` (a silent loss on *every* reload), the second found the last unguarded
+destruction path.
+
+**D20's ~1.000 threshold is exceeded, so the split is proposed and awaits the user's decision.**
+PR A = `ce88623` + `1ebc552`, T13 (386 changed lines of code and specs): the variant dialog's
+"Guardar y agregar otra", the in-place reset and the in-flight guard. PR B = `1b3fbe4` + `98081ae` +
+`0622ed5`, T15 (1.017): the per-row stock/prices expansion, the shell's dirty aggregation, and the two
+findings rounds that make the dirty contract hold. The record's own plan lines would follow their slice,
+and B chains on A's branch or on `main`, since the two touch disjoint files. The user chose **one PR** for
+S2b at 3.247 lines, so one PR here is a legitimate choice too — but at 1.403 it is the reviewer's call
+rather than an obvious one, and D20 exists to force the question.
+
 ## Evidence log
 
 | Date | Slice | Commit | Evidence |
@@ -1073,6 +1110,13 @@ field error applied by an earlier attempt would otherwise stay on the control. F
 files / 418 tests → 25 / 435. |
 | 2026-09-23 | S4 W1 mutation controls | `1ebc552` | Fourteen, each restored byte for byte (`git status` clean). Form: dropping the in-flight guard (1 failed), dropping `[disabled]="saving()"` (1), reverting the empty-map branch (1), rendering the button in edit mode (1), routing the continue output through `saveVariant` (1). Dialog: dropping the submit guard (1), a plain `reset()` (see below), dropping `dirty.set(false)` (1), dropping `serverErrors.set({})` (1), dropping `generalError.set(null)` (1), dropping `lastSaved` (1), reverting either `cancel()` close value (1 each), dropping the `[saving]` binding (1). **The plain-`reset()` control passed on its first run** — `dirty.set(false)` in the same synchronous block masked the emission — so a direct `valueChanges` spy test was added until that mutation failed; the flag is now pinned by an assertion that can distinguish it, instead of by a comment. |
 | 2026-09-23 | **S4 W2 (T15)** | `1b3fbe4` | **9 files, 611 insertions / 14 deletions = 625 changed lines** (source 233, specs 392, 3 of them comment-only corrections to the stale D17 comments). The table gains a leading `expand` column in both column sets and a `multiTemplateDataRows` detail row hosting the **real** panel with the row's stored barcode; `expandedVariantId`/`panelDirtyState` drive a `dirtyChange` output, and `ProductEdit.variantPanelDirty` is aggregated into `hasUnsavedChanges()` (D37). The store-scoped row action, the routes and the panel are untouched (D18/D36). Two existing assertions were retargeted honestly, not weakened: both header arrays gained the new empty header, and one row-count selector became `tr.mat-mdc-row:not(.detail-row)`. Focused list suite 51 → 66 tests, `product-edit` 54 → 57. |
+| 2026-09-23 | S4 first independent verification | `1b3fbe4` | A read-only `gentle-ai-verify` subagent checked fifteen claims against the installed Material/CDK and `@angular/forms` sources and ran the three gates (all PASS at that tip: 127 files / 2493 tests, coverage 94.06/75.85/89.27/94.06). Upheld: the reset really cannot re-arm `dirty`/`disableClose` and its spy test is discriminating; the `lastSaved` close contract holds on every exit path and neither existing consumer can receive an unexpected entity; the in-flight guard is real on both sides; the empty-map branch removes only `serverError` and keeps other validators; no descope leak; the `multiTemplateDataRows` requirement; D18 and the comment-only corrections. **Findings: F1 (HIGH) the dirty-panel prompt existed only in the expand toggle, so pagination, page size, `Mostrar deshabilitadas` and the store-scope toggle all discarded a dirty panel with no prompt; F2 (LOW-MEDIUM) no `trackBy`, so every reload rebuilt every row view, destroying the open panel and stranding the shell's flag at `true`; F3 (LOW) an overstated test description; F4 (INFO) the W1 row's motivation for the empty-map branch was wrong.** It also reproduced F1/F2 with four throwaway probes and left the worktree byte-identical. |
+| 2026-09-23 | **S4 findings round 1** | `98081ae` | F1–F3 closed, F4 corrected in this record. All four view changes now route through one `guardViewChange` helper, and a cancelled prompt restores the rendered control (`MatPaginator.pageIndex`/`pageSize`, `MatSlideToggle.checked` — checked against the installed sources to emit no `page`/`change`, so the revert cannot re-enter the handler). `trackByVariantId` plus keeping the loaded page mounted during a same-request reload (`isLoading() && !variants()`) fixes F2, and a read error now clears the expansion instead of stranding the flag. F3's description now claims only what jsdom observes. Also renames the duplicated `id="variantGrad"` the editor blocks on, and corrects the comment on the form's empty-map branch. Focused list suite 66 → 77, products 453 → 464. |
+| 2026-09-23 | S4 findings round 1 mutation controls | `98081ae` | Three, each restored byte for byte: `guardViewChange` forced to always apply (**10 failed / 77** — the four new prompts, the three revert tests and the three pre-existing guard tests), the old `loading()` definition (1 failed, the panel-survival test), an unstable `trackBy` key (1 failed, the same test, `expected '' to be '9'`). |
+| 2026-09-23 | S4 second independent verification | `98081ae` | A read-only `gentle-ai-verify` subagent checked the findings delta and ran three runtime-override mutation controls in a throwaway spec (no tracked file edited). Upheld: all four guards real and discriminating, the cancel path provably cannot re-enter its handler, `onRetry` genuinely needs no guard, the `loading()` change does **not** regress the params-change skeleton (verified against `@angular/core` `resource.mjs`: a request change drops the value), `trackBy` preserves the row view, the read-error branch is the only clearer in the error state, and the spec's only removed line is the old test title. **Findings: A (MEDIUM-LOW) a resolution-driven request change unmounted the table and destroyed the panel without clearing the expansion or the flag; B (LOW) `disableVariant` on the expanded row is a genuine silent-loss path; C–H record-only errors.** It also reproduced A end to end with a throwaway probe. |
+| 2026-09-23 | **S4 findings round 2** | `0622ed5` | Finding A closed: "no loaded page" now counts as "the expanded row is not present" in the same clearing effect, so a request change that unmounts the table keeps the destroyed panel and the emitted `dirtyChange(false)` in step. B is recorded as a deliberately accepted consequence and the dialog-level test gap for the empty-map branch as a follow-up (both in `### Raised by S4`); C, D, H are corrected in this record and E in the form's comment. Focused list suite 77 → 79, products 464 → 466. |
+| 2026-09-23 | **S4 gates (tip)** | `0622ed5` | `npm run lint` → `All files pass linting.`; `npm run build` → bundle generation complete, **851.05 kB** initial total, exit 0; `npm run test:coverage:check` → **127 files / 2506 tests / 0 failures**, coverage **94.07/75.94/89.22/94.07** (thresholds 80/60/75/80), `[check-coverage] Cobertura dentro de los umbrales. OK`. Delta over the S3 tip (`1b8a507`: 127 files / 2458 tests, 94.03/75.80/89.19/94.03): **+48 tests, +0.04/+0.14/+0.03/+0.04**, same file count. The branch margin S2a flagged as thin is now 0.94 pp. |
+| 2026-09-23 | **S4 measured** | `0622ed5` | 15 files, 1.359 insertions / 44 deletions = **1.403 changed lines** (source 474, specs 929), plus 252 lines of this record. See `#### S4 — measured` above; D20's threshold is exceeded and the split is proposed. |
 
 ## Constraints
 
