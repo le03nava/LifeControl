@@ -259,6 +259,18 @@ describe('ProductEdit', () => {
     return stepActionButtons(f).map((button) => (button.textContent ?? '').trim());
   }
 
+  /** The products form's own title, which is what its `isEditMode` drives. */
+  function formTitle(f: ComponentFixture<ProductEdit>): string {
+    return (f.nativeElement.querySelector('app-products-form h2')?.textContent ?? '').trim();
+  }
+
+  /** The products form's own submit label, driven by the same `isEditMode`. */
+  function formSubmitLabel(f: ComponentFixture<ProductEdit>): string {
+    return (
+      f.nativeElement.querySelector('app-products-form button[type="submit"]')?.textContent ?? ''
+    ).trim();
+  }
+
   /**
    * The completion state of the three steps, in order (D28's `[completed]` wiring).
    *
@@ -316,7 +328,10 @@ describe('ProductEdit', () => {
 
     expect(component.productId()).toBe('new-id');
     expect(component.product()?.name).toBe('Zapatilla Runner');
-    // The id write-back is what flips `ProductsForm`'s own isEditMode to its edit register.
+    // The id write-back is what makes a later step-1 save take the `updateProduct` branch:
+    // `onSaveProduct` reads `productData.id`, which comes from this control. The form's
+    // *copy* does not follow it — a `computed` cannot track a plain property — so that comes
+    // from the `editMode` input instead, pinned by its own test below.
     expect(component.productForm().controls.id.value).toBe('new-id');
     expect(component.stepIndex()).toBe(1);
     expect(routerMock.navigate).not.toHaveBeenCalled();
@@ -477,14 +492,57 @@ describe('ProductEdit', () => {
       );
     });
 
-    it('should mark step 1 completed, and only step 1, once the product exists (D28)', async () => {
+    it('should mark step 1 completed only once the product exists (D28)', async () => {
       setup();
+      // Leaving step 1 without saving already marks it `interacted`, and a step with no
+      // `stepControl` counts as completed once interacted. So *this* state — step 2 opened
+      // before the product exists — is where the `[completed]` binding is load-bearing
+      // instead of agreeing with the CDK's own derivation.
+      component.goToStep(1);
+      await settle();
       expect(stepCompletion(fixture)).toEqual([false, false, false]);
 
       createProductThroughStepOne();
       await settle();
-
       expect(stepCompletion(fixture)).toEqual([true, false, false]);
+    });
+
+    it('should flip the form copy to edit once the product exists (D26)', () => {
+      setup();
+      expect(formTitle(fixture)).toBe('Nuevo Producto');
+      expect(formSubmitLabel(fixture)).toBe('Guardar');
+
+      createProductThroughStepOne();
+      fixture.detectChanges();
+
+      // The copy and the behaviour have to agree: the next save is a PUT, so the form must
+      // not keep saying "Nuevo Producto" beside a "Guardar" button.
+      expect(formTitle(fixture)).toBe('Editar Producto');
+      expect(formSubmitLabel(fixture)).toBe('Actualizar');
+    });
+
+    it('should refresh the product header after a back-edit save', () => {
+      setup();
+      createProductThroughStepOne({ name: 'Zapatilla Runner', sku: 'ZAP-001' });
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('app-page-header')?.textContent).toContain(
+        'Zapatilla Runner',
+      );
+
+      productServiceMock.updateProduct = vi
+        .fn()
+        .mockReturnValue(
+          of(createProductData({ id: 'new-id', name: 'Renombrado', sku: 'ZAP-002' })),
+        );
+
+      component.onSaveProduct(createProductData({ id: 'new-id', name: 'Renombrado' }));
+      fixture.detectChanges();
+
+      // The header reads the entity, not the live form, so a save has to refresh it or the
+      // stepper keeps showing the pre-edit identity.
+      const header = fixture.nativeElement.querySelector('app-page-header') as HTMLElement | null;
+      expect(header?.textContent).toContain('Renombrado');
+      expect(header?.textContent).toContain('SKU: ZAP-002');
     });
 
     it('should render the step-2 footer with Terminar as the skip affordance (D24)', async () => {

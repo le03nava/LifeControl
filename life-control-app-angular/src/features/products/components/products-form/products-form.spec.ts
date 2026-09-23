@@ -57,6 +57,39 @@ describe('ProductsForm', () => {
     expect(el.textContent).toContain('Editar Producto');
   });
 
+  it('should let an explicit editMode input override the id derivation', () => {
+    // The create stepper (D26) writes the created id into the control after construction,
+    // and the derivation cannot see that write. The input is the host's way to say it.
+    const editFg = createFormGroup();
+    editFg.patchValue({ id: '123' });
+    fixture.componentRef.setInput('formGroup', editFg);
+    fixture.componentRef.setInput('editMode', false);
+    fixture.detectChanges();
+
+    expect(component.isEditMode()).toBe(false);
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Nuevo Producto');
+  });
+
+  it('should present the edit copy for an explicit editMode true with no id yet', () => {
+    fixture.componentRef.setInput('editMode', true);
+    fixture.detectChanges();
+
+    expect(component.isEditMode()).toBe(true);
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Editar Producto');
+  });
+
+  it('should fall back to the id derivation when editMode is null', () => {
+    expect(component.editMode()).toBeNull();
+    expect(component.isEditMode()).toBe(false);
+
+    const editFg = createFormGroup();
+    editFg.patchValue({ id: '123' });
+    fixture.componentRef.setInput('formGroup', editFg);
+    fixture.detectChanges();
+
+    expect(component.isEditMode()).toBe(true);
+  });
+
   it('should emit saveProduct with parsed product data when form is valid', () => {
     const spy = vi.fn();
     component.saveProduct.subscribe(spy);

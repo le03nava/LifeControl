@@ -18,7 +18,7 @@ import { NonNullableFormBuilder, FormGroup, Validators } from '@angular/forms';
 import { ProductsForm } from '../../components/products-form/products-form';
 import { ErrorBanner, PageHeader } from '@shared/ui';
 import { MatTabsModule } from '@angular/material/tabs';
-import { MatStepperModule } from '@angular/material/stepper';
+import { MatStepperIntl, MatStepperModule } from '@angular/material/stepper';
 import { MatButtonModule } from '@angular/material/button';
 import { ProductSupplierList } from '../product-supplier-list/product-supplier-list';
 import { ProductVariantList } from '../product-variant-list/product-variant-list';
@@ -27,6 +27,20 @@ import type { UnsavedChangesAware } from '@core/guards/unsaved-changes.guard';
 /** The three workspace tabs, in display order; the index doubles as `selectedIndex`. */
 const WORKSPACE_TABS = ['datos', 'proveedores', 'variantes'] as const;
 type WorkspaceTab = (typeof WORKSPACE_TABS)[number];
+
+/**
+ * The stepper's screen-reader labels.
+ *
+ * Material ships English defaults and this repo has no global provider (the English
+ * `MatPaginatorIntl` is a recorded follow-up), so the one stepper in the app declares its own
+ * instead of depending on `'Editable'` happening to be the same word in Spanish. A completed
+ * step that is still editable is the one that renders today.
+ */
+class SpanishStepperIntl extends MatStepperIntl {
+  override optionalLabel = 'Opcional';
+  override completedLabel = 'Completado';
+  override editableLabel = 'Editable';
+}
 
 @Component({
   selector: 'app-product-edit',
@@ -43,6 +57,7 @@ type WorkspaceTab = (typeof WORKSPACE_TABS)[number];
   ],
   templateUrl: './product-edit.html',
   styleUrl: './product-edit.scss',
+  providers: [{ provide: MatStepperIntl, useClass: SpanishStepperIntl }],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ProductEdit implements OnInit, UnsavedChangesAware {
@@ -223,7 +238,11 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
         .updateProduct(productData.id, productData)
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
-          next: () => {
+          next: (updatedProduct) => {
+            // The header reads the entity, not the live form (it must not flicker while the
+            // operator types), so a saved back-edit has to refresh it — otherwise the
+            // stepper would keep showing the pre-edit name and SKU.
+            this.product.set(updatedProduct);
             this.productForm().markAsPristine();
             if (this.isEditMode()) {
               // The route is guarded by `unsavedChangesGuard`; a successful save

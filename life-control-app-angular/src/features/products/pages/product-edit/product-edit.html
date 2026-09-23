@@ -129,6 +129,7 @@
   <app-products-form
     [formGroup]="productForm()"
     [serverErrors]="serverErrors()"
+    [editMode]="productId() !== null"
     (saveProduct)="onSaveProduct($event)"
     (cancelForm)="cancelForm()"
   />
