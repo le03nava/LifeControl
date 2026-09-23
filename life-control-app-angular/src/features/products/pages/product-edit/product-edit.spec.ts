@@ -252,6 +252,89 @@ describe('ProductEdit', () => {
     });
   });
 
+  describe('edit-mode product actions', () => {
+    function buttonLabels(f: ComponentFixture<ProductEdit>): string[] {
+      const buttons = Array.from(f.nativeElement.querySelectorAll('button')) as HTMLButtonElement[];
+      return buttons.map((button) => (button.textContent ?? '').trim());
+    }
+
+    function findButtonByLabel(
+      f: ComponentFixture<ProductEdit>,
+      label: string,
+    ): HTMLButtonElement | undefined {
+      const buttons = Array.from(f.nativeElement.querySelectorAll('button')) as HTMLButtonElement[];
+      return buttons.find((button) => (button.textContent ?? '').trim() === label);
+    }
+
+    function createEditModeFixture(): ComponentFixture<ProductEdit> {
+      productServiceMock.getProductById = vi
+        .fn()
+        .mockReturnValue(of(createProductData({ id: 'existing-id' })));
+
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        imports: [ProductEdit, NoopAnimationsModule, ReactiveFormsModule],
+        providers: [
+          { provide: ProductService, useValue: productServiceMock },
+          { provide: Router, useValue: routerMock },
+          {
+            provide: ActivatedRoute,
+            useValue: {
+              snapshot: { paramMap: { get: () => 'existing-id' } },
+            },
+          },
+        ],
+      }).compileComponents();
+
+      const f = TestBed.createComponent(ProductEdit);
+      f.detectChanges();
+      return f;
+    }
+
+    it('should render both product actions with voseo labels in edit mode', () => {
+      const f = createEditModeFixture();
+      const labels = buttonLabels(f);
+
+      expect(labels.filter((label) => label === 'Administrar proveedores')).toHaveLength(1);
+      expect(labels.filter((label) => label === 'Variantes')).toHaveLength(1);
+    });
+
+    it('should navigate to the product variants when the Variantes button is clicked', () => {
+      const f = createEditModeFixture();
+
+      const variantsButton = findButtonByLabel(f, 'Variantes');
+      expect(variantsButton).toBeDefined();
+      variantsButton?.click();
+
+      expect(routerMock.navigate).toHaveBeenCalledWith([
+        '/products/edit',
+        'existing-id',
+        'variants',
+      ]);
+    });
+
+    it('should navigate to the product suppliers when the suppliers button is clicked', () => {
+      const f = createEditModeFixture();
+
+      const suppliersButton = findButtonByLabel(f, 'Administrar proveedores');
+      expect(suppliersButton).toBeDefined();
+      suppliersButton?.click();
+
+      expect(routerMock.navigate).toHaveBeenCalledWith([
+        '/products/edit',
+        'existing-id',
+        'suppliers',
+      ]);
+    });
+
+    it('should render neither product action in create mode', () => {
+      const labels = buttonLabels(fixture);
+
+      expect(labels).not.toContain('Administrar proveedores');
+      expect(labels).not.toContain('Variantes');
+    });
+  });
+
   describe('serverErrors handling', () => {
     it('should set serverErrors signal and clear generalError when apiError has field-level errors', () => {
       const httpError = createApiError({

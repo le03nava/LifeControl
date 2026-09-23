@@ -153,4 +153,11 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
       this.router.navigate(['/products/edit', id, 'suppliers']);
     }
   }
+
+  navigateToVariants(): void {
+    const id = this.productId();
+    if (id) {
+      this.router.navigate(['/products/edit', id, 'variants']);
+    }
+  }
 }
