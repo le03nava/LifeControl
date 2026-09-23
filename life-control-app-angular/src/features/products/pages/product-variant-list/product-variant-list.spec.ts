@@ -1464,5 +1464,47 @@ describe('ProductVariantList', () => {
       expect(component.expandedVariantId()).toBeNull();
       expect(emitted).toEqual([]);
     });
+
+    it('should clear the expansion and emit false when a request change leaves the read without a page', async () => {
+      setup({ profileStoreId: 'store-1' });
+      await settle();
+      await expandRow(0);
+      await dirtyThePanel();
+      expect(component.expandedVariantId()).toBe('var-1');
+      expect(component.panelDirty()).toBe(true);
+
+      const emitted: boolean[] = [];
+      component.dirtyChange.subscribe((dirty) => emitted.push(dirty));
+
+      // A resolution-driven request change: the profile now reports another store, so the
+      // list re-issues its read and drops the loaded page while the new read is in flight.
+      // The template unmounts the table and destroys the open panel; the expansion and the
+      // dirty flag must follow it (D37).
+      profileServiceMock.getProfile.mockReturnValue(of(profileResponse('store-2')));
+      component.retryStore();
+      await settle();
+      await settle();
+
+      expect(component.expandedVariantId()).toBeNull();
+      expect(component.panelDirty()).toBe(false);
+      expect(emitted).toContain(false);
+      expect(renderedPanel()).toBeUndefined();
+    });
+
+    it('should not emit dirtyChange when a request change drops the page with no panel open', async () => {
+      setup({ profileStoreId: 'store-1' });
+      await settle();
+
+      const emitted: boolean[] = [];
+      component.dirtyChange.subscribe((dirty) => emitted.push(dirty));
+
+      profileServiceMock.getProfile.mockReturnValue(of(profileResponse('store-2')));
+      component.retryStore();
+      await settle();
+      await settle();
+
+      expect(component.expandedVariantId()).toBeNull();
+      expect(emitted).toEqual([]);
+    });
   });
 });

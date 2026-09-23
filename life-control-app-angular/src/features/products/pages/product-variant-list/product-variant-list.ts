@@ -114,9 +114,9 @@ export class ProductVariantList {
    * Whether the expanded panel holds edits the shell has not persisted (D37).
    *
    * `true` while the open panel reports dirty, `false` once the list destroys that
-   * panel through a path it owns: collapse, row switch, the row leaving the page, or a
-   * confirmed view change that discards it. The shell therefore never keeps reporting
-   * an edit the operator already discarded.
+   * panel through a path it owns: collapse, row switch, the row leaving the page, a
+   * read error, or a request change that unmounts the table. The shell therefore never
+   * keeps reporting an edit the operator already discarded.
    */
   readonly dirtyChange = output<boolean>();
 
@@ -255,12 +255,13 @@ export class ProductVariantList {
       }
     });
 
-    // A reload, filter, page change or failed read can drop the expanded row. The
-    // panel is destroyed with it, so the expansion and the dirty flag must go too,
-    // or the shell would keep a pending edit for a panel that no longer exists
-    // (D37). A read error replaces the table with the error state even when the
-    // previous page is still in hand, so it clears the expansion through the same
-    // path as a row that left the page.
+    // A reload, filter, page change, failed read or a request change that unmounts the
+    // table can drop the expanded row. The panel is destroyed with it, so the expansion
+    // and the dirty flag must go too, or the shell would keep a pending edit for a panel
+    // that no longer exists (D37). A read error replaces the table with the error state
+    // even when the previous page is still in hand, and a request change drops the
+    // loaded page while the new read is in flight, so both clear the expansion through
+    // the same path as a row that left the page.
     effect(() => {
       const page = this.variants();
       const failed = this.error();
@@ -268,7 +269,7 @@ export class ProductVariantList {
       if (expandedId === null) {
         return;
       }
-      if (failed || (page && !page.content.some((variant) => variant.id === expandedId))) {
+      if (failed || !page || !page.content.some((variant) => variant.id === expandedId)) {
         this.applyExpansion(null);
       }
     });

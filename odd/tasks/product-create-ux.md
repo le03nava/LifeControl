@@ -272,12 +272,22 @@ exposes it as `storeId`/`storeScoped` (`:126-141`). Its table declares a single 
 
 ### Engineering decisions (S4)
 
-- D33: **one expanded row at a time, and switching or collapsing a dirty one asks first.** The list
-  holds `expandedVariantId`; toggling another row (or the same one) while the open panel reports
-  `dirty` opens the shared `ConfirmDialog` with voseo copy and only then collapses. The panel already
-  emits `dirtyChange`, so this costs one handler, not a new state channel. Rationale: a collapsed panel
-  is destroyed, so silently switching rows would discard typed stock/prices with no prompt — the exact
-  class of loss the two S2b dialogs and the route guard already refuse to allow.
+- D33: **one expanded row at a time, and every path that destroys a dirty panel either asks first or
+  clears through one channel.** The list holds `expandedVariantId`; toggling another row (or the same
+  one) while the open panel reports `dirty` opens the shared `ConfirmDialog` with voseo copy and only
+  then collapses, and the findings round extended the same guard to the four **user-driven** view
+  changes that can drop the expanded row from the loaded page — pagination, the page-size change, the
+  `Mostrar deshabilitadas` toggle and the store-scope toggle — restoring the rendered control
+  (paginator, slide toggle) when the prompt is cancelled, so the control on screen matches the signals
+  that did not move. The paths the operator does **not** drive — a read error, and a request change that
+  unmounts the table while the new read is in flight — are handled by the same effect that clears the
+  expansion, so the destroyed panel and the emitted `dirtyChange(false)` stay in step instead of
+  stranding the shell's flag at `true` for an edit that no longer exists. The panel already emits
+  `dirtyChange`, so this cost one helper and one extra condition, not a new state channel. Rationale: a
+  collapsed panel is destroyed, so any silent destruction discards typed stock/prices with no prompt —
+  the exact class of loss the two S2b dialogs and the route guard already refuse to allow. One
+  destruction path is deliberately **not** guarded: `disableVariant` on the expanded row, accepted in
+  `### Raised by S4` with its reason.
 - D34: **the dialog remembers the last saved variant and closes with it on every exit path.** `null`
   still means "nothing was persisted". Without this, an operator who adds two variants and then closes
   the dialog would leave the list stale, because `ProductVariantList` reloads only on a truthy result
@@ -990,8 +1000,11 @@ corrects it, exactly as S3's did.
 **W1 measured (T13): 6 files, 374 insertions / 12 deletions = 386 changed lines** (source 119, specs
 267). Against the ~55 source / ~150 spec forecast: the source half is ~2,2× and the spec half ~1,8×,
 for the reason S1 already recorded — the evidence travels with the slice. Two thirds of the spec lines
-pin behaviours the forecast did not name: the stale-server-error strip the reset forced (the form's
-`serverErrors` effect had to learn to *remove* a `serverError` key, not only apply one), the in-flight
+pin behaviours the forecast did not name: the stale-server-error strip the reset turned out **not** to
+need (the form's `serverErrors` effect had to learn to *remove* a `serverError` key, not only apply one,
+but `reset()` already dropped it — the branch's real driver is the generic/409 failure path, which
+clears the map without resetting the form, so a field error from an earlier attempt would otherwise sit
+under a field the newest failure never named), the in-flight
 guard on both submit paths, and the four exit paths of D34's close contract. The `{ emitEvent: false }`
 flag also needed a dedicated `valueChanges` spy test: with `dirty.set(false)` in the same synchronous
 block, no behavioural test could tell a plain `reset()` from a silent one — the first mutation control
@@ -1205,8 +1218,21 @@ files / 418 tests → 25 / 435. |
 - **A collapsed detail row is still a DOM row.** `multiTemplateDataRows` renders one `tr.detail-row` per
   data row with an empty cell, so the table carries twice the rows and the specs must select data rows
   with `:not(.detail-row)`. Correct and cheap at 12 rows per page; worth revisiting if a page size grows.
-- **`product-variant-list.html` has a duplicated `id="variantGrad"`** across its two empty-state SVGs.
-  Pre-existing, unrelated to S4, flagged by the editor and left alone.
+- **`product-variant-list.html` had a duplicated `id="variantGrad"`** across its two empty-state SVGs.
+  Pre-existing and unrelated to S4, but the editor blocks on it, so the findings round renamed the
+  empty-state one to `variantGradEmpty` (2 lines, no behavioural effect). Recorded because it is scope
+  the slice took on outside its named findings.
+- **`disableVariant` on the expanded row is a silent-loss path, accepted on purpose.** Disabling the row
+  whose panel is open — while `includeDisabled` is off, or in the store-scoped view, which always
+  filters `enabled = true` — drops the row and destroys the dirty panel with no prompt about the pending
+  stock/prices. Accepted rather than closed: the operator has just confirmed a destructive action on
+  **that same variant**, the disable dialog is itself a confirmation, and the alternative is two stacked
+  dialogs for one click. A later slice that wants it closed should extend the disable dialog's data with
+  the pending-edit warning instead of layering a second prompt.
+- **The empty-map `serverErrors` branch is pinned only at the form's unit level.** The dialog-level
+  integration is reachable — attempt 1 returns an `errors` map, attempt 2 returns a generic 409, and
+  `handleServerError` clears the map without resetting the form — and no test covers that sequence; the
+  branch's own contract is pinned by `product-variant-form.spec.ts`.
 - **The panel's store is still resolved per instance** (D36). With one expanded row at a time the cost is
   at most one extra `GET /api/profile` per expansion, and the panel's store could in principle differ
   from the list's store-scoped columns if the profile changes between the two resolutions. A `storeId`

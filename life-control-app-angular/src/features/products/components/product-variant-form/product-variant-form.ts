@@ -87,9 +87,12 @@ export class ProductVariantForm {
 
       if (!fg) return;
 
-      // An empty map must also *remove* a previously applied server error: a host
-      // clears the input when it resets the form, and without this the stale
-      // `serverError` key would survive into the next entry.
+      // An empty map must also *remove* a previously applied server error: the host
+      // clears the input whenever a later failure carries no field attribution, and
+      // without this the stale `serverError` key would outlive the attempt that set it
+      // and sit under a field the newest failure never named. (`reset()` is not the
+      // reason: it already drops the key, because it recomputes `errors` from the
+      // validators.)
       if (Object.keys(serverErrors).length === 0) {
         Object.values(fg.controls).forEach((control) => {
           if (control.errors && 'serverError' in control.errors) {
