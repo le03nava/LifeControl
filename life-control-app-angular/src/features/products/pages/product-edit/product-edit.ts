@@ -17,6 +17,7 @@ import { ProductsForm } from '../../components/products-form/products-form';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { ErrorBanner } from '@shared/ui';
+import type { UnsavedChangesAware } from '@core/guards/unsaved-changes.guard';
 
 @Component({
   selector: 'app-product-edit',
@@ -25,7 +26,7 @@ import { ErrorBanner } from '@shared/ui';
   styleUrl: './product-edit.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class ProductEdit implements OnInit {
+export class ProductEdit implements OnInit, UnsavedChangesAware {
   private readonly route = inject(ActivatedRoute);
   private readonly productService = inject(ProductService);
   private readonly fb = inject(NonNullableFormBuilder);
@@ -96,6 +97,9 @@ export class ProductEdit implements OnInit {
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
           next: (createdProduct) => {
+            // The route is guarded by `unsavedChangesGuard`; a successful save
+            // must reach the edit page without the discard prompt firing.
+            this.productForm().markAsPristine();
             this.router.navigate(['/products/edit', createdProduct.id]);
           },
           error: (err: HttpErrorResponse) => {
@@ -108,6 +112,9 @@ export class ProductEdit implements OnInit {
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
           next: () => {
+            // The route is guarded by `unsavedChangesGuard`; a successful save
+            // must reach the list without the discard prompt firing.
+            this.productForm().markAsPristine();
             this.router.navigate(['/products']);
           },
           error: (err: HttpErrorResponse) => {
@@ -117,10 +124,23 @@ export class ProductEdit implements OnInit {
     }
   }
 
+  /**
+   * `GlobalExceptionHandler` answers 409 from two different sources: the explicit
+   * duplicate check (`DuplicateProductException`, message `Product with SKU 'X'
+   * already exists`) and the uncaught `DataIntegrityViolationException` path
+   * (generic "data constraint" message). D5 requires message-discriminated mapping:
+   * only the first one identifies a field conflict, so only it marks `sku`.
+   */
+  private static readonly DUPLICATE_SKU_PATTERN = /sku/i;
+  private static readonly DUPLICATE_SKU_MESSAGE = 'Ya existe un producto con ese SKU.';
+
   private handleServerError(err: HttpErrorResponse): void {
     const apiError = err.error as ApiError | undefined;
     if (apiError?.errors && Object.keys(apiError.errors).length > 0) {
       this.serverErrors.set(apiError.errors);
+      this.generalError.set(null);
+    } else if (this.isDuplicateSkuConflict(err, apiError)) {
+      this.serverErrors.set({ sku: ProductEdit.DUPLICATE_SKU_MESSAGE });
       this.generalError.set(null);
     } else if (apiError?.message) {
       this.serverErrors.set({});
@@ -131,14 +151,34 @@ export class ProductEdit implements OnInit {
     }
   }
 
+  private isDuplicateSkuConflict(err: HttpErrorResponse, apiError: ApiError | undefined): boolean {
+    return (
+      err.status === 409 &&
+      typeof apiError?.message === 'string' &&
+      ProductEdit.DUPLICATE_SKU_PATTERN.test(apiError.message)
+    );
+  }
+
   cancelForm(): void {
     this.router.navigate(['/products']);
+  }
+
+  /** Exposed to `unsavedChangesGuard`: the live form decides. */
+  hasUnsavedChanges(): boolean {
+    return this.productForm().dirty;
   }
 
   navigateToSuppliers(): void {
     const id = this.productId();
     if (id) {
       this.router.navigate(['/products/edit', id, 'suppliers']);
+    }
+  }
+
+  navigateToVariants(): void {
+    const id = this.productId();
+    if (id) {
+      this.router.navigate(['/products/edit', id, 'variants']);
     }
   }
 }

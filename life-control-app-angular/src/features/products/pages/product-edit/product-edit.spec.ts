@@ -15,6 +15,11 @@ describe('ProductEdit', () => {
   let routerMock: Partial<Router>;
 
   function createApiError(overrides: Partial<Record<string, unknown>> = {}): HttpErrorResponse {
+    // `overrides.status` drives both the body and the top-level HTTP status, so a
+    // 409 case reaches the handler through the same `HttpErrorResponse.status` a
+    // real response sets.
+    const status = typeof overrides['status'] === 'number' ? overrides['status'] : 400;
+
     return new HttpErrorResponse({
       error: {
         status: 400,
@@ -25,8 +30,8 @@ describe('ProductEdit', () => {
         correlationId: 'abc-123',
         ...overrides,
       },
-      status: 400,
-      statusText: 'Bad Request',
+      status,
+      statusText: status === 409 ? 'Conflict' : 'Bad Request',
     });
   }
 
@@ -182,6 +187,159 @@ describe('ProductEdit', () => {
     expect(routerMock.navigate).toHaveBeenCalledWith(['/products']);
   });
 
+  describe('hasUnsavedChanges', () => {
+    it('should report false right after create-mode construction', () => {
+      expect(component.productForm().pristine).toBe(true);
+      expect(component.hasUnsavedChanges()).toBe(false);
+    });
+
+    it('should stay pristine after a programmatic load in edit mode', () => {
+      productServiceMock.getProductById = vi
+        .fn()
+        .mockReturnValue(of(createProductData({ id: 'existing-id' })));
+
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        imports: [ProductEdit, NoopAnimationsModule, ReactiveFormsModule],
+        providers: [
+          { provide: ProductService, useValue: productServiceMock },
+          { provide: Router, useValue: routerMock },
+          {
+            provide: ActivatedRoute,
+            useValue: {
+              snapshot: { paramMap: { get: () => 'existing-id' } },
+            },
+          },
+        ],
+      }).compileComponents();
+
+      const f = TestBed.createComponent(ProductEdit);
+      const c = f.componentInstance;
+      f.detectChanges();
+
+      expect(c.productForm().pristine).toBe(true);
+      expect(c.hasUnsavedChanges()).toBe(false);
+    });
+
+    it('should report true after a user edit', () => {
+      // `setValue` alone does not mark a reactive control dirty in Angular 20;
+      // a real user edit both changes the value and marks the control dirty.
+      const sku = component.productForm().get('sku');
+      sku?.setValue('X');
+      sku?.markAsDirty();
+
+      expect(component.hasUnsavedChanges()).toBe(true);
+    });
+
+    it('should clear the flag after a successful update', () => {
+      productServiceMock.updateProduct = vi.fn().mockReturnValue(of({} as Product));
+
+      component.productForm().get('sku')?.markAsDirty();
+      // Precondition: the form must be dirty for `markAsPristine` to be load-bearing.
+      expect(component.hasUnsavedChanges()).toBe(true);
+      component.onSaveProduct(createProductData({ id: 'existing-id' }));
+
+      expect(component.hasUnsavedChanges()).toBe(false);
+      expect(routerMock.navigate).toHaveBeenCalledWith(['/products']);
+    });
+
+    it('should clear the flag after a successful create', () => {
+      const createdProduct = createProductData({ id: 'new-id' });
+      productServiceMock.createProduct = vi.fn().mockReturnValue(of(createdProduct));
+
+      component.productForm().get('sku')?.markAsDirty();
+      // Precondition: the form must be dirty for `markAsPristine` to be load-bearing.
+      expect(component.hasUnsavedChanges()).toBe(true);
+      component.onSaveProduct(createProductData());
+
+      expect(component.hasUnsavedChanges()).toBe(false);
+      expect(routerMock.navigate).toHaveBeenCalledWith(['/products/edit', 'new-id']);
+    });
+  });
+
+  describe('edit-mode product actions', () => {
+    function buttonLabels(f: ComponentFixture<ProductEdit>): string[] {
+      const buttons = Array.from(f.nativeElement.querySelectorAll('button')) as HTMLButtonElement[];
+      return buttons.map((button) => (button.textContent ?? '').trim());
+    }
+
+    function findButtonByLabel(
+      f: ComponentFixture<ProductEdit>,
+      label: string,
+    ): HTMLButtonElement | undefined {
+      const buttons = Array.from(f.nativeElement.querySelectorAll('button')) as HTMLButtonElement[];
+      return buttons.find((button) => (button.textContent ?? '').trim() === label);
+    }
+
+    function createEditModeFixture(): ComponentFixture<ProductEdit> {
+      productServiceMock.getProductById = vi
+        .fn()
+        .mockReturnValue(of(createProductData({ id: 'existing-id' })));
+
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        imports: [ProductEdit, NoopAnimationsModule, ReactiveFormsModule],
+        providers: [
+          { provide: ProductService, useValue: productServiceMock },
+          { provide: Router, useValue: routerMock },
+          {
+            provide: ActivatedRoute,
+            useValue: {
+              snapshot: { paramMap: { get: () => 'existing-id' } },
+            },
+          },
+        ],
+      }).compileComponents();
+
+      const f = TestBed.createComponent(ProductEdit);
+      f.detectChanges();
+      return f;
+    }
+
+    it('should render both product actions with voseo labels in edit mode', () => {
+      const f = createEditModeFixture();
+      const labels = buttonLabels(f);
+
+      expect(labels.filter((label) => label === 'Administrar proveedores')).toHaveLength(1);
+      expect(labels.filter((label) => label === 'Variantes')).toHaveLength(1);
+    });
+
+    it('should navigate to the product variants when the Variantes button is clicked', () => {
+      const f = createEditModeFixture();
+
+      const variantsButton = findButtonByLabel(f, 'Variantes');
+      expect(variantsButton).toBeDefined();
+      variantsButton?.click();
+
+      expect(routerMock.navigate).toHaveBeenCalledWith([
+        '/products/edit',
+        'existing-id',
+        'variants',
+      ]);
+    });
+
+    it('should navigate to the product suppliers when the suppliers button is clicked', () => {
+      const f = createEditModeFixture();
+
+      const suppliersButton = findButtonByLabel(f, 'Administrar proveedores');
+      expect(suppliersButton).toBeDefined();
+      suppliersButton?.click();
+
+      expect(routerMock.navigate).toHaveBeenCalledWith([
+        '/products/edit',
+        'existing-id',
+        'suppliers',
+      ]);
+    });
+
+    it('should render neither product action in create mode', () => {
+      const labels = buttonLabels(fixture);
+
+      expect(labels).not.toContain('Administrar proveedores');
+      expect(labels).not.toContain('Variantes');
+    });
+  });
+
   describe('serverErrors handling', () => {
     it('should set serverErrors signal and clear generalError when apiError has field-level errors', () => {
       const httpError = createApiError({
@@ -237,6 +395,80 @@ describe('ProductEdit', () => {
       expect(component.serverErrors()).toEqual({
         name: 'Nombre ya existe',
       });
+      expect(component.generalError()).toBeNull();
+    });
+
+    it('should map a duplicate-SKU 409 onto the sku control and clear the banner on create', () => {
+      const httpError = createApiError({
+        status: 409,
+        message: "Product with SKU 'SKU-001' already exists",
+        errors: undefined,
+      });
+      productServiceMock.createProduct = vi.fn().mockReturnValue(throwError(() => httpError));
+
+      component.onSaveProduct(createProductData());
+
+      expect(component.serverErrors()).toEqual({ sku: 'Ya existe un producto con ese SKU.' });
+      expect(component.generalError()).toBeNull();
+    });
+
+    it('should reach the sku control, not just the serverErrors signal', () => {
+      const httpError = createApiError({
+        status: 409,
+        message: "Product with SKU 'SKU-001' already exists",
+        errors: undefined,
+      });
+      productServiceMock.createProduct = vi.fn().mockReturnValue(throwError(() => httpError));
+
+      component.onSaveProduct(createProductData());
+      fixture.detectChanges();
+
+      expect(component.productForm().get('sku')?.errors?.['serverError']).toBe(
+        'Ya existe un producto con ese SKU.',
+      );
+    });
+
+    it('should keep the general banner for a 409 that is not a SKU conflict', () => {
+      const httpError = createApiError({
+        status: 409,
+        message: 'The operation conflicts with an existing resource or violates a data constraint',
+        errors: undefined,
+      });
+      productServiceMock.createProduct = vi.fn().mockReturnValue(throwError(() => httpError));
+
+      component.onSaveProduct(createProductData());
+
+      expect(component.serverErrors()).toEqual({});
+      expect(component.generalError()).toBe(
+        'The operation conflicts with an existing resource or violates a data constraint',
+      );
+    });
+
+    it('should let an errors map win over a duplicate-SKU 409', () => {
+      const httpError = createApiError({
+        status: 409,
+        message: "Product with SKU 'SKU-001' already exists",
+        errors: { sku: 'SKU duplicado' },
+      });
+      productServiceMock.createProduct = vi.fn().mockReturnValue(throwError(() => httpError));
+
+      component.onSaveProduct(createProductData());
+
+      expect(component.serverErrors()).toEqual({ sku: 'SKU duplicado' });
+      expect(component.generalError()).toBeNull();
+    });
+
+    it('should map a duplicate-SKU 409 onto the sku control on update as well', () => {
+      const httpError = createApiError({
+        status: 409,
+        message: "Product with SKU 'SKU-001' already exists",
+        errors: undefined,
+      });
+      productServiceMock.updateProduct = vi.fn().mockReturnValue(throwError(() => httpError));
+
+      component.onSaveProduct(createProductData({ id: 'existing-id' }));
+
+      expect(component.serverErrors()).toEqual({ sku: 'Ya existe un producto con ese SKU.' });
       expect(component.generalError()).toBeNull();
     });
   });

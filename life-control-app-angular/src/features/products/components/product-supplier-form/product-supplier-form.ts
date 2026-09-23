@@ -41,8 +41,8 @@ export class ProductSupplierForm {
   cancelForm = output<void>();
 
   readonly defaultErrorMessages: Record<string, (error: unknown) => string> = {
-    required: () => 'This field is required.',
-    min: (err) => `Value must be at least ${(err as { min?: number }).min}.`,
+    required: () => 'Este campo es obligatorio.',
+    min: (err) => `El valor mínimo es ${(err as { min?: number }).min}.`,
     serverError: (err) => err as string,
   };
 
@@ -59,7 +59,7 @@ export class ProductSupplierForm {
     if (allMessages[primerErrorKey]) {
       return allMessages[primerErrorKey](errorDetalle);
     }
-    return 'Invalid field.';
+    return 'Campo inválido.';
   }
 
   constructor() {

@@ -10,10 +10,14 @@
 />
 
 @if (isEditMode()) {
-  <div class="manage-suppliers-section">
+  <div class="product-actions-section">
     <button mat-stroked-button color="primary" (click)="navigateToSuppliers()">
       <mat-icon fontIcon="inventory_2" />
-      Manage Suppliers
+      Administrar proveedores
+    </button>
+    <button mat-stroked-button color="primary" (click)="navigateToVariants()">
+      <mat-icon fontIcon="style" />
+      Variantes
     </button>
   </div>
 }

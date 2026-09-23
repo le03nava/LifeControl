@@ -4,12 +4,13 @@
   width: 100%;
 }
 
-.manage-suppliers-section {
+.product-actions-section {
   max-width: 100%;
   margin: var(--space-md) auto 0;
   padding: 0 var(--space-lg);
   display: flex;
   justify-content: flex-start;
+  gap: var(--space-sm);
 
   @media (min-width: 576px) {
     max-width: 720px;
