@@ -6,7 +6,10 @@
     for that store, so the global view is the only place those can be seen.
   -->
   @if (storeId()) {
-    <mat-slide-toggle [checked]="storeScopeEnabled()" (change)="onStoreScopeChange($event.checked)">
+    <mat-slide-toggle
+      [checked]="storeScopeEnabled()"
+      (change)="onStoreScopeChange($event.checked, $event.source)"
+    >
       Ver sólo la tienda
     </mat-slide-toggle>
   }
@@ -19,7 +22,7 @@
   @if (!storeScoped()) {
     <mat-slide-toggle
       [checked]="includeDisabled()"
-      (change)="onIncludeDisabledChange($event.checked)"
+      (change)="onIncludeDisabledChange($event.checked, $event.source)"
     >
       Mostrar deshabilitadas
     </mat-slide-toggle>
@@ -95,7 +98,38 @@
       <!-- Table State -->
       <mat-card appearance="outlined" class="table-card">
         <mat-card-content>
-          <table mat-table [dataSource]="page.content">
+          <table
+            mat-table
+            [dataSource]="page.content"
+            [trackBy]="trackByVariantId"
+            multiTemplateDataRows
+          >
+            <!--
+              Expand toggle. The inline per-store stock/prices affordance (D31), the
+              same in both views; the store-scoped row action keeps navigating (D18).
+            -->
+            <ng-container matColumnDef="expand">
+              <th mat-header-cell *matHeaderCellDef></th>
+              <td mat-cell *matCellDef="let row">
+                <button
+                  mat-icon-button
+                  type="button"
+                  class="expand-toggle"
+                  [attr.aria-expanded]="expandedVariantId() === row.id"
+                  [attr.aria-label]="
+                    expandedVariantId() === row.id
+                      ? 'Cerrar el editor de stock y precios de ' + row.variantName
+                      : 'Abrir el editor de stock y precios de ' + row.variantName
+                  "
+                  (click)="toggleExpanded(row)"
+                >
+                  <mat-icon>
+                    {{ expandedVariantId() === row.id ? 'expand_less' : 'expand_more' }}
+                  </mat-icon>
+                </button>
+              </td>
+            </ng-container>
+
             <!-- Barcode -->
             <ng-container matColumnDef="barCode">
               <th mat-header-cell *matHeaderCellDef>Código de Barras</th>
@@ -177,8 +211,32 @@
               </td>
             </ng-container>
 
+            <!--
+              Expanded detail row. It renders for every data row so the table keeps a
+              stable row count; the cell is empty while collapsed, and the SCSS zeroes
+              the row and its cell so a collapsed one adds no height, padding or border.
+            -->
+            <ng-container matColumnDef="expandedDetail">
+              <td mat-cell *matCellDef="let row" [attr.colspan]="displayedColumns().length">
+                @if (expandedVariantId() === row.id) {
+                  <app-product-variant-store-stock
+                    [variantId]="row.id"
+                    [barCode]="row.barCode"
+                    (dirtyChange)="onPanelDirtyChange($event)"
+                  />
+                }
+              </td>
+            </ng-container>
+
             <tr mat-header-row *matHeaderRowDef="displayedColumns()"></tr>
             <tr mat-row *matRowDef="let row; columns: displayedColumns()"></tr>
+            <tr
+              mat-row
+              *matRowDef="let row; columns: ['expandedDetail']"
+              class="detail-row"
+              [class.detail-row--expanded]="expandedVariantId() === row.id"
+              [class.detail-row--collapsed]="expandedVariantId() !== row.id"
+            ></tr>
           </table>
         </mat-card-content>
       </mat-card>
@@ -251,12 +309,12 @@
         <div class="empty-illustration">
           <svg viewBox="0 0 200 200" class="empty-svg">
             <defs>
-              <linearGradient id="variantGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <linearGradient id="variantGradEmpty" x1="0%" y1="0%" x2="100%" y2="100%">
                 <stop offset="0%" style="stop-color: #2563eb; stop-opacity: 0.1" />
                 <stop offset="100%" style="stop-color: #06b6d4; stop-opacity: 0.1" />
               </linearGradient>
             </defs>
-            <circle cx="100" cy="100" r="80" fill="url(#variantGrad)" />
+            <circle cx="100" cy="100" r="80" fill="url(#variantGradEmpty)" />
             <g transform="translate(55, 65)">
               <rect
                 x="0"

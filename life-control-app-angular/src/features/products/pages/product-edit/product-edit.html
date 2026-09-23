@@ -31,6 +31,7 @@
         <app-product-variant-list
           [productId]="productId()!"
           (countChange)="variantCount.set($event)"
+          (dirtyChange)="variantPanelDirty.set($event)"
         />
       </div>
     </mat-tab>
@@ -102,7 +103,10 @@
       <ng-template matStepLabel>Variantes (opcional)</ng-template>
       <ng-template matStepContent>
         @if (productId(); as id) {
-          <app-product-variant-list [productId]="id" />
+          <app-product-variant-list
+            [productId]="id"
+            (dirtyChange)="variantPanelDirty.set($event)"
+          />
         } @else {
           <p class="step-hint">Primero guardá los datos del producto.</p>
         }

@@ -14,6 +14,8 @@
   [formGroup]="definitionForm()"
   [serverErrors]="serverErrors()"
   [editMode]="editMode()"
+  [saving]="saving()"
   (saveVariant)="onSaveVariant($event)"
+  (saveVariantAndContinue)="onSaveVariantAndContinue($event)"
   (cancelForm)="cancel()"
 />

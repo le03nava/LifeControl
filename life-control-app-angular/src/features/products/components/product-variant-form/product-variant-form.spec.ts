@@ -109,6 +109,82 @@ describe('ProductVariantForm', () => {
     expect(spy).toHaveBeenCalledTimes(1);
   });
 
+  describe('saveVariantAndContinue', () => {
+    it('should render the add-another button only in create mode', () => {
+      const el = fixture.nativeElement as HTMLElement;
+      expect(el.textContent).toContain('Guardar y agregar otra');
+
+      fixture.componentRef.setInput('editMode', true);
+      fixture.detectChanges();
+
+      expect(el.textContent).not.toContain('Guardar y agregar otra');
+    });
+
+    it('should emit saveVariantAndContinue with the two global fields when valid', () => {
+      const spy = vi.fn();
+      const saveSpy = vi.fn();
+      component.saveVariantAndContinue.subscribe(spy);
+      component.saveVariant.subscribe(saveSpy);
+
+      component.formGroup().patchValue({ barCode: '7791234567890', variantName: 'Talla 38' });
+      fixture.detectChanges();
+
+      component.onSaveAndContinue();
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(saveSpy).not.toHaveBeenCalled();
+      expect(spy.mock.calls[0][0]).toEqual({
+        barCode: '7791234567890',
+        variantName: 'Talla 38',
+      });
+    });
+
+    it('should not emit saveVariantAndContinue when the form is invalid', () => {
+      const spy = vi.fn();
+      const saveSpy = vi.fn();
+      component.saveVariantAndContinue.subscribe(spy);
+      component.saveVariant.subscribe(saveSpy);
+
+      component.onSaveAndContinue();
+
+      expect(spy).not.toHaveBeenCalled();
+      expect(saveSpy).not.toHaveBeenCalled();
+      expect(component.formGroup().controls.barCode.touched).toBe(true);
+    });
+  });
+
+  describe('in-flight guard', () => {
+    it('should not emit either output while saving', () => {
+      const saveSpy = vi.fn();
+      const continueSpy = vi.fn();
+      component.saveVariant.subscribe(saveSpy);
+      component.saveVariantAndContinue.subscribe(continueSpy);
+      component.formGroup().patchValue({ barCode: '7791234567890', variantName: 'Talla 38' });
+      fixture.componentRef.setInput('saving', true);
+      fixture.detectChanges();
+
+      component.onSave();
+      component.onSaveAndContinue();
+
+      expect(saveSpy).not.toHaveBeenCalled();
+      expect(continueSpy).not.toHaveBeenCalled();
+    });
+
+    it('should disable both buttons while saving', () => {
+      const el = fixture.nativeElement as HTMLElement;
+      fixture.componentRef.setInput('saving', true);
+      fixture.detectChanges();
+
+      const submit = el.querySelector('button[type="submit"]') as HTMLButtonElement;
+      const addAnother = Array.from(el.querySelectorAll('button')).find(
+        (button) => button.textContent?.trim() === 'Guardar y agregar otra',
+      ) as HTMLButtonElement;
+
+      expect(submit.disabled).toBe(true);
+      expect(addAnother.disabled).toBe(true);
+    });
+  });
+
   describe('serverErrors', () => {
     it('should apply server errors to matching controls', () => {
       fixture.componentRef.setInput('serverErrors', {
@@ -119,6 +195,18 @@ describe('ProductVariantForm', () => {
       expect(component.formGroup().controls.barCode.errors?.['serverError']).toBe(
         'Código ya registrado',
       );
+    });
+
+    it('should clear an applied serverError when the input becomes empty', () => {
+      const control = component.formGroup().controls.barCode;
+
+      fixture.componentRef.setInput('serverErrors', { barCode: 'Código ya registrado' });
+      fixture.detectChanges();
+      expect(control.errors?.['serverError']).toBe('Código ya registrado');
+
+      fixture.componentRef.setInput('serverErrors', {});
+      fixture.detectChanges();
+      expect(control.errors?.['serverError']).toBeUndefined();
     });
 
     it('should warn on unmatched server error keys', () => {

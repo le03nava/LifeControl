@@ -184,8 +184,9 @@ describe('productRoutes', () => {
       const variants = children().find((route) => route.path === 'edit/:id/variants');
 
       expect(variants).toBeDefined();
-      // Redirecting here would deny `lc-sales` the variant list and break the return
-      // paths at product-variant-edit.ts:195,206 and product-variant-stock-search.ts:157.
+      // Redirecting here would deny `lc-sales` the variant list, whose only entry
+      // point is product-variant-stock-search.ts:157: the route is `VARIANT_ROLES`
+      // while its would-be target `edit/:id` is admin-only.
       expect(variants?.redirectTo).toBeUndefined();
       expect(variants?.canActivate).toEqual([keycloakRoleGuard]);
       expect(variants?.data).toEqual({
