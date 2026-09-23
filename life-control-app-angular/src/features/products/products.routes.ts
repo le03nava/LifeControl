@@ -1,4 +1,5 @@
-import { Routes } from '@angular/router';
+import { inject } from '@angular/core';
+import { Router, Routes } from '@angular/router';
 import { keycloakRoleGuard } from '@core/guards/auth-keycloak-guard';
 import { unsavedChangesGuard } from '@core/guards/unsaved-changes.guard';
 import { LC_ADMIN, VARIANT_ROLES } from '@core/security/roles';
@@ -74,15 +75,19 @@ export const productRoutes: Routes = [
           ),
       },
       {
-        // Not admin-only, like the store-scoped search child: the variant screens
-        // exist for `lc-admin` and `lc-sales` alike, mirroring the backend
-        // `hasAnyRole('lc-admin','lc-sales')` on every variant endpoint.
+        // D17: this route does **not** redirect into the workspace. It is gated by
+        // `VARIANT_ROLES` (`lc-admin` + `lc-sales`) while `edit/:id` is admin-only,
+        // and it is the sales principal's only variant entry point; the variant
+        // screens exist for `lc-admin` and `lc-sales` alike, mirroring the backend
+        // `hasAnyRole('lc-admin','lc-sales')` on every variant endpoint. It keeps
+        // resolving through the thin host, which supplies the `app-page-header` the
+        // tab container no longer renders and passes `productId` down.
         path: 'edit/:id/variants',
         canActivate: [keycloakRoleGuard],
         data: { roles: VARIANT_ROLES, clientId: CLIENT_ID },
         loadComponent: () =>
-          import('./pages/product-variant-list/product-variant-list').then(
-            (m) => m.ProductVariantList,
+          import('./pages/product-variant-list-host/product-variant-list-host').then(
+            (m) => m.ProductVariantListHost,
           ),
       },
       {
@@ -118,13 +123,25 @@ export const productRoutes: Routes = [
           ),
       },
       {
+        // D13: the product-scoped supplier list is admin-only on both sides, so it
+        // redirects into the workspace `Proveedores` tab and no principal loses
+        // access. A redirect route never activates, so it carries no `canActivate`
+        // and no `data`: those would be inert config that reads as a gate. The
+        // target `edit/:id` keeps its own admin guard.
+        //
+        // The function runs in an injection context and returns a `UrlTree`, the
+        // only return shape that can carry `tab=` and preserve `storeId`. The
+        // sibling `create`/`edit` children keep loading their pages: Angular's
+        // `defaultUrlMatcher` requires full segment consumption, so this redirect
+        // cannot shadow them.
         path: 'edit/:id/suppliers',
-        canActivate: [keycloakRoleGuard],
-        data: { roles: PRODUCT_ADMIN_ROLES, clientId: CLIENT_ID },
-        loadComponent: () =>
-          import('./pages/product-supplier-list/product-supplier-list').then(
-            (m) => m.ProductSupplierList,
-          ),
+        redirectTo: ({ params, queryParams }) => {
+          const router = inject(Router);
+          const storeId = queryParams['storeId'];
+          return router.createUrlTree(['/products/edit', params['id']], {
+            queryParams: storeId ? { tab: 'proveedores', storeId } : { tab: 'proveedores' },
+          });
+        },
       },
       {
         path: 'suppliers',

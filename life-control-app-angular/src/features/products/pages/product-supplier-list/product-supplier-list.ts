@@ -5,11 +5,12 @@ import {
   DestroyRef,
   effect,
   inject,
-  signal,
+  input,
+  output,
 } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
 import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, Router } from '@angular/router';
+import { Router } from '@angular/router';
 import { MatTableModule } from '@angular/material/table';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
@@ -18,12 +19,8 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatCardModule } from '@angular/material/card';
 import { MatDialog } from '@angular/material/dialog';
 import { ProductSupplierService } from '../../data/product-supplier.service';
-import { ProductService } from '../../data/product.service';
-import { ProductSupplier } from '../../models/product-supplier.models';
 import { RemoveSupplierDialog } from '../../ui/remove-supplier-dialog/remove-supplier-dialog';
-import { PageHeader } from '@shared/ui';
 import { httpErrorMessage } from '@shared/data';
-import { of } from 'rxjs';
 
 @Component({
   selector: 'app-product-supplier-list',
@@ -37,33 +34,21 @@ import { of } from 'rxjs';
     MatChipsModule,
     MatProgressSpinnerModule,
     MatCardModule,
-    PageHeader,
   ],
   templateUrl: './product-supplier-list.html',
   styleUrl: './product-supplier-list.scss',
 })
 export class ProductSupplierList {
+  /** The product whose supplier assignments are shown. Owned by the workspace shell. */
+  readonly productId = input.required<string>();
+
+  /** The loaded supplier count, emitted on every successful read. */
+  readonly countChange = output<number>();
+
   private readonly productSupplierService = inject(ProductSupplierService);
-  private readonly productService = inject(ProductService);
-  private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly dialog = inject(MatDialog);
   private readonly destroyRef = inject(DestroyRef);
-
-  readonly productId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
-
-  readonly productResource = rxResource({
-    params: () => ({ productId: this.productId() }),
-    stream: ({ params }) => {
-      if (!params.productId) {
-        return of(null);
-      }
-      return this.productService.getProductById(params.productId);
-    },
-  });
-  readonly product = computed(() =>
-    this.productResource.hasValue() ? this.productResource.value() : undefined,
-  );
 
   readonly displayedColumns: string[] = [
     'supplierName',
@@ -74,15 +59,8 @@ export class ProductSupplierList {
   ];
 
   readonly suppliersResource = rxResource({
-    params: () => ({
-      productId: this.productId(),
-    }),
-    stream: ({ params }) => {
-      if (!params.productId) {
-        return of([] as ProductSupplier[]);
-      }
-      return this.productSupplierService.getSuppliers(params.productId);
-    },
+    params: () => ({ productId: this.productId() }),
+    stream: ({ params }) => this.productSupplierService.getSuppliers(params.productId),
   });
 
   readonly suppliers = computed(() =>
@@ -95,25 +73,19 @@ export class ProductSupplierList {
 
   constructor() {
     effect(() => {
-      const id = this.productId();
-      if (!id) {
-        this.router.navigate(['/products/list']);
+      const suppliers = this.suppliers();
+      if (suppliers) {
+        this.countChange.emit(suppliers.length);
       }
     });
   }
 
   addSupplier(): void {
-    const id = this.productId();
-    if (id) {
-      this.router.navigate(['/products/edit', id, 'suppliers', 'create']);
-    }
+    this.router.navigate(['/products/edit', this.productId(), 'suppliers', 'create']);
   }
 
   editSupplier(psId: string): void {
-    const id = this.productId();
-    if (id) {
-      this.router.navigate(['/products/edit', id, 'suppliers', 'edit', psId]);
-    }
+    this.router.navigate(['/products/edit', this.productId(), 'suppliers', 'edit', psId]);
   }
 
   confirmDelete(psId: string, supplierName: string): void {
@@ -126,15 +98,12 @@ export class ProductSupplierList {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((result) => {
         if (result) {
-          const id = this.productId();
-          if (id) {
-            this.productSupplierService
-              .removeSupplier(id, psId)
-              .pipe(takeUntilDestroyed(this.destroyRef))
-              .subscribe({
-                next: () => this.suppliersResource.reload(),
-              });
-          }
+          this.productSupplierService
+            .removeSupplier(this.productId(), psId)
+            .pipe(takeUntilDestroyed(this.destroyRef))
+            .subscribe({
+              next: () => this.suppliersResource.reload(),
+            });
         }
       });
   }

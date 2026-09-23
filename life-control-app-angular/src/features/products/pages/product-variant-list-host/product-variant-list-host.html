@@ -1,0 +1,12 @@
+<!--
+  Header shape reused from the container before it became tab content: the product
+  name over `SKU: …`, with the same fallbacks it used while the read is in flight.
+  The host has no actions of its own, so the action slot stays hidden.
+-->
+<app-page-header
+  [title]="product()?.name ?? 'Variantes'"
+  [subtitle]="product()?.sku ? 'SKU: ' + product()?.sku : 'Definiciones globales del producto'"
+  [showActions]="false"
+/>
+
+<app-product-variant-list [productId]="productId()!" />

@@ -1,4 +1,6 @@
-import type { Route } from '@angular/router';
+import { TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
+import type { RedirectFunction, Route, UrlTree } from '@angular/router';
 import { keycloakRoleGuard } from '@core/guards/auth-keycloak-guard';
 import { unsavedChangesGuard } from '@core/guards/unsaved-changes.guard';
 import { LC_SALES } from '@core/security/roles';
@@ -12,17 +14,40 @@ function children(): Route[] {
   return parent.children ?? [];
 }
 
+/**
+ * A redirect route never activates, so it carries no `canActivate`/`data` to
+ * assert. The two derivations below must skip it explicitly, or their per-child
+ * guard assertions fail on a route that is not a guarded screen at all (D14).
+ */
+function isRedirect(route: Route): boolean {
+  return route.redirectTo !== undefined;
+}
+
 /** The variant screens: the deliberate exception to the admin-only children. */
 function variantChildren(): Route[] {
-  return children().filter((route) => route.path?.includes('variants'));
+  return children().filter((route) => route.path?.includes('variants') && !isRedirect(route));
 }
 
 /** Every child that is not a variant screen and stays admin-only. */
 function nonVariantChildren(): Route[] {
-  return children().filter((route) => !route.path?.includes('variants'));
+  return children().filter((route) => !route.path?.includes('variants') && !isRedirect(route));
+}
+
+/** The `redirectData` slice the router hands a `RedirectFunction`; only the two used fields matter here. */
+function redirectData(
+  params: Record<string, string>,
+  queryParams: Record<string, string> = {},
+): Parameters<RedirectFunction>[0] {
+  return { params, queryParams } as Parameters<RedirectFunction>[0];
 }
 
 describe('productRoutes', () => {
+  beforeEach(() => {
+    // `redirectTo` functions run in an injection context and this one injects the
+    // `Router` to build a `UrlTree`; the real router is provided so the produced
+    // value is Angular's own URL, not a stub's.
+    TestBed.configureTestingModule({ providers: [provideRouter([])] });
+  });
   it('should gate the parent with the variant roles union and the role guard', () => {
     // Literal wire strings, not the imported constants: this is the assertion
     // that pins the role names the guard actually matches against.
@@ -112,5 +137,69 @@ describe('productRoutes', () => {
       expect(route.data?.['roles']).toEqual(['lc-admin']);
       expect(route.data?.['roles']).not.toContain(LC_SALES);
     }
+  });
+
+  describe('product-scoped list routes (T9, D13/D14/D17)', () => {
+    it('should redirect the product-scoped supplier list into the workspace tab', () => {
+      const suppliers = children().find((route) => route.path === 'edit/:id/suppliers');
+
+      expect(suppliers).toBeDefined();
+      // A function, not a string: the target is built from the route params.
+      expect(typeof suppliers?.redirectTo).toBe('function');
+      // A redirect route never activates, so a `loadComponent` here would be dead config.
+      expect(suppliers?.loadComponent).toBeUndefined();
+
+      const redirect = suppliers?.redirectTo as RedirectFunction;
+      const produced = TestBed.runInInjectionContext(() =>
+        redirect(redirectData({ id: 'prod-1' })),
+      );
+
+      // Assert the produced value, not merely that a function is present.
+      expect((produced as UrlTree).toString()).toBe('/products/edit/prod-1?tab=proveedores');
+    });
+
+    it('should preserve storeId when redirecting the product-scoped supplier list', () => {
+      const suppliers = children().find((route) => route.path === 'edit/:id/suppliers');
+      const redirect = suppliers?.redirectTo as RedirectFunction;
+
+      const produced = TestBed.runInInjectionContext(() =>
+        redirect(redirectData({ id: 'prod-1' }, { storeId: 'store-9' })),
+      );
+
+      expect((produced as UrlTree).toString()).toBe(
+        '/products/edit/prod-1?tab=proveedores&storeId=store-9',
+      );
+    });
+
+    it('should carry no inert canActivate/data on the redirect route', () => {
+      const suppliers = children().find((route) => route.path === 'edit/:id/suppliers');
+
+      // Deliberate: a redirect never activates, so the guards would never run. The
+      // target `edit/:id` keeps its own admin gate, so access is unchanged.
+      expect(suppliers?.canActivate).toBeUndefined();
+      expect(suppliers?.data).toBeUndefined();
+    });
+
+    it('should keep edit/:id/variants resolving through the thin host, never a redirect (D17)', async () => {
+      const variants = children().find((route) => route.path === 'edit/:id/variants');
+
+      expect(variants).toBeDefined();
+      // Redirecting here would deny `lc-sales` the variant list and break the return
+      // paths at product-variant-edit.ts:195,206 and product-variant-stock-search.ts:157.
+      expect(variants?.redirectTo).toBeUndefined();
+      expect(variants?.canActivate).toEqual([keycloakRoleGuard]);
+      expect(variants?.data).toEqual({
+        roles: ['lc-admin', 'lc-sales'],
+        clientId: 'life-control-client',
+      });
+      expect(typeof variants?.loadComponent).toBe('function');
+
+      const loaded = await variants!.loadComponent!();
+      const component = (loaded as { default?: unknown }).default ?? loaded;
+      // Angular's compiler emits a `_`-prefixed runtime class name for decorated
+      // components; strip it so the assertion pins the host, not the compiler's alias.
+      const name = (component as { name?: string }).name ?? '';
+      expect(name.replace(/^_/, '')).toBe('ProductVariantListHost');
+    });
   });
 });

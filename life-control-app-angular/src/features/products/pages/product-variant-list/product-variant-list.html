@@ -1,340 +1,333 @@
-<div class="product-variant-list-page">
-  <app-page-header
-    [title]="product()?.name ?? 'Variantes'"
-    [subtitle]="product()?.sku ? 'SKU: ' + product()?.sku : 'Definiciones globales del producto'"
-  >
-    <button mat-flat-button color="primary" (click)="addVariant()">
-      <mat-icon fontIcon="add" /> Agregar Variante
-    </button>
-  </app-page-header>
+<div class="filters-section">
+  <!--
+    Store scope. Offered only when the resolution produced a store; a scope with
+    nothing to scope is not a choice. Both views stay reachable on purpose: the
+    store-scoped read cannot list a soft-deleted definition nor one with no row
+    for that store, so the global view is the only place those can be seen.
+  -->
+  @if (storeId()) {
+    <mat-slide-toggle [checked]="storeScopeEnabled()" (change)="onStoreScopeChange($event.checked)">
+      Ver sólo la tienda
+    </mat-slide-toggle>
+  }
 
-  <div class="filters-section">
-    <!--
-      Store scope. Offered only when the resolution produced a store; a scope with
-      nothing to scope is not a choice. Both views stay reachable on purpose: the
-      store-scoped read cannot list a soft-deleted definition nor one with no row
-      for that store, so the global view is the only place those can be seen.
-    -->
-    @if (storeId()) {
-      <mat-slide-toggle
-        [checked]="storeScopeEnabled()"
-        (change)="onStoreScopeChange($event.checked)"
-      >
-        Ver sólo la tienda
-      </mat-slide-toggle>
-    }
+  <!--
+    Disabled filter: the global read excludes soft-deleted definitions by
+    default. Only offered there: the store-scoped branch ignores the opt-in
+    server-side and always filters `enabled = true`.
+  -->
+  @if (!storeScoped()) {
+    <mat-slide-toggle
+      [checked]="includeDisabled()"
+      (change)="onIncludeDisabledChange($event.checked)"
+    >
+      Mostrar deshabilitadas
+    </mat-slide-toggle>
+  }
 
-    <!--
-      Disabled filter: the global read excludes soft-deleted definitions by
-      default. Only offered there: the store-scoped branch ignores the opt-in
-      server-side and always filters `enabled = true`.
-    -->
-    @if (!storeScoped()) {
-      <mat-slide-toggle
-        [checked]="includeDisabled()"
-        (change)="onIncludeDisabledChange($event.checked)"
-      >
-        Mostrar deshabilitadas
-      </mat-slide-toggle>
-    }
-
-    @if (storeError(); as storeFailure) {
-      <div class="store-scope store-scope--error">
-        <mat-icon fontIcon="error" />
-        <span>No pudimos determinar la tienda: {{ storeFailure }}</span>
-        <button mat-button type="button" (click)="retryStore()">Reintentar</button>
-      </div>
-      <p class="store-scope-hint">
-        Estás viendo las definiciones globales: sin tienda no hay precios ni stock que mostrar.
-      </p>
-    } @else if (storeUnconfigured()) {
-      <div class="store-scope">
-        <mat-icon fontIcon="info" />
-        <span>No hay una tienda configurada para tu usuario.</span>
-        <button mat-button type="button" (click)="goToProfile()">Configurar mi tienda</button>
-      </div>
-      <p class="store-scope-hint">
-        Estás viendo las definiciones globales: el stock y los precios se cargan por tienda.
-      </p>
-    } @else if (storeScoped()) {
-      <div class="store-scope">
-        <mat-icon fontIcon="info" />
-        <span>
-          {{
-            storeSource() === 'query'
-              ? 'Viendo la tienda indicada en el enlace.'
-              : 'Viendo la tienda configurada en tu perfil.'
-          }}
-        </span>
-      </div>
-    } @else if (storeId()) {
-      <div class="store-scope">
-        <mat-icon fontIcon="info" />
-        <span>Viendo las definiciones globales del producto.</span>
-      </div>
-    }
-  </div>
-
-  <div class="table-section">
-    @if (loading()) {
-      <!-- Loading State -->
-      <div class="loading-skeleton">
-        @for (_ of [1, 2, 3, 4, 5]; track $index) {
-          <div class="skeleton-row" [style.--i]="$index">
-            <div class="skeleton-cell barcode"></div>
-            <div class="skeleton-cell name"></div>
-            <div class="skeleton-cell status-badge"></div>
-            <div class="skeleton-cell actions"></div>
-          </div>
-        }
-      </div>
-    } @else if (error(); as err) {
-      <!-- Error State -->
-      <div class="error-state">
-        <mat-icon fontIcon="error" />
-        <p>{{ httpErrorMessage(err) }}</p>
-        <button mat-stroked-button type="button" (click)="onRetry()">Reintentar</button>
-      </div>
-    } @else {
-      @let page = variants();
-      @if (page && page.content.length) {
-        <!-- Table State -->
-        <mat-card appearance="outlined" class="table-card">
-          <mat-card-content>
-            <table mat-table [dataSource]="page.content">
-              <!-- Barcode -->
-              <ng-container matColumnDef="barCode">
-                <th mat-header-cell *matHeaderCellDef>Código de Barras</th>
-                <td mat-cell *matCellDef="let row">{{ row.barCode }}</td>
-              </ng-container>
-
-              <!-- Variant Name -->
-              <ng-container matColumnDef="variantName">
-                <th mat-header-cell *matHeaderCellDef>Variante</th>
-                <td mat-cell *matCellDef="let row">{{ row.variantName }}</td>
-              </ng-container>
-
-              <!--
-                Store-scoped prices and stock. Only in `displayedColumns` on the
-                store view; the global read leaves all three `null` on every row.
-              -->
-              <ng-container matColumnDef="listPrice">
-                <th mat-header-cell *matHeaderCellDef>Precio de venta</th>
-                <td mat-cell *matCellDef="let row">
-                  {{ row.listPrice !== null ? (row.listPrice | currency: 'MXN') : '—' }}
-                </td>
-              </ng-container>
-
-              <ng-container matColumnDef="costPrice">
-                <th mat-header-cell *matHeaderCellDef>Costo</th>
-                <td mat-cell *matCellDef="let row">
-                  {{ row.costPrice !== null ? (row.costPrice | currency: 'MXN') : '—' }}
-                </td>
-              </ng-container>
-
-              <ng-container matColumnDef="stock">
-                <th mat-header-cell *matHeaderCellDef>Stock</th>
-                <td mat-cell *matCellDef="let row">{{ row.stock !== null ? row.stock : '—' }}</td>
-              </ng-container>
-
-              <!-- Enabled -->
-              <ng-container matColumnDef="enabled">
-                <th mat-header-cell *matHeaderCellDef>Estado</th>
-                <td mat-cell *matCellDef="let row">
-                  @if (row.enabled) {
-                    <mat-chip class="enabled-chip">Habilitada</mat-chip>
-                  } @else {
-                    <mat-chip class="disabled-chip">Deshabilitada</mat-chip>
-                  }
-                </td>
-              </ng-container>
-
-              <!-- Actions -->
-              <ng-container matColumnDef="actions">
-                <th mat-header-cell *matHeaderCellDef>Acciones</th>
-                <td mat-cell *matCellDef="let row">
-                  <div class="actions-cell">
-                    <button
-                      mat-icon-button
-                      (click)="editVariant(row.id)"
-                      aria-label="Editar variante"
-                    >
-                      <mat-icon>edit</mat-icon>
-                    </button>
-                    @if (row.enabled) {
-                      <button
-                        mat-icon-button
-                        (click)="confirmDisable(row)"
-                        aria-label="Deshabilitar variante"
-                      >
-                        <mat-icon>block</mat-icon>
-                      </button>
-                    } @else {
-                      <!--
-                        Only reachable with the filter on: the default read
-                        excludes disabled definitions, so this row cannot appear
-                        while "Mostrar deshabilitadas" is off.
-                      -->
-                      <button
-                        mat-icon-button
-                        (click)="enableVariant(row.id)"
-                        aria-label="Habilitar variante"
-                      >
-                        <mat-icon>check_circle</mat-icon>
-                      </button>
-                    }
-                  </div>
-                </td>
-              </ng-container>
-
-              <tr mat-header-row *matHeaderRowDef="displayedColumns()"></tr>
-              <tr mat-row *matRowDef="let row; columns: displayedColumns()"></tr>
-            </table>
-          </mat-card-content>
-        </mat-card>
-      } @else if (storeScoped()) {
-        <!-- Empty State: the store view lists only rows that exist for that store -->
-        <div class="empty-state">
-          <div class="empty-illustration">
-            <svg viewBox="0 0 200 200" class="empty-svg">
-              <defs>
-                <linearGradient id="variantGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" style="stop-color: #2563eb; stop-opacity: 0.1" />
-                  <stop offset="100%" style="stop-color: #06b6d4; stop-opacity: 0.1" />
-                </linearGradient>
-              </defs>
-              <circle cx="100" cy="100" r="80" fill="url(#variantGrad)" />
-              <g transform="translate(55, 65)">
-                <rect
-                  x="0"
-                  y="0"
-                  width="90"
-                  height="70"
-                  rx="4"
-                  fill="none"
-                  stroke="var(--mat-sys-outline, #cbd5e1)"
-                  stroke-width="2"
-                />
-                <rect
-                  x="10"
-                  y="12"
-                  width="30"
-                  height="6"
-                  rx="2"
-                  fill="var(--mat-sys-primary, #2563eb)"
-                  opacity="0.4"
-                />
-                <line
-                  x1="10"
-                  y1="34"
-                  x2="80"
-                  y2="34"
-                  stroke="var(--mat-sys-on-surface-variant, #94a3b8)"
-                  stroke-width="4"
-                  stroke-dasharray="2 3"
-                  opacity="0.5"
-                />
-                <rect
-                  x="10"
-                  y="50"
-                  width="45"
-                  height="5"
-                  rx="2"
-                  fill="var(--mat-sys-on-surface-variant, #94a3b8)"
-                  opacity="0.3"
-                />
-              </g>
-            </svg>
-          </div>
-          <h3 class="empty-title">Esta tienda no tiene stock ni precios cargados</h3>
-          <p class="empty-subtitle">
-            El stock y los precios se cargan desde la edición de cada variante, y sólo aparecen acá
-            las que ya tienen una fila en esta tienda.
-          </p>
-          <button mat-stroked-button (click)="onStoreScopeChange(false)">
-            Ver las definiciones globales
-          </button>
-        </div>
-      } @else {
-        <!-- Empty State -->
-        <div class="empty-state">
-          <div class="empty-illustration">
-            <svg viewBox="0 0 200 200" class="empty-svg">
-              <defs>
-                <linearGradient id="variantGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" style="stop-color: #2563eb; stop-opacity: 0.1" />
-                  <stop offset="100%" style="stop-color: #06b6d4; stop-opacity: 0.1" />
-                </linearGradient>
-              </defs>
-              <circle cx="100" cy="100" r="80" fill="url(#variantGrad)" />
-              <g transform="translate(55, 65)">
-                <rect
-                  x="0"
-                  y="0"
-                  width="90"
-                  height="70"
-                  rx="4"
-                  fill="none"
-                  stroke="var(--mat-sys-outline, #cbd5e1)"
-                  stroke-width="2"
-                />
-                <rect
-                  x="10"
-                  y="12"
-                  width="30"
-                  height="6"
-                  rx="2"
-                  fill="var(--mat-sys-primary, #2563eb)"
-                  opacity="0.4"
-                />
-                <line
-                  x1="10"
-                  y1="34"
-                  x2="80"
-                  y2="34"
-                  stroke="var(--mat-sys-on-surface-variant, #94a3b8)"
-                  stroke-width="4"
-                  stroke-dasharray="2 3"
-                  opacity="0.5"
-                />
-                <rect
-                  x="10"
-                  y="50"
-                  width="45"
-                  height="5"
-                  rx="2"
-                  fill="var(--mat-sys-on-surface-variant, #94a3b8)"
-                  opacity="0.3"
-                />
-              </g>
-            </svg>
-          </div>
-          <h3 class="empty-title">No hay variantes registradas</h3>
-          <p class="empty-subtitle">
-            Clic en "Agregar Variante" para crear la primera de este producto
-          </p>
-          <button mat-flat-button color="primary" (click)="addVariant()">
-            <mat-icon fontIcon="add" /> Agregar Variante
-          </button>
-        </div>
-      }
-    }
-  </div>
-
-  <!-- Paginator -->
-  @let page = variants();
-  @if (page && hasMultiplePages()) {
-    <div class="pagination-section">
-      <mat-paginator
-        [length]="page.totalElements"
-        [pageSize]="pageSize()"
-        [pageIndex]="pageIndex()"
-        [pageSizeOptions]="[6, 12, 24, 48]"
-        (page)="onPageChange($event)"
-        showFirstLastButtons
-        aria-label="Paginación de variantes"
-      >
-      </mat-paginator>
+  @if (storeError(); as storeFailure) {
+    <div class="store-scope store-scope--error">
+      <mat-icon fontIcon="error" />
+      <span>No pudimos determinar la tienda: {{ storeFailure }}</span>
+      <button mat-button type="button" (click)="retryStore()">Reintentar</button>
+    </div>
+    <p class="store-scope-hint">
+      Estás viendo las definiciones globales: sin tienda no hay precios ni stock que mostrar.
+    </p>
+  } @else if (storeUnconfigured()) {
+    <div class="store-scope">
+      <mat-icon fontIcon="info" />
+      <span>No hay una tienda configurada para tu usuario.</span>
+      <button mat-button type="button" (click)="goToProfile()">Configurar mi tienda</button>
+    </div>
+    <p class="store-scope-hint">
+      Estás viendo las definiciones globales: el stock y los precios se cargan por tienda.
+    </p>
+  } @else if (storeScoped()) {
+    <div class="store-scope">
+      <mat-icon fontIcon="info" />
+      <span>
+        {{
+          storeSource() === 'query'
+            ? 'Viendo la tienda indicada en el enlace.'
+            : 'Viendo la tienda configurada en tu perfil.'
+        }}
+      </span>
+    </div>
+  } @else if (storeId()) {
+    <div class="store-scope">
+      <mat-icon fontIcon="info" />
+      <span>Viendo las definiciones globales del producto.</span>
     </div>
   }
 </div>
+
+<div class="table-section">
+  @if (loading()) {
+    <!-- Loading State -->
+    <div class="loading-skeleton">
+      @for (_ of [1, 2, 3, 4, 5]; track $index) {
+        <div class="skeleton-row" [style.--i]="$index">
+          <div class="skeleton-cell barcode"></div>
+          <div class="skeleton-cell name"></div>
+          <div class="skeleton-cell status-badge"></div>
+          <div class="skeleton-cell actions"></div>
+        </div>
+      }
+    </div>
+  } @else if (error(); as err) {
+    <!-- Error State -->
+    <div class="error-state">
+      <mat-icon fontIcon="error" />
+      <p>{{ httpErrorMessage(err) }}</p>
+      <button mat-stroked-button type="button" (click)="onRetry()">Reintentar</button>
+    </div>
+  } @else {
+    @let page = variants();
+    @if (page && page.content.length) {
+      <!-- Add Action -->
+      <div class="action-row">
+        <button mat-flat-button color="primary" (click)="addVariant()">
+          <mat-icon fontIcon="add" /> Agregar variante
+        </button>
+      </div>
+
+      <!-- Table State -->
+      <mat-card appearance="outlined" class="table-card">
+        <mat-card-content>
+          <table mat-table [dataSource]="page.content">
+            <!-- Barcode -->
+            <ng-container matColumnDef="barCode">
+              <th mat-header-cell *matHeaderCellDef>Código de Barras</th>
+              <td mat-cell *matCellDef="let row">{{ row.barCode }}</td>
+            </ng-container>
+
+            <!-- Variant Name -->
+            <ng-container matColumnDef="variantName">
+              <th mat-header-cell *matHeaderCellDef>Variante</th>
+              <td mat-cell *matCellDef="let row">{{ row.variantName }}</td>
+            </ng-container>
+
+            <!--
+              Store-scoped prices and stock. Only in `displayedColumns` on the
+              store view; the global read leaves all three `null` on every row.
+            -->
+            <ng-container matColumnDef="listPrice">
+              <th mat-header-cell *matHeaderCellDef>Precio de venta</th>
+              <td mat-cell *matCellDef="let row">
+                {{ row.listPrice !== null ? (row.listPrice | currency: 'MXN') : '—' }}
+              </td>
+            </ng-container>
+
+            <ng-container matColumnDef="costPrice">
+              <th mat-header-cell *matHeaderCellDef>Costo</th>
+              <td mat-cell *matCellDef="let row">
+                {{ row.costPrice !== null ? (row.costPrice | currency: 'MXN') : '—' }}
+              </td>
+            </ng-container>
+
+            <ng-container matColumnDef="stock">
+              <th mat-header-cell *matHeaderCellDef>Stock</th>
+              <td mat-cell *matCellDef="let row">{{ row.stock !== null ? row.stock : '—' }}</td>
+            </ng-container>
+
+            <!-- Enabled -->
+            <ng-container matColumnDef="enabled">
+              <th mat-header-cell *matHeaderCellDef>Estado</th>
+              <td mat-cell *matCellDef="let row">
+                @if (row.enabled) {
+                  <mat-chip class="enabled-chip">Habilitada</mat-chip>
+                } @else {
+                  <mat-chip class="disabled-chip">Deshabilitada</mat-chip>
+                }
+              </td>
+            </ng-container>
+
+            <!-- Actions -->
+            <ng-container matColumnDef="actions">
+              <th mat-header-cell *matHeaderCellDef>Acciones</th>
+              <td mat-cell *matCellDef="let row">
+                <div class="actions-cell">
+                  <button
+                    mat-icon-button
+                    (click)="editVariant(row.id)"
+                    aria-label="Editar variante"
+                  >
+                    <mat-icon>edit</mat-icon>
+                  </button>
+                  @if (row.enabled) {
+                    <button
+                      mat-icon-button
+                      (click)="confirmDisable(row)"
+                      aria-label="Deshabilitar variante"
+                    >
+                      <mat-icon>block</mat-icon>
+                    </button>
+                  } @else {
+                    <!--
+                      Only reachable with the filter on: the default read
+                      excludes disabled definitions, so this row cannot appear
+                      while "Mostrar deshabilitadas" is off.
+                    -->
+                    <button
+                      mat-icon-button
+                      (click)="enableVariant(row.id)"
+                      aria-label="Habilitar variante"
+                    >
+                      <mat-icon>check_circle</mat-icon>
+                    </button>
+                  }
+                </div>
+              </td>
+            </ng-container>
+
+            <tr mat-header-row *matHeaderRowDef="displayedColumns()"></tr>
+            <tr mat-row *matRowDef="let row; columns: displayedColumns()"></tr>
+          </table>
+        </mat-card-content>
+      </mat-card>
+    } @else if (storeScoped()) {
+      <!-- Empty State: the store view lists only rows that exist for that store -->
+      <div class="empty-state">
+        <div class="empty-illustration">
+          <svg viewBox="0 0 200 200" class="empty-svg">
+            <defs>
+              <linearGradient id="variantGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" style="stop-color: #2563eb; stop-opacity: 0.1" />
+                <stop offset="100%" style="stop-color: #06b6d4; stop-opacity: 0.1" />
+              </linearGradient>
+            </defs>
+            <circle cx="100" cy="100" r="80" fill="url(#variantGrad)" />
+            <g transform="translate(55, 65)">
+              <rect
+                x="0"
+                y="0"
+                width="90"
+                height="70"
+                rx="4"
+                fill="none"
+                stroke="var(--mat-sys-outline, #cbd5e1)"
+                stroke-width="2"
+              />
+              <rect
+                x="10"
+                y="12"
+                width="30"
+                height="6"
+                rx="2"
+                fill="var(--mat-sys-primary, #2563eb)"
+                opacity="0.4"
+              />
+              <line
+                x1="10"
+                y1="34"
+                x2="80"
+                y2="34"
+                stroke="var(--mat-sys-on-surface-variant, #94a3b8)"
+                stroke-width="4"
+                stroke-dasharray="2 3"
+                opacity="0.5"
+              />
+              <rect
+                x="10"
+                y="50"
+                width="45"
+                height="5"
+                rx="2"
+                fill="var(--mat-sys-on-surface-variant, #94a3b8)"
+                opacity="0.3"
+              />
+            </g>
+          </svg>
+        </div>
+        <h3 class="empty-title">Esta tienda no tiene stock ni precios cargados</h3>
+        <p class="empty-subtitle">
+          El stock y los precios se cargan desde la edición de cada variante, y sólo aparecen acá
+          las que ya tienen una fila en esta tienda.
+        </p>
+        <button mat-stroked-button (click)="onStoreScopeChange(false)">
+          Ver las definiciones globales
+        </button>
+      </div>
+    } @else {
+      <!-- Empty State -->
+      <div class="empty-state">
+        <div class="empty-illustration">
+          <svg viewBox="0 0 200 200" class="empty-svg">
+            <defs>
+              <linearGradient id="variantGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" style="stop-color: #2563eb; stop-opacity: 0.1" />
+                <stop offset="100%" style="stop-color: #06b6d4; stop-opacity: 0.1" />
+              </linearGradient>
+            </defs>
+            <circle cx="100" cy="100" r="80" fill="url(#variantGrad)" />
+            <g transform="translate(55, 65)">
+              <rect
+                x="0"
+                y="0"
+                width="90"
+                height="70"
+                rx="4"
+                fill="none"
+                stroke="var(--mat-sys-outline, #cbd5e1)"
+                stroke-width="2"
+              />
+              <rect
+                x="10"
+                y="12"
+                width="30"
+                height="6"
+                rx="2"
+                fill="var(--mat-sys-primary, #2563eb)"
+                opacity="0.4"
+              />
+              <line
+                x1="10"
+                y1="34"
+                x2="80"
+                y2="34"
+                stroke="var(--mat-sys-on-surface-variant, #94a3b8)"
+                stroke-width="4"
+                stroke-dasharray="2 3"
+                opacity="0.5"
+              />
+              <rect
+                x="10"
+                y="50"
+                width="45"
+                height="5"
+                rx="2"
+                fill="var(--mat-sys-on-surface-variant, #94a3b8)"
+                opacity="0.3"
+              />
+            </g>
+          </svg>
+        </div>
+        <h3 class="empty-title">No hay variantes registradas</h3>
+        <p class="empty-subtitle">
+          Clic en "Agregar variante" para crear la primera de este producto
+        </p>
+        <button mat-flat-button color="primary" (click)="addVariant()">
+          <mat-icon fontIcon="add" /> Agregar variante
+        </button>
+      </div>
+    }
+  }
+</div>
+
+<!-- Paginator -->
+@let page = variants();
+@if (page && hasMultiplePages()) {
+  <div class="pagination-section">
+    <mat-paginator
+      [length]="page.totalElements"
+      [pageSize]="pageSize()"
+      [pageIndex]="pageIndex()"
+      [pageSizeOptions]="[6, 12, 24, 48]"
+      (page)="onPageChange($event)"
+      showFirstLastButtons
+      aria-label="Paginación de variantes"
+    >
+    </mat-paginator>
+  </div>
+}

@@ -2,17 +2,57 @@
 
 **Repository**: LifeControl — frontend `life-control-app-angular/`. S1–S3 are frontend-only; only the
 bulk-creation item in `## Backend dependencies` needs `life-control-api/` work, and it gates S4.
-**Status**: **S1 delivered, uncommitted to a PR** (started 2026-09-23). Branch `feat/product-create-ux`,
-worktree `~/workspace/LifeControl-worktrees/feat-product-create-ux`, base `main` @ `80f44c3` (clean at
-branch time). S1 is four work-unit commits plus the gate evidence below; S2–S4 are not started and no
-PR is open. Shape agreed with the user on 2026-09-23 ("Tabs + stepper con skip", "propuesta primero";
-voseo adopted as the copy register). Product `attributes` handling and the `Activo` toggle were
-descoped the same day (see `## Descoped by user decision`).
+**Status**: **S1 merged** (PR #154 → `main` @ `158a6b3`, 2026-09-23) as five work-unit commits plus
+the gate evidence below. **S2a is implemented and verified, uncommitted to a PR**: one work-unit
+commit `9d5eb5c` on branch `feat/product-workspace-tabs` (created from `main` @ `158a6b3`) in the
+**reused** worktree `~/workspace/LifeControl-worktrees/feat-product-create-ux` (D7), whose original
+branch `feat/product-create-ux` stays untouched at its merged tip `648930b`. Nothing is pushed and no
+PR is open. S2 was split into S2a and S2b by user decision on 2026-09-23 (D6); **S2b, S3 and S4 are
+not started**. Shape agreed with the user on 2026-09-23 ("Tabs + stepper con skip", "propuesta
+primero"; voseo adopted as the copy register). Product `attributes` handling and the `Activo` toggle
+were descoped the same day (see `## Descoped by user decision`).
 **Created**: 2026-09-23
 **Risk**: **medium** — route and UI restructure over four existing pages. No auth, role-set or guard
 *set* change: the `unsavedChangesGuard` addition only tightens navigation on two routes that already
 exist. Reclassified to **high** only if the backend slices in `## Backend dependencies` are taken in
 the same branch, since those change persisted data semantics.
+
+## S2 reconciliation (2026-09-23, read-only exploration, user decisions taken)
+
+S2 was re-scoped before any code was written. Three document claims did not survive contact with the
+code, and one task could not be executed as written. Everything below was checked against the source,
+not inferred.
+
+**Corrections to `## Confirmed gaps`.**
+
+- **Gap 4 is false at the service level.** `supplier.service.ts:37-44` already exposes
+  `getSuppliers(page, size, search)` and appends `?search=` when a term is passed; the backend has
+  `SupplierController.getAllSuppliers(..., String search, ...)` feeding
+  `SupplierRepository.findBySearchTerm*` over `supplierName`/`rfc`/`razonSocial`/`email`. Server-side
+  supplier search exists and is already wired. The only defect is that `product-supplier-edit.ts:77`
+  calls `getAllSuppliers(0, 1000)` without a term. T8 therefore needs **no backend change**: the
+  unbounded payload is a caller defect, not a missing endpoint.
+- **The `## Why this shape` description of the pattern to copy is wrong in shape.**
+  `supplier-info-section` does not use `valueChanges.pipe(debounceTime, distinctUntilChanged,
+  switchMap)` and does not use `MatAutocompleteTrigger`. The real idiom there is a `Subject<string>` +
+  `debounceTime(300)` + `subscribe` (`:94-101`) over `getSuppliers(0, 20, term)` (`:108-124`).
+  `MatAutocompleteTrigger` appears only in the sales `product-variant-selector.ts`. T8 copies the
+  former, and the source pattern has **no loading and no empty state** — those are new work.
+- **T9's redirect scope is narrower than written.** Only the two *product-scoped* list routes can
+  redirect into the workspace: `edit/:id/suppliers` (`products.routes.ts:120-129`) and
+  `edit/:id/variants` (`:79-90`). The top-level `suppliers` (`:130`), `suppliers/create` (`:137`),
+  `suppliers/edit/:id` (`:144`) and `variants` (`:92`) routes are a different thing — the global
+  supplier ABM and the store-scoped stock search, which deliberately carries no product id at all
+  (`product-variant-stock-search.ts:22-40`) — and cannot redirect anywhere. They keep working as-is.
+- **T6 could not be executed as written.** "Extract the list pages into presentational components;
+  keep the pages as thin route hosts" contradicts T9: if `edit/:id/suppliers` redirects, nothing
+  renders `ProductSupplierList`. D9 resolves the contradiction.
+- **T7 has no precedent for its result contract.** All ten `dialog.open` calls in `src` are boolean
+  confirm dialogs. No dialog in the repo hosts a form component and returns an entity, so the close
+  contract is new work; only the confirm-dialog shell is copyable.
+
+**Measured, not forecast.** S2 is ~23 files and ~1.550 changed lines (≈740 source / ≈810 specs), not
+the 8–12 files and 600–900 lines forecast below. That is why the user split it (D6).
 
 ## Objective
 
@@ -143,6 +183,96 @@ Consequences the design must carry:
   SKU conflict, and keeps the general banner otherwise. The inline message is voseo copy
   (`Ya existe un producto con ese SKU.`), not the English server string, for register consistency.
 
+### Locked with the user (2026-09-23, S2)
+
+- D6: **S2 ships as two chained PRs.** S2a = T5+T6+T9 (workspace shell, tab content, redirects);
+  S2b = T7+T8 (association dialogs, supplier search), stacked on S2a. Rationale: the measured ~1.550
+  lines do not fit one review, and S2b's dialogs are a separable concern from the shell.
+- D7: **S2a works in the existing worktree**, on a **new branch `feat/product-workspace-tabs` created
+  from `main` @ `158a6b3`**. The worktree's original branch `feat/product-create-ux` stays untouched at
+  its merged tip `648930b`. Cost accepted: the directory slug no longer matches the branch name.
+  Rationale: that worktree already has `life-control-app-angular/node_modules` installed and a working
+  toolchain, and a fresh worktree costs a full extraction-bound `npm ci`.
+- D8: **the variant dialog (T7) covers the global definition only** — `barCode` + `variantName`. The
+  per-store stock panel (`app-product-variant-store-stock`, which reads `?storeId=` from
+  `ActivatedRoute` at `product-variant-store-stock.ts:130`) stays out and is covered by T15 in S4,
+  where the document already puts it. Rationale: a dialog cannot inherit the opener's route context,
+  and threading `storeId` through `MAT_DIALOG_DATA` plus integrating the panel's `dirtyChange` into
+  the dialog's close would be net-new behaviour, not a port.
+
+### Engineering decisions (S2a)
+
+- D9 (rescopes T6): **the two product-scoped list components become the tab content in place**, rather
+  than being split into a presentational table plus a container. They keep owning their data resource,
+  their dialogs and their writes; they gain `productId = input.required<string>()`, lose their own
+  `app-page-header` (the shell owns it) and the `productResource` that existed only to fill that
+  header, lose the `no id → /products/list` self-redirect, and gain a `countChange` output.
+  Rationale: the variant list carries two views, pagination, a disabled filter and a per-screen
+  `VariantStoreContext`; a fully dumb version measures at ~13 inputs and ~8 outputs. That split would
+  port `product-variant-list.spec.ts` (628 lines) into a new component for no functional gain, and the
+  coverage gate (`test:coverage:check`) would feel the loss.
+- D10: **the tab strip is `mat-tab-group`**, the only tab primitive with a repo precedent
+  (`users-admin/pages/user-detail/user-detail.html:9`); `mat-tab-nav-bar` is used nowhere in the repo.
+  Selection is `[selectedIndex]` + `(selectedIndexChange)` writing `?tab=`, and the param is read
+  **reactively** (`toSignal(route.queryParamMap)`), never as a snapshot, or an in-place tab click would
+  never be seen. The handler must not re-navigate when the requested tab already matches the param — a
+  feedback-loop guard that a spec has to pin.
+- D11: **tab content is eager** (no `<ng-template matTabContent>`, which is `mat-tab-group`'s default).
+  Both containers therefore instantiate on workspace entry and emit their counts, so the labels carry
+  a real count on first paint with no extra count read and no duplicated request. Cost accepted: the
+  Variantes container reads its page and resolves the store context even when the operator never opens
+  that tab. If that cost shows up, the fix is `matTabContent` plus shell-owned count reads.
+- D12: **the tab count describes the tab's current view.** Suppliers: the loaded array length (no
+  count endpoint exists anywhere). Variants: `totalElements` of the current read, so a store-scoped
+  view counts that store's rows. A product-level variant count would need its own read and is not in
+  S2a.
+- D13: **the redirect is a function-valued `redirectTo`** on exactly the two product-scoped list
+  routes, preserving `storeId` (`edit/:id/variants?storeId=X` → `edit/:id?tab=variantes&storeId=X`).
+  The repo has no prior redirect of any kind (grep for `redirectTo|canMatch|pathMatch` across `src`
+  returns nothing), so the mechanic is new and the route spec has to pin it. The sibling `create`/`edit`
+  child routes keep loading their pages: `defaultUrlMatcher` requires full segment consumption and the
+  segment counts differ (`products.routes.ts:53-55` already documents this for the variant routes).
+- D14: `products.routes.spec.ts` derives `variantChildren()`/`nonVariantChildren()` by path substring
+  and asserts `canActivate` + `data` on every match (`:12-19`). A redirect-only route has neither, so
+  those derivations must skip redirect routes **in the same slice**, or the existing assertions fail
+  for the wrong reason.
+- D15: **each file S2a restructures has its user-facing copy migrated to voseo (D3) in the step that
+  restructures it; files S2a does not open keep their copy untouched.** For the supplier list that is:
+  both add affordances, the empty state, every column header, the `Main`/`Enabled`/`Disabled` state
+  chips and the two action `aria-label`s — a half-Spanish table *is* the gap-7 defect, and an English
+  `aria-label` next to Spanish visible copy is the same defect one layer down. Code comments stay in
+  English (technical artifact). A repo-wide copy sweep stays out, per D3. The two confirmation dialogs
+  these tables open (`remove-supplier-dialog`, `disable-variant-dialog`) are S2b's surface — S2b turns
+  them into dialog hosts — so their copy migrates there, not here.
+- D16 (corrects the S2a task decomposition): **T5, T6 and T9 are not independently committable and land
+  as one work unit.** Removing the containers' `app-page-header` is only coherent once the shell owns
+  the header (T5), and the shell's header is only non-duplicated once the containers stop rendering
+  theirs (T6), and the containers are only header-less without a regression once the two product-scoped
+  list routes redirect instead of rendering them (T9). Every ordering leaves an intermediate commit
+  with a doubled or missing page title. They are therefore implemented in four delegated steps and
+  land in a single work-unit commit:
+  1. `product-supplier-list` becomes tab content (`productId` input, no header, `countChange`).
+  2. `product-variant-list` becomes tab content (same contract, keeping its two views, pagination,
+     disabled filter and `VariantStoreContext`).
+  3. `ProductEdit` becomes the workspace shell (D10, D11, D12).
+  4. The two product-scoped list routes redirect (D13, D14).
+  Steps 1–2 leave the routed usage of those components without a `productId` input and without a
+  title; that state is never committed.
+- D17 (narrows T9 for variants; user-confirmed 2026-09-23): **`edit/:id/variants` does not redirect.**
+  It is gated by `VARIANT_ROLES` (`[lc-admin, lc-sales]`) while its would-be redirect target `edit/:id`
+  is `PRODUCT_ADMIN_ROLES` (`[lc-admin]`), and the route file states the intent outright: *"the variant
+  screens exist for `lc-admin` and `lc-sales` alike, mirroring the backend `hasAnyRole('lc-admin',
+  'lc-sales')` on every variant endpoint"* (`products.routes.ts:79-85`). Redirecting would deny
+  `lc-sales` the variant list and break two live paths: the post-save/post-cancel return at
+  `product-variant-edit.ts:195,206`, which navigates back to `edit/:id/variants`, and the sales entry
+  at `product-variant-stock-search.ts:157`. The route therefore keeps resolving, now through a **thin
+  route host** (`product-variant-list-host`) that owns the `app-page-header` the tab container no
+  longer renders and passes `productId` down — the "thin route host" T6 originally described, kept
+  only where it is still needed. `GET /api/products/{id}` carries no `@PreAuthorize`
+  (`ProductController.java:70-74`), so the host's header fetch works for a sales principal exactly as
+  the container's did before. **Only `edit/:id/suppliers` redirects**: it is admin-only on both sides,
+  so no principal loses access.
+
 ## Descoped by user decision
 
 ### Product `attributes` — out of scope (user decision, 2026-09-23)
@@ -202,11 +332,11 @@ the finding is not lost:
 | **S1** | T2 | Add a **Variantes** entry point on `product-edit.html` beside the suppliers button, so the dead end closes before the workspace exists (D4: both labels in voseo) | `product-edit.spec.ts` |
 | **S1** | T3 | Map a 409 with no `errors` map (duplicate SKU) onto the `sku` control instead of the general banner (D5) | `product-edit.spec.ts` |
 | **S1** | T4 | Translate `product-supplier-form` (labels + `defaultErrorMessages`) to Rioplatense voseo (D3) | new `product-supplier-form.spec.ts` |
-| **S2** | T5 | `ProductEdit` becomes a tabbed workspace with deep-linkable `?tab=` state and counts | `product-edit.spec.ts` |
-| **S2** | T6 | Extract the supplier and variant list pages into presentational components reused by the tabs; keep the pages as thin route hosts | list specs |
-| **S2** | T7 | Move supplier and variant create/edit into `MatDialog` hosts over the existing form components | form + dialog specs |
-| **S2** | T8 | Replace `getAllSuppliers(0, 1000)` with the existing debounced autocomplete pattern | picker spec |
-| **S2** | T9 | Per-tab loading, error, empty and count states; old `suppliers`/`variants` routes redirect into the tab | route spec |
+| **S2a** | T5 | `ProductEdit` becomes a tabbed workspace with deep-linkable `?tab=` state and counts | `product-edit.spec.ts` |
+| **S2a** | T6 | Rescoped by D9: the two product-scoped list components become the tab content **in place** — `productId` as an `input()`, no own page header, no self-redirect, count emitted | list specs |
+| **S2a** | T9 | Per-tab loading, error, empty and count states; the two product-scoped list routes redirect into the tab, preserving `storeId` | route spec |
+| **S2b** | T7 | Move supplier and variant create/edit into `MatDialog` hosts over the existing form components (D8: global definition only for the variant) | form + dialog specs |
+| **S2b** | T8 | Replace `getAllSuppliers(0, 1000)` with the `?search=` the service already exposes, using the `supplier-info-section` `Subject` + `debounceTime` idiom | picker spec |
 | **S3** | T10 | Three-step create stepper, skip on steps 2 and 3, `POST /products` at the end of step 1 | stepper spec |
 | **S3** | T11 | Partial-failure UX: per-item status, "created with N of M", retry only the failed item, no rollback; post-persist exit is "Terminar" | stepper spec |
 | **S3** | T12 | Pre-persist leave confirmation and post-persist exit semantics wired to the guard | guard spec |
@@ -249,6 +379,22 @@ Manual checks that automation will not cover: tab state survives reload and back
 `suppliers`/`variants` URLs still resolve; the stepper's partial-failure path is exercised by
 cancelling a request mid-step.
 
+**S2a-specific manual checks** (every one of these was named by the independent verifier as
+unverifiable without a runtime browser, and none of them is covered by automation):
+
+- `/products/edit/X?tab=variantes` renders on a **fresh load** with the Variantes tab active (the specs
+  drive the param through a subject, which is not a reload).
+- **Back** after a tab click returns to the previous tab, and tab clicks push history entries.
+- `/products/edit/X/suppliers` really lands on `/products/edit/X?tab=proveedores` **through the
+  recognizer**, and `/products/edit/X/suppliers/create` still instantiates `ProductSupplierEdit`
+  instead of being swallowed by the redirect. The spec invokes the redirect function directly, so the
+  "cannot shadow its siblings" argument is a reading of `defaultUrlMatcher` plus the declaration order,
+  not an observed navigation. This is the repo's first redirect of any kind and the one gap worth
+  closing with a real-router test in a later slice.
+- A dirty `Datos` form does **not** raise the discard prompt when switching tabs. The framework source
+  says it cannot (query params do not participate in route reuse), but nobody has watched it happen.
+- `/products/edit/X/variants` still renders for an `lc-sales` principal, header included.
+
 ## Review workload
 
 Forecast before implementation, to be corrected with the measured range the way
@@ -281,6 +427,45 @@ forecast counted the functional diff and the slice carries its evidence with it:
 The functional change a reviewer must judge is 82 lines. **Carry this forward for S2–S4: the forecasts
 there are source-line forecasts too, and they should be restated as source + evidence.**
 
+### S2 — measured before implementation, and the forecast was low again
+
+Measured on `main` @ `158a6b3` by two parallel read-only mapping scouts, every claim file:line-anchored:
+
+| Slice | Files | Source lines | Spec lines | Total |
+|---|---|---|---|---|
+| S2a (T5, T6, T9) | ~14 | ~350 | ~400 | ~750 |
+| S2b (T7, T8) | ~9 | ~200–350 | ~600–1.000 | ~800–1.350 |
+| **S2 total** | **~23** | **~740** | **~810** | **~1.550** |
+
+Against a forecast of 8–12 files and 600–900 lines. The forecast was low for the same reason as S1's —
+it counted the functional diff, not the evidence — plus one it did not anticipate: the variant list is
+not one list but two views over a paginated, store-scoped, disabled-filtered read, and that single
+component is the largest cost in the slice. The user split S2 accordingly (D6).
+
+#### S2a — measured, and the forecast was low by 4×
+
+Measured on `9d5eb5c` with `git diff main...HEAD --numstat`:
+
+| Bucket | Files | Changed lines |
+|---|---|---|
+| Source | 13 | **1576** |
+| Specs | 5 | **1518** |
+| **Total** | **18** | **3094** (2041 insertions / 1053 deletions) |
+
+Against the ~350 source / ~400 spec / ~750 total forecast above. Two reasons, and only one of them is
+real work:
+
+- **982 of the 3094 lines are pure Prettier reindentation.** Dropping each list's page wrapper div
+  re-indents the whole template: `product-supplier-list.html` is 427 changed lines raw and **47** with
+  `git diff -w`; `product-variant-list.html` is 629 raw and **27** with `-w`. A reviewer should read
+  both templates with `git diff -w` or the real change is invisible.
+- The behavioural diff is therefore ≈2100 lines, still ~3× the forecast, because the forecast assumed
+  the variant list could be made presentational in place. D9 kept it a container, and its spec alone
+  (356 changed lines) plus the shell's (576) are the bulk.
+
+**Carry forward for S2b:** forecast its source lines, then expect roughly 1:1 spec lines on top, and
+add whatever Prettier reindentation the template restructuring costs.
+
 ## Evidence log
 
 | Date | Slice | Commit | Evidence |
@@ -300,6 +485,10 @@ Rows below are added as each task closes, with the commit that carries it.
 | 2026-09-23 | **S1 gates (baseline)** | `main` @ `80f44c3` | Measured on the anchor worktree, unchanged `main`: `npm run test:coverage:check` → **123 files / 2279 tests / 0 failures**, coverage **93.06/75.38/87.85/93.06**. |
 | 2026-09-23 | **S1 gates (tip)** | `b885578` | `npm run lint` → `All files pass linting.`; `npm run build` → bundle generation complete, 850.86 kB initial, no errors; `npm run test:coverage:check` → **124 files / 2315 tests / 0 failures**, coverage **93.37/75.60/88.36/93.37** (thresholds 80/60/75/80, read from `scripts/check-coverage.mjs`). Delta over the baseline: +1 file, +36 tests, +0.31/+0.22/+0.51/+0.31. |
 | 2026-09-23 | S1 independent verification | `65e9ffc` (pre-amend tip) | A read-only `gentle-ai-verify` subagent ran the three gates (all PASS) and adversarially checked six claims: guard wiring, the 409 discrimination, copy-only for T4, test non-vacuity, no descope leak (`git diff main...HEAD -- components/products-form/` empty) and no path/role/`canActivate` change. All upheld; two nits were raised — a non-discriminating assertion in the new spec (fixed in `b885578`) and the measured workload (corrected below). Its `could not verify` list: no end-to-end route+component navigation test, no `beforeunload` coverage, backend 409 by reading only. |
+| 2026-09-23 | **S2a work unit** | `9d5eb5c` | D16: T5+T6+T9 land as one commit because no ordering gives a coherent intermediate commit. **18 files, 2041 insertions / 1053 deletions = 3094 changed lines** (13 source / 1576; 5 specs / 1518), of which **982 are pure Prettier reindentation** — see `#### S2a — measured` above. Focused products suite went 22 files / 275 tests (S1 tip) → **23 files / 317 tests**. Steps: (1) supplier list becomes tab content, RED observed as a compile-time `TS2339` on `countChange`, 20 → 22 tests; (2) variant list becomes tab content, 32 → 47 tests, and because its RED was also compile-time the worker ran a **mutation control** (swapping `totalElements` for `content.length` and duplicating the empty-state affordance) and observed exactly those two tests fail, then reverted byte for byte; (3) the workspace shell, 25 → 35 tests, including a **probe that settled D11 empirically**: `mat-tab-group` instantiates inactive-tab children (`instances=1, domCount=0`), so the labels do carry counts before their tab is visited; (4) the redirect plus the variant route host, route spec 7 → 11 tests, RED observed as 4 real assertion failures. |
+| 2026-09-23 | **S2a gates (baseline)** | `main` @ `158a6b3` | Already on record from S1: 124 files / 2315 tests, coverage 93.37/75.60/88.36/93.37. |
+| 2026-09-23 | **S2a gates (tip)** | `9d5eb5c` | `npm run lint` → `All files pass linting.`; `npm run build` → bundle complete, 850.87 kB initial (S1: 850.86 kB), exit 0; `npm run test:coverage:check` → **125 files / 2357 tests / 0 failures**, coverage **93.38/75.34/88.52/93.38** (thresholds 80/60/75/80). Delta over baseline: +1 file, +42 tests, +0.01/**−0.26**/+0.16/+0.01. **Branches are the thin gate: 75.34 against a 75 threshold — a 0.34 pp margin, down 0.26 pp.** Not a blocker, but recorded so S2b does not inherit it blind. |
+| 2026-09-23 | S2a independent verification | `9d5eb5c` | A read-only `gentle-ai-verify` subagent ran the three gates (all PASS) and adversarially checked ten claims against the **installed** `@angular/router` 20.3.31 source rather than the commit message. Upheld: no effective authorization change; the redirect config is legal — `RuntimeError 4014` forbids `redirectTo` together with `canActivate`/`canMatch` (`router2.mjs:1953-1956`), so dropping both was **mandatory, not stylistic** — and the redirect function really does run inside an injection context (`router2.mjs:3830`, `runInInjectionContext(injector, …)`), which is what makes the route's `inject(Router)` safe; `?tab=` is read reactively with a working feedback-loop guard; **query params do not participate in route reuse** (`BaseRouteReuseStrategy.shouldReuseRoute` compares only `routeConfig`, and the default `paramsChange` mode compares only `params` + `url` segments), so a tab click cannot fire `unsavedChangesGuard`; the counts are real and the specs would fail if `totalElements` were swapped for `content.length`; no descope leak (`git diff main...HEAD -- components/products-form/*` empty); no vacuous assertion in the changed specs; the D17 regression guard works; no dead code and no second header fetch. **One wording corrected:** the claim "no other route's guards or `data` changed" is literally false — `edit/:id/suppliers` sheds both when it becomes the redirect. That is deliberate and required by `RuntimeError 4014`; effective authorization is unchanged because the target `edit/:id` keeps the admin gate, and the route spec pins `canActivate`/`data` as `undefined` on the redirect route on purpose. Its `could not verify` list is the S2a-specific manual checklist above; the redirect having no real-router navigation test is the one worth closing later. |
 
 ## Constraints
 
@@ -346,6 +535,32 @@ Rows below are added as each task closes, with the commit that carries it.
   supplier detail screen does not use it.
 - Register a project-wide copy convention in `.agents/skills/project-conventions/` once D3 is
   settled, so the next screen does not re-open the question.
+
+### Raised by S2a
+
+- **The redirect has no real-router test.** The route spec invokes the `redirectTo` function directly
+  under `TestBed.runInInjectionContext` and asserts the `UrlTree` it returns. That pins the function,
+  not the recognizer's decision to pick that route — nor that `edit/:id/suppliers/create` still wins
+  over it. The supporting argument (full segment consumption in `defaultUrlMatcher`, plus the sibling
+  routes being declared first) is a reading of the framework, and the route spec is the only place it
+  is pinned. Close it with a real-router navigation test; the repo has no precedent for one, which is
+  exactly why the first redirect in the codebase is the wrong place to leave the gap.
+- **`MatPaginatorIntl` labels are English repo-wide.** `mat-paginator`'s own strings ("Items per page",
+  the range, prev/next) come from the Material default, not from this repo's copy, and `LOCALE_ID:
+  'es-MX'` does not change them. D15 only migrates strings a file owns, so a Spanish variant table
+  still ships an English paginator. One shared `MatPaginatorIntl` provider fixes every table at once;
+  it is outside S2a's surface and belongs to its own slice.
+- **`ProductEdit` reads `productId` from a route snapshot** (`product-edit.ts:52`), so a same-route
+  param change (`edit/A` → `edit/B`) reuses the component without re-running `ngOnInit` and the
+  workspace keeps showing product A. Pre-existing on `main` and neither fixed nor worsened here, but
+  the tabbed workspace makes it far more visible, because the header now states product identity.
+- **The two confirmation dialogs are still English** (`remove-supplier-dialog.html`,
+  `disable-variant-dialog.html`). D15 deliberately left them to S2b, which turns those routes into
+  dialog hosts and therefore opens those files. S2b must migrate them or the new dialogs will ship
+  Spanish-trigger-to-English-confirmation.
+- **Branch coverage sits 0.34 pp above its threshold** (75.34 against 75), down 0.26 pp from the S1
+  baseline. S2b adds dialog hosts and form wiring, which is coverage-dense territory; re-measure early
+  in that slice rather than discovering it at the gate.
 
 ## Relevant files
 

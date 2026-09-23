@@ -3,11 +3,13 @@
 :host {
   display: block;
   width: 100%;
-  padding: 0 var(--space-md);
 }
 
-.product-supplier-list-page {
-  width: 100%;
+/* Add action row above the table */
+.action-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--space-md);
 }
 
 /* Table Card */

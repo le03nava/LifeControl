@@ -5,10 +5,11 @@
   width: 100%;
 }
 
-.product-variant-list-page {
-  padding: var(--space-md);
-  max-width: 1200px;
-  margin: 0 auto;
+// Add action row above the table
+.action-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--space-md);
 }
 
 // Filter row: the store scope and the opt-in disabled definitions. Mirrors the

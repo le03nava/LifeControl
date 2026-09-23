@@ -5,12 +5,13 @@ import {
   DestroyRef,
   effect,
   inject,
+  input,
+  output,
   signal,
 } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
 import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
-import { of } from 'rxjs';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatChipsModule } from '@angular/material/chips';
@@ -19,26 +20,11 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatPaginatorModule } from '@angular/material/paginator';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatTableModule } from '@angular/material/table';
-import { PageHeader } from '@shared/ui';
 import { httpErrorMessage } from '@shared/data';
-import { ProductService } from '../../data/product.service';
 import { ProductVariantService } from '../../data/product-variant.service';
 import { VariantStoreContext } from '../../data/variant-store-context.service';
-import { Page } from '../../models/product.models';
 import { ProductVariant } from '../../models/product-variant.models';
 import { DisableVariantDialogComponent } from '../../ui/disable-variant-dialog/disable-variant-dialog';
-
-/** Page emitted while the route carries no product id, so the template never sees `null`. */
-const EMPTY_PAGE: Page<ProductVariant> = {
-  content: [],
-  totalElements: 0,
-  totalPages: 0,
-  size: 0,
-  number: 0,
-  first: true,
-  last: true,
-  empty: true,
-};
 
 /** Columns of the global read: the store-scoped fields are `null` on every row. */
 const GLOBAL_COLUMNS = ['barCode', 'variantName', 'enabled', 'actions'];
@@ -74,6 +60,11 @@ const STORE_COLUMNS = ['barCode', 'variantName', 'listPrice', 'costPrice', 'stoc
  * `DELETE` is a soft delete that flips `enabled` to `false`; `PATCH .../enable`
  * brings the variant back. The user-facing actions are therefore "Deshabilitar"
  * and "Habilitar", never a hard delete.
+ *
+ * Rendered as the **Variantes** tab of the product workspace: the shell owns the
+ * page header and passes `productId` as an input, and reports the loaded count
+ * upward through `countChange`. This component still owns the store resolution
+ * because `?storeId=` lives on the workspace route the shell renders.
  */
 @Component({
   selector: 'app-product-variant-list',
@@ -88,23 +79,30 @@ const STORE_COLUMNS = ['barCode', 'variantName', 'listPrice', 'costPrice', 'stoc
     MatSlideToggleModule,
     MatCardModule,
     CurrencyPipe,
-    PageHeader,
   ],
   templateUrl: './product-variant-list.html',
   styleUrl: './product-variant-list.scss',
-  // Per screen, not at the root: this page owns its own store resolution.
+  // Per screen, not at the root: this tab owns its own store resolution.
   providers: [VariantStoreContext],
 })
 export class ProductVariantList {
+  /** The product whose variants are shown. Owned by the workspace shell. */
+  readonly productId = input.required<string>();
+
+  /**
+   * The variant count of the current view, emitted on every successful read.
+   *
+   * The current view's `totalElements`, not the loaded page: a store-scoped view
+   * counts that store's rows, and a paginated view must not report one page.
+   */
+  readonly countChange = output<number>();
+
   private readonly productVariantService = inject(ProductVariantService);
-  private readonly productService = inject(ProductService);
   private readonly storeContext = inject(VariantStoreContext);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly dialog = inject(MatDialog);
   private readonly destroyRef = inject(DestroyRef);
-
-  readonly productId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
 
   readonly pageSize = signal(12);
   readonly pageIndex = signal(0);
@@ -143,20 +141,6 @@ export class ProductVariantList {
 
   readonly displayedColumns = computed(() => (this.storeScoped() ? STORE_COLUMNS : GLOBAL_COLUMNS));
 
-  /** The owning product, only for the page header. */
-  readonly productResource = rxResource({
-    params: () => ({ productId: this.productId() }),
-    stream: ({ params }) => {
-      if (!params.productId) {
-        return of(null);
-      }
-      return this.productService.getProductById(params.productId);
-    },
-  });
-  readonly product = computed(() =>
-    this.productResource.hasValue() ? this.productResource.value() : undefined,
-  );
-
   readonly variantsResource = rxResource({
     params: () => {
       // No read until the store resolution settles: issuing the global read first and
@@ -173,19 +157,15 @@ export class ProductVariantList {
         includeDisabled: this.includeDisabled(),
       };
     },
-    stream: ({ params }) => {
-      if (!params.productId) {
-        return of(EMPTY_PAGE);
-      }
-      return this.productVariantService.getVariants(
+    stream: ({ params }) =>
+      this.productVariantService.getVariants(
         params.productId,
         params.storeId ?? undefined,
         params.page,
         params.size,
         // The store-scoped branch ignores the opt-in server-side, so it is never sent with a store.
         params.storeId ? false : params.includeDisabled,
-      );
-    },
+      ),
   });
 
   readonly variants = computed(() =>
@@ -207,9 +187,11 @@ export class ProductVariantList {
     // configured store decides, and `null` leaves the global definitions in view.
     this.storeContext.resolve(this.route.snapshot.queryParamMap.get('storeId'));
 
+    // Reports the count of whichever view resolves, including after a reload.
     effect(() => {
-      if (!this.productId()) {
-        this.router.navigate(['/products/list']);
+      const page = this.variants();
+      if (page) {
+        this.countChange.emit(page.totalElements);
       }
     });
   }
@@ -227,21 +209,15 @@ export class ProductVariantList {
   }
 
   addVariant(): void {
-    const id = this.productId();
-    if (id) {
-      this.router.navigate(['/products/edit', id, 'variants', 'create'], {
-        queryParams: this.storeQueryParams(),
-      });
-    }
+    this.router.navigate(['/products/edit', this.productId(), 'variants', 'create'], {
+      queryParams: this.storeQueryParams(),
+    });
   }
 
   editVariant(variantId: string): void {
-    const id = this.productId();
-    if (id) {
-      this.router.navigate(['/products/edit', id, 'variants', 'edit', variantId], {
-        queryParams: this.storeQueryParams(),
-      });
-    }
+    this.router.navigate(['/products/edit', this.productId(), 'variants', 'edit', variantId], {
+      queryParams: this.storeQueryParams(),
+    });
   }
 
   /** The profile page owns the store preference and is reachable by every role. */
@@ -263,11 +239,10 @@ export class ProductVariantList {
       .afterClosed()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((result: boolean) => {
-        const id = this.productId();
-        if (result && id) {
+        if (result) {
           // Soft delete: the backend flips `enabled` to false, it does not remove the row.
           this.productVariantService
-            .deleteVariant(id, variant.id)
+            .deleteVariant(this.productId(), variant.id)
             .pipe(takeUntilDestroyed(this.destroyRef))
             .subscribe({ next: () => this.variantsResource.reload() });
         }
@@ -275,13 +250,10 @@ export class ProductVariantList {
   }
 
   enableVariant(variantId: string): void {
-    const id = this.productId();
-    if (id) {
-      this.productVariantService
-        .enableVariant(id, variantId)
-        .pipe(takeUntilDestroyed(this.destroyRef))
-        .subscribe({ next: () => this.variantsResource.reload() });
-    }
+    this.productVariantService
+      .enableVariant(this.productId(), variantId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: () => this.variantsResource.reload() });
   }
 
   onPageChange(event: { pageIndex: number; pageSize: number }): void {
