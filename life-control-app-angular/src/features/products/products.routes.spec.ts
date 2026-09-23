@@ -1,5 +1,6 @@
 import type { Route } from '@angular/router';
 import { keycloakRoleGuard } from '@core/guards/auth-keycloak-guard';
+import { unsavedChangesGuard } from '@core/guards/unsaved-changes.guard';
 import { LC_SALES } from '@core/security/roles';
 import { productRoutes } from './products.routes';
 
@@ -80,6 +81,28 @@ describe('productRoutes', () => {
       expect(route.canActivate).toEqual([keycloakRoleGuard]);
       expect(route.data).toEqual({ roles: ['lc-admin'], clientId: 'life-control-client' });
     }
+  });
+
+  it('should guard the product create and edit routes against unsaved changes', () => {
+    const create = children().find((route) => route.path === 'create');
+    const edit = children().find((route) => route.path === 'edit/:id');
+
+    expect(create).toBeDefined();
+    expect(edit).toBeDefined();
+    // `toEqual([guard])`, never `toContain(guard)`: `expect(undefined)
+    // .toContain(fn)` passes vacuously when the property is absent.
+    expect(create?.canDeactivate).toEqual([unsavedChangesGuard]);
+    expect(edit?.canDeactivate).toEqual([unsavedChangesGuard]);
+  });
+
+  it('should leave the unrelated product routes unguarded', () => {
+    const list = children().find((route) => route.path === 'list');
+    const suppliers = children().find((route) => route.path === 'edit/:id/suppliers');
+
+    expect(list).toBeDefined();
+    expect(suppliers).toBeDefined();
+    expect(list?.canDeactivate).toBeUndefined();
+    expect(suppliers?.canDeactivate).toBeUndefined();
   });
 
   it('should never grant the sales role to a non-variant products child', () => {

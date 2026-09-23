@@ -36,12 +36,15 @@ export const productRoutes: Routes = [
         path: 'create',
         canActivate: [keycloakRoleGuard],
         data: { roles: PRODUCT_ADMIN_ROLES, clientId: CLIENT_ID },
+        // A half-filled new product must not be discarded by a stray navigation.
+        canDeactivate: [unsavedChangesGuard],
         loadComponent: () => import('./pages/product-edit/product-edit').then((m) => m.ProductEdit),
       },
       {
         path: 'edit/:id',
         canActivate: [keycloakRoleGuard],
         data: { roles: PRODUCT_ADMIN_ROLES, clientId: CLIENT_ID },
+        canDeactivate: [unsavedChangesGuard],
         loadComponent: () => import('./pages/product-edit/product-edit').then((m) => m.ProductEdit),
       },
       {

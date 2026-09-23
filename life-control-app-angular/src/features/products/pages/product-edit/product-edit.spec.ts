@@ -182,6 +182,76 @@ describe('ProductEdit', () => {
     expect(routerMock.navigate).toHaveBeenCalledWith(['/products']);
   });
 
+  describe('hasUnsavedChanges', () => {
+    it('should report false right after create-mode construction', () => {
+      expect(component.productForm().pristine).toBe(true);
+      expect(component.hasUnsavedChanges()).toBe(false);
+    });
+
+    it('should stay pristine after a programmatic load in edit mode', () => {
+      productServiceMock.getProductById = vi
+        .fn()
+        .mockReturnValue(of(createProductData({ id: 'existing-id' })));
+
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        imports: [ProductEdit, NoopAnimationsModule, ReactiveFormsModule],
+        providers: [
+          { provide: ProductService, useValue: productServiceMock },
+          { provide: Router, useValue: routerMock },
+          {
+            provide: ActivatedRoute,
+            useValue: {
+              snapshot: { paramMap: { get: () => 'existing-id' } },
+            },
+          },
+        ],
+      }).compileComponents();
+
+      const f = TestBed.createComponent(ProductEdit);
+      const c = f.componentInstance;
+      f.detectChanges();
+
+      expect(c.productForm().pristine).toBe(true);
+      expect(c.hasUnsavedChanges()).toBe(false);
+    });
+
+    it('should report true after a user edit', () => {
+      // `setValue` alone does not mark a reactive control dirty in Angular 20;
+      // a real user edit both changes the value and marks the control dirty.
+      const sku = component.productForm().get('sku');
+      sku?.setValue('X');
+      sku?.markAsDirty();
+
+      expect(component.hasUnsavedChanges()).toBe(true);
+    });
+
+    it('should clear the flag after a successful update', () => {
+      productServiceMock.updateProduct = vi.fn().mockReturnValue(of({} as Product));
+
+      component.productForm().get('sku')?.markAsDirty();
+      // Precondition: the form must be dirty for `markAsPristine` to be load-bearing.
+      expect(component.hasUnsavedChanges()).toBe(true);
+      component.onSaveProduct(createProductData({ id: 'existing-id' }));
+
+      expect(component.hasUnsavedChanges()).toBe(false);
+      expect(routerMock.navigate).toHaveBeenCalledWith(['/products']);
+    });
+
+    it('should clear the flag after a successful create', () => {
+      const createdProduct = createProductData({ id: 'new-id' });
+      productServiceMock.createProduct = vi.fn().mockReturnValue(of(createdProduct));
+
+      component.productForm().get('sku')?.markAsDirty();
+      // Precondition: the form must be dirty for `markAsPristine` to be load-bearing.
+      expect(component.hasUnsavedChanges()).toBe(true);
+      component.onSaveProduct(createProductData());
+
+      expect(component.hasUnsavedChanges()).toBe(false);
+      expect(routerMock.navigate).toHaveBeenCalledWith(['/products/edit', 'new-id']);
+    });
+  });
+
   describe('serverErrors handling', () => {
     it('should set serverErrors signal and clear generalError when apiError has field-level errors', () => {
       const httpError = createApiError({
