@@ -36,10 +36,91 @@
     </mat-tab>
   </mat-tab-group>
 } @else {
-  <ng-container [ngTemplateOutlet]="datosTab" />
+  <!--
+    Create mode is the stepper, not the workspace (S3, D24-D29).
+
+    Steps 2 and 3 host the same containers the workspace tabs use, and each dialog owns its
+    own write, so this shell never calls an association service. The product header appears
+    only once the product exists: before that the form's own `<h2>` is the only title, and
+    after it the operator needs to know which product the remaining steps enrich (D29).
+  -->
+  @if (productId()) {
+    <app-page-header
+      [title]="product()?.name ?? ''"
+      [subtitle]="skuSubtitle()"
+      [showActions]="false"
+    />
+  }
+
+  <!--
+    `[linear]="false"` is required, not stylistic: the CDK makes a step navigable only when
+    it is completed or selected, so with `linear` step 3 would be unreachable until step 2
+    were marked completed — and marking it completed would paint a "done" checkmark on a
+    step nobody has done. `[completed]` on step 1 overrides the CDK's computed value (it
+    needs no `stepControl`) and is what shows real progress in the header.
+  -->
+  <mat-stepper
+    class="create-stepper"
+    [selectedIndex]="stepIndex()"
+    (selectedIndexChange)="stepIndex.set($event)"
+  >
+    <mat-step [completed]="productId() !== null">
+      <ng-template matStepLabel>Datos</ng-template>
+      <ng-container [ngTemplateOutlet]="datosTab" />
+    </mat-step>
+
+    <mat-step>
+      <ng-template matStepLabel>Proveedores (opcional)</ng-template>
+      <!--
+        `matStepContent` is required by data, not by taste: both containers declare
+        `productId = input.required<string>()` and there is no id until step 1 persists, so an
+        eager step would either throw or read a product that does not exist yet.
+      -->
+      <ng-template matStepContent>
+        @if (productId(); as id) {
+          <app-product-supplier-list [productId]="id" />
+        } @else {
+          <p class="step-hint">Primero guardá los datos del producto.</p>
+        }
+
+        <div class="step-actions">
+          <button mat-button type="button" (click)="goToStep(0)">Atrás</button>
+          <span class="step-actions-spacer"></span>
+          <!--
+            "Terminar" is the skip: with D24 the step has nothing to submit, so leaving the
+            remaining steps behind is exactly what skipping means, and a second "Saltar"
+            button doing the same thing would be noise (T10's skip requirement, carried by
+            the label instead).
+          -->
+          <button mat-button type="button" (click)="finish()">Terminar</button>
+          <button mat-flat-button type="button" (click)="goToStep(2)">Siguiente</button>
+        </div>
+      </ng-template>
+    </mat-step>
+
+    <mat-step>
+      <ng-template matStepLabel>Variantes (opcional)</ng-template>
+      <ng-template matStepContent>
+        @if (productId(); as id) {
+          <app-product-variant-list [productId]="id" />
+        } @else {
+          <p class="step-hint">Primero guardá los datos del producto.</p>
+        }
+
+        <div class="step-actions">
+          <button mat-button type="button" (click)="goToStep(1)">Atrás</button>
+          <span class="step-actions-spacer"></span>
+          <button mat-flat-button type="button" (click)="finish()">Terminar</button>
+        </div>
+      </ng-template>
+    </mat-step>
+  </mat-stepper>
 }
 
-<!-- Create mode is not a workspace: no header, no tabs, the form exactly as it was. -->
+<!--
+  Shared by both modes: the workspace's `Datos` tab and the stepper's step 1 are the same
+  form, so neither mode can drift from the other.
+-->
 <ng-template #datosTab>
   @if (generalError(); as errorMessage) {
     <app-error-banner [message]="errorMessage" />
