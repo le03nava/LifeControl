@@ -24,6 +24,23 @@ is already on `main`, reopen the child, then retarget it. Reopening can still fa
 branch moved while the PR was closed, and at that point the PR identity is lost and the work has to
 be re-presented as a new PR. Treat this as a last resort, never as the plan.
 
+The recipe has a verified precedent, so run it in this order rather than improvising:
+
+```bash
+git push origin <old-tip-sha>:refs/heads/<deleted-base-branch>   # 1. the base ref must exist again
+gh pr reopen <child>                                            # 2. reopen fails while the base is gone
+gh pr edit <child> --base main                                  # 3. retarget the reopened PR
+git push origin --delete <deleted-base-branch>                  # 4. delete the temporary ref again
+```
+
+Executed successfully on 2026-09-23 (PR #156, `gh` 2.101.0): the PR number, body, commits and diff
+survived intact, and the diff stayed at its pre-close size because both bases already contained the
+parent slice. Three prerequisites decide whether it works. Step 1 must recreate the ref at the **old
+tip**, not at the current one. Step 2 fails first while the base ref is missing
+(`GraphQL: Could not open the pull request`). Step 3 must run while the child is open again, because a
+closed PR rejects a base change with `Cannot change the base branch of a closed pull request` — that
+is exactly the deadlock that makes the failure permanent when the base ref cannot be recreated.
+
 ## Invariants
 
 | # | Rule | Why |
