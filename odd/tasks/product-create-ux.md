@@ -33,8 +33,10 @@ open and resets in place** for T13 (D32), after a read-only two-scout mapping of
 round). Two independent read-only verifications ran, at `1b3fbe4` and at `98081ae`. Gates on `0622ed5`:
 lint clean, build **851.05 kB** initial exit 0, `test:coverage:check` **127 files / 2506 tests /
 0 failures**, coverage **94.07/75.94/89.22/94.07** (thresholds 80/60/75/80). **S4 measured 1.403 changed
-lines of code and specs** — above D20's ~1.000 threshold — so the split is proposed below and awaits the
-user's decision. **Nothing is pushed and no PR is open.** Shape for the earlier slices was agreed the
+lines of code and specs** — above D20's ~1.000 threshold — so the split is proposed below; the user chose
+**one PR**. **PR #159 is open** against `main` (`feat/product-variant-tab-stock` → `main`, label
+`enhancement`, 16 files / 1.644 insertions / 55 deletions, `MERGEABLE`) and Angular CI *Lint, Build & Test*
+is **green** on `d953e56` (run `35927601959`). Nothing is merged. Shape for the earlier slices was agreed the
 same way ("Tabs + stepper con skip", "propuesta primero"; voseo adopted as the copy register). Product
 `attributes` handling and the `Activo` toggle were descoped the same day (see
 `## Descoped by user decision`).
@@ -1056,7 +1058,8 @@ PR A = `ce88623` + `1ebc552`, T13 (386 changed lines of code and specs): the var
 findings rounds that make the dirty contract hold. The record's own plan lines would follow their slice,
 and B chains on A's branch or on `main`, since the two touch disjoint files. The user chose **one PR** for
 S2b at 3.247 lines, so one PR here is a legitimate choice too — but at 1.403 it is the reviewer's call
-rather than an obvious one, and D20 exists to force the question.
+rather than an obvious one, and D20 exists to force the question. **Resolved:** the user chose one PR, and
+PR #159 carries it.
 
 ## Evidence log
 
@@ -1117,6 +1120,7 @@ files / 418 tests → 25 / 435. |
 | 2026-09-23 | **S4 findings round 2** | `0622ed5` | Finding A closed: "no loaded page" now counts as "the expanded row is not present" in the same clearing effect, so a request change that unmounts the table keeps the destroyed panel and the emitted `dirtyChange(false)` in step. B is recorded as a deliberately accepted consequence and the dialog-level test gap for the empty-map branch as a follow-up (both in `### Raised by S4`); C, D, H are corrected in this record and E in the form's comment. Focused list suite 77 → 79, products 464 → 466. |
 | 2026-09-23 | **S4 gates (tip)** | `0622ed5` | `npm run lint` → `All files pass linting.`; `npm run build` → bundle generation complete, **851.05 kB** initial total, exit 0; `npm run test:coverage:check` → **127 files / 2506 tests / 0 failures**, coverage **94.07/75.94/89.22/94.07** (thresholds 80/60/75/80), `[check-coverage] Cobertura dentro de los umbrales. OK`. Delta over the S3 tip (`1b8a507`: 127 files / 2458 tests, 94.03/75.80/89.19/94.03): **+48 tests, +0.04/+0.14/+0.03/+0.04**, same file count. The branch margin S2a flagged as thin is now 0.94 pp. |
 | 2026-09-23 | **S4 measured** | `0622ed5` | 15 files, 1.359 insertions / 44 deletions = **1.403 changed lines** (source 474, specs 929), plus 252 lines of this record. See `#### S4 — measured` above; D20's threshold is exceeded and the split is proposed. |
+| 2026-09-23 | **S4 delivered** | `d953e56` | PR **#159** opened against `main`: `feat/product-variant-tab-stock` → `main`, 16 files / 1.644 insertions / 55 deletions, label `enhancement`, `MERGEABLE`, title `feat(products): embed the stock editor in the Variantes tab and add "Guardar y agregar otra" (S4)`. Angular CI *Lint, Build & Test* **success** (run `35927601959`, 4m14s). The user chose **one PR** over the split this record proposed at 1.403 changed lines. Nothing is merged, and the branch and worktree stay until the merge decision, because `gh` deletes both on a merge that carries `--delete-branch`. |
 
 ## Constraints
 
@@ -1133,7 +1137,8 @@ files / 418 tests → 25 / 435. |
   `angular-ci.yml`). `~/.npm` is shared, so the install is extraction-bound. The **root** `gradlew`
   is absent in a fresh worktree (`.gitignore:33` ignores it, lines 40/43 re-include only the module
   wrappers), so Gradle commands run from `life-control-api/`. S1 is frontend-only and needs neither.
-- Nothing is pushed and no PR is open.
+- PR #159 is open for S4 and nothing is merged; the branch and the worktree stay until the merge
+  decision, because `gh` deletes both on a merge that carries `--delete-branch`.
 
 ## Follow-ups (not in this feature)
 
