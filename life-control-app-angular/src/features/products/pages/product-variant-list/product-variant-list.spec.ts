@@ -4,6 +4,8 @@ import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { By } from '@angular/platform-browser';
 import { ActivatedRoute, Router } from '@angular/router';
 import { MatDialog } from '@angular/material/dialog';
+import { MatPaginator } from '@angular/material/paginator';
+import { MatSlideToggle } from '@angular/material/slide-toggle';
 import { Subject, of, throwError } from 'rxjs';
 import { ProductVariantList } from './product-variant-list';
 import { ProductVariantDialog } from '../../components/product-variant-dialog/product-variant-dialog';
@@ -1134,7 +1136,11 @@ describe('ProductVariantList', () => {
       expect(component.panelDirty()).toBe(true);
     });
 
-    it('should mark a collapsed detail row so it adds no visual footprint', async () => {
+    // jsdom has no layout, so this pins the modifier classes and the absence of the
+    // panel, not the rendered height. The zero height of a collapsed row lives in the
+    // SCSS (`tr.detail-row { height: 0 }` in product-variant-list.scss) and cannot be
+    // asserted here.
+    it('should mark a collapsed detail row as collapsed and render no panel in it', async () => {
       setup({ profileStoreId: 'store-1' });
       await settle();
 
@@ -1148,6 +1154,185 @@ describe('ProductVariantList', () => {
       const expanded = detailRows();
       expect(expanded[0].classList.contains('detail-row--expanded')).toBe(true);
       expect(expanded[1].classList.contains('detail-row--collapsed')).toBe(true);
+    });
+  });
+
+  describe('Unsaved-changes guard on view changes (D33)', () => {
+    /**
+     * Opens a store-scoped list, widens it to the global view (so both toggles are
+     * offered), expands row 0 and dirties its panel. The panel resolves the store on
+     * its own, so it stays editable while the list shows the global definitions.
+     */
+    async function openDirtyPanelInGlobalView(): Promise<void> {
+      setup({ profileStoreId: 'store-1', totalPages: 3, totalElements: 30 });
+      await settle();
+      component.onStoreScopeChange(false);
+      await settle();
+      await expandRow(0);
+      await dirtyThePanel('7');
+      expect(component.panelDirty()).toBe(true);
+    }
+
+    /** The rendered store-scope toggle (index 0 wherever it is offered). */
+    function renderedStoreToggle(): MatSlideToggle {
+      return fixture.debugElement.queryAll(By.directive(MatSlideToggle))[0]
+        .componentInstance as MatSlideToggle;
+    }
+
+    it('should ask before a page change while dirty and only change on confirmation', async () => {
+      await openDirtyPanelInGlobalView();
+
+      confirmDialogsWith(false);
+      component.onPageChange({ pageIndex: 1, pageSize: 12 });
+      expect(dialogMock.open).toHaveBeenCalledWith(
+        ConfirmDialog,
+        expect.objectContaining({
+          data: expect.objectContaining({
+            title: 'Cambios sin guardar',
+            confirmLabel: 'Descartar cambios',
+            cancelLabel: 'Seguir editando',
+            destructive: true,
+          }),
+        }),
+      );
+      const dialogData = dialogMock.open.mock.calls[0][1] as { data: { message: string } };
+      expect(dialogData.data.message).toContain('Talla 1');
+      expect(component.pageIndex()).toBe(0);
+      expect(component.panelDirty()).toBe(true);
+
+      confirmDialogsWith(true);
+      component.onPageChange({ pageIndex: 1, pageSize: 12 });
+      expect(component.pageIndex()).toBe(1);
+      expect(component.panelDirty()).toBe(false);
+    });
+
+    it('should ask before a page-size change while dirty and only change on confirmation', async () => {
+      await openDirtyPanelInGlobalView();
+
+      confirmDialogsWith(false);
+      component.onPageChange({ pageIndex: 0, pageSize: 24 });
+      expect(dialogMock.open).toHaveBeenCalledWith(ConfirmDialog, expect.anything());
+      expect(component.pageSize()).toBe(12);
+
+      confirmDialogsWith(true);
+      component.onPageChange({ pageIndex: 0, pageSize: 24 });
+      expect(component.pageSize()).toBe(24);
+    });
+
+    it('should ask before the disabled filter while dirty and only change on confirmation', async () => {
+      await openDirtyPanelInGlobalView();
+
+      confirmDialogsWith(false);
+      component.onIncludeDisabledChange(true);
+      expect(dialogMock.open).toHaveBeenCalledWith(ConfirmDialog, expect.anything());
+      expect(component.includeDisabled()).toBe(false);
+      expect(component.panelDirty()).toBe(true);
+
+      confirmDialogsWith(true);
+      component.onIncludeDisabledChange(true);
+      expect(component.includeDisabled()).toBe(true);
+      expect(component.panelDirty()).toBe(false);
+    });
+
+    it('should ask before the store scope while dirty and only change on confirmation', async () => {
+      setup({ profileStoreId: 'store-1' });
+      await settle();
+      await expandRow(0);
+      await dirtyThePanel();
+
+      confirmDialogsWith(false);
+      component.onStoreScopeChange(false);
+      expect(dialogMock.open).toHaveBeenCalledWith(ConfirmDialog, expect.anything());
+      expect(component.storeScoped()).toBe(true);
+      expect(component.panelDirty()).toBe(true);
+
+      confirmDialogsWith(true);
+      component.onStoreScopeChange(false);
+      expect(component.storeScoped()).toBe(false);
+      expect(component.panelDirty()).toBe(false);
+    });
+
+    it('should leave the open panel and its typed values intact when a view change is cancelled', async () => {
+      await openDirtyPanelInGlobalView();
+
+      confirmDialogsWith(false);
+      component.onPageChange({ pageIndex: 1, pageSize: 12 });
+      await settle();
+
+      expect(component.pageIndex()).toBe(0);
+      expect(component.expandedVariantId()).toBe('var-1');
+      const stockInput = fixture.debugElement.query(
+        By.css('app-product-variant-store-stock input[formControlName="stock"]'),
+      );
+      expect((stockInput.nativeElement as HTMLInputElement).value).toBe('7');
+      expect(component.panelDirty()).toBe(true);
+    });
+
+    it('should restore the rendered store-scope toggle when the change is cancelled', async () => {
+      setup({ profileStoreId: 'store-1' });
+      await settle();
+      await expandRow(0);
+      await dirtyThePanel();
+
+      const toggle = renderedStoreToggle();
+      const toggleButton = fixture.debugElement.query(By.css('mat-slide-toggle button.mdc-switch'))
+        .nativeElement as HTMLButtonElement;
+      expect(toggle.checked).toBe(true);
+
+      confirmDialogsWith(false);
+      toggleButton.click();
+
+      expect(dialogMock.open).toHaveBeenCalledWith(ConfirmDialog, expect.anything());
+      expect(component.storeScoped()).toBe(true);
+      expect(toggle.checked).toBe(true);
+    });
+
+    it('should restore the rendered paginator when the page change is cancelled', async () => {
+      await openDirtyPanelInGlobalView();
+      const paginator = fixture.debugElement.query(By.directive(MatPaginator))
+        .componentInstance as MatPaginator;
+
+      confirmDialogsWith(false);
+      paginator.nextPage();
+
+      expect(dialogMock.open).toHaveBeenCalledWith(ConfirmDialog, expect.anything());
+      expect(component.pageIndex()).toBe(0);
+      expect(paginator.pageIndex).toBe(0);
+    });
+
+    it('should apply a view change with no dialog while the panel is clean', async () => {
+      setup({ profileStoreId: 'store-1', totalPages: 2 });
+      await settle();
+
+      component.onPageChange({ pageIndex: 1, pageSize: 12 });
+
+      expect(dialogMock.open).not.toHaveBeenCalled();
+      expect(component.pageIndex()).toBe(1);
+    });
+  });
+
+  describe('Panel survival across a reload (D37)', () => {
+    it('should keep the open panel, its typed values and its dirty flag across a reload with the same ids', async () => {
+      setup({ profileStoreId: 'store-1' });
+      await settle();
+      await expandRow(0);
+      await dirtyThePanel('9');
+      expect(component.panelDirty()).toBe(true);
+
+      variantServiceMock.getVariants.mockReturnValue(
+        of(createPage([createVariant(1), createVariant(2)])),
+      );
+      component.onRetry();
+      await settle();
+      await settle();
+
+      expect(component.expandedVariantId()).toBe('var-1');
+      expect(component.panelDirty()).toBe(true);
+      expect(renderedPanel()).toBeDefined();
+      const stockInput = fixture.debugElement.query(
+        By.css('app-product-variant-store-stock input[formControlName="stock"]'),
+      );
+      expect((stockInput.nativeElement as HTMLInputElement).value).toBe('9');
     });
   });
 
@@ -1235,6 +1420,49 @@ describe('ProductVariantList', () => {
       expect(component.panelDirty()).toBe(false);
       expect(emitted).toContain(false);
       expect(renderedPanel()).toBeUndefined();
+    });
+
+    it('should clear the expansion and emit false when a read error destroys the open panel', async () => {
+      setup({ profileStoreId: 'store-1' });
+      await settle();
+      await expandRow(0);
+      await dirtyThePanel();
+      expect(component.panelDirty()).toBe(true);
+
+      const emitted: boolean[] = [];
+      component.dirtyChange.subscribe((dirty) => emitted.push(dirty));
+
+      variantServiceMock.getVariants.mockReturnValue(
+        throwError(() => new HttpErrorResponse({ status: 500 })),
+      );
+      component.onRetry();
+      await settle();
+      await settle();
+
+      expect(component.error()).toBeTruthy();
+      expect(component.expandedVariantId()).toBeNull();
+      expect(component.panelDirty()).toBe(false);
+      expect(emitted).toEqual([false]);
+      expect(renderedPanel()).toBeUndefined();
+    });
+
+    it('should not emit dirtyChange when a read error happens with no panel open', async () => {
+      setup({ profileStoreId: 'store-1' });
+      await settle();
+
+      const emitted: boolean[] = [];
+      component.dirtyChange.subscribe((dirty) => emitted.push(dirty));
+
+      variantServiceMock.getVariants.mockReturnValue(
+        throwError(() => new HttpErrorResponse({ status: 500 })),
+      );
+      component.onRetry();
+      await settle();
+      await settle();
+
+      expect(component.error()).toBeTruthy();
+      expect(component.expandedVariantId()).toBeNull();
+      expect(emitted).toEqual([]);
     });
   });
 });

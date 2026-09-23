@@ -8,6 +8,7 @@ import {
   input,
   output,
   signal,
+  viewChild,
 } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
 import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -17,8 +18,8 @@ import { MatCardModule } from '@angular/material/card';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatDialog } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
-import { MatPaginatorModule } from '@angular/material/paginator';
-import { MatSlideToggleModule } from '@angular/material/slide-toggle';
+import { MatPaginator, MatPaginatorModule } from '@angular/material/paginator';
+import { MatSlideToggle, MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatTableModule } from '@angular/material/table';
 import { httpErrorMessage } from '@shared/data';
 import { ConfirmDialog } from '@shared/ui';
@@ -112,9 +113,10 @@ export class ProductVariantList {
   /**
    * Whether the expanded panel holds edits the shell has not persisted (D37).
    *
-   * `true` while the open panel reports dirty, `false` when it reports clean and
-   * whenever it is destroyed (collapse, row switch, or the row leaving the page), so
-   * the shell can never hold a dirty flag for a panel that no longer exists.
+   * `true` while the open panel reports dirty, `false` once the list destroys that
+   * panel through a path it owns: collapse, row switch, the row leaving the page, or a
+   * confirmed view change that discards it. The shell therefore never keeps reporting
+   * an edit the operator already discarded.
    */
   readonly dirtyChange = output<boolean>();
 
@@ -141,6 +143,9 @@ export class ProductVariantList {
   private readonly router = inject(Router);
   private readonly dialog = inject(MatDialog);
   private readonly destroyRef = inject(DestroyRef);
+
+  /** The rendered paginator, when the view has more than one page; used to undo a cancelled page change. */
+  private readonly paginator = viewChild(MatPaginator);
 
   readonly pageSize = signal(12);
   readonly pageIndex = signal(0);
@@ -179,6 +184,15 @@ export class ProductVariantList {
 
   readonly displayedColumns = computed(() => (this.storeScoped() ? STORE_COLUMNS : GLOBAL_COLUMNS));
 
+  /**
+   * Keeps each row's view alive across a reload that returns the same variant ids.
+   *
+   * Without it the CDK keys rows by object reference: every reload returns new objects,
+   * so every row view — and the open panel inside it — is destroyed and rebuilt, which
+   * discards typed stock/prices and leaves the dirty flag stale (D37).
+   */
+  readonly trackByVariantId = (_index: number, variant: ProductVariant): string => variant.id;
+
   readonly variantsResource = rxResource({
     params: () => {
       // No read until the store resolution settles: issuing the global read first and
@@ -210,9 +224,17 @@ export class ProductVariantList {
     this.variantsResource.hasValue() ? this.variantsResource.value() : undefined,
   );
 
-  /** Neither read nor resolution settled yet: both halves gate the view. */
+  /**
+   * Whether the view has nothing to render yet: the store resolution is pending, or the
+   * read is loading with no page already in hand.
+   *
+   * A same-request reload keeps the loaded page, so the table (and any open panel) stays
+   * mounted instead of flickering through the skeleton and losing edits (D37). A request
+   * change drops the page and does show the skeleton, because there is no honest page to
+   * keep.
+   */
   readonly loading = computed(
-    () => this.storeContext.pending() || this.variantsResource.isLoading(),
+    () => this.storeContext.pending() || (this.variantsResource.isLoading() && !this.variants()),
   );
   readonly error = this.variantsResource.error;
   /** Whether the paginator is worth rendering (more than one page of results). */
@@ -233,17 +255,20 @@ export class ProductVariantList {
       }
     });
 
-    // A reload, filter or page change can drop the expanded row. The panel is
-    // destroyed with it, so the expansion and the dirty flag must go too, or the
-    // shell would keep a pending edit for a panel that no longer exists (D37).
+    // A reload, filter, page change or failed read can drop the expanded row. The
+    // panel is destroyed with it, so the expansion and the dirty flag must go too,
+    // or the shell would keep a pending edit for a panel that no longer exists
+    // (D37). A read error replaces the table with the error state even when the
+    // previous page is still in hand, so it clears the expansion through the same
+    // path as a row that left the page.
     effect(() => {
       const page = this.variants();
+      const failed = this.error();
       const expandedId = this.expandedVariantId();
-      if (
-        expandedId !== null &&
-        page &&
-        !page.content.some((variant) => variant.id === expandedId)
-      ) {
+      if (expandedId === null) {
+        return;
+      }
+      if (failed || (page && !page.content.some((variant) => variant.id === expandedId))) {
         this.applyExpansion(null);
       }
     });
@@ -265,20 +290,14 @@ export class ProductVariantList {
    * Opens the per-store panel for `row`, or closes the one that is already open.
    *
    * A dirty panel is not discarded silently (D33): collapsing it or opening another
-   * row first asks through the shared {@link ConfirmDialog}, the same contract the
-   * variant dialogs use. Only a confirmation applies the pending target; a cancel
-   * leaves the open row exactly as it is.
+   * row first asks through {@link guardViewChange}, the same contract every other
+   * view change uses. Only a confirmation applies the pending target; a cancel leaves
+   * the open row exactly as it is.
    */
   toggleExpanded(row: ProductVariant): void {
     const currentId = this.expandedVariantId();
     const targetId = currentId === row.id ? null : row.id;
-
-    if (this.panelDirty() && currentId !== null) {
-      this.confirmDiscard(() => this.applyExpansion(targetId));
-      return;
-    }
-
-    this.applyExpansion(targetId);
+    this.guardViewChange(() => this.applyExpansion(targetId));
   }
 
   /** Mirrors the open panel's dirty flag and re-emits it for the shell (D37). */
@@ -314,7 +333,29 @@ export class ProductVariantList {
     return this.variants()?.content.find((variant) => variant.id === id);
   }
 
-  private confirmDiscard(onConfirm: () => void): void {
+  /**
+   * Applies a user-driven view change that can drop the expanded row from the loaded
+   * page, asking first while the open panel is dirty (D33).
+   *
+   * The prompt is the shared {@link ConfirmDialog}, the same contract
+   * {@link toggleExpanded} uses. A confirmation discards the panel's edits — collapsing
+   * it so the destroyed panel and the emitted `false` stay in step — and then applies
+   * the change. A cancel applies nothing and leaves the view exactly as it is; `revert`
+   * puts back any control the operator already moved (slide toggle, paginator) so the
+   * rendered control matches the unchanged signals.
+   */
+  private guardViewChange(apply: () => void, revert?: () => void): void {
+    if (!this.panelDirty()) {
+      apply();
+      return;
+    }
+    this.confirmDiscard(() => {
+      this.applyExpansion(null);
+      apply();
+    }, revert);
+  }
+
+  private confirmDiscard(onConfirm: () => void, onCancel?: () => void): void {
     const variant = this.expandedVariant();
     this.dialog
       .open(ConfirmDialog, {
@@ -333,6 +374,8 @@ export class ProductVariantList {
       .subscribe((confirmed) => {
         if (confirmed === true) {
           onConfirm();
+        } else {
+          onCancel?.();
         }
       });
   }
@@ -423,8 +466,19 @@ export class ProductVariantList {
   }
 
   onPageChange(event: { pageIndex: number; pageSize: number }): void {
-    this.pageIndex.set(event.pageIndex);
-    this.pageSize.set(event.pageSize);
+    this.guardViewChange(
+      () => {
+        this.pageIndex.set(event.pageIndex);
+        this.pageSize.set(event.pageSize);
+      },
+      () => {
+        const paginator = this.paginator();
+        if (paginator) {
+          paginator.pageIndex = this.pageIndex();
+          paginator.pageSize = this.pageSize();
+        }
+      },
+    );
   }
 
   /**
@@ -432,11 +486,21 @@ export class ProductVariantList {
    * definitions.
    *
    * Resetting the page keeps the paginator honest: both views are different result
-   * sets, so staying on the old page could land on an empty page.
+   * sets, so staying on the old page could land on an empty page. A dirty panel asks
+   * first (D33); `source` is the rendered toggle, restored when the prompt is cancelled.
    */
-  onStoreScopeChange(enabled: boolean): void {
-    this.storeScopeChoice.set(enabled);
-    this.pageIndex.set(0);
+  onStoreScopeChange(enabled: boolean, source?: MatSlideToggle): void {
+    this.guardViewChange(
+      () => {
+        this.storeScopeChoice.set(enabled);
+        this.pageIndex.set(0);
+      },
+      () => {
+        if (source) {
+          source.checked = this.storeScopeEnabled();
+        }
+      },
+    );
   }
 
   /**
@@ -444,11 +508,21 @@ export class ProductVariantList {
    *
    * Resetting the page keeps the paginator honest: flipping the filter changes
    * the result set, so staying on the old page could land on an empty page. The
-   * signal feeds the resource params, which reloads the list.
+   * signal feeds the resource params, which reloads the list. A dirty panel asks
+   * first (D33); `source` is the rendered toggle, restored when the prompt is cancelled.
    */
-  onIncludeDisabledChange(includeDisabled: boolean): void {
-    this.includeDisabled.set(includeDisabled);
-    this.pageIndex.set(0);
+  onIncludeDisabledChange(includeDisabled: boolean, source?: MatSlideToggle): void {
+    this.guardViewChange(
+      () => {
+        this.includeDisabled.set(includeDisabled);
+        this.pageIndex.set(0);
+      },
+      () => {
+        if (source) {
+          source.checked = this.includeDisabled();
+        }
+      },
+    );
   }
 
   onRetry(): void {

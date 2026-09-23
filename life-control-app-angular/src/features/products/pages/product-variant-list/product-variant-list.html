@@ -6,7 +6,10 @@
     for that store, so the global view is the only place those can be seen.
   -->
   @if (storeId()) {
-    <mat-slide-toggle [checked]="storeScopeEnabled()" (change)="onStoreScopeChange($event.checked)">
+    <mat-slide-toggle
+      [checked]="storeScopeEnabled()"
+      (change)="onStoreScopeChange($event.checked, $event.source)"
+    >
       Ver sólo la tienda
     </mat-slide-toggle>
   }
@@ -19,7 +22,7 @@
   @if (!storeScoped()) {
     <mat-slide-toggle
       [checked]="includeDisabled()"
-      (change)="onIncludeDisabledChange($event.checked)"
+      (change)="onIncludeDisabledChange($event.checked, $event.source)"
     >
       Mostrar deshabilitadas
     </mat-slide-toggle>
@@ -95,7 +98,12 @@
       <!-- Table State -->
       <mat-card appearance="outlined" class="table-card">
         <mat-card-content>
-          <table mat-table [dataSource]="page.content" multiTemplateDataRows>
+          <table
+            mat-table
+            [dataSource]="page.content"
+            [trackBy]="trackByVariantId"
+            multiTemplateDataRows
+          >
             <!--
               Expand toggle. The inline per-store stock/prices affordance (D31), the
               same in both views; the store-scoped row action keeps navigating (D18).
@@ -301,12 +309,12 @@
         <div class="empty-illustration">
           <svg viewBox="0 0 200 200" class="empty-svg">
             <defs>
-              <linearGradient id="variantGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <linearGradient id="variantGradEmpty" x1="0%" y1="0%" x2="100%" y2="100%">
                 <stop offset="0%" style="stop-color: #2563eb; stop-opacity: 0.1" />
                 <stop offset="100%" style="stop-color: #06b6d4; stop-opacity: 0.1" />
               </linearGradient>
             </defs>
-            <circle cx="100" cy="100" r="80" fill="url(#variantGrad)" />
+            <circle cx="100" cy="100" r="80" fill="url(#variantGradEmpty)" />
             <g transform="translate(55, 65)">
               <rect
                 x="0"
