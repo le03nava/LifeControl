@@ -148,11 +148,7 @@
               <th mat-header-cell *matHeaderCellDef>Acciones</th>
               <td mat-cell *matCellDef="let row">
                 <div class="actions-cell">
-                  <button
-                    mat-icon-button
-                    (click)="editVariant(row.id)"
-                    aria-label="Editar variante"
-                  >
+                  <button mat-icon-button (click)="editVariant(row)" aria-label="Editar variante">
                     <mat-icon>edit</mat-icon>
                   </button>
                   @if (row.enabled) {

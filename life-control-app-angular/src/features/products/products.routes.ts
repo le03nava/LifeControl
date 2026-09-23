@@ -49,20 +49,24 @@ export const productRoutes: Routes = [
         loadComponent: () => import('./pages/product-edit/product-edit').then((m) => m.ProductEdit),
       },
       {
-        // Declaration order is not load-bearing: Angular's `defaultUrlMatcher`
-        // requires full segment consumption and this path has a different
-        // segment count than `edit/:id/variants`, so it cannot be shadowed.
-        // The order still mirrors the `suppliers/create` +
-        // `suppliers/edit/:supplierId` sibling pair.
+        // D19: the legacy create URL stays registered so no existing URL 404s, and
+        // redirects into the workspace `Variantes` tab. It targets the
+        // `edit/:id/variants` host, not `edit/:id`: the create route is
+        // `VARIANT_ROLES` (`lc-admin` + `lc-sales`) while `edit/:id` is admin-only, so
+        // redirecting there would deny `lc-sales` the variant list (the D17 argument
+        // applied to this route). A redirect route never activates, so it carries no
+        // `canActivate`: Angular throws `RuntimeError 4014` when `redirectTo` is
+        // combined with it. `data` is omitted too because it would be inert on a route
+        // that never activates and would read as a gate. The target
+        // `edit/:id/variants` keeps its own gate.
         path: 'edit/:id/variants/create',
-        canActivate: [keycloakRoleGuard],
-        data: { roles: VARIANT_ROLES, clientId: CLIENT_ID },
-        // A half-filled definition must not be discarded by a stray navigation.
-        canDeactivate: [unsavedChangesGuard],
-        loadComponent: () =>
-          import('./pages/product-variant-edit/product-variant-edit').then(
-            (m) => m.ProductVariantEdit,
-          ),
+        redirectTo: ({ params, queryParams }) => {
+          const router = inject(Router);
+          const storeId = queryParams['storeId'];
+          return router.createUrlTree(['/products/edit', params['id'], 'variants'], {
+            queryParams: storeId ? { storeId } : {},
+          });
+        },
       },
       {
         path: 'edit/:id/variants/edit/:variantId',

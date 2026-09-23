@@ -6,6 +6,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { MatDialog } from '@angular/material/dialog';
 import { Subject, of, throwError } from 'rxjs';
 import { ProductVariantList } from './product-variant-list';
+import { ProductVariantDialog } from '../../components/product-variant-dialog/product-variant-dialog';
 import { ProductVariantService } from '../../data/product-variant.service';
 import { Page } from '../../models/product.models';
 import { ProductVariant } from '../../models/product-variant.models';
@@ -470,10 +471,10 @@ describe('ProductVariantList', () => {
       expect(actionButtons[0].textContent?.trim()).toBe('Agregar variante');
 
       actionButtons[0].click();
-      expect(routerMock.navigate).toHaveBeenCalledWith(
-        ['/products/edit', mockProductId, 'variants', 'create'],
-        { queryParams: undefined },
-      );
+      expect(dialogMock.open).toHaveBeenCalledWith(ProductVariantDialog, {
+        data: { productId: mockProductId },
+        width: '560px',
+      });
     });
 
     it('should keep the empty state add button as the only affordance when empty', async () => {
@@ -491,10 +492,10 @@ describe('ProductVariantList', () => {
       expect(emptyButtons[0].textContent?.trim()).toBe('Agregar variante');
 
       emptyButtons[0].click();
-      expect(routerMock.navigate).toHaveBeenCalledWith(
-        ['/products/edit', mockProductId, 'variants', 'create'],
-        { queryParams: undefined },
-      );
+      expect(dialogMock.open).toHaveBeenCalledWith(ProductVariantDialog, {
+        data: { productId: mockProductId },
+        width: '560px',
+      });
     });
   });
 
@@ -746,7 +747,7 @@ describe('ProductVariantList', () => {
       setup({ queryStoreId: 'store-from-link' });
       await settle();
 
-      component.editVariant('var-1');
+      component.editVariant(createVariant(1));
 
       expect(routerMock.navigate).toHaveBeenCalledWith(
         ['/products/edit', mockProductId, 'variants', 'edit', 'var-1'],
@@ -758,7 +759,7 @@ describe('ProductVariantList', () => {
       setup({ profileStoreId: 'store-from-profile' });
       await settle();
 
-      component.editVariant('var-1');
+      component.editVariant(createVariant(1));
 
       // The next screen re-resolves it from the profile; the link stays honest.
       expect(routerMock.navigate).toHaveBeenCalledWith(
@@ -769,20 +770,70 @@ describe('ProductVariantList', () => {
   });
 
   describe('Navigation', () => {
-    it('should navigate to the variants edit target', () => {
+    it('should open the edit dialog from the global view instead of navigating (D18)', () => {
       setup();
-      component.editVariant('var-1');
-      expect(routerMock.navigate).toHaveBeenCalledWith(
-        ['/products/edit', mockProductId, 'variants', 'edit', 'var-1'],
-        { queryParams: undefined },
-      );
+      const row = createVariant(1);
+
+      component.editVariant(row);
+
+      expect(dialogMock.open).toHaveBeenCalledWith(ProductVariantDialog, {
+        data: { productId: mockProductId, variant: row },
+        width: '560px',
+      });
+      expect(routerMock.navigate).not.toHaveBeenCalled();
     });
 
-    it('should navigate to the variants create target', () => {
+    it('should open the create dialog instead of navigating', () => {
       setup();
+
       component.addVariant();
+
+      expect(dialogMock.open).toHaveBeenCalledWith(ProductVariantDialog, {
+        data: { productId: mockProductId },
+        width: '560px',
+      });
+      expect(routerMock.navigate).not.toHaveBeenCalled();
+    });
+
+    it('should reload the list when the create dialog closes with a saved entity', () => {
+      setup();
+      const reloadSpy = vi.spyOn(component.variantsResource, 'reload');
+      dialogMock.open = vi.fn().mockReturnValue({ afterClosed: () => of(createVariant(3)) });
+
+      component.addVariant();
+
+      expect(reloadSpy).toHaveBeenCalled();
+    });
+
+    it('should reload the list when the edit dialog closes with a saved entity', () => {
+      setup();
+      const reloadSpy = vi.spyOn(component.variantsResource, 'reload');
+      dialogMock.open = vi.fn().mockReturnValue({ afterClosed: () => of(createVariant(1)) });
+
+      component.editVariant(createVariant(1));
+
+      expect(reloadSpy).toHaveBeenCalled();
+    });
+
+    it('should not reload the list when the dialog is cancelled', () => {
+      setup();
+      const reloadSpy = vi.spyOn(component.variantsResource, 'reload');
+      dialogMock.open = vi.fn().mockReturnValue({ afterClosed: () => of(null) });
+
+      component.addVariant();
+
+      expect(reloadSpy).not.toHaveBeenCalled();
+    });
+
+    it('should keep navigating to the store-scoped editor when a store is in play (D18)', async () => {
+      setup({ profileStoreId: 'store-1' });
+      await settle();
+
+      component.editVariant(createVariant(1));
+
+      expect(dialogMock.open).not.toHaveBeenCalled();
       expect(routerMock.navigate).toHaveBeenCalledWith(
-        ['/products/edit', mockProductId, 'variants', 'create'],
+        ['/products/edit', mockProductId, 'variants', 'edit', 'var-1'],
         { queryParams: undefined },
       );
     });

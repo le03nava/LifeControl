@@ -1,11 +1,4 @@
 <div class="form-card">
-  <h2>
-    @if (editMode()) {
-      Editar Variante
-    } @else {
-      Nueva Variante
-    }
-  </h2>
   <form [formGroup]="formGroup()" (ngSubmit)="onSave()">
     <mat-form-field appearance="outline">
       <mat-label>Código de Barras</mat-label>

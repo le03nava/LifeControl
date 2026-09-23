@@ -22,6 +22,7 @@ import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatTableModule } from '@angular/material/table';
 import { httpErrorMessage } from '@shared/data';
 import { ProductVariantService } from '../../data/product-variant.service';
+import { ProductVariantDialog } from '../../components/product-variant-dialog/product-variant-dialog';
 import { VariantStoreContext } from '../../data/variant-store-context.service';
 import { ProductVariant } from '../../models/product-variant.models';
 import { DisableVariantDialogComponent } from '../../ui/disable-variant-dialog/disable-variant-dialog';
@@ -208,16 +209,53 @@ export class ProductVariantList {
     return storeId && this.storeSource() === 'query' ? { storeId } : undefined;
   }
 
+  /**
+   * Opens the create dialog.
+   *
+   * A variant created while the store-scoped view is active will not appear in that
+   * view: the store branch only lists variants that already have a row for that
+   * store, and a brand-new definition has none yet.
+   */
   addVariant(): void {
-    this.router.navigate(['/products/edit', this.productId(), 'variants', 'create'], {
-      queryParams: this.storeQueryParams(),
-    });
+    this.openVariantDialog();
   }
 
-  editVariant(variantId: string): void {
-    this.router.navigate(['/products/edit', this.productId(), 'variants', 'edit', variantId], {
-      queryParams: this.storeQueryParams(),
-    });
+  /**
+   * Edits the variant, branching on the view (D18).
+   *
+   * With a store in play it keeps navigating to the store-scoped editor: that page
+   * hosts the per-store stock/prices panel and is the sales principal's only route
+   * to it. Without a store the dialog edits the global definition.
+   */
+  editVariant(row: ProductVariant): void {
+    if (this.storeScoped()) {
+      this.router.navigate(['/products/edit', this.productId(), 'variants', 'edit', row.id], {
+        queryParams: this.storeQueryParams(),
+      });
+      return;
+    }
+
+    this.openVariantDialog(row);
+  }
+
+  /**
+   * Opens the create/edit dialog and reloads the list only when it closed with a
+   * saved entity (D22: `null` on cancel or dismissal). The dialog owns the write and
+   * stays open with its own error banner on failure, so no error handling here.
+   */
+  private openVariantDialog(variant?: ProductVariant): void {
+    this.dialog
+      .open(ProductVariantDialog, {
+        data: { productId: this.productId(), variant },
+        width: '560px',
+      })
+      .afterClosed()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((saved) => {
+        if (saved) {
+          this.variantsResource.reload();
+        }
+      });
   }
 
   /** The profile page owns the store preference and is reachable by every role. */
