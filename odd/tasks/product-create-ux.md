@@ -987,6 +987,16 @@ needs a dirty channel it does not have (`product-edit.ts:338-340`). D20's ~1.000
 reached by the forecast, so no split is proposed; the measurement at the tip is what confirms or
 corrects it, exactly as S3's did.
 
+**W1 measured (T13): 6 files, 374 insertions / 12 deletions = 386 changed lines** (source 119, specs
+267). Against the ~55 source / ~150 spec forecast: the source half is ~2,2× and the spec half ~1,8×,
+for the reason S1 already recorded — the evidence travels with the slice. Two thirds of the spec lines
+pin behaviours the forecast did not name: the stale-server-error strip the reset forced (the form's
+`serverErrors` effect had to learn to *remove* a `serverError` key, not only apply one), the in-flight
+guard on both submit paths, and the four exit paths of D34's close contract. The `{ emitEvent: false }`
+flag also needed a dedicated `valueChanges` spy test: with `dirty.set(false)` in the same synchronous
+block, no behavioural test could tell a plain `reset()` from a silent one — the first mutation control
+on that line passed, and the test was added until it failed.
+
 ## Evidence log
 
 | Date | Slice | Commit | Evidence |
@@ -1030,6 +1040,7 @@ Rows below are added as each task closes, with the commit that carries it.
 | 2026-09-23 | **S3 W3 (findings round)** | `1b8a507` | All four closed. **F1**: `ProductsForm` gains an optional `editMode` input that overrides the `id`-control derivation (documented as the host's escape hatch for exactly this non-reactivity) and the stepper binds it to `productId() !== null`, which is reactive; the false comment in the D26 test is corrected and the copy is pinned by a DOM test on the form's own `<h2>` and submit label. **F4**: the update branch adopts the response, and the header refresh is pinned. **F3**: the completion test now opens step 2 *before* the product exists — the state where the binding disagrees with the CDK's derivation and is therefore load-bearing. **F2**: the component declares its own `MatStepperIntl`, so no Material English default can reach the screen. Three mutation controls fail exactly one test each: dropping the `[editMode]` binding, dropping the `[completed]` binding, and dropping the `PUT` response adoption. |
 | 2026-09-23 | **S3 gates (tip)** | `1b8a507` | `npm run lint` → `All files pass linting.`; `npm run build` → bundle generation complete, **851.05 kB** initial (S2b: 850.87 kB), exit 0; `npm run test:coverage:check` → **127 files / 2458 tests / 0 failures**, coverage **94.03/75.80/89.19/94.03** (thresholds 80/60/75/80). Delta over the S2b tip (`ae0cfb1`: 127 files / 2436 tests, 94.02/75.8/89.15/94.02): **+22 tests, +0.01/+0.00/+0.04/+0.01**, same file count. |
 | 2026-09-23 | **S3 measured** | `1b8a507` | 7 files, 733 insertions / 49 deletions = **782 changed lines** (source 221, specs 358, this record 203 at the plan commit), 12 of them whitespace. See `#### S3 — measured` above. |
+| 2026-09-23 | **S4 plan** | `ce88623` | Read-only two-scout mapping of the T13/T15 surface at `edbfb46`, every claim `file:line`-anchored. The `## S4 reconciliation` above: the two record claims D21 invalidated (D17's post-save return and D8's drifted anchor), the panel's single host and its per-instance store resolution, the list's single `matRowDef`, the shell's form-only `hasUnsavedChanges`, the tab/sales role asymmetry that keeps the store-scoped page alive, and the dialog's dirty/reset constraints. User decisions D30–D32 taken on 2026-09-23; D33–D37 recorded as engineering decisions. Also corrects the status header (S3 merged as `a98426e` via PR #157, `main` at `edbfb46`) and records that S4 runs in a **fresh** worktree because `gh` removed the S3 one on merge. No source written. |
 
 ## Constraints
 

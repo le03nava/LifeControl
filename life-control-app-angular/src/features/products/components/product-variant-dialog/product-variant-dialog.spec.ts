@@ -2,7 +2,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { MAT_DIALOG_DATA, MatDialog, MatDialogRef } from '@angular/material/dialog';
-import { of, throwError } from 'rxjs';
+import { of, Subject, throwError } from 'rxjs';
 import { ProductVariantDialog, ProductVariantDialogData } from './product-variant-dialog';
 import { ProductVariantService } from '../../data/product-variant.service';
 import { ProductVariant, ProductVariantRequest } from '../../models/product-variant.models';
@@ -204,6 +204,183 @@ describe('ProductVariantDialog', () => {
     component.cancel();
 
     expect(dialogRef.close).toHaveBeenCalledWith(null);
+  });
+
+  describe('save and add another', () => {
+    const request: ProductVariantRequest = { barCode: '7791234567891', variantName: 'Talla 40' };
+
+    it('should expose saving as false initially', () => {
+      setup();
+      fixture.detectChanges();
+
+      expect(component.saving()).toBe(false);
+    });
+
+    it('should stay open, reset the form and re-enable close on success', () => {
+      setup();
+      fixture.detectChanges();
+      component
+        .definitionForm()
+        .patchValue({ barCode: request.barCode, variantName: request.variantName });
+      fixture.detectChanges();
+      expect(component.formDirty()).toBe(true);
+      expect(dialogRef.disableClose).toBe(true);
+
+      component.onSaveVariantAndContinue(request);
+      fixture.detectChanges();
+
+      expect(productVariantServiceMock.createVariant).toHaveBeenCalledWith(productId, request);
+      expect(dialogRef.close).not.toHaveBeenCalled();
+      expect(component.definitionForm().getRawValue()).toEqual({ barCode: '', variantName: '' });
+      expect(component.formDirty()).toBe(false);
+      expect(dialogRef.disableClose).toBe(false);
+    });
+
+    it('should reset without emitting valueChanges', () => {
+      setup();
+      fixture.detectChanges();
+      const spy = vi.fn();
+      component.definitionForm().valueChanges.subscribe(spy);
+
+      component.onSaveVariantAndContinue(request);
+
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('should clear the applied control server error on reset', () => {
+      setup();
+      fixture.detectChanges();
+      productVariantServiceMock.createVariant.mockReturnValueOnce(
+        throwError(
+          () =>
+            new HttpErrorResponse({
+              status: 400,
+              error: { errors: { barCode: 'Código ya registrado' } },
+            }),
+        ),
+      );
+
+      component.onSaveVariantAndContinue(request);
+      fixture.detectChanges();
+      expect(component.serverErrors()).toEqual({ barCode: 'Código ya registrado' });
+      expect(component.definitionForm().controls.barCode.errors?.['serverError']).toBe(
+        'Código ya registrado',
+      );
+
+      component.onSaveVariantAndContinue(request);
+      fixture.detectChanges();
+
+      expect(component.serverErrors()).toEqual({});
+      expect(component.definitionForm().controls.barCode.errors?.['serverError']).toBeUndefined();
+    });
+
+    it('should clear the general error banner on reset', () => {
+      setup();
+      fixture.detectChanges();
+      productVariantServiceMock.createVariant.mockReturnValueOnce(
+        throwError(() => new HttpErrorResponse({ status: 409 })),
+      );
+
+      component.onSaveVariantAndContinue(request);
+      fixture.detectChanges();
+      expect(component.generalError()).not.toBeNull();
+
+      component.onSaveVariantAndContinue(request);
+      fixture.detectChanges();
+
+      expect(component.generalError()).toBeNull();
+    });
+
+    it('should issue a second POST with the new payload on a second add-another', () => {
+      setup();
+      fixture.detectChanges();
+
+      component.onSaveVariantAndContinue(request);
+      component.definitionForm().patchValue({ barCode: '7791234567892', variantName: 'Talla 42' });
+      component.onSaveVariantAndContinue({ barCode: '7791234567892', variantName: 'Talla 42' });
+
+      expect(productVariantServiceMock.createVariant).toHaveBeenCalledTimes(2);
+      expect(productVariantServiceMock.createVariant).toHaveBeenNthCalledWith(2, productId, {
+        barCode: '7791234567892',
+        variantName: 'Talla 42',
+      });
+    });
+
+    it('should not issue a second POST while the first is in flight', () => {
+      setup();
+      fixture.detectChanges();
+      const pending = new Subject<ProductVariant>();
+      productVariantServiceMock.createVariant.mockReturnValue(pending.asObservable());
+
+      component.onSaveVariantAndContinue(request);
+      component.onSaveVariantAndContinue(request);
+
+      expect(component.saving()).toBe(true);
+      expect(productVariantServiceMock.createVariant).toHaveBeenCalledTimes(1);
+
+      pending.next(variant);
+      pending.complete();
+
+      expect(component.saving()).toBe(false);
+    });
+
+    it('should disable the form buttons while a write is in flight', () => {
+      setup();
+      fixture.detectChanges();
+      const pending = new Subject<ProductVariant>();
+      productVariantServiceMock.createVariant.mockReturnValue(pending.asObservable());
+
+      component.onSaveVariantAndContinue(request);
+      fixture.detectChanges();
+
+      const addAnother = Array.from(
+        (fixture.nativeElement as HTMLElement).querySelectorAll('button'),
+      ).find(
+        (button) => button.textContent?.trim() === 'Guardar y agregar otra',
+      ) as HTMLButtonElement;
+      expect(addAnother.disabled).toBe(true);
+
+      pending.next(variant);
+      pending.complete();
+    });
+
+    it('should clear saving when the request fails', () => {
+      setup();
+      fixture.detectChanges();
+      productVariantServiceMock.createVariant.mockReturnValue(
+        throwError(() => new HttpErrorResponse({ status: 500 })),
+      );
+
+      component.onSaveVariantAndContinue(request);
+
+      expect(component.saving()).toBe(false);
+      expect(dialogRef.close).not.toHaveBeenCalled();
+    });
+
+    it('should close with the last saved entity after an add-another save', () => {
+      setup();
+      fixture.detectChanges();
+
+      component.onSaveVariantAndContinue(request);
+      expect(dialogRef.close).not.toHaveBeenCalled();
+
+      component.cancel();
+
+      expect(dialogRef.close).toHaveBeenCalledWith(variant);
+    });
+
+    it('should close with the last saved entity when the operator confirms discarding later edits', () => {
+      setup();
+      fixture.detectChanges();
+
+      component.onSaveVariantAndContinue(request);
+      component.definitionForm().patchValue({ barCode: '7791234567893', variantName: 'Talla 44' });
+      dialogMock.open.mockReturnValue({ afterClosed: () => of(true) });
+
+      component.cancel();
+
+      expect(dialogRef.close).toHaveBeenCalledWith(variant);
+    });
   });
 
   describe('unsaved input protection', () => {

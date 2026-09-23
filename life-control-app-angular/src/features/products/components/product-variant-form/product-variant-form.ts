@@ -23,8 +23,9 @@ export interface ProductVariantControl {
  * Presentational form for the **global definition** of a product variant.
  *
  * It owns no HTTP and no routing: the page owns the `FormGroup` and reacts to
- * `saveVariant`/`cancelForm`. Presentational because the same component serves
- * create and edit — `editMode` only changes the copy.
+ * `saveVariant`/`saveVariantAndContinue`/`cancelForm`. Presentational because the
+ * same component serves create and edit — `editMode` only changes the copy, and
+ * the create-only "save and add another" affordance is hidden in edit mode.
  *
  * `serverErrors` are keyed by control name; the backend field errors are applied
  * to the matching control exactly as `companies-form` does. The 409 collision is
@@ -50,8 +51,11 @@ export class ProductVariantForm {
   serverErrors = input<Record<string, string>>({});
   /** Only switches the title and submit labels; create and edit share one shape. */
   editMode = input<boolean>(false);
+  /** In-flight state owned by the host; both submit handlers early-return while true. */
+  saving = input<boolean>(false);
 
   saveVariant = output<ProductVariantRequest>();
+  saveVariantAndContinue = output<ProductVariantRequest>();
   cancelForm = output<void>();
 
   protected readonly defaultErrorMessages: Record<string, (error: unknown) => string> = {
@@ -81,7 +85,23 @@ export class ProductVariantForm {
       const serverErrors = this.serverErrors();
       const fg = this.formGroup();
 
-      if (!fg || Object.keys(serverErrors).length === 0) return;
+      if (!fg) return;
+
+      // An empty map must also *remove* a previously applied server error: a host
+      // clears the input when it resets the form, and without this the stale
+      // `serverError` key would survive into the next entry.
+      if (Object.keys(serverErrors).length === 0) {
+        Object.values(fg.controls).forEach((control) => {
+          if (control.errors && 'serverError' in control.errors) {
+            const { serverError: _, ...otherErrors } = control.errors;
+            const remainingKeys = Object.keys(otherErrors);
+            control.setErrors(remainingKeys.length > 0 ? otherErrors : null, {
+              emitEvent: false,
+            });
+          }
+        });
+        return;
+      }
 
       const subscriptions: Subscription[] = [];
 
@@ -111,11 +131,24 @@ export class ProductVariantForm {
   }
 
   onSave(): void {
+    if (this.saving()) return;
+
     this.formGroup().markAllAsTouched();
 
     if (this.formGroup().valid) {
       const raw = this.formGroup().getRawValue();
       this.saveVariant.emit({ barCode: raw.barCode, variantName: raw.variantName });
+    }
+  }
+
+  onSaveAndContinue(): void {
+    if (this.saving()) return;
+
+    this.formGroup().markAllAsTouched();
+
+    if (this.formGroup().valid) {
+      const raw = this.formGroup().getRawValue();
+      this.saveVariantAndContinue.emit({ barCode: raw.barCode, variantName: raw.variantName });
     }
   }
 
