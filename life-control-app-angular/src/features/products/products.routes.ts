@@ -105,22 +105,34 @@ export const productRoutes: Routes = [
           ),
       },
       {
+        // D19: the legacy create/edit URLs stay registered so no existing URL 404s,
+        // and redirect into the workspace `Proveedores` tab. Both are admin-only on
+        // both sides (the same argument as D13), so no principal loses access. A
+        // redirect route never activates, so it carries no `canActivate`: Angular
+        // throws `RuntimeError 4014` when `redirectTo` is combined with it. `data` is
+        // omitted too because it would be inert on a route that never activates and
+        // would read as a gate. The target `edit/:id` keeps its own admin gate.
         path: 'edit/:id/suppliers/create',
-        canActivate: [keycloakRoleGuard],
-        data: { roles: PRODUCT_ADMIN_ROLES, clientId: CLIENT_ID },
-        loadComponent: () =>
-          import('./pages/product-supplier-edit/product-supplier-edit').then(
-            (m) => m.ProductSupplierEdit,
-          ),
+        redirectTo: ({ params, queryParams }) => {
+          const router = inject(Router);
+          const storeId = queryParams['storeId'];
+          return router.createUrlTree(['/products/edit', params['id']], {
+            queryParams: storeId ? { tab: 'proveedores', storeId } : { tab: 'proveedores' },
+          });
+        },
       },
       {
+        // D19: same redirect as `suppliers/create` above. The function runs in an
+        // injection context and returns a `UrlTree`, the only return shape that can
+        // carry `tab=` and preserve `storeId`.
         path: 'edit/:id/suppliers/edit/:supplierId',
-        canActivate: [keycloakRoleGuard],
-        data: { roles: PRODUCT_ADMIN_ROLES, clientId: CLIENT_ID },
-        loadComponent: () =>
-          import('./pages/product-supplier-edit/product-supplier-edit').then(
-            (m) => m.ProductSupplierEdit,
-          ),
+        redirectTo: ({ params, queryParams }) => {
+          const router = inject(Router);
+          const storeId = queryParams['storeId'];
+          return router.createUrlTree(['/products/edit', params['id']], {
+            queryParams: storeId ? { tab: 'proveedores', storeId } : { tab: 'proveedores' },
+          });
+        },
       },
       {
         // D13: the product-scoped supplier list is admin-only on both sides, so it
@@ -131,9 +143,10 @@ export const productRoutes: Routes = [
         //
         // The function runs in an injection context and returns a `UrlTree`, the
         // only return shape that can carry `tab=` and preserve `storeId`. The
-        // sibling `create`/`edit` children keep loading their pages: Angular's
-        // `defaultUrlMatcher` requires full segment consumption, so this redirect
-        // cannot shadow them.
+        // legacy `create`/`edit` children above redirect too (D19); the sibling
+        // `suppliers/create` and `suppliers/edit/:id` routes below are the global
+        // supplier ABM and keep loading their pages: Angular's `defaultUrlMatcher`
+        // requires full segment consumption, so neither redirect can shadow them.
         path: 'edit/:id/suppliers',
         redirectTo: ({ params, queryParams }) => {
           const router = inject(Router);

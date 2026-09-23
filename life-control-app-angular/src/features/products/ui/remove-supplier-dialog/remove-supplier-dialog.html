@@ -1,12 +1,13 @@
-<h2 mat-dialog-title>Remove Supplier Assignment</h2>
+<h2 mat-dialog-title>Eliminar la asignación del proveedor</h2>
 <mat-dialog-content>
   <p>
-    Are you sure you want to remove the assignment for <strong>{{ data.supplierName }}</strong
+    ¿Estás seguro que querés eliminar la asignación de
+    <strong>{{ data.supplierName }}</strong
     >?
   </p>
-  <p class="warning-text">This action cannot be undone.</p>
+  <p class="warning-text">Esta acción no se puede deshacer.</p>
 </mat-dialog-content>
 <mat-dialog-actions align="end">
-  <button mat-button mat-dialog-close>Cancel</button>
-  <button mat-flat-button color="warn" [mat-dialog-close]="true">Remove</button>
+  <button mat-button mat-dialog-close>Cancelar</button>
+  <button mat-flat-button color="warn" [mat-dialog-close]="true">Eliminar</button>
 </mat-dialog-actions>
