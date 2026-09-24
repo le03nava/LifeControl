@@ -11,7 +11,7 @@ import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
 import { PageHeader } from '@shared/ui';
 import { httpErrorMessage } from '@shared/data';
-import { MOBILE_MAX_WIDTH_QUERY } from '@shared/constants/breakpoints';
+import { observeMobileViewport } from '@shared/responsive/mobile-viewport';
 import { CompanyService } from '@features/companies/companies/data/company.service';
 import { CompaniesCard } from '@features/companies/companies/components';
 import { MatIconModule } from '@angular/material/icon';
@@ -49,7 +49,7 @@ export class CompanyList {
   readonly pageIndex = signal(0);
 
   // Responsive: mobile detection via matchMedia
-  readonly isMobile = signal(false);
+  readonly isMobile = observeMobileViewport();
   readonly pageSizeOptions = computed(() => (this.isMobile() ? [6, 12] : [6, 12, 24, 48]));
 
   // Search: el input actualiza searchQuery en cada keystroke (para el template)
@@ -95,13 +95,6 @@ export class CompanyList {
         this.pageIndex.set(0);
       }
     });
-
-    // MatchMedia for mobile paginator adaptation
-    if (typeof window !== 'undefined') {
-      const mql = window.matchMedia(MOBILE_MAX_WIDTH_QUERY);
-      this.isMobile.set(mql.matches);
-      mql.addEventListener('change', (e) => this.isMobile.set(e.matches));
-    }
   }
 
   editCompany(id: string): void {
