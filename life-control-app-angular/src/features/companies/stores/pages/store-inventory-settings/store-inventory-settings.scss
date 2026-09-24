@@ -80,7 +80,7 @@
   }
 }
 
-@media (max-width: $bp-sm) {
+@media (max-width: $bp-mobile-max) {
   :host {
     padding: 0 var(--space-sm);
   }

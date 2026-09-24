@@ -8,7 +8,7 @@
   align-items: center;
   padding-block: var(--space-sm);
 
-  @media (max-width: $bp-sm) {
+  @media (max-width: $bp-mobile-max) {
     flex-direction: column;
     align-items: flex-start;
     gap: var(--space-md);
