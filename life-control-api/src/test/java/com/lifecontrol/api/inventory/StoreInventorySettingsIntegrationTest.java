@@ -421,6 +421,52 @@ class StoreInventorySettingsIntegrationTest extends AbstractPostgresIntegrationT
     class OptimisticLockingTests {
 
         @Test
+        @DisplayName("should answer 409 when a PUT asserts a stale version")
+        void staleVersionPutAnswers409() throws Exception {
+            // Create the settings without a precondition: today's behaviour, no version asserted.
+            var createBody = putSettings(storeA.getId(), new StoreInventorySettingsRequest(locationA1, locationA2))
+                    .andExpect(status().isOk())
+                    .andReturn()
+                    .getResponse()
+                    .getContentAsString();
+            long staleVersion = storeInventorySettingsRepository
+                    .findById(storeA.getId())
+                    .orElseThrow()
+                    .getVersion();
+            // Both write paths must answer with the persisted version, never a pre-flush one.
+            assertThat(objectMapper.readTree(createBody).get("version").asLong())
+                    .isEqualTo(staleVersion);
+
+            // Advance the row's version with another unconditional update, and pin that the response
+            // carries the version the database actually assigned. Without this the mapper's
+            // propagation would only ever be observed at the zero a freshly-built entity carries,
+            // which a hard-coded 0L in the mapper would satisfy.
+            var updateBody = putSettings(storeA.getId(), new StoreInventorySettingsRequest(locationA2, locationA1))
+                    .andExpect(status().isOk())
+                    .andReturn()
+                    .getResponse()
+                    .getContentAsString();
+            long currentVersion = storeInventorySettingsRepository
+                    .findById(storeA.getId())
+                    .orElseThrow()
+                    .getVersion();
+            assertThat(currentVersion).isGreaterThan(staleVersion);
+            assertThat(objectMapper.readTree(updateBody).get("version").asLong())
+                    .isEqualTo(currentVersion);
+
+            // Asserting the stale version must be rejected at the HTTP level: 409, not 200, not 500.
+            putSettings(storeA.getId(), new StoreInventorySettingsRequest(locationA1, locationA2, staleVersion))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.status").value(409));
+
+            // The rejected request changed nothing.
+            var stored =
+                    storeInventorySettingsRepository.findById(storeA.getId()).orElseThrow();
+            assertThat(stored.getReceivingLocationId()).isEqualTo(locationA2);
+            assertThat(stored.getSalesLocationId()).isEqualTo(locationA1);
+        }
+
+        @Test
         @DisplayName("should fail a stale version commit instead of silently winning the write")
         void staleUpdateFailsInsteadOfSilentlyWinning() throws Exception {
             storeInventorySettingsRepository.saveAndFlush(StoreInventorySettings.builder()

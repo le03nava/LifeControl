@@ -9,6 +9,7 @@ import com.lifecontrol.api.company.repository.CompanyCountryRepository;
 import com.lifecontrol.api.company.repository.CompanyRegionRepository;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.company.repository.CompanyZoneRepository;
+import com.lifecontrol.api.exception.ConflictException;
 import com.lifecontrol.api.inventory.dto.StoreInventorySettingsRequest;
 import com.lifecontrol.api.inventory.dto.StoreInventorySettingsResponse;
 import com.lifecontrol.api.inventory.dto.StoreLocationSummaryResponse;
@@ -51,6 +52,13 @@ import org.springframework.transaction.annotation.Transactional;
 public class StoreInventorySettingsService {
 
     private static final Logger logger = LoggerFactory.getLogger(StoreInventorySettingsService.class);
+
+    /**
+     * Message of the 409 raised when the request's optional version precondition does not hold. It
+     * names no entity, SQL or version number: the client only needs to know the settings moved.
+     */
+    private static final String VERSION_CONFLICT_MESSAGE =
+            "The store inventory settings conflict with the current server state; reload and try again";
 
     private final StoreInventorySettingsRepository storeInventorySettingsRepository;
     private final StoreLocationRepository storeLocationRepository;
@@ -167,6 +175,7 @@ public class StoreInventorySettingsService {
 
         var existing = storeInventorySettingsRepository.findById(store.getId());
         if (existing.isEmpty()) {
+            assertVersionPrecondition(request.version(), null);
             var created = StoreInventorySettings.builder()
                     .companyStoreId(store.getId())
                     .receivingLocationId(request.receivingLocationId())
@@ -178,11 +187,35 @@ public class StoreInventorySettingsService {
         }
 
         var settings = existing.get();
+        assertVersionPrecondition(request.version(), settings.getVersion());
         settings.setReceivingLocationId(request.receivingLocationId());
         settings.setSalesLocationId(request.salesLocationId());
-        var saved = storeInventorySettingsRepository.save(settings);
+        // Flush, do not merely save: Hibernate increments the @Version at flush time, so mapping the
+        // response from a non-flushed entity would answer with the pre-increment version. A client
+        // that echoes that version would then be rejected with a false 409 on its next write.
+        var saved = storeInventorySettingsRepository.saveAndFlush(settings);
         logger.info("StoreInventorySettings updated: companyStoreId={}", store.getId());
         return toResponse(saved);
+    }
+
+    /**
+     * Enforces the request's optional version precondition against the freshly-loaded state.
+     *
+     * <p>{@code null} means "no precondition" and always passes, preserving the contract the
+     * settings screen already relies on. A non-null version must equal the stored one: a client
+     * that read a version and finds the world moved gets a 409 instead of silently overwriting the
+     * other writer. Asserting a version for a row that does not exist is the same conflict.</p>
+     *
+     * @throws ConflictException when a non-null version does not match the current stored version
+     */
+    private void assertVersionPrecondition(Long assertedVersion, Long storedVersion) {
+        if (assertedVersion == null) {
+            return;
+        }
+        if (!assertedVersion.equals(storedVersion)) {
+            logger.info("StoreInventorySettings version precondition failed: assertedVersion={}", assertedVersion);
+            throw new ConflictException(VERSION_CONFLICT_MESSAGE);
+        }
     }
 
     /**
@@ -233,7 +266,10 @@ public class StoreInventorySettingsService {
 
     private StoreInventorySettingsResponse toResponse(StoreInventorySettings settings) {
         return new StoreInventorySettingsResponse(
-                settings.getCompanyStoreId(), settings.getReceivingLocationId(), settings.getSalesLocationId());
+                settings.getCompanyStoreId(),
+                settings.getReceivingLocationId(),
+                settings.getSalesLocationId(),
+                settings.getVersion());
     }
 
     private StoreLocationSummaryResponse toSummary(StoreLocation location) {

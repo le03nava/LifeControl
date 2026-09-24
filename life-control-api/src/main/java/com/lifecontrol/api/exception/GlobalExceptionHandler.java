@@ -15,6 +15,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -62,6 +63,18 @@ public class GlobalExceptionHandler {
         logger.warn("Data integrity violation", ex);
         return buildErrorResponse(
                 HttpStatus.CONFLICT, "The operation conflicts with an existing resource or violates a data constraint");
+    }
+
+    /**
+     * Handles an optimistic-locking conflict raised by a concurrent flush on an entity with a
+     * {@code @Version} column. The exception carries no safe per-endpoint detail, so the response is
+     * a generic 409 that leaks neither the entity, the SQL nor any version numbers.
+     */
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    public ResponseEntity<ErrorResponse> handleOptimisticLockingFailure(ObjectOptimisticLockingFailureException ex) {
+        logger.warn("Optimistic locking failure", ex);
+        return buildErrorResponse(
+                HttpStatus.CONFLICT, "The operation conflicts with a concurrent modification; reload and retry");
     }
 
     // ─── Bad request (400) ──────────────────────────────────────────────

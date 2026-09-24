@@ -91,7 +91,7 @@ class StoreInventorySettingsControllerSecurityTest {
     @BeforeEach
     void setUp() {
         request = new StoreInventorySettingsRequest(receivingLocationId, salesLocationId);
-        response = new StoreInventorySettingsResponse(storeId, receivingLocationId, salesLocationId);
+        response = new StoreInventorySettingsResponse(storeId, receivingLocationId, salesLocationId, 0L);
 
         when(storeInventorySettingsService.getSettings(companyId, companyCountryId, regionId, zoneId, storeId))
                 .thenReturn(response);
