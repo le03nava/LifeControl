@@ -3,15 +3,11 @@ import {
   Component,
   computed,
   effect,
-  inject,
   input,
   output,
   signal,
 } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
 import { CurrencyPipe } from '@angular/common';
-import { BreakpointObserver } from '@angular/cdk/layout';
-import { map } from 'rxjs';
 import { MatTableModule } from '@angular/material/table';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatSelectModule } from '@angular/material/select';
@@ -21,7 +17,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
-import { MOBILE_MAX_WIDTH_QUERY } from '@shared/constants/breakpoints';
+import { observeMobileViewport } from '@shared/responsive/mobile-viewport';
 import { ProductVariantPicker } from '../product-variant-picker/product-variant-picker';
 import { StatusChip } from '../status-chip/status-chip';
 import type { ProductVariant } from '@features/products/models/product-variant.models';
@@ -86,8 +82,6 @@ export interface DetailTableRow {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DetailTable {
-  private readonly breakpointObserver = inject(BreakpointObserver);
-
   /** Current line items. */
   readonly items = input.required<DetailTableRow[]>();
 
@@ -116,11 +110,8 @@ export class DetailTable {
    * Narrow viewports render one card per line item instead of the overflowing
    * `mat-table`.
    */
-  readonly isMobile = toSignal(
-    // One card per line item, below the shared mobile max width.
-    this.breakpointObserver.observe(MOBILE_MAX_WIDTH_QUERY).pipe(map((result) => result.matches)),
-    { initialValue: false },
-  );
+  // One card per line item, below the shared mobile max width.
+  readonly isMobile = observeMobileViewport();
 
   // ─── Add-row form state ────────────────────────────────
   readonly newProductId = signal('');
