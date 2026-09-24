@@ -70,8 +70,21 @@ const SOURCES_ROOT = 'src';
 /** The one non-spec module allowed to hold the query as a string literal. */
 const BREAKPOINTS_CONSTANT = 'src/shared/constants/breakpoints.ts';
 
-/** `@media` text from the keyword up to the `{` that opens its block. */
-const MEDIA_BLOCK = /@media([^{]*)\{/g;
+/**
+ * `@media` text from the keyword up to the `{` that opens its block.
+ *
+ * The condition may itself contain an interpolation group (`#{…}`), which
+ * carries a `{`. A plain `[^{]*` stops at that brace and hides the whole
+ * condition — including its `(max-width: …)` clause — from the scan. The
+ * alternation admits `#{…}` as one unit without mistaking its brace for the
+ * block opener, so `@media (max-width: #{$bp-sm})` still reaches rule 1.
+ *
+ * The interpolation alternative must come FIRST: `[^{]` happily matches the
+ * `#`, after which the leftover `{` is read as the block opener and the
+ * condition is truncated again. (The shape `(?:[^{]|#\{[^}]*\})*` suggested
+ * in review has exactly that bug; measured, it captures ` (max-width: #`.)
+ */
+const MEDIA_BLOCK = /@media((?:#\{[^}]*\}|[^{])*)\{/g;
 
 /** One `(min|max)-width: <value>` clause inside a media condition. */
 const WIDTH_CLAUSE = /\((min|max)-width\s*:\s*([^)]+)\)/g;
@@ -112,10 +125,32 @@ function listFiles(dir: string): string[] {
   return files;
 }
 
+/**
+ * Blanks SCSS comments so commented-out queries are never scanned.
+ *
+ * Length and newline positions are preserved exactly: every comment character
+ * except `\n` becomes a space, and a line comment contributes no newline. That
+ * keeps every later character offset identical to the original file, so
+ * `lineAt(content, …)` still reports the real file's line.
+ *
+ * A `//` immediately preceded by `:` is left intact so `url(http://…)` is not
+ * mistaken for a comment. Residual hole: a protocol-relative `url(//…)` would
+ * still be stripped; no such URL exists in this app's SCSS today.
+ */
+const BLOCK_COMMENT = /\/\*[\s\S]*?\*\//g;
+const LINE_COMMENT = /(?<!:)\/\/[^\n]*/g;
+
+function stripComments(content: string): string {
+  return content
+    .replace(BLOCK_COMMENT, (comment) => comment.replace(/[^\n]/g, ' '))
+    .replace(LINE_COMMENT, (comment) => ' '.repeat(comment.length));
+}
+
 /** Applies the three rules to every media width clause in one SCSS file. */
 function scanScss(content: string, file: string): MediaViolation[] {
+  const source = stripComments(content);
   const violations: MediaViolation[] = [];
-  for (const media of content.matchAll(MEDIA_BLOCK)) {
+  for (const media of source.matchAll(MEDIA_BLOCK)) {
     // `media[1]` is the condition; `media.index` points at `@media`.
     const conditionStart = media.index + '@media'.length;
     for (const clause of media[1].matchAll(WIDTH_CLAUSE)) {
@@ -162,7 +197,11 @@ function scanScss(content: string, file: string): MediaViolation[] {
 /** Rejects hardcoded media queries in TypeScript, outside the exemptions. */
 function scanTs(content: string, file: string): MediaViolation[] {
   const violations: MediaViolation[] = [];
-  for (const match of content.matchAll(TS_QUERY_LITERAL)) {
+  // Comments are blanked for the same reason as in `scanScss`: documenting a
+  // removed query in a comment is the natural thing to do after this change,
+  // and it must not read as the defect itself. `stripComments` preserves both
+  // length and newlines, so `lineAt(content, …)` still reports the real line.
+  for (const match of stripComments(content).matchAll(TS_QUERY_LITERAL)) {
     violations.push({
       file,
       line: lineAt(content, match.index),
@@ -214,5 +253,71 @@ describe('breakpoint source guard', () => {
   it('rejects media width expressions that contradict the mobile breakpoint contract', () => {
     const violations = scanSources();
     expect(violations, formatViolations(violations)).toEqual([]);
+  });
+});
+
+describe('breakpoint source guard scan', () => {
+  it('catches a media width value written as interpolation', () => {
+    const violations = scanScss(
+      '@media (max-width: #{$bp-sm}) { .a { color: red; } }',
+      'probe.scss',
+    );
+    expect(
+      violations,
+      `expected exactly one violation, got ${violations.length}: ${formatViolations(violations)}`,
+    ).toHaveLength(1);
+  });
+
+  it('does not flag a width query that appears only inside a line comment', () => {
+    const violations = scanScss(
+      '// replaced @media (max-width: $bp-sm)\n.a { color: red; }',
+      'probe.scss',
+    );
+    expect(violations).toEqual([]);
+  });
+
+  it('keeps original line numbers when a block comment spans several lines', () => {
+    const content = [
+      '/* line 1',
+      '   @media (max-width: 576px) {',
+      '   line 3 */',
+      '.line-four { color: blue; }',
+      '@media (max-width: 576px) { .a { color: red; } }',
+    ].join('\n');
+    const violations = scanScss(content, 'probe.scss');
+    expect(violations).toHaveLength(1);
+    expect(violations[0].line).toBe(5);
+  });
+
+  // The five falsification controls that were applied to the guard as external
+  // scratch files, expressed directly against the pure scanner so they run with
+  // no filesystem writes. Each must report exactly one violation.
+  it.each([
+    [
+      'a bare literal re-declaring the mobile boundary',
+      '@media (max-width: 576px) { .a { color: red; } }',
+    ],
+    ['max-width naming the small tier', '@media (max-width: $bp-sm) { .a { color: red; } }'],
+    [
+      'min-width naming the mobile maximum',
+      '@media (min-width: $bp-mobile-max) { .a { color: red; } }',
+    ],
+    ['arithmetic in the width value', '@media (max-width: ($bp-sm - 1px)) { .a { color: red; } }'],
+  ])('catches %s (external probe shape)', (_label, content) => {
+    const violations = scanScss(content, 'probe.scss');
+    expect(violations, formatViolations(violations)).toHaveLength(1);
+  });
+
+  it('catches a hardcoded width query in a TypeScript literal (external probe shape)', () => {
+    const violations = scanTs('function f() { return "(min-width: 768px)"; }', 'probe.ts');
+    expect(violations, formatViolations(violations)).toHaveLength(1);
+  });
+
+  it('does not flag a width query that appears only inside a TypeScript comment', () => {
+    const violations = scanTs(
+      "// matchMedia('(min-width: 768px)') was replaced by the shared constant\nconst x = 1;\n",
+      'probe.ts',
+    );
+    expect(violations).toEqual([]);
   });
 });
