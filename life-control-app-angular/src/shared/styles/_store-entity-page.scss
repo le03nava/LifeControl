@@ -200,7 +200,7 @@
     margin-top: var(--space-md);
   }
 
-  @media (max-width: $bp-sm) {
+  @media (max-width: $bp-mobile-max) {
     .filters-section {
       #{$level-selectors} {
         max-width: 100%;

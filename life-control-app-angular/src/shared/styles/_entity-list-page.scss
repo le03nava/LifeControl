@@ -290,7 +290,7 @@
   }
 
   /* Responsive */
-  @media (max-width: $bp-sm) {
+  @media (max-width: $bp-mobile-max) {
     .empty-svg {
       width: 160px;
       height: 160px;

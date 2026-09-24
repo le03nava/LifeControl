@@ -79,7 +79,7 @@ textarea,
 button {
   font-size: 1rem; // 16px base — iOS zoom prevention
 
-  @media (max-width: $bp-sm) {
+  @media (max-width: $bp-mobile-max) {
     min-height: 48px;
   }
 }
