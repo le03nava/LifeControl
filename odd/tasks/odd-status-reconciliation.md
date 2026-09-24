@@ -2,8 +2,9 @@
 
 **Repository**: LifeControl — documentation only (`odd/tasks/**`, plus this record). No source file is
 touched and no build gate applies.
-**Status**: in progress — plan, verified reconciliation table and decisions recorded at `bcb8d10`. The
-work units below are not yet committed.
+**Status**: in progress — W1 (`025eadc`) and W2 (`f3006ce`) are committed on
+`docs/odd-status-reconciliation`, off `main` @ `bcb8d10`; W3 is this close. Every fact in the table below
+was verified at `bcb8d10` on 2026-09-24.
 **Created**: 2026-09-24
 **Risk**: **low** — documentation only, no code, no contract, no auth. The risk is not the change, it is
 writing an unverified claim into a record that a human will later trust; every row below is
@@ -50,7 +51,7 @@ Every row was established with a command, never inferred from the record's prose
 | 9 | `product-variant-identity-split.md` | `done — S1, S2 and S3 complete; PR pending (user-owned)` | `STALE_MERGED` | PR **#134** → `45d237bf2`, merged 2026-09-21; the `V13`/`V14` migrations are on `main`. Task log 33/33. |
 | 10 | `product-write-authz.md` | *(none)* | `NO_STATUS` | Landed. PR **#137** → `ac73118f0`, merged 2026-09-22. Task log 4/4. |
 | 11 | `project-conventions-skill.md` | `delivered, uncommitted (T5 awaits explicit user authorization)` | `CONTRADICTED` | **The work is committed and on `main`.** The record's own PR **#129** is `CLOSED` without merging and its commit `cec4578` is **not** an ancestor of `main` (`git merge-base --is-ancestor` → no). The skill reached `main` through PR **#131** → `34fbe4cb4` (`chore/project-conventions-rescue`), followed by #130 → `3aabfd0f3` and #132 → `3c990062a`. Task log 4/5, with **T5 stale**. |
-| 12 | `purchase-order-goods-receipt.md` | one ~4 000-character line; contains `**PR #128 open** … **not merged**` and a paragraph on "**Two unmerged branches were deliberately left untouched**" | `STALE_MERGED` | PR **#128** → `1b00cc33e`, merged 2026-09-21. Both "untouched" branches have since landed: `fix/docker-artifact-provenance` (`b30c8d3`) **is** an ancestor of `main` (PR #122 → `280f3556c`), and `chore/project-conventions-skill` was superseded by #131. The W2d3 tips `6be6950`/`0340481`/`3dff094` are all ancestors of `main`. **W3 remains deferred — that claim is true.** |
+| 12 | `purchase-order-goods-receipt.md` | one 5 770-character line (measured with `len()`); contains `**PR #128 open** … **not merged**` and a paragraph on "**Two unmerged branches were deliberately left untouched**" | `STALE_MERGED` | PR **#128** → `1b00cc33e`, merged 2026-09-21. Both "untouched" branches have since landed: `fix/docker-artifact-provenance` (`b30c8d3`) **is** an ancestor of `main` (PR #122 → `280f3556c`), and `chore/project-conventions-skill` was superseded by #131. The W2d3 tips `6be6950`/`0340481`/`3dff094` are all ancestors of `main`. **W3 remains deferred — that claim is true.** |
 | 13 | `purchase-order-sections-polish.md` | `in progress` | `STALE_MERGED` | PR **#101** → `f8a29f8f0`, merged 2026-09-17. The record's own `## Status` section already says "Shipped", contradicting its header. Task log 5/5. |
 | 14 | `store-areas-backend.md` | `merged` | `ACCURATE` | PR #98 → `9135fa944`. |
 | 15 | `store-areas-frontend.md` | `in progress` | `STALE_MERGED` | PRs **#99** → `fd71cd917` and **#100** → `8ebb11bae`, merged 2026-09-17. Task log 13/13. |
@@ -63,8 +64,9 @@ Every row was established with a command, never inferred from the record's prose
 | 22 | `store-zones-backend.md` | `in progress` | `STALE_MERGED` | PR **#103** → `2c21fd57e`, merged 2026-09-18. Task log 20/20. |
 | 23 | `store-zones-frontend.md` | `in progress` | `STALE_MERGED` | PRs **#104** → `0058c3ce4`, **#105** → `8281e04f0`, **#106** → `56bbf8d95`, **#107** → `19faa3e56`, merged 2026-09-18. |
 
-Tally: **14 misleading** (`STALE_MERGED` 12, `CONTRADICTED` 2, plus `IMPLIES_UNLANDED` 1 — 15 rows
-touched), **4** with no status line, **5 accurate**, **23** total.
+Tally: **14 misleading** (`STALE_MERGED` 11, `CONTRADICTED` 2, `IMPLIES_UNLANDED` 1), **4** with no
+status line, **5 accurate**, **23** total. All 18 of the first two groups were corrected; all 5 of the
+third were deliberately left alone (D1).
 
 ## Decisions
 
@@ -83,10 +85,13 @@ touched), **4** with no status line, **5 accurate**, **23** total.
 - **D3 — the four records with no status line get one, inserted as the first metadata line after the H1.**
   An absent status line is the same defect as a wrong one: the reader cannot tell whether the record
   holds live work. A uniform insertion point keeps the diff mechanical and reviewable.
-- **D4 — `purchase-order-goods-receipt.md` is corrected surgically, not restructured.** Its status line
-  is one ~4 000-character physical line carrying byte-identity trees (`49ee03b…`, `d52e68c0f597…`), gate
-  counts and CI results. That evidence must survive; the false clauses are replaced in place and nothing
-  else in the line is reflowed. A rewrite would destroy the audit trail this record exists to hold.
+- **D4 — `purchase-order-goods-receipt.md` is corrected by prepending, then swapping only the false
+  clauses.** Its status line is one **5 770-character** physical line carrying byte-identity trees
+  (`49ee03b…`, `d52e68c0f597…`), gate counts and CI results. Those must survive, so the line is not
+  rewritten: a short current-truth paragraph is prepended and exactly two false clauses are replaced in
+  place. Measured: the 5 691-character narrative remainder is **byte-identical** to the original minus
+  its `**Status**: ` prefix and those two clauses. This record's first estimate ("~4 000 characters")
+  was wrong; `len()` on line 4 gives 5 770, and the correction above reflects the measured value.
 - **D5 — the deferred and blocked items stay.** W3 (location-aware sales), D13b (the Angular conflict
   UX), T14 (the variant matrix, blocked on the unapproved `B1`) and the `lc-receiving` Keycloak
   protocol mappers are **real pending work**. Marking a feature "merged" must not erase what is
@@ -95,6 +100,12 @@ touched), **4** with no status line, **5 accurate**, **23** total.
   `project-conventions-skill.md` and `T7` of `store-claim-hardening.md` are the only unchecked boxes in
   all 23 records, and both are work that already landed. Leaving them unchecked while the status line
   says "no work left" would recreate the same self-contradiction in a new place.
+- **D7 — an amendment this slice made to its own output, found while closing.** Three headers written
+  earlier in this same slice asserted "No PR is open". That is precisely the claim D2 forbids, and it
+  would rot the same way the 14 repaired headers did. They were amended to assert only **what remains**
+  (the blocked or deferred work) — the durable half, and the only half a reader needs. Recorded rather
+  than silently fixed: the invariant was applied to this slice's own text, not only to the records it
+  was written to repair.
 
 ## Scope
 
@@ -193,8 +204,8 @@ For `product-variant-admin-ui.md` (edit 6):
 > 2026-09-24. The slice measured **3490 changed lines against a declared forecast of 500–800**; see
 > `## Review workload`. No PR is open and no work is left in this feature.
 
-**W2 (T2), the surgical `purchase-order-goods-receipt.md` correction**, replaces exactly two clauses
-inside the single status line:
+**W2 (T2), the `purchase-order-goods-receipt.md` correction**, prepends a current-truth paragraph and
+then replaces exactly two clauses inside the narrative line (see D4 and D7):
 
 - `**PR #128 open**` … `— **not merged**, the user's decision.` → `**PR #128 MERGED** as \`1b00cc33e\` on 2026-09-21.`
 - the `**Two unmerged branches were deliberately left untouched**` clause → both have since landed:
@@ -211,9 +222,13 @@ grep -rn 'PR #[0-9]* open\|not merged\|Nothing is pushed\|no PR is open\|in prog
 git diff --numstat
 ```
 
-The second command must return only records that are genuinely still open, or nothing. `gh pr list
---state open` must be empty, so **any** surviving "no PR is open"/"PR open" phrasing is either a dated
-historical sentence in a frozen section or a defect.
+The second command was run at the W1 tip and again at the close. Its surviving hits fall into exactly
+four legitimate classes: the frozen per-slice narrative below the corrected headers (for example
+`product-create-ux.md:1019` and `:1234`), the dated evidence-log rows that describe what was true when
+they were written (`optimistic-lock-conflict.md:227`), a historical task-log row `purchase-order-goods-receipt.md:141`
+about PR #118, and this record's own quotations of the text it replaced. **`gh pr list --state open` is
+empty**, so any *new* "no PR is open"/"PR open" phrasing in a header is a defect — which is exactly how
+D7 was caught.
 
 ## Review workload
 
@@ -224,10 +239,29 @@ surviving false phrasing — not a 19-file read. **Well under the ~400-line guar
 
 #### W1 — measured
 
+Measured with `git diff --numstat bcb8d10 025eadc`.
+
 | Bucket | Files | Changed lines |
 |---|---|---|
-| Records (T1) | 17 | *to fill at the W1 commit* |
-| This record | 1 | *to fill* |
+| Records (T1) | 17 | **58** (34 insertions / 24 deletions) |
+| This record (landed in the same commit) | 1 | **254** (254 / 0) |
+| **W1 total** (`025eadc`) | **18** | **312** (288 / 24) |
+
+#### W2 — measured
+
+Measured with `git diff --numstat 025eadc f3006ce`.
+
+| Bucket | Files | Changed lines |
+|---|---|---|
+| `purchase-order-goods-receipt.md` (T2) | 1 | **8** (7 insertions / 1 deletion); the file goes 808 → 814 lines |
+
+#### Whole slice — measured against the forecast
+
+The forecast said **~70–110 changed lines across 19 files**. Measured: the 17 records came in at **58**
+changed lines (inside the band, at its lower edge), `purchase-order-goods-receipt.md` at **8**, and the
+missing weight was entirely in the record itself (**254** lines, plus the whole-slice close). **The slice
+is 19 files and ~320 changed lines in total, all of them one-line substitutions at a uniform position
+plus two prepended paragraphs — well under the ~400-line guardrail, so no split was proposed or needed.**
 
 ## Evidence log
 
@@ -235,9 +269,20 @@ surviving false phrasing — not a 19-file read. **Well under the ~400-line guar
 |---|---|---|---|
 | 2026-09-24 | recon | — | Read-only `gentle-ai-explore` scout over all 23 records — which returned **no shell** (its own report: no `bash`, `git` or `gh`), so its table was built from `.git` internals (`refs/`, `packed-refs`, `logs/HEAD`, `FETCH_HEAD`) and is treated here as **hypothesis, not evidence**. It was then re-verified with real commands by the parent: `gh pr list --state all --limit 100 --json number,state,headRefName,mergedAt,mergeCommit` (100 PRs, **0 open**) plus `git merge-base --is-ancestor <sha> main` for every cited hash. The scout was right on substance and wrong on method; the `gh` data is what settled it. |
 | 2026-09-24 | recon (settled special cases) | — | `chore/project-conventions-skill` **#129 = CLOSED**, and the skill landed via **#131** `34fbe4cb4` (+#130 `3aabfd0f3`, #132 `3c990062a`); `cec4578` is **not** an ancestor of `main` (`git merge-base --is-ancestor` → no) while the objects still exist. `fix/docker-artifact-provenance` `b30c8d3` **is** an ancestor of `main` (PR #122). `bcb8d10` parents = `964e826` + `3cb507b`; `odd/tasks/optimistic-lock-conflict.md` is absent at `964e826` (`git ls-tree`) and added by the merge. |
+| 2026-09-24 | **W1 (T1)** | `025eadc` | 18 files, **288 insertions / 24 deletions** (17 records = 34/24; this record = 254/0). The 19 prescribed edits were delegated to a `gentle-ai-worker` with the exact replacement text and one allowed-edit-surface entry per file; **nothing was left to the writer's judgement**. Its report confirms all 19 matched the prescribed text exactly, none failed, and it named 6 further stale passages it did *not* touch (now in Follow-ups). The first delegation attempt was **rejected before launching** by the writer contract — the task lacked the canonical `## Allowed edit surfaces` heading — and was relaunched with it; no work was lost and nothing ran twice. **Gate**: every replacement re-read in `git diff` by the parent, and the `grep` sweep above plus a re-extraction of all 23 status lines. |
+| 2026-09-24 | **W2 (T2)** | `f3006ce` | 1 file, **7 insertions / 1 deletion** (808 → 814 lines). **Gate**: a scripted proof that the 5 691-character narrative remainder equals the original status line minus its prefix and minus the two replaced clauses — printed `True`, lengths 5691 == 5691, i.e. the byte-identity trees and gate counts survive byte for byte (D4). |
+| 2026-09-24 | **W3 close** | (this commit) | The D4 estimate corrected from ~4 000 to the measured 5 770 characters; the table tally corrected from `STALE_MERGED` 12 to **11**; the measured workload filled in against the forecast; **D7 recorded** together with the three headers it amends. |
 
 ## Follow-ups
 
+- **Stale prose the W1 writer flagged and did not touch** (out of scope by D1): `product-variant-identity-split.md`'s
+  `## Plan` table still marks S2/S3 `pending` while the header and task log say complete;
+  `store-zones-backend.md:126` still reads as current ("the commit is deferred until after this round");
+  `store-areas-frontend.md:173-175` claims an uncommitted purchase-orders refactor still needs its own
+  commit or discard decision (probably settled by PR #101, **not verified**); `docker-images-rebuild.md:166`'s
+  cross-reference to `project-conventions-skill` T2–T5 pending is now stale, since T5 was closed by this
+  slice; `optimistic-lock-conflict.md:227`'s dated evidence row still describes the header as recording
+  the open PR.
 - **Other false prose inside the header blocks** — out of scope by D1. Known: `angular-docs-prettier-scope.md`
   calls its own record "gitignored" (`#130` versioned `odd/tasks/`), and several records pin `Base:
   main @ <old sha>` values that no longer describe anything. A second pass could reconcile them; it was

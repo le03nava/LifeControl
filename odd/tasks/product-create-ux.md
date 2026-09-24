@@ -4,7 +4,7 @@
 bulk-creation item in `## Backend dependencies` needs `life-control-api/` work, and it gates S4.
 **Status**: **All five slices are merged into `main`** — S1 #154 (`158a6b3f9`), S2a #155 (`d85e9e2d7`),
 S2b #156 (`d7c6e16df`), S3 #157 (`a98426e32`), S4 #159 (`84a17ef64`) and S5 #160 (`964e826f5`) —
-verified at `bcb8d10` on 2026-09-24. **No PR is open, and the only work left in this feature is T14**,
+verified at `bcb8d10` on 2026-09-24. **The only work left in this feature is T14**,
 blocked on the unapproved `B1` (D30). The per-slice paragraphs below are kept as the record of what was
 true when they were written; this paragraph is the correction.
 

@@ -13,7 +13,7 @@ both gates green (see the evidence log). The S2 store source was resolved with e
 `test/variant-store-write-it` #147 (`5c95d0d56`), `feat/variant-store-stock-editor` #148 (`0450b929e`)
 and `feat/variant-store-sales-entry` #149 (`3bc5555df`), 2026-09-22 — verified at `bcb8d10` on
 2026-09-24. The slice measured **3490 changed lines against a declared forecast of 500–800**; see
-`## Review workload`. No PR is open and no work is left in this feature.
+`## Review workload`. No work is left in this feature.
 **Created**: 2026-09-21
 **Risk**: **high** — route guard and role-set change (`assets/risk-classification-matrix.md`: "Auth, permissions, role, or guard change")
 
