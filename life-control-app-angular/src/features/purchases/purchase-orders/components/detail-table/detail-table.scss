@@ -203,7 +203,7 @@
     gap: var(--space-md);
     align-items: start;
 
-    @media (max-width: ($bp-sm - 1px)) {
+    @media (max-width: $bp-mobile-max) {
       grid-template-columns: 1fr;
     }
 
