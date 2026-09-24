@@ -3,8 +3,9 @@
 **Repository**: LifeControl — backend `life-control-api/` only. The Angular half of W2-D13 (the conflict
 UX) is deliberately a separate slice; see `## Scope`.
 **Status**: **delivered on branch `fix/optimistic-lock-conflict`** — W1 (T1–T4) committed as `156e062`
-(9 files, +271/−13), gates green, two independent read-only verifications run. **Nothing is pushed and
-no PR is open**: that is the user's decision. The Angular half (D13b) is still deferred; see
+(9 files, +271/−13), gates green, two independent read-only verifications run. **PR #161 is open
+against `main`** (pushed; 11 files / +519 −15, `API CI` green, `MERGEABLE`) and **not merged**: that
+is the user's decision. Branch tip `e4c5f8a`. The Angular half (D13b) is still deferred; see
 `## Handoff`.
 **Created**: 2026-09-24
 **Risk**: **medium** — one new `@ExceptionHandler` (platform-wide effect on the store tree's HTTP
@@ -226,6 +227,7 @@ real MockMvc dispatch and the findings round added the version-propagation asser
 | 2026-09-24 | W1 second independent verification | `156e062` | A second read-only `gentle-ai-verify` subagent verified the **committed** range and ran two of its own probes, backing the file up to `/tmp` and restoring with `cp` (never `git checkout --`), SHA-256-verified identical afterwards. Probe A (mapper hard-coded `0L`) fails at `:454-455`; Probe B (`saveAndFlush` → `save`) fails with the same text — **the defect and the fix are both reproduced independently**. Verdicts: the fix is necessary and sufficient; the create path is correct because both the entity's `long` default and the column's `DEFAULT 0` are `0`; the five `never()` additions are honest; the unit comment is accurate; no other production path changed. **F2 corrected** (only the update assertion discriminates), **F3/F4/F5 recorded** as follow-ups. |
 | 2026-09-24 | **W1 gates (tip)** | `156e062` | `./gradlew spotlessCheck spotbugsMain --no-daemon` → `BUILD SUCCESSFUL`, 0 `BugInstance` in `build/reports/spotbugs/main.xml` (also forced with `--rerun-tasks`: 6 tasks executed, `BUILD SUCCESSFUL`, so the green is a real execution and not an up-to-date shortcut). `./gradlew test --no-daemon` → `BUILD SUCCESSFUL`, **2060 tests / 0 failures / 0 errors / 0 skipped** across 593 result files, Testcontainers included. Focused subset: 66 tests, 0 failures. |
 | 2026-09-24 | **W1 measured** | `156e062` | 9 files, 271 insertions / 13 deletions = **284 changed lines** (source 84, specs 200), plus 249 lines of this record across two files. Under the ~400-line guardrail; no split proposed. `git diff -w` is identical to the plain diff. |
+| 2026-09-24 | status correction | (this commit) | Read-only `gh pr view 161` check against the record's status header, which claimed "Nothing is pushed and no PR is open": the branch **is** pushed and **PR #161 is open** against `main` — `MERGEABLE`, `CLEAN`, 11 files / +519 −15, `API CI` success (run 35944843830), branch tip `e4c5f8a`. The header now records the open PR and keeps the not-merged state explicitly as the user's decision. No source written. |
 
 ## Handoff to the Angular slice (D13b), recorded so it cannot evaporate
 
