@@ -210,6 +210,10 @@ describe('ProductVariantListHost', () => {
 
     child().dirtyChange.emit(true);
     fixture.detectChanges();
+    // Intermediate assertion, and the reason this test discriminates: ending on `false`
+    // alone would assert the initial value, so the test would pass even with the
+    // template binding removed.
+    expect(fixture.componentInstance.hasUnsavedChanges()).toBe(true);
     child().dirtyChange.emit(false);
     fixture.detectChanges();
 
