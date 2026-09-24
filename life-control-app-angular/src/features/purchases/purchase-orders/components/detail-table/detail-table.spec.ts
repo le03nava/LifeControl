@@ -1,14 +1,12 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { By } from '@angular/platform-browser';
-import { BreakpointObserver } from '@angular/cdk/layout';
 import { of } from 'rxjs';
 import { DetailTable, type DetailTableRow } from './detail-table';
 import { ProductVariantPicker } from '../product-variant-picker/product-variant-picker';
 import { ProductVariantService } from '@features/products/data/product-variant.service';
 import type { Page } from '@features/products/models/product.models';
 import type { ProductVariant } from '@features/products/models/product-variant.models';
-import { MOBILE_MAX_WIDTH_QUERY } from '@shared/constants/breakpoints';
 
 const PRODUCTS = [
   { id: 'prod-1', name: 'Widget A', sku: 'SKU-1' },
@@ -418,6 +416,33 @@ describe('DetailTable', () => {
 });
 
 describe('DetailTable (mobile)', () => {
+  let originalMatchMedia: typeof window.matchMedia;
+
+  function setupMatchMedia(matches: boolean) {
+    const listeners: Record<string, EventListener> = {};
+    const mql = {
+      matches,
+      addEventListener: (type: string, listener: EventListener) => {
+        listeners[type] = listener;
+      },
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+    };
+    window.matchMedia = vi
+      .fn()
+      .mockReturnValue(mql as unknown as MediaQueryList) as unknown as typeof window.matchMedia;
+    return { mql, listeners };
+  }
+
+  beforeAll(() => {
+    originalMatchMedia = window.matchMedia;
+  });
+
+  afterAll(() => {
+    window.matchMedia = originalMatchMedia;
+  });
+
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [DetailTable, NoopAnimationsModule],
@@ -425,12 +450,6 @@ describe('DetailTable (mobile)', () => {
         {
           provide: ProductVariantService,
           useValue: { getVariants: vi.fn().mockReturnValue(of(variantPage([VARIANT_A]))) },
-        },
-        {
-          provide: BreakpointObserver,
-          useValue: {
-            observe: () => of({ matches: true, breakpoints: { [MOBILE_MAX_WIDTH_QUERY]: true } }),
-          },
         },
       ],
     }).compileComponents();
@@ -451,6 +470,7 @@ describe('DetailTable (mobile)', () => {
   }
 
   it('should render the receipt progress facts in the per-line card', () => {
+    setupMatchMedia(true);
     const f = createMobileTable(
       [{ ...SAVED_ROW, receivedQuantity: 3, statusName: 'Partial Received' }],
       true,
@@ -465,7 +485,11 @@ describe('DetailTable (mobile)', () => {
   });
 
   it('should keep the per-line card unchanged when the progress view is off', () => {
+    setupMatchMedia(true);
     const f = createMobileTable([SAVED_ROW], false);
+
+    const cards = (f.nativeElement as HTMLElement).querySelectorAll('.line-item-card');
+    expect(cards.length).toBe(1);
 
     const text = (f.nativeElement as HTMLElement).textContent ?? '';
     expect(text).not.toContain('Recibido');

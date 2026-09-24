@@ -246,13 +246,55 @@ describe('ReceiptDetail', () => {
       expect(text).not.toContain('11111111');
     });
 
-    it('should render the mobile cards instead of the table on a narrow viewport', async () => {
+    it('should render the table instead of the mobile cards on a wide viewport', async () => {
       const fixture = await createPage();
       const component = fixture.componentInstance;
 
-      // The breakpoint observer is mocked through window.matchMedia in jsdom.
+      // The global jsdom matchMedia stub reports no match, so the component
+      // starts on the desktop branch.
       expect(component.isMobile()).toBe(false);
-      expect(fixture.debugElement.queryAll(By.css('table'))).toBeTruthy();
+      expect(fixture.debugElement.queryAll(By.css('table')).length).toBeGreaterThan(0);
+      expect(fixture.debugElement.queryAll(By.css('.line-card')).length).toBe(0);
+    });
+  });
+
+  describe('responsive layout', () => {
+    let originalMatchMedia: typeof window.matchMedia;
+
+    function setupMatchMedia(matches: boolean) {
+      const listeners: Record<string, EventListener> = {};
+      const mql = {
+        matches,
+        addEventListener: (type: string, listener: EventListener) => {
+          listeners[type] = listener;
+        },
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+      };
+      window.matchMedia = vi
+        .fn()
+        .mockReturnValue(mql as unknown as MediaQueryList) as unknown as typeof window.matchMedia;
+      return { mql, listeners };
+    }
+
+    beforeAll(() => {
+      originalMatchMedia = window.matchMedia;
+    });
+
+    afterAll(() => {
+      window.matchMedia = originalMatchMedia;
+    });
+
+    it('should render the mobile cards instead of the table on a narrow viewport', async () => {
+      setupMatchMedia(true);
+
+      const fixture = await createPage();
+      const component = fixture.componentInstance;
+
+      expect(component.isMobile()).toBe(true);
+      expect(fixture.debugElement.queryAll(By.css('table')).length).toBe(0);
+      expect(fixture.debugElement.queryAll(By.css('.line-card')).length).toBe(2);
     });
   });
 

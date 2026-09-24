@@ -1,12 +1,10 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
-import { toSignal, rxResource } from '@angular/core/rxjs-interop';
+import { rxResource } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { DatePipe } from '@angular/common';
-import { BreakpointObserver } from '@angular/cdk/layout';
-import { map } from 'rxjs';
 import { PageHeader } from '@shared/ui';
 import { httpErrorMessage, unwrapHttpError } from '@shared/data';
-import { MOBILE_MAX_WIDTH_QUERY } from '@shared/constants/breakpoints';
+import { observeMobileViewport } from '@shared/responsive/mobile-viewport';
 import { MatTableModule } from '@angular/material/table';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
@@ -66,7 +64,6 @@ export class ReceiptDetail {
   private readonly router = inject(Router);
   private readonly goodsReceiptService = inject(GoodsReceiptService);
   private readonly purchaseOrderService = inject(PurchaseOrderService);
-  private readonly breakpointObserver = inject(BreakpointObserver);
 
   /** Route id read from the snapshot; `null` when the route carries no id. */
   readonly id: string | null = this.route.snapshot.paramMap.get('id');
@@ -103,11 +100,8 @@ export class ReceiptDetail {
   );
 
   /** Narrow viewports render one card per line instead of the overflowing table. */
-  readonly isMobile = toSignal(
-    // One card per line, below the shared mobile max width.
-    this.breakpointObserver.observe(MOBILE_MAX_WIDTH_QUERY).pipe(map((result) => result.matches)),
-    { initialValue: false },
-  );
+  // One card per line, below the shared mobile max width.
+  readonly isMobile = observeMobileViewport();
 
   readonly headerTitle = computed(() => {
     const receipt = this.receipt();
