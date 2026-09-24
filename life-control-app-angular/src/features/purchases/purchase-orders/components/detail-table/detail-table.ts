@@ -21,12 +21,10 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { MOBILE_MAX_WIDTH_QUERY } from '@shared/constants/breakpoints';
 import { ProductVariantPicker } from '../product-variant-picker/product-variant-picker';
 import { StatusChip } from '../status-chip/status-chip';
 import type { ProductVariant } from '@features/products/models/product-variant.models';
-
-/** Viewport width below which the table switches to one card per line item. */
-const MOBILE_QUERY = '(max-width: 575px)';
 
 /** Column ids of the editable draft view, in render order. */
 const BASE_COLUMNS = ['productName', 'variantName', 'quantity', 'unitPrice', 'subtotal', 'actions'];
@@ -119,7 +117,8 @@ export class DetailTable {
    * `mat-table`.
    */
   readonly isMobile = toSignal(
-    this.breakpointObserver.observe(MOBILE_QUERY).pipe(map((result) => result.matches)),
+    // One card per line item, below the shared mobile max width.
+    this.breakpointObserver.observe(MOBILE_MAX_WIDTH_QUERY).pipe(map((result) => result.matches)),
     { initialValue: false },
   );
 
