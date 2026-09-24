@@ -8,7 +8,7 @@ build config, no CI change.
 (herdr workspace `w12`): `eca52b3` (the helper + its spec), `8b8ede8` (the three consumers),
 `de5fd62` (the supplier-list coverage). 6 files, +~250 lines. Lint, build and the CI coverage gate pass
 on the committed tree, five times in a row; the leak regression was mutation-controlled twice,
-independently. **Not pushed; no PR is open.**
+independently. **Merged as PR #167 (`07252376f`), 2026-09-24.**
 **Created**: 2026-09-24
 **Risk**: **low, but not a pure refactor.** The extracted block is byte-identical in all three
 consumers, but two things change behaviour on purpose: (a) the listener is now removed on destroy —

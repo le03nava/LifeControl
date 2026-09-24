@@ -163,7 +163,8 @@ rebuilt image kept the same content hash. `docker compose up -d` therefore left 
 ### Unrelated in-flight work observed
 
 `life-control-api/skills/project-conventions/` appeared untracked on `main` at 21:25 from another pi
-session's `project-conventions-skill` feature (its doc lists T1 done, T2–T5 pending). It is **not**
+session's `project-conventions-skill` feature (its doc then listed T1 done, T2–T5 pending; that work has
+since landed through PRs #130/#131/#132 and T5 is closed by that record's own correction). It is **not**
 part of this rebuild, was **not** in PR #116 (`git ls-tree -r HEAD | grep skills/` is empty), and was
 left untouched. That session was notified that its recorded branch `feat/store-ux-a11y` no longer
 exists.

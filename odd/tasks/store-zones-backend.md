@@ -123,7 +123,7 @@ and Flyway stops at `V5`.
 - [x] T9 — `StoreZoneControllerTest` + `StoreZoneControllerSecurityTest` (`@WebMvcTest` + role matrix) + `StoreZoneFlatControllerTest`.
 - [x] T10 — `StoreZoneIntegrationTest extends AbstractPostgresIntegrationTest` (Testcontainers + Flyway V6) + cascade regression test.
 - [x] T11 — Verification: `spotlessApply`, `./gradlew test --tests "com.lifecontrol.api.store.*"`, `./gradlew test`, `./gradlew bootJar --no-daemon -x test`.
-- [x] T12 — Commit `feat(store): add store zones CRUD backend` (atomic). *(note: the original plan said "awaiting user request"; the user requested the follow-up fixes instead, so the commit is deferred until after this round)*
+- [x] T12 — Commit `feat(store): add store zones CRUD backend` (atomic). *(note: the original plan said "awaiting user request"; the user requested the follow-up fixes instead, so the commit waited until after that round — it landed as PR #103.)*
 
 ### Follow-up round (F1–F4)
 

@@ -7,8 +7,8 @@ config, no route.
 worktree `~/workspace/LifeControl-worktrees/fix-mobile-breakpoint-single-source`: `152db88` (constant
 + guard), `4f82b06` (three list pages), `53a7ac6` (detail-table, receipt-detail, spec), `639d0b4` (two
 stylesheets). 10 files, +71 −17. Lint, build and the CI coverage gate pass on the committed tree; the
-falsification control was reproduced twice. Independently verified read-only — see `## Findings`. **Not
-pushed; no PR is open.**
+falsification control was reproduced twice. Independently verified read-only — see `## Findings`.
+**Merged as PR #165 (`7f8ba11b9`), 2026-09-24.**
 **Created**: 2026-09-24
 **Risk**: **low, but not zero — and explicitly not a pure refactor.** Two of the eight call sites
 change the value they compare against (575px → 575.98px). Unlike the sibling feature

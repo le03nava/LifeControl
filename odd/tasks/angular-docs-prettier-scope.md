@@ -4,7 +4,7 @@
 **Feature**: `angular-docs-prettier-scope`
 **Type**: tooling / environment incident fix (not product work)
 **Branch**: `chore/angular-docs-prettier-scope` · **Base**: `main` @ `c9630ec`
-**Local doc**: `odd/tasks/angular-docs-prettier-scope.md` (gitignored)
+**Local doc**: `odd/tasks/angular-docs-prettier-scope.md` (versioned — `.gitignore` carries `odd/*` plus `!odd/tasks/`)
 **Requested by**: the user, after the second occurrence of the incident ("ok arreglemos primero lo del incidente, que podemos hacer para que no pase?").
 **Decision**: option 1 of 4 presented — `.prettierignore` scoped to `*.md`. Locked with the user, 2026-09-20.
 
@@ -54,7 +54,7 @@ Effect: `AGENTS.md` and `README.md` become off-limits to prettier; `src/**` keep
 
 ## Results
 
-**Delivered** as commit `1d5efb5` on `chore/angular-docs-prettier-scope` (base `main` @ `c9630ec`). Range vs `main`: **2 files, +14−0** — `life-control-app-angular/.prettierignore` (new, 6 lines) and 8 lines in `life-control-app-angular/AGENTS.md`. Not pushed, no PR (the user's decision).
+**Delivered** as commit `1d5efb5` on `chore/angular-docs-prettier-scope` (base `main` @ `c9630ec`). Range vs `main`: **2 files, +14−0** — `life-control-app-angular/.prettierignore` (new, 6 lines) and 8 lines in `life-control-app-angular/AGENTS.md`. Merged as PR #127 (`f576c3460`), 2026-09-20.
 
 All plan items verified, plus two regressions the plan did not name:
 
