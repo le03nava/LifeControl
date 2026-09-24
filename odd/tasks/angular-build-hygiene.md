@@ -1,5 +1,6 @@
 # ODD task: angular-build-hygiene
 
+**Status**: merged — PR #133 (`chore/angular-build-hygiene` @ `28c077175`), 2026-09-21. No work left.
 **Feature**: `angular-build-hygiene`
 **Type**: build hygiene + source deduplication (tooling/quality, not product behavior)
 **Branch**: `chore/angular-build-hygiene`, in the worktree `~/workspace/LifeControl-worktrees/chore-angular-build-hygiene` (the anchor stays on `main`)

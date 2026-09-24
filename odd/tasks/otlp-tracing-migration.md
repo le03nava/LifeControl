@@ -2,7 +2,7 @@
 
 **Repository**: LifeControl — `life-control-api` + `api-gateway` (deps and tracing config),
 `docker/docker-compose.yml` (OTLP endpoint).
-**Status**: delivered — T1-T8 verified; code committed on `fix/otlp-tracing-migration`
+**Status**: merged — PR #153 (`fix/otlp-tracing-migration` @ `80f44c39a`), 2026-09-23; T1–T8 verified. No work left.
 **Created**: 2026-09-22
 **Branch**: `fix/otlp-tracing-migration`, cut from `main` @ `d7317f6`.
 

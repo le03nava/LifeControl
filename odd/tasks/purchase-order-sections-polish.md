@@ -1,7 +1,7 @@
 # ODD feature: purchase-order-sections-polish
 
 **Repository**: LifeControl — frontend `life-control-app-angular/`
-**Status**: in progress
+**Status**: merged — PR #101 (`refactor/purchase-order-section-details` @ `f8a29f8f0`), 2026-09-17. No work left.
 **Created**: 2026-09-17
 **Origin**: two uncommitted work units left over from the 2026-09-16 session (18:29–19:19), recovered
 and verified in this session.

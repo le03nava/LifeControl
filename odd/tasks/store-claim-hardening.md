@@ -1,5 +1,6 @@
 # store-claim-hardening
 
+**Status**: merged — PR #136 (`fix/store-claim-hardening` @ `7958dd052`), 2026-09-21. No work left.
 **Work unit**: closes the missing store-claim check on three store-scoped paths.
 **Branch**: `fix/store-claim-hardening` · **Base**: `main` @ `e645e9f` · **Worktree**: `~/workspace/LifeControl-worktrees/fix-store-claim-hardening`
 **Related**: `odd/tasks/product-variant-admin-ui.md` (the variant management UI that follows), `odd/tasks/product-variant-identity-split.md` (the feature whose review surfaced the sibling finding JD-B-003)
@@ -161,8 +162,7 @@ visible:
       `ScopeLevel.STORE.roleNames()` as the single source of truth instead of restating a list that
       can drift again. Javadoc only; no executable code changed in that file.
       *Evidence*: `CurrentUserContext.java:265-273`
-- [ ] **T7 — Work-unit commit** on `fix/store-claim-hardening` and the PR (only when the maintainer
-      asks to open it).
+- [x] **T7 — Work-unit commit and PR**: landed as PR #136 (`7958dd052`), 2026-09-21.
 
 ## Constraints
 

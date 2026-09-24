@@ -9,9 +9,11 @@ up. **S2 complete (T9–T15)** on `feat/variant-store-stock-ui`: seven commits f
 both gates green (see the evidence log). The S2 store source was resolved with evidence on 2026-09-22
 (see `### S2 store source`), which superseded the premise of the original T9.
 
-**Nothing is pushed and no PR is open.** The delivery split is decided — four units, one concern each —
-and the slice measured **3490 changed lines against a declared forecast of 500–800**. Both are in
-`## Review workload`.
+**S2 is merged** as the four units the split proposed — `feat/variant-store-scope` #146 (`14e271657`),
+`test/variant-store-write-it` #147 (`5c95d0d56`), `feat/variant-store-stock-editor` #148 (`0450b929e`)
+and `feat/variant-store-sales-entry` #149 (`3bc5555df`), 2026-09-22 — verified at `bcb8d10` on
+2026-09-24. The slice measured **3490 changed lines against a declared forecast of 500–800**; see
+`## Review workload`. No PR is open and no work is left in this feature.
 **Created**: 2026-09-21
 **Risk**: **high** — route guard and role-set change (`assets/risk-classification-matrix.md`: "Auth, permissions, role, or guard change")
 

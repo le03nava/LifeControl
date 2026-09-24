@@ -1,5 +1,6 @@
 # product-write-authz
 
+**Status**: merged — PR #137 (`fix/product-write-authz` @ `ac73118f0`), 2026-09-22. No work left.
 **Work unit**: close the missing method-level authorization on the three `/api/products` write endpoints.
 **Branch**: `fix/product-write-authz` · **Base**: `main` @ `7958dd0` · **Worktree**: `~/workspace/LifeControl-worktrees/fix-product-write-authz`
 **Related**: `odd/tasks/product-variant-admin-ui.md` — the feature whose independent security review surfaced this as finding **F1**. This branch is its own PR, deliberately **not** stacked on that feature.

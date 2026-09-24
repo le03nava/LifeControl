@@ -2,7 +2,10 @@
 
 **Repository**: LifeControl — repo-level enterprise skill at `.agents/skills/project-conventions/`
 plus the governance references that point at it.
-**Status**: delivered, uncommitted (T5 awaits explicit user authorization)
+**Status**: landed — PR #131 (`chore/project-conventions-rescue` @ `34fbe4cb4`) brought the skill to
+`main` on 2026-09-21, with the ODD-document versioning and the worktree convention following in #130
+(`3aabfd0f3`) and #132 (`3c990062a`). This record's own PR #129 was **closed without merging** and its
+commit `cec4578` never reached `main`. **T5 is stale and is closed by this correction.** No work left.
 **Created**: 2026-09-18
 **Branch**: `main` @ `516348a`. Do NOT reuse `feat/store-ux-a11y` (merged as PR #116 and deleted).
 
@@ -81,7 +84,7 @@ artifacts land under the gitignored `life-control-app-angular/.opencode/`.
 - [x] T2 — Fix the broken skill references and register the new skill in `AGENTS.md` (root) — 11 broken links removed, `project-conventions` registered, discovery note added
 - [x] T3 — Fix `life-control-api/AGENTS.md:987` — now points at the root registry and `../.agents/skills/project-conventions/references/api.md`
 - [x] T4 — Verify: frontmatter, section order, name==dir, path existence, link resolution — PASS
-- [ ] T5 — Work-unit commit on a branch cut from `main` (needs explicit user authorization)
+- [x] T5 — Work-unit commit and PR: landed via PRs #130/#131/#132; this record's own PR #129 was closed without merging.
 
 ## Out of scope
 

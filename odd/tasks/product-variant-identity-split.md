@@ -3,7 +3,7 @@
 **Repository**: LifeControl — modules `life-control-api/` and `life-control-app-angular/`
 **Branch**: `refactor/product-variant-identity`
 **Worktree**: `~/workspace/LifeControl-worktrees/refactor-product-variant-identity`
-**Status**: done — S1, S2 and S3 complete; PR pending (user-owned)
+**Status**: merged — PR #134 (`refactor/product-variant-identity-backend` @ `45d237bf2`), 2026-09-21; S1, S2 and S3 complete. No PR is open and no work is left.
 **Created**: 2026-09-20
 **Risk**: high — schema change, API contract change, tenant-boundary semantics
 

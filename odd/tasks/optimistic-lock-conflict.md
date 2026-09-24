@@ -2,11 +2,8 @@
 
 **Repository**: LifeControl — backend `life-control-api/` only. The Angular half of W2-D13 (the conflict
 UX) is deliberately a separate slice; see `## Scope`.
-**Status**: **delivered on branch `fix/optimistic-lock-conflict`** — W1 (T1–T4) committed as `156e062`
-(9 files, +271/−13), gates green, two independent read-only verifications run. **PR #161 is open
-against `main`** (pushed; 11 files / +519 −15, `API CI` green, `MERGEABLE`) and **not merged**: that
-is the user's decision. Branch tip `e4c5f8a`. The Angular half (D13b) is still deferred; see
-`## Handoff`.
+**Status**: merged — PR #161 (`fix/optimistic-lock-conflict` @ `bcb8d10db`), 2026-09-24. W1 (T1–T4) is on
+`main`; the Angular half (D13b) is still deferred; see `## Handoff`. No work left in this record.
 **Created**: 2026-09-24
 **Risk**: **medium** — one new `@ExceptionHandler` (platform-wide effect on the store tree's HTTP
 contract) plus an optional precondition on one existing contract. No auth, role, schema or data change.
