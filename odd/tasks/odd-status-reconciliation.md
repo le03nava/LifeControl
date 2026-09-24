@@ -2,9 +2,10 @@
 
 **Repository**: LifeControl — documentation only (`odd/tasks/**`, plus this record). No source file is
 touched and no build gate applies.
-**Status**: in progress — W1–W4 are committed on `docs/odd-status-reconciliation` off `main` @ `bcb8d10`
-(four commits, 19 files, 411 changed lines). Every fact below was verified at `bcb8d10` on 2026-09-24 and
-upheld by one independent verification round, whose five findings are closed in `## Findings`.
+**Status**: in progress — W1–W4 are committed on `docs/odd-status-reconciliation` off `main` @ `bcb8d10`.
+Every fact below was verified at `bcb8d10` on 2026-09-24 and upheld by one independent verification
+round; its findings, and this record's own, are closed in `## Findings`. The correction surface is **66
+changed lines across 18 records** — see `## Review workload`.
 **Created**: 2026-09-24
 **Risk**: **low** — documentation only, no code, no contract, no auth. The risk is not the change, it is
 writing an unverified claim into a record that a human will later trust; every row below is
@@ -268,31 +269,43 @@ Measured with `git diff --numstat 025eadc f3006ce`.
 |---|---|---|
 | `purchase-order-goods-receipt.md` (T2) | 1 | **8** (7 insertions / 1 deletion); the file goes 808 → 814 lines |
 
-#### Whole slice — measured against the forecast
+#### Whole slice — measured
+
+The **correction surface** is the 18 records, and it is final: it will not move again, because the
+records are what a reviewer actually reads.
 
 | Bucket | Files | Changed lines |
 |---|---|---|
-| The 18 records (the correction surface) | 18 | **66** (41 insertions / 25 deletions) |
-| This record | 1 | **345** (345 / 0) |
-| **Total** (`git diff --numstat bcb8d10 HEAD`) | **19** | **411** (386 / 25) |
+| The 18 records (the correction surface) | 18 | **66** (41 insertions / 25 deletions) — **final** |
+| This record | 1 | **372** (372 / 0) at `f1f5e5a` |
+| **Slice total** | **19** | **438** (413 / 25) at `f1f5e5a` |
 
-Per commit: `025eadc` 312, `f3006ce` 8, `5ff16b1` 83, `25b2bb4` 68.
+Per commit, measured with `git diff --numstat <sha>~1 <sha>`: `025eadc` 312, `f3006ce` 8, `5ff16b1` 83,
+`f1f5e5a` 111.
 
 **The forecast was right about the records and wrong about the total.** It said ~70–110 changed lines
-across 19 files; the records came in at **66** changed lines — inside the band, at its lower edge, which
-is what 18 uniform one-line substitutions at a fixed position should produce. The weight is the record
-itself (**345** lines), and the forecast under-counted it because it treated the record as an
-afterthought rather than as the audit trail it actually is.
+across 19 files; the records came in at **66** — inside the band, at its lower edge, which is what 18
+uniform one-line substitutions at a fixed position should produce. The weight is the record itself, and
+the forecast under-counted it because it treated the record as an afterthought rather than as the audit
+trail it actually is.
 
-**The raw total — 411 changed lines — exceeds the ~400-line review guardrail. Declared, not glossed.**
-No split is proposed, and here is the reasoning rather than the assumption: the guardrail exists to
-protect a human reviewer's attention, and the reviewer's load here is the **66 changed lines across 18
-records**, all one-line substitutions at a uniform position plus two prepended paragraphs — a
-spot-check against the truth table above, not an 18-file read. The other 345 lines are this record,
-which is the evidence the review is checked *against*; splitting it away from the correction it
-documents would separate the claim from its proof and make both harder to review. For scale, this
-repository's other ODD records carry comparable evidence logs (`purchase-order-goods-receipt.md` is 814
-lines, and its status narrative alone is 5 770 characters).
+**Why the record's own line count is anchored to a commit instead of stated as a live total.** Measuring
+this record edits this record, so any total it prints about itself is stale the moment it is written.
+This section's first two versions were both wrong for exactly that reason — the first claimed "~320
+changed lines ... **well under** the guardrail", the second printed 411 while the tree already held 438.
+A commit hash is stable; a present-tense total is a claim that invalidates itself. **The correction
+surface — 66 changed lines across 18 records — is the only number here that is final, and it is the one
+that matters.**
+
+**The raw total exceeds the ~400-line review guardrail — 438 against ~400. Declared, not glossed.** No
+split is proposed, and here is the reasoning rather than the assumption: the guardrail exists to protect
+a human reviewer's attention, and the reviewer's real load is the **66 changed lines across 18
+records**, all one-line substitutions at a uniform position plus two prepended paragraphs — a spot-check
+against the truth table above, not an 18-file read. The other 372 lines are this record, which is the
+evidence the review is checked *against*; splitting it from the correction it documents would separate
+the claim from its proof and make both harder to review. For scale, this repository's other ODD records
+carry comparable evidence logs (`purchase-order-goods-receipt.md` is 814 lines, and its status narrative
+alone is 5 770 characters).
 
 ## Findings
 
@@ -333,7 +346,10 @@ and it found a real error in this record.
   measured table above, with the guardrail breach **declared and reasoned** rather than rounded away.
   **This repeats, in this very slice, the lesson the `optimistic-lock-conflict` record already paid for:
   report line counts from `git diff --numstat`, never from an estimate. A claim about the size of a
-  change is still a claim, and it needs the same command as every other one.**
+  change is still a claim, and it needs the same command as every other one.** The fix then needed a
+  second pass for the same reason: the number F6 introduced (411) was itself stale one edit later,
+  because writing the correction adds lines to the file that holds it. `## Review workload` now anchors
+to a commit hash instead of a running total.
 
 ## Evidence log
 
