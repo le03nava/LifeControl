@@ -2,7 +2,7 @@
 
 **Repository**: LifeControl — documentation only (`odd/tasks/**`, plus this record). No source file is
 touched and no build gate applies.
-**Status**: in progress — W1–W4 are committed on `docs/odd-status-reconciliation` off `main` @ `bcb8d10`.
+**Status**: merged — PR #162 (`docs/odd-status-reconciliation` @ `c19a5d37d`), 2026-09-24. Nothing in this slice is open; the follow-ups below are separate work, not unfinished work here.
 Every fact below was verified at `bcb8d10` on 2026-09-24 and upheld by one independent verification
 round; its findings, and this record's own, are closed in `## Findings`. The correction surface is **66
 changed lines across 18 records** — see `## Review workload`.
@@ -361,6 +361,7 @@ to a commit hash instead of a running total.
 | 2026-09-24 | **W2 (T2)** | `f3006ce` | 1 file, **7 insertions / 1 deletion** (808 → 814 lines). **Gate**: a scripted proof that the 5 691-character narrative remainder equals the original status line minus its prefix and minus the two replaced clauses — printed `True`, lengths 5691 == 5691, i.e. the byte-identity trees and gate counts survive byte for byte (D4). |
 | 2026-09-24 | **W3 close** | `5ff16b1` | The D4 estimate corrected from ~4 000 to the measured 5 770 characters; the table tally corrected from `STALE_MERGED` 12 to **11**; the measured workload filled in against the forecast; **D7 recorded** together with the three headers it amends. |
 | 2026-09-24 | **W4 findings round** | `25b2bb4` | Independent read-only `gentle-ai-verify` over `bcb8d10..5ff16b1`, instructed to be adversarial on the numbers. **Upheld**: all 23 table rows (every PR state, merge commit and date re-derived from a 155-PR pull; every cited hash re-checked with `merge-base --is-ancestor`); the tally (`STALE_MERGED` 11 + `CONTRADICTED` 2 + `IMPLIES_UNLANDED` 1 + `NO_STATUS` 4 + `ACCURATE` 5 = 23); no new false claim in any corrected header; the five untouched records really are accurate and really are unmodified; **D4's byte-identity claim reproduced exactly** (5 770 → 5 691, equal); and the two-checkbox claim verified in both directions (exactly T5 and T7 before, zero live unchecked boxes after). **Findings F1–F5, all closed above**: F1 was a real error in this record's own headline. **F6 is the parent's own, found while closing F1–F5**: the workload claim was an unmeasured estimate and false (see `## Findings`). |
+| 2026-09-24 | **delivery** | `c19a5d37d` | PR **#162** merged into `main` as a real two-parent merge commit (`bcb8d10` + `d8b203d`), and the four workflows on `main` went green (Docker Build Integrity, API CI, Angular CI, Gateway CI). Three of this slice's own headers had already been amended by **D7** so they would not rot; this record's status line was the exception, and it rotted exactly as predicted — it still read "`in progress` ... committed on `docs/odd-status-reconciliation`" after the branch it named had been merged and deleted. Corrected in this follow-up commit, per **D2**: durable state plus evidence, no live PR-open claim. |
 
 ## Follow-ups
 
