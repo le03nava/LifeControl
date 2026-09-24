@@ -9,3 +9,7 @@
 $bp-sm: 576px;
 $bp-md: 1024px;
 $bp-lg: 1440px;
+
+// El máximo de la franja "mobile": 575.98px y no 575px, para no dejar
+// el hueco 575.01–575.99 sin cubrir contra min-width: $bp-sm.
+$bp-mobile-max: 575.98px;
