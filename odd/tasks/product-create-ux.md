@@ -42,13 +42,19 @@ same way ("Tabs + stepper con skip", "propuesta primero"; voseo adopted as the c
 `attributes` handling and the `Activo` toggle were descoped the same day (see
 `## Descoped by user decision`).
 
-**S5 is in progress on branch `fix/variant-list-host-guard`**, created from `main` @ `84a17ef` in a
+**S5 is delivered on branch `fix/variant-list-host-guard`**, created from `main` @ `84a17ef` in a
 **fresh** worktree `~/workspace/LifeControl-worktrees/fix-variant-list-host-guard` (fresh because the
 S4 merge removed the previous one). Scope is **T16**, the only functional gap `### Raised by S4` left
 open: the `edit/:id/variants` host route carries no `canDeactivate`, so an operator — the `lc-sales`
 principal, for whom that route is the only variant entry point — can edit per-store stock and prices in
 the expanded panel and navigate away with no prompt. Decisions **D38–D40** in `## S5 reconciliation`
-below; the shape was agreed with the user on 2026-09-23 before any code was written.
+below; the shape was agreed with the user on 2026-09-23 before any code was written. Three commits:
+`c4b8597` (this record's status correction and S5 plan), `0f8f4d2` (T16/W1) and `9a8ee77` (the first
+verification's one finding). Gates on `9a8ee77`: lint clean, build **851.05 kB** initial exit 0,
+`test:coverage:check` **127 files / 2510 tests / 0 failures**, coverage **94.08/75.93/89.23/94.08**
+(thresholds 80/60/75/80). The slice measured **70 changed lines of code and specs** — far below D20's
+~1.000 threshold, so no split is proposed. **Nothing is pushed and no PR is open**: that stays the
+user's decision.
 **Created**: 2026-09-23
 **Risk**: **medium** — route and UI restructure over four existing pages. No auth, role-set or guard
 *set* change: the `unsavedChangesGuard` addition only tightens navigation on two routes that already
@@ -1137,6 +1143,28 @@ S2b at 3.247 lines, so one PR here is a legitimate choice too — but at 1.403 i
 rather than an obvious one, and D20 exists to force the question. **Resolved:** the user chose one PR, and
 PR #159 carries it.
 
+#### S5 — measured before implementation
+
+Forecast from the reconciliation: ~15 source / ~45 spec / ~60 code+specs, one work unit. The change is
+one route registration, one output binding and one method, plus the two spec surfaces that already own
+the route and the host.
+
+#### S5 — measured
+
+Measured on `9a8ee77` with `git diff c4b8597..HEAD --numstat`.
+
+| Bucket | Files | Changed lines |
+|---|---|---|
+| Source | 3 | **24** (23 insertions / 1 deletion) |
+| Specs | 2 | **47** (47 / 0) |
+| **Code + specs** | **5** | **70** (69 / 1) |
+| This record | 1 | **93** (87 / 6) |
+
+The forecast held on both halves (24 against ~15 source, 47 against ~45 spec). **D20's ~1.000 threshold
+is not reached and no split is proposed.** The one finding the first verification raised was a test that
+asserted its own initial value; closing it cost 4 lines and still got its own commit, because this
+feature's precedent is that a findings round is a reviewable unit of its own.
+
 ## Evidence log
 
 | Date | Slice | Commit | Evidence |
@@ -1200,6 +1228,12 @@ files / 418 tests → 25 / 435. |
 | 2026-09-23 | S4 delivery docs commit | `49ba68e` | `odd/tasks/product-create-ux.md` only: the status header and the constraints corrected from "nothing is pushed and no PR is open" to the real state, and the S2b row's wrong claim about the CI path filter corrected (see that row). The commit re-triggered Angular CI despite touching no package file — run `35928763944` **success** — which is the measurement that proves the correction. |
 | 2026-09-23 | **S4 merged** | `84a17ef` | PR **#159** merged into `main` as a real two-parent merge commit (parents `edbfb46` + `7a85a12`), 2026-09-23T23:34:13Z. The merge deleted the S4 branch and its worktree, as the record forecast; `origin` carries `main` only and no PR is open. |
 | 2026-09-23 | **S5 plan** | (this commit) | Read-only inventory of every pending ODD item plus a read-only mapping of the `edit/:id/variants` surface at `84a17ef`, every claim `file:line` anchored. The `## S5 reconciliation` above: the four guarded routes and the unguarded sibling, the container's `dirtyChange` contract and the host's missing binding, the guard's `CanDeactivateFn<UnsavedChangesAware>` shape and the fact that the host — not the container — is the activated component. User authorization taken the same day; D38–D40 recorded as engineering decisions. Also corrects the status header and the constraints bullet from "PR #159 is open, nothing is merged" to the merge commit. No source written. |
+| 2026-09-23 | **S5 W1 (T16)** | `0f8f4d2` | **5 files, 65 insertions / 1 deletion** at the commit (69/1 over the range, because the findings round adds 4). The host gains `variantPanelDirty` plus `hasUnsavedChanges()`, its template binds `(dirtyChange)`, and the route gains exactly `canDeactivate: [unsavedChangesGuard]`; `unsavedChangesGuard`, the container, `ProductEdit` and every other route are untouched. Delegated to a `gentle-ai-worker` with the five allowed edit surfaces. **RED observed in two steps**: first the host spec's `TS2339: Property 'hasUnsavedChanges' does not exist on type 'ProductVariantListHost'` aborted the whole build (Angular compiles every spec regardless of `--include`), then, with only an interface stub in place, `products.routes.spec.ts:132` failed with `expected undefined to deeply equal [ [Function unsavedChangesGuard] ]` and the host spec with `expected false to be true`. **GREEN**: routes 20 passed (base 19), host 7 passed (base 4). The pre-commit hook's prettier wrapped the one-line template binding; the semantic hunk is the added binding, verified by re-running prettier on the writer's single-line source. |
+| 2026-09-23 | S5 first independent verification | W1 bytes, uncommitted | A read-only `gentle-ai-verify` subagent checked nine claims against the diff and the source and ran the five commands. Upheld: the route hunk is the only route change and `canActivate`/`data` are byte-unchanged; the dirty chain (`container.dirtyChange` → template binding → `variantPanelDirty` → `hasUnsavedChanges()`) has no other assignment site; D39's premise holds (`applyExpansion` emits `false` on every panel destruction); `git status --porcelain` lists exactly the five files; no pre-existing assertion or test name changed. **Finding F1 (LOW, candidate-caused): the clean-again host test asserted only its own initial value, so it passed with the template binding removed; only the sibling dirty test was discriminating.** |
+| 2026-09-23 | **S5 findings round** | `9a8ee77` | F1 closed by adding the intermediate `expect(...).toBe(true)` between the two emits (`product-variant-list-host.spec.ts`, 1 file, +4). **Mutation control, run by the parent:** with the `(dirtyChange)` binding removed, the host spec goes to **2 failed / 5 passed** — both the dirty test and the clean-again test fail with `expected false to be true` — and the source was restored byte for byte (`git checkout`, `git diff` empty). Focused host spec back to **7 passed**. |
+| 2026-09-23 | S5 second independent verification | `9a8ee77` | A second read-only `gentle-ai-verify` subagent verified the committed range `c4b8597..9a8ee77` rather than the pre-commit bytes: the prettier wrap is byte-identical to prettier's own output for the writer's single-line source (`printWidth: 100`, the line measured 101 characters) and `prettier --check` passes; F1 is genuinely closed, reproduced by its own throwaway mutation (`2 failed / 5 passed`, restored, `git status --porcelain` empty); the whole range deletes exactly one line (the old template binding) and no `it(`/`expect(` line; the five commands pass on the committed bytes. One INFO: the third host test still asserts the initial `false`, which is correct as documentation and not a safety net. |
+| 2026-09-23 | **S5 gates (tip)** | `9a8ee77` | `npm run lint` → `All files pass linting.`; `npm run build` → bundle generation complete, **851.05 kB** initial total, exit 0; `npm run test:coverage:check` → **127 files / 2510 tests / 0 failures**, coverage **94.08/75.93/89.23/94.08** (thresholds 80/60/75/80), `[check-coverage] Cobertura dentro de los umbrales. OK`. Delta over the S4 tip (`0622ed5`: 127 files / 2506 tests, 94.07/75.94/89.22/94.07): **+4 tests**, same file count and bundle size. |
+| 2026-09-23 | **S5 measured** | `9a8ee77` | 5 files, 69 insertions / 1 deletion = **70 changed lines** (source 24, specs 47), plus 93 lines of this record. Well below D20's ~1.000 threshold; no split proposed. |
 
 ## Constraints
 
