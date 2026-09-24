@@ -1,5 +1,6 @@
 # ODD task: angular-docs-prettier-scope
 
+**Status**: merged — PR #127 (`chore/angular-docs-prettier-scope` @ `f576c3460`), 2026-09-20. No work left.
 **Feature**: `angular-docs-prettier-scope`
 **Type**: tooling / environment incident fix (not product work)
 **Branch**: `chore/angular-docs-prettier-scope` · **Base**: `main` @ `c9630ec`

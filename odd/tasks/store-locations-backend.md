@@ -1,7 +1,7 @@
 # ODD feature: store-locations-backend
 
 **Repository**: LifeControl — module `life-control-api/`
-**Status**: in progress
+**Status**: merged — PR #108 (`feat/store-locations-backend` @ `dd894a314`), 2026-09-18. No work left.
 **Created**: 2026-09-18
 
 ## Objective

@@ -2,7 +2,13 @@
 
 **Repository**: LifeControl — frontend `life-control-app-angular/`. S1–S3 are frontend-only; only the
 bulk-creation item in `## Backend dependencies` needs `life-control-api/` work, and it gates S4.
-**Status**: **S1, S2a and S2b are merged into `main`** — S1 in PR #154, S2a in PR #155, S2b in
+**Status**: **All five slices are merged into `main`** — S1 #154 (`158a6b3f9`), S2a #155 (`d85e9e2d7`),
+S2b #156 (`d7c6e16df`), S3 #157 (`a98426e32`), S4 #159 (`84a17ef64`) and S5 #160 (`964e826f5`) —
+verified at `bcb8d10` on 2026-09-24. **The only work left in this feature is T14**,
+blocked on the unapproved `B1` (D30). The per-slice paragraphs below are kept as the record of what was
+true when they were written; this paragraph is the correction.
+
+**S1, S2a and S2b are merged into `main`** — S1 in PR #154, S2a in PR #155, S2b in
 PR #156, the last two as merge commits `d85e9e2` and `d7c6e16`. `main` is at **`d7c6e16`**, the
 anchor worktree is clean, and `git diff 4f6d2f1 main` is empty, i.e. `main`'s tree is byte-identical
 to the verified S2b head. Gates on the S2b code tip `ae0cfb1`: lint clean, build 850.87 kB exit 0,
@@ -53,8 +59,7 @@ below; the shape was agreed with the user on 2026-09-23 before any code was writ
 verification's one finding). Gates on `9a8ee77`: lint clean, build **851.05 kB** initial exit 0,
 `test:coverage:check` **127 files / 2510 tests / 0 failures**, coverage **94.08/75.93/89.23/94.08**
 (thresholds 80/60/75/80). The slice measured **70 changed lines of code and specs** — far below D20's
-~1.000 threshold, so no split is proposed. **Nothing is pushed and no PR is open**: that stays the
-user's decision.
+~1.000 threshold, so no split is proposed. **S5 is merged** as PR #160 (`964e826f5`), 2026-09-24.
 **Created**: 2026-09-23
 **Risk**: **medium** — route and UI restructure over four existing pages. No auth, role-set or guard
 *set* change: the `unsavedChangesGuard` addition only tightens navigation on two routes that already

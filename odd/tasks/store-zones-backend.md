@@ -1,7 +1,7 @@
 # ODD feature: store-zones-backend
 
 **Repository**: LifeControl — module `life-control-api/`
-**Status**: in progress
+**Status**: merged — PR #103 (`feat/store-zones-backend` @ `2c21fd57e`), 2026-09-18. No work left.
 **Created**: 2026-02-XX
 
 ## Objective

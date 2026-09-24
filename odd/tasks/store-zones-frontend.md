@@ -1,7 +1,7 @@
 # ODD feature: store-zones-frontend
 
 **Repository**: LifeControl — frontend `life-control-app-angular/`, with a prerequisite in `api-gateway/`
-**Status**: in progress
+**Status**: merged — PRs #104 (`0058c3ce4`), #105 (`8281e04f0`), #106 (`56bbf8d95`) and #107 (`19faa3e56`), 2026-09-18. No work left.
 **Created**: 2026-09-17
 **Predecessors**: `odd/tasks/store-zones-backend.md` (merged, PR #103 @ 2c21fd5) and
 `odd/tasks/store-areas-frontend.md` (merged, PRs #99/#100 — the pattern this feature mirrors)

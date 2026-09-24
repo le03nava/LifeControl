@@ -1,7 +1,7 @@
 # ODD feature: gateway-route-coverage
 
 **Repository**: LifeControl — module `api-gateway/` (with `life-control-api/` as read-only evidence)
-**Status**: in progress
+**Status**: merged — PR #152 (`fix/gateway-route-coverage` @ `d7317f659`), 2026-09-22. No work left.
 **Created**: 2026-09-22
 
 ## Objective

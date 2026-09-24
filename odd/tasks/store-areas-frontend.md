@@ -2,7 +2,7 @@
 
 **Repository**: LifeControl — frontend `life-control-app-angular/`, with a prerequisite in
 `life-control-api/` and `api-gateway/`
-**Status**: in progress
+**Status**: merged — PR #99 (`feat/store-areas-flat-lookup` @ `fd71cd917`) and PR #100 (`feat/store-areas-ui` @ `8ebb11bae`), 2026-09-17. No work left.
 **Created**: 2026-09-17
 **Predecessor**: `odd/tasks/store-areas-backend.md` (merged, PR #98 @ 9135fa9)
 

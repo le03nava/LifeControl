@@ -1,7 +1,7 @@
 # ODD task: docker-images-rebuild
 
 **Repository**: LifeControl — `life-control-api/`, `api-gateway/`, `life-control-app-angular/`
-**Status**: in progress
+**Status**: done — the three dev images were rebuilt and the dev stack runs on them; dev-only, so there is no branch and no PR. The record's own `## Status` section says the same. No work left.
 **Created**: 2026-09-17
 **Origin**: read-only audit of the dev Docker artifacts against `main` (`a72de5f`) revealed the API,
 gateway and web images were all built from older sources while reporting `healthy`.
