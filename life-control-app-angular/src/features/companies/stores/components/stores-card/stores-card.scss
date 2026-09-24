@@ -1,3 +1,5 @@
+@use '../../../../../shared/styles/variables' as *;
+
 .store-card {
   height: 100%;
   transition:
@@ -100,7 +102,7 @@
   }
 }
 
-@media (max-width: 575.98px) {
+@media (max-width: $bp-mobile-max) {
   .badge:not(.status) {
     display: none;
   }

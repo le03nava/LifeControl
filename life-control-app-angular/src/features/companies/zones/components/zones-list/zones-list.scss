@@ -1,3 +1,5 @@
+@use '../../../../../shared/styles/variables' as *;
+
 @use '../../../../../shared/styles/form-layout' as *;
 
 .zones-container {
@@ -48,7 +50,7 @@
   padding: 2rem 0;
 }
 
-@media (max-width: 575.98px) {
+@media (max-width: $bp-mobile-max) {
   .action-buttons {
     flex-direction: column;
     gap: 0.25rem;
