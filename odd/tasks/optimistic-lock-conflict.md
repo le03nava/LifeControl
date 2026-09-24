@@ -2,7 +2,10 @@
 
 **Repository**: LifeControl — backend `life-control-api/` only. The Angular half of W2-D13 (the conflict
 UX) is deliberately a separate slice; see `## Scope`.
-**Status**: **in progress** — plan written, no source written yet.
+**Status**: **delivered on branch `fix/optimistic-lock-conflict`** — W1 (T1–T4) committed as `156e062`
+(9 files, +271/−13), gates green, two independent read-only verifications run. **Nothing is pushed and
+no PR is open**: that is the user's decision. The Angular half (D13b) is still deferred; see
+`## Handoff`.
 **Created**: 2026-09-24
 **Risk**: **medium** — one new `@ExceptionHandler` (platform-wide effect on the store tree's HTTP
 contract) plus an optional precondition on one existing contract. No auth, role, schema or data change.
@@ -127,6 +130,11 @@ contract are one reviewable unit — the handler is what makes the contract's re
 and splitting them would ship a 409 handler whose only caller is untested (or a contract whose rejection
 answers 500).
 
+**T5 is done**: the purchase-order record's W2-D13 rows were repointed at this document in the plan
+commit `559366b`. W1's findings round is folded into `156e062` rather than sitting in its own commit,
+because the fix landed on top of a work unit that had not been committed yet; the two phases are
+separated in `## Evidence log` so the audit trail is not lost.
+
 ### The version matrix T3 must implement (one test per case)
 
 | Request `version` | Row exists | Outcome |
@@ -156,11 +164,67 @@ fixture updates). **~160-220 changed lines total, in one area** — under the ~4
 which is exactly why the Angular half is not here (with it, the honest estimate was 350-450 lines across
 two components).
 
+#### W1 — measured
+
+Measured on `156e062` with `git diff 559366b..HEAD --numstat`.
+
+| Bucket | Files | Changed lines |
+|---|---|---|
+| Source | 4 | **73** (68 insertions / 5 deletions) |
+| Specs | 5 | **211** (203 / 8) |
+| **Code + specs** | **9** | **284** (271 / 13) |
+| This record | 2 | **179** (177 / 2) |
+
+The forecast held for the source (73 against ~40, the difference being the `saveAndFlush` fix and its
+comments) and came in above it for the specs (211 against ~120-180, because the handler test needed a
+real MockMvc dispatch and the findings round added the version-propagation assertions plus the
+`saveAndFlush` stubs). **Still comfortably under the ~400-line guardrail**, so no split is proposed.
+
+## Findings
+
+- **F1 (HIGH as a defect, found by the first verification round) — the PUT answered the pre-increment
+  version. CLOSED.** The first round flagged a LOW test-quality defect: the only service-level mapper
+  assertion was `0 == 0` (the entity builder never sets `version`), so it could not catch a hard-coded
+  `0L`. Closing it with a real assertion over the persistence path uncovered a genuine bug: Hibernate
+  advances `@Version` at **flush** time, and `upsertSettings` mapped the response from an entity written
+  with `save(...)`, so every update answered with the **pre-increment** version. A client echoing that
+  version in its next PUT would be rejected with a **false 409**. Fixed by flushing before mapping
+  (`saveAndFlush` on the update path, `StoreInventorySettingsService`), with the two service tests that
+  stubbed `save` updated to `saveAndFlush`. Reproduced independently by the second verification round:
+  reverting `saveAndFlush` → `save` fails `StoreInventorySettingsIntegrationTest` with
+  `expected: 1L but was: 0L`. **The lesson: a tautological assertion hid a real defect; the weak test
+  was not cosmetic.**
+- **F2 (LOW, wording) — CORRECTED.** This record's first brief claimed both new integration assertions
+  discriminate. Only the **update** one does (`StoreInventorySettingsIntegrationTest:454-455`, where the
+  expected version is non-zero); the **create** assertion (`:437`) compares `0` with `0` and cannot fail
+  under a hard-coded `0L`, exactly as the comment above it says. The test as a whole discriminates, and
+  the create assertion stays as documentation of the create path's contract.
+- **F3 (LOW, latent, not candidate-caused) — twelve store-tree write methods carry the same
+  stale-version shape.** `CompanyStoreService` (`createStore:148`, `updateStore:199`, `enableStore:236`),
+  `StoreAreaService` (`:210`, `:253`, `:330`), `StoreZoneService` (`:282`, `:336`, `:402`) and
+  `StoreLocationService` (`:324`, `:381`, `:453`) all map their response from a non-flushed `save(...)`
+  entity. It is **latent today** because no store-tree DTO exposes `version`; the `create*` ones are
+  `0 == 0` safe, and the `update*`/`enable*` ones would answer a stale version the moment the
+  store-tree-wide adoption (D6) adds the field. **Owned by that follow-up.**
+- **F4 (INFO, pre-existing, not candidate-caused) — those same responses also return a stale
+  `updatedAt`**, because `Auditable`'s `@PreUpdate` also runs at flush. Same owner as F3.
+- **F5 (INFO, deliberate) — the handler targets `ObjectOptimisticLockingFailureException`, not the
+  broader `OptimisticLockingFailureException`.** Hibernate's translator produces the former, which the
+  integration test asserts through the cause chain, so the narrower type is adequate for this stack; a
+  non-Hibernate JPA provider could surface the broader type uncaught. Recorded rather than widened,
+  because D1's scope was the debt as measured.
+
 ## Evidence log
 
 | Date | Slice | Commit | Evidence |
 |---|---|---|---|
 | 2026-09-24 | recon | — | Read-only `gentle-ai-explore` scout over the W2-D13 surface at `964e826`, every claim `file:line` anchored: the five `@Version` entities and their in-place mutators, the exception's Spring hierarchy (a `DataAccessException`, not a `DataIntegrityViolationException`), handler resolution by specificity rather than order, the existing lock tests asserting the exception rather than the status, the three response constructions the new field breaks, and the fact that the `version` column already exists so no migration is needed. Also found the purchase-order record's Flyway-head claim stale (`V8` → `V14`). No source written. |
+| 2026-09-24 | **W1 (T1–T4)** | `156e062` | **9 files, +271/−13** (source 73, specs 211). The handler (D1), the response's `long version` (D2), the optional `version` precondition with the five-row matrix enforced in the service through the existing `ConflictException` (D3/D4), and the HTTP-level stale-version test (D7). **RED observed in four steps**: `expected:<409> but was:<500>` for the handler; `No value at JSON path "$.version"` for the response field; an NPE for the two rejection rows (the service created/updated instead of rejecting); `expected:<409> but was:<200>` for the integration test. GREEN: focused 66 tests, full gate **2060 tests / 0 failures**, spotless and SpotBugs clean. The handler test uses a real `MockMvc` standalone dispatch with a throwing controller so that both the 409 mapping and the untouched catch-all 500 are proven, not asserted by hand. |
+| 2026-09-24 | W1 first independent verification | `156e062`'s uncommitted tree | A read-only `gentle-ai-verify` subagent checked nine claims. Upheld: the handler maps exactly the intended type and leaks nothing; a plain `DataAccessException` still reaches the catch-all 500; the exception hierarchy and the specificity-based resolution; the enforcement lives in the service with the existing `ConflictException`; the integration test proves 409 **and** that the rejected request wrote nothing; no scope creep; the pre-existing call sites are untouched, which is the D3 backward-compatibility evidence. **Findings: F1 as a LOW test-quality defect (the `0 == 0` mapper assertion), F3 (twelve latent store-tree methods), F5 (handler scope), and the explicit verdict that the 2-arg convenience constructor on `StoreInventorySettingsRequest` is justified — 17 call sites across 5 files, one of them outside the diff — keep it.** |
+| 2026-09-24 | **W1 findings round** | `156e062` | Closing F1's weak assertion uncovered **the real defect**: the PUT answered the pre-increment version (`expected: 1L but was: 0L`), because Hibernate advances `@Version` at flush time while the response was mapped from a `save(...)`d entity — a client echoing it would get a false 409 on its next write. Fixed with `saveAndFlush` on the update path plus the explanatory comment, the two service tests that stubbed `save` updated to `saveAndFlush`, the five `never()).save(any())` "write nothing" claims extended to `saveAndFlush`, and a comment recording that the remaining unit-level assertion is an echo while real propagation is pinned in the integration test. **Mutation control:** with the mapper hard-coded to `0L`, the update assertion fails `expected: 1L but was: 0L`. **Recovery note:** the first restore attempt used `git checkout --` on a file whose work was still uncommitted and wiped it; it was restored from a copy taken before the mutation. Recorded because the same trap is easy to repeat. |
+| 2026-09-24 | W1 second independent verification | `156e062` | A second read-only `gentle-ai-verify` subagent verified the **committed** range and ran two of its own probes, backing the file up to `/tmp` and restoring with `cp` (never `git checkout --`), SHA-256-verified identical afterwards. Probe A (mapper hard-coded `0L`) fails at `:454-455`; Probe B (`saveAndFlush` → `save`) fails with the same text — **the defect and the fix are both reproduced independently**. Verdicts: the fix is necessary and sufficient; the create path is correct because both the entity's `long` default and the column's `DEFAULT 0` are `0`; the five `never()` additions are honest; the unit comment is accurate; no other production path changed. **F2 corrected** (only the update assertion discriminates), **F3/F4/F5 recorded** as follow-ups. |
+| 2026-09-24 | **W1 gates (tip)** | `156e062` | `./gradlew spotlessCheck spotbugsMain --no-daemon` → `BUILD SUCCESSFUL`, 0 `BugInstance` in `build/reports/spotbugs/main.xml` (also forced with `--rerun-tasks`: 6 tasks executed, `BUILD SUCCESSFUL`, so the green is a real execution and not an up-to-date shortcut). `./gradlew test --no-daemon` → `BUILD SUCCESSFUL`, **2060 tests / 0 failures / 0 errors / 0 skipped** across 593 result files, Testcontainers included. Focused subset: 66 tests, 0 failures. |
+| 2026-09-24 | **W1 measured** | `156e062` | 9 files, 271 insertions / 13 deletions = **284 changed lines** (source 73, specs 211), plus 179 lines of this record. Under D20-style ~400-line guardrail; no split proposed. |
 
 ## Handoff to the Angular slice (D13b), recorded so it cannot evaporate
 
@@ -173,3 +237,9 @@ two components).
 4. `shared/data/http-error-message.ts` — 409 currently falls to `UNKNOWN_ERROR_MESSAGE`.
 5. The other four `@Version`-backed edit screens (`stores`, `store-areas`, `store-zones`,
    `store-locations`) need the same treatment; that is the store-tree-wide adoption of D6.
+
+**Carried into that adoption, from F3/F4:** the twelve store-tree write methods listed in `## Findings`
+map their responses from a non-flushed `save(...)` entity, so they answer a **stale `version`** and a
+**stale `updatedAt`** the moment their DTOs expose either field. Whoever adds `version` to those
+contracts must flush before mapping, exactly as the settings update path now does — otherwise the new
+field ships with the very bug this slice had to find and fix.
