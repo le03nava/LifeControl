@@ -131,7 +131,8 @@ src/
 │       └── index.ts              # Barrel export
 ├── styles.scss                   # Estilos globales (M3 theme, dark mode)
 ├── main.ts                       # Entry point browser
-└── test-setup.ts                 # Configuración de tests (Vitest)
+├── test-setup.ts                 # Configuración de tests (Vitest)
+└── test-timeouts.ts              # Budgets de timeout del runner (20s, no los defaults)
 ```
 
 ### Path Aliases
@@ -795,7 +796,7 @@ Todas las páginas de listado implementan estos estados con clases consistentes:
 - **Builder**: `@angular/build:unit-test` (en `angular.json`)
 - **Runner**: Vitest
 - **Spec files**: Co-locados (`*.spec.ts`)
-- **Setup**: `src/test-setup.ts` (zona.js + matchMedia mock)
+- **Setup**: `src/test-setup.ts` (zone.js, matchMedia mock, timeouts vía `vi.setConfig`)
 - **Coverage**: `@vitest/coverage-v8`
 
 ```bash
@@ -804,6 +805,33 @@ npm run test:watch      # Modo watch
 npm run test:coverage   # Con coverage
 npm run test:coverage:check  # Tests + enforcement de umbrales (CI)
 ```
+
+### Timeouts
+
+`src/test-timeouts.ts` define los budgets por encima de los defaults de Vitest y `src/test-setup.ts` los
+instala con `vi.setConfig()`:
+
+| Budget | Valor | Default de Vitest |
+|--------|-------|-------------------|
+| `testTimeout` | 20 000ms | 5 000ms |
+| `hookTimeout` | 20 000ms | 10 000ms |
+
+No son defaults negociables, y el motivo es un solo número: medido en máquina ociosa, el test más lento
+de la suite tarda **2909ms**, o sea el **58%** del budget de 5000ms. Cualquier lentitud mayor a **1.72x**
+convierte un test simplemente lento en un gate rojo, y la medición es **sin** instrumentación de
+cobertura mientras que el gate corre **con** ella, así que 1.72x es un techo y no un piso. Un timeout que
+dispara por contención no detecta un defecto: destruye señal.
+
+- `@angular/build:unit-test` **no expone** `testTimeout`, `hookTimeout`, `maxWorkers` ni `pool` en su
+  schema, y arranca Vitest con `config: false`, así que `setupFiles` + `vi.setConfig()` es la única vía.
+- `hookTimeout` sube junto con `testTimeout`: si no, la misma contención reaparece como timeout de
+  `beforeEach`/`afterEach`, que es donde vive casi todo el trabajo por test de `TestBed`.
+- `src/test-timeouts.spec.ts` es un source guard: bajar cualquiera de los dos por debajo de 20 000ms, o
+  desconectar la llamada a `vi.setConfig`, pone el gate en rojo.
+
+**No corras esta suite en paralelo consigo misma.** Dos corridas concurrentes se roban CPU y producen
+`Test timed out` en tests que no tienen nada de malo. Si una primera corrida falla así, sospechá de la
+carga antes que del código: ver `odd/tasks/test-timeout-headroom.md`.
 
 ### Umbrales de Cobertura
 
