@@ -2,9 +2,9 @@
 
 **Repository**: LifeControl — documentation only (`odd/tasks/**`, plus this record). No source file is
 touched and no build gate applies.
-**Status**: in progress — W1 (`025eadc`) and W2 (`f3006ce`) are committed on
-`docs/odd-status-reconciliation`, off `main` @ `bcb8d10`; W3 is this close. Every fact in the table below
-was verified at `bcb8d10` on 2026-09-24.
+**Status**: in progress — W1–W4 are committed on `docs/odd-status-reconciliation` off `main` @ `bcb8d10`
+(four commits, 19 files, 411 changed lines). Every fact below was verified at `bcb8d10` on 2026-09-24 and
+upheld by one independent verification round, whose five findings are closed in `## Findings`.
 **Created**: 2026-09-24
 **Risk**: **low** — documentation only, no code, no contract, no auth. The risk is not the change, it is
 writing an unverified claim into a record that a human will later trust; every row below is
@@ -13,8 +13,8 @@ command-verified for exactly that reason.
 ## Why this exists
 
 `odd/tasks/` holds 23 feature records. On 2026-09-24 the repository has **zero open pull requests** —
-all 100 PRs are `MERGED` or `CLOSED` — and yet 14 of those records carry a `**Status**:` line claiming
-work is open, pending, uncommitted, or "not merged".
+all **155** PRs are `MERGED` (142) or `CLOSED` (13) — and yet 14 of those records carry a `**Status**:`
+line claiming work is open, pending, uncommitted, or "not merged".
 
 The `**Status**:` line is the only thing a reader uses to decide whether a record holds live work. It
 is therefore the highest-leverage line in the file, and it was wrong in 14 of 23 records plus 4 records
@@ -32,8 +32,11 @@ hours before #161 merged, making the line false again.
 
 Every row was established with a command, never inferred from the record's prose. Primary evidence:
 
-- `gh pr list --state all --limit 100 --json number,state,headRefName,mergedAt,mergeCommit` → **100 PRs,
-  0 open**; this is the authoritative source for both PR state and merge-commit identity.
+- `gh pr list --state all --limit 100 --json number,state,headRefName,mergedAt,mergeCommit` → **0 open**;
+  this is the authoritative source for both PR state and merge-commit identity. **The `--limit 100` cap
+  is a trap: it returns at most 100 rows, and the repository has 155 PRs** (142 `MERGED` + 13 `CLOSED`),
+  which only a `--limit 1000` pull reveals. The first version of this record said "100 PRs" — that was
+  the cap, not the count. Found by the independent verification round and corrected here: see **F1**.
 - `git merge-base --is-ancestor <sha> main` → confirms each cited commit is actually on `main`, and was
   run for every hash named below.
 - `git cat-file -e <sha>^{commit}` → separates "on `main`" from "object gone".
@@ -71,7 +74,9 @@ third were deliberately left alone (D1).
 ## Decisions
 
 - **D1 — the correction surface is the `**Status**:` line, plus a stale checkbox when a record's only
-  open item is work that already landed.** Records whose status line is already true are left
+  open item is work that already landed, plus the two body clauses the W1 contract prescribes by number
+  (edits 5b and 6, where an open-work claim sat in a paragraph of its own rather than on the status
+  line — see F3).** Records whose status line is already true are left
   untouched, deliberately: "untouched" is a decision recorded here, not an oversight. Other false
   claims inside the same header blocks (for example `angular-docs-prettier-scope.md` still calling its
   own doc "gitignored", which `#130` fixed) are **out of scope** and listed under Follow-ups.
@@ -132,6 +137,12 @@ single 4 000-character line, with the surrounding evidence preserved) and a diff
 ## The exact replacements (W1 contract)
 
 Apply verbatim. Do not reflow, rewrap or re-word any other line; do not touch anything not listed here.
+
+> **Amended in W3 by D7 — do not copy this section forward verbatim.** Three of the replacements below
+> as originally prescribed (edits 5, 6 and 7) contained the clause "No PR is open". Those three headers
+> were amended in `5ff16b1` to drop it, because D2 forbids asserting a live PR-open state and it would
+> have rotted exactly as the 14 repaired headers did. **What follows is the W1 contract as it was
+> applied at `025eadc`** — the record of what W1 did, not text to reuse.
 
 **Corrections (13).**
 
@@ -223,10 +234,12 @@ git diff --numstat
 ```
 
 The second command was run at the W1 tip and again at the close. Its surviving hits fall into exactly
-four legitimate classes: the frozen per-slice narrative below the corrected headers (for example
-`product-create-ux.md:1019` and `:1234`), the dated evidence-log rows that describe what was true when
-they were written (`optimistic-lock-conflict.md:227`), a historical task-log row `purchase-order-goods-receipt.md:141`
-about PR #118, and this record's own quotations of the text it replaced. **`gh pr list --state open` is
+five legitimate classes: **this record's own live `**Status**:` line** (live by design until the slice is
+delivered — see F2), the frozen per-slice narrative below the corrected headers (for example
+`product-create-ux.md:1019`, `purchase-order-goods-receipt.md:10`), the dated evidence-log rows that
+describe what was true when they were written (`product-create-ux.md:1197`/`:1234`,
+`optimistic-lock-conflict.md:227`), a historical task-log row (`purchase-order-goods-receipt.md:147`,
+about PR #118), and this record's own quotations of the text it replaced. **`gh pr list --state open` is
 empty**, so any *new* "no PR is open"/"PR open" phrasing in a header is a defect — which is exactly how
 D7 was caught.
 
@@ -257,21 +270,81 @@ Measured with `git diff --numstat 025eadc f3006ce`.
 
 #### Whole slice — measured against the forecast
 
-The forecast said **~70–110 changed lines across 19 files**. Measured: the 17 records came in at **58**
-changed lines (inside the band, at its lower edge), `purchase-order-goods-receipt.md` at **8**, and the
-missing weight was entirely in the record itself (**254** lines, plus the whole-slice close). **The slice
-is 19 files and ~320 changed lines in total, all of them one-line substitutions at a uniform position
-plus two prepended paragraphs — well under the ~400-line guardrail, so no split was proposed or needed.**
+| Bucket | Files | Changed lines |
+|---|---|---|
+| The 18 records (the correction surface) | 18 | **66** (41 insertions / 25 deletions) |
+| This record | 1 | **345** (345 / 0) |
+| **Total** (`git diff --numstat bcb8d10 HEAD`) | **19** | **411** (386 / 25) |
+
+Per commit: `025eadc` 312, `f3006ce` 8, `5ff16b1` 83, `25b2bb4` 68.
+
+**The forecast was right about the records and wrong about the total.** It said ~70–110 changed lines
+across 19 files; the records came in at **66** changed lines — inside the band, at its lower edge, which
+is what 18 uniform one-line substitutions at a fixed position should produce. The weight is the record
+itself (**345** lines), and the forecast under-counted it because it treated the record as an
+afterthought rather than as the audit trail it actually is.
+
+**The raw total — 411 changed lines — exceeds the ~400-line review guardrail. Declared, not glossed.**
+No split is proposed, and here is the reasoning rather than the assumption: the guardrail exists to
+protect a human reviewer's attention, and the reviewer's load here is the **66 changed lines across 18
+records**, all one-line substitutions at a uniform position plus two prepended paragraphs — a
+spot-check against the truth table above, not an 18-file read. The other 345 lines are this record,
+which is the evidence the review is checked *against*; splitting it away from the correction it
+documents would separate the claim from its proof and make both harder to review. For scale, this
+repository's other ODD records carry comparable evidence logs (`purchase-order-goods-receipt.md` is 814
+lines, and its status narrative alone is 5 770 characters).
+
+## Findings
+
+Round 1 was an independent read-only `gentle-ai-verify` pass over `bcb8d10..5ff16b1`, deliberately
+adversarial on the numbers: it re-derived every PR state, merge commit and date from a 155-PR pull and
+re-ran `merge-base --is-ancestor` for every cited hash, rather than reading the table. It found **no
+false claim in any corrected header and no wrong PR number, merge hash or date anywhere in the table** —
+and it found a real error in this record.
+
+- **F1 (MEDIUM — found by round 1, CLOSED) — the PR count was wrong: `100` was the query's limit, not the
+  repository's total.** `gh pr list --state all --limit 100` returns at most 100 rows, and the repository
+  has **155** PRs (142 `MERGED` + 13 `CLOSED`). This record's headline and its evidence bullet both said
+  "100 PRs". The load-bearing claim — **zero open** — is true, and the corrected number makes it
+  stronger, but the sentence as written was false. Corrected in three places, and the `--limit` trap is
+  now recorded at the evidence bullet, where the next reader will hit it.
+  **The lesson: a truncated query result is indistinguishable from a complete one unless the cap is
+  compared against the true total.**
+- **F2 (LOW — CLOSED) — the surviving-hits class list omitted this record's own status line.** The
+  verification plan claimed four legitimate classes for the sweep's survivors; this record's own
+  `**Status**: in progress` line is a fifth, and is live by design until the slice is delivered.
+- **F3 (INFO — CLOSED) — the scope claim was imprecise.** D1 described the correction surface as the
+  status line plus a stale checkbox, but two hunks land on body paragraphs (edits 5b and 6: the S5
+  closing clause, and `product-variant-admin-ui.md`'s "Nothing is pushed" paragraph — cases where the
+  open-work claim sat in a paragraph of its own rather than on the status line). D1 now names them by
+  contract number.
+- **F4 (INFO — CLOSED, and a real trap) — the printed W1 contract would reintroduce the phrasing D7
+  removed.** That section quotes the replacements as applied at `025eadc`, and edits 5, 6 and 7 all
+  contained "No PR is open", which D7 deleted in `5ff16b1`. The section now carries an explicit
+  amendment warning: it is the record of what W1 did, not text to copy forward.
+- **F5 (INFO — CLOSED) — one citation was misclassified.** `product-create-ux.md:1234` was listed as
+  "frozen per-slice narrative"; it is a dated evidence-log row. Same verdict either way; the class list
+  now names the right one.
+- **F6 (LOW — found by the parent while applying F1–F5, CLOSED) — the workload claim was an estimate
+  presented as a measurement, and it was wrong.** This record asserted the slice was "19 files and ~320
+  changed lines ... **well under** the ~400-line guardrail". Measured: **411** changed lines (386/25).
+  The estimate was made before the findings round existed and was never re-run, which is exactly how a
+  number goes stale inside the document that exists to stop numbers from going stale. Corrected to the
+  measured table above, with the guardrail breach **declared and reasoned** rather than rounded away.
+  **This repeats, in this very slice, the lesson the `optimistic-lock-conflict` record already paid for:
+  report line counts from `git diff --numstat`, never from an estimate. A claim about the size of a
+  change is still a claim, and it needs the same command as every other one.**
 
 ## Evidence log
 
 | Date | Slice | Commit | Evidence |
 |---|---|---|---|
-| 2026-09-24 | recon | — | Read-only `gentle-ai-explore` scout over all 23 records — which returned **no shell** (its own report: no `bash`, `git` or `gh`), so its table was built from `.git` internals (`refs/`, `packed-refs`, `logs/HEAD`, `FETCH_HEAD`) and is treated here as **hypothesis, not evidence**. It was then re-verified with real commands by the parent: `gh pr list --state all --limit 100 --json number,state,headRefName,mergedAt,mergeCommit` (100 PRs, **0 open**) plus `git merge-base --is-ancestor <sha> main` for every cited hash. The scout was right on substance and wrong on method; the `gh` data is what settled it. |
+| 2026-09-24 | recon | — | Read-only `gentle-ai-explore` scout over all 23 records — which returned **no shell** (its own report: no `bash`, `git` or `gh`), so its table was built from `.git` internals (`refs/`, `packed-refs`, `logs/HEAD`, `FETCH_HEAD`) and is treated here as **hypothesis, not evidence**. It was then re-verified with real commands by the parent: `gh pr list --state all --limit 100 --json number,state,headRefName,mergedAt,mergeCommit` (**0 open**; the capped pull returned 100 rows — the true total is 155, see **F1**) plus `git merge-base --is-ancestor <sha> main` for every cited hash. The scout was right on substance and wrong on method; the `gh` data is what settled it. |
 | 2026-09-24 | recon (settled special cases) | — | `chore/project-conventions-skill` **#129 = CLOSED**, and the skill landed via **#131** `34fbe4cb4` (+#130 `3aabfd0f3`, #132 `3c990062a`); `cec4578` is **not** an ancestor of `main` (`git merge-base --is-ancestor` → no) while the objects still exist. `fix/docker-artifact-provenance` `b30c8d3` **is** an ancestor of `main` (PR #122). `bcb8d10` parents = `964e826` + `3cb507b`; `odd/tasks/optimistic-lock-conflict.md` is absent at `964e826` (`git ls-tree`) and added by the merge. |
 | 2026-09-24 | **W1 (T1)** | `025eadc` | 18 files, **288 insertions / 24 deletions** (17 records = 34/24; this record = 254/0). The 19 prescribed edits were delegated to a `gentle-ai-worker` with the exact replacement text and one allowed-edit-surface entry per file; **nothing was left to the writer's judgement**. Its report confirms all 19 matched the prescribed text exactly, none failed, and it named 6 further stale passages it did *not* touch (now in Follow-ups). The first delegation attempt was **rejected before launching** by the writer contract — the task lacked the canonical `## Allowed edit surfaces` heading — and was relaunched with it; no work was lost and nothing ran twice. **Gate**: every replacement re-read in `git diff` by the parent, and the `grep` sweep above plus a re-extraction of all 23 status lines. |
 | 2026-09-24 | **W2 (T2)** | `f3006ce` | 1 file, **7 insertions / 1 deletion** (808 → 814 lines). **Gate**: a scripted proof that the 5 691-character narrative remainder equals the original status line minus its prefix and minus the two replaced clauses — printed `True`, lengths 5691 == 5691, i.e. the byte-identity trees and gate counts survive byte for byte (D4). |
-| 2026-09-24 | **W3 close** | (this commit) | The D4 estimate corrected from ~4 000 to the measured 5 770 characters; the table tally corrected from `STALE_MERGED` 12 to **11**; the measured workload filled in against the forecast; **D7 recorded** together with the three headers it amends. |
+| 2026-09-24 | **W3 close** | `5ff16b1` | The D4 estimate corrected from ~4 000 to the measured 5 770 characters; the table tally corrected from `STALE_MERGED` 12 to **11**; the measured workload filled in against the forecast; **D7 recorded** together with the three headers it amends. |
+| 2026-09-24 | **W4 findings round** | `25b2bb4` | Independent read-only `gentle-ai-verify` over `bcb8d10..5ff16b1`, instructed to be adversarial on the numbers. **Upheld**: all 23 table rows (every PR state, merge commit and date re-derived from a 155-PR pull; every cited hash re-checked with `merge-base --is-ancestor`); the tally (`STALE_MERGED` 11 + `CONTRADICTED` 2 + `IMPLIES_UNLANDED` 1 + `NO_STATUS` 4 + `ACCURATE` 5 = 23); no new false claim in any corrected header; the five untouched records really are accurate and really are unmodified; **D4's byte-identity claim reproduced exactly** (5 770 → 5 691, equal); and the two-checkbox claim verified in both directions (exactly T5 and T7 before, zero live unchecked boxes after). **Findings F1–F5, all closed above**: F1 was a real error in this record's own headline. **F6 is the parent's own, found while closing F1–F5**: the workload claim was an unmeasured estimate and false (see `## Findings`). |
 
 ## Follow-ups
 
