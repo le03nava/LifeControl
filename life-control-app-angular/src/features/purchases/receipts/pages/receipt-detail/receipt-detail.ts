@@ -6,6 +6,7 @@ import { BreakpointObserver } from '@angular/cdk/layout';
 import { map } from 'rxjs';
 import { PageHeader } from '@shared/ui';
 import { httpErrorMessage, unwrapHttpError } from '@shared/data';
+import { MOBILE_MAX_WIDTH_QUERY } from '@shared/constants/breakpoints';
 import { MatTableModule } from '@angular/material/table';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
@@ -15,9 +16,6 @@ import { PurchaseOrderService } from '../../../purchase-orders/data/purchase-ord
 import { StatusChip } from '../../../purchase-orders/components/status-chip/status-chip';
 import type { GoodsReceipt } from '../../models/receipt.models';
 import type { PurchaseOrder } from '../../../purchase-orders/models/purchase-order.models';
-
-/** Viewport width below which the table switches to one card per line. */
-const MOBILE_QUERY = '(max-width: 575px)';
 
 /**
  * One receipt line joined with its purchase-order detail.
@@ -106,7 +104,8 @@ export class ReceiptDetail {
 
   /** Narrow viewports render one card per line instead of the overflowing table. */
   readonly isMobile = toSignal(
-    this.breakpointObserver.observe(MOBILE_QUERY).pipe(map((result) => result.matches)),
+    // One card per line, below the shared mobile max width.
+    this.breakpointObserver.observe(MOBILE_MAX_WIDTH_QUERY).pipe(map((result) => result.matches)),
     { initialValue: false },
   );
 

@@ -8,6 +8,7 @@ import { ProductVariantPicker } from '../product-variant-picker/product-variant-
 import { ProductVariantService } from '@features/products/data/product-variant.service';
 import type { Page } from '@features/products/models/product.models';
 import type { ProductVariant } from '@features/products/models/product-variant.models';
+import { MOBILE_MAX_WIDTH_QUERY } from '@shared/constants/breakpoints';
 
 const PRODUCTS = [
   { id: 'prod-1', name: 'Widget A', sku: 'SKU-1' },
@@ -39,9 +40,6 @@ const VARIANT_B: ProductVariant = {
   stock: 3,
   enabled: true,
 };
-
-/** Viewport width below which the table switches to one card per line item. */
-const MOBILE_QUERY = '(max-width: 575px)';
 
 const VARIANT_FROM_OTHER_STORE: ProductVariant = {
   ...VARIANT_A,
@@ -431,7 +429,7 @@ describe('DetailTable (mobile)', () => {
         {
           provide: BreakpointObserver,
           useValue: {
-            observe: () => of({ matches: true, breakpoints: { [MOBILE_QUERY]: true } }),
+            observe: () => of({ matches: true, breakpoints: { [MOBILE_MAX_WIDTH_QUERY]: true } }),
           },
         },
       ],

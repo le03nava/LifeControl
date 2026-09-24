@@ -65,7 +65,7 @@
   gap: var(--space-md);
 }
 
-@media (max-width: ($bp-sm - 1px)) {
+@media (max-width: $bp-mobile-max) {
   .form-actions {
     flex-direction: column-reverse;
     align-items: stretch;
