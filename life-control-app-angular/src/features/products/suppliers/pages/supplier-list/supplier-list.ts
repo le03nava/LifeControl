@@ -11,6 +11,7 @@ import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
 import { PageHeader } from '@shared/ui';
 import { httpErrorMessage } from '@shared/data';
+import { MOBILE_MAX_WIDTH_QUERY } from '@shared/constants/breakpoints';
 import { SupplierService } from '../../data/supplier.service';
 import { SuppliersCard } from '../../components';
 import { MatIconModule } from '@angular/material/icon';
@@ -97,7 +98,7 @@ export class SupplierList {
 
     // MatchMedia for mobile paginator adaptation
     if (typeof window !== 'undefined') {
-      const mql = window.matchMedia('(max-width: 575.98px)');
+      const mql = window.matchMedia(MOBILE_MAX_WIDTH_QUERY);
       this.isMobile.set(mql.matches);
       mql.addEventListener('change', (e) => this.isMobile.set(e.matches));
     }
