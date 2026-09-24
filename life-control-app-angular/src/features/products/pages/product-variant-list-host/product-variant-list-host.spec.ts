@@ -184,4 +184,39 @@ describe('ProductVariantListHost', () => {
     expect(fixture.debugElement.queryAll(By.css('app-page-header')).length).toBe(1);
     expect(fixture.debugElement.queryAll(By.css('app-product-variant-list')).length).toBe(1);
   });
+
+  it('should report no unsaved changes before the panel reports any', async () => {
+    setup();
+    await settle();
+
+    expect(fixture.componentInstance.hasUnsavedChanges()).toBe(false);
+  });
+
+  it('should report unsaved changes once the panel emits a dirty state', async () => {
+    setup();
+    await settle();
+
+    // Drive the real container's output, so the assertion pins the template binding
+    // itself instead of a method call the template could bypass.
+    child().dirtyChange.emit(true);
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.hasUnsavedChanges()).toBe(true);
+  });
+
+  it('should clear the unsaved-changes state when the panel reports clean again', async () => {
+    setup();
+    await settle();
+
+    child().dirtyChange.emit(true);
+    fixture.detectChanges();
+    // Intermediate assertion, and the reason this test discriminates: ending on `false`
+    // alone would assert the initial value, so the test would pass even with the
+    // template binding removed.
+    expect(fixture.componentInstance.hasUnsavedChanges()).toBe(true);
+    child().dirtyChange.emit(false);
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.hasUnsavedChanges()).toBe(false);
+  });
 });

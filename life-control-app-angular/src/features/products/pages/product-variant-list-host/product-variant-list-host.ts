@@ -37,6 +37,16 @@ export class ProductVariantListHost {
   readonly productId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
 
   /**
+   * Whether the variant list's inline per-store panel holds unpersisted edits.
+   *
+   * The host forwards the container's `dirtyChange` because on this route the
+   * activated component is the host, not the container: the route guard can only ask
+   * the component it activates, so the container's flag would otherwise never leave
+   * the child and a stray navigation would discard typed stock and prices silently.
+   */
+  readonly variantPanelDirty = signal(false);
+
+  /**
    * The owning product, only for the page header.
    *
    * Deliberately the loaded entity and not the live list state: the header identifies
@@ -56,4 +66,9 @@ export class ProductVariantListHost {
   readonly product = computed(() =>
     this.productResource.hasValue() ? this.productResource.value() : undefined,
   );
+
+  /** Exposed to `unsavedChangesGuard`: the embedded panel decides (D38). */
+  hasUnsavedChanges(): boolean {
+    return this.variantPanelDirty();
+  }
 }
