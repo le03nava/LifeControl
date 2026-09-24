@@ -89,6 +89,9 @@ export const productRoutes: Routes = [
         path: 'edit/:id/variants',
         canActivate: [keycloakRoleGuard],
         data: { roles: VARIANT_ROLES, clientId: CLIENT_ID },
+        // The host forwards the container's inline per-store panel flag, so a dirty
+        // panel's stock and prices are not discarded by a stray navigation.
+        canDeactivate: [unsavedChangesGuard],
         loadComponent: () =>
           import('./pages/product-variant-list-host/product-variant-list-host').then(
             (m) => m.ProductVariantListHost,

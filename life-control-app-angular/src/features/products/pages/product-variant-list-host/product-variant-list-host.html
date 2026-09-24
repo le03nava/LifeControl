@@ -9,4 +9,7 @@
   [showActions]="false"
 />
 
-<app-product-variant-list [productId]="productId()!" />
+<app-product-variant-list
+  [productId]="productId()!"
+  (dirtyChange)="variantPanelDirty.set($event)"
+/>

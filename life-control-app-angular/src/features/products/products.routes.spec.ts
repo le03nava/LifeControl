@@ -120,6 +120,18 @@ describe('productRoutes', () => {
     expect(edit?.canDeactivate).toEqual([unsavedChangesGuard]);
   });
 
+  it('should guard the variant-list host route against unsaved changes', () => {
+    const variants = children().find((route) => route.path === 'edit/:id/variants');
+
+    expect(variants).toBeDefined();
+    // The host is the activated component on this route, and it now forwards the
+    // container's inline per-store panel flag; without this registration a dirty
+    // panel's stock and prices would be discarded by a stray navigation.
+    // `toEqual([guard])`, never `toContain(guard)`: `expect(undefined)
+    // .toContain(fn)` passes vacuously when the property is absent.
+    expect(variants?.canDeactivate).toEqual([unsavedChangesGuard]);
+  });
+
   it('should leave the unrelated product routes unguarded', () => {
     const list = children().find((route) => route.path === 'list');
     const suppliers = children().find((route) => route.path === 'edit/:id/suppliers');
