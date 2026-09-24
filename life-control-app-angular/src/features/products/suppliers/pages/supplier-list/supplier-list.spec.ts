@@ -103,4 +103,61 @@ describe('SupplierList', () => {
     expect(el.querySelector('.loading-skeleton')).toBeNull();
     expect(el.textContent).toContain('Tu sesión expiró');
   });
+
+  describe('responsive paginator (isMobile signal)', () => {
+    let originalMatchMedia: typeof window.matchMedia;
+
+    function setupMatchMedia(matches: boolean) {
+      const listeners: Record<string, EventListener> = {};
+      const mql = {
+        matches,
+        addEventListener: (type: string, listener: EventListener) => {
+          listeners[type] = listener;
+        },
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+      };
+      window.matchMedia = vi
+        .fn()
+        .mockReturnValue(mql as unknown as MediaQueryList) as unknown as typeof window.matchMedia;
+      return { mql, listeners };
+    }
+
+    beforeAll(() => {
+      originalMatchMedia = window.matchMedia;
+    });
+
+    afterAll(() => {
+      window.matchMedia = originalMatchMedia;
+    });
+
+    it('should default to desktop pageSizeOptions', () => {
+      setupMatchMedia(false);
+      const f = TestBed.createComponent(SupplierList);
+      f.detectChanges();
+      expect(f.componentInstance.pageSizeOptions()).toEqual([6, 12, 24, 48]);
+    });
+
+    it('should return mobile pageSizeOptions when isMobile is true', () => {
+      setupMatchMedia(true);
+      const f = TestBed.createComponent(SupplierList);
+      f.detectChanges();
+      expect(f.componentInstance.isMobile()).toBe(true);
+      expect(f.componentInstance.pageSizeOptions()).toEqual([6, 12]);
+    });
+
+    it('should update isMobile on matchMedia change event', () => {
+      const { listeners } = setupMatchMedia(false);
+      const f = TestBed.createComponent(SupplierList);
+      f.detectChanges();
+      expect(f.componentInstance.isMobile()).toBe(false);
+
+      // Simulate viewport resize to mobile
+      if (listeners['change']) {
+        listeners['change']({ matches: true } as MediaQueryListEvent);
+      }
+      expect(f.componentInstance.isMobile()).toBe(true);
+    });
+  });
 });
