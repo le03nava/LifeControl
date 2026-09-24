@@ -383,7 +383,7 @@ Everything below was verified against the tree, not assumed:
 | --- | --- | --- |
 | **W2-D11** | Delivery shape | **Two slices**, superseding the "W2d is one slice" reading of W2-D1: **W2d1** = receipts UI (list, create, detail, dashboard card, PO-detail entry point, reception columns in `DetailTable`); **W2d2** = the store inventory-settings screen. Chained branches, one reviewable PR each. Rationale: two independent surfaces, and one PR would clear the 400-line review guardrail on its own. |
 | **W2-D12** | Receipt-creation entry point | **Both**: the receipts list has "Nuevo recibo" with a receivable-order picker, and the purchase-order edit page adds a "Recibir mercadería" action that navigates to the **same** create component with the order preselected (`?purchaseOrderId=`). One component, two doors. |
-| **W2-D13** | W2b debt #2 (`version`) and #3 (500 on optimistic lock) | **Deferred, recorded as its own follow-up slice** (backend `version` on the settings response/request + `ObjectOptimisticLockingFailureException` → 409 platform-wide + the conflict UX). W2d stays **frontend-only**, as planned; one slice, one area. The debt is *not* closed and *not* silently dropped. |
+| **W2-D13** | W2b debt #2 (`version`) and #3 (500 on optimistic lock) | **Split into two slices, and the backend one is now scheduled.** The **backend** half (the `ObjectOptimisticLockingFailureException` → 409 handler platform-wide, plus the `version` contract on the settings endpoint enforced server-side) is `odd/tasks/optimistic-lock-conflict.md`, opened 2026-09-24 by user decision — backend only, one area. The **frontend** half (the conflict UX: the 409 case in `http-error-message.ts`, the settings page's conflict handling, sending the `version` in the PUT, and the store-tree-wide adoption across the other four `@Version` edit screens) stays deferred and is handed forward by that document's `## Handoff to the Angular slice`. W2d stayed **frontend-only**, as planned; one slice, one area. |
 | **W2-D14** | The `lc-receiving` routing guard | **Its own slice (W2d3) with its own security review**, following the W2c precedent of separating auth from feature work. W2d1 and W2d2 are built and tested under `lc-admin`, touching no security routing. Consequence, stated plainly: until W2d3 lands, the new UI is **admin-only** and `lc-receiving` stays API-only. |
 
 ### W2d1 — Receipts UI (branch `feat/po-receipt-w2d1`)
@@ -666,7 +666,7 @@ Preexistente, no de este slice.
 
 ### Debts handed forward again (unchanged, and now with an owner)
 
-1. **W2b #2 and #3** → the W2-D13 follow-up slice (version contract + 409 handler). W2d does **not** close them.
+1. **W2b #2 and #3** → **the backend half is `odd/tasks/optimistic-lock-conflict.md`** (the 409 handler + the `version` contract, opened 2026-09-24); the Angular conflict UX is handed forward by that document. W2d did **not** close them.
 2. ~~**`lc-receiving` is API-only** until W2d3.~~ **Cerrado por W2d3**: el rol ya entra al dashboard
 de compras y al área de recibos, con el área de órdenes re-guardada. La precondición que queda **no
 es código**: el token debe llevar el camino de claims `company_id` → `company_country_id` →

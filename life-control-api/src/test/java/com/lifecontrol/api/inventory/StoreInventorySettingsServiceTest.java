@@ -18,6 +18,7 @@ import com.lifecontrol.api.company.repository.CompanyCountryRepository;
 import com.lifecontrol.api.company.repository.CompanyRegionRepository;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.company.repository.CompanyZoneRepository;
+import com.lifecontrol.api.exception.ConflictException;
 import com.lifecontrol.api.inventory.dto.StoreInventorySettingsRequest;
 import com.lifecontrol.api.inventory.exception.StoreInventorySettingsNotFoundException;
 import com.lifecontrol.api.inventory.exception.StoreLocationNotInStoreException;
@@ -273,7 +274,7 @@ class StoreInventorySettingsServiceTest {
                     .salesLocationId(LOCATION_ID)
                     .build();
             when(storeInventorySettingsRepository.findById(STORE_ID)).thenReturn(Optional.of(existing));
-            when(storeInventorySettingsRepository.save(any(StoreInventorySettings.class)))
+            when(storeInventorySettingsRepository.saveAndFlush(any(StoreInventorySettings.class)))
                     .thenAnswer(invocation -> invocation.getArgument(0));
 
             var response = service.upsertSettings(
@@ -287,7 +288,7 @@ class StoreInventorySettingsServiceTest {
             assertThat(response.companyStoreId()).isEqualTo(STORE_ID);
             assertThat(response.salesLocationId()).isEqualTo(OTHER_LOCATION_ID);
             // The update reuses the loaded instance instead of inserting a second row.
-            verify(storeInventorySettingsRepository).save(existing);
+            verify(storeInventorySettingsRepository).saveAndFlush(existing);
             assertThat(existing.getSalesLocationId()).isEqualTo(OTHER_LOCATION_ID);
         }
 
@@ -310,6 +311,7 @@ class StoreInventorySettingsServiceTest {
                     .hasMessage("Store location not found with id: " + LOCATION_ID + " in the requested store");
 
             verify(storeInventorySettingsRepository, never()).save(any());
+            verify(storeInventorySettingsRepository, never()).saveAndFlush(any());
         }
 
         @Test
@@ -327,6 +329,7 @@ class StoreInventorySettingsServiceTest {
                     .isInstanceOf(StoreLocationNotInStoreException.class);
 
             verify(storeInventorySettingsRepository, never()).save(any());
+            verify(storeInventorySettingsRepository, never()).saveAndFlush(any());
         }
 
         @Test
@@ -346,6 +349,7 @@ class StoreInventorySettingsServiceTest {
 
             verifyNoInteractions(storeLocationRepository);
             verify(storeInventorySettingsRepository, never()).save(any());
+            verify(storeInventorySettingsRepository, never()).saveAndFlush(any());
         }
 
         @Test
@@ -361,6 +365,84 @@ class StoreInventorySettingsServiceTest {
 
             assertThat(response.receivingLocationId()).isEqualTo(LOCATION_ID);
             assertThat(response.salesLocationId()).isEqualTo(LOCATION_ID);
+        }
+
+        @Test
+        @DisplayName("should reject an asserted version when no settings row exists")
+        void rejectsAssertedVersionWhenAbsent() {
+            stubOwnedLocation(LOCATION_ID);
+            stubOwnedLocation(OTHER_LOCATION_ID);
+            when(storeInventorySettingsRepository.findById(STORE_ID)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.upsertSettings(
+                            COMPANY_ID,
+                            COMPANY_COUNTRY_ID,
+                            REGION_ID,
+                            ZONE_ID,
+                            STORE_ID,
+                            new StoreInventorySettingsRequest(LOCATION_ID, OTHER_LOCATION_ID, 0L)))
+                    .isInstanceOf(ConflictException.class)
+                    .hasMessage(
+                            "The store inventory settings conflict with the current server state; reload and try again");
+
+            verify(storeInventorySettingsRepository, never()).save(any());
+            verify(storeInventorySettingsRepository, never()).saveAndFlush(any());
+        }
+
+        @Test
+        @DisplayName("should update when the asserted version matches the stored one")
+        void updatesWhenAssertedVersionMatches() {
+            stubOwnedLocation(LOCATION_ID);
+            stubOwnedLocation(OTHER_LOCATION_ID);
+            var existing = StoreInventorySettings.builder()
+                    .companyStoreId(STORE_ID)
+                    .receivingLocationId(LOCATION_ID)
+                    .salesLocationId(LOCATION_ID)
+                    .build();
+            when(storeInventorySettingsRepository.findById(STORE_ID)).thenReturn(Optional.of(existing));
+            when(storeInventorySettingsRepository.saveAndFlush(any(StoreInventorySettings.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
+
+            var response = service.upsertSettings(
+                    COMPANY_ID,
+                    COMPANY_COUNTRY_ID,
+                    REGION_ID,
+                    ZONE_ID,
+                    STORE_ID,
+                    new StoreInventorySettingsRequest(LOCATION_ID, OTHER_LOCATION_ID, 0L));
+
+            assertThat(response.salesLocationId()).isEqualTo(OTHER_LOCATION_ID);
+            // Echoes the entity, which the builder leaves at 0: a real non-zero propagation can only be
+            // observed over the persistence path, and is pinned in StoreInventorySettingsIntegrationTest.
+            assertThat(response.version()).isEqualTo(existing.getVersion());
+            verify(storeInventorySettingsRepository).saveAndFlush(existing);
+        }
+
+        @Test
+        @DisplayName("should reject a stale asserted version and write nothing")
+        void rejectsStaleAssertedVersion() {
+            stubOwnedLocation(LOCATION_ID);
+            stubOwnedLocation(OTHER_LOCATION_ID);
+            var existing = StoreInventorySettings.builder()
+                    .companyStoreId(STORE_ID)
+                    .receivingLocationId(LOCATION_ID)
+                    .salesLocationId(LOCATION_ID)
+                    .build();
+            when(storeInventorySettingsRepository.findById(STORE_ID)).thenReturn(Optional.of(existing));
+
+            assertThatThrownBy(() -> service.upsertSettings(
+                            COMPANY_ID,
+                            COMPANY_COUNTRY_ID,
+                            REGION_ID,
+                            ZONE_ID,
+                            STORE_ID,
+                            new StoreInventorySettingsRequest(LOCATION_ID, OTHER_LOCATION_ID, 99L)))
+                    .isInstanceOf(ConflictException.class)
+                    .hasMessage(
+                            "The store inventory settings conflict with the current server state; reload and try again");
+
+            verify(storeInventorySettingsRepository, never()).save(any());
+            verify(storeInventorySettingsRepository, never()).saveAndFlush(any());
         }
     }
 

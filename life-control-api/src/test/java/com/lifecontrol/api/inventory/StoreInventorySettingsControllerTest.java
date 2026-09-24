@@ -91,13 +91,14 @@ class StoreInventorySettingsControllerTest {
         @DisplayName("should return 200 with the store's settings")
         void getSettings_Success() throws Exception {
             when(storeInventorySettingsService.getSettings(companyId, companyCountryId, regionId, zoneId, storeId))
-                    .thenReturn(new StoreInventorySettingsResponse(storeId, receivingLocationId, salesLocationId));
+                    .thenReturn(new StoreInventorySettingsResponse(storeId, receivingLocationId, salesLocationId, 7L));
 
             mockMvc.perform(get(SETTINGS_URL, companyId, companyCountryId, regionId, zoneId, storeId))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.companyStoreId").value(storeId.toString()))
                     .andExpect(jsonPath("$.receivingLocationId").value(receivingLocationId.toString()))
-                    .andExpect(jsonPath("$.salesLocationId").value(salesLocationId.toString()));
+                    .andExpect(jsonPath("$.salesLocationId").value(salesLocationId.toString()))
+                    .andExpect(jsonPath("$.version").value(7));
         }
 
         @Test
@@ -128,14 +129,15 @@ class StoreInventorySettingsControllerTest {
                             eq(zoneId),
                             eq(storeId),
                             any(StoreInventorySettingsRequest.class)))
-                    .thenReturn(new StoreInventorySettingsResponse(storeId, receivingLocationId, salesLocationId));
+                    .thenReturn(new StoreInventorySettingsResponse(storeId, receivingLocationId, salesLocationId, 7L));
 
             mockMvc.perform(put(SETTINGS_URL, companyId, companyCountryId, regionId, zoneId, storeId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.receivingLocationId").value(receivingLocationId.toString()))
-                    .andExpect(jsonPath("$.salesLocationId").value(salesLocationId.toString()));
+                    .andExpect(jsonPath("$.salesLocationId").value(salesLocationId.toString()))
+                    .andExpect(jsonPath("$.version").value(7));
         }
 
         @Test

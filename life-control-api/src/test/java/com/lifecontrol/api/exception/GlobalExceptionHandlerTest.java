@@ -1,6 +1,9 @@
 package com.lifecontrol.api.exception;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.lifecontrol.api.company.exception.CompanyCountryNotFoundException;
 import com.lifecontrol.api.company.exception.CompanyNotFoundException;
@@ -21,15 +24,21 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 @DisplayName("GlobalExceptionHandler Tests")
@@ -230,6 +239,53 @@ class GlobalExceptionHandlerTest {
             assertThat(response.getBody().status()).isEqualTo(400);
             assertThat(response.getBody().message()).isEqualTo("Invalid argument");
             assertThat(response.getBody().timestamp()).isNotNull();
+        }
+    }
+
+    @Nested
+    @DisplayName("handler resolution")
+    class HandlerResolutionTests {
+
+        @RestController
+        static class ThrowingController {
+
+            @GetMapping("/test/optimistic-lock")
+            void throwOptimisticLock() {
+                throw new ObjectOptimisticLockingFailureException("StoreInventorySettings", (Object) "id");
+            }
+
+            @GetMapping("/test/data-access")
+            void throwPlainDataAccess() {
+                throw new DataAccessResourceFailureException("database unavailable");
+            }
+        }
+
+        private MockMvc mockMvc;
+
+        @BeforeEach
+        void setUp() {
+            mockMvc = MockMvcBuilders.standaloneSetup(new ThrowingController())
+                    .setControllerAdvice(new GlobalExceptionHandler())
+                    .build();
+        }
+
+        @Test
+        @DisplayName("maps ObjectOptimisticLockingFailureException to 409 without leaking internals")
+        void mapsOptimisticLockingFailureTo409() throws Exception {
+            mockMvc.perform(get("/test/optimistic-lock"))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.status").value(409))
+                    .andExpect(jsonPath("$.message")
+                            .value(org.hamcrest.Matchers.not(
+                                    org.hamcrest.Matchers.containsString("StoreInventorySettings"))));
+        }
+
+        @Test
+        @DisplayName("still maps a plain DataAccessException to the catch-all 500")
+        void plainDataAccessExceptionFallsToCatchAll500() throws Exception {
+            mockMvc.perform(get("/test/data-access"))
+                    .andExpect(status().isInternalServerError())
+                    .andExpect(jsonPath("$.status").value(500));
         }
     }
 
