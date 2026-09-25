@@ -24,6 +24,8 @@ export function httpErrorMessage(error: unknown): string {
       return 'No tenés permisos para realizar esta acción.';
     case 404:
       return 'No se encontró el recurso solicitado.';
+    case 409:
+      return 'El dato cambió mientras lo editabas. Recargá la página y volvé a intentar.';
     case 500:
       return 'Ocurrió un error en el servidor. Intentá de nuevo más tarde.';
     default:

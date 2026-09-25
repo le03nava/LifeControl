@@ -43,6 +43,7 @@ describe('StoreInventorySettings', () => {
     companyStoreId: 'store-1',
     receivingLocationId: 'loc-1',
     salesLocationId: 'loc-2',
+    version: 3,
   };
 
   const mockLocations: StoreLocationSummary[] = [
@@ -249,6 +250,26 @@ describe('StoreInventorySettings', () => {
       expect(component.canSubmit()).toBe(true);
       expect(submitButton()?.disabled).toBe(false);
     });
+
+    it('should omit the version precondition when the store was never configured', () => {
+      component.onSelectReceiving('loc-1');
+      component.onSelectSales('loc-2');
+      fixture.detectChanges();
+      expect(component.canSubmit()).toBe(true);
+
+      component.onSave();
+
+      expect(settingsService.upsertSettings).toHaveBeenCalledWith(expectedChain, {
+        receivingLocationId: 'loc-1',
+        salesLocationId: 'loc-2',
+      });
+      // No `version` key must be serialized at all: the backend rejects any version on create.
+      const requestBody = settingsService.upsertSettings.mock.calls[0][1] as Record<
+        string,
+        unknown
+      >;
+      expect('version' in requestBody).toBe(false);
+    });
   });
 
   // ─── Configured store ───────────────────────────────────────
@@ -332,6 +353,7 @@ describe('StoreInventorySettings', () => {
             companyStoreId: 'store-1',
             receivingLocationId: 'loc-gone',
             salesLocationId: 'loc-1',
+            version: 3,
           }),
         ),
       );
@@ -366,12 +388,13 @@ describe('StoreInventorySettings', () => {
       await settle();
     });
 
-    it('should PUT the whole request object with the chain', () => {
+    it('should PUT the whole request object with the chain and the loaded version', () => {
       component.onSave();
 
       expect(settingsService.upsertSettings).toHaveBeenCalledWith(expectedChain, {
         receivingLocationId: 'loc-1',
         salesLocationId: 'loc-2',
+        version: 3,
       });
     });
 
@@ -453,6 +476,34 @@ describe('StoreInventorySettings', () => {
 
       const detail = fixture.nativeElement.querySelector('.server-detail');
       expect(detail?.textContent).toContain(`raw ${status}`);
+    });
+
+    it('should reload and clear the guard when the write is rejected with a 409', async () => {
+      settingsService.upsertSettings.mockReturnValue(
+        throwError(
+          () =>
+            new HttpErrorResponse({
+              error: { message: 'raw 409' },
+              status: 409,
+              statusText: 'Conflict',
+            }),
+        ),
+      );
+
+      component.onSelectReceiving('loc-3');
+      expect(component.hasUnsavedChanges()).toBe(true);
+
+      component.onSave();
+      await settle();
+
+      expect(component.saveError()).toBe(
+        'Otra sesión modificó esta configuración mientras la editabas. Se recargaron los valores actuales: revisalos y volvé a guardar.',
+      );
+      expect(component.saveErrorDetail()).toBe('raw 409');
+      expect(component.hasUnsavedChanges()).toBe(false);
+      expect(settingsService.getSettings).toHaveBeenCalledTimes(2);
+      // The reload re-seeds the form from the server's current state, not the discarded edit.
+      expect(component.receivingLocationId()).toBe('loc-1');
     });
 
     it('should fall back to the shared HTTP copy for an unmapped status', () => {
@@ -621,6 +672,7 @@ describe('StoreInventorySettings', () => {
                 companyStoreId: 'store-1',
                 receivingLocationId: 'loc-gone',
                 salesLocationId: 'loc-1',
+                version: 3,
               }),
             ),
           ['lc-company-store-read'],

@@ -88,6 +88,12 @@ export class StoreInventorySettings implements UnsavedChangesAware {
   readonly salesLocationId = signal<string | null>(null);
   /** True once the operator changed either select; the programmatic load never sets it. */
   private readonly dirty = signal(false);
+  /**
+   * Optimistic-lock version of the loaded settings, echoed back on the next write. `null` when no
+   * row was loaded, which is exactly the create case (the read maps a never-configured store's 404
+   * to `null`).
+   */
+  private readonly version = signal<number | null>(null);
 
   // ─── Write state ───────────────────────────────────────
   readonly saving = signal(false);
@@ -109,6 +115,7 @@ export class StoreInventorySettings implements UnsavedChangesAware {
       const settings = this.settingsResource.value();
       this.receivingLocationId.set(settings?.receivingLocationId ?? null);
       this.salesLocationId.set(settings?.salesLocationId ?? null);
+      this.version.set(settings?.version ?? null);
       this.dirty.set(false);
     });
   }
@@ -197,8 +204,16 @@ export class StoreInventorySettings implements UnsavedChangesAware {
     this.saveErrorDetail.set(null);
     this.saving.set(true);
 
+    const version = this.version();
+
     this.settingsService
-      .upsertSettings(chain, { receivingLocationId, salesLocationId })
+      .upsertSettings(chain, {
+        receivingLocationId,
+        salesLocationId,
+        // Spread the version only when there is one: a create must serialize no `version` key at all,
+        // because the backend rejects any version sent for a store that has no row yet (409).
+        ...(version !== null ? { version } : {}),
+      })
       .pipe(
         finalize(() => this.saving.set(false)),
         takeUntilDestroyed(this.destroyRef),
@@ -252,6 +267,16 @@ export class StoreInventorySettings implements UnsavedChangesAware {
         break;
       case 403:
         this.saveError.set('No tenés permisos para configurar el inventario de esta tienda.');
+        break;
+      case 409:
+        this.saveError.set(
+          'Otra sesión modificó esta configuración mientras la editabas. Se recargaron los valores actuales: revisalos y volvé a guardar.',
+        );
+        // Clear the guard *before* reloading so the seeding effect re-seeds both selects and the
+        // version from the server's current state. Without that the operator would keep resending
+        // the stale version and stay stuck in a 409.
+        this.dirty.set(false);
+        this.settingsResource.reload();
         break;
       default:
         this.saveError.set(httpErrorMessage(error));
