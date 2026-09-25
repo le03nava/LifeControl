@@ -13,8 +13,11 @@ import java.util.UUID;
  * {@link #occurredAt} is assigned once by the JPA pre-persist callback (the
  * {@code ActivityLog} precedent).</p>
  *
- * <p>Only {@link MovementType#RECEIPT} rows exist until the sales rework (W3) starts writing sale
- * movements, so the ledger is a partial history and not yet a complete stock audit.</p>
+ * <p>Every stock mutation writes a movement, so the ledger is the complete explanation of each
+ * balance: {@link MovementType#RECEIPT} (goods receipt),
+ * {@link MovementType#SALE}/{@link MovementType#SALE_REVERSAL} (a sale and its exact restoration)
+ * and {@link MovementType#ADJUSTMENT_INCREASE}/{@link MovementType#ADJUSTMENT_DECREASE} (a manual
+ * per-store edit), all with a positive quantity (W3-D7).</p>
  */
 @Entity
 @Table(name = "inventory_movements")

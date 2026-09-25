@@ -32,7 +32,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Business logic for the per-store inventory settings: which store location receives goods and which
- * one sales will later deduct from.
+ * one sales deducts from.
  *
  * <p>Every operation resolves — and authorizes — the full company &rarr; country &rarr; region
  * &rarr; zone &rarr; store path through {@link CurrentUserContext#verifyCompanyStoreAccess} before

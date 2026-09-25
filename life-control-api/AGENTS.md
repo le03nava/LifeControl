@@ -201,7 +201,10 @@ com.lifecontrol.api/
 | `/api/goods-receipts`                           | `lc-admin\|lc-company\|lc-company-country\|lc-company-region\|lc-company-zone\|lc-company-store\|lc-receiving` (write) / same set + `lc-company-store-read` (read, method-level) | Goods receipts (receptions): register against a purchase order (`POST`, 201) and read (paginated list + `GET /{id}`); non-admins are scoped to their `company_store_id` claim |
 | `/api/suppliers`                                | authenticated (read) / `lc-admin\|lc-product-supplier` (write, method-level) | Supplier CRUD (soft delete) |
 | `/api/products`                                 | authenticated (read) / `lc-admin` (write, method-level) / `lc-admin\|lc-product-supplier` (supplier assignment) / `lc-admin\|lc-sales` (variants, method-level) | Product catalog, supplier assignments, product variants |
-| `/api/product-variants`                         | `lc-admin\|lc-sales`       | Product variant search |
+| `/api/product-variants/search`                  | `lc-admin\|lc-sales`       | Product variant search |
+| `/api/variants/{variantId}/stores/{storeId}`    | `lc-admin\|lc-sales` (write, method-level) | Per-store stock and pricing of a variant; a stock change writes the sellable aggregate, the store's sales-location balance and a ledger movement (W3-D14), and is refused when the store has no inventory settings |
+| `/api/companies/{id}/countries/{cid}/regions/{rid}/zones/{zid}/stores/{sid}/inventory-settings` | `lc-admin\|lc-company\|lc-company-country\|lc-company-region\|lc-company-zone\|lc-company-store` (write) / same set + `lc-company-store-read` (read, method-level) | A store's receiving and sales locations; the sales location is where a manual stock increase lands and the first location a sale drains |
+| `/api/companies/{id}/countries/{cid}/regions/{rid}/zones/{zid}/stores/{sid}/store-locations` | `lc-admin\|lc-company\|lc-company-country\|lc-company-region\|lc-company-zone\|lc-company-store\|lc-company-store-read` (read) | Enabled locations of a store, the picker source for its inventory settings |
 | `/api/customers, /api/sales-orders, /api/shifts, /api/promotions` | `lc-admin\|lc-sales` (method-level) | Sales domain — customers, sales orders, shifts, promotions |
 | `/api/users-admin/users`                        | `admin`                   | Keycloak user search, roles, attributes |
 | `/api/users-admin/roles`                        | `admin`                   | Keycloak realm/client role CRUD       |
@@ -688,7 +691,7 @@ app.rate-limit.endpoints./api/users-admin/users.duration=1m
 Tests that validate real persistence or SQL constraints extend
 `com.lifecontrol.api.support.AbstractPostgresIntegrationTest`. It starts a shared
 `PostgreSQLContainer` per JVM, repoints the datasource, and enables Flyway so the
-schema is built from the production migrations (`V1`→`V3`).
+schema is built from the production migrations (`V1`→`V15`).
 
 ```java
 @SpringBootTest
@@ -848,13 +851,25 @@ Migrations live in `src/main/resources/db/migration/` and are versioned:
 | `V1__baseline_schema.sql` | Full baseline schema (all tables in dependency order) |
 | `V2__seed_countries.sql`  | Seed data: MX/CO/US countries (idempotent) |
 | `V3__seed_reference_data.sql` | Seed data: status types/statuses, activity processes/events, measure units, payment methods, "Cliente General" customer (idempotent) |
+| `V4__seed_activity_processes.sql` | Seed data: the activity processes the audit aspect derives (idempotent) |
+| `V5__store_areas.sql` | Store location tree, level 2: areas |
+| `V6__store_zones.sql` | Store location tree, level 3: zones |
+| `V7__store_locations.sql` | Store location tree, level 4: locations (the leaf inventory balances hang off) |
+| `V8__store_optimistic_locking.sql` | JPA `@Version` column on the mutable store-tree tables |
+| `V9__purchase_order_detail_variant.sql` | Optional `product_variant_id` on `purchase_order_details` |
+| `V10__inventory.sql` | Per-location balances (`product_variant_locations`) + the append-only `inventory_movements` ledger |
+| `V11__store_inventory_settings.sql` | Per-store receiving and sales locations (`store_inventory_settings`) |
+| `V12__goods_receipts.sql` | Goods-receipt documents (`goods_receipts`, `goods_receipt_items`) |
+| `V13__product_variant_store_stock.sql` | Per-store stock and pricing split out of `product_variants` into `product_variant_store_stock` |
+| `V14__product_variant_definition.sql` | `product_variants` becomes the global variant definition; drops the legacy per-store columns (**destructive — D5**) |
+| `V15__inventory_balance_reset.sql` | Truncate reset of the three inventory balance tables for the `aggregate = SUM(locations)` cutover (W3-D15) |
 
 Key settings (`application.properties`):
 
 - **DDL**: `spring.jpa.hibernate.ddl-auto=none` (schema managed via Flyway migrations)
 - **SQL init**: `spring.sql.init.mode=never` (`schema.sql` no longer used)
 - **Baseline**: `spring.flyway.baseline-on-migrate=true` + `spring.flyway.baseline-version=1` — existing DBs with data are baselined at v1 (no recreation); only new migrations apply.
-- **Tests**: default test stack (`application-test.properties`) uses H2 with `spring.flyway.enabled=false` + `create-drop` for pure slices (`@WebMvcTest`), unit tests, and AOP/cache tests with mocked repositories. Integration tests that exercise real persistence/constraints extend `AbstractPostgresIntegrationTest` (Testcontainers `PostgreSQLContainer`, shared singleton), which overrides the datasource and **enables Flyway** so the schema comes from `V1`→`V3` exactly as in production.
+- **Tests**: default test stack (`application-test.properties`) uses H2 with `spring.flyway.enabled=false` + `create-drop` for pure slices (`@WebMvcTest`), unit tests, and AOP/cache tests with mocked repositories. Integration tests that exercise real persistence/constraints extend `AbstractPostgresIntegrationTest` (Testcontainers `PostgreSQLContainer`, shared singleton), which overrides the datasource and **enables Flyway** so the schema comes from `V1`→`V15` exactly as in production.
 
 To add a schema change: create a new `V{n}__description.sql` file. Never edit an already-applied migration (Flyway checksums will fail).
 
@@ -872,11 +887,36 @@ V3 notes:
 
 ### Schema
 
-Tables include: `companies`, `countries`, `addresses`, `company_countries`, `company_regions`, `company_zones`, `company_stores`, `suppliers`, `products`, `product_suppliers`, `activity_processes`, `activity_events`, `activity_logs`, `status_types`, `statuses`, `measure_units`, `payment_methods`, `purchase_orders`, `purchase_order_details`, `user_preferences`, `customers`, `product_variants`, `promotions`, `shifts`, `sales_orders`, `sales_order_items`.
+Tables include: `companies`, `countries`, `addresses`, `company_countries`, `company_regions`, `company_zones`, `company_stores`, `store_areas`, `store_zones`, `store_locations`, `store_inventory_settings`, `suppliers`, `products`, `product_suppliers`, `activity_processes`, `activity_events`, `activity_logs`, `status_types`, `statuses`, `measure_units`, `payment_methods`, `purchase_orders`, `purchase_order_details`, `goods_receipts`, `goods_receipt_items`, `user_preferences`, `customers`, `product_variants`, `product_variant_store_stock`, `product_variant_locations`, `inventory_movements`, `promotions`, `shifts`, `sales_orders`, `sales_order_items`.
+
+### Inventory and stock contract
+
+Stock is per `(product_variant, company_store)` with a per-location breakdown, and both sides move
+together:
+
+- `product_variant_store_stock.stock` is the **sellable aggregate** — the number a sale validates
+  against (the engine's first fail-closed check) and the one the per-store stock editor sets.
+- `product_variant_locations.stock` is the balance of one variant in one store location (the level-4
+  leaf of the store tree). A sale consumes it in priority order: the store's
+  `store_inventory_settings.sales_location_id` first, then the remaining locations FIFO, spilling
+  over when the priority location cannot cover the quantity.
+- `inventory_movements` is the append-only ledger that explains every balance change. The direction
+  lives in `MovementType`, so every quantity stays positive: `RECEIPT`, `SALE`, `SALE_REVERSAL`,
+  `ADJUSTMENT_INCREASE`, `ADJUSTMENT_DECREASE`.
+- **Invariant:** `product_variant_store_stock.stock = SUM(product_variant_locations.stock)` for every
+  `(variant, store)`. Every writer moves both sides in one transaction — the receipt
+  (`InventoryService.applyReceipt`), the sale and its reversal (`applySaleDeduction` /
+  `applySaleReversal`), and the manual per-store edit (`applyStockAdjustment`) — so the invariant
+  holds by construction. A sale is reversed by reading its `SALE` movements and crediting exactly
+  the locations that gave, never by re-running the allocation. `V15__inventory_balance_reset.sql`
+  cleared the divergence that predated the invariant.
 
 ### Key Columns
 
-All tables use `UUID` primary keys, `created_at`/`updated_at` timestamps. Soft-delete uses `enabled` boolean column.
+Most tables use `UUID` primary keys and `created_at`/`updated_at` timestamps, and soft-delete uses an
+`enabled` boolean column. Exceptions the inventory model relies on: `inventory_movements` is
+append-only — it has `occurred_at` and no `updated_at`, and no `enabled` — and
+`store_inventory_settings` uses `company_store_id` as its assigned primary key.
 
 ---
 

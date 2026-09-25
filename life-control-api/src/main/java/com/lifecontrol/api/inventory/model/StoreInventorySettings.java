@@ -9,12 +9,14 @@ import jakarta.persistence.Version;
 import java.util.UUID;
 
 /**
- * Per-store inventory settings: the store location where goods are received and the one sales will
- * later deduct from.
+ * Per-store inventory settings: the store location where goods are received and the one sales
+ * deducts from.
  *
  * <p>The store is the identity, so {@code company_store_id} is the assigned primary key and there
- * is exactly one row per store. {@code receivingLocationId} is consumed by the goods receipt (W2c);
- * {@code salesLocationId} is stored now and only read by the sales rework (W3).</p>
+ * is exactly one row per store. {@code receivingLocationId} is consumed by the goods receipt (W2c).
+ * {@code salesLocationId} is read by both stock movers of a store: the sale deduction draws from it
+ * first and the manual stock increase credits it ({@code InventoryService.applySaleDeduction},
+ * {@code applyStockAdjustment}).</p>
  *
  * <p>The two location columns are plain foreign keys, which only prove that the location exists.
  * "This location belongs to this store" follows from the {@code NOT NULL} foreign-key chain

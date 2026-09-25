@@ -30,9 +30,13 @@ public enum MovementType {
      */
     ADJUSTMENT_INCREASE,
     /**
-     * Stock removed from the store's sales location by a manual per-store stock edit (W3-D14).
-     * Positive quantity; the direction lives in the type. This is the ledger's first decrease that
-     * is not a sale, which is why the type pair exists rather than a signed quantity (W3-D7).
+     * Stock removed by a manual per-store stock edit (W3-D14), allocated over the store's locations
+     * priority-first — the sales location first — and then FIFO, exactly as a sale is (W3-D1). The
+     * sales location is only the first candidate, not the source: one {@code ADJUSTMENT_DECREASE} row
+     * is written per location actually drawn from
+     * ({@code InventoryService.applyAdjustmentDecrease}). Positive quantity; the direction lives in
+     * the type. This is the ledger's first decrease that is not a sale, which is why the type pair
+     * exists rather than a signed quantity (W3-D7).
      */
     ADJUSTMENT_DECREASE
 }

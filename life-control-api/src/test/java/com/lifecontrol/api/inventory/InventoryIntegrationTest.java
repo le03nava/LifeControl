@@ -57,10 +57,11 @@ import org.springframework.test.web.servlet.MockMvc;
  * and {@code ddl-auto=validate}, so a green run proves {@code V10__inventory.sql} and the entity
  * mappings agree.
  *
- * <p>Covers the additive receipt against the interim inconsistency, the create-then-reuse behaviour
- * of the {@code (variant, location)} balance, the database-level uniqueness and the append-only
- * ledger. The store/location fixtures are built through the real store endpoints, exactly like the
- * other store-chain integration tests, so the chain comes from the same code path the API uses.</p>
+ * <p>Covers the additive receipt and the {@code aggregate = SUM(locations)} invariant after a
+ * receipt and after a sale, the create-then-reuse behaviour of the {@code (variant, location)}
+ * balance, the database-level uniqueness and the append-only ledger. The store/location fixtures are
+ * built through the real store endpoints, exactly like the other store-chain integration tests, so
+ * the chain comes from the same code path the API uses.</p>
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -407,17 +408,34 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
         }
     }
 
+    /**
+     * The W3-D5 invariant, read store-wide: the sellable aggregate equals the sum of every location
+     * balance the store owns. It resolves the locations through the same
+     * {@code product_variant_locations -> store_locations -> ... -> company_stores} chain the
+     * production allocation uses, so a stray balance row is caught instead of silently summed past.
+     */
+    private void assertInvariant(UUID variantId) {
+        var locationSum =
+                productVariantLocationRepository.findByProductVariantIdAndCompanyStoreId(variantId, storeId).stream()
+                        .map(ProductVariantLocation::getStock)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+        assertThat(aggregateStockOf(variantId))
+                .as("aggregate must equal SUM(product_variant_locations.stock)")
+                .isEqualByComparingTo(locationSum);
+    }
+
     @Nested
-    @DisplayName("interim inconsistency")
-    class InterimInconsistencyTests {
+    @DisplayName("balance invariant")
+    class BalanceInvariantTests {
 
         @Test
-        @DisplayName(
-                "should stay additive when the aggregate is below the location sum (sold stock is not resurrected)")
-        void receiptDoesNotResurrectSoldStock() {
-            // Arrange exactly the interim inconsistency: the location balance knows about 100 units
-            // while the sellable aggregate says 40, as if sales had decremented 60 through
-            // SalesOrderService.applyStockChanges, which never touches a location.
+        @DisplayName("should add a receipt to the aggregate instead of recomputing it from the location sum")
+        void receiptIsAdditiveAndNeverRecomputesFromTheLocationSum() {
+            // A divergent state seeded directly, because the application can no longer produce one:
+            // sales is location-aware and V15 reset the old divergence, so every writer moves both
+            // sides. It is seeded only to pin the one operation applyReceipt must never perform —
+            // deriving the aggregate from SUM(product_variant_locations.stock). A recompute would
+            // answer 105 here and resurrect the 60 units the sellable row no longer holds.
             var variant = createVariant("40.00");
             productVariantLocationRepository.save(ProductVariantLocation.builder()
                     .productVariantId(variant.getId())
@@ -427,15 +445,40 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
 
             applyReceipt(variant.getId(), "5.00");
 
-            // A SUM(product_variant_locations.stock) recompute would answer 105 here and silently
-            // resurrect the 60 units sales already sold. This assertion is the reason the test
-            // exists: it fails under a recompute implementation.
             assertThat(aggregateStockOf(variant.getId()))
                     .as("aggregate must be stockBeforeReceipt + quantity, never the location sum")
                     .isEqualByComparingTo("45.00");
             assertThat(balanceOf(variant.getId()).orElseThrow().getStock())
                     .as("location must be locationBefore + quantity")
                     .isEqualByComparingTo("105.00");
+        }
+
+        @Test
+        @DisplayName("should keep aggregate = SUM(locations) after a receipt")
+        void invariantHoldsAfterAReceipt() {
+            var variant = createVariant("0.00");
+
+            applyReceipt(variant.getId(), "12.50");
+
+            assertInvariant(variant.getId());
+        }
+
+        @Test
+        @DisplayName("should keep aggregate = SUM(locations) after a sale and after its reversal")
+        void invariantHoldsAfterASaleAndItsReversal() {
+            var variant = createVariant("0.00");
+            applyReceipt(variant.getId(), "10.00");
+            assertInvariant(variant.getId());
+
+            var referenceId = UUID.randomUUID();
+            inventoryService.applySaleDeduction(
+                    variant.getId(), storeId, new BigDecimal("4.00"), "SALES_ORDER_ITEM", referenceId, "seller");
+            assertInvariant(variant.getId());
+            assertThat(aggregateStockOf(variant.getId())).isEqualByComparingTo("6.00");
+
+            inventoryService.applySaleReversal("SALES_ORDER_ITEM", referenceId, "seller");
+            assertInvariant(variant.getId());
+            assertThat(aggregateStockOf(variant.getId())).isEqualByComparingTo("10.00");
         }
     }
 
