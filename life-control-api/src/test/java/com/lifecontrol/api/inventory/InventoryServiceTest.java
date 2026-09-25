@@ -14,6 +14,7 @@ import com.lifecontrol.api.inventory.model.MovementType;
 import com.lifecontrol.api.inventory.model.ProductVariantLocation;
 import com.lifecontrol.api.inventory.repository.InventoryMovementRepository;
 import com.lifecontrol.api.inventory.repository.ProductVariantLocationRepository;
+import com.lifecontrol.api.inventory.repository.StoreInventorySettingsRepository;
 import com.lifecontrol.api.inventory.service.InventoryService;
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
 import com.lifecontrol.api.product.model.ProductVariant;
@@ -63,6 +64,9 @@ class InventoryServiceTest {
     @Mock
     private InventoryMovementRepository inventoryMovementRepository;
 
+    @Mock
+    private StoreInventorySettingsRepository storeInventorySettingsRepository;
+
     @Captor
     private ArgumentCaptor<InventoryMovement> movementCaptor;
 
@@ -74,7 +78,8 @@ class InventoryServiceTest {
                 productVariantRepository,
                 productVariantStoreStockRepository,
                 productVariantLocationRepository,
-                inventoryMovementRepository);
+                inventoryMovementRepository,
+                storeInventorySettingsRepository);
     }
 
     private ProductVariant enabledVariant() {
