@@ -3,12 +3,11 @@ package com.lifecontrol.api.salesorder.service;
 import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.customer.exception.CustomerNotFoundException;
 import com.lifecontrol.api.customer.repository.CustomerRepository;
+import com.lifecontrol.api.inventory.service.InventoryService;
 import com.lifecontrol.api.paymentmethod.exception.PaymentMethodNotFoundException;
 import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
-import com.lifecontrol.api.product.model.ProductVariantStoreStock;
 import com.lifecontrol.api.product.repository.ProductVariantRepository;
-import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository;
 import com.lifecontrol.api.purchaseorder.exception.InvalidStatusTransitionException;
 import com.lifecontrol.api.salesorder.dto.ChargeSalesOrderRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderItemRequest;
@@ -16,10 +15,10 @@ import com.lifecontrol.api.salesorder.dto.SalesOrderItemResponse;
 import com.lifecontrol.api.salesorder.dto.SalesOrderRequest;
 import com.lifecontrol.api.salesorder.dto.SalesOrderResponse;
 import com.lifecontrol.api.salesorder.dto.UpdateSalesOrderStatusRequest;
-import com.lifecontrol.api.salesorder.exception.InsufficientStockException;
 import com.lifecontrol.api.salesorder.exception.InvalidSalesOrderChargeException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderAlreadyFinalizedException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderItemNotFoundException;
+import com.lifecontrol.api.salesorder.exception.SalesOrderItemNotModifiableException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderNotFoundException;
 import com.lifecontrol.api.salesorder.exception.SalesOrderStoreReassignmentNotAllowedException;
 import com.lifecontrol.api.salesorder.model.SalesOrder;
@@ -41,6 +40,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -76,6 +76,13 @@ public class SalesOrderService {
 
     private static final String SHIFT_STATUS_OPEN = "ABIERTO";
 
+    /**
+     * Ledger reference discriminator of a sales-order line: every {@code SALE} and
+     * {@code SALE_REVERSAL} movement carries this type and the line id as its reference, so the
+     * reversal of one line is exact and independent of the order's other lines (W3-D6).
+     */
+    private static final String SALE_REFERENCE_TYPE = "SALES_ORDER_ITEM";
+
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd");
 
     private final SalesOrderRepository salesOrderRepository;
@@ -84,7 +91,7 @@ public class SalesOrderService {
     private final CompanyStoreRepository companyStoreRepository;
     private final ShiftRepository shiftRepository;
     private final ProductVariantRepository productVariantRepository;
-    private final ProductVariantStoreStockRepository productVariantStoreStockRepository;
+    private final InventoryService inventoryService;
     private final StatusRepository statusRepository;
     private final PaymentMethodRepository paymentMethodRepository;
     private final CurrentUserContext currentUserContext;
@@ -96,7 +103,7 @@ public class SalesOrderService {
             CompanyStoreRepository companyStoreRepository,
             ShiftRepository shiftRepository,
             ProductVariantRepository productVariantRepository,
-            ProductVariantStoreStockRepository productVariantStoreStockRepository,
+            InventoryService inventoryService,
             StatusRepository statusRepository,
             PaymentMethodRepository paymentMethodRepository,
             CurrentUserContext currentUserContext) {
@@ -106,7 +113,7 @@ public class SalesOrderService {
         this.companyStoreRepository = companyStoreRepository;
         this.shiftRepository = shiftRepository;
         this.productVariantRepository = productVariantRepository;
-        this.productVariantStoreStockRepository = productVariantStoreStockRepository;
+        this.inventoryService = inventoryService;
         this.statusRepository = statusRepository;
         this.paymentMethodRepository = paymentMethodRepository;
         this.currentUserContext = currentUserContext;
@@ -168,15 +175,16 @@ public class SalesOrderService {
         var saved = salesOrderRepository.save(so);
         logger.info("Sales order created: id={}, orderNumber={}", saved.getId(), saved.getOrderNumber());
 
-        // Save items and deduct stock inline
+        // Persist the lines first so each one has the id the ledger reference needs (W3-D6), then
+        // move the stock through the engine. Both happen inside this transaction, so a failed
+        // deduction rolls the inserted lines back.
         if (request.items() != null && !request.items().isEmpty()) {
-            applyStockChanges(request.items(), Map.of(), Set.of(), Map.of(), request.companyStoreId());
-
             var defaultItemStatus = statusRepository
                     .findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Pending")
                     .orElseThrow(() -> new StatusNotFoundException(
                             "Default status 'Pending' not found for SALES_ORDER_ITEM type"));
 
+            var savedItems = new ArrayList<SalesOrderItem>();
             for (var reqItem : request.items()) {
                 var discount = reqItem.discountApplied() != null ? reqItem.discountApplied() : BigDecimal.ZERO;
                 var newItem = SalesOrderItem.builder()
@@ -190,8 +198,18 @@ public class SalesOrderService {
                         .statusId(defaultItemStatus.getId())
                         .enabled(true)
                         .build();
-                itemRepository.save(newItem);
+                savedItems.add(itemRepository.save(newItem));
             }
+
+            var operations = new ArrayList<StockOperation>();
+            for (var savedItem : savedItems) {
+                operations.add(deduct(
+                        saved.getCompanyStoreId(),
+                        savedItem.getProductVariantId(),
+                        savedItem.getQuantity(),
+                        savedItem.getId()));
+            }
+            applyStockChanges(operations);
 
             recalculateTotalAmount(saved.getId());
             var orderIdForReload = saved.getId();
@@ -227,6 +245,11 @@ public class SalesOrderService {
                     id, so.getCompanyStoreId(), request.companyStoreId());
         }
 
+        // A terminal order is closed: no transition leads out of it, charge refuses it, and both
+        // order cancel and order delete skip it, so any line work here would strand its deduction.
+        // Refuse before the header is mutated or the item diff runs.
+        requireOrderNotTerminal(so);
+
         so.setCustomerId(request.customerId());
         so.setCompanyStoreId(request.companyStoreId());
         so.setShiftId(request.shiftId());
@@ -238,12 +261,28 @@ public class SalesOrderService {
         if (request.items() != null && !request.items().isEmpty()) {
             var existingItems = itemRepository.findBySalesOrderId(id);
 
-            // Build maps for stock change computation BEFORE any item mutations
+            // Read the pre-mutation state BEFORE any item change: the stock engine needs the old
+            // variant and quantity of every line that actually holds stock. The quantity kept on a
+            // line is not that state — a soft-deleted line and an individually cancelled line were
+            // already given back by the engine — so a line that holds nothing contributes no old
+            // state and is sold in full when it comes back enabled (W3-D11). Cancelled is terminal in
+            // the item status machine, so re-enabling a cancelled line revives no hold and it
+            // contributes no stock work at all.
+            var cancelledItemStatusId = statusRepository
+                    .findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Cancelled")
+                    .map(Status::getId)
+                    .orElse(null);
+
             var oldQuantities = new HashMap<UUID, BigDecimal>();
             var itemIdToVariantId = new HashMap<UUID, UUID>();
+            var deadItemIds = new HashSet<UUID>();
             for (var existing : existingItems) {
-                oldQuantities.put(existing.getId(), existing.getQuantity());
-                itemIdToVariantId.put(existing.getId(), existing.getProductVariantId());
+                if (isCancelledLine(existing, cancelledItemStatusId)) {
+                    deadItemIds.add(existing.getId());
+                } else if (existing.getEnabled()) {
+                    oldQuantities.put(existing.getId(), existing.getQuantity());
+                    itemIdToVariantId.put(existing.getId(), existing.getProductVariantId());
+                }
             }
 
             var requestIds = request.items().stream()
@@ -259,10 +298,6 @@ public class SalesOrderService {
                 }
             }
 
-            // Apply stock changes BEFORE saving any item mutations
-            applyStockChanges(
-                    request.items(), oldQuantities, deletedItemIds, itemIdToVariantId, request.companyStoreId());
-
             // DELETE: items in DB but not in request → soft-delete
             for (var existing : existingItems) {
                 if (!requestIds.contains(existing.getId())) {
@@ -271,12 +306,14 @@ public class SalesOrderService {
                 }
             }
 
-            // UPDATE (existing) or INSERT (new)
+            // UPDATE (existing) or INSERT (new), collecting the persisted lines so a new line's
+            // generated id can be the ledger reference of its deduction (W3-D6).
             var defaultItemStatus = statusRepository
                     .findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Pending")
                     .orElseThrow(() -> new StatusNotFoundException(
                             "Default status 'Pending' not found for SALES_ORDER_ITEM type"));
 
+            var savedItems = new ArrayList<SalesOrderItem>();
             for (var reqItem : request.items()) {
                 if (reqItem.id() != null) {
                     // UPDATE: find by id, update fields, re-enable
@@ -291,7 +328,7 @@ public class SalesOrderService {
                     item.setFinalPrice(reqItem.listPrice().subtract(discount));
                     item.setPromotionId(reqItem.promotionId());
                     item.setEnabled(true);
-                    itemRepository.save(item);
+                    savedItems.add(itemRepository.save(item));
                 } else {
                     // INSERT: new item with default "Pending" status
                     var discount = reqItem.discountApplied() != null ? reqItem.discountApplied() : BigDecimal.ZERO;
@@ -306,9 +343,32 @@ public class SalesOrderService {
                             .statusId(defaultItemStatus.getId())
                             .enabled(true)
                             .build();
-                    itemRepository.save(newItem);
+                    savedItems.add(itemRepository.save(newItem));
                 }
             }
+
+            // Apply stock AFTER the lines exist, through the engine. Deleted lines are registered
+            // first — a deleted line was deducted under its own ledger reference — then every
+            // persisted line contributes its delta. A re-enabled line that held nothing (soft-deleted)
+            // is sold in full; a terminal Cancelled line moves nothing.
+            var operations = new ArrayList<StockOperation>();
+            for (var existing : existingItems) {
+                if (deletedItemIds.contains(existing.getId()) && !deadItemIds.contains(existing.getId())) {
+                    operations.add(reverse(request.companyStoreId(), existing.getProductVariantId(), existing.getId()));
+                }
+            }
+            for (var savedItem : savedItems) {
+                if (deadItemIds.contains(savedItem.getId())) {
+                    continue;
+                }
+                collectLineStockOperations(
+                        savedItem,
+                        oldQuantities.get(savedItem.getId()),
+                        itemIdToVariantId.get(savedItem.getId()),
+                        request.companyStoreId(),
+                        operations);
+            }
+            applyStockChanges(operations);
 
             // Recalculate order total after item mutations
             recalculateTotalAmount(id);
@@ -422,32 +482,11 @@ public class SalesOrderService {
         var newStatus = StatusValidator.requireStatusOfType(statusRepository, request.statusId(), "SALES_ORDER");
         validateSOTransition(currentStatus, newStatus);
 
-        // Restore stock when transitioning to Cancelled. Only enabled items still
-        // hold stock: soft-deleted items were already restored when they were deleted,
-        // so restoring them again would duplicate stock.
+        // Restore stock when transitioning to Cancelled. Only enabled items still hold stock:
+        // soft-deleted items were already reversed when deleted, and a line cancelled individually
+        // was already reversed then, so the ledger makes those reversals a no-op here (W3-D4).
         if ("Cancelled".equals(newStatus.getStatusName())) {
-            var allItems = itemRepository.findBySalesOrderIdAndEnabledTrue(id);
-
-            // Group items by variantId and sort to prevent deadlocks
-            var itemsByVariant = new HashMap<UUID, List<SalesOrderItem>>();
-            for (var item : allItems) {
-                itemsByVariant
-                        .computeIfAbsent(item.getProductVariantId(), k -> new java.util.ArrayList<>())
-                        .add(item);
-            }
-
-            var companyStoreId = so.getCompanyStoreId();
-            var sortedVariantIds = itemsByVariant.keySet().stream().sorted().toList();
-            for (var variantId : sortedVariantIds) {
-                var storeStock = lockStoreStock(variantId, companyStoreId);
-
-                var totalQty = itemsByVariant.get(variantId).stream()
-                        .map(SalesOrderItem::getQuantity)
-                        .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-                storeStock.setStock(orZero(storeStock.getStock()).add(totalQty));
-                productVariantStoreStockRepository.save(storeStock);
-            }
+            restoreAllLines(so.getCompanyStoreId(), itemRepository.findBySalesOrderIdAndEnabledTrue(id));
         }
 
         so.setStatusId(newStatus.getId());
@@ -466,33 +505,12 @@ public class SalesOrderService {
                 .findById(so.getStatusId())
                 .orElseThrow(() -> new StatusNotFoundException(so.getStatusId()));
 
-        // Restore stock ONLY if the order was not already Cancelled: the cancel
-        // transition already restored it, and restoring again would duplicate stock.
-        // Only enabled items still hold stock (soft-deleted items were restored on delete).
+        // Restore stock ONLY if the order was not already Cancelled: the cancel transition already
+        // restored it, and restoring again would duplicate stock. Only enabled items still hold
+        // stock (soft-deleted items were reversed on delete); a line already restored keeps a zero
+        // ledger remainder, so the engine's reversal no-ops it and cannot credit it twice.
         if (!"Cancelled".equals(currentStatus.getStatusName())) {
-            var items = itemRepository.findBySalesOrderIdAndEnabledTrue(id);
-            if (!items.isEmpty()) {
-                // Group items by variantId and sort to prevent deadlocks
-                var itemsByVariant = new HashMap<UUID, List<SalesOrderItem>>();
-                for (var item : items) {
-                    itemsByVariant
-                            .computeIfAbsent(item.getProductVariantId(), k -> new java.util.ArrayList<>())
-                            .add(item);
-                }
-
-                var companyStoreId = so.getCompanyStoreId();
-                var sortedVariantIds = itemsByVariant.keySet().stream().sorted().toList();
-                for (var variantId : sortedVariantIds) {
-                    var storeStock = lockStoreStock(variantId, companyStoreId);
-
-                    var totalQty = itemsByVariant.get(variantId).stream()
-                            .map(SalesOrderItem::getQuantity)
-                            .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-                    storeStock.setStock(orZero(storeStock.getStock()).add(totalQty));
-                    productVariantStoreStockRepository.save(storeStock);
-                }
-            }
+            restoreAllLines(so.getCompanyStoreId(), itemRepository.findBySalesOrderIdAndEnabledTrue(id));
         }
 
         so.setEnabled(false);
@@ -563,8 +581,9 @@ public class SalesOrderService {
         var saved = itemRepository.save(item);
         logger.info("Item added: id={}, soId={}", saved.getId(), salesOrderId);
 
-        // Deduct stock for the new item
-        applyStockChanges(List.of(request), Map.of(), Set.of(), Map.of(), so.getCompanyStoreId());
+        // Deduct stock for the new item, referencing its id so a later reversal is exact (W3-D6).
+        applyStockChanges(List.of(
+                deduct(so.getCompanyStoreId(), saved.getProductVariantId(), saved.getQuantity(), saved.getId())));
 
         // Recalculate order total
         recalculateTotalAmount(salesOrderId);
@@ -599,21 +618,14 @@ public class SalesOrderService {
             throw new SalesOrderItemNotFoundException(itemId);
         }
 
-        validateProductVariantExists(request.productVariantId());
-        // Reconcile stock BEFORE saving. On variant change, applyStockChanges restores
-        // the old variant's full quantity and deducts the new variant's full quantity;
-        // on a simple quantity change the delta is applied to the current variant.
-        var variantChanged = !item.getProductVariantId().equals(request.productVariantId());
-        var quantityChanged = request.quantity().compareTo(item.getQuantity()) != 0;
+        validateItemIsModifiable(item);
 
-        if (variantChanged || quantityChanged) {
-            applyStockChanges(
-                    List.of(request),
-                    Map.of(item.getId(), item.getQuantity()),
-                    Set.of(),
-                    Map.of(item.getId(), item.getProductVariantId()),
-                    so.getCompanyStoreId());
-        }
+        validateProductVariantExists(request.productVariantId());
+
+        var oldVariantId = item.getProductVariantId();
+        var oldQuantity = item.getQuantity();
+        var variantChanged = !oldVariantId.equals(request.productVariantId());
+        var quantityChanged = request.quantity().compareTo(oldQuantity) != 0;
 
         var discountApplied = request.discountApplied() != null ? request.discountApplied() : BigDecimal.ZERO;
         var finalPrice = request.listPrice().subtract(discountApplied);
@@ -624,6 +636,16 @@ public class SalesOrderService {
         item.setDiscountApplied(discountApplied);
         item.setFinalPrice(finalPrice);
         item.setPromotionId(request.promotionId());
+
+        // Reconcile stock through the engine, after the line carries its new values: a variant change
+        // gives back the old line in full and sells the new variant, an increase deducts the
+        // difference and a decrease gives the line back and re-sells the new quantity. Every
+        // movement keeps the line id as its reference, so the store can reverse it exactly (W3-D6).
+        if (variantChanged || quantityChanged) {
+            var operations = new ArrayList<StockOperation>();
+            collectLineStockOperations(item, oldQuantity, oldVariantId, so.getCompanyStoreId(), operations);
+            applyStockChanges(operations);
+        }
 
         var updated = itemRepository.save(item);
 
@@ -645,10 +667,11 @@ public class SalesOrderService {
             throw new SalesOrderItemNotFoundException(itemId);
         }
 
-        // Restore stock BEFORE soft-deleting the item, on the per-store row of the order's store.
-        var storeStock = lockStoreStock(item.getProductVariantId(), so.getCompanyStoreId());
-        storeStock.setStock(orZero(storeStock.getStock()).add(item.getQuantity()));
-        productVariantStoreStockRepository.save(storeStock);
+        // Restore through the engine BEFORE soft-deleting the item, referencing the line id so the
+        // reversal credits exactly the locations the sale took from (W3-D6). A line already
+        // reversed — individually cancelled, or the order cancelled — has no uncovered ledger
+        // remainder and the engine no-ops it, so it is never credited twice.
+        applyStockChanges(List.of(reverse(so.getCompanyStoreId(), item.getProductVariantId(), item.getId())));
 
         item.setEnabled(false);
         itemRepository.save(item);
@@ -664,7 +687,9 @@ public class SalesOrderService {
             UUID salesOrderId, UUID itemId, UpdateSalesOrderStatusRequest request) {
         logger.info("Updating item status: soId={}, itemId={}", salesOrderId, itemId);
 
-        salesOrderRepository.findById(salesOrderId).orElseThrow(() -> new SalesOrderNotFoundException(salesOrderId));
+        var so = salesOrderRepository
+                .findById(salesOrderId)
+                .orElseThrow(() -> new SalesOrderNotFoundException(salesOrderId));
 
         var item = itemRepository.findById(itemId).orElseThrow(() -> new SalesOrderItemNotFoundException(itemId));
 
@@ -679,6 +704,14 @@ public class SalesOrderService {
         var newStatus = StatusValidator.requireStatusOfType(statusRepository, request.statusId(), "SALES_ORDER_ITEM");
         validateSOItemTransition(currentStatus, newStatus);
 
+        // W3-D4: cancelling a line restores it exactly as deleting it does, writing the reversal
+        // that matches its SALE movement. A line cancelled and later deleted must not restore
+        // twice: the first reversal leaves a zero uncovered remainder for the line's reference, so
+        // the second reversal is a no-op by the engine's remainder arithmetic (W3-D6).
+        if ("Cancelled".equals(newStatus.getStatusName())) {
+            applyStockChanges(List.of(reverse(so.getCompanyStoreId(), item.getProductVariantId(), item.getId())));
+        }
+
         item.setStatusId(newStatus.getId());
         var updated = itemRepository.save(item);
 
@@ -690,15 +723,70 @@ public class SalesOrderService {
     private SalesOrder loadAndValidateModifiableSO(UUID id) {
         var so = salesOrderRepository.findById(id).orElseThrow(() -> new SalesOrderNotFoundException(id));
 
-        var status = statusRepository
-                .findById(so.getStatusId())
-                .orElseThrow(() -> new StatusNotFoundException(so.getStatusId()));
+        var name = requireOrderNotTerminal(so);
 
-        var name = status.getStatusName();
+        // The item-level endpoints are stricter than the order-level PUT: they operate only while
+        // the order is still being assembled. A Pending order is about to be charged, so it is
+        // refused here even though it is not terminal.
         if (!"Draft".equals(name) && !"Active".equals(name)) {
             throw new SalesOrderAlreadyFinalizedException(id, name);
         }
         return so;
+    }
+
+    /**
+     * Rejects a write against an order that has reached a terminal status, and returns the order's
+     * status name so a caller that needs a stricter rule does not read the status twice.
+     *
+     * <p>A terminal status has no outgoing transition, so the order is closed: letting a write run
+     * would move stock that no automatic path can bring back. The concrete case is the order-level
+     * item diff on a {@code Cancelled} order: a new line was inserted and its full quantity deducted,
+     * while order cancel and order delete both skip a {@code Cancelled} order and charge refuses it,
+     * so the deduction was stranded. {@code Completed} is terminal for the same reason and is refused
+     * too.</p>
+     *
+     * @throws SalesOrderAlreadyFinalizedException (409) when the status is terminal
+     */
+    private String requireOrderNotTerminal(SalesOrder so) {
+        var status = statusRepository
+                .findById(so.getStatusId())
+                .orElseThrow(() -> new StatusNotFoundException(so.getStatusId()));
+        var name = status.getStatusName();
+        if (isTerminalStatus(name)) {
+            throw new SalesOrderAlreadyFinalizedException(so.getId(), name);
+        }
+        return name;
+    }
+
+    /**
+     * A status with no outgoing transition is terminal. An unknown status counts as terminal as
+     * well: {@link #validateSOTransition} accepts nothing from it either.
+     */
+    private static boolean isTerminalStatus(String statusName) {
+        var allowed = SO_TRANSITIONS.get(statusName);
+        return allowed == null || allowed.isEmpty();
+    }
+
+    /**
+     * Rejects an item-level write against a line that no longer holds stock. A {@code Cancelled}
+     * line was reversed in full, so selling it again would leave a {@code SALE} row the rule says no
+     * line holds; a soft-deleted line is never re-enabled by the item-level endpoint, so a deduction
+     * on it would be stranded. The order-level PUT is the supported route to revive either one,
+     * because it re-enables the line before re-selling it (W3-D11).
+     *
+     * @throws SalesOrderItemNotModifiableException (409) when the line is cancelled or soft-deleted
+     */
+    private void validateItemIsModifiable(SalesOrderItem item) {
+        if (!item.getEnabled()) {
+            throw new SalesOrderItemNotModifiableException(item.getId(), "deleted");
+        }
+        var cancelledItemStatusId = statusRepository
+                .findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Cancelled")
+                .map(Status::getId)
+                .orElse(null);
+        if (isCancelledLine(item, cancelledItemStatusId)) {
+            throw new SalesOrderItemNotModifiableException(item.getId(), "Cancelled");
+        }
     }
 
     private void validateCustomerExists(UUID id) {
@@ -808,155 +896,134 @@ public class SalesOrderService {
         return prefix + String.format("%05d", nextSeq);
     }
 
-    // ─── Stock Deduction ───────────────────────────────────────────────
+    // ─── Stock Movement Through the Inventory Engine ───────────────────
 
     /**
-     * Applies stock mutations for a set of items atomically within the caller's transaction.
-     * Acquires pessimistic write locks on all affected per-store stock rows, sorted by the
-     * store-scoped row identity to prevent deadlocks.
-     *
-     * <p>The sort key is the pair {@code (companyStoreId, variantId)}, not the bare
-     * {@code variantId}: after the variant-identity split the serialization point is the
-     * {@code (variant, store)} row, so two orders in <em>different</em> stores that share a variant
-     * definition must NOT queue on the same lock, and two orders that touch several rows must take
-     * them in the same order. Sorting by the composite identity gives that order; sorting by
-     * {@code variantId} alone would let two stores' orders interleave and deadlock.</p>
-     *
-     * @param newItems            items from the request (with variantId + quantity)
-     * @param oldQuantities       map of existing item ID → quantity (empty for create/add)
-     * @param deletedItemIds      set of item IDs being deleted (restore full quantity)
-     * @param itemIdToVariantId   map of existing item ID → its current variant ID
-     *                            (used to restore the old variant on variant change
-     *                            and to restore stock for deleted items)
-     * @param companyStoreId      the store whose stock rows are moved (the order's store)
+     * One piece of stock work of a sales operation, keyed by the {@code (store, variant)} row the
+     * engine locks first. The key exists only for ordering: the engine derives the locations it
+     * moves from the store's settings or from the ledger.
      */
-    private void applyStockChanges(
-            List<SalesOrderItemRequest> newItems,
-            Map<UUID, BigDecimal> oldQuantities,
-            Set<UUID> deletedItemIds,
-            Map<UUID, UUID> itemIdToVariantId,
-            UUID companyStoreId) {
+    private record StockOperation(StoreVariantKey key, boolean reversal, Runnable action) {}
 
-        // 1. Collect distinct variant IDs from new items (including the old variant of
-        //    items whose variant changes) and from deleted items
-        var variantIds = new HashSet<UUID>();
-        for (var item : newItems) {
-            variantIds.add(item.productVariantId());
-            if (item.id() != null) {
-                var oldVid = itemIdToVariantId.get(item.id());
-                if (oldVid != null && !oldVid.equals(item.productVariantId())) {
-                    variantIds.add(oldVid);
-                }
-            }
-        }
-        for (var deletedId : deletedItemIds) {
-            var vid = itemIdToVariantId.get(deletedId);
-            if (vid != null) {
-                variantIds.add(vid);
-            }
-        }
-
-        if (variantIds.isEmpty()) {
+    /**
+     * Applies a batch of stock work through {@link InventoryService}, the only writer of the
+     * per-store aggregate, the per-location balances and the ledger.
+     *
+     * <p>The batch is applied in a fixed order that satisfies both invariants at once. First every
+     * distinct {@code (store, variant)} row is locked in {@link StoreVariantKey} order, so the
+     * acquisition order is ascending and deadlock-free even though the actions run in a different
+     * order. Then every reversal runs before every deduction. The engine takes the per-store row as
+     * its FIRST lock and holds it to the commit, so the documented {@code storeStock -> locationBalance}
+     * order is untouched.</p>
+     *
+     * <p>Reversals must precede deductions because a reversal is reference-scoped: it credits
+     * whatever the line's ledger reference still holds, so a deduction of the same reference in the
+     * same batch would put a {@code SALE} row in front of it. A variant change registers the
+     * reversal of the old variant and the deduction of the new one under one line reference and two
+     * different sort keys, so with the old single sorted pass the deduction could win and the
+     * reversal would then credit the new variant back, leaving it unsold.</p>
+     */
+    private void applyStockChanges(List<StockOperation> operations) {
+        if (operations.isEmpty()) {
             return;
         }
-
-        // 2. Sort by the composite store-scoped row identity to prevent deadlocks
-        var sortedKeys = variantIds.stream()
-                .map(vid -> new StoreVariantKey(companyStoreId, vid))
-                .sorted()
+        var ordered = operations.stream()
+                .sorted(Comparator.comparing(StockOperation::key))
                 .toList();
 
-        // 3. Acquire pessimistic write locks on the per-store rows in sorted order
-        var lockedRows = new HashMap<UUID, ProductVariantStoreStock>();
-        for (var key : sortedKeys) {
-            lockedRows.put(key.variantId(), lockStoreStock(key.variantId(), key.companyStoreId()));
+        // 1. Lock every distinct row first, in key order. The actions below invert the key order
+        //    whenever a reversal sorts after a deduction, so the locks cannot be left to the actions.
+        ordered.stream()
+                .map(StockOperation::key)
+                .distinct()
+                .forEach(key -> inventoryService.lockStoreStock(key.variantId(), key.companyStoreId()));
+
+        // 2. Every reversal before every deduction.
+        ordered.stream()
+                .filter(StockOperation::reversal)
+                .forEach(operation -> operation.action().run());
+        ordered.stream()
+                .filter(operation -> !operation.reversal())
+                .forEach(operation -> operation.action().run());
+    }
+
+    /**
+     * Registers the engine work of one persisted line. A line with no old state deducts its full
+     * quantity; a line whose variant changed gives back its old reference and sells the new variant;
+     * a line that only grew deducts the difference; a line that shrank gives back the old reference
+     * and re-sells its new quantity. Every movement carries the line id as its reference, so a later
+     * reversal is exact (W3-D6).
+     */
+    private void collectLineStockOperations(
+            SalesOrderItem line,
+            BigDecimal oldQuantity,
+            UUID oldVariantId,
+            UUID companyStoreId,
+            List<StockOperation> operations) {
+
+        var newVariantId = line.getProductVariantId();
+        var newQuantity = line.getQuantity();
+        var itemId = line.getId();
+
+        if (oldVariantId == null || oldQuantity == null) {
+            operations.add(deduct(companyStoreId, newVariantId, newQuantity, itemId));
+            return;
         }
-
-        // 4. Compute net stock delta per variant
-        var stockDelta = new HashMap<UUID, BigDecimal>();
-        for (var item : newItems) {
-            var vid = item.productVariantId();
-            var newQty = item.quantity();
-
-            if (item.id() != null) {
-                var oldQty = oldQuantities.getOrDefault(item.id(), BigDecimal.ZERO);
-                var oldVid = itemIdToVariantId.get(item.id());
-                if (oldVid != null && !oldVid.equals(vid)) {
-                    // Variant change: restore the old variant's full quantity and
-                    // deduct the new variant's full quantity
-                    stockDelta.merge(vid, newQty, BigDecimal::add);
-                    stockDelta.merge(oldVid, oldQty.negate(), BigDecimal::add);
-                } else {
-                    // Same variant (or old variant unknown): apply the quantity diff
-                    var delta = newQty.subtract(oldQty);
-                    stockDelta.merge(vid, delta, BigDecimal::add);
-                }
-            } else {
-                // New item: deduct the full quantity
-                stockDelta.merge(vid, newQty, BigDecimal::add);
-            }
+        if (!oldVariantId.equals(newVariantId)) {
+            operations.add(reverse(companyStoreId, oldVariantId, itemId));
+            operations.add(deduct(companyStoreId, newVariantId, newQuantity, itemId));
+            return;
         }
-
-        // 5. Add restoration for deleted items
-        for (var deletedId : deletedItemIds) {
-            var vid = itemIdToVariantId.get(deletedId);
-            if (vid != null) {
-                var deletedQty = oldQuantities.getOrDefault(deletedId, BigDecimal.ZERO);
-                // Deletion restores stock → negative delta (restore)
-                stockDelta.merge(vid, deletedQty.negate(), BigDecimal::add);
-            }
-        }
-
-        // 6. Validate and apply against the per-store row of the order's store
-        for (var entry : stockDelta.entrySet()) {
-            var vid = entry.getKey();
-            var delta = entry.getValue();
-            var storeStock = lockedRows.get(vid);
-            var available = orZero(storeStock.getStock());
-
-            if (delta.compareTo(BigDecimal.ZERO) > 0) {
-                // Selling requires a live definition. The inline-items paths (createSalesOrder,
-                // updateSalesOrder) reach this loop without passing through
-                // validateProductVariantExists, so the gate is repeated here. Restorations
-                // (delta < 0) stay ungated: reversing a past sale must still work after the
-                // variant was discontinued.
-                validateProductVariantExists(vid);
-
-                // Deduction needed — validate sufficient stock in THIS store
-                if (available.compareTo(delta) < 0) {
-                    throw new InsufficientStockException(vid, delta, available);
-                }
-                storeStock.setStock(available.subtract(delta));
-                productVariantStoreStockRepository.save(storeStock);
-            } else if (delta.compareTo(BigDecimal.ZERO) < 0) {
-                // Restoration (delta is negative)
-                storeStock.setStock(available.add(delta.negate()));
-                productVariantStoreStockRepository.save(storeStock);
-            }
-            // delta == 0: no change, skip save
+        var delta = newQuantity.subtract(oldQuantity);
+        if (delta.signum() > 0) {
+            operations.add(deduct(companyStoreId, newVariantId, delta, itemId));
+        } else if (delta.signum() < 0) {
+            operations.add(reverse(companyStoreId, oldVariantId, itemId));
+            operations.add(deduct(companyStoreId, newVariantId, newQuantity, itemId));
         }
     }
 
     /**
-     * Locks the {@code (variant, store)} stock row, creating it first when it does not exist yet.
-     * The conflict-tolerant insert mirrors {@code ProductVariantLocationRepository}'s balance
-     * insert: it keeps the unique violation from aborting the transaction, so the pessimistic lock
-     * that follows is always held over an existing row.
+     * Reverses every line of the list through the engine. A line already reversed — soft-deleted
+     * earlier, cancelled individually, or restored by a previous order cancellation — keeps a zero
+     * uncovered ledger remainder, so its reversal is a no-op and the aggregate is never credited
+     * twice (W3-D6).
      */
-    private ProductVariantStoreStock lockStoreStock(UUID variantId, UUID companyStoreId) {
-        productVariantStoreStockRepository.insertStoreStockIfAbsent(variantId, companyStoreId);
-        return productVariantStoreStockRepository
-                .findByProductVariantIdAndCompanyStoreIdForUpdate(variantId, companyStoreId)
-                .orElseThrow(() -> new IllegalStateException("Product variant store stock row not found for variant "
-                        + variantId + " and store " + companyStoreId + " after it was locked or created"));
+    private void restoreAllLines(UUID companyStoreId, List<SalesOrderItem> items) {
+        var operations = new ArrayList<StockOperation>();
+        for (var item : items) {
+            operations.add(reverse(companyStoreId, item.getProductVariantId(), item.getId()));
+        }
+        applyStockChanges(operations);
     }
 
-    /** NULL stock only means "never set" — the column default is 0. */
-    private static BigDecimal orZero(BigDecimal stock) {
-        return stock != null ? stock : BigDecimal.ZERO;
+    /** A line whose status is the terminal {@code Cancelled}: it holds no stock and is not revived. */
+    private static boolean isCancelledLine(SalesOrderItem line, UUID cancelledItemStatusId) {
+        return cancelledItemStatusId != null && cancelledItemStatusId.equals(line.getStatusId());
     }
 
-    /** Composite identity of a per-store stock row: the lock/sort key of the stock movers. */
+    private StockOperation deduct(UUID companyStoreId, UUID variantId, BigDecimal quantity, UUID itemId) {
+        return new StockOperation(
+                new StoreVariantKey(companyStoreId, variantId),
+                false,
+                () -> inventoryService.applySaleDeduction(
+                        variantId,
+                        companyStoreId,
+                        quantity,
+                        SALE_REFERENCE_TYPE,
+                        itemId,
+                        currentUserContext.getUsername()));
+    }
+
+    private StockOperation reverse(UUID companyStoreId, UUID variantId, UUID itemId) {
+        return new StockOperation(
+                new StoreVariantKey(companyStoreId, variantId),
+                true,
+                () -> inventoryService.applySaleReversal(
+                        SALE_REFERENCE_TYPE, itemId, currentUserContext.getUsername()));
+    }
+
+    /** Composite identity of a per-store stock row: the order/sort key of the stock movers. */
     private record StoreVariantKey(UUID companyStoreId, UUID variantId) implements Comparable<StoreVariantKey> {
 
         @Override

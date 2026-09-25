@@ -1,9 +1,11 @@
 # ODD feature: sales-location-aware-stock
 
-**Status**: slice 1 of four implemented — the movement engine is written, independently verified and
-committed on `feat/sales-location-aware-stock`, which sits on `main` @ `167a6ce`. **Slices 2, 3 and 4
-remain open**, and slice 2 must land before any release: until it does, the repository carries the new
-public API with no production caller. This header makes no claim about push or PR state; see the task log.
+**Status**: slices 1 and 2 of four implemented — the movement engine and the sales-path rewiring are
+written and independently verified on `feat/sales-location-aware-stock`, which sits on `main` @
+`167a6ce`. **Slices 3 and 4 remain open.** Slice 3 is the reconciliation: until it lands the
+invariant holds only for rows written after this change, and it must ship in the same release as slices 1
+and 2 or be re-run afterwards, because on its own it re-creates the inconsistency it repairs. This header
+makes no claim about push or PR state; see the task log.
 **Created**: 2026-09-24 · **Risk**: **high** — the change alters the stock-deduction semantics of a live
 sales path, adds the missing ledger writer, and repairs persisted inventory balances from data that
 cannot be recomputed (the ledger has no sales history to derive them from).
@@ -124,6 +126,11 @@ settings row** is reachable, which means location balances can exist for a store
 | `InventoryServiceTest` | `@Nested` at `:118` (quantity guard), `:161` (store guard), `:194` (additive receipt), `:337` (lock order) | The lock-order test at `:337-360` is the precedent the sales path lacks |
 | `InventoryIntegrationTest` | `InterimInconsistencyTests:410-442` | **This test asserts the interim contract**: it constructs locations = 100 with an aggregate of 40 and asserts the receipt keeps the aggregate additive at 45. Its own comment names the reason: *"it fails under a recompute implementation."* W3 inverts its premise (F5) |
 
+**Anchor drift after slices 1 and 2.** The map above is the pre-change picture at `main @ 6423256` and is
+kept as such: slices 1 and 2 have since moved several of its anchors — the engine's new public methods,
+`SalesOrderService`'s line numbers, and the unit-test count it quotes as 73, which is 77 now. The
+decisions, findings and task list below are the live contract; the map is the historical picture.
+
 ## Inherited decisions (cited, not copied)
 
 Taken in `odd/tasks/purchase-order-goods-receipt.md` and unchanged here:
@@ -202,6 +209,38 @@ Taken in `odd/tasks/purchase-order-goods-receipt.md` and unchanged here:
   W3-D2's reconciliation absorbs the whole location split into the sales location afterwards. The
   alternative is a one-line `enabled = true` filter on the new query if the project prefers the
   precedent's wording to its own edge case.
+- **W3-D10 — the deduction reads an absent store-stock row as zero sellable stock, and answers 409.**
+  Taken by the parent on 2026-09-25. Slice 1 gave the deduction a store guard symmetric with
+  `applyReceipt`, which rejects a missing row with `IllegalArgumentException` (`:129-133`, 400 today).
+  Slice 2 showed the symmetry was the wrong reading for a sale: a variant that exists and is enabled but
+  has no row in the order's store used to answer `InsufficientStockException` (409) after creating the
+  row on the fly. The deduction now raises `InsufficientStockException` directly and writes nothing; the
+  receipt keeps rejecting. The asymmetry is deliberate and documented on both methods, because the two
+  paths ask different questions — *is there sellable stock here* versus *does this store hold this
+  variant at all*. This revision is why slice 1's `rejectsVariantWithNoStoreRow` expectation changed;
+  the test was rewritten to the corrected contract rather than deleted.
+- **W3-D11 — a line holds stock iff it is enabled, its item status is not `Cancelled`, and its order is
+  not terminal.** Taken by the user on 2026-09-25, together with the instruction to close inside slice 2
+  the hole it exposed. A disabled→enabled transition is a **fresh hold**: the deletion already reversed
+  the stock, so the delta for a re-enabled line is its full quantity, not the difference against a
+  quantity that no longer holds anything. The rule replaces three scattered booleans with one statement
+  every path can be checked against. A `Cancelled` item is terminal (`SO_ITEM_TRANSITIONS`), so reviving
+  a hold on it would create a ghost hold that the next order cancel would only return.
+- **W3-D12 — an order in a terminal status cannot be modified.** Taken by the user on 2026-09-25,
+  choosing to close the class of states rather than the single instance. `PUT /api/sales-orders/{id}`
+  now rejects `Completed` and `Cancelled` with 409 (`SalesOrderAlreadyFinalizedException`). *Terminal* is
+  derived from the transition table rather than hardcoded, so it stays true if the status machine
+  changes. The stranded deduction this closes was **pre-existing** — the old net-delta path deducted on a
+  cancelled order too — and **slice 3 would not have repaired it**: W3-D2 re-expresses the existing
+  aggregate and never credits it, so a stranded deduction survives as a lower sales-location balance.
+- **W3-D13 — a `Cancelled` or soft-deleted line cannot be modified either.** Taken by the parent on
+  2026-09-25 as W3-D12's reasoning applied at line granularity, and recorded as such so that it is
+  reviewable and reversible instead of silently widened: the user's choice for W3-D12 was explicitly to
+  close the class, and the sibling hole was the same defect one level down. `PUT
+  /api/sales-orders/{id}/items/{itemId}` rejects both states with 409
+  (`SalesOrderItemNotModifiableException`, a new subtype of `ConflictException`). Re-enabling a
+  soft-deleted line stays possible through the order-level `PUT` — the W3-D11 path, which deducts
+  correctly — and that supported route is what lets the line-level guard be strict.
 
 ## Scope: four slices
 
@@ -240,25 +279,56 @@ consumes slice 1; slice 4 depends on all three.
 
 ### Slice 2 — the sales path (backend)
 
-- [ ] **S2-T1** Replace the net-delta fold in `applyStockChanges` (step 4) with a per-item delta list, so
+- [x] **S2-T1** Replace the net-delta fold in `applyStockChanges` (step 4) with a per-item delta list, so
       movements carry line-level provenance. Locking keeps the sorted distinct-variant order
       (`:864-873`).
-- [ ] **S2-T2** Route the deduct paths through the engine: `createSalesOrder`, `updateSalesOrder`,
+- [x] **S2-T2** Route the deduct paths through the engine: `createSalesOrder`, `updateSalesOrder`,
       `addSalesOrderItem`, `updateSalesOrderItem`.
-- [ ] **S2-T3** Route the restore paths through the engine's reversal: `deleteSalesOrderItem`,
+- [x] **S2-T3** Route the restore paths through the engine's reversal: `deleteSalesOrderItem`,
       `updateSalesOrderStatus` → `Cancelled`, `deleteSalesOrder`, and the parts of `updateSalesOrder` that
       delete or shrink a line.
-- [ ] **S2-T4** Fix W3-D4: `updateSalesOrderItemStatus` → `Cancelled` restores the line and writes the
+- [x] **S2-T4** Fix W3-D4: `updateSalesOrderItemStatus` → `Cancelled` restores the line and writes the
       reversal, matching item deletion. Decide and test the double-restore guard (a cancelled line that is
       later deleted must not restore twice — the ledger remainder in W3-D6 is the mechanism).
-- [ ] **S2-T5** `SalesOrderService` no longer injects `ProductVariantStoreStockRepository` directly if the
+- [x] **S2-T5** `SalesOrderService` no longer injects `ProductVariantStoreStockRepository` directly if the
       engine fully owns the mutation; the store-reassignment rejection (`:224-231`) is re-verified because
       reversals depend on it.
-- [ ] **S2-T6** Integration tests (Testcontainers, `AbstractPostgresIntegrationTest`) that assert on
+- [x] **S2-T6** Integration tests (Testcontainers, `AbstractPostgresIntegrationTest`) that assert on
       `product_variant_locations` and on `inventory_movements` — closing the location-blindness of the
       whole suite. Extend the existing nested classes 5.1–5.12 rather than adding a parallel suite.
-- [ ] **S2-T7** Regression check on the 73 unit tests in `SalesOrderServiceTest`, especially
+- [x] **S2-T7** Regression check on the 73 unit tests in `SalesOrderServiceTest`, especially
       `StockDeltaAndRestorationTests` (`:2391`) and `InsufficientStockExceptionTests` (`:2725`).
+
+### Follow-ups opened by slice 2 (neither closed nor belonging to slices 3 or 4)
+
+- [ ] **F-1 — the engine exposes a raw lock whose protocol lives in its caller.** `lockStoreStock` became
+      public so the sales batch can pre-lock before it reorders reversals ahead of deductions. It adds no
+      behaviour and preserves `storeStock -> locationBalance` for a correctly sequenced caller, but the
+      cross-key ordering invariant now lives in `SalesOrderService` while the lock it depends on lives in
+      `InventoryService`: **one invariant with two owners**, and the protocol is prose-only. The honest
+      shape is an engine-owned batch operation that sorts, pre-locks and runs the two phases internally.
+      Follow-up, not a defect — but it is the kind of split that rots.
+- [ ] **F-2 — the cancelled-status lookup fails open.** `isCancelledLine` is fed
+      `findByTypeNameAndStatusName(...).orElse(null)`; with that row missing the guard silently does not
+      fire and a `Cancelled` line becomes modifiable again. Reachable only against a database missing a
+      status V3 seeds, but for a guard that is the wrong default. Fix: fail closed, or resolve by id.
+- [ ] **F-3 — the `Pending` asymmetry needs a decision rather than drift.** The order-level `PUT` accepts
+      a `Pending` order while the item-level endpoints reject it through `loadAndValidateModifiableSO`.
+      Verified pre-existing on base `167a6ce` and now documented in the method comment. Unifying the two
+      policies is a product decision; W3-D12 deliberately did **not** narrow the rule to `Pending`.
+- [ ] **F-4 — the multi-key lock ordering has no concurrent test.** The pre-lock's deadlock argument is
+      read, not reproduced: the existing concurrency case (5.9) exercises a single `(variant, store)` key,
+      so multi-key correctness rests on sequential tests.
+- [ ] **F-5 — no test probes the item-level ownership boundary.** The ownership check runs before the line
+      guard (verified by reading), so a wrong-order probe cannot distinguish states — but nothing builds
+      an item belonging to a different order to prove it.
+- [ ] **F-6 — two stubs are declared `lenient()`, which switches off Mockito's unused-stub detection for
+      them.** `SalesOrderServiceTest:296-303` wraps `existsByIdAndEnabledTrue` and the
+      `"SALES_ORDER_ITEM"/"Cancelled"` lookup in `lenient()`, while the class otherwise runs under
+      `STRICT_STUBS`. A writer cited that mode as evidence that no stub is unused; for these two the claim
+      does not hold, and independent verification caught it. The lookup is load-bearing for the reason
+      that actually matters — `updateSalesOrder_ReEnableCancelledLineWithChangedQuantity_NoStockMovement`
+      asserts `verifyNoInteractions(inventoryService)` — not because of strictness.
 
 ### Slice 3 — the reconciliation (data)
 
@@ -354,6 +424,15 @@ the writer's explanation for the size was reviewed; and independent verification
 mapping 1:1 onto the seven named behaviours of S1-T5 rather than padding. Consequence for the chain: the
 first pull request is ~2.8× the budget, and **slice 2's band below must be re-measured rather than
 trusted**, because it was derived the same way this one was.
+
+**Slice 2 measured: 1902 insertions / 513 deletions across 6 files, plus one new 23-line exception —
+~2438 line-changes**, against a 700–1000 band, and it took **four production rounds** after the first
+implementation: the variant-change ordering defect (F13), the re-enable hole (W3-D11), the terminal-order
+guard (W3-D12) and the line-level guard (W3-D13). Two of those were found by the coverage round a
+verification demanded, and one — the worst — was found by the writer of that coverage work. **Slices 1 and
+2 now measure ~3553 line-changes for two of four slices**, against a band of 1400–2100 for all four. The
+bands below are therefore historical: **S3 and S4 must be estimated from these measurements**, not from
+the original forecast, and F15 is the reason the overrun is worth more than its number.
 
 ## Risks
 
@@ -457,6 +536,33 @@ trusted**, because it was derived the same way this one was.
   real database. Its join chain matches the executable precedent and its ordering is deterministic, but
   **data semantics are unexecuted until S2-T6**, which owns that coverage. Do not mistake a parsed query
   for a proven one.
+- **F13 — slice 2 lost a sale whenever the new variant's uuid sorted first, and no invariant could see
+  it.** A variant change registered `reverse(old)` and `deduct(new)` under one reference with two
+  different `StoreVariantKey`s, and the batch was sorted by key, so the deduction ran first; the
+  reference-scoped reversal then read that fresh `SALE` row and credited it straight back. The line said
+  variant B while **nobody held the stock**. Reachable through both the order-level and the item-level
+  `PUT` for roughly half of all variant changes — those whose new uuid sorts earlier. The repro is
+  `SalesOrderIntegrationTest$UpdateItemVariantChangeTests.updateItem_VariantChange_NewVariantSortsFirst_StillSellsNew`,
+  observed as `expected: 7.00 but was: 10.00`. It survived both of this record's own guardians: slice 1's
+  verification passed the engine's contract, slice 2's passed `aggregate = SUM(locations)` path by path,
+  and both were green while the stock was simply unheld, because the ledger and the balances stayed
+  mutually coherent. Fixed by running all reversals before all deductions in a batch, with every distinct
+  key pre-locked in order first so the reorder cannot invert the lock acquisition order.
+- **F14 — three times, a state that must not be modifiable was modifiable.** The re-enable of a deleted
+  line handed out stock for free (W3-D11); `PUT /api/sales-orders/{id}` modified a terminal order and left
+  a deduction nothing would ever reverse, which slice 3 would **not** have repaired (W3-D12); and the
+  item-level `PUT` accepted a `Cancelled` or soft-deleted line, deducting on it with no line holding the
+  stock (W3-D13). Each was pre-existing or newly reachable, each was reachable through the API with a
+  well-formed request, and each needed its own guard rather than a fix to the stock arithmetic. The
+  register now carries all three decisions with their reasoning.
+- **F15 — the defects were compositional, and only coverage found them.** None of slice 2's four defects
+  lived inside a part: the ordering one is a property of the *sequence of two calls*, the re-enable one of
+  the interaction between `enabled` and the status machine, and the two guards were a state nobody had
+  ever enumerated. A component contract check and an invariant check can both be green while the
+  composition loses money. **Consequence for slices 3 and 4:** their verification plans must lead with
+  adversarial orderings and boundary states — an explicitly inverted key order, a status/enabled matrix,
+  and a re-run of a mutating operation — instead of waiting for coverage to stumble onto them three rounds
+  later.
 
 ## Task log
 
@@ -471,4 +577,12 @@ trusted**, because it was derived the same way this one was.
 | 2026-09-25 | Slice 1 implemented (S1-T1…S1-T6) | Written by one delegated `gentle-ai-worker` (route and trigger in `## Checks and route`): 6 files under `life-control-api/**/inventory/` plus a new `InventoryServiceSaleMovementTest` (22 tests, 7 nested classes). The reachable RED for a brand-new Java API is a **compile failure** (`cannot find symbol method applySaleDeduction`), not an assertion failure — recorded as the weaker form it is. Verification found one overstated javadoc claim (the balance rows are *not* locked "the same sequence for every caller": the reversal orders by `store_location_id` while the deduction orders FIFO; safety comes from the shared `storeStock` row being first for every mover), corrected in this commit. That correction is **comment-only**, so the compiled behaviour is identical to the bytes the `09:30:46` gate covered, but it is not literally the same tree: the next forced gate, at slice 2, is the first that covers the final bytes. Stated rather than glossed, because F10 is exactly the cost of not stating it. |
 | 2026-09-25 | The gate was a green no-op and was re-run under force | `Task :test UP-TO-DATE`, 9/9 up-to-date, **no test executed**, while the writer's XML showed 2082. Forced with `cleanTest`: `BUILD SUCCESSFUL in 1m 22s`, XML mtime `09:30:46` postdating the last source edit `08:42:22`, aggregate **600 classes / 2082 tests / 0 failures / 0 errors / 0 skipped**, SpotBugs 0 findings. This is what promoted S1-T5 from "read" to "independently executed" — see F10 |
 | 2026-09-25 | Verification of slice 1 by a separate read-only session | `gentle-ai-verify` independently re-read the engine and confirmed: lock order `storeStock -> locationBalance` with non-vacuous lock-order tests; no write on either fail-closed path; the reversal derives from the ledger, never consults the settings row and is a true no-op when re-run; the FIFO tie-break is deterministic even within one transaction; W3-D8 warns exactly once; `applyReceipt` byte-identical; no file outside the allowed surfaces; the writer's self-reported index writes left no residue. It also produced F11 and F12 |
+| 2026-09-25 | Slice 2 implemented (S2-T1…S2-T7) | One delegated `gentle-ai-worker`: every one of the eight sales entry points routes through the engine, the net-delta fold became a per-line operation list sorted by `StoreVariantKey`, the ledger reference is the persisted line id, and `SalesOrderService` no longer touches store stock directly. Measured 1332 changed lines at that point |
+| 2026-09-25 | Slice 2's first independent verification | No blocking finding: the invariant holds path by path (no path moves only the aggregate), the lock order survives, provenance is asserted against the id the API returned. It found **one real defect of coverage** — the unit tests had been converted from asserting the post-state to asserting the engine's arguments, and nothing backfilled it for the update paths — plus four untested idempotency orderings |
+| 2026-09-25 | The coverage round found F13 | ~520 added lines, 12 of 13 new tests green, and the thirteenth left **failing on purpose** as the repro for the variant-change ordering defect instead of touching production outside its surfaces. That is the round that also closed S2-T6/S2-T7's gap and produced the genuine RED `expected: 7.00 but was: 10.00` |
+| 2026-09-25 | Fix rounds: F13 ordering, then W3-D11 re-enable | The ordering fix keeps the key split, adds a `reversal` flag, pre-locks all distinct keys in sorted order and only then reorders. The naive "reversals first" alone would have re-introduced a deadlock by inverting lock acquisition; that was the parent's instruction being incomplete, caught by the writer. The re-enable fix grounded "holds stock" on the live state instead of the recorded quantity, with its own observed RED `expected: 96.00 but was: 100.00` |
+| 2026-09-25 | Verification of the ordering and re-enable fix | The gate was a green no-op in the writer's hands first (`Task :test UP-TO-DATE`) and only `cleanTest` produced real execution — 606 classes / 2103 tests. Confirmed the pre-lock is the first *stock* lock, that `applyReceipt` keeps its rejection while the deduction answers 409, and that the cancelled-line guard was **vacuous** as tested (same quantity ⇒ delta zero with or without it) |
+| 2026-09-25 | Fix rounds: W3-D12 terminal order, W3-D13 line guard, and the vacuous test | Both guards answer 409 through `ConflictException` types, *terminal* is derived from the transition table, and the guard runs before any mutation. The vacuous test was strengthened to a changed quantity and the guard was **mutated off** to observe `expected: 100.00 but was: 99.00` before restoring it — non-vacuity demonstrated rather than asserted |
+| 2026-09-25 | Verification of the guards delta | W3-D12 and W3-D13 implemented exactly as the register states them; no blocking or real-defect finding. It confirmed the `Pending` asymmetry is pre-existing on base `167a6ce`, called out the dead `orderCancelled` branch that W3-D12 had just made unreachable, and noted the fail-open cancelled-status lookup |
+| 2026-09-25 | Dead-code removal | The unreachable `orderCancelled` branch and its redundant status read removed (net −4 lines) with a dominance argument rather than an assumption, no test touched and no assertion changed — 607 classes / 2111 tests green, identical counts to the pre-removal baseline. **Gap:** the pre-deletion revision was not captured anywhere — nothing staged, no stash, no backup — so the deletion is verified by the dominance argument plus this green rather than by an observed diff. Next time a writer removes code, capture the diff before it lands |
 | 2026-09-25 | Work-unit commit, rebase, and the route/checks declaration | This record and the pointer in `purchase-order-goods-receipt.md` committed together as `docs(odd): plan W3 as its own record (sales-location-aware-stock)`, then rebased onto `167a6ce` (PR #172), one commit replayed with no conflicts — which supersedes the *"not done yet"* half of the row above. Anchors re-checked against the new base: PR #172 is frontend-only and touched no file this record anchors to, including `store-inventory-settings.html:68`, whose *"Ubicación de venta"* label is intact. RDD verified disabled (`gentle_review inspect` → `stop / rdd_disabled`), so tasks carry ordinary checks and no review ceremony. TDD mode, gate and per-task route declared in `## Checks and route` |
