@@ -186,7 +186,9 @@ public class InventoryService {
      * the precondition a sale has today — is checked first against the locked store row; then the
      * location rows are checked together, so a state the reconciliation should have removed cannot
      * leave a store partially deducted. Both checks run before any write and both raise
-     * {@link InsufficientStockException}.</p>
+     * {@link InsufficientStockException}. A store that does not stock the variant at all never
+     * reaches the locks: the absent row is zero sellable stock and raises the same exception, while
+     * {@link #applyReceipt} keeps rejecting that same absent row — see the asymmetry at step 3.</p>
      *
      * <p>Lock order is unchanged: the definition is read without a lock, then
      * {@code storeStock -> locationBalance}. The shared {@code storeStock} row is the first lock every
@@ -200,10 +202,10 @@ public class InventoryService {
      * @param referenceType source discriminator carrying the line-level provenance of the sale (W3-D6)
      * @param referenceId identity of that source
      * @param createdBy username of the seller, when known
-     * @throws IllegalArgumentException when {@code quantity} is not greater than zero, or when the
-     *     variant has no stock row in {@code companyStoreId}
-     * @throws InsufficientStockException when the store cannot cover {@code quantity}, first against
-     *     the aggregate and then against the sum of the store's location balances
+     * @throws IllegalArgumentException when {@code quantity} is not greater than zero
+     * @throws InsufficientStockException when the store cannot cover {@code quantity} — including
+     *     when the store does not stock the variant at all, which is zero sellable stock — first
+     *     against the aggregate and then against the sum of the store's location balances
      * @throws ProductVariantNotFoundException when the variant does not exist or is disabled
      */
     public void applySaleDeduction(
@@ -228,11 +230,16 @@ public class InventoryService {
             throw new ProductVariantNotFoundException(productVariantId);
         }
 
-        // 3. FIRST lock: the per-store stock row, the serialization point of every stock mover.
+        // 3. FIRST lock: the per-store stock row, the serialization point of every stock mover. A
+        //    store that does not stock the variant has ZERO sellable stock, so the sale fails
+        //    closed with the same InsufficientStockException (409) a zero aggregate produces. This
+        //    is deliberately asymmetric with applyReceipt, which rejects the missing row as an
+        //    invalid receipt: receiving into a store the variant is not stocked in is a placement
+        //    error, while a sale for an unstocked variant is an empty balance, and it must keep the
+        //    sales contract (409) rather than surface as the 400 an IllegalArgumentException gets.
         var storeStock = productVariantStoreStockRepository
                 .findByProductVariantIdAndCompanyStoreIdForUpdate(productVariantId, companyStoreId)
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "Product variant " + productVariantId + " has no stock row in store " + companyStoreId));
+                .orElseThrow(() -> new InsufficientStockException(productVariantId, quantity, BigDecimal.ZERO));
 
         // 4. First fail-closed check (W3-D1): the aggregate is the sellable number and the
         //    precondition of the sale.
@@ -359,6 +366,25 @@ public class InventoryService {
                     referenceId,
                     createdBy);
         }
+    }
+
+    /**
+     * Takes the pessimistic lock on one {@code (variant, store)} stock row without moving it, so a
+     * caller that runs several stock operations in one batch can take every row in a deterministic
+     * order before it runs any of them.
+     *
+     * <p>Such a caller must run its reference-scoped reversals before its deductions, because a
+     * reversal that reads the ledger after a same-batch deduction of the same reference would credit
+     * the fresh sale back. That ordering can invert the sorted key order of the rows an unordered
+     * batch would take, so locking every row up front keeps the acquisition order ascending and the
+     * deadlock invariant intact. It is the same first lock every mover takes, which preserves the
+     * documented {@code storeStock -> locationBalance} order, and re-locking an already-held row
+     * inside the same transaction is a no-op. A row that does not exist is simply not locked: the
+     * operation that follows raises its own exception.</p>
+     */
+    public void lockStoreStock(UUID productVariantId, UUID companyStoreId) {
+        productVariantStoreStockRepository.findByProductVariantIdAndCompanyStoreIdForUpdate(
+                productVariantId, companyStoreId);
     }
 
     /**

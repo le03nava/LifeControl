@@ -417,18 +417,22 @@ class InventoryServiceSaleMovementTest {
         }
 
         @Test
-        @DisplayName("should reject a variant that has no stock row in the supplied store")
+        @DisplayName("should fail closed with InsufficientStockException when the store has no stock row")
         void rejectsVariantWithNoStoreRow() {
             givenEnabledVariant();
             when(productVariantStoreStockRepository.findByProductVariantIdAndCompanyStoreIdForUpdate(
                             VARIANT_ID, STORE_ID))
                     .thenReturn(Optional.empty());
 
+            // A sale of a variant the store does not stock is an insufficiency — zero sellable
+            // stock — not a programmer error: the API maps InsufficientStockException to 409, while
+            // an IllegalArgumentException would surface as 400. The missing row must write nothing.
             assertThatThrownBy(() -> deduct("1.00"))
-                    .isInstanceOf(IllegalArgumentException.class)
+                    .isInstanceOf(InsufficientStockException.class)
                     .hasMessageContaining(VARIANT_ID.toString())
-                    .hasMessageContaining(STORE_ID.toString());
+                    .hasMessageContaining("requested 1.00, available 0");
 
+            verify(productVariantStoreStockRepository, never()).save(any(ProductVariantStoreStock.class));
             verifyNoInteractions(productVariantLocationRepository);
             verifyNoInteractions(inventoryMovementRepository);
         }
