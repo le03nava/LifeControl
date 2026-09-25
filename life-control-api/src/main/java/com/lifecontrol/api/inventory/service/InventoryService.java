@@ -29,9 +29,11 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Inventory write path: moves the per-location balance and records the movement that explains it.
  *
- * <p>Workstream W2a ships the balances, the append-only ledger and this mutator. Nothing calls it
- * yet: the goods-receipt document, its endpoints and the {@code lc-receiving} role arrive with W2c,
- * which is why this slice changes no existing behaviour.</p>
+ * <p>This service is the single owner of the stock arithmetic. Four writers call it: the goods
+ * receipt ({@link #applyReceipt}, from {@code GoodsReceiptService}), the sale and its reversal
+ * ({@link #applySaleDeduction} / {@link #applySaleReversal}, from {@code SalesOrderService}), and
+ * the manual per-store edit ({@link #applyStockAdjustment}, from
+ * {@code ProductVariantService.upsertStoreStock}).</p>
  *
  * <h2>Lock order after the variant-identity split</h2>
  * <p>The variant definition no longer carries stock, so it is not locked: the serialization point
@@ -43,20 +45,27 @@ import org.springframework.transaction.annotation.Transactional;
  * serialize there; nothing takes these locks in the opposite order, so the order is cycle-free. The
  * variant definition is read without a lock only to reject a missing or disabled variant.</p>
  *
- * <h2>Interim contract (until the sales rework, workstream W3, lands)</h2>
- * <ol>
- *   <li><b>Sales still bypasses locations.</b> {@code SalesOrderService.applyStockChanges} keeps
- *       subtracting the sold quantity from the per-store {@code product_variant_store_stock.stock}
- *       with no location dimension, because W3 is deferred.</li>
- *   <li><b>Location stock overcounts.</b> {@code product_variant_locations.stock} is therefore
- *       higher than the sellable aggregate by everything sold since receipt, and must not be
- *       presented as sellable availability until W3.</li>
- *   <li><b>The ledger is partial.</b> It holds only {@link MovementType#RECEIPT} rows until W3
- *       starts writing sale movements, so it is a partial history and not yet a complete stock
- *       audit.</li>
- *   <li><b>W3 owes the reconciliation</b> of the location balances against the aggregate, and the
- *       switch of {@link #applyReceipt} from additive to recompute semantics.</li>
- * </ol>
+ * <h2>Stock contract: every writer moves both sides</h2>
+ * <p>Sales is location-aware. {@code SalesOrderService} routes every deduction and every restoration
+ * through this service, so a sale moves the per-store aggregate <em>and</em> the per-location
+ * balances in the same transaction, exactly as {@link #applyReceipt} and
+ * {@link #applyStockAdjustment} do. The invariant</p>
+ * <pre>{@code product_variant_store_stock.stock = SUM(product_variant_locations.stock)}</pre>
+ * <p>therefore holds by construction for every mutation (W3-D5), and
+ * {@code V15__inventory_balance_reset.sql} removed the divergence that predated it. The ledger is
+ * complete: {@link MovementType#RECEIPT}, {@link MovementType#SALE},
+ * {@link MovementType#SALE_REVERSAL}, {@link MovementType#ADJUSTMENT_INCREASE} and
+ * {@link MovementType#ADJUSTMENT_DECREASE} explain every balance change (W3-D7).</p>
+ *
+ * <h2>Why {@link #applyReceipt} stays additive</h2>
+ * <p>The receipt increments the location balance and the store's sellable row, and neither is
+ * derived from the other. With every writer moving both sides this is correct by construction
+ * rather than the compromise it once was, and the switch to recompute semantics is closed (W3-D5):
+ * while the invariant holds a recompute would have nothing to correct. It must stay that way. The
+ * one operation the receipt may never perform is deriving the aggregate from
+ * {@code SUM(product_variant_locations.stock)}: if a writer ever leaves the two sides disagreeing,
+ * that derivation silently resurrects stock a sale already sold instead of surfacing the
+ * divergence. The receipt explains its own delta; it does not repair another writer's balances.</p>
  */
 @Service
 @Transactional
@@ -161,13 +170,11 @@ public class InventoryService {
         inventoryMovementRepository.save(movement);
 
         // 6. ADDITIVE, NEVER A RECOMPUTE. The location balance and the store's sellable stock are
-        //    both incremented here; neither may be re-derived from the other. Until W3 makes the
-        //    sales path location-aware, SalesOrderService.applyStockChanges subtracts the sold
-        //    quantity from `product_variant_store_stock.stock` without touching any location row, so
-        //    the sellable row is legitimately BELOW the sum of the location balances:
-        //    sellable = SUM(locations) - everything sold since receipt. Recomputing the sellable
-        //    stock from the location sum would silently resurrect stock that sales already sold.
-        //    W3 owes the reconciliation and the switch of this method to recompute semantics.
+        //    both incremented here, by the same quantity, so this is correct by construction
+        //    (W3-D5) and keeps aggregate = SUM(locations). Neither side may be re-derived from the
+        //    other: deriving the sellable stock from the location sum is the one operation that
+        //    would silently resurrect stock a sale already sold if a writer ever left the two sides
+        //    disagreeing. The switch to recompute semantics is closed, not deferred.
         // A NULL stock means the column was never set (its default is 0), so it counts as zero.
         location.setStock(orZero(location.getStock()).add(quantity));
         productVariantLocationRepository.save(location);

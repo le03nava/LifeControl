@@ -1,10 +1,9 @@
 # ODD feature: sales-location-aware-stock
 
-**Status**: slices 1, 2 and 3 of four implemented — the movement engine, the sales-path rewiring, and
-the balance reset with its source closure are written and independently verified on
-`feat/sales-location-aware-stock`, which sits on `main` @ `167a6ce`. **Slice 4 remains open**: the
-interim contracts still sitting in the code, and the test that asserts the old one, are not yet flipped.
-This header makes no claim about push or PR state; see the task log.
+**Status**: all four slices implemented and independently verified on `feat/sales-location-aware-stock`,
+which sits on `main` @ `167a6ce` — the movement engine, the sales-path rewiring, the balance reset with
+its source closure, and the flipped contract. **No slice work remains open.** What remains are the
+follow-ups the feature opened, listed under `### Follow-ups opened by slice 2`. This header makes no claim about push or PR state; see the task log.
 **Created**: 2026-09-24 · **Risk**: **high** — the change alters the stock-deduction semantics of a live
 sales path, adds the missing ledger writer, and repairs persisted inventory balances from data that
 cannot be recomputed (the ledger has no sales history to derive them from).
@@ -396,19 +395,34 @@ exists, the editor fix stops it being re-created. Neither is sufficient alone.
 
 ### Slice 4 — the contract flip
 
-- [ ] **S4-T1** Rewrite `InventoryService.java:33-46` and the `:138-146` comment block: sales is
+- [x] **S4-T1** Rewrite `InventoryService.java:33-46` and the `:138-146` comment block: sales is
       location-aware, the aggregate equals the location sum by construction, and the recompute question is
       closed (W3-D5) rather than deferred.
-- [ ] **S4-T2** Replace `InterimInconsistencyTests` (`InventoryIntegrationTest:410-442`) with an invariant
+- [x] **S4-T2** Replace `InterimInconsistencyTests` (`InventoryIntegrationTest:410-442`) with an invariant
       test: after every sales and receipt operation, `aggregate = SUM(locations)`. The old test's premise
       becomes unreachable through the application.
-- [ ] **S4-T3** Update `life-control-api/AGENTS.md` where it describes the sales/inventory contract and the
+- [x] **S4-T3** Update `life-control-api/AGENTS.md` where it describes the sales/inventory contract and the
       inventory schema, and check the invariants it states about stock.
-- [ ] **S4-T4** Sweep for remaining interim prose: `grep -rn "W3\|until the sales rework" src/main/java`
-      must return only intentional historical references. The sweep has at least four known members, not
-      one: `InventoryService`'s class javadoc (`:33-46`), its additive comment block (`:138-146`),
-      `MovementType`'s javadoc, and **`InventoryMovement`'s javadoc (`:16`)**, which verification found
-      still claiming "only RECEIPT rows exist until W3" and which the plan had not enumerated.
+- [x] **S4-T4** Sweep for remaining interim prose. Its original gate — `grep -rn "W3\|until the sales
+      rework" src/main/java` returning only intentional references — **passed and proved less than it
+      claimed**: 47 hits, all accurate `W3-Dn` citations, zero literal "until the sales rework", while a
+      sentence reading *"the one sales **will later** deduct from"* sat in two files, named no `W3`, and
+      was invisible to the pattern. The gate was widened to forward-looking phrasings (`will later`,
+      `stored now`, `not yet`, `arrives with`, `once W3`, `when W3`, `until W3`, `for now`, `is deferred`,
+      `pending the`, `to be read by`, `will be read`) and every hit was then classified **by reading it
+      against the code**, not by matching. Result: **seven false passages corrected across four
+      rounds** — three of the four members the plan named (`InventoryService`'s class javadoc, its
+      additive comment block, `InventoryMovement`'s javadoc; the fourth, `MovementType`, was already
+      accurate from slice 1), two it had not enumerated (`ProductVariantLocation.java:15`,
+      `StoreInventorySettings.java:11-13`), one duplicate of the last
+      (`StoreInventorySettingsService.java:34-35`), and one the **pre-commit seal** found in a file slice 3
+      had already committed (`MovementType.java:33`, claiming a manual decrease removes stock from the
+      sales location — false since W3-D16). The twelve-pattern set returns zero hits now; the wider
+      reading-based sweep's extra hits were all accurate. **This class was declared closed twice before it
+      was closed**, the second time by the text you are reading, which is the sharpest instance of what the
+      next sentence says. **What the gate does not prove, stated where the gate lives:** a pattern finds
+      only prose that uses its phrases, so a green sweep means *nothing matched*, never *nothing false
+      remains*.
 
 ## Checks and route
 
@@ -431,7 +445,7 @@ trailing cleanup that may be dropped.
 | S1-T1…T6 | delegated → one `gentle-ai-worker` | Writer trigger: 2+ non-trivial files (`InventoryService`, `MovementType`, two repositories, the test class) |
 | S2-T1…T7 | delegated → one `gentle-ai-worker` | Writer trigger, plus four entry points sharing one engine whose semantics must move together |
 | S3-T1…T3 | declared when reached | — |
-| S4-T1…T4 | declared when reached; prose-only edits are single-file and may run inline | — |
+| S4-T1…T4 | delegated → one `gentle-ai-worker`, then two scoped follow-up rounds | Writer trigger: 4 files including a test replacement (`InventoryService`, `InventoryMovement`, `InventoryIntegrationTest`, `AGENTS.md`). The follow-up rounds were delegated too (2+ files each). One single-line javadoc correction (`StoreInventorySettingsService.java:34-35`) ran **inline** under the mechanical-single-file rule — the only production edit the parent made in this feature |
 
 **Declared divergence, slice 1**: it lands a public API with no production caller, against this
 repository's own rule that rejects code added ahead of its consumer
@@ -658,6 +672,19 @@ the original forecast, and F15 is the reason the overrun is worth more than its 
   by the writer of slice 3 as a risk on its own work and reproduced before the fix at unit and integration
   level as `expected: 0.00 but was: -5.00`. Settled as W3-D16. Recorded here because the code cites `F18`
   and, until this line existed, the citation resolved to nothing.
+- **F19 — three times in one feature, a check passed because the check was narrower than the claim it
+  stood for.** Slice 1's gate reported a green suite that had executed **zero** tests (`Task :test
+  UP-TO-DATE`, **F10**). Slice 2's invariant check passed path by path while a variant change lost its
+  sale, because the ledger and the balances stayed mutually coherent while nobody held the stock
+  (**F13**). Slice 4's prose gate returned only intentional references while a future-tense sentence
+  asserted the opposite of the code in two files, because the pattern looked for `W3` and the sentence
+  never named it. Three different mechanisms — a build system, an invariant, a regex — and one failure:
+  **the gate was calibrated against a phrase or a symptom rather than against the property, and its green
+  was read as if it proved the property.** None of the three was a bug in the check; all three were caught
+  by someone who opened the artefact instead of reading the check's result. **What this leaves behind is a
+  convention:** state what each gate does *not* prove, next to the gate. Slice 3's migration gate does it
+  — *the query is prose; the data outcome is not testable in this stack* — and that is the standard this
+  record asks the next one to meet.
 
 ## Task log
 
@@ -684,4 +711,9 @@ the original forecast, and F15 is the reason the overrun is worth more than its 
 | 2026-09-25 | Slice 3 implemented (S3-T1…S3-T6) | One delegated `gentle-ai-worker`. Half 1: `V15__inventory_balance_reset.sql`, a plain `TRUNCATE` of the three balance tables with F17's measured precondition in its header and the operator-gate query; the one breaking assertion (`GoodsReceiptIntegrationTest`'s Flyway head) moved 14 → 15, corroborated by `pending().isEmpty()`. Half 2: `InventoryService.applyStockAdjustment` (pure insertion, 103 lines, class javadoc untouched) and `upsertStoreStock` reduced to validation, authorisation, prices and delegation — no stock arithmetic left in the product service. RED was real and reproduced F16: `expected: 0 but was: 11.00`. Gate 609 classes / 2122 tests |
 | 2026-09-25 | Fix round: F18, the negative location | The writer reported it as a risk on its own work rather than shipping it. Decrease now allocated through the existing allocation helper, one movement per location drawn from, increase still on the sales location. RED observed at both levels as `expected: 0.00 but was: -5.00`; gate 609 classes / 2127 tests. The fail-closed guard was left in place with an explicit statement that it has no reachable case |
 | 2026-09-25 | Verification of slice 3 | No blocking finding and no real defect in the migration, the adjustment or the delegation. It confirmed the truncated table set, that **no foreign key in V1–V15 references those three tables** so the plain `TRUNCATE` is safe (and that the green suite proves it: PostgreSQL rejects it at plan time), that keeping the business documents is defensible because a kept order's reversal reads the now-empty ledger and no-ops, that **no other code anywhere derives a balance from the ledger**, and that `uncoveredRemainder`'s restriction to `SALE`/`SALE_REVERSAL` keeps an adjustment out of any sale reversal. It also produced F18's citation gap, the stale `InventoryMovement` javadoc, and three nits |
+| 2026-09-25 | Slice 4 implemented (S4-T1…S4-T4) | One delegated `gentle-ai-worker`, 185 changed lines across four files. The interim contract in `InventoryService` became the stock contract, with the additive rationale kept and re-grounded on W3-D5 rather than deleted; `InventoryMovement`'s javadoc stopped claiming RECEIPT-only; `InterimInconsistencyTests` became `BalanceInvariantTests` with the central assertion **byte-identical** (`45.00` against `105.00`) and the seeded divergence reframed as the one operation a receipt must never perform, plus store-wide invariant assertions after a receipt, a sale and a reversal. The writer declined to add adjustment coverage because slice 3 already covers that path store-wide, and said so instead of inflating the count. RED not obtainable, and stated as such |
+| 2026-09-25 | `AGENTS.md` described a pre-inventory world | The record's premise was wrong — the file contains **zero** occurrences of "stock", so there was no stale `product_variants.stock` claim to fix. The real defect was omission: the migration table ended at V3, the schema list held no inventory table, the endpoint map held no inventory endpoint, and a schema-wide claim ("all tables use UUID PKs and `enabled` for soft-delete") was false for `InventoryMovement` and `StoreInventorySettings`. All corrected, plus an `Inventory and stock contract` section, with every rewritten claim checked against the code first |
+| 2026-09-25 | Two prose rounds found what the first sweep could not | `ProductVariantLocation.java:15` and `StoreInventorySettings.java:11-13` were false and un-enumerated by the plan; then the widened pattern found the same future-tense sentence duplicated in `StoreInventorySettingsService.java:34-35`. Six false-pending sentences fixed across three rounds, and the wider sweep classified every surviving hit by reading it. The pattern that missed them was the gate this slice had declared green — see F19 |
+| 2026-09-25 | Verification of slice 4 (the pre-commit seal) | Gate on the final bytes: 609 classes / 2129 tests / 0 failures, XML postdating the parent's inline edit — the first green covering it. It confirmed the inline correction's claim from the code and checked F19's three examples as accurately described. **It also refuted a claim this record had just made**: one of the 47 sweep hits *is* false prose — `MovementType.java:33` says a manual decrease removes stock from the sales location, which W3-D16 made untrue — so "47 hits, all accurate" was wrong, and the class was declared closed before it was. It further flagged that the twelve-pattern set now returns zero hits (making "every surviving hit classified" vacuous) and that the header claimed independent verification before any slice-4 verification row existed. Two of those three findings were this record's own errors, not the code's |
+| 2026-09-25 | Seventh false passage: `MovementType.java:33` | Found by the seal in a file slice 3 had already committed and the sweep had already blessed. All five movement-type constants were re-checked against the code; the false one was corrected and the others reported accurate. Slice 4's closure of the prose class rests on this row, not on the sweep that preceded it. **Which green covers which bytes:** the pre-commit seal's gate (XML `16:05`) covers the bytes *before* this correction; the writer's own gate (XML `16:11`, after `clean`) covers the final bytes, and the delta is a javadoc hunk whose truth the seal itself established by reading the code. Stated rather than smoothed — this commit's independent green is the seal's, and it does not literally cover the last hunk |
 | 2026-09-25 | Work-unit commit, rebase, and the route/checks declaration | This record and the pointer in `purchase-order-goods-receipt.md` committed together as `docs(odd): plan W3 as its own record (sales-location-aware-stock)`, then rebased onto `167a6ce` (PR #172), one commit replayed with no conflicts — which supersedes the *"not done yet"* half of the row above. Anchors re-checked against the new base: PR #172 is frontend-only and touched no file this record anchors to, including `store-inventory-settings.html:68`, whose *"Ubicación de venta"* label is intact. RDD verified disabled (`gentle_review inspect` → `stop / rdd_disabled`), so tasks carry ordinary checks and no review ceremony. TDD mode, gate and per-task route declared in `## Checks and route` |
