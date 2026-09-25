@@ -17,6 +17,7 @@ Invoke when a change touches code, architecture, CI/CD, dependencies, security, 
 2. Do not introduce a new pattern when an internal standard already exists.
 3. Do not use external references when local documentation exists.
 4. A change without minimum evidence is non-conformant.
+5. An ODD feature record (`odd/tasks/*.md`) states durable state plus its evidence, or what remains, on its `**Status**:` line — never a live delivery state; delivery detail belongs in the record's dated evidence log. Read `references/feature-records.md` before creating or updating a record.
 
 ## Decision Gates
 
@@ -78,6 +79,7 @@ Uncertain risk counts as the higher level.
 - `references/api.md`, `references/angular.md` — per-component conventions, gates and gaps. Read the matching one first.
 - `references/worktrees.md` — isolation model for parallel work: invariants, path and naming, create and cleanup commands, the Pi trust requirement, and anti-patterns.
 - `references/pr-chains.md` — chained and stacked PRs: the base-branch deletion failure mode, invariants, the pre-merge guard, the order of operations, and anti-patterns.
+- `references/feature-records.md` — ODD feature records in `odd/tasks/`: the header invariant, the live-state failure mode, the permitted and forbidden status shapes, and anti-patterns.
 - `assets/convention-checklist.md`, `assets/security-gates.md`, `assets/pr-evidence-template.md`, `assets/risk-classification-matrix.md` — the operator artifacts.
 
 Cite only existing local paths; record an absent path as `GAP` under a Gaps heading.
