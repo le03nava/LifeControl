@@ -3,10 +3,10 @@
 **Repository**: LifeControl — Angular frontend (`life-control-app-angular/**`) only. One feature
 (`inventory`), one page, one shared helper. No backend edit, no template edit, no route, no contract
 change, no build config, no CI change.
-**Status**: implemented — the slice changes **seven files (+90 −3)** and the gate is green (130 files /
-2537 tests / 0 failures; coverage 94.08 / 76.00 / 89.32 / 94.08 against the enforced 80 / 60 / 75 /
-80). Independent read-only verification of this record's claims is the remaining task. This header makes
-no claim about push or PR state; see the evidence log and `## Header history`.
+**Status**: implemented — the slice changes **seven files (+93 −3)** and the gate is green on the
+committed tree `2b7368e` (130 files / 2537 tests / 0 failures; coverage 94.08 / 76.00 / 89.32 / 94.08
+against the enforced 80 / 60 / 75 / 80). One independent read-only verification round was run and is
+closed under `## Findings` and the evidence log. This header makes no claim about push or PR state.
 **Created**: 2026-09-25
 **Risk**: **low but not cosmetic.** Production behaviour changes on two paths — a write now carries a
 precondition it did not carry, and a rejected write now reloads the form instead of leaving it stale.
@@ -48,14 +48,14 @@ Read-only map by a `gentle-ai-explore` scout, with every citation below re-check
 | --- | --- | --- |
 | P1 | The response DTO exposes `version` as a **required** `long`. | `life-control-api/src/main/java/com/lifecontrol/api/inventory/dto/StoreInventorySettingsResponse.java` — record header carries `long version` |
 | P2 | The request DTO accepts `version` as an **optional** `Long`; `null` means "no precondition". | `.../inventory/dto/StoreInventorySettingsRequest.java` — `Long version`; the 2-arg constructor passes `null` |
-| P3 | Asserting a version for a row that does **not** exist is also a conflict. | `.../inventory/service/StoreInventorySettingsService.java:175` — create path calls `assertVersionPrecondition(request.version(), null)` |
-| P4 | The update path asserts against the freshly loaded row and flushes before mapping. | same file `:181` (assert) and `:196` (`saveAndFlush`), with the comment explaining that a non-flushed map would answer a pre-increment version and cause a **false 409** on the client's next write |
+| P3 | Asserting a version for a row that does **not** exist is also a conflict. | `.../inventory/service/StoreInventorySettingsService.java:178` — the create branch calls `assertVersionPrecondition(request.version(), null)`. *(Citation corrected from `:175` by the independent verification; `:175` is blank)* |
+| P4 | The update path asserts against the freshly loaded row and flushes before mapping. | same file `:190` (assert) and `:196` (`saveAndFlush`), with the comment explaining that a non-flushed map would answer a pre-increment version and cause a **false 409** on the client's next write. *(The assert citation was corrected from `:181` by the independent verification; `:196` was already right)* |
 | P5 | Two distinct 409 causes exist: the precondition (`ConflictException`) and a genuine concurrent flush. | `.../exception/GlobalExceptionHandler.java:51-54` and `:73-78` |
 | P6 | The Angular response model has **no** `version`; the request model has no `version` either. | `life-control-app-angular/src/features/inventory/models/store-location-summary.models.ts:35` and `:42` |
 | P7 | That file's own header claims a "field-for-field mirror of the backend DTOs". **It is now false.** | `.../store-location-summary.models.ts:5` |
 | P8 | The page never sends a version: the request is built from the two selections only. | `.../stores/pages/store-inventory-settings/store-inventory-settings.ts` — `onSave()` |
 | P9 | `handleSaveError` branches on 400 / 404 / 403 and falls through for everything else, so 409 reaches the generic copy. | same file — `handleSaveError` |
-| P10 | `http-error-message.ts` names 400, 401, 403, 404 and 500. 409 is unmapped. | `life-control-app-angular/src/shared/data/http-error-message.ts:17,19,21,23,25` and the `default` at `:27` |
+| P10 | `http-error-message.ts` names 400, 401, 403, 404 and 500. 409 is unmapped. | `life-control-app-angular/src/shared/data/http-error-message.ts` — the `switch` inside `httpErrorMessage`. *(The original line list was imprecise and is replaced by the symbol: the independent verification found the case returns at a different offset than the one first recorded, so a line list here was brittle evidence)* |
 | P11 | No other consumer builds a `StoreInventorySettings` literal, so widening the response type breaks nothing but the specs. | grep across `src/` — the only non-spec consumers are the service and `receipt-create.ts:201`, which only reads `getSettings` |
 | P12 | `strict: true`, and `exactOptionalPropertyTypes` is **not** enabled. | `life-control-app-angular/tsconfig.json:7` |
 
@@ -196,8 +196,8 @@ match the code it finds.
 | T3 | This record, before the first source write | done |
 | T4 | Implement the four surfaces through one bounded writer | done |
 | T5 | Gate: `npm run lint`, `npm run build`, `npm run test:coverage:check` | done |
-| T6 | Work-unit commit on the feature branch | pending |
-| T7 | Independent read-only verification of this record's claims | pending |
+| T6 | Work-unit commit on the feature branch | done |
+| T7 | Independent read-only verification of this record's claims | done |
 
 Statuses are written only after the outcome and its check were observed. A row still reading
 `pending` means exactly that, and is the record's way of not claiming work it has not seen.
@@ -228,8 +228,13 @@ Declared before the first write, so the forecast can be checked against the resu
 | This record | ~200 lines |
 | **Source + specs** | **~120 lines of diff — a single PR, well inside the repo's comfort zone** |
 
-**Result (measured)**: **7 files, +90 −3** — inside the forecast. Five of the seven are source or spec
-edits; the seventh is the one-line derived fixture (D7).
+**Result (measured)**: **7 files, +93 −3 as committed** (`2b7368e`), inside the forecast. Five of the
+seven are source or spec edits; the seventh is the one-line derived fixture (D7).
+
+The writer measured **+90 −3** before the commit, and that measurement was accurate for the tree it saw.
+The commit is three lines larger because the `pre-commit` hook runs `eslint --fix` + `prettier --write`
+and **re-stages its own output**, reflowing one type cast across three lines after the gate had already
+run. Both numbers are kept: the delta is the hazard, not a rounding error (F9).
 
 A one-file, one-line change to a shared helper is the only cross-cutting edit; it is additive (a new
 `case`, no reordering, no changed existing branch) so no existing caller changes behaviour.
@@ -267,13 +272,28 @@ A one-file, one-line change to a shared helper is the only cross-cutting edit; i
   the `Actual`**. Rewriting the `Actual` column to this run's values would re-stale the table on the
   next run — the exact failure mode that column was already corrected for. No edit is the correct
   action, and it is recorded here rather than left as an unexplained silence.
-- **F7 — the four warning families the gate prints are not attributable to this slice.** The verifier
-  reported them verbatim and explicitly did not triage causality, which is the right posture. From the
-  diff: the `NG8113` warning is in `src/shared/ui/modal.spec.ts`, the deprecated `SpanishStepperIntl` DI
-  message concerns a stepper intl token, the jsdom `Cross origin` XHR error is a test-environment
-  artifact, and the `bearerTokenInterceptor` log is a Keycloak-absent path in the interceptor. **None of
-  those files is in this slice's diff**, so none of the four can have been introduced here. They are
-  recorded, not adopted, and not "fixed" as drive-by work.
+- **F8 — the post-409 version re-seed has no 409-specific test.** The verification confirmed the
+  property holds in the code (the seeding effect writes the version at its third `set`, so the post-409
+  reload genuinely restores a usable precondition), and it also found that the 409 test asserts only the
+  copy, the raw detail, `hasUnsavedChanges()` and the re-seeded *selection* — not the version. The
+  property is guarded **indirectly**, by the PUT test that asserts `version: 3` in the update body: delete
+  the effect's version line and that test goes red. So the behaviour is not unguarded, but a 409-specific
+  assertion would localise the failure to the path that depends on it. Recorded as a gap, not a defect.
+- **F9 — the `pre-commit` hook re-stages after the gate, so the gated tree is not the committed tree.**
+  `lint-staged` runs `eslint --fix` and `prettier --write` on `src/**/*.ts` and stages the result, which
+  reflowed one type cast (4 insertions, 1 deletion) *after* the gate had measured the tree. The commit is
+  therefore **+93 −3** where the writer measured **+90 −3**, and the first gate result described a tree
+  that no longer exists. The verification round re-ran all three gate commands on `2b7368e` and reproduced
+  the numbers exactly, which is why the claim survives — but the general lesson is worth more than the
+  three lines: **a gate run on an uncommitted tree can be invalidated by the commit itself**, so the
+  numbers that get reported must be measured after the hook, not before it.
+- **F10 — the falsification round's most valuable target came back clean, and that is the load-bearing
+  result.** The orchestrator's stated worry was that the 409 path might re-seed the two selections but
+  **not** the version, which would make the operator's next save omit the precondition entirely — a
+  silent restoration of the very lost update this slice exists to prevent, with the 409 test still
+  passing. The verification read the effect body and found the version written alongside both selections,
+  and confirmed that line is the signal's only writer. The property holds; the slice does not fail open
+  after a conflict.
 
 ## Header history
 
@@ -281,6 +301,7 @@ A one-file, one-line change to a shared helper is the only cross-cutting edit; i
 | --- | --- | --- |
 | T3 (before the first write) | the planned form | The contract is durable; the delivery state was unknown and is deliberately not claimed |
 | T6 (after T4 and T5 were observed) | `implemented — seven files (+90 −3), gate green, verification remains` | T4 and T5 were observed, so the planned form became false. The new line states only the durable content and what remains, and still names no delivery state |
+| T7 (after the verification round closed) | `implemented — seven files (+93 −3), gate green on 2b7368e, verification closed` | The verification was observed and found the pre-hook line count stale; the header now carries the committed measurement and no longer claims verification as remaining |
 
 ## Evidence log
 
@@ -290,6 +311,8 @@ A one-file, one-line change to a shared helper is the only cross-cutting edit; i
 | 2026-09-25 | T3 | The task table in this record was corrected from a false `done` to `pending` on T4–T7 before any source write (F4) |
 | 2026-09-25 | T4 | One bounded `gentle-ai-worker` pass: 7 files, +90 −3 (source + specs). Focused run `npx ng test --no-watch --include=…` → **4 files / 70 tests passed, 0 failed** (baseline 67, so +3). Spec type check `npx tsc -p tsconfig.spec.json --noEmit` → **exit 0, clean**. `git status --porcelain` shows exactly the seven authorized files modified. RED observed for two of the three behavioural claims plus the shared 409 copy (F2 records the third honestly). The writer stopped on the derived surface instead of improvising (D7, F3) |
 | 2026-09-25 | T5 | Gate run by a read-only `gentle-ai-verify`, each command once, sequentially: `npm run lint` **exit 0** (`All files pass linting.`); `npm run build` **exit 0**, initial total **851.16 kB** against `angular.json`'s `maximumWarning: 900kB` → **48.84 kB of headroom, no budget warning**; `npm run test:coverage:check` **exit 0** → **130 files / 2537 tests / 0 failures / 0 errors**, coverage **94.08 / 76.00 / 89.32 / 94.08** against floors **80 / 60 / 75 / 80 — all OK**. Test delta vs `main` @ `c49d296` (130 / 2534): **+3 tests, 0 files**, decomposed by the verifier as +2 genuinely new cases on the page spec and +1 parameterized row on the shared-helper spec; the two fixture-only edits add none. `git status --porcelain` byte-identical before and after the gate, so the gate changed no tracked file |
+| 2026-09-25 | T6 | Commit **`2b7368e`** — `fix(angular): send the store inventory settings version precondition and recover from a 409`, 8 files, **+398 −3** total (7 source/spec files at +93 −3, plus this 305-line record). The `pre-commit` hook re-staged a formatting reflow after the gate, which is the +3 (F9) |
+| 2026-09-25 | T7 | Independent read-only `gentle-ai-verify` on `2b7368e`: **all of C1–C12 UPHELD**, the hook's post-commit change confirmed **formatting-only** (`bf70d8f` → `2b7368e` = one hunk, one reflowed type cast), and the gate **re-run on the committed tree** reproducing the record exactly (lint 0, build 0 at 851.16 kB, test 0 at **130 files / 2537 tests / 0 failures / 0 errors**, coverage **94.08 / 76.00 / 89.32 / 94.08**). `git status --porcelain` empty before and after, HEAD unmoved. Four of this record's own citations were corrected as a result: the `+90 −3` figure (F9), P3 `:175`→`:178`, P4 `:181`→`:190`, and P10's brittle line list. F8 records the coverage gap it found; F10 records the falsification target that came back clean |
 
 ## Follow-ups (recorded, not in this slice)
 
@@ -303,3 +326,6 @@ A one-file, one-line change to a shared helper is the only cross-cutting edit; i
 4. **The store-tree-wide 409 UX** — once the contracts carry `version`, the same conflict/reload
    decision has to be made for four more screens; the copy and the mechanism chosen here are the
    precedent.
+5. **A 409-specific assertion that the version was re-seeded** — the property is guarded only indirectly
+   today, through the update-body test (F8). One extra assertion on the existing 409 test would localise a
+   regression to the path that depends on it.
