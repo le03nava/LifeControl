@@ -22,6 +22,7 @@ const mockSettings: StoreInventorySettings = {
   companyStoreId: 'store-1',
   receivingLocationId: 'loc-receive',
   salesLocationId: 'loc-sales',
+  version: 3,
 };
 
 describe('StoreInventorySettingsService', () => {

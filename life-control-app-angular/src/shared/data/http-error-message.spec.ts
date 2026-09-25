@@ -6,6 +6,7 @@ const ERROR_CASES: [status: number, message: string][] = [
   [401, 'Tu sesión expiró o no estás autorizado. Volvé a iniciar sesión.'],
   [403, 'No tenés permisos para realizar esta acción.'],
   [404, 'No se encontró el recurso solicitado.'],
+  [409, 'El dato cambió mientras lo editabas. Recargá la página y volvé a intentar.'],
   [500, 'Ocurrió un error en el servidor. Intentá de nuevo más tarde.'],
 ];
 

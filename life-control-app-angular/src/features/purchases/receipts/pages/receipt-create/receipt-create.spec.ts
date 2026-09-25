@@ -104,6 +104,7 @@ const mockSettings: StoreInventorySettings = {
   companyStoreId: 'store-1',
   receivingLocationId: 'loc-1',
   salesLocationId: 'loc-2',
+  version: 3,
 };
 
 const mockLocations: StoreLocationSummary[] = [
