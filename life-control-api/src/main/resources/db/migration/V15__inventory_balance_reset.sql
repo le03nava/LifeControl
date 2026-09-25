@@ -1,0 +1,122 @@
+-- ============================================
+-- V15 — inventory balance reset (the aggregate = SUM(locations) cutover)
+-- ============================================
+--
+--  !!!  NOT A DESTRUCTIVE MIGRATION — THERE IS NOTHING WORTH KEEPING  !!!
+--
+--  Unlike V14, this migration was NOT authorized against data whose history matters. It is a
+--  truncate because the precondition was MEASURED (F17, 2026-09-25) and the measurement showed
+--  one environment, dev, whose operational chain V14 had already discarded once. It is not
+--  destructive in meaning either: no per-location distribution is being erased that the system
+--  could still reconstruct, and no document (sales order, purchase order, goods receipt) is
+--  touched. It is therefore safe to run on an empty database and on a database V14 already
+--  truncated, where — as stated below — it is a no-op.
+--
+-- ============================================
+--
+-- WHY
+-- ---
+-- Workstream W3 makes every stock mutation write the per-location balance and the per-store
+-- aggregate in one transaction, so the invariant
+--
+--     product_variant_store_stock.stock = SUM(product_variant_locations.stock)
+--         for the same (product_variant_id, company_store_id)
+--
+-- holds by construction from the first release that carries slices 1 and 2. It does NOT hold in
+-- any database that predates them: the old sales path deducted only from the aggregate, and the
+-- per-store stock editor (`ProductVariantService.upsertStoreStock`) set the aggregate and wrote no
+-- location row at all.
+--
+-- The measurement that reshaped this workstream (F16, dev, 2026-09-25) found aggregate 11.00
+-- against a single location balance of 1.00, with the ledger holding exactly one RECEIPT of 1.00
+-- and `sales_orders` empty. The divergence this migration repairs was therefore never the
+-- "sold since receipt" overcount the original plan described — it was the manual editor, a fourth
+-- stock writer the plan's map never listed. Repairing the aggregate by re-expressing it (the
+-- superseded W3-D2 derived credit) would not have fixed that state either: the manual edit had
+-- moved the aggregate and nothing else, so the reset that clears it and the writer fix that stops
+-- it recurring (W3-D14) have to land together.
+--
+-- MEASURED PRECONDITION (F17, 2026-09-25)
+-- ---------------------------------------
+-- The environment claim behind this reset was measured, not assumed. `docker ps -a` lists only
+-- `lifecontrol-dev-*` containers; `docker/volumes-staging` is 88 KB and empty; prod's
+-- `VOLUMES_ROOT=/var/lib/lifecontrol` does not exist. There is exactly ONE environment with data,
+-- it is dev, and its operational chain had already been truncated once by V14: Flyway at version
+-- 14, four `product_variants`, one `product_variant_store_stock` row, one
+-- `product_variant_locations` row, one `inventory_movements` row, zero sales orders, zero purchase
+-- orders, zero `store_inventory_settings` rows. What this migration discards on dev is that one
+-- aggregate row, that one location row and that one movement — the inconsistent state, and nothing
+-- else. Every claim elsewhere in this record that assumed non-dev databases with history to lose
+-- was assumption; this is the evidence that replaced it.
+--
+-- WHY THE TRUNCATE, AND WHY EXACTLY THESE THREE TABLES
+-- ----------------------------------------------------
+-- The balance side of the inventory is these three tables and only these three:
+--
+--   product_variant_store_stock  the per-store sellable aggregate
+--   product_variant_locations    the per-location balance
+--   inventory_movements          the append-only ledger that explains both
+--
+-- Clearing the ledger as well is required, not optional: a ledger that describes balances which no
+-- longer exist is a second inconsistency, and the ledger is the explanation the invariant test and
+-- the reversal read. Documents are deliberately NOT truncated. `sales_orders`, `sales_order_items`,
+-- `purchase_orders`, `purchase_order_details`, `goods_receipts` and `goods_receipt_items` are
+-- history, not balance: the reset zeroes stock, it does not erase what was ordered or received.
+-- That is a trade, stated plainly rather than dressed up as preservation: the inventory audit trail
+-- IS the ledger, and this migration deletes it, so the stock effect of every kept document is
+-- intentionally unreconstructible from the database afterwards. The runtime consequence is bounded,
+-- though, and worth stating so a future reader is not left guessing: a kept order cannot later
+-- wrongly credit stock, because its reversal reads the (now empty) ledger and no-ops
+-- (`InventoryService.applySaleReversal` finds no remaining movement for the reference and returns
+-- before touching any balance). `store_inventory_settings` is left untouched because it is
+-- configuration, not balance — and it is the precondition W3-D14 makes mandatory for setting stock
+-- by hand (see BELOW).
+--
+-- The statement deliberately does NOT use CASCADE. Nothing in the schema references these three
+-- tables (they are leaves: their own foreign keys point at `product_variants`, `company_stores` and
+-- `store_locations`), so a plain TRUNCATE is sufficient. CASCADE would be a latent widening of the
+-- blast radius: it would silently pull in any future table that starts referencing a balance row,
+-- which is exactly the kind of implicit scope this reset must not have.
+--
+-- WHAT THIS DOES TO AN EMPTY DATABASE, AND TO ONE V14 ALREADY TRUNCATED
+-- ---------------------------------------------------------------------
+-- Both are no-ops, and the reason is the same: TRUNCATE removes every row of a table and fails on
+-- nothing when the table is already empty. A brand-new database has never held a balance row or a
+-- movement, so nothing is removed. A database V14 already truncated had its `product_variants`
+-- chain cleared (V14 empties `inventory_movements`, `product_variant_locations` and — through the
+-- `product_variants` CASCADE — `product_variant_store_stock`), and nothing has necessarily repopulated
+-- the balance side since; where it has, that is precisely the dev state measured above, and this is
+-- the migration that clears it. No data-outcome test is possible in this repository's CI: the
+-- Testcontainers database is always fresh, so the migration is exercised only as a schema step that
+-- must not break startup, never as a data transformation.
+--
+-- OPERATIONAL CONSEQUENCE (S3-T2)
+-- -------------------------------
+-- After this migration dev has its product variants and zero stock: every aggregate is 0 and every
+-- location balance is 0, so the invariant holds trivially. Setting stock by hand therefore becomes a
+-- two-step operation — configure the store's inventory settings first, then edit the stock. On dev
+-- the first step means creating a `store_inventory_settings` row, of which there are currently ZERO
+-- (F17); W3-D14 refuses a manual stock edit for a store that has none rather than guessing where the
+-- goods sit. That refusal is why the reset and the writer fix ship together: without the writer fix,
+-- the same manual edit that produced the 11.00 / 1.00 divergence would immediately re-create it.
+--
+-- OPERATOR GATE (S3-T3)
+-- ---------------------
+-- On a database that HAS data, the reset is gated by this query, which must return no row. (On an
+-- empty database the query is vacuous, which is why it is an operator gate and not a test.)
+--
+--   SELECT ss.product_variant_id, ss.company_store_id, ss.stock AS aggregate, COALESCE(SUM(l.stock), 0) AS locations
+--   FROM product_variant_store_stock ss
+--   LEFT JOIN product_variant_locations l
+--     ON l.product_variant_id = ss.product_variant_id
+--    AND l.store_location_id IN (SELECT sl.id
+--                                FROM store_locations sl
+--                                JOIN store_zones sz ON sz.id = sl.store_zone_id
+--                                JOIN store_areas sa ON sa.id = sz.store_area_id
+--                                WHERE sa.company_store_id = ss.company_store_id)
+--   GROUP BY ss.product_variant_id, ss.company_store_id, ss.stock
+--   HAVING ss.stock <> COALESCE(SUM(l.stock), 0);
+--
+-- ============================================
+
+TRUNCATE TABLE product_variant_store_stock, product_variant_locations, inventory_movements;

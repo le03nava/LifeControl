@@ -1,6 +1,7 @@
 package com.lifecontrol.api.product.service;
 
 import com.lifecontrol.api.common.auth.CurrentUserContext;
+import com.lifecontrol.api.inventory.service.InventoryService;
 import com.lifecontrol.api.product.dto.ProductVariantRequest;
 import com.lifecontrol.api.product.dto.ProductVariantResponse;
 import com.lifecontrol.api.product.dto.ProductVariantSearchResponse;
@@ -18,6 +19,7 @@ import com.lifecontrol.api.product.repository.ProductVariantStoreStockRepository
 import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
+import java.math.BigDecimal;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,18 +46,21 @@ public class ProductVariantService {
     private final ProductRepository productRepository;
     private final CompanyStoreRepository companyStoreRepository;
     private final CurrentUserContext currentUserContext;
+    private final InventoryService inventoryService;
 
     public ProductVariantService(
             ProductVariantRepository productVariantRepository,
             ProductVariantStoreStockRepository productVariantStoreStockRepository,
             ProductRepository productRepository,
             CompanyStoreRepository companyStoreRepository,
-            CurrentUserContext currentUserContext) {
+            CurrentUserContext currentUserContext,
+            InventoryService inventoryService) {
         this.productVariantRepository = productVariantRepository;
         this.productVariantStoreStockRepository = productVariantStoreStockRepository;
         this.productRepository = productRepository;
         this.companyStoreRepository = companyStoreRepository;
         this.currentUserContext = currentUserContext;
+        this.inventoryService = inventoryService;
     }
 
     @Transactional(readOnly = true)
@@ -240,10 +245,19 @@ public class ProductVariantService {
      * NOTHING} avoids the unique violation that would abort the transaction, so the lock that follows
      * is always held over an existing row.</p>
      *
+     * <p>Prices are per-store profile and are written here. Stock is not: every stock move belongs to
+     * the engine, so this method delegates a stock edit to
+     * {@link InventoryService#applyStockAdjustment} (W3-D14). Writing
+     * {@code product_variant_store_stock.stock} here directly is the F16 defect — the aggregate moved
+     * while no location row and no movement did — so the arithmetic stays in the engine, and a store
+     * without a settings row is refused by it rather than guessed here.</p>
+     *
      * @throws ProductVariantNotFoundException when the variant does not exist
      * @throws CompanyStoreNotFoundException when the store does not exist
      * @throws org.springframework.security.access.AccessDeniedException when the caller holds no
      *     grant for the store's scope (403)
+     * @throws com.lifecontrol.api.inventory.exception.StoreInventorySettingsNotFoundException when a
+     *     stock value is sent for a store that has no inventory settings row (404)
      */
     @Transactional
     public ProductVariantStoreStockResponse upsertStoreStock(
@@ -271,12 +285,16 @@ public class ProductVariantService {
         if (request.costPrice() != null) {
             row.setCostPrice(request.costPrice());
         }
-        if (request.stock() != null) {
-            row.setStock(request.stock());
-        }
+        productVariantStoreStockRepository.save(row);
 
-        var saved = productVariantStoreStockRepository.save(row);
-        return toStoreResponse(saved);
+        // Stock is the engine's invariant, not this service's state: delegate the mutation and use
+        // the value it returns. A null stock means "leave stock untouched", as before.
+        var stock = request.stock() != null
+                ? inventoryService.applyStockAdjustment(
+                        variantId, companyStoreId, request.stock(), currentUserContext.getUsername())
+                : row.getStock();
+
+        return toStoreResponse(row, stock);
     }
 
     /**
@@ -360,8 +378,8 @@ public class ProductVariantService {
                 variant.getUpdatedAt());
     }
 
-    private ProductVariantStoreStockResponse toStoreResponse(ProductVariantStoreStock row) {
+    private ProductVariantStoreStockResponse toStoreResponse(ProductVariantStoreStock row, BigDecimal stock) {
         return new ProductVariantStoreStockResponse(
-                row.getCompanyStoreId(), row.getListPrice(), row.getCostPrice(), row.getStock());
+                row.getCompanyStoreId(), row.getListPrice(), row.getCostPrice(), stock);
     }
 }

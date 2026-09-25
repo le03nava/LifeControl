@@ -1,5 +1,6 @@
 package com.lifecontrol.api.inventory.service;
 
+import com.lifecontrol.api.inventory.exception.StoreInventorySettingsNotFoundException;
 import com.lifecontrol.api.inventory.model.InventoryMovement;
 import com.lifecontrol.api.inventory.model.MovementType;
 import com.lifecontrol.api.inventory.model.ProductVariantLocation;
@@ -62,6 +63,13 @@ import org.springframework.transaction.annotation.Transactional;
 public class InventoryService {
 
     private static final Logger logger = LoggerFactory.getLogger(InventoryService.class);
+
+    /**
+     * Ledger source discriminator of a manual per-store stock edit (W3-D14). There is no
+     * {@code referenceId}: a hand edit has no source document, so the movement's actor, timestamp
+     * and location are the whole explanation.
+     */
+    private static final String MANUAL_STOCK_EDIT_REFERENCE_TYPE = "MANUAL_STOCK_EDIT";
 
     private final ProductVariantRepository productVariantRepository;
     private final ProductVariantStoreStockRepository productVariantStoreStockRepository;
@@ -365,6 +373,173 @@ public class InventoryService {
                     referenceType,
                     referenceId,
                     createdBy);
+        }
+    }
+
+    /**
+     * Sets the per-store sellable stock to {@code newStock} and moves every side of the invariant
+     * with it: the aggregate, the store's sales-location balance and one ledger row explaining the
+     * delta (W3-D14).
+     *
+     * <p>This is the write behind the per-store stock editor
+     * ({@code ProductVariantService.upsertStoreStock}). The editor sends an ABSOLUTE value, so the
+     * engine derives the delta itself — {@code newStock - current aggregate} — and moves the
+     * locations by that delta. An increase credits the store's configured {@code sales_location_id}:
+     * there is nothing to draw from, and the operator is asserting a total rather than naming a
+     * shelf. A decrease is ALLOCATED over the store's locations exactly as a sale is (W3-D1) — the
+     * sales location first, then the remaining balances in FIFO order — so no location is driven
+     * below zero, and one ledger row explains each location it draws from. The aggregate is never
+     * set without the locations moving by an identical amount, which keeps
+     * {@code aggregate = SUM(locations)} true by construction instead of by convention.</p>
+     *
+     * <p>A store with no {@code store_inventory_settings} row is REFUSED with
+     * {@link StoreInventorySettingsNotFoundException} rather than guessed. F16 measured the exact
+     * divergence this method exists to stop — aggregate 11.00 against one location of 1.00, produced
+     * by this editor and nothing else — and a guessed destination would reproduce it. This is the
+     * opposite of the sale deduction's FIFO fallback (W3-D8): a missing configuration row must not
+     * turn a sale into an outage, but a hand edit is an explicit act of placement and may require the
+     * store to be configured first.</p>
+     *
+     * <p>The type carries the direction (W3-D7): an increase writes
+     * {@link MovementType#ADJUSTMENT_INCREASE} and a decrease {@link MovementType#ADJUSTMENT_DECREASE},
+     * both with a positive quantity. A decrease that spans several locations writes one
+     * {@code ADJUSTMENT_DECREASE} row per location drawn from, exactly as a sale writes one
+     * {@code SALE} row per location consumed, so the ledger answers where the number went. The
+     * ledger reference is the editor itself: {@code referenceType} is
+     * {@value #MANUAL_STOCK_EDIT_REFERENCE_TYPE} and {@code referenceId} is null, because there is no
+     * source document to point at.</p>
+     *
+     * <p>Lock order is unchanged: {@code storeStock -> locationBalance}. Resolving the destination
+     * from the settings is a plain read, not a lock, and a decrease locks every balance row of the
+     * variant in the store in the same FIFO order the deduction uses. A target equal to the current
+     * aggregate is a no-op on the balance rows and writes no movement, while the settings refusal
+     * still applies, so the precondition does not depend on the delta.</p>
+     *
+     * @param newStock absolute sellable stock to set; must not be negative
+     * @param createdBy username of the operator who made the edit, when known
+     * @return the resulting aggregate stock, which is {@code newStock}
+     * @throws IllegalArgumentException when {@code newStock} is null or negative, or when the variant
+     *     has no stock row in {@code companyStoreId}
+     * @throws StoreInventorySettingsNotFoundException when the store has no settings row, so no
+     *     destination location exists
+     * @throws InsufficientStockException when the locations cannot cover a decrease; unreachable
+     *     through the application while {@code aggregate = SUM(locations)} holds
+     */
+    public BigDecimal applyStockAdjustment(
+            UUID productVariantId, UUID companyStoreId, BigDecimal newStock, String createdBy) {
+
+        // 1. Reject an invalid target before touching the database.
+        if (newStock == null || newStock.compareTo(BigDecimal.ZERO) < 0) {
+            throw new IllegalArgumentException(
+                    "Manually set stock must be greater than or equal to zero, but was " + newStock);
+        }
+
+        // 2. The destination comes from the store's settings, and its absence is a refusal (W3-D14):
+        //    guessing where the goods sit is how the aggregate and the locations drift apart (F16).
+        //    Contrast W3-D8, where the same absence is a FIFO fallback because a sale cannot fail on
+        //    a missing configuration row.
+        var settings = storeInventorySettingsRepository
+                .findByCompanyStoreId(companyStoreId)
+                .orElseThrow(() -> new StoreInventorySettingsNotFoundException(companyStoreId));
+        var destinationLocationId = settings.getSalesLocationId();
+
+        // 3. FIRST lock: the per-store stock row, the serialization point of every stock mover. The
+        //    editor creates the row before delegating, so its absence here is a caller error.
+        var storeStock = productVariantStoreStockRepository
+                .findByProductVariantIdAndCompanyStoreIdForUpdate(productVariantId, companyStoreId)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Product variant " + productVariantId + " has no stock row in store " + companyStoreId));
+
+        // 4. The delta is the whole point and it is computed HERE, never in the product service, so a
+        //    single owner holds the arithmetic that keeps aggregate and location equal.
+        var delta = newStock.subtract(orZero(storeStock.getStock()));
+
+        // 5. Move the locations by the same delta. A zero delta moves nothing and writes nothing:
+        //    the ledger records facts, not no-ops. An increase credits the destination (nothing to
+        //    draw from); a decrease is ALLOCATED like a sale (W3-D1), so it cannot be assigned to one
+        //    location and drive it below zero while aggregate = SUM(locations) still holds (F18).
+        if (delta.signum() > 0) {
+            productVariantLocationRepository.insertBalanceIfAbsent(productVariantId, destinationLocationId);
+            var location = lockBalance(productVariantId, destinationLocationId);
+            location.setStock(orZero(location.getStock()).add(delta));
+            productVariantLocationRepository.save(location);
+
+            inventoryMovementRepository.save(newMovement(
+                    productVariantId,
+                    companyStoreId,
+                    destinationLocationId,
+                    MovementType.ADJUSTMENT_INCREASE,
+                    delta,
+                    MANUAL_STOCK_EDIT_REFERENCE_TYPE,
+                    null,
+                    createdBy));
+        } else if (delta.signum() < 0) {
+            applyAdjustmentDecrease(productVariantId, companyStoreId, destinationLocationId, delta.negate(), createdBy);
+        }
+
+        // 6. The aggregate takes the absolute target, never a re-derivation from the location sum:
+        //    the recompute question is closed (W3-D5), and the locations already moved by the delta.
+        storeStock.setStock(newStock);
+        productVariantStoreStockRepository.save(storeStock);
+        return newStock;
+    }
+
+    /**
+     * Allocates a manual decrease over the store's locations instead of assigning it to one: the
+     * store's sales location first, then the remaining balances in the repository's FIFO order — the
+     * same order and the same {@link #orderForDeduction} helper a sale uses (W3-D1), because a
+     * second allocation rule for one concept is how two owners of the same number start. One
+     * {@link MovementType#ADJUSTMENT_DECREASE} row is written per location actually drawn from, so
+     * the ledger explains every balance the edit moved.
+     *
+     * <p>Failure is closed as the sale's second check is: the locked balances must together cover the
+     * decrease. Once {@code aggregate = SUM(locations)} holds (after the W3-D15 reset and by the four
+     * writers), the guard is unreachable through the application — the target is non-negative, so the
+     * decrease can never exceed the aggregate, which equals the location sum — and it exists for the
+     * transient state a writer outside the invariant would produce. The rows are locked in FIFO order
+     * after the per-store stock row, preserving the documented {@code storeStock -> locationBalance}
+     * order.</p>
+     */
+    private void applyAdjustmentDecrease(
+            UUID productVariantId, UUID companyStoreId, UUID priorityLocationId, BigDecimal amount, String createdBy) {
+
+        var storeBalances = productVariantLocationRepository.findByProductVariantIdAndCompanyStoreId(
+                productVariantId, companyStoreId);
+        var lockedBalances = new LinkedHashMap<UUID, ProductVariantLocation>();
+        for (var balance : storeBalances) {
+            lockedBalances.put(
+                    balance.getStoreLocationId(), lockBalance(productVariantId, balance.getStoreLocationId()));
+        }
+
+        var locationTotal = lockedBalances.values().stream()
+                .map(location -> orZero(location.getStock()))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (locationTotal.compareTo(amount) < 0) {
+            throw new InsufficientStockException(productVariantId, amount, locationTotal);
+        }
+
+        var remaining = amount;
+        for (var location : orderForDeduction(lockedBalances.values(), priorityLocationId)) {
+            if (remaining.signum() == 0) {
+                break;
+            }
+            var stock = orZero(location.getStock());
+            var taken = stock.min(remaining);
+            if (taken.signum() <= 0) {
+                continue;
+            }
+            location.setStock(stock.subtract(taken));
+            productVariantLocationRepository.save(location);
+            inventoryMovementRepository.save(newMovement(
+                    productVariantId,
+                    companyStoreId,
+                    location.getStoreLocationId(),
+                    MovementType.ADJUSTMENT_DECREASE,
+                    taken,
+                    MANUAL_STOCK_EDIT_REFERENCE_TYPE,
+                    null,
+                    createdBy));
+            remaining = remaining.subtract(taken);
         }
     }
 
