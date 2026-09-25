@@ -598,9 +598,20 @@ the original forecast, and F15 is the reason the overrun is worth more than its 
   they overlap the order agrees. The invariant that must survive slice 2 is the *introduction* of the
   balance lock into the sales path, which is why the sales path needs the lock-order test the inventory
   service already has (`InventoryServiceTest:337-360`).
-- **F8 — the reconciliation has an undefined case.** A receipt can target a store with no
-  `store_inventory_settings` row via the operator override (`GoodsReceiptService:354-364`), so location
-  balances can exist without a `sales_location_id` to reconcile onto. W3-D8 supplies the tie-break.
+- **F8 — the "store with no settings row" state is reachable, and it is the ordinary case rather than an
+  edge.** A receipt can target a store with no `store_inventory_settings` row through the operator
+  override (`GoodsReceiptService.resolveReceivingLocationId`, `:355-363` — the override returns before
+  the settings lookup runs), so location balances can exist with no `sales_location_id` to attach them
+  to. **Independently re-verified** by the session that owns the settings screen, which added the
+  precision that a *never-configured* store is the common case and not a corner; the measurement agrees,
+  since dev holds **zero** settings rows. What follows changed with W3-D15: the reconciliation tie-break
+  is gone, because with nothing to credit there is nothing to tie-break. What stays live is W3-D14's
+  **refusal** on the stock editor — which is what turned configuring the store into a precondition for
+  setting stock by hand, in ordinary use rather than in an edge — plus W3-D8's deduction-time FIFO
+  fallback. That same session also claimed the settings row can disappear *between* a GET and a PUT; that
+  is **unverified and looks unreachable**: neither the repository nor the controller exposes a delete, so
+  the 404 in that flow is the never-existed case. The question is open with them and is recorded here
+  rather than accepted.
 - **F9 — the reset decision buys a scope reduction.** W3-D2 plus W3-D5 remove two items from the inherited
   plan: the recompute switch and, with it, the reason the additive receipt was a compromise.
 - **F10 — a green gate can execute nothing, and this worktree produced one.** The authorized gate
