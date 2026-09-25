@@ -123,8 +123,8 @@ intermediate state. The only genuinely separable pieces are S1 (additive, done) 
 | # | Slice | Contents | Risk | Status |
 |---|---|---|---|---|
 | S1 | Additive schema | `V13` + `ProductVariantStoreStock` entity + repository. Nothing reads it. | Low | **done** |
-| S2 | Backend cutover (atomic) | `V14`; `ProductVariant` reduced; definition CRUD + D6(b) store endpoint; read paths joined; membership validators; stock writers and locking; all backend tests. | High | pending |
-| S3 | Frontend adapters | Variant models, services and the six variant-consuming screens. | Medium | pending |
+| S2 | Backend cutover (atomic) | `V14`; `ProductVariant` reduced; definition CRUD + D6(b) store endpoint; read paths joined; membership validators; stock writers and locking; all backend tests. | High | **done** |
+| S3 | Frontend adapters | Variant models, services and the six variant-consuming screens. | Medium | **done** |
 
 S2 cannot be split further without creating an invalid or deliberately regressed intermediate state
 (see the staging finding). It is therefore a large review unit and must be handled as such.

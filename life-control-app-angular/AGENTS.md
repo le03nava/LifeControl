@@ -839,12 +839,12 @@ carga antes que del código: ver `odd/tasks/test-timeout-headroom.md`.
 
 | Métrica | Actual | Umbral (floor) |
 |---------|--------|----------------|
-| Statements | 92.53% | 80% |
-| Branches | 72.56% | 60% |
-| Functions | 86.13% | 75% |
-| Lines | 92.53% | 80% |
+| Statements | 94.07% | 80% |
+| Branches | 75.98% | 60% |
+| Functions | 89.32% | 75% |
+| Lines | 94.07% | 80% |
 
-**Meta objetivo:** mantener la cobertura ≥ la línea actual (92.5/72.6/86.1/92.5). Los umbrales son guardrails con ~12 pts de margen sobre el baseline para absorber variación legítima.
+**Meta objetivo:** mantener la cobertura ≥ la línea actual (94.1/76.0/89.3/94.1). Los umbrales son guardrails con ~14–16 pts de margen sobre el baseline para absorber variación legítima. La medición es de la corrida de `npm run test:coverage:check` en `main` @ `c49d296` (2026-09-24); `branches` varía en el segundo decimal entre corridas (75.93 / 75.98 / 75.99 observadas), así que el contrato es el floor, no el `Actual`.
 
 - Los umbrales se definen como constantes en `scripts/check-coverage.mjs`.
 - CI corre `npm run test:coverage:check`; si baja del umbral, el job falla.

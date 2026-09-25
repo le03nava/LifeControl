@@ -8,7 +8,7 @@ build config, no route, no CI change.
 Eleven conditions), `d437db9` (the guard), `c3de16a` (the guard's two holes, found by the independent
 verification). 12 files, +295 −11. Lint, build and the CI coverage gate pass on the committed tree;
 eight external probes behave as specified. Independently verified read-only — see `## Findings`.
-**Not pushed; no PR is open.**
+**Merged as PR #166 (`89b4d9b76`), 2026-09-24.**
 **Created**: 2026-09-24
 **Risk**: **low but not zero, and deliberately not a pure refactor.** Eleven rules move from
 `max-width: 576px` to `max-width: 575.98px`, so the compiled output must change and no byte-identical

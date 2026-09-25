@@ -2,9 +2,10 @@
 
 **Repository**: LifeControl — Angular frontend (`life-control-app-angular/**`). SCSS only: no TypeScript,
 no template, no contract, no build config.
-**Status**: implemented — W1 (`36ac3d3`) on `refactor/breakpoint-vars` off `main` @ `218f4b0`, in the
-worktree `~/workspace/LifeControl-worktrees/refactor-breakpoint-vars`. Build, lint and the compiled-CSS
-gate pass. Not pushed; no PR is open yet.
+**Status**: merged — PR #164 (`refactor/breakpoint-vars` @ `4469cf717`), 2026-09-24. W1 (`36ac3d3`) on
+`refactor/breakpoint-vars` off `main` @ `218f4b0`, in the worktree
+`~/workspace/LifeControl-worktrees/refactor-breakpoint-vars`. Build, lint and the compiled-CSS gate
+passed. The OpenSpec change this record superseded was archived at that merge commit (see `## Follow-ups`).
 **Created**: 2026-09-24
 **Risk**: **low** — every replacement is number-for-number identical, so the compiled CSS must not change
 by a single byte. That is also the gate: the build either reproduces the same media-query numbers or the
@@ -41,9 +42,10 @@ remaining item of the pending-work inventory). Reading the code first killed tha
 
 So the OpenSpec change is **superseded: it must be archived, not implemented**. *(Corrected in the
 findings round: the first version said it "gets archived", in the present tense, as though that had
-happened. It had not and still has not — the archive step is deliberately deferred until after this
-branch merges, because the change lives in `openspec/` in the anchor repo, which is gitignored and does
-not travel with this branch.)* What is left is the real, smaller debt the change was pointing at:
+happened. It had not at the time of writing — the change lived in `openspec/` in the anchor repo, which
+is gitignored and does not travel with this branch, so the step had to wait for this branch to land. It
+has since been archived at `4469cf7`, the merge commit of PR #164.)* What is left is the real, smaller
+debt the change was pointing at:
 `@media` queries that hardcode a number the scale already defines.
 
 **Measured**, each number with the command that reproduces it, taken at `218f4b0`:
@@ -220,6 +222,6 @@ the same defect this repository spent a slice repairing in 14 status headers.
   right), not a refactor — and it is the one that would remove the 575.01–575.99px hole for good.
 - `styles.scss` exports `--bp-tablet` and `--bp-desktop` as custom properties but `_variables.scss` has no
   `$bp-tablet`/`$bp-desktop` Sass counterpart; the scales are not quite parallel.
-- **The OpenSpec change `modify-form-layout-breakpoint` still needs archiving** (F3) — as superseded, with
-  this record as the reason. It lives in the anchor repo's gitignored `openspec/`, so it cannot travel
-  with this branch and the step is deferred until after the merge.
+- **The OpenSpec change `modify-form-layout-breakpoint` — archived, no longer outstanding.** (F3) It was
+  archived as superseded, with this record as the reason, at `4469cf7` (the merge commit of PR #164):
+  `openspec/changes/archive/2026-09-24-modify-form-layout-breakpoint/archive-report.md`.

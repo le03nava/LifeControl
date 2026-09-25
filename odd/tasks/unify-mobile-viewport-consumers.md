@@ -8,7 +8,7 @@ off `main` @ `0725237`**, worktree `~/workspace/LifeControl-worktrees/refactor-u
 (herdr workspace `w13`): `dc0152a` (the two consumers), `91f4d61` (the detail-table re-stub),
 `e0f6c33` (the receipt-detail mobile case). **4 files, 84 insertions / 33 deletions** (production: 7 / 22;
 specs: 77 / 11). Lint, build and the CI coverage gate pass at the tip. This header carries only dated
-local facts and makes no claim about push or PR state — see F6.
+local facts and makes no claim about push or PR state — see F11.
 **Created**: 2026-09-24
 **Risk**: **low.** Nothing changes for a user: both idioms read the same constant, and the initial value
 they expose is provably identical (D2). The one item that could have grown the slice did not: the
@@ -216,9 +216,9 @@ things it found that were not claimed:
   own tests.
 - **F10 — the SSR branch remains uncovered** (`mobile-viewport.ts:21`, `typeof window === 'undefined'`),
   unchanged from `mobile-viewport-observer.md` F6.
-- **F11 — the ODD header drift** (`mobile-breakpoint-guard.md:9` and `mobile-viewport-observer.md` both
-  asserting "Not pushed; no PR is open" for merged work). This record deliberately makes no live-state
-  claim. The rest is a header-correction slice with a decided rule, not spot edits.
+- **F11 — the ODD header drift** (`mobile-breakpoint-guard.md:11` and `mobile-viewport-observer.md:11`
+  both asserting "Not pushed; no PR is open" for merged work). This record deliberately makes no
+  live-state claim. The correction was applied by `odd/tasks/odd-header-hygiene.md`.
 
 ## Follow-ups
 

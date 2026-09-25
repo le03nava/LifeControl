@@ -171,8 +171,12 @@ Shipped. Both PRs merged to `main` (`8ebb11b`), branches deleted, post-merge che
 
 ## Next step
 
-None for this feature. Separate open item: the uncommitted purchase-orders refactor (nested detail
-cards removal) still needs its own commit or discard decision.
+None for this feature. The separate item this section used to carry — the purchase-orders refactor that
+removed the nested detail cards — is **already delivered**: it landed as work unit 1 of
+`odd/tasks/purchase-order-sections-polish.md` (commit `2262452`, PR #101 → merge commit `f8a29f8`,
+2026-09-17), and no `detail-card` marker remains anywhere under
+`life-control-app-angular/src/features/purchases/purchase-orders/`. The "not verified" note at
+`odd/tasks/odd-status-reconciliation.md:371` is closed by that check.
 
 ## Out of scope (unchanged)
 
