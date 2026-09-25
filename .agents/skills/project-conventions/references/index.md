@@ -14,6 +14,8 @@ Shared repository references live here. Component-specific detail lives in `refe
 
 - `references/worktrees.md` — isolation model for parallel work: invariants, path and naming, create and cleanup commands, the Pi trust requirement, and anti-patterns.
 - `references/pr-chains.md` — chained and stacked PRs: the base-branch deletion failure mode, invariants, the pre-merge guard, the order of operations, and anti-patterns.
+- `references/feature-records.md` — ODD feature records in `odd/tasks/`: the header invariant, the live-state failure mode, the permitted and forbidden status shapes, and anti-patterns.
+- Absent: no automated guard enforces the ODD record header invariant; it is a writing-time convention, and the invariant removes the field that would go stale.
 - Absent: no automated guard enforces one-worktree-one-unit; it is a review-time convention.
 - Absent: no automated guard prevents deleting a base branch that an open PR depends on; it is a review-time convention.
 
@@ -71,5 +73,6 @@ Run each gate command from the component directory.
 - No secret-scanning configuration.
 - No SBOM configuration.
 - No CI check or repository setting prevents deleting a base branch that an open PR depends on.
+- No CI check inspects `odd/**` or any markdown: every workflow's `paths:` filter is scoped to its own component and nested under `pull_request`, so a records-only change runs no workflow at all.
 - No documented rollback plan or post-deploy checklist.
 - Provider-side settings (branch protection, required checks, review rules) are unverifiable from the repository.

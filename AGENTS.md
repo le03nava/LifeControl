@@ -87,6 +87,22 @@ Aislamiento para trabajo concurrente. El detalle completo, los comandos y los an
 
 ---
 
+## Registros ODD (`odd/tasks/`)
+
+Cada unidad de trabajo sustancial deja un registro versionado en [`odd/tasks/`](odd/tasks/). El detalle
+completo, con la forma exacta del header, está en
+[`references/feature-records.md`](.agents/skills/project-conventions/references/feature-records.md).
+
+| Regla | Valor |
+|-------|-------|
+| Qué lleva el header | Estado **terminal** con su evidencia (PR, merge commit, fecha) o **qué trabajo queda** (diferido o bloqueado, con la razón) |
+| Qué no lleva nunca | Estado vivo o pendiente: "sin pushear", "no hay PR abierto", "en progreso", "esperando review", "sin mergear" |
+| Dónde va la entrega | En el log de evidencia fechado del propio registro, con fecha, PR y commit |
+| Por qué | El header se escribe **antes** del merge y nadie lo revisita: un estado vivo queda falsificado por el próximo merge, sin que ningún commit toque la frase que mintió |
+| Enforcement | Ninguno automático: es una convención de escritura. Los registros anteriores a esta regla no se reescriben, porque su narrativa congelada es en sí misma evidencia |
+
+---
+
 ## Project Overview
 
 LifeControl es un sistema de gestión consolidado en un monolito modular `life-control-api`.
