@@ -608,10 +608,16 @@ the original forecast, and F15 is the reason the overrun is worth more than its 
   is gone, because with nothing to credit there is nothing to tie-break. What stays live is W3-D14's
   **refusal** on the stock editor — which is what turned configuring the store into a precondition for
   setting stock by hand, in ordinary use rather than in an edge — plus W3-D8's deduction-time FIFO
-  fallback. That same session also claimed the settings row can disappear *between* a GET and a PUT; that
-  is **unverified and looks unreachable**: neither the repository nor the controller exposes a delete, so
-  the 404 in that flow is the never-existed case. The question is open with them and is recorded here
-  rather than accepted.
+  fallback. That same session also claimed the settings row could disappear *between* a GET and a PUT, and then
+  **retracted the claim after verifying it** — the evidence is worth keeping: the repository has no
+  caller for any inherited `delete*` (its five call sites are `findById` ×3, `save` and `saveAndFlush`),
+  and `V11:22` declares `company_store_id` as a primary key referencing `company_stores` **without
+  `ON DELETE CASCADE`**, so the foreign key would reject the delete and stores are soft-deleted anyway.
+  **Latent, not reachable:** the inherited delete methods still exist on the interface, so a future
+  caller could remove a row for a live store. That is the only way this state gains a second producer,
+  and it would be a new decision rather than a bug. The session's own account of how it got there is the
+  same failure this record keeps finding: it inferred a path from a page's 404 handling without looking
+  for the delete, which is an inference presented as a measurement.
 - **F9 — the reset decision buys a scope reduction.** W3-D2 plus W3-D5 remove two items from the inherited
   plan: the recompute switch and, with it, the reason the additive receipt was a compromise.
 - **F10 — a green gate can execute nothing, and this worktree produced one.** The authorized gate
