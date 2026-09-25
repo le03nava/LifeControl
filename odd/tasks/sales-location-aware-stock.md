@@ -1,8 +1,9 @@
 # ODD feature: sales-location-aware-stock
 
-**Status**: planned — the analysis and the decision register below are complete and locked on 2026-09-24;
-**no source, migration, test or UI has been written**. Every item in `## Task list` is open. This header
-makes no claim about push or PR state; see the task log.
+**Status**: slice 1 of four implemented — the movement engine is written, independently verified and
+committed on `feat/sales-location-aware-stock`, which sits on `main` @ `167a6ce`. **Slices 2, 3 and 4
+remain open**, and slice 2 must land before any release: until it does, the repository carries the new
+public API with no production caller. This header makes no claim about push or PR state; see the task log.
 **Created**: 2026-09-24 · **Risk**: **high** — the change alters the stock-deduction semantics of a live
 sales path, adds the missing ledger writer, and repairs persisted inventory balances from data that
 cannot be recomputed (the ledger has no sales history to derive them from).
@@ -11,8 +12,9 @@ written. Branch `feat/sales-location-aware-stock`, worktree
 `~/workspace/LifeControl-worktrees/feat-sales-location-aware-stock` (herdr `w18`), created with the
 procedure in `.agents/skills/project-conventions/references/worktrees.md`.
 **Requested by**: the user, asking on 2026-09-24 for the analysis of workstream W3 and for a new ODD
-record if the analysis justified one. The four product decisions (W3-D1…W3-D4) were taken by the user in
-the same session.
+record if the analysis justified one. The product decisions below were taken by the user: W3-D1…W3-D4 on
+2026-09-24, W3-D9 on 2026-09-25, plus the `stacked-to-main` delivery strategy and the slice-1 pull-request
+shape.
 **Relationship to other records**: this record owns **W3** of `odd/tasks/purchase-order-goods-receipt.md`.
 That record's `# W3 — Sales rework (deferred)` section (`:777-800`) stays frozen as the record of the
 deferral and carries a pointer here. Its decisions D1, D6 and D7-B are **cited below, not copied**.
@@ -187,6 +189,19 @@ Taken in `odd/tasks/purchase-order-goods-receipt.md` and unchanged here:
   Rejected: failing closed with `StoreInventorySettingsNotFoundException`, which would turn a missing
   configuration row into a store-wide sales outage — the precondition for a sale is the aggregate, which
   has already been validated, and the location split is an accounting refinement.
+- **W3-D9 — a decommissioned location's balance is still sellable.** Taken by the user on 2026-09-25,
+  after independent verification found that the new allocation query filters `enabled` at no level of the
+  `store_locations -> store_zones -> store_areas` chain. **This contradicts a documented intent in the
+  code it mirrors**: `store/repository/StoreLocationRepository.java:36-38` states that a decommissioned
+  leaf *"is never offered as a receiving or sales location"*, and the receiving path enforces it by
+  rejecting the location outright (`GoodsReceiptService.java:193-199`,
+  `DisabledReceivingLocationException`). The divergence is deliberate: `enabled` governs where new goods
+  may be **placed**, not whether goods already on a retired shelf ceased to exist, and the system has no
+  transfer feature — refusing the deduction would strand stock with no operator path to recover it. The
+  consequence stays visible rather than implied: selling from a retired location is allowed, and
+  W3-D2's reconciliation absorbs the whole location split into the sales location afterwards. The
+  alternative is a one-line `enabled = true` filter on the new query if the project prefers the
+  precedent's wording to its own edge case.
 
 ## Scope: four slices
 
@@ -204,24 +219,24 @@ consumes slice 1; slice 4 depends on all three.
 
 ### Slice 1 — the movement engine (backend, no caller changes)
 
-- [ ] **S1-T1** `MovementType` gains `SALE` and `SALE_REVERSAL`, and its javadoc stops saying the sale
+- [x] **S1-T1** `MovementType` gains `SALE` and `SALE_REVERSAL`, and its javadoc stops saying the sale
       types "arrive with W3" (`MovementType.java:6-9`).
-- [ ] **S1-T2** `InventoryService` gains the deduction API: resolve the store's priority location, allocate
+- [x] **S1-T2** `InventoryService` gains the deduction API: resolve the store's priority location, allocate
       across locations with spillover (W3-D1), decrement each `product_variant_locations` row and the
       `product_variant_store_stock` row, and append one `SALE` movement per location consumed. Lock order
       stays `storeStock → locationBalance` (`:111-120`); the variant definition is read without a lock
       (`:98-103`).
-- [ ] **S1-T3** `InventoryService` gains the reversal API: for a reference, read its `SALE` movements,
+- [x] **S1-T3** `InventoryService` gains the reversal API: for a reference, read its `SALE` movements,
       credit each location exactly, credit the aggregate, and append `SALE_REVERSAL` rows for the
       uncovered remainder only (W3-D6). No-op when the remainder is zero.
-- [ ] **S1-T4** No-settings-row fallback for both APIs (W3-D8), with a single warning and no new exception
+- [x] **S1-T4** No-settings-row fallback for both APIs (W3-D8), with a single warning and no new exception
       type.
-- [ ] **S1-T5** Unit tests: allocation order (`sales_location` first, then FIFO), spillover boundary
+- [x] **S1-T5** Unit tests: allocation order (`sales_location` first, then FIFO), spillover boundary
       (partial priority location), fail-closed on the total, reversal fidelity across a spillover,
       reversal idempotency, lock-order assertion mirroring `InventoryServiceTest:337-360`, and the
       ledger row shape (one row per location, `reference_type`/`reference_id` populated, positive
       quantities).
-- [ ] **S1-T6** `applyReceipt` is left untouched; the changed reading of its comment block is slice 4.
+- [x] **S1-T6** `applyReceipt` is left untouched; the changed reading of its comment block is slice 4.
 
 ### Slice 2 — the sales path (backend)
 
@@ -330,6 +345,16 @@ before merging their base). The forecast is a band, not a measurement: the previ
 repository overshot its own forecast by a factor of four when it assumed a single component and found a
 missing read path, so slice 1 must be gated before slice 2's estimate is trusted.
 
+**Measured against forecast, slice 1: 1115 authored lines** — 384 production plus 731 test — against the
+450–650 band above, that is 1.7–2.5× the estimate, and this is the first honest measurement of the plan:
+the band was written before the engine's shape was known. The user decided on 2026-09-25 that **slice 1
+ships as one pull request with this divergence declared, not split** — the ~400-line figure is a planning
+heuristic whose governing rule forbids treating it as a cap, a forced split or a size-only rework trigger;
+the writer's explanation for the size was reviewed; and independent verification measured the 22 tests as
+mapping 1:1 onto the seven named behaviours of S1-T5 rather than padding. Consequence for the chain: the
+first pull request is ~2.8× the budget, and **slice 2's band below must be re-measured rather than
+trusted**, because it was derived the same way this one was.
+
 ## Risks
 
 1. **The invariant has to hold from the first deploy.** If slice 2 ships before slice 3, stores that sold
@@ -415,6 +440,23 @@ missing read path, so slice 1 must be gated before slice 2's estimate is trusted
   balances can exist without a `sales_location_id` to reconcile onto. W3-D8 supplies the tie-break.
 - **F9 — the reset decision buys a scope reduction.** W3-D2 plus W3-D5 remove two items from the inherited
   plan: the recompute switch and, with it, the reason the additive receipt was a compromise.
+- **F10 — a green gate can execute nothing, and this worktree produced one.** The authorized gate
+  `./gradlew spotlessCheck spotbugsMain test --no-daemon` returned `Task :test UP-TO-DATE` with
+  `9 actionable tasks: 9 up-to-date` — **zero tests executed** — while the writer's own XML reported 600
+  classes / 2082 tests. The cause is stale incremental state in `build/`, which in this worktree also
+  produced `No tests found` for existing classes and a green run aggregating only the 22 new tests. It was
+  caught only because verification was independent: a verifier that had accepted the writer's summary
+  would have certified a suite that never ran. Force a real execution (`cleanTest`) before treating any
+  green in this repository as evidence.
+- **F11 — the allocation ignores `enabled`, against the nearest precedent's stated intent.** Settled by
+  the user as W3-D9, with the contradiction to `StoreLocationRepository` recorded there rather than
+  smoothed over.
+- **F12 — the new store-scoped JPQL is never executed against PostgreSQL in slice 1.** The FIFO finder's
+  scope chain is validated only in the sense that Spring Data parses it at bootstrap (the integration
+  classes boot the context) and the unit tests mock the repository; no test calls the allocation against a
+  real database. Its join chain matches the executable precedent and its ordering is deterministic, but
+  **data semantics are unexecuted until S2-T6**, which owns that coverage. Do not mistake a parsed query
+  for a proven one.
 
 ## Task log
 
@@ -426,4 +468,7 @@ missing read path, so slice 1 must be gated before slice 2's estimate is trusted
 | 2026-09-24 | Pointer added to the deferral record | `odd/tasks/purchase-order-goods-receipt.md`, two insertions: after the header block and at the `# W3 — Sales rework (deferred)` heading. No existing text replaced, per that record's D4 |
 | 2026-09-25 | Base moved under the record; risk 5 discharged | A peer session reported `main` had advanced: verified `6423256` → `167a6ce` (PR #172, the frontend half of D13b), 3 commits ahead of this worktree, diff = 6 Angular files plus a new `odd/tasks/inventory-settings-conflict-ux.md`, so **no file of this record overlaps it**. Also verified the type change the peer flagged does not reach this record's tasks: `StoreInventorySettingsResponse` already carried a required `long version` and `StoreInventorySettingsRequest` an optional `Long version`, so the frontend model was catching up to a backend contract that did not move. The rebase is deliberately **not** done yet — the record is uncommitted and shall not be stashed for it; it runs after the work-unit commit |
 | 2026-09-25 | Delivery strategy decided: `stacked-to-main` | The user chose it from the `ask-on-risk` preflight ask, taken before the first source commit because the forecast below exceeds the 400-authored-line budget. Recorded with the slice→pull-request mapping in `## Checks and route` |
+| 2026-09-25 | Slice 1 implemented (S1-T1…S1-T6) | Written by one delegated `gentle-ai-worker` (route and trigger in `## Checks and route`): 6 files under `life-control-api/**/inventory/` plus a new `InventoryServiceSaleMovementTest` (22 tests, 7 nested classes). The reachable RED for a brand-new Java API is a **compile failure** (`cannot find symbol method applySaleDeduction`), not an assertion failure — recorded as the weaker form it is. Verification found one overstated javadoc claim (the balance rows are *not* locked "the same sequence for every caller": the reversal orders by `store_location_id` while the deduction orders FIFO; safety comes from the shared `storeStock` row being first for every mover), corrected in this commit. That correction is **comment-only**, so the compiled behaviour is identical to the bytes the `09:30:46` gate covered, but it is not literally the same tree: the next forced gate, at slice 2, is the first that covers the final bytes. Stated rather than glossed, because F10 is exactly the cost of not stating it. |
+| 2026-09-25 | The gate was a green no-op and was re-run under force | `Task :test UP-TO-DATE`, 9/9 up-to-date, **no test executed**, while the writer's XML showed 2082. Forced with `cleanTest`: `BUILD SUCCESSFUL in 1m 22s`, XML mtime `09:30:46` postdating the last source edit `08:42:22`, aggregate **600 classes / 2082 tests / 0 failures / 0 errors / 0 skipped**, SpotBugs 0 findings. This is what promoted S1-T5 from "read" to "independently executed" — see F10 |
+| 2026-09-25 | Verification of slice 1 by a separate read-only session | `gentle-ai-verify` independently re-read the engine and confirmed: lock order `storeStock -> locationBalance` with non-vacuous lock-order tests; no write on either fail-closed path; the reversal derives from the ledger, never consults the settings row and is a true no-op when re-run; the FIFO tie-break is deterministic even within one transaction; W3-D8 warns exactly once; `applyReceipt` byte-identical; no file outside the allowed surfaces; the writer's self-reported index writes left no residue. It also produced F11 and F12 |
 | 2026-09-25 | Work-unit commit, rebase, and the route/checks declaration | This record and the pointer in `purchase-order-goods-receipt.md` committed together as `docs(odd): plan W3 as its own record (sales-location-aware-stock)`, then rebased onto `167a6ce` (PR #172), one commit replayed with no conflicts — which supersedes the *"not done yet"* half of the row above. Anchors re-checked against the new base: PR #172 is frontend-only and touched no file this record anchors to, including `store-inventory-settings.html:68`, whose *"Ubicación de venta"* label is intact. RDD verified disabled (`gentle_review inspect` → `stop / rdd_disabled`), so tasks carry ordinary checks and no review ceremony. TDD mode, gate and per-task route declared in `## Checks and route` |

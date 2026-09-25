@@ -1,6 +1,7 @@
 package com.lifecontrol.api.inventory.repository;
 
 import com.lifecontrol.api.inventory.model.InventoryMovement;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
@@ -15,4 +16,13 @@ import org.springframework.stereotype.Repository;
  * {@code deleteAll} to clean up fixtures — production code never does.)</p>
  */
 @Repository
-public interface InventoryMovementRepository extends JpaRepository<InventoryMovement, UUID> {}
+public interface InventoryMovementRepository extends JpaRepository<InventoryMovement, UUID> {
+
+    /**
+     * Every ledger row written for one source reference, used by the sale reversal to read what a
+     * sale took from each location instead of re-running the allocation (W3-D6). It is a read-only
+     * query: the append-only contract and the surface assertion in
+     * {@code InventoryMovementRepositorySurfaceTest} stay intact.
+     */
+    List<InventoryMovement> findByReferenceTypeAndReferenceId(String referenceType, UUID referenceId);
+}
