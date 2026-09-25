@@ -16,8 +16,9 @@ was answered with "the rule lives in a record nobody reads, and nothing enforces
 ## Why this exists
 
 `odd/tasks/odd-status-reconciliation.md` D2 fixed the rule for ODD headers and PR #162 applied it to
-14 records. The next cycle produced four new headers with the exact forbidden claim, and PR #170
-(open, not merged) has just repaired those four.
+14 records. The next cycle produced four new headers with the exact forbidden claim, and the repair
+that owns those four is in flight as this is written. This slice makes no claim about that repair's
+state (D2 applied to itself).
 
 Two things were measured while answering "how do we fix the cause":
 
@@ -121,8 +122,8 @@ This repository has reproduced it in three consecutive generations:
 | Where | What happened |
 | --- | --- |
 | PR #162 (`odd-status-reconciliation`) | Repaired **14** headers that asserted a live or pending delivery state. Three of them had to be amended again **inside the same slice**, because the slice's own prescribed replacements still carried "No PR is open" (its decision D7). |
-| PRs #164–#169 | The very next cycle wrote **four** fresh headers with "Not pushed; no PR is open" — the exact claim the previous slice had just deleted from 14 others. |
-| PR #170 | Repaired those four, plus six body lines from earlier slices that had drifted the same way. |
+| PRs #164–#167 | The very next cycle wrote **four** fresh headers with "Not pushed; no PR is open" — the exact claim the previous slice had just deleted from 14 others. The last two PRs of that same cycle (#168, #169) wrote neutral headers on their own initiative, with no rule telling them to. |
+| The repair in flight when this was written | Removes those four claims, plus body lines from earlier slices that had drifted the same way. This table deliberately does not assert that repair's state, or its number. |
 
 The pattern is structural, not careless: the header is written while the delivery state is still
 *unknown* (pre-merge) and is never revisited when it becomes *known* (post-merge). Removing the
@@ -186,6 +187,11 @@ A record whose work is still open, or whose delivery state is not yet known:
   it. Design the header so that it does not need updating.
 ````
 
+> **This contract block was amended by F1**, after the writer had already applied it: its third row was
+> first written as `PR #170 | Repaired those four…` and its second as `PRs #164–#169`. F1 records why
+> both were wrong. The block now mirrors the committed file; T3's "byte-identical" claim refers to the
+> contract **as it stood when the writer ran**, which is the only reading under which it is true.
+
 ### I3 — `.agents/skills/project-conventions/references/index.md`
 
 Two insertions in `## Workflow` and one in `## Gaps`.
@@ -245,8 +251,8 @@ AFTER
 
 - **Any guard, script, workflow or CI change** (D3). The absence is documented in the reference's
   `## Gaps` and in `index.md`, so the next reader knows it is a decision.
-- **Rewriting any existing record** (D5). PR #170 owns the four stale headers; this slice does not
-  touch the 30 records.
+- **Rewriting any existing record** (D5). The repair that owns the four stale headers is in flight;
+  this slice does not touch the 30 records, and asserts nothing about that repair's state.
 - **The root `AGENTS.md`'s other gaps** — it still does not mention `odd/tasks/` anywhere else, and
   it never describes the ODD workflow itself, only this one artifact. Adding a whole ODD section is
   a larger question and was not authorized.
@@ -288,6 +294,16 @@ AFTER
   now recorded as the evidence in favour of the design. Recorded rather than quietly fixed: a
   convention slice that violates its own convention in its first table is the most useful lesson it
   can leave behind.
+- **F2 (low, mine, found by the independent verification) — the contract went stale inside the commit
+  that applied it.** F1 was corrected in the artifact (`references/feature-records.md`) but not in the
+  `I2` block of this record, so after the commit the "verbatim" contract still carried the pre-F1 text
+  while its own T3/T4 rows claimed "0 mismatches" and "all six insertions match". The verification
+  caught the divergence. Corrected here, together with the two assertions this record had kept about
+  the in-flight repair's state (`:19-20` and the `Out of scope` item), which contradicted this record's
+  own D5. Two lessons, and they are the same lesson twice: **the moment you correct an artifact you
+  have to correct every copy of it, including the copy that prescribes it**, and an invariant is worth
+  nothing if the document that states it is exempt from it. This slice now contains three instances of
+  its own subject matter: F1, F2, and the artifact F1 fixed.
 
 ## Task log
 
@@ -295,7 +311,8 @@ AFTER
 |---|---|---|
 | 2026-09-24 | T1 — read-only mapping of enforcement options | `gentle-ai-explore` scout (workflows, scripts, guard precedent, skill structure) + parent verification of the path filters and the skill's absence of any ODD mention |
 | 2026-09-24 | T2 — write this contract | the four exact insertions above |
-| 2026-09-24 | T3 — apply the four insertions | delegated to one `gentle-ai-worker` with the exact text and 4 allowed edit surfaces; reported 6 applied, 0 mismatches, `git diff --stat` = 3 files, +21 −0, and the new reference byte-identical to the contract by checksum |
+| 2026-09-24 | T3 — apply the four insertions | delegated to one `gentle-ai-worker` with the exact text and 4 allowed edit surfaces; reported 6 applied, 0 mismatches, `git diff --stat` = 3 files, +21 −0, and the new reference byte-identical to the contract **as then prescribed**, by checksum |
 | 2026-09-24 | T4 — parent diff gate | the full `git diff` plus the new file read end to end and compared against every block: all six insertions match, no collateral line changed, `---`/`## Project Overview` not duplicated; **two of my own imprecisions found and corrected — see F1** |
-| 2026-09-24 | T5 — work-unit commit | pending |
-| 2026-09-24 | T6 — independent read-only verification | pending |
+| 2026-09-24 | T5 — work-unit commit | `2ccddc8` — 5 files, +402 −0, pure insertions |
+| 2026-09-24 | T6 — independent read-only verification | `gentle-ai-verify` over `2ccddc8`: C1, C2, C4, C6, C7 upheld (the measured cause re-derived against the base commit; the four workflows' `paths:` filters; the 14 / D7 / #164–#167 history; both index locations and the balanced fences; the pure-insertion shape); C3 upheld with a note that the new text strengthens rather than weakens D2; **C5 partial, see F2** |
+| 2026-09-24 | T7 — correct the verification's findings | this second commit on the branch: F2 (the stale `I2` contract block, the two in-flight-state assertions, and the unverifiable "six body lines" figure this record had repeated into the reference). Gate: the `I2` block extracted from this record now diffs **empty** against `references/feature-records.md`, and every remaining hit for a forbidden phrase is either a quotation inside the prohibited-examples table or the description of the defect in F1/F2 — never an assertion by the document itself |

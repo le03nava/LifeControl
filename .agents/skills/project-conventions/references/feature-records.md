@@ -16,7 +16,7 @@ This repository has reproduced it in three consecutive generations:
 | --- | --- |
 | PR #162 (`odd-status-reconciliation`) | Repaired **14** headers that asserted a live or pending delivery state. Three of them had to be amended again **inside the same slice**, because the slice's own prescribed replacements still carried "No PR is open" (its decision D7). |
 | PRs #164–#167 | The very next cycle wrote **four** fresh headers with "Not pushed; no PR is open" — the exact claim the previous slice had just deleted from 14 others. The last two PRs of that same cycle (#168, #169) wrote neutral headers on their own initiative, with no rule telling them to. |
-| The third repair (its own PR) | Removes those four, plus six body lines from earlier slices that had drifted the same way. Its record is `odd/tasks/odd-header-hygiene.md`. This table deliberately does not assert that PR's state. |
+| The repair in flight when this was written | Removes those four claims, plus body lines from earlier slices that had drifted the same way. This table deliberately does not assert that repair's state, or its number. |
 
 The pattern is structural, not careless: the header is written while the delivery state is still
 *unknown* (pre-merge) and is never revisited when it becomes *known* (post-merge). Removing the
