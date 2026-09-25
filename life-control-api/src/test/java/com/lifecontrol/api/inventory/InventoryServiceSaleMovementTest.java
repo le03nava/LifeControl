@@ -3,6 +3,7 @@ package com.lifecontrol.api.inventory;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
@@ -14,6 +15,7 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import com.lifecontrol.api.inventory.exception.StoreInventorySettingsNotFoundException;
 import com.lifecontrol.api.inventory.model.InventoryMovement;
 import com.lifecontrol.api.inventory.model.MovementType;
 import com.lifecontrol.api.inventory.model.ProductVariantLocation;
@@ -49,8 +51,9 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Unit coverage of the sale movement engine: {@link InventoryService#applySaleDeduction} (priority
- * allocation with FIFO spillover, the two fail-closed checks and the {@code SALE} ledger rows) and
- * {@link InventoryService#applySaleReversal} (ledger-driven reversal, idempotent by construction).
+ * allocation with FIFO spillover, the two fail-closed checks and the {@code SALE} ledger rows),
+ * {@link InventoryService#applySaleReversal} (ledger-driven reversal, idempotent by construction)
+ * and {@link InventoryService#applyStockAdjustment} (the manual per-store editor of W3-D14).
  *
  * <p>These tests replace the interim expectation that sales never touch a location row. Persistence
  * behaviour on real PostgreSQL stays covered by {@code InventoryIntegrationTest}.</p>
@@ -724,6 +727,238 @@ class InventoryServiceSaleMovementTest {
             lockOrder
                     .verify(productVariantLocationRepository)
                     .findByProductVariantIdAndStoreLocationIdForUpdate(VARIANT_ID, LOCATION_B);
+        }
+    }
+
+    // ---------------------------------------------------------------- manual stock adjustment
+
+    @Nested
+    @DisplayName("manual per-store stock adjustment (W3-D14)")
+    class ManualStockAdjustmentTests {
+
+        private BigDecimal adjust(String stock) {
+            return inventoryService.applyStockAdjustment(VARIANT_ID, STORE_ID, new BigDecimal(stock), ACTOR);
+        }
+
+        /** Both sides of the invariant: the aggregate saved equals the sum of the location balances. */
+        private void assertInvariant(String expectedAggregate) {
+            var locationSum = balances.values().stream()
+                    .map(location -> location.getStock() != null ? location.getStock() : BigDecimal.ZERO)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            assertThat(locationSum).isEqualByComparingTo(expectedAggregate);
+            verify(productVariantStoreStockRepository)
+                    .save(argThat(row -> row.getStock().compareTo(new BigDecimal(expectedAggregate)) == 0));
+        }
+
+        @Test
+        @DisplayName("should raise the destination location and the aggregate, and write one positive movement")
+        void raiseWritesAllThreeSides() {
+            givenStoreStock("0.00");
+            givenSalesLocation(LOCATION_A);
+            balance(LOCATION_A, "0.00");
+            givenLockableBalances(LOCATION_A);
+
+            var result = adjust("5.00");
+
+            assertThat(result).isEqualByComparingTo("5.00");
+            assertThat(savedBalances())
+                    .extracting(ProductVariantLocation::getStock)
+                    .containsExactly(new BigDecimal("5.00"));
+            assertThat(savedMovements()).hasSize(1);
+            var movement = savedMovements().getFirst();
+            assertThat(movement.getMovementType()).isEqualTo(MovementType.ADJUSTMENT_INCREASE);
+            assertThat(movement.getQuantity()).isEqualByComparingTo("5.00");
+            assertThat(movement.getStoreLocationId()).isEqualTo(LOCATION_A);
+            assertThat(movement.getReferenceType()).isEqualTo("MANUAL_STOCK_EDIT");
+            assertThat(movement.getReferenceId()).isNull();
+            assertThat(movement.getCreatedBy()).isEqualTo(ACTOR);
+            verify(productVariantStoreStockRepository)
+                    .save(argThat(row -> row.getStock().compareTo(new BigDecimal("5.00")) == 0));
+        }
+
+        @Test
+        @DisplayName("should lower the destination and write a POSITIVE ADJUSTMENT_DECREASE (W3-D7)")
+        void lowerWritesAPositiveDecrease() {
+            givenStoreStock("11.00");
+            givenSalesLocation(LOCATION_A);
+            balance(LOCATION_A, "11.00");
+            givenLockableBalances(LOCATION_A);
+            givenFifoOrder(LOCATION_A);
+
+            var result = adjust("4.00");
+
+            assertThat(result).isEqualByComparingTo("4.00");
+            assertThat(savedBalances())
+                    .extracting(ProductVariantLocation::getStock)
+                    .containsExactly(new BigDecimal("4.00"));
+            assertThat(savedMovements()).hasSize(1);
+            var movement = savedMovements().getFirst();
+            assertThat(movement.getMovementType()).isEqualTo(MovementType.ADJUSTMENT_DECREASE);
+            // The direction is the type; the quantity stays positive.
+            assertThat(movement.getQuantity()).isEqualByComparingTo("7.00");
+        }
+
+        @Test
+        @DisplayName("should allocate a decrease over the store's locations instead of driving sales negative")
+        void decreaseAllocatesOverTheStoresLocations() {
+            // The state applyReceipt leaves when the receiving and sales locations differ: the
+            // aggregate is 10, the receiving location (B) holds all of it and the sales location (A)
+            // holds none. Assigning the whole delta to sales drove it to -5 while the invariant
+            // aggregate = SUM(locations) still held, so nothing detected it (F18).
+            givenStoreStock("10.00");
+            givenSalesLocation(LOCATION_A);
+            balance(LOCATION_A, "0.00");
+            balance(LOCATION_B, "10.00");
+            givenFifoOrder(LOCATION_A, LOCATION_B);
+
+            var result = adjust("5.00");
+
+            assertThat(result).isEqualByComparingTo("5.00");
+            assertThat(balances.get(LOCATION_A).getStock()).isEqualByComparingTo("0.00");
+            assertThat(balances.get(LOCATION_B).getStock()).isEqualByComparingTo("5.00");
+            assertThat(savedBalances())
+                    .extracting(ProductVariantLocation::getStoreLocationId)
+                    .containsExactly(LOCATION_B);
+            var movements = savedMovements();
+            assertThat(movements).hasSize(1);
+            assertThat(movements.getFirst().getMovementType()).isEqualTo(MovementType.ADJUSTMENT_DECREASE);
+            assertThat(movements.getFirst().getQuantity()).isEqualByComparingTo("5.00");
+            assertThat(movements.getFirst().getStoreLocationId()).isEqualTo(LOCATION_B);
+            assertInvariant("5.00");
+        }
+
+        @Test
+        @DisplayName("should write one ADJUSTMENT_DECREASE per location a spanning decrease draws from")
+        void spanningDecreaseWritesOneMovementPerLocation() {
+            givenStoreStock("10.00");
+            givenSalesLocation(LOCATION_A);
+            balance(LOCATION_A, "2.00");
+            balance(LOCATION_B, "8.00");
+            givenFifoOrder(LOCATION_A, LOCATION_B);
+
+            var result = adjust("5.00");
+
+            assertThat(result).isEqualByComparingTo("5.00");
+            assertThat(balances.get(LOCATION_A).getStock()).isEqualByComparingTo("0.00");
+            assertThat(balances.get(LOCATION_B).getStock()).isEqualByComparingTo("5.00");
+            var movements = savedMovements();
+            assertThat(movements)
+                    .extracting(InventoryMovement::getStoreLocationId)
+                    .containsExactly(LOCATION_A, LOCATION_B);
+            assertThat(movements)
+                    .extracting(InventoryMovement::getMovementType)
+                    .containsOnly(MovementType.ADJUSTMENT_DECREASE);
+            assertThat(movements)
+                    .extracting(InventoryMovement::getQuantity)
+                    .containsExactly(new BigDecimal("2.00"), new BigDecimal("3.00"));
+            assertInvariant("5.00");
+        }
+
+        @Test
+        @DisplayName("should empty every location when the decrease equals the whole aggregate")
+        void decreaseToZeroEmptiesEveryLocation() {
+            givenStoreStock("5.00");
+            givenSalesLocation(LOCATION_A);
+            balance(LOCATION_A, "2.00");
+            balance(LOCATION_B, "3.00");
+            givenFifoOrder(LOCATION_A, LOCATION_B);
+
+            var result = adjust("0.00");
+
+            assertThat(result).isEqualByComparingTo("0.00");
+            assertThat(balances.get(LOCATION_A).getStock()).isEqualByComparingTo("0.00");
+            assertThat(balances.get(LOCATION_B).getStock()).isEqualByComparingTo("0.00");
+            assertThat(savedMovements())
+                    .extracting(InventoryMovement::getQuantity)
+                    .containsExactly(new BigDecimal("2.00"), new BigDecimal("3.00"));
+            assertInvariant("0.00");
+        }
+
+        @Test
+        @DisplayName("should fail closed when the location balances cannot cover the decrease")
+        void decreaseFailsClosedWhenLocationsCannotCoverIt() {
+            // The seeded state breaks aggregate = SUM(locations), which the W3-D15 reset removes and
+            // the writers keep true, so the guard is unreachable through the application. It is
+            // proven here directly: the edit refuses instead of writing a negative balance (W3-D1).
+            givenStoreStock("10.00");
+            givenSalesLocation(LOCATION_A);
+            balance(LOCATION_A, "1.00");
+            balance(LOCATION_B, "1.00");
+            givenFifoOrder(LOCATION_A, LOCATION_B);
+
+            assertThatThrownBy(() -> adjust("0.00"))
+                    .isInstanceOf(InsufficientStockException.class)
+                    .hasMessageContaining("requested 10.00, available 2.00");
+
+            assertThat(balances.get(LOCATION_A).getStock()).isEqualByComparingTo("1.00");
+            assertThat(balances.get(LOCATION_B).getStock()).isEqualByComparingTo("1.00");
+            verify(productVariantStoreStockRepository, never()).save(any());
+            verifyNoInteractions(inventoryMovementRepository);
+        }
+
+        @Test
+        @DisplayName("should refuse a store with no settings row before touching any balance")
+        void refusesWithoutStoreInventorySettings() {
+            givenNoStoreInventorySettings();
+
+            assertThatThrownBy(() -> adjust("3.00"))
+                    .isInstanceOf(StoreInventorySettingsNotFoundException.class)
+                    .hasMessageContaining("Store inventory settings not found");
+
+            verifyNoInteractions(productVariantStoreStockRepository);
+            verifyNoInteractions(productVariantLocationRepository);
+            verifyNoInteractions(inventoryMovementRepository);
+        }
+
+        @Test
+        @DisplayName("should write no movement when the target equals the current aggregate")
+        void sameStockWritesNoMovement() {
+            givenStoreStock("5.00");
+            givenSalesLocation(LOCATION_A);
+
+            var result = adjust("5.00");
+
+            assertThat(result).isEqualByComparingTo("5.00");
+            verifyNoInteractions(productVariantLocationRepository);
+            verifyNoInteractions(inventoryMovementRepository);
+        }
+
+        @Test
+        @DisplayName("should reject a negative or null target without touching any repository")
+        void rejectsInvalidTarget() {
+            assertThatThrownBy(() -> adjust("-1.00"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("must be greater than or equal to zero");
+            assertThatThrownBy(() -> inventoryService.applyStockAdjustment(VARIANT_ID, STORE_ID, null, ACTOR))
+                    .isInstanceOf(IllegalArgumentException.class);
+
+            verifyNoInteractions(storeInventorySettingsRepository);
+            verifyNoInteractions(productVariantStoreStockRepository);
+            verifyNoInteractions(productVariantLocationRepository);
+            verifyNoInteractions(inventoryMovementRepository);
+        }
+
+        @Test
+        @DisplayName("should lock the per-store stock row before the destination balance")
+        void adjustmentLocksStoreStockFirst() {
+            givenStoreStock("0.00");
+            givenSalesLocation(LOCATION_A);
+            balance(LOCATION_A, "0.00");
+            givenLockableBalances(LOCATION_A);
+
+            adjust("2.00");
+
+            InOrder lockOrder = inOrder(
+                    storeInventorySettingsRepository,
+                    productVariantStoreStockRepository,
+                    productVariantLocationRepository);
+            lockOrder.verify(storeInventorySettingsRepository).findByCompanyStoreId(STORE_ID);
+            lockOrder
+                    .verify(productVariantStoreStockRepository)
+                    .findByProductVariantIdAndCompanyStoreIdForUpdate(VARIANT_ID, STORE_ID);
+            lockOrder
+                    .verify(productVariantLocationRepository)
+                    .findByProductVariantIdAndStoreLocationIdForUpdate(VARIANT_ID, LOCATION_A);
         }
     }
 }

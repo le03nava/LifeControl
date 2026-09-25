@@ -1,11 +1,10 @@
 # ODD feature: sales-location-aware-stock
 
-**Status**: slices 1 and 2 of four implemented — the movement engine and the sales-path rewiring are
-written and independently verified on `feat/sales-location-aware-stock`, which sits on `main` @
-`167a6ce`. **Slices 3 and 4 remain open.** Slice 3 is the reconciliation: until it lands the
-invariant holds only for rows written after this change, and it must ship in the same release as slices 1
-and 2 or be re-run afterwards, because on its own it re-creates the inconsistency it repairs. This header
-makes no claim about push or PR state; see the task log.
+**Status**: slices 1, 2 and 3 of four implemented — the movement engine, the sales-path rewiring, and
+the balance reset with its source closure are written and independently verified on
+`feat/sales-location-aware-stock`, which sits on `main` @ `167a6ce`. **Slice 4 remains open**: the
+interim contracts still sitting in the code, and the test that asserts the old one, are not yet flipped.
+This header makes no claim about push or PR state; see the task log.
 **Created**: 2026-09-24 · **Risk**: **high** — the change alters the stock-deduction semantics of a live
 sales path, adds the missing ledger writer, and repairs persisted inventory balances from data that
 cannot be recomputed (the ledger has no sales history to derive them from).
@@ -187,7 +186,12 @@ Taken in `odd/tasks/purchase-order-goods-receipt.md` and unchanged here:
   `SUM(RECEIPT) + SUM(SALE_REVERSAL) - SUM(SALE)` per location. Rejected alternative: storing a negative
   `quantity` on a `SALE` row. It is not forbidden by the schema (`V10` puts no `CHECK` on the column),
   which is exactly why the convention has to be explicit — and `RECEIPT` rows are positive, so a signed
-  column would make every existing reader wrong. `ADJUSTMENT` is **not** added: nothing writes one.
+  column would make every existing reader wrong. `ADJUSTMENT` is **not** added: nothing writes one. **Corrected 2026-09-25 by W3-D16:**
+  `ADJUSTMENT_INCREASE` and `ADJUSTMENT_DECREASE` now exist, because slice 3 gave them a writer and the
+  repo's rule is that a type arrives with its consumer — which is exactly why this decision refused to add
+  one earlier. What the pair preserves is the *convention* established here: the direction lives in the
+  type and every quantity stays positive, so the fold needed no amendment and no existing reader became
+  conditional.
 - **W3-D8 — a store with no settings row allocates FIFO and warns, it does not fail closed.** The
   reconciliation tie-break for a `(variant, store)` whose store has no `store_inventory_settings` row
   (reachable via a receipt override, see the edge case above) credits the aggregate to the location
@@ -241,6 +245,37 @@ Taken in `odd/tasks/purchase-order-goods-receipt.md` and unchanged here:
   (`SalesOrderItemNotModifiableException`, a new subtype of `ConflictException`). Re-enabling a
   soft-deleted line stays possible through the order-level `PUT` — the W3-D11 path, which deducts
   correctly — and that supported route is what lets the line-level guard be strict.
+- **W3-D14 — the per-store stock editor writes all three sides, or it refuses.** Taken by the user on
+  2026-09-25 after measurement showed this editor is **the only real source of divergence in the only
+  environment that exists**: `ProductVariantService.upsertStoreStock` set the aggregate alone, and dev held
+  aggregate 11.00 against location 1.00 with one RECEIPT and **zero** sales orders — so the divergence was
+  never the "sold since receipt" overcount the narrative describes, it was a manual edit. This is the
+  fourth stock writer, and the W3 map never listed it. The editor now writes the aggregate, the destination
+  location row and a movement explaining the delta; the destination is the store's `sales_location_id`, and
+  **a store with no settings row is refused** rather than guessed — which on dev is the normal case (zero
+  settings rows), so configuring the store becomes the precondition for setting stock by hand. Same
+  argument that forced slice 2 to migrate deduction and restoration together: a writer left outside the
+  invariant re-creates the divergence that repairing it removes.
+- **W3-D15 — the reset is a truncate, and it supersedes W3-D2.** Taken by the user on 2026-09-25 in
+  preference to the derived reset: there is no environment whose history is worth a data rewrite (measured
+  — see the corrected risk 2 and F17), so the smallest, most honest and most testable shape is the one V14
+  already used. W3-D2's derived credit is **superseded, not deleted** — it stays in this register as the
+  record of what was decided before the measurement. W3-D8's *reconciliation* tie-break goes with it,
+  because with nothing to credit there is nothing to tie-break; W3-D8's **deduction-time** FIFO fallback
+  stands untouched and is the live half of that decision. Consequence for slice 3: it is no longer a
+  reconciliation slice but a **reset plus source closure** slice, and the two halves are independent — the
+  truncate clears the existing inconsistency, W3-D14 stops it being re-created.
+- **W3-D16 — a manual decrease is allocated like a sale, not assigned to one location.** Taken by the
+  parent on 2026-09-25 as **W3-D1 applied to a second operation**, and recorded as such so it is
+  reviewable rather than silently widened: the decrease is drawn over the store's locations in the same
+  order the sale deduction uses — priority location first, then FIFO — by **reusing** the existing
+  allocation helper instead of writing a second rule for the same concept, and one `ADJUSTMENT_DECREASE`
+  row is written per location actually drawn from, so a spanning decrease explains itself in the ledger.
+  An **increase** still credits the sales location, because there is nothing to draw from. The engine's
+  fail-closed guard stays and raises the same typed exception, but verification established it has **no
+  reachable case** while the invariant holds — `target >= 0` implies `amount <= aggregate = locationTotal`
+  — so it is defence in depth, and the test that exercises it seeds a deliberately broken invariant
+  instead of claiming coverage.
 
 ## Scope: four slices
 
@@ -251,7 +286,7 @@ consumes slice 1; slice 4 depends on all three.
 | --- | --- | --- |
 | 1 — the movement engine | `MovementType` gains the sale types; `InventoryService` gains the signed movement API (deduct with priority spillover, reverse by ledger); unit tests for allocation, spillover, fail-closed, lock order and ledger shape | — |
 | 2 — the sales path | Route all 8 entry points through the engine; replace the net-delta fold with per-item deltas; reversal by ledger reference; fix the item-cancellation gap (W3-D4); integration tests that finally assert on location rows | 1 |
-| 3 — the reconciliation | `V15__reconcile_location_balances.sql` implementing W3-D2 and W3-D8 | — |
+| 3 — the reset and the source closure | `V15` truncate reset (W3-D15, supersedes W3-D2) **plus** the per-store editor writing all three sides (W3-D14) | — |
 | 4 — the contract flip | Rewrite the three interim contracts in prose; replace `InterimInconsistencyTests` with the invariant test; update `life-control-api/AGENTS.md` where it describes the sales/inventory contract | 1, 2, 3 |
 
 ## Task list
@@ -330,16 +365,34 @@ consumes slice 1; slice 4 depends on all three.
       that actually matters — `updateSalesOrder_ReEnableCancelledLineWithChangedQuantity_NoStockMovement`
       asserts `verifyNoInteractions(inventoryService)` — not because of strictness.
 
-### Slice 3 — the reconciliation (data)
+### Slice 3 — the reset and the source closure (data + writer)
 
-- [ ] **S3-T1** `V15__reconcile_location_balances.sql`: zero every `product_variant_locations` row and
-      credit each `(variant, store)` aggregate to the store's `sales_location_id` (W3-D2), with the
-      no-settings-row tie-break (W3-D8). New migration only — never an edit to an applied one
-      (`life-control-api/AGENTS.md:859`).
-- [ ] **S3-T2** State explicitly what the migration does to an empty database and to a database whose
-      history V14 already truncated, so the dev environment's outcome is predictable.
-- [ ] **S3-T3** Verify the post-migration invariant with a query: no `(variant, store)` where
-      `store_stock.stock != SUM(locations.stock)`.
+Two halves, independent in content, per W3-D15 and W3-D14: the truncate clears the inconsistency that
+exists, the editor fix stops it being re-created. Neither is sufficient alone.
+
+- [x] **S3-T1** `V15__inventory_balance_reset.sql`: a truncate in V14's shape, clearing the balance side of
+      the inventory — `product_variant_store_stock`, `product_variant_locations`, `inventory_movements` —
+      and whatever else coherence requires, decided explicitly and stated rather than assumed. New
+      migration only, never an edit to an applied one (`life-control-api/AGENTS.md:859`), and its header
+      carries the **measured** precondition from F17 rather than an assumed one, in V14's own style.
+- [x] **S3-T2** State what the migration does to an empty database and to one V14 already truncated, where
+      both are no-ops, and what it means operationally: afterwards dev has variants and zero stock, and
+      setting stock by hand requires configuring the store's inventory settings first (W3-D14) — which on
+      dev means one row that does not exist today.
+- [x] **S3-T3** Verify the post-reset invariant with a query: no `(variant, store)` where
+      `store_stock.stock != SUM(locations.stock)`. Say plainly that on an empty database this is vacuous,
+      so the query's real job is the operator gate on a database that has data — not a test.
+- [x] **S3-T4** `ProductVariantService.upsertStoreStock` writes the aggregate, the destination location row
+      and a movement explaining the delta, and refuses with a typed 4xx when the store has no settings row
+      (W3-D14). The destination is the store's `sales_location_id`. If the delta needs a signed quantity,
+      say so and propose amending W3-D7 explicitly instead of quietly breaking its positive-quantity
+      convention.
+- [x] **S3-T5** Tests for S3-T4 on both stock sides and the ledger, the refusal, and the invariant holding
+      after an edit — including an edit that **lowers** stock, a direction the ledger has no precedent for.
+- [x] **S3-T6** The `ADJUSTMENT` movement type is justified **in this register** by its
+      consumer — W3-D16 for the pair, the corrected W3-D7 for the convention the pair preserves. Slice 1's
+      refusal to add the type earlier is what makes the justification a requirement rather than a
+      formality.
 
 ### Slice 4 — the contract flip
 
@@ -352,7 +405,10 @@ consumes slice 1; slice 4 depends on all three.
 - [ ] **S4-T3** Update `life-control-api/AGENTS.md` where it describes the sales/inventory contract and the
       inventory schema, and check the invariants it states about stock.
 - [ ] **S4-T4** Sweep for remaining interim prose: `grep -rn "W3\|until the sales rework" src/main/java`
-      must return only intentional historical references.
+      must return only intentional historical references. The sweep has at least four known members, not
+      one: `InventoryService`'s class javadoc (`:33-46`), its additive comment block (`:138-146`),
+      `MovementType`'s javadoc, and **`InventoryMovement`'s javadoc (`:16`)**, which verification found
+      still claiming "only RECEIPT rows exist until W3" and which the plan had not enumerated.
 
 ## Checks and route
 
@@ -440,10 +496,22 @@ the original forecast, and F15 is the reason the overrun is worth more than its 
    before the deploy still overcount; if slice 3 ships before slice 1, the reconciliation immediately
    re-creates the exact inconsistency it is repairing (sales deduces from the aggregate only). Slices 1
    and 2 must land in the same release as slice 3, or slice 3 must be re-run afterwards.
+   **Corrected 2026-09-25:** the coupling changes shape rather than disappearing. A truncate cannot
+   re-create anything (W3-D15), but it also does not *stay* repaired — until W3-D14 lands, the per-store
+   editor keeps producing divergence, so the reset and the editor fix are what must ship together, while
+   slices 1 and 2 are what make the invariant hold going forward. The measured precondition (F17) is what
+   makes the reset acceptable at all.
 2. **A wrong reconciliation is a data loss with no undo.** The reset discards the per-location
    distribution and, unlike V14, runs against databases that are not dev. `V14` was declared destructive
    and accepted; this one is not destructive but it is *irreversible in meaning* — the pre-migration
    distribution cannot be reconstructed. Take a backup, and gate on the invariant query (S3-T3).
+   **Corrected 2026-09-25, by measurement rather than argument:** the clause *"runs against databases that
+   are not dev"* is **false**. `docker ps -a` shows only `lifecontrol-dev-*` containers,
+   `docker/volumes-staging` is 88 KB and empty, and prod's `VOLUMES_ROOT=/var/lib/lifecontrol` does not
+   exist — one environment, whose history V14 already discarded once. The paragraph above is kept as the
+   record of what was assumed; what replaces it is a truncate (W3-D15) whose precondition is measured. The
+   residual risk is no longer data loss but its opposite: a reset that a still-broken writer re-breaks,
+   which is why W3-D14 ships with it.
 3. **The ledger becomes an audit trail only if the reversal is exact.** A reversal that re-allocates
    instead of reading the ledger silently corrupts every location balance it touches while keeping the
    aggregate right — the failure mode is invisible on the number the operator looks at. This is why
@@ -468,7 +536,9 @@ the original forecast, and F15 is the reason the overrun is worth more than its 
 - **The operator location override** (W3-D3) — stays unbuilt; a follow-up, not a gap.
 - **Recompute semantics for receipts** (W3-D5) — dropped, with the reasoning recorded rather than left as
   an unfinished task.
-- **`ADJUSTMENT` movements** (W3-D7) — no writer, so no type.
+- **`ADJUSTMENT` movements** (W3-D7) — *corrected 2026-09-25:* the pair
+  `ADJUSTMENT_INCREASE`/`ADJUSTMENT_DECREASE` **does** exist, because slice 3 gave it a writer (W3-D16).
+  What stays out of scope is a bare `ADJUSTMENT` type and any signed quantity.
 - **The Keycloak protocol mappers** for the `company_id → company_store_id` claim chain. Blocking for
   `lc-sales` in any real environment (`docker/scripts/keycloak-setup.sh` provisions none), inherited from
   `store-claim-hardening` and `purchase-order-goods-receipt.md:471`. A separate component, unaffected by
@@ -563,6 +633,31 @@ the original forecast, and F15 is the reason the overrun is worth more than its 
   adversarial orderings and boundary states — an explicitly inverted key order, a status/enabled matrix,
   and a re-run of a mutating operation — instead of waiting for coverage to stumble onto them three rounds
   later.
+- **F16 — there was a fourth stock writer, and it was the only one actually breaking the invariant.**
+  `ProductVariantService.upsertStoreStock` (`:249-280`) inserts the aggregate row if absent and assigns
+  `request.stock()` **without writing any location row and without requiring a store settings row**. It is
+  the per-store stock editor, live for `lc-admin` and `lc-sales`. Measured on dev 2026-09-25: aggregate
+  11.00 against a single location balance of 1.00, with the ledger holding exactly one `RECEIPT` of 1.00
+  and `sales_orders` empty — so the divergence W3 was planned around had **nothing to do with sales**. The
+  record's own map listed the eight sales paths and the receipt and missed this one, which means the
+  invariant was being broken by a feature the plan never considered. Settled as W3-D14.
+- **F17 — the environment claim in risk 2 was never measured, and it was false.** `docker ps -a` lists
+  only `lifecontrol-dev-*` containers; `docker/volumes-staging` is 88 KB and empty; prod's
+  `VOLUMES_ROOT=/var/lib/lifecontrol` does not exist. There is exactly **one** environment with data, it is
+  dev, and its operational chain had already been truncated once by V14 (Flyway at version 14, four
+  variants, one aggregate row, one location row, one movement, zero sales orders, zero purchase orders,
+  **zero** `store_inventory_settings` rows). Every claim in this record that assumed non-dev databases with
+  history to lose — risk 2 and S3-T1's premise — was assumption, not evidence. Corrected in place and
+  recorded here rather than quietly fixed.
+- **F18 — the manual stock edit could drive a location negative while the invariant held.**
+  `applyStockAdjustment` assigned the whole delta to the store's `sales_location_id`. Because `applyReceipt`
+  credits the store's **receiving** location while the editor debited the **sales** location, a store
+  configured with two different locations could hold its stock on the dock and zero on the sales location:
+  receive 10 on the dock, set stock to 5, and the sales location landed at **−5** while
+  `aggregate = SUM(locations)` stayed true — so no invariant check and no test could see it. It was found
+  by the writer of slice 3 as a risk on its own work and reproduced before the fix at unit and integration
+  level as `expected: 0.00 but was: -5.00`. Settled as W3-D16. Recorded here because the code cites `F18`
+  and, until this line existed, the citation resolved to nothing.
 
 ## Task log
 
@@ -585,4 +680,8 @@ the original forecast, and F15 is the reason the overrun is worth more than its 
 | 2026-09-25 | Fix rounds: W3-D12 terminal order, W3-D13 line guard, and the vacuous test | Both guards answer 409 through `ConflictException` types, *terminal* is derived from the transition table, and the guard runs before any mutation. The vacuous test was strengthened to a changed quantity and the guard was **mutated off** to observe `expected: 100.00 but was: 99.00` before restoring it — non-vacuity demonstrated rather than asserted |
 | 2026-09-25 | Verification of the guards delta | W3-D12 and W3-D13 implemented exactly as the register states them; no blocking or real-defect finding. It confirmed the `Pending` asymmetry is pre-existing on base `167a6ce`, called out the dead `orderCancelled` branch that W3-D12 had just made unreachable, and noted the fail-open cancelled-status lookup |
 | 2026-09-25 | Dead-code removal | The unreachable `orderCancelled` branch and its redundant status read removed (net −4 lines) with a dominance argument rather than an assumption, no test touched and no assertion changed — 607 classes / 2111 tests green, identical counts to the pre-removal baseline. **Gap:** the pre-deletion revision was not captured anywhere — nothing staged, no stash, no backup — so the deletion is verified by the dominance argument plus this green rather than by an observed diff. Next time a writer removes code, capture the diff before it lands |
+| 2026-09-25 | The environment was measured instead of assumed, and F16 came out of it | `docker ps -a` lists only `lifecontrol-dev-*`; `docker/volumes-staging` is 88 KB and empty; prod's `VOLUMES_ROOT=/var/lib/lifecontrol` does not exist. Dev: Flyway 14, one aggregate row at 11.00, one location row at 1.00, one RECEIPT, zero sales orders, **zero** `store_inventory_settings` rows. That measurement refuted this record's own risk 2 and exposed the fourth writer (`upsertStoreStock`) as the only real source of divergence — which is what turned slice 3 from a reconciliation into a reset plus a source closure |
+| 2026-09-25 | Slice 3 implemented (S3-T1…S3-T6) | One delegated `gentle-ai-worker`. Half 1: `V15__inventory_balance_reset.sql`, a plain `TRUNCATE` of the three balance tables with F17's measured precondition in its header and the operator-gate query; the one breaking assertion (`GoodsReceiptIntegrationTest`'s Flyway head) moved 14 → 15, corroborated by `pending().isEmpty()`. Half 2: `InventoryService.applyStockAdjustment` (pure insertion, 103 lines, class javadoc untouched) and `upsertStoreStock` reduced to validation, authorisation, prices and delegation — no stock arithmetic left in the product service. RED was real and reproduced F16: `expected: 0 but was: 11.00`. Gate 609 classes / 2122 tests |
+| 2026-09-25 | Fix round: F18, the negative location | The writer reported it as a risk on its own work rather than shipping it. Decrease now allocated through the existing allocation helper, one movement per location drawn from, increase still on the sales location. RED observed at both levels as `expected: 0.00 but was: -5.00`; gate 609 classes / 2127 tests. The fail-closed guard was left in place with an explicit statement that it has no reachable case |
+| 2026-09-25 | Verification of slice 3 | No blocking finding and no real defect in the migration, the adjustment or the delegation. It confirmed the truncated table set, that **no foreign key in V1–V15 references those three tables** so the plain `TRUNCATE` is safe (and that the green suite proves it: PostgreSQL rejects it at plan time), that keeping the business documents is defensible because a kept order's reversal reads the now-empty ledger and no-ops, that **no other code anywhere derives a balance from the ledger**, and that `uncoveredRemainder`'s restriction to `SALE`/`SALE_REVERSAL` keeps an adjustment out of any sale reversal. It also produced F18's citation gap, the stale `InventoryMovement` javadoc, and three nits |
 | 2026-09-25 | Work-unit commit, rebase, and the route/checks declaration | This record and the pointer in `purchase-order-goods-receipt.md` committed together as `docs(odd): plan W3 as its own record (sales-location-aware-stock)`, then rebased onto `167a6ce` (PR #172), one commit replayed with no conflicts — which supersedes the *"not done yet"* half of the row above. Anchors re-checked against the new base: PR #172 is frontend-only and touched no file this record anchors to, including `store-inventory-settings.html:68`, whose *"Ubicación de venta"* label is intact. RDD verified disabled (`gentle_review inspect` → `stop / rdd_disabled`), so tasks carry ordinary checks and no review ceremony. TDD mode, gate and per-task route declared in `## Checks and route` |

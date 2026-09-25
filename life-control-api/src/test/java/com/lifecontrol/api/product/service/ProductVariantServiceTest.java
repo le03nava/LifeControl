@@ -13,6 +13,8 @@ import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.model.CompanyCountry;
 import com.lifecontrol.api.company.model.CompanyRegion;
 import com.lifecontrol.api.company.model.CompanyZone;
+import com.lifecontrol.api.inventory.exception.StoreInventorySettingsNotFoundException;
+import com.lifecontrol.api.inventory.service.InventoryService;
 import com.lifecontrol.api.product.dto.ProductVariantRequest;
 import com.lifecontrol.api.product.dto.ProductVariantResponse;
 import com.lifecontrol.api.product.dto.ProductVariantSearchResponse;
@@ -66,6 +68,9 @@ class ProductVariantServiceTest {
 
     @Mock
     private CurrentUserContext currentUserContext;
+
+    @Mock
+    private InventoryService inventoryService;
 
     private UUID companyId;
     private UUID companyCountryId;
@@ -765,6 +770,9 @@ class ProductVariantServiceTest {
                     .thenReturn(Optional.of(row));
             when(productVariantStoreStockRepository.save(any(ProductVariantStoreStock.class)))
                     .thenAnswer(inv -> inv.getArgument(0));
+            when(currentUserContext.getUsername()).thenReturn("tester");
+            when(inventoryService.applyStockAdjustment(variantId, companyStoreId, new BigDecimal("50.00"), "tester"))
+                    .thenReturn(new BigDecimal("50.00"));
 
             ProductVariantStoreStockResponse result =
                     productVariantService.upsertStoreStock(variantId, companyStoreId, request);
@@ -774,6 +782,8 @@ class ProductVariantServiceTest {
             assertThat(result.costPrice()).isEqualByComparingTo(new BigDecimal("120.00"));
             assertThat(result.stock()).isEqualByComparingTo(new BigDecimal("50.00"));
             verify(productVariantStoreStockRepository).insertStoreStockIfAbsent(variantId, companyStoreId);
+            // The stock half is delegated to the engine, never written here (W3-D14).
+            verify(inventoryService).applyStockAdjustment(variantId, companyStoreId, new BigDecimal("50.00"), "tester");
         }
 
         @Test
@@ -804,6 +814,38 @@ class ProductVariantServiceTest {
             assertThat(result.listPrice()).isEqualByComparingTo(new BigDecimal("249.99"));
             assertThat(result.costPrice()).isEqualByComparingTo(new BigDecimal("120.00"));
             assertThat(result.stock()).isEqualByComparingTo(new BigDecimal("50.00"));
+            // No stock was sent, so the engine is never asked to move it.
+            verify(inventoryService, never()).applyStockAdjustment(any(), any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("should refuse a stock edit on a store with no settings row, propagating the engine's 404")
+        void upsertStoreStock_StoreWithoutSettings_IsRefusedByTheEngine() {
+            var request = new ProductVariantStoreStockRequest(null, null, new BigDecimal("5.00"));
+            var row = ProductVariantStoreStock.builder()
+                    .id(UUID.randomUUID())
+                    .productVariantId(variantId)
+                    .companyStoreId(companyStoreId)
+                    .stock(BigDecimal.ZERO)
+                    .build();
+
+            when(productVariantRepository.existsById(variantId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            when(productVariantStoreStockRepository.findByProductVariantIdAndCompanyStoreIdForUpdate(
+                            variantId, companyStoreId))
+                    .thenReturn(Optional.of(row));
+            when(productVariantStoreStockRepository.save(any(ProductVariantStoreStock.class)))
+                    .thenAnswer(inv -> inv.getArgument(0));
+            when(currentUserContext.getUsername()).thenReturn("tester");
+            when(inventoryService.applyStockAdjustment(variantId, companyStoreId, new BigDecimal("5.00"), "tester"))
+                    .thenThrow(new StoreInventorySettingsNotFoundException(companyStoreId));
+
+            assertThatThrownBy(() -> productVariantService.upsertStoreStock(variantId, companyStoreId, request))
+                    .isInstanceOf(StoreInventorySettingsNotFoundException.class)
+                    .hasMessageContaining("Store inventory settings not found");
+
+            // The [row] was never touched: the refused write must not reach the aggregate either.
+            assertThat(row.getStock()).isEqualByComparingTo("0");
         }
 
         @Test
