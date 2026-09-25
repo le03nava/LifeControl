@@ -305,10 +305,11 @@ AFTER
   `openspec/changes/archive/2026-09-24-modify-form-layout-breakpoint/archive-report.md:3-5` — `Archived`
   2026-09-24, `Archived at` `main` @ `4469cf7` (merge commit of PR #164), verdict "superseded — do NOT
   implement this change".
-- **E9 evidence**: `purchase-order-sections-polish.md:75` (work unit 1 = `2262452`), `:77` (PR #101), and
+- **E9 evidence**: `purchase-order-sections-polish.md:75` (work unit 1 = `2262452`), `:78` (PR #101), and
   `grep -rn detail-card life-control-app-angular/src/features/purchases/purchase-orders/` → 0 matches.
 - **E11 evidence**: `.gitignore:153-154` (`odd/*` then `!odd/tasks/`) and
-  `git ls-files odd/tasks/ | wc -l` → 30 versioned files.
+  `git ls-files odd/tasks/ | wc -l` → 31 versioned files (30 at the base `c49d296`; this record is the
+  31st).
 - **E10 evidence**: `odd/tasks/project-conventions-skill.md:8` — "T5 is stale and is closed by this
   correction", and `:87` — T5 landed via PRs #130/#131/#132.
 - **Coverage re-measurement (E15)**: `npm run test:coverage:check` in the anchor at `c49d296`, run
@@ -328,6 +329,20 @@ AFTER
   repair, in the very document that prescribes the repair. It is also the reason the writer was told to
   stop on any mismatch instead of improvising — a writer that pads its own report is the failure mode this
   slice is about.
+- **F2 (low, mine, found by the independent verification) — three imprecisions inside this record, plus
+  one inconsistency this slice created in a file it did not edit.** The verification reproduced every one
+  of C1–C6 (the four merge claims, the archive, the PR #101 delivery, the coverage arithmetic, the absent
+  live-PR claims, and the untouched frozen narrative), and then held up C7: (a) the E11 evidence count
+  read "30 versioned files" while the commit that carried it made the true count 31 — the same
+  measured-then-staged staleness as F1, one line below it; (b) the E9 evidence cited
+  `purchase-order-sections-polish.md:77` for the PR row, which is `:78` (the `:77` row is `Branch`); and
+  (c) T5's evidence was a dangling self-reference with no commit hash. Separately, correcting the
+  `AGENTS.md` table left `test-timeout-headroom.md:210` claiming "~12 points of margin" against a margin
+  that is now 14.07–15.98 — an inconsistency **caused by this slice**, so fixing it is not scope creep.
+  All four are corrected by the commit that carries this entry, which also records `1a75908` as the slice
+  commit. Two lessons worth carrying: a documentation slice that asserts numbers must re-check its own
+  numbers after staging, and a repair can create the very drift it repairs — one line below its own
+  warning about that failure mode.
 
 ## Task log
 
@@ -337,4 +352,6 @@ AFTER
 | 2026-09-24 | T2 — gate run for E15 | `npm run test:coverage:check` in the anchor at `c49d296`: 130 test files / 2534 tests passed, aggregate 94.07 / 75.98 / 89.32 / 94.07, "Cobertura dentro de los umbrales. OK" |
 | 2026-09-24 | T3 — apply the 15 prescribed edits | delegated to one `gentle-ai-worker` with the exact before/after text and 11 allowed edit surfaces; reported 15/15 applied, 0 mismatches, `git diff --stat` = 11 files, +37 −30 |
 | 2026-09-24 | T4 — parent diff gate | the full `git diff` read hunk by hunk and compared against every `AFTER` block: all 15 match character for character, no collateral line changed in any of the 11 files |
-| 2026-09-24 | T5 — work-unit commit | see the `## Task log` entry appended after the commit |
+| 2026-09-24 | T5 — work-unit commit | `1a75908` — 12 files, +377 −30 (the 11 edited records plus this one) |
+| 2026-09-24 | T6 — independent read-only verification | `gentle-ai-verify` over the committed range: C1–C6 upheld (right PRs, right merge commits, real archive, real PR #101 delivery, correct arithmetic, no new live-PR claim, nothing frozen rewritten, 15 hunks in 11 files); C7 partial, see F2 |
+| 2026-09-24 | T7 — correct the verification findings | the `docs(odd): correct this record's own evidence count and the margin figure` commit on this branch — F2 (a), (b), (c) and the `test-timeout-headroom.md:210` margin figure |

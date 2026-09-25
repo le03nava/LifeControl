@@ -207,7 +207,7 @@ restated.
   contributes `branches: { total: 0 }` (100%, adds no branches at all), with spec files excluded from the
   report entirely. So the new file cannot move that number, and the base's own percentage is not
   bit-reproducible across runs. Recorded rather than smoothed over: it also means the enforced thresholds
-  have ~12 points of margin against a metric that wobbles in the second decimal, which is fine, but nobody
+  have ~14–16 points of margin against a metric that wobbles in the second decimal, which is fine, but nobody
   should cite a 0.01 movement as evidence of anything.
 - **F5 — C1's "one additional file" limit is gone, and the mechanism is confirmed in Vitest's own source.**
   The round ran a **60-file** probe (all 6000 ms bodies) in a single run: `60 passed (60)`, ~360 s of test
