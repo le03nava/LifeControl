@@ -80,6 +80,13 @@ export class StoreLocationsEdit {
   readonly serverErrors = signal<Record<string, string>>({});
   readonly generalError = signal<string | null>(null);
 
+  /**
+   * Optimistic-lock version of the store location being edited, seeded from the flat lookup (and,
+   * as a paint optimization, from `history.state`). This page has a flat GET, so a 412 re-runs the
+   * lookup and recovers a fresh entity and a fresh version in place.
+   */
+  private readonly version = signal<number | null>(null);
+
   constructor() {
     const id = this.storeLocationId();
 
@@ -90,26 +97,10 @@ export class StoreLocationsEdit {
       )?.storeLocation;
       if (storeLocationFromState) {
         this.storeLocation.set(storeLocationFromState);
+        this.version.set(storeLocationFromState.version);
       }
 
-      this.storeLocationService
-        .getLocationById(id)
-        .pipe(takeUntilDestroyed(this.destroyRef))
-        .subscribe({
-          next: (storeLocation) => {
-            this.storeLocation.set(storeLocation);
-            this.chain.set({
-              companyId: storeLocation.companyId,
-              companyCountryId: storeLocation.companyCountryId,
-              regionId: storeLocation.regionId,
-              zoneId: storeLocation.zoneId,
-              storeId: storeLocation.companyStoreId,
-              areaId: storeLocation.storeAreaId,
-              storeZoneId: storeLocation.storeZoneId,
-            });
-          },
-          error: () => this.router.navigate(['/companies/store-locations']),
-        });
+      this.loadLocation(id);
       return;
     }
 
@@ -158,6 +149,7 @@ export class StoreLocationsEdit {
     this.saving.set(true);
 
     const id = this.storeLocationId();
+    const version = this.version();
     const request$ = id
       ? this.storeLocationService.updateLocation(
           chain.companyId,
@@ -168,7 +160,9 @@ export class StoreLocationsEdit {
           chain.areaId,
           chain.storeZoneId,
           id,
-          request,
+          // Spread the version only when there is one: the merge belongs at the page boundary,
+          // never in the form or the data service, and a create must serialize no `version` key.
+          { ...request, ...(version !== null ? { version } : {}) },
         )
       : this.storeLocationService.createLocation(
           chain.companyId,
@@ -246,7 +240,50 @@ export class StoreLocationsEdit {
       this.generalError.set(null);
       return;
     }
+    const id = this.storeLocationId();
+    // A 412 on the update path is the version precondition failing: someone else saved this
+    // location first. This page has a flat GET, so it re-runs its load and recovers a fresh entity
+    // and a fresh version in place rather than telling the operator to go back to the list. The
+    // reload re-seeds the form with the server's current values, so the form is marked pristine and
+    // the guard no longer asks to discard changes that now match the server. A 409 is a duplicate
+    // location code, not a lost update: it falls through to the server's own message below and
+    // never reloads, so the operator can fix the typo without losing the draft.
+    if (err.status === 412 && id) {
+      this.serverErrors.set({});
+      this.generalError.set(
+        'Otra sesión modificó esta ubicación mientras la editabas. Se recargaron los valores actuales: revisalos y volvé a guardar.',
+      );
+      this.locationForm()?.formGroup.markAsPristine();
+      this.loadLocation(id);
+      return;
+    }
     this.serverErrors.set({});
     this.generalError.set(apiError?.message ?? 'Error inesperado. Intente de nuevo más tarde.');
+  }
+
+  /**
+   * Runs the authoritative flat lookup. Called once on init and again after a 412, so the page
+   * recovers a fresh entity and a fresh version instead of staying stuck on a stale precondition.
+   */
+  private loadLocation(id: string): void {
+    this.storeLocationService
+      .getLocationById(id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (storeLocation) => {
+          this.storeLocation.set(storeLocation);
+          this.version.set(storeLocation.version);
+          this.chain.set({
+            companyId: storeLocation.companyId,
+            companyCountryId: storeLocation.companyCountryId,
+            regionId: storeLocation.regionId,
+            zoneId: storeLocation.zoneId,
+            storeId: storeLocation.companyStoreId,
+            areaId: storeLocation.storeAreaId,
+            storeZoneId: storeLocation.storeZoneId,
+          });
+        },
+        error: () => this.router.navigate(['/companies/store-locations']),
+      });
   }
 }

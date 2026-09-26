@@ -24,6 +24,12 @@ export interface StoreLocation {
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
+  /**
+   * Optimistic-locking version, echoed back on update so a lost update is refused. Required on
+   * purpose: if the API stops sending it, `tsc` fails instead of the screen quietly omitting the
+   * precondition.
+   */
+  version: number;
 }
 
 export interface CreateStoreLocationRequest {
@@ -38,6 +44,11 @@ export interface UpdateStoreLocationRequest {
   locationName: string;
   description?: string;
   displayOrder?: number;
+  /**
+   * Optional version precondition. The page decides whether the key is present at all: the create
+   * request type carries no such field, so a create body serializes no `version` key.
+   */
+  version?: number;
 }
 
 /**

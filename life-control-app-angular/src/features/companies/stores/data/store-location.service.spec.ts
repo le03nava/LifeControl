@@ -40,6 +40,7 @@ describe('StoreLocationService', () => {
       enabled: true,
       createdAt: '2024-01-01T00:00:00Z',
       updatedAt: '2024-01-15T00:00:00Z',
+      version: 1,
     },
     {
       id: 'store-location-2',
@@ -57,6 +58,7 @@ describe('StoreLocationService', () => {
       enabled: false,
       createdAt: '2024-01-01T00:00:00Z',
       updatedAt: '2024-01-15T00:00:00Z',
+      version: 2,
     },
   ];
 
@@ -225,6 +227,7 @@ describe('StoreLocationService', () => {
       enabled: true,
       createdAt: '2024-02-01T00:00:00Z',
       updatedAt: '2024-02-01T00:00:00Z',
+      version: 0,
     };
 
     it('should POST the body to the nested URL and emit the created store location', async () => {

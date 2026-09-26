@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifecontrol.api.exception.GlobalExceptionHandler;
+import com.lifecontrol.api.exception.VersionPreconditionException;
 import com.lifecontrol.api.store.dto.CreateStoreLocationRequest;
 import com.lifecontrol.api.store.dto.StoreLocationResponse;
 import com.lifecontrol.api.store.dto.UpdateStoreLocationRequest;
@@ -91,7 +92,8 @@ class StoreLocationControllerTest {
                 1,
                 true,
                 now,
-                now);
+                now,
+                0L);
     }
 
     @Nested
@@ -514,7 +516,8 @@ class StoreLocationControllerTest {
                     3,
                     true,
                     now,
-                    now);
+                    now,
+                    0L);
             when(storeLocationService.updateLocation(
                             eq(testCompanyId),
                             eq(testCompanyCountryId),
@@ -681,7 +684,45 @@ class StoreLocationControllerTest {
                                     testStoreLocationId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request)))
-                    .andExpect(status().isConflict());
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.status").value(409))
+                    .andExpect(
+                            jsonPath("$.message").value("Store location with code 'L03' already exists in this zone"));
+        }
+
+        @Test
+        @DisplayName("should return 412 with the precondition message when the version precondition fails")
+        void updateLocation_VersionConflictReturns412() throws Exception {
+            var request = new UpdateStoreLocationRequest("L03", null, null, null, 5L);
+            when(storeLocationService.updateLocation(
+                            eq(testCompanyId),
+                            eq(testCompanyCountryId),
+                            eq(testRegionId),
+                            eq(testZoneId),
+                            eq(testStoreId),
+                            eq(testAreaId),
+                            eq(testStoreZoneId),
+                            eq(testStoreLocationId),
+                            any(UpdateStoreLocationRequest.class)))
+                    .thenThrow(new VersionPreconditionException(
+                            "The store location conflicts with the current server state; reload and try again"));
+
+            mockMvc.perform(put(
+                                    BASE_URL + "/{storeLocationId}",
+                                    testCompanyId,
+                                    testCompanyCountryId,
+                                    testRegionId,
+                                    testZoneId,
+                                    testStoreId,
+                                    testAreaId,
+                                    testStoreZoneId,
+                                    testStoreLocationId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isPreconditionFailed())
+                    .andExpect(jsonPath("$.status").value(412))
+                    .andExpect(jsonPath("$.message")
+                            .value("The store location conflicts with the current server state; reload and try again"));
         }
     }
 

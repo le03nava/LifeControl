@@ -78,7 +78,8 @@ class StoreLocationFlatControllerTest {
                 1,
                 true,
                 now,
-                now);
+                now,
+                0L);
     }
 
     @Nested
