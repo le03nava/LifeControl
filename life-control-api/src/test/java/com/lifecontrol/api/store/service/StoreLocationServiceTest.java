@@ -463,7 +463,7 @@ class StoreLocationServiceTest {
             mockZoneResolution();
             when(storeLocationRepository.existsByStoreZoneIdAndLocationCode(storeZoneId, "L02"))
                     .thenReturn(false);
-            when(storeLocationRepository.save(any(StoreLocation.class)))
+            when(storeLocationRepository.saveAndFlush(any(StoreLocation.class)))
                     .thenAnswer(invocation -> invocation.getArgument(0));
 
             var result = storeLocationService.createLocation(
@@ -478,7 +478,7 @@ class StoreLocationServiceTest {
             assertThat(result.enabled()).isTrue();
 
             var captor = org.mockito.ArgumentCaptor.forClass(StoreLocation.class);
-            verify(storeLocationRepository).save(captor.capture());
+            verify(storeLocationRepository).saveAndFlush(captor.capture());
             assertThat(captor.getValue().getStoreZone()).isEqualTo(testStoreZone);
             assertThat(captor.getValue().getEnabled()).isTrue();
         }
@@ -495,7 +495,7 @@ class StoreLocationServiceTest {
                     .isInstanceOf(DuplicateStoreLocationException.class)
                     .hasMessage("Store location with code 'L02' already exists in this zone");
 
-            verify(storeLocationRepository, never()).save(any(StoreLocation.class));
+            verify(storeLocationRepository, never()).saveAndFlush(any(StoreLocation.class));
         }
 
         @Test
@@ -510,7 +510,7 @@ class StoreLocationServiceTest {
                     .hasMessage("Cannot create a store location: store zone with id " + storeZoneId + " is disabled");
 
             verify(storeLocationRepository, never()).existsByStoreZoneIdAndLocationCode(any(), any());
-            verify(storeLocationRepository, never()).save(any(StoreLocation.class));
+            verify(storeLocationRepository, never()).saveAndFlush(any(StoreLocation.class));
         }
 
         @Test
@@ -525,7 +525,7 @@ class StoreLocationServiceTest {
                     .hasMessage("Cannot create a store location: store area with id " + areaId + " is disabled");
 
             verify(storeLocationRepository, never()).existsByStoreZoneIdAndLocationCode(any(), any());
-            verify(storeLocationRepository, never()).save(any(StoreLocation.class));
+            verify(storeLocationRepository, never()).saveAndFlush(any(StoreLocation.class));
         }
 
         @Test
@@ -540,7 +540,7 @@ class StoreLocationServiceTest {
                     .hasMessage("Cannot create a store location: store with id " + storeId + " is disabled");
 
             verify(storeLocationRepository, never()).existsByStoreZoneIdAndLocationCode(any(), any());
-            verify(storeLocationRepository, never()).save(any(StoreLocation.class));
+            verify(storeLocationRepository, never()).saveAndFlush(any(StoreLocation.class));
         }
 
         @Test
@@ -549,7 +549,7 @@ class StoreLocationServiceTest {
             mockZoneResolution();
             when(storeLocationRepository.existsByStoreZoneIdAndLocationCode(storeZoneId, "L02"))
                     .thenReturn(false);
-            when(storeLocationRepository.save(any(StoreLocation.class)))
+            when(storeLocationRepository.saveAndFlush(any(StoreLocation.class)))
                     .thenThrow(new DataIntegrityViolationException("duplicate key value violates unique constraint"));
 
             assertThatThrownBy(() -> storeLocationService.createLocation(
@@ -570,7 +570,7 @@ class StoreLocationServiceTest {
                     .hasMessage("Store area not found with id: " + areaId);
 
             verify(storeZoneRepository, never()).findByIdAndStoreAreaId(any(), any());
-            verify(storeLocationRepository, never()).save(any(StoreLocation.class));
+            verify(storeLocationRepository, never()).saveAndFlush(any(StoreLocation.class));
         }
     }
 
@@ -587,7 +587,7 @@ class StoreLocationServiceTest {
             when(storeLocationRepository.existsByStoreZoneIdAndLocationCodeAndIdNot(
                             storeZoneId, "L03", storeLocationId))
                     .thenReturn(false);
-            when(storeLocationRepository.save(any(StoreLocation.class)))
+            when(storeLocationRepository.saveAndFlush(any(StoreLocation.class)))
                     .thenAnswer(invocation -> invocation.getArgument(0));
 
             var result = storeLocationService.updateLocation(
@@ -613,7 +613,7 @@ class StoreLocationServiceTest {
             mockZoneResolution();
             when(storeLocationRepository.findByIdAndStoreZoneId(storeLocationId, storeZoneId))
                     .thenReturn(Optional.of(testStoreLocation));
-            when(storeLocationRepository.save(any(StoreLocation.class)))
+            when(storeLocationRepository.saveAndFlush(any(StoreLocation.class)))
                     .thenAnswer(invocation -> invocation.getArgument(0));
 
             var result = storeLocationService.updateLocation(
@@ -657,7 +657,7 @@ class StoreLocationServiceTest {
                     .isInstanceOf(DuplicateStoreLocationException.class)
                     .hasMessage("Store location with code 'L03' already exists in this zone");
 
-            verify(storeLocationRepository, never()).save(any(StoreLocation.class));
+            verify(storeLocationRepository, never()).saveAndFlush(any(StoreLocation.class));
         }
 
         @Test
@@ -774,7 +774,7 @@ class StoreLocationServiceTest {
             testStoreLocation.setEnabled(false);
             when(storeLocationRepository.findByIdAndStoreZoneId(storeLocationId, storeZoneId))
                     .thenReturn(Optional.of(testStoreLocation));
-            when(storeLocationRepository.save(any(StoreLocation.class)))
+            when(storeLocationRepository.saveAndFlush(any(StoreLocation.class)))
                     .thenAnswer(invocation -> invocation.getArgument(0));
 
             StoreLocationResponse result = storeLocationService.enableLocation(
@@ -782,7 +782,7 @@ class StoreLocationServiceTest {
 
             assertThat(result.enabled()).isTrue();
             var captor = org.mockito.ArgumentCaptor.forClass(StoreLocation.class);
-            verify(storeLocationRepository).save(captor.capture());
+            verify(storeLocationRepository).saveAndFlush(captor.capture());
             assertThat(captor.getValue().getEnabled()).isTrue();
         }
 
@@ -826,7 +826,7 @@ class StoreLocationServiceTest {
                             "Cannot re-enable a store location: store zone with id " + storeZoneId + " is disabled");
 
             verify(storeLocationRepository, never()).findByIdAndStoreZoneId(any(), any());
-            verify(storeLocationRepository, never()).save(any(StoreLocation.class));
+            verify(storeLocationRepository, never()).saveAndFlush(any(StoreLocation.class));
         }
 
         @Test
@@ -848,7 +848,7 @@ class StoreLocationServiceTest {
                     .hasMessage("Cannot re-enable a store location: store area with id " + areaId + " is disabled");
 
             verify(storeLocationRepository, never()).findByIdAndStoreZoneId(any(), any());
-            verify(storeLocationRepository, never()).save(any(StoreLocation.class));
+            verify(storeLocationRepository, never()).saveAndFlush(any(StoreLocation.class));
         }
 
         @Test
@@ -870,7 +870,7 @@ class StoreLocationServiceTest {
                     .hasMessage("Cannot re-enable a store location: store with id " + storeId + " is disabled");
 
             verify(storeLocationRepository, never()).findByIdAndStoreZoneId(any(), any());
-            verify(storeLocationRepository, never()).save(any(StoreLocation.class));
+            verify(storeLocationRepository, never()).saveAndFlush(any(StoreLocation.class));
         }
     }
 }
