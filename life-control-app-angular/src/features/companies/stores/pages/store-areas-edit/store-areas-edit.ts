@@ -77,6 +77,13 @@ export class StoreAreasEdit {
   readonly serverErrors = signal<Record<string, string>>({});
   readonly generalError = signal<string | null>(null);
 
+  /**
+   * Optimistic-lock version of the area being edited, seeded from the flat lookup (and, as a paint
+   * optimization, from `history.state`). Unlike `stores`, this page has a flat GET, so a 412
+   * re-runs the lookup and recovers a fresh entity and a fresh version in place.
+   */
+  private readonly version = signal<number | null>(null);
+
   constructor() {
     const id = this.areaId();
 
@@ -85,24 +92,10 @@ export class StoreAreasEdit {
       const areaFromState = (globalThis.history?.state as { area?: StoreArea })?.area;
       if (areaFromState) {
         this.area.set(areaFromState);
+        this.version.set(areaFromState.version);
       }
 
-      this.storeAreaService
-        .getAreaById(id)
-        .pipe(takeUntilDestroyed(this.destroyRef))
-        .subscribe({
-          next: (area) => {
-            this.area.set(area);
-            this.chain.set({
-              companyId: area.companyId,
-              companyCountryId: area.companyCountryId,
-              regionId: area.regionId,
-              zoneId: area.zoneId,
-              storeId: area.companyStoreId,
-            });
-          },
-          error: () => this.router.navigate(['/companies/store-areas']),
-        });
+      this.loadArea(id);
       return;
     }
 
@@ -137,6 +130,7 @@ export class StoreAreasEdit {
     this.saving.set(true);
 
     const id = this.areaId();
+    const version = this.version();
     const request$ = id
       ? this.storeAreaService.updateArea(
           chain.companyId,
@@ -145,7 +139,9 @@ export class StoreAreasEdit {
           chain.zoneId,
           chain.storeId,
           id,
-          request,
+          // Spread the version only when there is one: the merge belongs at the page boundary,
+          // never in the form or the data service, and a create must serialize no `version` key.
+          { ...request, ...(version !== null ? { version } : {}) },
         )
       : this.storeAreaService.createArea(
           chain.companyId,
@@ -210,11 +206,52 @@ export class StoreAreasEdit {
     };
   }
 
+  /**
+   * Runs the authoritative flat lookup. Called once on init and again after a 412, so the page
+   * recovers a fresh entity and a fresh version instead of staying stuck on a stale precondition.
+   */
+  private loadArea(id: string): void {
+    this.storeAreaService
+      .getAreaById(id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (area) => {
+          this.area.set(area);
+          this.version.set(area.version);
+          this.chain.set({
+            companyId: area.companyId,
+            companyCountryId: area.companyCountryId,
+            regionId: area.regionId,
+            zoneId: area.zoneId,
+            storeId: area.companyStoreId,
+          });
+        },
+        error: () => this.router.navigate(['/companies/store-areas']),
+      });
+  }
+
   private handleError(err: HttpErrorResponse): void {
     const apiError = err.error as ApiError | undefined;
     if (apiError?.errors) {
       this.serverErrors.set(apiError.errors);
       this.generalError.set(null);
+      return;
+    }
+    const id = this.areaId();
+    // A 412 on the update path is the version precondition failing: someone else saved this area
+    // first. Unlike `stores`, this page has a flat GET, so it re-runs its load and recovers a fresh
+    // entity and a fresh version in place rather than telling the operator to go back to the list.
+    // The reload re-seeds the form with the server's current values, so the form is marked pristine
+    // and the guard no longer asks to discard changes that now match the server. A 409 is a
+    // duplicate area code, not a lost update: it falls through to the server's own message below and
+    // never reloads, so the operator can fix the typo without losing the draft.
+    if (err.status === 412 && id) {
+      this.serverErrors.set({});
+      this.generalError.set(
+        'Otra sesión modificó esta área mientras la editabas. Se recargaron los valores actuales: revisalos y volvé a guardar.',
+      );
+      this.areaForm()?.formGroup.markAsPristine();
+      this.loadArea(id);
       return;
     }
     this.serverErrors.set({});

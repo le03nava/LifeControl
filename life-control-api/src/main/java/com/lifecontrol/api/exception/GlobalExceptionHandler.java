@@ -54,6 +54,16 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Handles a version precondition that no longer holds. Returns 412 Precondition Failed, kept
+     * distinct from 409 so a client can tell a lost update apart from a duplicate or an invalid
+     * state transition.
+     */
+    @ExceptionHandler(VersionPreconditionException.class)
+    public ResponseEntity<ErrorResponse> handleVersionPrecondition(VersionPreconditionException ex) {
+        return buildErrorResponse(HttpStatus.PRECONDITION_FAILED, ex.getMessage());
+    }
+
+    /**
      * Handles database constraint violations that were not caught by an explicit
      * uniqueness check (e.g. a race between {@code existsBy…} and {@code save}).
      * Returns 409 instead of leaking a 500, without exposing SQL details.

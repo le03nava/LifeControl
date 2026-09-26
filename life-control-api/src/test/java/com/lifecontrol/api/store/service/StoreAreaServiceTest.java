@@ -372,7 +372,8 @@ class StoreAreaServiceTest {
             mockStoreResolution();
             when(storeAreaRepository.existsByCompanyStoreIdAndAreaCode(storeId, "A02"))
                     .thenReturn(false);
-            when(storeAreaRepository.save(any(StoreArea.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            when(storeAreaRepository.saveAndFlush(any(StoreArea.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             var result =
                     storeAreaService.createArea(companyId, companyCountryId, regionId, zoneId, storeId, createRequest);
@@ -385,7 +386,7 @@ class StoreAreaServiceTest {
             assertThat(result.enabled()).isTrue();
 
             var captor = org.mockito.ArgumentCaptor.forClass(StoreArea.class);
-            verify(storeAreaRepository).save(captor.capture());
+            verify(storeAreaRepository).saveAndFlush(captor.capture());
             assertThat(captor.getValue().getCompanyStore()).isEqualTo(testStore);
             assertThat(captor.getValue().getEnabled()).isTrue();
         }
@@ -402,7 +403,7 @@ class StoreAreaServiceTest {
                     .isInstanceOf(DuplicateStoreAreaException.class)
                     .hasMessage("Store area with code 'A02' already exists in this store");
 
-            verify(storeAreaRepository, never()).save(any(StoreArea.class));
+            verify(storeAreaRepository, never()).saveAndFlush(any(StoreArea.class));
         }
 
         @Test
@@ -417,7 +418,7 @@ class StoreAreaServiceTest {
                     .hasMessage("Cannot create a store area: store with id " + storeId + " is disabled");
 
             verify(storeAreaRepository, never()).existsByCompanyStoreIdAndAreaCode(any(), any());
-            verify(storeAreaRepository, never()).save(any(StoreArea.class));
+            verify(storeAreaRepository, never()).saveAndFlush(any(StoreArea.class));
         }
     }
 
@@ -432,7 +433,8 @@ class StoreAreaServiceTest {
             when(storeAreaRepository.findByIdAndCompanyStoreId(areaId, storeId)).thenReturn(Optional.of(testArea));
             when(storeAreaRepository.existsByCompanyStoreIdAndAreaCodeAndIdNot(storeId, "A03", areaId))
                     .thenReturn(false);
-            when(storeAreaRepository.save(any(StoreArea.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            when(storeAreaRepository.saveAndFlush(any(StoreArea.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             var result = storeAreaService.updateArea(
                     companyId, companyCountryId, regionId, zoneId, storeId, areaId, updateRequest);
@@ -448,7 +450,8 @@ class StoreAreaServiceTest {
         void updateArea_PartialRequest_KeepsExistingValues() {
             mockStoreResolution();
             when(storeAreaRepository.findByIdAndCompanyStoreId(areaId, storeId)).thenReturn(Optional.of(testArea));
-            when(storeAreaRepository.save(any(StoreArea.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            when(storeAreaRepository.saveAndFlush(any(StoreArea.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             var result = storeAreaService.updateArea(
                     companyId,
@@ -479,7 +482,7 @@ class StoreAreaServiceTest {
                     .isInstanceOf(DuplicateStoreAreaException.class)
                     .hasMessage("Store area with code 'A03' already exists in this store");
 
-            verify(storeAreaRepository, never()).save(any(StoreArea.class));
+            verify(storeAreaRepository, never()).saveAndFlush(any(StoreArea.class));
         }
 
         @Test
@@ -611,14 +614,15 @@ class StoreAreaServiceTest {
             mockStoreResolution();
             testArea.setEnabled(false);
             when(storeAreaRepository.findByIdAndCompanyStoreId(areaId, storeId)).thenReturn(Optional.of(testArea));
-            when(storeAreaRepository.save(any(StoreArea.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            when(storeAreaRepository.saveAndFlush(any(StoreArea.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             StoreAreaResponse result =
                     storeAreaService.enableArea(companyId, companyCountryId, regionId, zoneId, storeId, areaId);
 
             assertThat(result.enabled()).isTrue();
             var captor = org.mockito.ArgumentCaptor.forClass(StoreArea.class);
-            verify(storeAreaRepository).save(captor.capture());
+            verify(storeAreaRepository).saveAndFlush(captor.capture());
             assertThat(captor.getValue().getEnabled()).isTrue();
         }
 
@@ -628,7 +632,8 @@ class StoreAreaServiceTest {
             mockStoreResolution();
             testArea.setEnabled(false);
             when(storeAreaRepository.findByIdAndCompanyStoreId(areaId, storeId)).thenReturn(Optional.of(testArea));
-            when(storeAreaRepository.save(any(StoreArea.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            when(storeAreaRepository.saveAndFlush(any(StoreArea.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             storeAreaService.enableArea(companyId, companyCountryId, regionId, zoneId, storeId, areaId);
 
@@ -661,7 +666,7 @@ class StoreAreaServiceTest {
                     .hasMessage("Cannot re-enable a store area: store with id " + storeId + " is disabled");
 
             verify(storeAreaRepository, never()).findByIdAndCompanyStoreId(any(), any());
-            verify(storeAreaRepository, never()).save(any(StoreArea.class));
+            verify(storeAreaRepository, never()).saveAndFlush(any(StoreArea.class));
         }
     }
 }

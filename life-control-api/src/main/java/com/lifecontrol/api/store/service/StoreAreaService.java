@@ -9,6 +9,7 @@ import com.lifecontrol.api.company.repository.CompanyCountryRepository;
 import com.lifecontrol.api.company.repository.CompanyRegionRepository;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.company.repository.CompanyZoneRepository;
+import com.lifecontrol.api.exception.VersionPreconditionException;
 import com.lifecontrol.api.store.dto.CreateStoreAreaRequest;
 import com.lifecontrol.api.store.dto.StoreAreaResponse;
 import com.lifecontrol.api.store.dto.UpdateStoreAreaRequest;
@@ -46,6 +47,13 @@ import org.springframework.transaction.annotation.Transactional;
 public class StoreAreaService {
 
     private static final Logger logger = LoggerFactory.getLogger(StoreAreaService.class);
+
+    /**
+     * Message of the 412 raised when the request's optional version precondition does not hold. It
+     * names no SQL or version number: the client only needs to know the area moved.
+     */
+    private static final String VERSION_CONFLICT_MESSAGE =
+            "The store area conflicts with the current server state; reload and try again";
 
     private final StoreAreaRepository storeAreaRepository;
     private final StoreZoneService storeZoneService;
@@ -207,7 +215,9 @@ public class StoreAreaService {
                 .enabled(true)
                 .build();
 
-        var saved = storeAreaRepository.save(area);
+        // Flush so the response carries the real @Version and non-null createdAt/updatedAt: both the
+        // version increment and the Auditable callbacks run at flush time.
+        var saved = storeAreaRepository.saveAndFlush(area);
         logger.info("StoreArea created: code={}, storeId={}", saved.getAreaCode(), store.getId());
         return toResponse(saved, chain);
     }
@@ -227,6 +237,10 @@ public class StoreAreaService {
         var area = storeAreaRepository
                 .findByIdAndCompanyStoreId(areaId, store.getId())
                 .orElseThrow(() -> new StoreAreaNotFoundException(areaId));
+
+        // Enforce the optional version precondition after the entity is loaded and before any
+        // mutation, so a stale request leaves the row exactly as it was.
+        assertVersionPrecondition(request.version(), area.getVersion());
 
         // Check uniqueness only when the code actually changes
         if (request.areaCode() != null
@@ -250,7 +264,10 @@ public class StoreAreaService {
             area.setDisplayOrder(request.displayOrder());
         }
 
-        var saved = storeAreaRepository.save(area);
+        // Flush, do not merely save: Hibernate increments the @Version at flush time, so mapping the
+        // response from a non-flushed entity would answer with the pre-increment version. A client
+        // that echoes that version would then be rejected with a false 409 on its next write.
+        var saved = storeAreaRepository.saveAndFlush(area);
         logger.info("StoreArea updated: id={}, code={}", saved.getId(), saved.getAreaCode());
         return toResponse(saved, chain);
     }
@@ -327,10 +344,32 @@ public class StoreAreaService {
                 .orElseThrow(() -> new StoreAreaNotFoundException(areaId));
 
         area.setEnabled(true);
-        var saved = storeAreaRepository.save(area);
+        // Flush so the response carries the post-increment @Version and the fresh updatedAt.
+        var saved = storeAreaRepository.saveAndFlush(area);
 
         logger.info("StoreArea re-enabled: id={}, code={}", areaId, saved.getAreaCode());
         return toResponse(saved, chain);
+    }
+
+    /**
+     * Enforces the request's optional version precondition against the freshly-loaded state.
+     *
+     * <p>{@code null} means "no precondition" and always passes, preserving the contract that
+     * existing clients rely on. A non-null version must equal the stored one: a client that read a
+     * version and finds the world moved gets a 412 instead of silently overwriting the other
+     * writer.</p>
+     *
+     * @throws VersionPreconditionException when a non-null version does not match the current stored
+     *     version
+     */
+    private void assertVersionPrecondition(Long assertedVersion, long storedVersion) {
+        if (assertedVersion == null) {
+            return;
+        }
+        if (assertedVersion != storedVersion) {
+            logger.info("StoreArea version precondition failed: assertedVersion={}", assertedVersion);
+            throw new VersionPreconditionException(VERSION_CONFLICT_MESSAGE);
+        }
     }
 
     /**
@@ -373,6 +412,7 @@ public class StoreAreaService {
                 area.getDisplayOrder(),
                 area.getEnabled(),
                 area.getCreatedAt(),
-                area.getUpdatedAt());
+                area.getUpdatedAt(),
+                area.getVersion());
     }
 }

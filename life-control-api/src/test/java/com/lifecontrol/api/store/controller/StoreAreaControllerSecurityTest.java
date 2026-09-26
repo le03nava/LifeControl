@@ -90,7 +90,8 @@ class StoreAreaControllerSecurityTest {
                 1,
                 true,
                 LocalDateTime.now(),
-                LocalDateTime.now());
+                LocalDateTime.now(),
+                0L);
     }
 
     @Nested

@@ -36,6 +36,7 @@ describe('StoreAreaService', () => {
       enabled: true,
       createdAt: '2024-01-01T00:00:00Z',
       updatedAt: '2024-01-15T00:00:00Z',
+      version: 0,
     },
     {
       id: 'area-2',
@@ -51,6 +52,7 @@ describe('StoreAreaService', () => {
       enabled: false,
       createdAt: '2024-01-01T00:00:00Z',
       updatedAt: '2024-01-15T00:00:00Z',
+      version: 0,
     },
   ];
 
@@ -184,6 +186,7 @@ describe('StoreAreaService', () => {
       enabled: true,
       createdAt: '2024-02-01T00:00:00Z',
       updatedAt: '2024-02-01T00:00:00Z',
+      version: 0,
     };
 
     it('should POST the body to the nested URL and emit the created area', async () => {
