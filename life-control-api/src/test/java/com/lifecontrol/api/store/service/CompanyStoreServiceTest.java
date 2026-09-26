@@ -470,7 +470,7 @@ class CompanyStoreServiceTest {
                     .thenReturn(false);
             when(countryRepository.findById(createWithAddressRequest.address().countryId()))
                     .thenReturn(Optional.of(testCountry));
-            when(companyStoreRepository.save(any(CompanyStore.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(companyStoreRepository.saveAndFlush(any(CompanyStore.class))).thenAnswer(inv -> inv.getArgument(0));
 
             // Act
             CompanyStoreResponse result = companyStoreService.createStore(
@@ -485,7 +485,7 @@ class CompanyStoreServiceTest {
             assertThat(result.address().street()).isEqualTo("Otra Calle");
             assertThat(result.address().streetNumber()).isEqualTo("456");
             assertThat(result.enabled()).isTrue();
-            verify(companyStoreRepository).save(any(CompanyStore.class));
+            verify(companyStoreRepository).saveAndFlush(any(CompanyStore.class));
             verify(eventPublisher).publishEvent(any(CompanyStoreCreatedEvent.class));
         }
 
@@ -497,7 +497,7 @@ class CompanyStoreServiceTest {
             when(companyStoreRepository.existsByStoreNameAndCompanyZoneId(
                             createWithoutAddressRequest.storeName(), zoneId))
                     .thenReturn(false);
-            when(companyStoreRepository.save(any(CompanyStore.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(companyStoreRepository.saveAndFlush(any(CompanyStore.class))).thenAnswer(inv -> inv.getArgument(0));
 
             // Act
             CompanyStoreResponse result = companyStoreService.createStore(
@@ -508,7 +508,7 @@ class CompanyStoreServiceTest {
             assertThat(result.storeName()).isEqualTo("Tienda Nueva");
             assertThat(result.address()).isNull();
             assertThat(result.enabled()).isTrue();
-            verify(companyStoreRepository).save(any(CompanyStore.class));
+            verify(companyStoreRepository).saveAndFlush(any(CompanyStore.class));
             verify(eventPublisher).publishEvent(any(CompanyStoreCreatedEvent.class));
         }
 
@@ -524,7 +524,7 @@ class CompanyStoreServiceTest {
             assertThatThrownBy(() -> companyStoreService.createStore(
                             companyId, companyCountryId, regionId, zoneId, createWithAddressRequest))
                     .isInstanceOf(DuplicateCompanyStoreException.class);
-            verify(companyStoreRepository, never()).save(any());
+            verify(companyStoreRepository, never()).saveAndFlush(any());
             verify(eventPublisher, never()).publishEvent(any());
         }
 
@@ -544,7 +544,7 @@ class CompanyStoreServiceTest {
             assertThatThrownBy(() -> companyStoreService.createStore(
                             companyId, companyCountryId, regionId, zoneId, createWithAddressRequest))
                     .isInstanceOf(CompanyZoneNotFoundException.class);
-            verify(companyStoreRepository, never()).save(any());
+            verify(companyStoreRepository, never()).saveAndFlush(any());
             verify(eventPublisher, never()).publishEvent(any());
         }
 
@@ -559,7 +559,7 @@ class CompanyStoreServiceTest {
                             companyId, companyCountryId, regionId, zoneId, createWithAddressRequest))
                     .isInstanceOf(AccessDeniedException.class)
                     .hasMessage("Store-scoped users cannot create stores");
-            verify(companyStoreRepository, never()).save(any());
+            verify(companyStoreRepository, never()).saveAndFlush(any());
             verify(eventPublisher, never()).publishEvent(any());
         }
     }
@@ -581,7 +581,7 @@ class CompanyStoreServiceTest {
                     .thenReturn(false);
             when(countryRepository.findById(updateRequest.address().countryId()))
                     .thenReturn(Optional.of(testCountry));
-            when(companyStoreRepository.save(any(CompanyStore.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(companyStoreRepository.saveAndFlush(any(CompanyStore.class))).thenAnswer(inv -> inv.getArgument(0));
 
             // Act
             CompanyStoreResponse result = companyStoreService.updateStore(
@@ -595,7 +595,7 @@ class CompanyStoreServiceTest {
             assertThat(result.address()).isNotNull();
             assertThat(result.address().street()).isEqualTo("Calle Nueva");
             assertThat(result.address().streetNumber()).isEqualTo("789");
-            verify(companyStoreRepository).save(any(CompanyStore.class));
+            verify(companyStoreRepository).saveAndFlush(any(CompanyStore.class));
         }
 
         @Test
@@ -610,7 +610,7 @@ class CompanyStoreServiceTest {
             assertThatThrownBy(() -> companyStoreService.updateStore(
                             companyId, companyCountryId, regionId, zoneId, storeId, updateRequest))
                     .isInstanceOf(CompanyStoreNotFoundException.class);
-            verify(companyStoreRepository, never()).save(any());
+            verify(companyStoreRepository, never()).saveAndFlush(any());
         }
 
         @Test
@@ -628,7 +628,7 @@ class CompanyStoreServiceTest {
             assertThatThrownBy(() -> companyStoreService.updateStore(
                             companyId, companyCountryId, regionId, zoneId, storeId, updateRequest))
                     .isInstanceOf(DuplicateCompanyStoreException.class);
-            verify(companyStoreRepository, never()).save(any());
+            verify(companyStoreRepository, never()).saveAndFlush(any());
         }
     }
 
@@ -702,7 +702,7 @@ class CompanyStoreServiceTest {
             mockZoneResolution();
             when(companyStoreRepository.findByIdAndCompanyZoneId(storeId, zoneId))
                     .thenReturn(Optional.of(testStore));
-            when(companyStoreRepository.save(any(CompanyStore.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(companyStoreRepository.saveAndFlush(any(CompanyStore.class))).thenAnswer(inv -> inv.getArgument(0));
 
             // Act
             CompanyStoreResponse result =
@@ -712,7 +712,7 @@ class CompanyStoreServiceTest {
             assertThat(result).isNotNull();
             assertThat(result.enabled()).isTrue();
             assertThat(result.storeName()).isEqualTo("Tienda Principal");
-            verify(companyStoreRepository).save(any(CompanyStore.class));
+            verify(companyStoreRepository).saveAndFlush(any(CompanyStore.class));
         }
 
         @Test
@@ -727,7 +727,7 @@ class CompanyStoreServiceTest {
             assertThatThrownBy(() ->
                             companyStoreService.enableStore(companyId, companyCountryId, regionId, zoneId, storeId))
                     .isInstanceOf(CompanyStoreNotFoundException.class);
-            verify(companyStoreRepository, never()).save(any());
+            verify(companyStoreRepository, never()).saveAndFlush(any());
         }
     }
 }

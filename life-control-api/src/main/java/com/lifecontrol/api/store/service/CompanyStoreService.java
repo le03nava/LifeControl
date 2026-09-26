@@ -16,6 +16,7 @@ import com.lifecontrol.api.company.repository.CompanyZoneRepository;
 import com.lifecontrol.api.country.exception.CountryNotFoundException;
 import com.lifecontrol.api.country.model.Country;
 import com.lifecontrol.api.country.repository.CountryRepository;
+import com.lifecontrol.api.exception.VersionPreconditionException;
 import com.lifecontrol.api.store.dto.CompanyStoreResponse;
 import com.lifecontrol.api.store.dto.CreateCompanyStoreRequest;
 import com.lifecontrol.api.store.dto.UpdateCompanyStoreRequest;
@@ -37,6 +38,13 @@ import org.springframework.transaction.annotation.Transactional;
 public class CompanyStoreService {
 
     private static final Logger logger = LoggerFactory.getLogger(CompanyStoreService.class);
+
+    /**
+     * Message of the 412 raised when the request's optional version precondition does not hold. It
+     * names no SQL or version number: the client only needs to know the store moved.
+     */
+    private static final String VERSION_CONFLICT_MESSAGE =
+            "The company store conflicts with the current server state; reload and try again";
 
     private final CompanyStoreRepository companyStoreRepository;
     private final CompanyZoneRepository companyZoneRepository;
@@ -145,7 +153,9 @@ public class CompanyStoreService {
                 .enabled(true)
                 .build();
 
-        var saved = companyStoreRepository.save(store);
+        // Flush so the response carries the real @Version and non-null createdAt/updatedAt: both the
+        // version increment and the Auditable callbacks run at flush time.
+        var saved = companyStoreRepository.saveAndFlush(store);
         eventPublisher.publishEvent(
                 new CompanyStoreCreatedEvent(this, saved.getId(), companyId, saved.getStoreName(), zone.getZoneName()));
         logger.info("CompanyStore created: name={}, zoneId={}", saved.getStoreName(), zone.getId());
@@ -165,6 +175,10 @@ public class CompanyStoreService {
         var store = companyStoreRepository
                 .findByIdAndCompanyZoneId(storeId, zone.getId())
                 .orElseThrow(() -> new CompanyStoreNotFoundException(storeId));
+
+        // Enforce the optional version precondition after the entity is loaded and before any
+        // mutation, so a stale request leaves the row exactly as it was.
+        assertVersionPrecondition(request.version(), store.getVersion());
 
         // Check uniqueness if storeName changed
         if (request.storeName() != null
@@ -196,7 +210,10 @@ public class CompanyStoreService {
         }
         // If request.address() == null → leave address as-is
 
-        var saved = companyStoreRepository.save(store);
+        // Flush, do not merely save: Hibernate increments the @Version at flush time, so mapping the
+        // response from a non-flushed entity would answer with the pre-increment version. A client
+        // that echoes that version would then be rejected with a false 409 on its next write.
+        var saved = companyStoreRepository.saveAndFlush(store);
         logger.info("CompanyStore updated: id={}, name={}", saved.getId(), saved.getStoreName());
         return toResponse(saved);
     }
@@ -233,10 +250,32 @@ public class CompanyStoreService {
                 .orElseThrow(() -> new CompanyStoreNotFoundException(storeId));
 
         store.setEnabled(true);
-        var saved = companyStoreRepository.save(store);
+        // Flush so the response carries the post-increment @Version and the fresh updatedAt.
+        var saved = companyStoreRepository.saveAndFlush(store);
 
         logger.info("CompanyStore re-enabled: id={}, name={}", storeId, saved.getStoreName());
         return toResponse(saved);
+    }
+
+    /**
+     * Enforces the request's optional version precondition against the freshly-loaded state.
+     *
+     * <p>{@code null} means "no precondition" and always passes, preserving the contract that
+     * existing clients rely on. A non-null version must equal the stored one: a client that read a
+     * version and finds the world moved gets a 412 instead of silently overwriting the other
+     * writer.</p>
+     *
+     * @throws VersionPreconditionException when a non-null version does not match the current stored
+     *     version
+     */
+    private void assertVersionPrecondition(Long assertedVersion, long storedVersion) {
+        if (assertedVersion == null) {
+            return;
+        }
+        if (assertedVersion != storedVersion) {
+            logger.info("CompanyStore version precondition failed: assertedVersion={}", assertedVersion);
+            throw new VersionPreconditionException(VERSION_CONFLICT_MESSAGE);
+        }
     }
 
     /**
@@ -266,7 +305,8 @@ public class CompanyStoreService {
                 buildAddressResponse(store),
                 store.getEnabled(),
                 store.getCreatedAt(),
-                store.getUpdatedAt());
+                store.getUpdatedAt(),
+                store.getVersion());
     }
 
     private AddressResponse buildAddressResponse(CompanyStore store) {

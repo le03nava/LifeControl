@@ -10,6 +10,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifecontrol.api.common.address.dto.AddressRequest;
 import com.lifecontrol.api.common.address.dto.AddressResponse;
 import com.lifecontrol.api.exception.GlobalExceptionHandler;
+import com.lifecontrol.api.exception.VersionPreconditionException;
 import com.lifecontrol.api.store.dto.CompanyStoreResponse;
 import com.lifecontrol.api.store.dto.CreateCompanyStoreRequest;
 import com.lifecontrol.api.store.dto.UpdateCompanyStoreRequest;
@@ -91,7 +92,8 @@ class CompanyStoreControllerTest {
                         UUID.randomUUID()),
                 true,
                 now,
-                now);
+                now,
+                0L);
     }
 
     @Nested
@@ -292,7 +294,8 @@ class CompanyStoreControllerTest {
                     null,
                     true,
                     now,
-                    now);
+                    now,
+                    0L);
             when(companyStoreService.updateStore(
                             eq(testCompanyId),
                             eq(testCompanyCountryId),
@@ -395,6 +398,68 @@ class CompanyStoreControllerTest {
         }
 
         @Test
+        @DisplayName("should return 409 when the new store name collides inside the zone")
+        void updateStore_Duplicate() throws Exception {
+            // Arrange
+            var request = new UpdateCompanyStoreRequest("Tienda Existente", null, null, null);
+            when(companyStoreService.updateStore(
+                            eq(testCompanyId),
+                            eq(testCompanyCountryId),
+                            eq(testRegionId),
+                            eq(testZoneId),
+                            eq(testStoreId),
+                            any(UpdateCompanyStoreRequest.class)))
+                    .thenThrow(new DuplicateCompanyStoreException(
+                            "Store with name 'Tienda Existente' already exists in this zone"));
+
+            // Act & Assert
+            mockMvc.perform(put(
+                                    BASE_URL + "/{id}",
+                                    testCompanyId,
+                                    testCompanyCountryId,
+                                    testRegionId,
+                                    testZoneId,
+                                    testStoreId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.status").value(409))
+                    .andExpect(jsonPath("$.message")
+                            .value("Store with name 'Tienda Existente' already exists in this zone"));
+        }
+
+        @Test
+        @DisplayName("should return 412 with the precondition message when the version precondition fails")
+        void updateStore_VersionConflictReturns412() throws Exception {
+            // Arrange
+            var request = new UpdateCompanyStoreRequest("Tienda Actualizada", null, null, null, 5L);
+            when(companyStoreService.updateStore(
+                            eq(testCompanyId),
+                            eq(testCompanyCountryId),
+                            eq(testRegionId),
+                            eq(testZoneId),
+                            eq(testStoreId),
+                            any(UpdateCompanyStoreRequest.class)))
+                    .thenThrow(new VersionPreconditionException(
+                            "The company store conflicts with the current server state; reload and try again"));
+
+            // Act & Assert
+            mockMvc.perform(put(
+                                    BASE_URL + "/{id}",
+                                    testCompanyId,
+                                    testCompanyCountryId,
+                                    testRegionId,
+                                    testZoneId,
+                                    testStoreId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isPreconditionFailed())
+                    .andExpect(jsonPath("$.status").value(412))
+                    .andExpect(jsonPath("$.message")
+                            .value("The company store conflicts with the current server state; reload and try again"));
+        }
+
+        @Test
         @DisplayName("should return 404 when store not found")
         void updateStore_NotFound() throws Exception {
             // Arrange
@@ -489,7 +554,8 @@ class CompanyStoreControllerTest {
                     null,
                     true,
                     now,
-                    now);
+                    now,
+                    0L);
             when(companyStoreService.enableStore(
                             testCompanyId, testCompanyCountryId, testRegionId, testZoneId, testStoreId))
                     .thenReturn(enabledResponse);
