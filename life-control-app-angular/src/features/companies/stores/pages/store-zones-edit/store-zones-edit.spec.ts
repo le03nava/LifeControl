@@ -32,6 +32,7 @@ describe('StoreZonesEdit', () => {
     enabled: true,
     createdAt: '2024-01-01T00:00:00Z',
     updatedAt: '2024-01-15T00:00:00Z',
+    version: 3,
   };
 
   class MockStoreZoneService {
@@ -131,6 +132,16 @@ describe('StoreZonesEdit', () => {
     it('should NOT hit the flat lookup in create mode', () => {
       const zoneService = TestBed.inject(StoreZoneService) as unknown as MockStoreZoneService;
       expect(zoneService.getZoneById).not.toHaveBeenCalled();
+    });
+
+    it('should not include the version key in the create request body', () => {
+      const zoneService = TestBed.inject(StoreZoneService) as unknown as MockStoreZoneService;
+
+      component.onSave({ zoneCode: 'SECO', zoneName: 'Zona Seca' });
+
+      const requestBody = zoneService.createZone.mock.calls[0][6] as Record<string, unknown>;
+      // Create has no prior version: the key must be absent, not merely undefined.
+      expect('version' in requestBody).toBe(false);
     });
 
     it('should call createZone with the chain and navigate with the same chain', () => {
@@ -334,6 +345,78 @@ describe('StoreZonesEdit', () => {
       expect(zoneForm().isEditMode()).toBe(true);
     });
 
+    it('should send the version read from the entity in the update request body', () => {
+      const zoneService = TestBed.inject(StoreZoneService) as unknown as MockStoreZoneService;
+
+      component.onSave({ zoneCode: 'SECO', zoneName: 'Zona Seca Nueva' });
+
+      const requestBody = zoneService.updateZone.mock.calls[0][7] as Record<string, unknown>;
+      expect(requestBody['version']).toBe(3);
+    });
+
+    it('should show the conflict copy, reload the zone and version, and clear the guard on 412', () => {
+      const zoneService = TestBed.inject(StoreZoneService) as unknown as MockStoreZoneService;
+      zoneService.updateZone.mockReturnValue(
+        throwError(
+          () =>
+            new HttpErrorResponse({
+              error: {
+                status: 412,
+                message:
+                  'The store zone conflicts with the current server state; reload and try again',
+              },
+              status: 412,
+              statusText: 'Precondition Failed',
+            }),
+        ),
+      );
+      // The operator already edited the form; the reload must clear the guard.
+      zoneForm().formGroup.markAsDirty();
+
+      component.onSave({ zoneCode: 'SECO', zoneName: 'Zona Seca Nueva' });
+      fixture.detectChanges();
+
+      // This page has a flat GET, so the copy names the reload that just happened instead of
+      // telling the operator to navigate away.
+      expect(component.generalError()).toBe(
+        'Otra sesión modificó esta zona mientras la editabas. Se recargaron los valores actuales: revisalos y volvé a guardar.',
+      );
+      // The page re-runs its flat load and recovers a fresh entity and version in place.
+      expect(zoneService.getZoneById).toHaveBeenCalledTimes(2);
+      expect(routerMock.navigate).not.toHaveBeenCalled();
+      // The reload re-seeds the form with the server's current values, so the guard must no longer
+      // ask the operator to discard changes that now match the server.
+      expect(component.hasUnsavedChanges()).toBe(false);
+    });
+
+    it('should show the server duplicate message and not reload on 409', () => {
+      const zoneService = TestBed.inject(StoreZoneService) as unknown as MockStoreZoneService;
+      zoneService.updateZone.mockReturnValue(
+        throwError(
+          () =>
+            new HttpErrorResponse({
+              error: {
+                status: 409,
+                message: "Store zone with code 'Z01' already exists in this area",
+              },
+              status: 409,
+              statusText: 'Conflict',
+            }),
+        ),
+      );
+
+      component.onSave({ zoneCode: 'SECO', zoneName: 'Zona Seca Nueva' });
+      fixture.detectChanges();
+
+      // A 409 is a duplicate zone code, not a lost update: the server's real message wins and the
+      // draft is kept (no reload), so the operator can fix the typo.
+      expect(component.generalError()).toBe(
+        "Store zone with code 'Z01' already exists in this area",
+      );
+      expect(zoneService.getZoneById).toHaveBeenCalledTimes(1);
+      expect(routerMock.navigate).not.toHaveBeenCalled();
+    });
+
     it('should navigate back to the list with the chain after saving', () => {
       component.onSave({ zoneCode: 'SECO', zoneName: 'Zona Seca Nueva' });
 
@@ -403,7 +486,7 @@ describe('StoreZonesEdit', () => {
         'store-1',
         'area-1',
         'store-zone-1',
-        request,
+        { ...request, version: 3 },
       );
     });
 
@@ -523,6 +606,49 @@ describe('StoreZonesEdit', () => {
     it('should redirect to the list when the store zone cannot be fetched', () => {
       expect(routerMock.navigate).toHaveBeenCalledWith(['/companies/store-zones']);
       expect(component.chain()).toBeNull();
+    });
+  });
+
+  // ─── Version 0 boundary ─────────────────────────────────────
+
+  describe('edit mode with version 0', () => {
+    beforeEach(async () => {
+      await TestBed.configureTestingModule({
+        imports: [StoreZonesEdit, NoopAnimationsModule, HttpClientTestingModule],
+        providers: [
+          { provide: StoreZoneService, useClass: MockStoreZoneService },
+          { provide: Router, useValue: routerMock },
+          {
+            provide: NotificationService,
+            useValue: { showSuccess: vi.fn(), showError: vi.fn(), showWarning: vi.fn() },
+          },
+          {
+            provide: Keycloak,
+            useValue: {
+              tokenParsed: { resource_access: { 'life-control-client': { roles: ['lc-admin'] } } },
+            },
+          },
+          { provide: ActivatedRoute, useValue: activatedRouteWith('store-zone-1') },
+        ],
+      }).compileComponents();
+
+      const zoneService = TestBed.inject(StoreZoneService) as unknown as MockStoreZoneService;
+      zoneService.getZoneById.mockReturnValue(of({ ...mockZone, version: 0 }));
+
+      fixture = TestBed.createComponent(StoreZonesEdit);
+      component = fixture.componentInstance;
+      fixture.detectChanges();
+    });
+
+    it('should serialize a version of 0 instead of dropping it as falsy', () => {
+      const zoneService = TestBed.inject(StoreZoneService) as unknown as MockStoreZoneService;
+
+      component.onSave({ zoneCode: 'SECO', zoneName: 'Zona Seca Nueva' });
+
+      const requestBody = zoneService.updateZone.mock.calls[0][7] as Record<string, unknown>;
+      // The sentinel is `null`, not falsiness: version 0 is a real precondition and must be sent.
+      expect('version' in requestBody).toBe(true);
+      expect(requestBody['version']).toBe(0);
     });
   });
 

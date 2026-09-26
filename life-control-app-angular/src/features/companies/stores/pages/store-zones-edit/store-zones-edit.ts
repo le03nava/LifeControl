@@ -79,6 +79,13 @@ export class StoreZonesEdit {
   readonly serverErrors = signal<Record<string, string>>({});
   readonly generalError = signal<string | null>(null);
 
+  /**
+   * Optimistic-lock version of the store zone being edited, seeded from the flat lookup (and, as
+   * a paint optimization, from `history.state`). This page has a flat GET, so a 412 re-runs the
+   * lookup and recovers a fresh entity and a fresh version in place.
+   */
+  private readonly version = signal<number | null>(null);
+
   constructor() {
     const id = this.storeZoneId();
 
@@ -88,25 +95,10 @@ export class StoreZonesEdit {
         ?.storeZone;
       if (storeZoneFromState) {
         this.storeZone.set(storeZoneFromState);
+        this.version.set(storeZoneFromState.version);
       }
 
-      this.storeZoneService
-        .getZoneById(id)
-        .pipe(takeUntilDestroyed(this.destroyRef))
-        .subscribe({
-          next: (storeZone) => {
-            this.storeZone.set(storeZone);
-            this.chain.set({
-              companyId: storeZone.companyId,
-              companyCountryId: storeZone.companyCountryId,
-              regionId: storeZone.regionId,
-              zoneId: storeZone.zoneId,
-              storeId: storeZone.companyStoreId,
-              areaId: storeZone.storeAreaId,
-            });
-          },
-          error: () => this.router.navigate(['/companies/store-zones']),
-        });
+      this.loadZone(id);
       return;
     }
 
@@ -145,6 +137,7 @@ export class StoreZonesEdit {
     this.saving.set(true);
 
     const id = this.storeZoneId();
+    const version = this.version();
     const request$ = id
       ? this.storeZoneService.updateZone(
           chain.companyId,
@@ -154,7 +147,9 @@ export class StoreZonesEdit {
           chain.storeId,
           chain.areaId,
           id,
-          request,
+          // Spread the version only when there is one: the merge belongs at the page boundary,
+          // never in the form or the data service, and a create must serialize no `version` key.
+          { ...request, ...(version !== null ? { version } : {}) },
         )
       : this.storeZoneService.createZone(
           chain.companyId,
@@ -229,7 +224,49 @@ export class StoreZonesEdit {
       this.generalError.set(null);
       return;
     }
+    const id = this.storeZoneId();
+    // A 412 on the update path is the version precondition failing: someone else saved this zone
+    // first. This page has a flat GET, so it re-runs its load and recovers a fresh entity and a
+    // fresh version in place rather than telling the operator to go back to the list. The reload
+    // re-seeds the form with the server's current values, so the form is marked pristine and the
+    // guard no longer asks to discard changes that now match the server. A 409 is a duplicate zone
+    // code, not a lost update: it falls through to the server's own message below and never
+    // reloads, so the operator can fix the typo without losing the draft.
+    if (err.status === 412 && id) {
+      this.serverErrors.set({});
+      this.generalError.set(
+        'Otra sesión modificó esta zona mientras la editabas. Se recargaron los valores actuales: revisalos y volvé a guardar.',
+      );
+      this.zoneForm()?.formGroup.markAsPristine();
+      this.loadZone(id);
+      return;
+    }
     this.serverErrors.set({});
     this.generalError.set(apiError?.message ?? 'Error inesperado. Intente de nuevo más tarde.');
+  }
+
+  /**
+   * Runs the authoritative flat lookup. Called once on init and again after a 412, so the page
+   * recovers a fresh entity and a fresh version instead of staying stuck on a stale precondition.
+   */
+  private loadZone(id: string): void {
+    this.storeZoneService
+      .getZoneById(id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (storeZone) => {
+          this.storeZone.set(storeZone);
+          this.version.set(storeZone.version);
+          this.chain.set({
+            companyId: storeZone.companyId,
+            companyCountryId: storeZone.companyCountryId,
+            regionId: storeZone.regionId,
+            zoneId: storeZone.zoneId,
+            storeId: storeZone.companyStoreId,
+            areaId: storeZone.storeAreaId,
+          });
+        },
+        error: () => this.router.navigate(['/companies/store-zones']),
+      });
   }
 }

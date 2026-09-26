@@ -92,7 +92,8 @@ class StoreZoneControllerSecurityTest {
                 1,
                 true,
                 LocalDateTime.now(),
-                LocalDateTime.now());
+                LocalDateTime.now(),
+                0L);
     }
 
     @Nested
