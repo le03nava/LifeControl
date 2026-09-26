@@ -1,6 +1,8 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
+import { By } from '@angular/platform-browser';
 import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
+import { MatSelect } from '@angular/material/select';
 import { of, throwError } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
 import { StatusTransition } from './status-transition';
@@ -39,11 +41,16 @@ const mockStatusTypesPage = {
   ],
 };
 
+/**
+ * Raw shape returned by `GET /api/statuses` (backend `StatusResponse`): the
+ * field is `statusName`, never `name`. Mocking the real wire shape is what
+ * keeps the HTTP-boundary mapping load-bearing instead of untested.
+ */
 const mockStatuses = [
-  { id: 'st-draft', name: 'Draft' },
-  { id: 'st-pending', name: 'Pending' },
-  { id: 'st-completed', name: 'Completed' },
-  { id: 'st-cancelled', name: 'Cancelled' },
+  { id: 'st-draft', statusName: 'Draft' },
+  { id: 'st-pending', statusName: 'Pending' },
+  { id: 'st-completed', statusName: 'Completed' },
+  { id: 'st-cancelled', statusName: 'Cancelled' },
 ];
 
 describe('StatusTransition', () => {
@@ -145,6 +152,16 @@ describe('StatusTransition', () => {
       expect(names.length).toBe(2);
     });
 
+    it('Draft: should carry the real ids and names from the wire payload', () => {
+      const order = createOrder({ statusName: 'Draft' });
+      const { comp } = setupWithOrder(order, httpMock);
+
+      expect(comp.validTransitions()).toEqual([
+        { id: 'st-pending', name: 'Pending', label: 'Pending' },
+        { id: 'st-cancelled', name: 'Cancelled', label: 'Cancelled' },
+      ]);
+    });
+
     it('Pending: should allow Completed and Cancelled', () => {
       const order = createOrder({
         statusName: 'Pending',
@@ -178,6 +195,45 @@ describe('StatusTransition', () => {
 
       expect(comp.isTerminal()).toBe(true);
       expect(comp.validTransitions()).toEqual([]);
+    });
+  });
+
+  describe('transition dropdown rendering', () => {
+    let httpMock: HttpTestingController;
+
+    beforeEach(() => {
+      httpMock = TestBed.inject(HttpTestingController);
+    });
+
+    afterEach(() => {
+      httpMock.verify();
+    });
+
+    it('Draft: should render the change-status select with one option per valid transition', () => {
+      const order = createOrder({ statusName: 'Draft' });
+      const { fixture } = setupWithOrder(order, httpMock);
+
+      const selectDebug = fixture.debugElement.query(By.directive(MatSelect));
+      expect(selectDebug).toBeTruthy();
+
+      // The fallback branch, asserted structurally and not only by its copy.
+      expect(fixture.debugElement.query(By.css('.status-loading'))).toBeNull();
+      expect(fixture.nativeElement.textContent).not.toContain('Loading transitions');
+
+      // Material renders the options lazily, so open the panel to populate the select's own list.
+      const select = selectDebug.componentInstance as MatSelect;
+      select.open();
+      fixture.detectChanges();
+
+      // Read the options off the select itself: a global `mat-option` query would absorb
+      // options from any other overlay and would never see the bound ids.
+      const options = select.options.toArray();
+      expect(options.length).toBe(2);
+      expect(options.map((option) => option.value)).toEqual(['st-pending', 'st-cancelled']);
+      expect(options.map((option) => option.viewValue.trim())).toEqual(['Pending', 'Cancelled']);
+
+      select.close();
+      fixture.detectChanges();
     });
   });
 
