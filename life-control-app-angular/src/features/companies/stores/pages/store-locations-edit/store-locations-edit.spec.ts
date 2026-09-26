@@ -33,6 +33,7 @@ describe('StoreLocationsEdit', () => {
     enabled: true,
     createdAt: '2024-01-01T00:00:00Z',
     updatedAt: '2024-01-15T00:00:00Z',
+    version: 3,
   };
 
   class MockStoreLocationService {
@@ -136,6 +137,21 @@ describe('StoreLocationsEdit', () => {
         StoreLocationService,
       ) as unknown as MockStoreLocationService;
       expect(storeLocationService.getLocationById).not.toHaveBeenCalled();
+    });
+
+    it('should not include the version key in the create request body', () => {
+      const storeLocationService = TestBed.inject(
+        StoreLocationService,
+      ) as unknown as MockStoreLocationService;
+
+      component.onSave({ locationCode: 'EST-02', locationName: 'Estante 02' });
+
+      const requestBody = storeLocationService.createLocation.mock.calls[0][7] as Record<
+        string,
+        unknown
+      >;
+      // Create has no prior version: the key must be absent, not merely undefined.
+      expect('version' in requestBody).toBe(false);
     });
 
     it('should call createLocation with the chain and navigate with the same chain', () => {
@@ -373,6 +389,87 @@ describe('StoreLocationsEdit', () => {
       expect(storeLocationForm().isEditMode()).toBe(true);
     });
 
+    it('should send the version read from the entity in the update request body', () => {
+      const storeLocationService = TestBed.inject(
+        StoreLocationService,
+      ) as unknown as MockStoreLocationService;
+
+      component.onSave({ locationCode: 'EST-01', locationName: 'Estante 01 Nuevo' });
+
+      const requestBody = storeLocationService.updateLocation.mock.calls[0][8] as Record<
+        string,
+        unknown
+      >;
+      expect(requestBody['version']).toBe(3);
+    });
+
+    it('should show the conflict copy, reload the location and version, and clear the guard on 412', () => {
+      const storeLocationService = TestBed.inject(
+        StoreLocationService,
+      ) as unknown as MockStoreLocationService;
+      storeLocationService.updateLocation.mockReturnValue(
+        throwError(
+          () =>
+            new HttpErrorResponse({
+              error: {
+                status: 412,
+                message:
+                  'The store location conflicts with the current server state; reload and try again',
+              },
+              status: 412,
+              statusText: 'Precondition Failed',
+            }),
+        ),
+      );
+      // The operator already edited the form; the reload must clear the guard.
+      storeLocationForm().formGroup.markAsDirty();
+
+      component.onSave({ locationCode: 'EST-01', locationName: 'Estante 01 Nuevo' });
+      fixture.detectChanges();
+
+      // This page has a flat GET, so the copy names the reload that just happened instead of
+      // telling the operator to navigate away.
+      expect(component.generalError()).toBe(
+        'Otra sesión modificó esta ubicación mientras la editabas. Se recargaron los valores actuales: revisalos y volvé a guardar.',
+      );
+      // The page re-runs its flat load and recovers a fresh entity and version in place.
+      expect(storeLocationService.getLocationById).toHaveBeenCalledTimes(2);
+      expect(routerMock.navigate).not.toHaveBeenCalled();
+      // The reload re-seeds the form with the server's current values, so the guard must no longer
+      // ask the operator to discard changes that now match the server.
+      expect(component.hasUnsavedChanges()).toBe(false);
+    });
+
+    it('should show the server duplicate message and not reload on 409', () => {
+      const storeLocationService = TestBed.inject(
+        StoreLocationService,
+      ) as unknown as MockStoreLocationService;
+      storeLocationService.updateLocation.mockReturnValue(
+        throwError(
+          () =>
+            new HttpErrorResponse({
+              error: {
+                status: 409,
+                message: "Store location with code 'EST-01' already exists in this zone",
+              },
+              status: 409,
+              statusText: 'Conflict',
+            }),
+        ),
+      );
+
+      component.onSave({ locationCode: 'EST-01', locationName: 'Estante 01 Nuevo' });
+      fixture.detectChanges();
+
+      // A 409 is a duplicate location code, not a lost update: the server's real message wins and
+      // the draft is kept (no reload), so the operator can fix the typo.
+      expect(component.generalError()).toBe(
+        "Store location with code 'EST-01' already exists in this zone",
+      );
+      expect(storeLocationService.getLocationById).toHaveBeenCalledTimes(1);
+      expect(routerMock.navigate).not.toHaveBeenCalled();
+    });
+
     it('should navigate back to the list with the chain after saving', () => {
       component.onSave({ locationCode: 'EST-01', locationName: 'Estante 01 Nuevo' });
 
@@ -449,7 +546,7 @@ describe('StoreLocationsEdit', () => {
         'area-1',
         'store-zone-1',
         'store-location-1',
-        request,
+        { ...request, version: 3 },
       );
     });
 
@@ -575,6 +672,58 @@ describe('StoreLocationsEdit', () => {
     it('should redirect to the list when the store location cannot be fetched', () => {
       expect(routerMock.navigate).toHaveBeenCalledWith(['/companies/store-locations']);
       expect(component.chain()).toBeNull();
+    });
+  });
+
+  // ─── Version 0 boundary ─────────────────────────────────────
+
+  describe('edit mode with version 0', () => {
+    beforeEach(async () => {
+      await TestBed.configureTestingModule({
+        imports: [StoreLocationsEdit, NoopAnimationsModule, HttpClientTestingModule],
+        providers: [
+          { provide: StoreLocationService, useClass: MockStoreLocationService },
+          { provide: Router, useValue: routerMock },
+          {
+            provide: NotificationService,
+            useValue: { showSuccess: vi.fn(), showError: vi.fn(), showWarning: vi.fn() },
+          },
+          {
+            provide: Keycloak,
+            useValue: {
+              tokenParsed: { resource_access: { 'life-control-client': { roles: ['lc-admin'] } } },
+            },
+          },
+          { provide: ActivatedRoute, useValue: activatedRouteWith('store-location-1') },
+        ],
+      }).compileComponents();
+
+      const storeLocationService = TestBed.inject(
+        StoreLocationService,
+      ) as unknown as MockStoreLocationService;
+      storeLocationService.getLocationById.mockReturnValue(
+        of({ ...mockStoreLocation, version: 0 }),
+      );
+
+      fixture = TestBed.createComponent(StoreLocationsEdit);
+      component = fixture.componentInstance;
+      fixture.detectChanges();
+    });
+
+    it('should serialize a version of 0 instead of dropping it as falsy', () => {
+      const storeLocationService = TestBed.inject(
+        StoreLocationService,
+      ) as unknown as MockStoreLocationService;
+
+      component.onSave({ locationCode: 'EST-01', locationName: 'Estante 01 Nuevo' });
+
+      const requestBody = storeLocationService.updateLocation.mock.calls[0][8] as Record<
+        string,
+        unknown
+      >;
+      // The sentinel is `null`, not falsiness: version 0 is a real precondition and must be sent.
+      expect('version' in requestBody).toBe(true);
+      expect(requestBody['version']).toBe(0);
     });
   });
 

@@ -3,6 +3,13 @@ package com.lifecontrol.api.store.dto;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
+/**
+ * One store location.
+ *
+ * <p>{@code version} is the entity's optimistic-locking version. It always travels back to the
+ * client so a caller can echo it in a later {@link UpdateStoreLocationRequest} and detect a lost
+ * update.</p>
+ */
 public record StoreLocationResponse(
         UUID id,
         UUID storeZoneId,
@@ -18,4 +25,5 @@ public record StoreLocationResponse(
         Integer displayOrder,
         Boolean enabled,
         LocalDateTime createdAt,
-        LocalDateTime updatedAt) {}
+        LocalDateTime updatedAt,
+        long version) {}
