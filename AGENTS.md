@@ -74,7 +74,7 @@ Aislamiento para trabajo concurrente. El detalle completo, los comandos y los an
 | El anchor queda en `main` y limpio | `~/workspace/LifeControl` es la referencia para `fetch`, `log` y `rebase` |
 | Path del worktree | `~/workspace/LifeControl-worktrees/<slug>`, hermano del repo, nunca adentro |
 | Slug del directorio | Igual al de la rama, con `/` → `-`: `feat/x` → `feat-x` |
-| Creación | `herdr worktree create --path ... --base main --no-focus` |
+| Creación | `herdr worktree create --path ... --branch <branch> --base main --no-focus` (sin `--branch` la rama sale aleatoria) |
 | Limpieza | `herdr workspace close` → `git worktree remove` → `git worktree prune`, en ese orden |
 
 > **Requisito de trust**: Pi carga `.agents/skills/` desde el `cwd` y sus directorios **ancestros**, y sólo
