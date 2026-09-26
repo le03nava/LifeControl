@@ -83,6 +83,7 @@ git worktree remove <path>                      # 2. remove the git worktree
 git worktree prune                              # 3. clear orphaned metadata
 ```
 
+- **`herdr workspace close` does not remove the worktree, so steps 2 and 3 are not optional.** Measured on `herdr` 0.9.1 (2026-09-25): a probe worktree survived the close with its directory, its `git worktree list` entry, its local branch and its `.git/worktrees/<slug>/` metadata intact — only the workspace entry disappeared from `session.json`. A closed workspace is not a clean checkout.
 - `git worktree remove` rejects modified and untracked files. It **ignores ignored files**, so it succeeds despite `.env`, `secrets/`, or other ignored content. Verify ignored content is regenerable before removing; `git status` will not warn you.
 - `--force` discards uncommitted work. Use it only after confirming there is none.
 - Deleting the directory by hand leaves metadata in `.git/worktrees/`. Always finish with `git worktree prune`.
@@ -91,26 +92,67 @@ git worktree prune                              # 3. clear orphaned metadata
 
 ### Deleting a branch a worktree holds
 
-The merge command that deletes a branch on merge deletes the **local** branch as well as the remote
-one. Git refuses to delete a branch a worktree has checked out, so the command reports a
-local-branch error. Whether the remote ref survives that error depends on the `gh` version, so
-**verify the remote ref instead of assuming either outcome** (see the version note below).
+`gh pr merge --delete-branch` is **worktree-aware**, so it does not simply fail on a branch a worktree
+holds: it inspects `git worktree list --porcelain` and its action depends on *where* the branch is
+checked out. On `gh` **2.101.0** the decision lives in `deleteLocalBranch`'s switch over `headWorktree`
+(`pkg/cmd/pr/merge/merge.go`), and the removal it performs is `git worktree remove -- <path>`
+(`git.Client.WorktreeRemove`, no `--force`).
+
+| Where the head branch is checked out | What `gh pr merge --delete-branch` does |
+| --- | --- |
+| Nowhere | Deletes the remote ref, deletes the local branch |
+| A **linked** worktree, command run anywhere else | Deletes the remote ref, **removes that worktree**, then deletes the local branch |
+| The worktree the command runs in | Deletes the remote ref, **skips** the local delete, prints the manual follow-up |
+| The **main** worktree, command run in a linked one | Deletes the remote ref, **skips** the local delete |
+| The main worktree and the command runs there, base branch held by another worktree | Deletes the remote ref, **skips** the local delete |
+
+The **second row is the one that surprises people, and it was measured rather than read** (2026-09-25,
+`gh` 2.101.0, PR #177 in this repository): a pull request was merged from the anchor while its branch
+was checked out in a linked worktree, and by the time the operator ran `git worktree remove <path>`,
+git answered `fatal: '<path>' is not a working tree` — the registration was already gone, and so were
+the directory and the local branch. Nothing in that merge's output said so.
+
+Two properties of that removal decide whether you can rely on it:
+
+- **It is not forced.** `git worktree remove` refuses a worktree that has modified or untracked files
+  (`fatal: '<path>' contains modified or untracked files, use --force to delete it`, exit 128), and
+  `gh` then warns `Could not remove worktree <path>; skipping local branch delete: <err>` and leaves
+  both the worktree and the local branch in place. Measured on the git half (2026-09-25): a probe
+  worktree carrying one modified tracked file and one untracked file survived `git worktree remove`
+  intact. So uncommitted work is not destroyed by this path — but a **clean** worktree is removed
+  without asking, which is why "clean" is not the same as "still needed".
+- **An open workspace is left dangling.** Removing that worktree from under an open Herdr workspace
+  produces exactly the failure this page's cleanup order exists to prevent — a workspace pointing at a
+  missing path — arriving from the merge side instead of the cleanup side. Close the workspace before
+  merging, or merge before opening a workspace on that worktree.
 
 | Symptom | Reality |
 | --- | --- |
-| `error: cannot delete branch '<branch>' used by worktree at '<path>'` | The local deletion failed. Whether the remote deletion failed with it depends on the `gh` version |
+| `error: cannot delete branch '<branch>' used by worktree at '<path>'` | You ran `git branch -d`/`-D` by hand. `gh` 2.101.0 does not produce it for a linked worktree: it removes the worktree or skips with its own message. On older `gh` it was the symptom of a partial failure — check the remote ref instead of reading the error |
+| `fatal: '<path>' is not a working tree` | The registration is already gone, and `gh pr merge --delete-branch` is the likely cause (second row above). There is no metadata left to clean up either |
+| `fatal: '<path>' contains modified or untracked files, use --force to delete it` | `gh` reported that it could not remove the worktree and skipped the local delete. The worktree and the branch both survive; decide what to do with them |
 | The pull request shows as merged | True and unrelated: the merge landed before the deletion was attempted |
 
-**Version note (measured 2026-09-23).** The remote outcome is `gh`-version-dependent, so treat the
-remote ref as unverified until you check it. On `gh` **2.45.0** the merge aborted *before* the remote
-deletion, and `git ls-remote --heads origin` confirmed the remote ref survived. On `gh` **2.101.0**
-the merge and the remote deletion both succeed, only the local deletion is skipped, and the command
-prints the follow-up (`git worktree remove <path> && git branch -D <branch>`). Both outcomes leave
-the local branch and the worktree untouched, which is the state you want, so the cleanup order below
-is correct either way.
+**Version note (measured 2026-09-23, corrected 2026-09-25).** The remote outcome is
+`gh`-version-dependent, so treat the remote ref as unverified until you check it. On `gh` **2.45.0**
+the merge aborted *before* the remote deletion, and `git ls-remote --heads origin` confirmed the remote
+ref survived. On `gh` **2.101.0** the merge and the remote deletion both succeed. Where the earlier
+note generalized the last step — *"only the local deletion is skipped … both outcomes leave the local
+branch and the worktree untouched"* — that holds for the third row of the table above (the command
+runs in the worktree that holds the branch) and **not** for the second (a linked worktree, command run
+elsewhere), where the worktree is removed and the local branch is deleted. The 2026-09-23 session's
+invocation shape is not recorded, so the earlier note is superseded only where it generalizes, not
+retro-attributed.
 
-Either remove the worktree before merging, or run the cleanup order above and delete the branch
-yourself, then realign the anchor:
+**The command's output is not evidence either way.** In the runs measured here, `gh pr merge --delete-branch`
+produced no visible output at all while its stdout was piped — including the run that removed a
+worktree — while the same binary did print to stderr in a later invocation. Read `git worktree list`
+and the refs, and conclude nothing from silence.
+
+Three ways to a clean end state, depending on what you need: remove the worktree before merging; merge
+from inside the worktree when you intend to keep it (the third row above — `gh` then skips the local
+delete and hands you the commands); or run the cleanup order above and delete the branch yourself, then
+realign the anchor:
 
 ```bash
 herdr workspace close <workspace_id>
@@ -151,7 +193,7 @@ Prefer the parent entry. Trusting a project lets Pi load project settings, insta
 | `herdr worktree remove` without a workspace ID | Fails: that command requires a linked workspace. Use `git worktree remove` |
 | Removing the worktree before closing the workspace | Workspace pointing at a missing path |
 | Assuming `node_modules`, `build/`, or `.gradle/` are shared | Every worktree needs its own install and build |
-| Merging a PR with branch deletion while a worktree still holds the branch | The merge succeeds, both the local and the remote deletion fail, and the output reports only the local one |
+| Merging a PR with branch deletion while a worktree still holds the branch | On `gh` 2.101.0 a **clean** linked worktree is removed and its local branch deleted, silently, with no output and no question asked; an older `gh` fails the local deletion instead. Neither outcome is announced: check `git worktree list` and the refs |
 | Trusting a merge command's output as proof the branch is gone | A live remote ref looks exactly like a deleted one until it is queried |
 
 ## Verifying a background process
