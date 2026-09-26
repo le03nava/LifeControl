@@ -219,7 +219,11 @@ npm run test:coverage:check # unit + enforcement de umbrales de cobertura (CI)
 npm run test:e2e            # E2E con Playwright (mocks de Keycloak y API)
 ```
 
-> CI: `.github/workflows/angular-ci.yml` corre `lint` + `build` + `test:coverage:check` en pushes a `main` y PRs que toquen `life-control-app-angular/`.
+> CI: `.github/workflows/angular-ci.yml` corre `lint` + `build` + `test:coverage:check`. Los dos triggers
+> no filtran igual: el de **PR** filtra por paths (`life-control-app-angular/**`), mientras que el de
+> `push` a `main` **no** filtra, así que todo merge a `main` corre el workflow completo aunque el diff sea
+> un solo `.md`. Lo mismo vale para los otros tres workflows, y tiene una consecuencia práctica:
+> `gh pr checks` **vacío** en un PR no significa que su merge a `main` no corra CI.
 
 ### Docker
 
