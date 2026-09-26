@@ -2,12 +2,12 @@
 
 **Repository**: LifeControl — spans `life-control-api/**` (Spring Boot, Java 21) and
 `life-control-app-angular/**` (Angular 20). Four vertical slices, one per screen.
-**Status**: W0 closed; **W1 `stores` delivered** — PR #183, merge `50826e0`; **W2 `store-areas`
-delivered** — PR #184, merge `ca873f7`; **W3 `store-zones` delivered** — PR #185, merge `f2ca839`;
-**W4 `store-locations` implemented, gated and committed** as `0cc6913` on
-`feat/store-version-precondition-locations` — with it all four edit screens carry the precondition in the
-code. What remains is **W5**, which closes this record: it lands W4's delivery state and the evidence log
-for the fourth slice. Per-slice detail and the measured evidence live in `## Evidence log`.
+**Status**: **Closed** — W0 closed and all four slices delivered: **W1 `stores`** — PR #183, merge
+`50826e0`; **W2 `store-areas`** — PR #184, merge `ca873f7`; **W3 `store-zones`** — PR #185, merge
+`f2ca839`; **W4 `store-locations`** — PR #187, merge `2eab062`. All four edit screens of the store tree
+carry the version precondition, and each delivery was verified to carry exactly the bytes that passed the
+gates — tree identity for W2–W4, the file-level check for W1, where the branch was cut before `main`
+moved. Per-slice detail and the measured evidence live in `## Delivery summary` and `## Evidence log`.
 **Created**: 2026-09-26
 **Risk**: **medium.** A write path gains a precondition it did not carry and four response contracts
 gain a field. No auth change, no role change, no schema change, no migration, no data migration. The
@@ -157,8 +157,8 @@ the sub-tasks inside each slice and are tracked here, not in the `todo` projecti
 | W4-T2 | Backend: `UpdateStoreLocationRequest`, `StoreLocationResponse`, `StoreLocationService` (assert + 3 flushes + message constant) | 3 src files + 4 controller-test constructor sites + `StoreLocationServiceTest`'s stub/verify rename | done |
 | W4-T3 | Angular: `store-location.models.ts`, `store-locations-edit.ts` and every `StoreLocation` fixture the compiler forces | 4 spec files, fixtures only | done |
 | W4-T4 | Gates green on the committed tree | evidence log rows | done — 613 suites / 2154 tests / 0 failures; 130 files / 2558 tests / 0 failures |
-| W4-T5 | Work-unit commit + PR | evidence log row | done — commit `0cc6913`; the terminal pull-request and merge state for this slice is what **W5** records |
-| **W5** | Close: terminal header with PR/merge evidence per slice, and the evidence log | this file | pending |
+| W4-T5 | Work-unit commit + PR | evidence log row | done — commits `0cc6913` and `a896459`; PR #187, merged as `2eab062` |
+| **W5** | Close: terminal header with PR/merge evidence per slice, and the evidence log | this file + `## Delivery summary` | done — this commit: the header states the four deliveries, the four per-slice delivery rows and the closure row are in the evidence log, and the four slices are summarized above |
 
 Each of W1–W4 repeats the same five sub-tasks (RED tests, backend, frontend, gates, commit + PR).
 
@@ -239,6 +239,30 @@ Each of W1–W4 repeats the same five sub-tasks (RED tests, backend, frontend, g
    in this scope; the honest fix is the same `VersionPreconditionException`, which already exists. Its
    page also uses the shared copy in `http-error-message.ts`, which carries a 409 entry and no 412 one.
 
+## Delivery summary (closed)
+
+| Slice | Screen | PR | Merge | Delivery identity | Post-merge CI |
+| --- | --- | --- | --- | --- | --- |
+| W1 | `stores` | #183 | `50826e0` | file-level: 23 of 23 files identical to the tip that passed the gates, and the files it did not touch byte-identical to its base | 4/4 |
+| W2 | `store-areas` | #184 | `ca873f7` | `main^{tree}` == `3c56028^{tree}` == `b9721d564f9aa65d96485b22d8e9df282d45ebe3`, 0 files differing | 4/4 |
+| W3 | `store-zones` | #185 | `f2ca839` | `main^{tree}` == `22ccdbb^{tree}` == `7756f8dbbc836beba8a359d19305e943a2a04493`, 0 files differing | 4/4 |
+| W4 | `store-locations` | #187 | `2eab062` | `main^{tree}` == `a896459^{tree}` == `63c09451d970af04940ccadae86098ac6115fd6d`, 0 files differing | 4/4 |
+
+What the four slices together changed: **four response contracts** gained a trailing `long version`
+(additive only — every pre-existing component kept its name, type and position), **four update requests**
+gained an optional `Long version` precondition with a constructor at the previous arity, **twelve write
+methods** (`create`/`update`/`enable` × 4) flush before mapping their response, and **four Angular
+pages** seed the version from the entity they load, merge it at the page boundary — so a create body
+serializes no `version` key — and branch on **412** for a lost update versus **409** for a duplicate. The
+precondition's identity is `VersionPreconditionException` → 412 (D10), introduced with W2 and inherited
+by W3 and W4, and the duplicate path kept its own message and its own recovery on every screen.
+
+Every slice carried the same five sub-tasks and the same evidence: a reconstructed RED (labelled as
+reconstructed, never as an observed one), gates run on the committed bytes with a `sha256sum` proof that
+the pre-commit hook changed nothing, an independent read-only verification round, and a post-merge CI
+check on the merge commit. The follow-ups this work opened are in `## Follow-ups`; none of them is
+blocking and none was closed by the four deliveries.
+
 ## Evidence log
 
 | Date | Event | Evidence |
@@ -269,3 +293,5 @@ Each of W1–W4 repeats the same five sub-tasks (RED tests, backend, frontend, g
 | 2026-09-26 | **W4 independent read-only verification round** (delegated, over the uncommitted diff): **0 blocking findings**; all nine criteria met except criterion 9, which is not satisfiable before the commit and is proven by the sha256 row above; contract items 1–8 met except item 4, and that exception is the finding below; the assert ordering verified against every mutation path; `deleteLocation` confirmed still on `save(...)`, with its own tests still asserting `save` so the guard did not go vacuous; no other slice touched (`store-locations-page.spec.ts` gained only two `version` fields on `StoreLocation` literals); the 7-id chain confirmed to be set **only** by the authoritative lookup, so no stale `history.state` version can reach a save. Two of the five new Angular specs (create-body key absence, 409 no-reload) pass on the reverted base: regression guards, not RED discriminators, as in W2 and W3 | the verification report; `StoreLocationService.java`; `store-locations-edit.spec.ts` |
 | 2026-09-26 | **Two findings from that round, both fixed before the commit rather than recorded as debt.** (1) **Contract item 4 was only partially met**: the update path's `saveAndFlush` in `StoreLocationService` had no flush rationale comment, which the contract requires and W2/W3 both carry — added, with the same wording. (2) **The gate evidence had drifted off the final bytes**: the verifier read the artifact mtimes and showed that spotless/spotbugs/`lint`/`build` had run *before* the RED reconstruction's restore batch, so the checks did not cover the bytes as restored. Both fixed by re-running every gate on the final tree (the numbers above are that run) and by running `prettier --write` on the touched frontend files first: `prettier --check 'src/**/*.ts'` was **failing** on `store-locations-edit.spec.ts` (a 101-char line against `printWidth: 100`), and `npm run lint` does **not** run prettier — only the pre-commit hook does, so without this the hook would have rewritten a staged file *after* the gate and invalidated the evidence it was supposed to prove | the verification report; the re-run gates; `npx prettier --check` before and after |
 | 2026-09-26 | **W4 RED reconstructed, not observed in order.** Backend, with `StoreLocationResponse` + `StoreLocationService` + the 4 controller/service tests at their `main` state (keeping the new request DTO and the new integration test, the minimum that compiles) → **149 tests completed, 4 failed** (`staleVersionPutAnswers412AndWritesNothing`, `currentVersionPutAnswers200WithIncrementedVersionAndFreshUpdatedAt`, `enablePatchAnswersPostFlushVersionAndFreshUpdatedAt`, `postAnswersTimestampsAndVersion`); the absent-version pass-through correctly stays green because it pins the old contract. Frontend, with only `store-locations-edit.ts` reverted → **4 failed / 48 passed of 52**, and one of the four is a **pre-existing** spec the change makes stricter (`should update using the chain from the response`). This time the revert was restored from a backup and proven byte-for-byte with `sha256sum -c` over all 7 reverted files, unlike W1–W3 where the restore was only proven by a green re-run | the two runs; the sha256 restore proof |
+| 2026-09-26 | **W4 delivered: PR #187 merged as `2eab062`** (parents `d73cc5f` + `a896459`), 15 files / +772 −52, branch and worktree removed. The tree-identity check applies and holds: `main^{tree}` == `a896459^{tree}` == `63c09451d970af04940ccadae86098ac6115fd6d`, and the file-level check agrees (`git diff --name-only main a896459` → 0 files). Both branch commits are ancestors of `main`. Post-merge CI on `main` @ `2eab062`: **4/4 green** (API CI, Angular CI, Gateway CI, Docker Build Integrity). Merge order as the worktree reference prescribes: the herdr workspace was closed **before** the merge, so `gh pr merge --delete-branch` removed the linked worktree instead of leaving a hung workspace. Final clone state: only the anchor worktree, only `main` locally, `origin` with `main` alone, tree clean | `gh pr view 187`; `git rev-parse` on both trees; `git worktree list`; `git ls-remote --heads origin`; `gh run list --branch main` |
+| 2026-09-26 | **Record closed** (this commit). All four slices are delivered and each of the four per-slice delivery rows above carries its own merge commit, its delivery identity and its 4/4 post-merge CI, so no row asserts a state a later merge could falsify. `## Delivery summary` states what the four slices together changed. The header carries the terminal state and no live claim; the only rows that say `pending` are the task rows of the closed slices, which are historical | this file; `git log --oneline main` |
