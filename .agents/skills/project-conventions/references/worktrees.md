@@ -52,6 +52,7 @@ herdr worktree create \
 ```
 
 - `--branch` accepts an existing branch and checks it out **without modifying it**. Verify the branch SHA before and after when rescuing existing work.
+- **`--branch` is not optional in practice.** Omitting it does not fail: the command succeeds and names the branch `worktree/<random-slug>` — `worktree/green-harbor-f423` was one, measured on 2026-09-26. The worktree then carries a branch its directory does not name, which is the unreconstructable state the naming rule above exists to prevent, and nothing in the returned JSON flags it.
 - `--base` applies when the branch does not exist yet.
 - `--no-focus` keeps the caller's context. Use focus only when the user asked to switch.
 - The command returns JSON. Read `workspace_id`, `tab_id`, and `pane_id` from it; never predict them.
