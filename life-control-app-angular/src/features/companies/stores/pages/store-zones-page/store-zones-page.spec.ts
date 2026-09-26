@@ -155,6 +155,7 @@ describe('StoreZonesPage', () => {
       enabled: true,
       createdAt: '2024-01-01',
       updatedAt: '2024-01-15',
+      version: 0,
     },
     {
       id: 'area-2',
@@ -170,6 +171,7 @@ describe('StoreZonesPage', () => {
       enabled: false,
       createdAt: '2024-01-01',
       updatedAt: '2024-01-15',
+      version: 0,
     },
     {
       id: 'area-3',
@@ -185,6 +187,7 @@ describe('StoreZonesPage', () => {
       enabled: false,
       createdAt: '2024-01-01',
       updatedAt: '2024-01-15',
+      version: 0,
     },
   ];
 

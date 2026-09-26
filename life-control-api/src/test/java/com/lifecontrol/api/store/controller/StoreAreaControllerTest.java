@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifecontrol.api.exception.GlobalExceptionHandler;
+import com.lifecontrol.api.exception.VersionPreconditionException;
 import com.lifecontrol.api.store.dto.CreateStoreAreaRequest;
 import com.lifecontrol.api.store.dto.StoreAreaResponse;
 import com.lifecontrol.api.store.dto.UpdateStoreAreaRequest;
@@ -84,7 +85,8 @@ class StoreAreaControllerTest {
                 1,
                 true,
                 now,
-                now);
+                now,
+                0L);
     }
 
     @Nested
@@ -329,7 +331,8 @@ class StoreAreaControllerTest {
                     3,
                     true,
                     now,
-                    now);
+                    now,
+                    0L);
             when(storeAreaService.updateArea(
                             eq(testCompanyId),
                             eq(testCompanyCountryId),
@@ -476,7 +479,40 @@ class StoreAreaControllerTest {
                                     testAreaId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request)))
-                    .andExpect(status().isConflict());
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.status").value(409))
+                    .andExpect(jsonPath("$.message").value("Store area with code 'A03' already exists in this store"));
+        }
+
+        @Test
+        @DisplayName("should return 412 with the precondition message when the version precondition fails")
+        void updateArea_VersionConflictReturns412() throws Exception {
+            var request = new UpdateStoreAreaRequest("A03", null, null, null, 5L);
+            when(storeAreaService.updateArea(
+                            eq(testCompanyId),
+                            eq(testCompanyCountryId),
+                            eq(testRegionId),
+                            eq(testZoneId),
+                            eq(testStoreId),
+                            eq(testAreaId),
+                            any(UpdateStoreAreaRequest.class)))
+                    .thenThrow(new VersionPreconditionException(
+                            "The store area conflicts with the current server state; reload and try again"));
+
+            mockMvc.perform(put(
+                                    BASE_URL + "/{areaId}",
+                                    testCompanyId,
+                                    testCompanyCountryId,
+                                    testRegionId,
+                                    testZoneId,
+                                    testStoreId,
+                                    testAreaId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isPreconditionFailed())
+                    .andExpect(jsonPath("$.status").value(412))
+                    .andExpect(jsonPath("$.message")
+                            .value("The store area conflicts with the current server state; reload and try again"));
         }
     }
 

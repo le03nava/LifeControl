@@ -31,6 +31,7 @@ describe('StoreAreasEdit', () => {
     enabled: true,
     createdAt: '2024-01-01T00:00:00Z',
     updatedAt: '2024-01-15T00:00:00Z',
+    version: 3,
   };
 
   class MockStoreAreaService {
@@ -128,6 +129,16 @@ describe('StoreAreasEdit', () => {
     it('should NOT hit the flat lookup in create mode', () => {
       const areaService = TestBed.inject(StoreAreaService) as unknown as MockStoreAreaService;
       expect(areaService.getAreaById).not.toHaveBeenCalled();
+    });
+
+    it('should not include the version key in the create request body', () => {
+      const areaService = TestBed.inject(StoreAreaService) as unknown as MockStoreAreaService;
+
+      component.onSave({ areaCode: 'DEPOSITO', areaName: 'Depósito' });
+
+      const requestBody = areaService.createArea.mock.calls[0][5] as Record<string, unknown>;
+      // Create has no prior version: the key must be absent, not merely undefined.
+      expect('version' in requestBody).toBe(false);
     });
 
     it('should call createArea with the chain and navigate with the same chain', () => {
@@ -246,6 +257,78 @@ describe('StoreAreasEdit', () => {
       expect(areaForm().isEditMode()).toBe(true);
     });
 
+    it('should send the version read from the entity in the update request body', () => {
+      const areaService = TestBed.inject(StoreAreaService) as unknown as MockStoreAreaService;
+
+      component.onSave({ areaCode: 'ALMACEN', areaName: 'Almacén Nuevo' });
+
+      const requestBody = areaService.updateArea.mock.calls[0][6] as Record<string, unknown>;
+      expect(requestBody['version']).toBe(3);
+    });
+
+    it('should show the conflict copy, reload the entity and version, and clear the guard on 412', () => {
+      const areaService = TestBed.inject(StoreAreaService) as unknown as MockStoreAreaService;
+      areaService.updateArea.mockReturnValue(
+        throwError(
+          () =>
+            new HttpErrorResponse({
+              error: {
+                status: 412,
+                message:
+                  'The store area conflicts with the current server state; reload and try again',
+              },
+              status: 412,
+              statusText: 'Precondition Failed',
+            }),
+        ),
+      );
+      // The operator already edited the form; the reload must clear the guard.
+      areaForm().formGroup.markAsDirty();
+
+      component.onSave({ areaCode: 'ALMACEN', areaName: 'Almacén Nuevo' });
+      fixture.detectChanges();
+
+      // Unlike `stores`, this page has a flat GET, so the copy names the reload that just happened
+      // instead of telling the operator to navigate away.
+      expect(component.generalError()).toBe(
+        'Otra sesión modificó esta área mientras la editabas. Se recargaron los valores actuales: revisalos y volvé a guardar.',
+      );
+      // The page re-runs its flat load and recovers a fresh entity and version in place.
+      expect(areaService.getAreaById).toHaveBeenCalledTimes(2);
+      expect(routerMock.navigate).not.toHaveBeenCalled();
+      // The reload re-seeds the form with the server's current values, so the guard must no longer
+      // ask the operator to discard changes that now match the server.
+      expect(component.hasUnsavedChanges()).toBe(false);
+    });
+
+    it('should show the server duplicate message and not reload on 409', () => {
+      const areaService = TestBed.inject(StoreAreaService) as unknown as MockStoreAreaService;
+      areaService.updateArea.mockReturnValue(
+        throwError(
+          () =>
+            new HttpErrorResponse({
+              error: {
+                status: 409,
+                message: "Store area with code 'A01' already exists in this store",
+              },
+              status: 409,
+              statusText: 'Conflict',
+            }),
+        ),
+      );
+
+      component.onSave({ areaCode: 'ALMACEN', areaName: 'Almacén Nuevo' });
+      fixture.detectChanges();
+
+      // A 409 is a duplicate area code, not a lost update: the server's real message wins and the
+      // draft is kept (no reload), so the operator can fix the typo.
+      expect(component.generalError()).toBe(
+        "Store area with code 'A01' already exists in this store",
+      );
+      expect(areaService.getAreaById).toHaveBeenCalledTimes(1);
+      expect(routerMock.navigate).not.toHaveBeenCalled();
+    });
+
     it('should navigate back to the list with the chain after saving', () => {
       const areaService = TestBed.inject(StoreAreaService) as unknown as MockStoreAreaService;
       expect(areaService.updateArea).toBeDefined();
@@ -313,7 +396,7 @@ describe('StoreAreasEdit', () => {
         'zone-1',
         'store-1',
         'area-1',
-        request,
+        { ...request, version: 3 },
       );
     });
 
@@ -431,6 +514,49 @@ describe('StoreAreasEdit', () => {
     it('should redirect to the list when the area cannot be fetched', () => {
       expect(routerMock.navigate).toHaveBeenCalledWith(['/companies/store-areas']);
       expect(component.chain()).toBeNull();
+    });
+  });
+
+  // ─── Version 0 boundary ─────────────────────────────────────
+
+  describe('edit mode with version 0', () => {
+    beforeEach(async () => {
+      await TestBed.configureTestingModule({
+        imports: [StoreAreasEdit, NoopAnimationsModule, HttpClientTestingModule],
+        providers: [
+          { provide: StoreAreaService, useClass: MockStoreAreaService },
+          { provide: Router, useValue: routerMock },
+          {
+            provide: NotificationService,
+            useValue: { showSuccess: vi.fn(), showError: vi.fn(), showWarning: vi.fn() },
+          },
+          {
+            provide: Keycloak,
+            useValue: {
+              tokenParsed: { resource_access: { 'life-control-client': { roles: ['lc-admin'] } } },
+            },
+          },
+          { provide: ActivatedRoute, useValue: activatedRouteWith('area-1') },
+        ],
+      }).compileComponents();
+
+      const areaService = TestBed.inject(StoreAreaService) as unknown as MockStoreAreaService;
+      areaService.getAreaById.mockReturnValue(of({ ...mockArea, version: 0 }));
+
+      fixture = TestBed.createComponent(StoreAreasEdit);
+      component = fixture.componentInstance;
+      fixture.detectChanges();
+    });
+
+    it('should serialize a version of 0 instead of dropping it as falsy', () => {
+      const areaService = TestBed.inject(StoreAreaService) as unknown as MockStoreAreaService;
+
+      component.onSave({ areaCode: 'ALMACEN', areaName: 'Almacén Nuevo' });
+
+      const requestBody = areaService.updateArea.mock.calls[0][6] as Record<string, unknown>;
+      // The sentinel is `null`, not falsiness: version 0 is a real precondition and must be sent.
+      expect('version' in requestBody).toBe(true);
+      expect(requestBody['version']).toBe(0);
     });
   });
 

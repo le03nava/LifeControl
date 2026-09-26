@@ -29,6 +29,7 @@ describe('StoreAreaForm', () => {
     enabled: true,
     createdAt: '2024-01-01T00:00:00Z',
     updatedAt: '2024-01-15T00:00:00Z',
+    version: 0,
   };
 
   // Shared behavior lives in leaf-form-spec-helpers: one suite, three descriptors.
