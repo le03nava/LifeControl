@@ -31,6 +31,12 @@ interface StatusEntry {
   name: string;
 }
 
+/** Raw shape of a status returned by `GET /api/statuses` (backend `StatusResponse`). */
+interface StatusResponse {
+  id: string;
+  statusName: string;
+}
+
 interface StatusTypeEntry {
   id: string;
   statusTypeName: string;
@@ -143,10 +149,11 @@ export class StatusTransition implements OnInit {
 
   private loadStatusesForType(statusTypeId: string): void {
     this.http
-      .get<StatusEntry[]>(`${this.configService.apiUrl}/statuses`, {
+      .get<StatusResponse[]>(`${this.configService.apiUrl}/statuses`, {
         params: { statusTypeId },
       })
       .pipe(
+        map((statuses) => statuses.map((status) => ({ id: status.id, name: status.statusName }))),
         takeUntilDestroyed(this.destroyRef),
         catchError((err) => {
           this.statusFetchFailed.set(true);
