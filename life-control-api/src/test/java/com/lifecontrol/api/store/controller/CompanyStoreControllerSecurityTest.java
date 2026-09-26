@@ -88,7 +88,8 @@ class CompanyStoreControllerSecurityTest {
                 null,
                 true,
                 LocalDateTime.now(),
-                LocalDateTime.now());
+                LocalDateTime.now(),
+                0L);
     }
 
     // ─── GET /api/companies/{companyId}/countries/{companyCountryId}/regions/{regionId}/zones/{zoneId}/stores ──

@@ -14,6 +14,12 @@ export interface CompanyStore {
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
+  /**
+   * Optimistic-locking version, echoed back on update so a lost update is refused. Required on
+   * purpose: if the API stops sending it, `tsc` fails instead of the screen quietly omitting the
+   * precondition.
+   */
+  version: number;
 }
 
 export interface StoreRequest {
@@ -21,6 +27,11 @@ export interface StoreRequest {
   email?: string;
   phoneNumber?: string;
   address?: AddressRequest;
+  /**
+   * Optional version precondition. Shared by create and update, so the page decides whether the key
+   * is present at all: a create body must serialize no `version` key.
+   */
+  version?: number;
 }
 
 /**

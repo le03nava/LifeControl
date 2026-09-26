@@ -61,6 +61,12 @@ export class StoresEdit implements OnInit {
 
   // ─── Edit mode data ────────────────────────────────────
   storeToEdit = signal<CompanyStore | null>(null);
+  /**
+   * Optimistic-lock version of the store being edited, seeded from `history.state`, echoed back on
+   * the update. It is deliberately never advanced here: after a 412 the retry re-sends the same
+   * stale version, so the backend keeps rejecting it and the screen stays fail-closed.
+   */
+  private readonly version = signal<number | null>(null);
 
   // ─── Create mode initial values (from query params) ───
   initialCompanyId = signal<string | null>(null);
@@ -88,6 +94,7 @@ export class StoresEdit implements OnInit {
       const storeFromState = (globalThis.history?.state as { store?: CompanyStore })?.store;
       if (storeFromState) {
         this.storeToEdit.set(storeFromState);
+        this.version.set(storeFromState.version);
         // Load regions for the store's country
         this.companyRegionService
           .getRegions(storeFromState.companyId, storeFromState.companyCountryId)
@@ -151,6 +158,7 @@ export class StoresEdit implements OnInit {
     if (this.isEditMode()) {
       const storeId = this.storeId();
       if (!storeId) return;
+      const version = this.version();
       this.companyStoreService
         .updateStore(
           event.companyId,
@@ -158,7 +166,9 @@ export class StoresEdit implements OnInit {
           event.regionId,
           event.zoneId,
           storeId,
-          event.request,
+          // Spread the version only when there is one: a create must serialize no `version` key at
+          // all, and the merge belongs at the page boundary, never in the form or the data service.
+          { ...event.request, ...(version !== null ? { version } : {}) },
         )
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
@@ -228,6 +238,17 @@ export class StoresEdit implements OnInit {
     if (apiError?.errors) {
       this.serverErrors.set(apiError.errors);
       this.generalError.set(null);
+      return;
+    }
+    // A 412 on the update path is the version precondition failing (or a concurrent write). The
+    // page must not reload: `history.state` holds the stale copy and survives a browser reload of
+    // the same history entry, so the shared "recargá la página" copy would be a lie. The copy names
+    // the real recovery instead. A 409, on the update path or in create mode, is a duplicate name,
+    // not a lost update: it falls through to the server's own message below.
+    if (err.status === 412 && this.isEditMode()) {
+      this.generalError.set(
+        'Otra sesión modificó esta tienda mientras la editabas. Volvé a la lista y abrí la tienda de nuevo.',
+      );
       return;
     }
     // The backend 409/404 envelope has no `errors` map: surface its message instead.

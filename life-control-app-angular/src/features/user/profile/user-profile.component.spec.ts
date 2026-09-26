@@ -147,6 +147,7 @@ describe('UserProfileComponent', () => {
       enabled: true,
       createdAt: '',
       updatedAt: '',
+      version: 0,
     },
   ];
 

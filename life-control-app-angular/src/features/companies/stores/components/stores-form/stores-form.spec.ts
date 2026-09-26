@@ -142,6 +142,7 @@ describe('StoresForm', () => {
     enabled: true,
     createdAt: '',
     updatedAt: '',
+    version: 0,
   };
 
   beforeEach(async () => {

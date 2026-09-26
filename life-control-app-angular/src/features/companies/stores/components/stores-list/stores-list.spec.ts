@@ -29,6 +29,7 @@ describe('StoresList', () => {
       enabled: true,
       createdAt: '2024-01-01',
       updatedAt: '2024-01-01',
+      version: 0,
     },
     {
       id: 'store-2',
@@ -41,6 +42,7 @@ describe('StoresList', () => {
       enabled: false,
       createdAt: '2024-01-01',
       updatedAt: '2024-01-01',
+      version: 0,
     },
     {
       id: 'store-3',
@@ -54,6 +56,7 @@ describe('StoresList', () => {
       enabled: true,
       createdAt: '2024-01-01',
       updatedAt: '2024-01-01',
+      version: 0,
     },
   ];
 
