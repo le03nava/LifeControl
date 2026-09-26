@@ -409,7 +409,8 @@ class StoreZoneServiceTest {
             mockAreaResolution();
             when(storeZoneRepository.existsByStoreAreaIdAndZoneCode(areaId, "Z02"))
                     .thenReturn(false);
-            when(storeZoneRepository.save(any(StoreZone.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            when(storeZoneRepository.saveAndFlush(any(StoreZone.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             var result = storeZoneService.createZone(
                     companyId, companyCountryId, regionId, zoneId, storeId, areaId, createRequest);
@@ -422,7 +423,7 @@ class StoreZoneServiceTest {
             assertThat(result.enabled()).isTrue();
 
             var captor = org.mockito.ArgumentCaptor.forClass(StoreZone.class);
-            verify(storeZoneRepository).save(captor.capture());
+            verify(storeZoneRepository).saveAndFlush(captor.capture());
             assertThat(captor.getValue().getStoreArea()).isEqualTo(testArea);
             assertThat(captor.getValue().getEnabled()).isTrue();
         }
@@ -439,7 +440,7 @@ class StoreZoneServiceTest {
                     .isInstanceOf(DuplicateStoreZoneException.class)
                     .hasMessage("Store zone with code 'Z02' already exists in this area");
 
-            verify(storeZoneRepository, never()).save(any(StoreZone.class));
+            verify(storeZoneRepository, never()).saveAndFlush(any(StoreZone.class));
         }
 
         @Test
@@ -454,7 +455,7 @@ class StoreZoneServiceTest {
                     .hasMessage("Cannot create a store zone: store area with id " + areaId + " is disabled");
 
             verify(storeZoneRepository, never()).existsByStoreAreaIdAndZoneCode(any(), any());
-            verify(storeZoneRepository, never()).save(any(StoreZone.class));
+            verify(storeZoneRepository, never()).saveAndFlush(any(StoreZone.class));
         }
 
         @Test
@@ -469,7 +470,7 @@ class StoreZoneServiceTest {
                     .hasMessage("Cannot create a store zone: store with id " + storeId + " is disabled");
 
             verify(storeZoneRepository, never()).existsByStoreAreaIdAndZoneCode(any(), any());
-            verify(storeZoneRepository, never()).save(any(StoreZone.class));
+            verify(storeZoneRepository, never()).saveAndFlush(any(StoreZone.class));
         }
 
         @Test
@@ -478,7 +479,7 @@ class StoreZoneServiceTest {
             mockAreaResolution();
             when(storeZoneRepository.existsByStoreAreaIdAndZoneCode(areaId, "Z02"))
                     .thenReturn(false);
-            when(storeZoneRepository.save(any(StoreZone.class)))
+            when(storeZoneRepository.saveAndFlush(any(StoreZone.class)))
                     .thenThrow(new DataIntegrityViolationException("duplicate key value violates unique constraint"));
 
             assertThatThrownBy(() -> storeZoneService.createZone(
@@ -500,7 +501,8 @@ class StoreZoneServiceTest {
                     .thenReturn(Optional.of(testStoreZone));
             when(storeZoneRepository.existsByStoreAreaIdAndZoneCodeAndIdNot(areaId, "Z03", storeZoneId))
                     .thenReturn(false);
-            when(storeZoneRepository.save(any(StoreZone.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            when(storeZoneRepository.saveAndFlush(any(StoreZone.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             var result = storeZoneService.updateZone(
                     companyId, companyCountryId, regionId, zoneId, storeId, areaId, storeZoneId, updateRequest);
@@ -517,7 +519,8 @@ class StoreZoneServiceTest {
             mockAreaResolution();
             when(storeZoneRepository.findByIdAndStoreAreaId(storeZoneId, areaId))
                     .thenReturn(Optional.of(testStoreZone));
-            when(storeZoneRepository.save(any(StoreZone.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            when(storeZoneRepository.saveAndFlush(any(StoreZone.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             var result = storeZoneService.updateZone(
                     companyId,
@@ -550,7 +553,7 @@ class StoreZoneServiceTest {
                     .isInstanceOf(DuplicateStoreZoneException.class)
                     .hasMessage("Store zone with code 'Z03' already exists in this area");
 
-            verify(storeZoneRepository, never()).save(any(StoreZone.class));
+            verify(storeZoneRepository, never()).saveAndFlush(any(StoreZone.class));
         }
 
         @Test
@@ -632,14 +635,15 @@ class StoreZoneServiceTest {
             testStoreZone.setEnabled(false);
             when(storeZoneRepository.findByIdAndStoreAreaId(storeZoneId, areaId))
                     .thenReturn(Optional.of(testStoreZone));
-            when(storeZoneRepository.save(any(StoreZone.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            when(storeZoneRepository.saveAndFlush(any(StoreZone.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             StoreZoneResponse result = storeZoneService.enableZone(
                     companyId, companyCountryId, regionId, zoneId, storeId, areaId, storeZoneId);
 
             assertThat(result.enabled()).isTrue();
             var captor = org.mockito.ArgumentCaptor.forClass(StoreZone.class);
-            verify(storeZoneRepository).save(captor.capture());
+            verify(storeZoneRepository).saveAndFlush(captor.capture());
             assertThat(captor.getValue().getEnabled()).isTrue();
         }
 
@@ -668,7 +672,7 @@ class StoreZoneServiceTest {
                     .hasMessage("Cannot re-enable a store zone: store area with id " + areaId + " is disabled");
 
             verify(storeZoneRepository, never()).findByIdAndStoreAreaId(any(), any());
-            verify(storeZoneRepository, never()).save(any(StoreZone.class));
+            verify(storeZoneRepository, never()).saveAndFlush(any(StoreZone.class));
         }
 
         @Test
@@ -678,7 +682,8 @@ class StoreZoneServiceTest {
             testStoreZone.setEnabled(false);
             when(storeZoneRepository.findByIdAndStoreAreaId(storeZoneId, areaId))
                     .thenReturn(Optional.of(testStoreZone));
-            when(storeZoneRepository.save(any(StoreZone.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            when(storeZoneRepository.saveAndFlush(any(StoreZone.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             storeZoneService.enableZone(companyId, companyCountryId, regionId, zoneId, storeId, areaId, storeZoneId);
 

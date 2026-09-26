@@ -9,6 +9,7 @@ import com.lifecontrol.api.company.repository.CompanyCountryRepository;
 import com.lifecontrol.api.company.repository.CompanyRegionRepository;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.company.repository.CompanyZoneRepository;
+import com.lifecontrol.api.exception.VersionPreconditionException;
 import com.lifecontrol.api.store.dto.CreateStoreZoneRequest;
 import com.lifecontrol.api.store.dto.StoreZoneResponse;
 import com.lifecontrol.api.store.dto.UpdateStoreZoneRequest;
@@ -50,6 +51,13 @@ import org.springframework.transaction.annotation.Transactional;
 public class StoreZoneService {
 
     private static final Logger logger = LoggerFactory.getLogger(StoreZoneService.class);
+
+    /**
+     * Message of the 412 raised when the request's optional version precondition does not hold. It
+     * names no SQL or version number: the client only needs to know the zone moved.
+     */
+    private static final String VERSION_CONFLICT_MESSAGE =
+            "The store zone conflicts with the current server state; reload and try again";
 
     private final StoreZoneRepository storeZoneRepository;
     private final StoreLocationRepository storeLocationRepository;
@@ -279,7 +287,9 @@ public class StoreZoneService {
                 .enabled(true)
                 .build();
 
-        var saved = storeZoneRepository.save(zone);
+        // Flush so the response carries the real @Version and non-null createdAt/updatedAt: both the
+        // version increment and the Auditable callbacks run at flush time.
+        var saved = storeZoneRepository.saveAndFlush(zone);
         logger.info("StoreZone created: code={}, areaId={}", saved.getZoneCode(), area.getId());
         return toResponse(saved, area, chain);
     }
@@ -293,6 +303,8 @@ public class StoreZoneService {
      * @throws StoreAreaNotFoundException when the area does not belong to the store
      * @throws StoreZoneNotFoundException when the zone does not belong to the area
      * @throws DuplicateStoreZoneException when the new zone code already exists in the area
+     * @throws VersionPreconditionException when a non-null version does not match the current
+     *     stored version
      */
     @Transactional
     public StoreZoneResponse updateZone(
@@ -310,6 +322,10 @@ public class StoreZoneService {
         var zone = storeZoneRepository
                 .findByIdAndStoreAreaId(storeZoneId, area.getId())
                 .orElseThrow(() -> new StoreZoneNotFoundException(storeZoneId));
+
+        // Enforce the optional version precondition after the entity is loaded and before any
+        // mutation, so a stale request leaves the row exactly as it was.
+        assertVersionPrecondition(request.version(), zone.getVersion());
 
         // Check uniqueness only when the code actually changes
         if (request.zoneCode() != null
@@ -333,7 +349,10 @@ public class StoreZoneService {
             zone.setDisplayOrder(request.displayOrder());
         }
 
-        var saved = storeZoneRepository.save(zone);
+        // Flush, do not merely save: Hibernate increments the @Version at flush time, so mapping the
+        // response from a non-flushed entity would answer with the pre-increment version. A client
+        // that echoes that version would then be rejected with a false 412 on its next write.
+        var saved = storeZoneRepository.saveAndFlush(zone);
         logger.info("StoreZone updated: id={}, code={}", saved.getId(), saved.getZoneCode());
         return toResponse(saved, area, chain);
     }
@@ -399,7 +418,8 @@ public class StoreZoneService {
                 .orElseThrow(() -> new StoreZoneNotFoundException(storeZoneId));
 
         zone.setEnabled(true);
-        var saved = storeZoneRepository.save(zone);
+        // Flush so the response carries the post-increment @Version and the fresh updatedAt.
+        var saved = storeZoneRepository.saveAndFlush(zone);
 
         logger.info("StoreZone re-enabled: id={}, code={}", storeZoneId, saved.getZoneCode());
         return toResponse(saved, area, chain);
@@ -456,6 +476,27 @@ public class StoreZoneService {
     }
 
     /**
+     * Enforces the request's optional version precondition against the freshly-loaded state.
+     *
+     * <p>{@code null} means "no precondition" and always passes, preserving the contract that
+     * existing clients rely on. A non-null version must equal the stored one: a client that read a
+     * version and finds the world moved gets a 412 instead of silently overwriting the other
+     * writer.</p>
+     *
+     * @throws VersionPreconditionException when a non-null version does not match the current stored
+     *     version
+     */
+    private void assertVersionPrecondition(Long assertedVersion, long storedVersion) {
+        if (assertedVersion == null) {
+            return;
+        }
+        if (assertedVersion != storedVersion) {
+            logger.info("StoreZone version precondition failed: assertedVersion={}", assertedVersion);
+            throw new VersionPreconditionException(VERSION_CONFLICT_MESSAGE);
+        }
+    }
+
+    /**
      * Resolved company &rarr; country &rarr; region &rarr; zone &rarr; store identity of a zone,
      * carried alongside the zone so the response always exposes the full chain without a second
      * traversal per element.
@@ -496,6 +537,7 @@ public class StoreZoneService {
                 zone.getDisplayOrder(),
                 zone.getEnabled(),
                 zone.getCreatedAt(),
-                zone.getUpdatedAt());
+                zone.getUpdatedAt(),
+                zone.getVersion());
     }
 }
