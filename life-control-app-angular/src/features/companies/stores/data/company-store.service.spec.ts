@@ -38,6 +38,7 @@ describe('CompanyStoreService', () => {
       enabled: true,
       createdAt: '2024-01-01T00:00:00Z',
       updatedAt: '2024-01-15T00:00:00Z',
+      version: 0,
     },
     {
       id: 'store-2',
@@ -50,6 +51,7 @@ describe('CompanyStoreService', () => {
       enabled: false,
       createdAt: '2024-01-01T00:00:00Z',
       updatedAt: '2024-01-15T00:00:00Z',
+      version: 0,
     },
   ];
 
@@ -211,6 +213,7 @@ describe('CompanyStoreService', () => {
       enabled: true,
       createdAt: '2024-02-01T00:00:00Z',
       updatedAt: '2024-02-01T00:00:00Z',
+      version: 0,
     };
 
     it('should POST and push the new store to the signal', async () => {
@@ -279,6 +282,7 @@ describe('CompanyStoreService', () => {
       enabled: true,
       createdAt: '2024-01-01T00:00:00Z',
       updatedAt: '2024-02-01T00:00:00Z',
+      version: 1,
     };
 
     it('should PUT and replace the store in the signal', async () => {
@@ -361,6 +365,7 @@ describe('CompanyStoreService', () => {
       enabled: true,
       createdAt: '2024-01-01T00:00:00Z',
       updatedAt: '2024-02-01T00:00:00Z',
+      version: 1,
     };
 
     it('should PATCH and update store enabled state in signal', async () => {

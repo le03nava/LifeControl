@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifecontrol.api.common.address.dto.AddressRequest;
 import com.lifecontrol.api.common.address.dto.AddressResponse;
+import com.lifecontrol.api.exception.ConflictException;
 import com.lifecontrol.api.exception.GlobalExceptionHandler;
 import com.lifecontrol.api.store.dto.CompanyStoreResponse;
 import com.lifecontrol.api.store.dto.CreateCompanyStoreRequest;
@@ -91,7 +92,8 @@ class CompanyStoreControllerTest {
                         UUID.randomUUID()),
                 true,
                 now,
-                now);
+                now,
+                0L);
     }
 
     @Nested
@@ -292,7 +294,8 @@ class CompanyStoreControllerTest {
                     null,
                     true,
                     now,
-                    now);
+                    now,
+                    0L);
             when(companyStoreService.updateStore(
                             eq(testCompanyId),
                             eq(testCompanyCountryId),
@@ -395,6 +398,37 @@ class CompanyStoreControllerTest {
         }
 
         @Test
+        @DisplayName("should return 409 with the conflict message when the version precondition fails")
+        void updateStore_VersionConflictReturns409() throws Exception {
+            // Arrange
+            var request = new UpdateCompanyStoreRequest("Tienda Actualizada", null, null, null, 5L);
+            when(companyStoreService.updateStore(
+                            eq(testCompanyId),
+                            eq(testCompanyCountryId),
+                            eq(testRegionId),
+                            eq(testZoneId),
+                            eq(testStoreId),
+                            any(UpdateCompanyStoreRequest.class)))
+                    .thenThrow(new ConflictException(
+                            "The company store conflicts with the current server state; reload and try again"));
+
+            // Act & Assert
+            mockMvc.perform(put(
+                                    BASE_URL + "/{id}",
+                                    testCompanyId,
+                                    testCompanyCountryId,
+                                    testRegionId,
+                                    testZoneId,
+                                    testStoreId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.status").value(409))
+                    .andExpect(jsonPath("$.message")
+                            .value("The company store conflicts with the current server state; reload and try again"));
+        }
+
+        @Test
         @DisplayName("should return 404 when store not found")
         void updateStore_NotFound() throws Exception {
             // Arrange
@@ -489,7 +523,8 @@ class CompanyStoreControllerTest {
                     null,
                     true,
                     now,
-                    now);
+                    now,
+                    0L);
             when(companyStoreService.enableStore(
                             testCompanyId, testCompanyCountryId, testRegionId, testZoneId, testStoreId))
                     .thenReturn(enabledResponse);

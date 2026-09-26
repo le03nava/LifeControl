@@ -111,6 +111,7 @@ describe('StoresEdit', () => {
     enabled: true,
     createdAt: '',
     updatedAt: '',
+    version: 3,
   };
 
   class MockCompanyService {
@@ -259,6 +260,25 @@ describe('StoresEdit', () => {
           zoneId: 'zone-1',
         },
       });
+    });
+
+    it('should not include the version key in the create request body', () => {
+      const storeService = TestBed.inject(
+        CompanyStoreService,
+      ) as unknown as MockCompanyStoreService;
+
+      const event: StoreSaveEvent = {
+        companyId: 'company-1',
+        countryId: 'cc-1',
+        regionId: 'reg-1',
+        zoneId: 'zone-1',
+        request: { storeName: 'New Store' },
+      };
+      component.onSaveStore(event);
+
+      const requestBody = storeService.addStore.mock.calls[0][4] as Record<string, unknown>;
+      // Create has no prior version: the key must be absent, not merely undefined.
+      expect('version' in requestBody).toBe(false);
     });
 
     it('should handle addStore errors via serverErrors', () => {
@@ -464,7 +484,7 @@ describe('StoresEdit', () => {
         'reg-1',
         'zone-1',
         'store-1',
-        event.request,
+        { ...event.request, version: 3 },
       );
       expect(router.navigate).toHaveBeenCalledWith(['/companies/stores'], {
         queryParams: {
@@ -503,6 +523,64 @@ describe('StoresEdit', () => {
       component.onSaveStore(event);
 
       expect(component.serverErrors()).toEqual({ storeName: 'Name taken' });
+    });
+
+    it('should send the version read from the entity in the update request body', () => {
+      const storeService = TestBed.inject(
+        CompanyStoreService,
+      ) as unknown as MockCompanyStoreService;
+
+      const event: StoreSaveEvent = {
+        companyId: 'company-1',
+        countryId: 'cc-1',
+        regionId: 'reg-1',
+        zoneId: 'zone-1',
+        request: { storeName: 'Updated Store' },
+        storeId: 'store-1',
+      };
+      component.onSaveStore(event);
+
+      const requestBody = storeService.updateStore.mock.calls[0][5] as Record<string, unknown>;
+      expect(requestBody['version']).toBe(3);
+    });
+
+    it('should show the conflict copy and stay on the page when the update is rejected with 409', () => {
+      const storeService = TestBed.inject(
+        CompanyStoreService,
+      ) as unknown as MockCompanyStoreService;
+      const router = TestBed.inject(Router) as unknown as { navigate: ReturnType<typeof vi.fn> };
+      storeService.updateStore = vi.fn().mockReturnValue(
+        throwError(
+          () =>
+            new HttpErrorResponse({
+              error: {
+                status: 409,
+                message:
+                  'The company store conflicts with the current server state; reload and try again',
+              },
+              status: 409,
+              statusText: 'Conflict',
+            }),
+        ),
+      );
+
+      const event: StoreSaveEvent = {
+        companyId: 'company-1',
+        countryId: 'cc-1',
+        regionId: 'reg-1',
+        zoneId: 'zone-1',
+        request: { storeName: 'Updated Store' },
+        storeId: 'store-1',
+      };
+      component.onSaveStore(event);
+      fixture.detectChanges();
+
+      // history.state still holds the stale copy, so the copy names the real recovery instead of
+      // suggesting a page reload that would only re-seed the same stale version.
+      expect(component.generalError()).toBe(
+        'Otra sesión modificó esta tienda mientras la editabas. Volvé a la lista y abrí la tienda de nuevo.',
+      );
+      expect(router.navigate).not.toHaveBeenCalled();
     });
   });
 
