@@ -2,10 +2,10 @@
 
 **Repository**: LifeControl — spans `life-control-api/**` (Spring Boot, Java 21) and
 `life-control-app-angular/**` (Angular 20). Four vertical slices, one per screen.
-**Status**: open — W0 (this record and its decisions) closed; **W1–W4 not started**. W1 `stores`,
-W2 `store-areas`, W3 `store-zones`, W4 `store-locations`, in that order, one pull request each, all
-based on `main` @ `dfb35ad`. This header makes no claim about push or PR state; delivery detail goes in
-`## Evidence log`.
+**Status**: W0 (this record and its decisions) closed, and **W1 `stores` implemented and committed** as
+`5a74b62` on `feat/store-version-precondition-stores`; its delivery is the pull request still to open.
+**W2 `store-areas`, W3 `store-zones` and W4 `store-locations` remain**, in that order, one pull request
+each, all based on `main`. Per-slice detail and the measured evidence live in `## Evidence log`.
 **Created**: 2026-09-26
 **Risk**: **medium.** A write path gains a precondition it did not carry and four response contracts
 gain a field. No auth change, no role change, no schema change, no migration, no data migration. The
@@ -130,11 +130,11 @@ the sub-tasks inside each slice and are tracked here, not in the `todo` projecti
 | --- | --- | --- | --- |
 | **W0-T1** | Record and decisions | this file + Engram mirror | done |
 | **W1** | **Slice 1 — `stores`** | | |
-| W1-T1 | RED: integration test for the stale-version 409, the version increment, the absent-version pass-through and the fresh timestamps; controller test for the 409 envelope; Angular specs for the payload merge and the 409 branch | `CompanyStoreIntegrationTest` (or the lock integration test), `CompanyStoreControllerTest`, `stores-edit.spec.ts` | pending |
-| W1-T2 | Backend: `UpdateCompanyStoreRequest`, `CompanyStoreResponse`, `CompanyStoreService` (assert + 3 flushes + message constant) | 3 src files + the test constructor sites | pending |
-| W1-T3 | Angular: `store.models.ts`, `stores-edit.ts`, and every `CompanyStore` fixture the compiler forces (incl. cross-feature specs) | ~11 spec files | pending |
-| W1-T4 | Gates green on the committed tree: backend `spotlessCheck spotbugsMain` + `test`; frontend `lint` + `build` + `test:coverage:check` | evidence log row | pending |
-| W1-T5 | Work-unit commit + PR | evidence log row | pending |
+| W1-T1 | Tests: integration test for the stale-version 409, the version increment, the absent-version pass-through and the fresh timestamps; controller test for the 409 envelope; Angular specs for the payload merge and the 409 branch | `CompanyStoreVersionPreconditionIntegrationTest` (5 tests), `CompanyStoreControllerTest`, `stores-edit.spec.ts` | done — written with the behaviour; the RED was measured retroactively by reverting the fix, see the evidence log |
+| W1-T2 | Backend: `UpdateCompanyStoreRequest`, `CompanyStoreResponse`, `CompanyStoreService` (assert + 3 flushes + message constant) | 3 src files + the constructor sites in 2 controller tests | done |
+| W1-T3 | Angular: `store.models.ts`, `stores-edit.ts`, and every `CompanyStore` fixture the compiler forces (incl. cross-feature specs) | 10 spec files, fixtures only | done |
+| W1-T4 | Gates green on the committed tree: backend `spotlessCheck spotbugsMain` + `test`; frontend `lint` + `build` + `test:coverage:check` | evidence log rows | done — 610 suites / 2135 tests / 0 failures; 130 files / 2542 tests / 0 failures |
+| W1-T5 | Work-unit commit + PR | evidence log row | commit `5a74b62`; the pull request is pending and is the user's decision |
 | **W2** | **Slice 2 — `store-areas`** | `StoreAreaService:210,253,330`, `UpdateStoreAreaRequest`, `StoreAreaResponse`, `store-areas-edit.ts`, fixtures | pending |
 | **W3** | **Slice 3 — `store-zones`** | `StoreZoneService:282,336,402`, `UpdateStoreZoneRequest`, `StoreZoneResponse`, `store-zones-edit.ts`, fixtures | pending |
 | **W4** | **Slice 4 — `store-locations`** | `StoreLocationService:324,381,453`, `UpdateStoreLocationRequest`, `StoreLocationResponse`, `store-locations-edit.ts`, fixtures | pending |
@@ -206,6 +206,12 @@ Each of W1–W4 repeats the same five sub-tasks (RED tests, backend, frontend, g
    closed by this work for the twelve store-tree methods; the settings service's own create branch
    (`StoreInventorySettingsService.java:184` uses `save`, not `saveAndFlush`) is a fifth site and is
    **not** in this scope.
+6. **The fail-closed retry of D8 is not pinned.** W1's 409 spec proves the conflict copy is set and
+   that no navigation happens, but nothing re-submits after the 409 to prove the page's version signal
+   stayed where it was and the retry is rejected again. It holds by static inspection only.
+7. **`assertVersionPrecondition(Long, long)` is safe only because the second parameter is primitive.**
+   A later refactor of the parameter to `Long storedVersion` would silently turn the comparison into
+   reference equality. A primitive-typed signature removes the trap.
 
 ## Evidence log
 
@@ -213,3 +219,7 @@ Each of W1–W4 repeats the same five sub-tasks (RED tests, backend, frontend, g
 | --- | --- | --- |
 | 2026-09-26 | W0 closed: record created from a read-only scouting round over the four screens, the settings precedent and the repo conventions | this file; scouting report enumerated the 12 flush sites, the 4 `@Version` entities, the 16 backend test constructor sites and the ~20 Angular fixture files. No source byte was read unverified from memory |
 | 2026-09-26 | Decisions D1–D9 taken by the user (D1–D4) and by the orchestrator with recorded rationale (D5–D9) | this table |
+| 2026-09-26 | **W1 committed as `5a74b62`** (`fix(stores): enforce the version precondition on the store write path`), 20 files, +541 −26: 3 backend src files, 5 backend test files, `store.models.ts`, `stores-edit.ts` and 10 spec fixtures. The pre-commit hook ran `eslint --fix` + `prettier --write` over the 13 staged `.ts` files and **changed no byte**: `sha256sum -c` over the 20 files, taken before the gate run, still matches after the commit, so the gate evidence below belongs to exactly the committed tree | `git log -1`; the sha256 comparison before/after the commit |
+| 2026-09-26 | **W1 gates green on those bytes.** Backend `./gradlew spotlessCheck spotbugsMain cleanTest test --no-daemon` → BUILD SUCCESSFUL in 1m16s; aggregated JUnit XML **610 suites / 2135 tests / 0 failures / 0 errors / 0 skipped**. Frontend `lint` exit 0, `build` exit 0, `test:coverage:check` → **130 files / 2542 tests / 0 failures / 0 errors / 0 skipped**, coverage **94.08 / 76.00 / 89.32 / 94.08** against the 80 / 60 / 75 / 80 thresholds | the five runs; XML under `life-control-api/build/test-results/test/` |
+| 2026-09-26 | **Independent read-only verification round** (delegated, over the uncommitted diff and the nine acceptance criteria): 0 blocking findings, all nine criteria met, contract items 1–8 met, D7 and D8 confirmed. It found a real defect in the new test itself — `staleVersionPutAnswers409AndWritesNothing` asserted the absolute literal `version == 1`, but the PostgreSQL container is a singleton with no per-test reset and the seed is find-or-create, so it passed by execution order rather than by behaviour. Fixed in the same change, together with the unpinned criterion 5 (the enable `PATCH`, now a fifth integration test) and the flush rationale missing from the create path | the verification report; `CompanyStoreVersionPreconditionIntegrationTest` |
+| 2026-09-26 | **RED reconstructed, not observed in order.** This slice's tests and its fix were written in the same uncommitted sitting before this session, so no failing run existed. Measured by reverting the fix and restoring it byte for byte (`sha256sum -c` identical afterwards). Backend, with `CompanyStoreService` + `CompanyStoreResponse` + the two controller tests at their pre-fix state → **5 tests completed, 4 failed** (`staleVersionPut…`, `currentVersionPut…`, `postAnswers…`, `enablePatch…`), the absent-version pass-through correctly still green because it pins the old contract. Frontend, with only `stores-edit.ts` reverted → **3 failed / 2539 passed of 2542**, and one of the three is a **pre-existing** spec the change makes stricter (`should call updateStore on save when in edit mode`), which is the evidence that the new body assertion is load-bearing and not merely additive | the two runs; the tree restored clean |
