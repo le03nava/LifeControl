@@ -16,7 +16,7 @@ import com.lifecontrol.api.company.repository.CompanyZoneRepository;
 import com.lifecontrol.api.country.exception.CountryNotFoundException;
 import com.lifecontrol.api.country.model.Country;
 import com.lifecontrol.api.country.repository.CountryRepository;
-import com.lifecontrol.api.exception.ConflictException;
+import com.lifecontrol.api.exception.VersionPreconditionException;
 import com.lifecontrol.api.store.dto.CompanyStoreResponse;
 import com.lifecontrol.api.store.dto.CreateCompanyStoreRequest;
 import com.lifecontrol.api.store.dto.UpdateCompanyStoreRequest;
@@ -40,7 +40,7 @@ public class CompanyStoreService {
     private static final Logger logger = LoggerFactory.getLogger(CompanyStoreService.class);
 
     /**
-     * Message of the 409 raised when the request's optional version precondition does not hold. It
+     * Message of the 412 raised when the request's optional version precondition does not hold. It
      * names no SQL or version number: the client only needs to know the store moved.
      */
     private static final String VERSION_CONFLICT_MESSAGE =
@@ -262,10 +262,11 @@ public class CompanyStoreService {
      *
      * <p>{@code null} means "no precondition" and always passes, preserving the contract that
      * existing clients rely on. A non-null version must equal the stored one: a client that read a
-     * version and finds the world moved gets a 409 instead of silently overwriting the other
+     * version and finds the world moved gets a 412 instead of silently overwriting the other
      * writer.</p>
      *
-     * @throws ConflictException when a non-null version does not match the current stored version
+     * @throws VersionPreconditionException when a non-null version does not match the current stored
+     *     version
      */
     private void assertVersionPrecondition(Long assertedVersion, long storedVersion) {
         if (assertedVersion == null) {
@@ -273,7 +274,7 @@ public class CompanyStoreService {
         }
         if (assertedVersion != storedVersion) {
             logger.info("CompanyStore version precondition failed: assertedVersion={}", assertedVersion);
-            throw new ConflictException(VERSION_CONFLICT_MESSAGE);
+            throw new VersionPreconditionException(VERSION_CONFLICT_MESSAGE);
         }
     }
 

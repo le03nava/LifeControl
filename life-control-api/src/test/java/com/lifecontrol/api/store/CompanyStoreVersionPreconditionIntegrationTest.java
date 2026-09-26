@@ -42,7 +42,7 @@ import org.springframework.test.web.servlet.ResultActions;
  * HTTP-level verification of the {@code company_stores} version precondition and of the post-flush
  * response mapping, against real PostgreSQL with Flyway enabled.
  *
- * <p>Four behaviours are pinned here: a {@code PUT} asserting a stale version answers 409 and
+ * <p>Four behaviours are pinned here: a {@code PUT} asserting a stale version answers 412 and
  * writes nothing; a {@code PUT} asserting the current version answers 200 with a version advanced
  * by one and a fresh {@code updatedAt}; the enable {@code PATCH} answers with the post-flush
  * version and a fresh {@code updatedAt}; and the create path answers non-null timestamps. The
@@ -162,8 +162,8 @@ class CompanyStoreVersionPreconditionIntegrationTest extends AbstractPostgresInt
     }
 
     @Test
-    @DisplayName("should answer 409 and leave the row unchanged when a PUT asserts a stale version")
-    void staleVersionPutAnswers409AndWritesNothing() throws Exception {
+    @DisplayName("should answer 412 and leave the row unchanged when a PUT asserts a stale version")
+    void staleVersionPutAnswers412AndWritesNothing() throws Exception {
         // The row outlives this method (singleton container, find-or-create seed), so read the
         // version it actually holds instead of assuming a fresh zero.
         long versionBefore =
@@ -180,8 +180,8 @@ class CompanyStoreVersionPreconditionIntegrationTest extends AbstractPostgresInt
 
         // The same store named again with an outdated version must be rejected.
         putStore(new UpdateCompanyStoreRequest("Cambio perdido", null, null, null, acceptedVersion - 1))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.status").value(409));
+                .andExpect(status().isPreconditionFailed())
+                .andExpect(jsonPath("$.status").value(412));
 
         var after = companyStoreRepository.findById(storeId).orElseThrow();
         assertThat(after.getStoreName()).isEqualTo("Primer cambio");

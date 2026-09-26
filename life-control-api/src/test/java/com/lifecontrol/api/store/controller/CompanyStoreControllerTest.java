@@ -9,8 +9,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifecontrol.api.common.address.dto.AddressRequest;
 import com.lifecontrol.api.common.address.dto.AddressResponse;
-import com.lifecontrol.api.exception.ConflictException;
 import com.lifecontrol.api.exception.GlobalExceptionHandler;
+import com.lifecontrol.api.exception.VersionPreconditionException;
 import com.lifecontrol.api.store.dto.CompanyStoreResponse;
 import com.lifecontrol.api.store.dto.CreateCompanyStoreRequest;
 import com.lifecontrol.api.store.dto.UpdateCompanyStoreRequest;
@@ -398,10 +398,10 @@ class CompanyStoreControllerTest {
         }
 
         @Test
-        @DisplayName("should return 409 with the conflict message when the version precondition fails")
-        void updateStore_VersionConflictReturns409() throws Exception {
+        @DisplayName("should return 409 when the new store name collides inside the zone")
+        void updateStore_Duplicate() throws Exception {
             // Arrange
-            var request = new UpdateCompanyStoreRequest("Tienda Actualizada", null, null, null, 5L);
+            var request = new UpdateCompanyStoreRequest("Tienda Existente", null, null, null);
             when(companyStoreService.updateStore(
                             eq(testCompanyId),
                             eq(testCompanyCountryId),
@@ -409,8 +409,8 @@ class CompanyStoreControllerTest {
                             eq(testZoneId),
                             eq(testStoreId),
                             any(UpdateCompanyStoreRequest.class)))
-                    .thenThrow(new ConflictException(
-                            "The company store conflicts with the current server state; reload and try again"));
+                    .thenThrow(new DuplicateCompanyStoreException(
+                            "Store with name 'Tienda Existente' already exists in this zone"));
 
             // Act & Assert
             mockMvc.perform(put(
@@ -424,6 +424,37 @@ class CompanyStoreControllerTest {
                             .content(objectMapper.writeValueAsString(request)))
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.status").value(409))
+                    .andExpect(jsonPath("$.message")
+                            .value("Store with name 'Tienda Existente' already exists in this zone"));
+        }
+
+        @Test
+        @DisplayName("should return 412 with the precondition message when the version precondition fails")
+        void updateStore_VersionConflictReturns412() throws Exception {
+            // Arrange
+            var request = new UpdateCompanyStoreRequest("Tienda Actualizada", null, null, null, 5L);
+            when(companyStoreService.updateStore(
+                            eq(testCompanyId),
+                            eq(testCompanyCountryId),
+                            eq(testRegionId),
+                            eq(testZoneId),
+                            eq(testStoreId),
+                            any(UpdateCompanyStoreRequest.class)))
+                    .thenThrow(new VersionPreconditionException(
+                            "The company store conflicts with the current server state; reload and try again"));
+
+            // Act & Assert
+            mockMvc.perform(put(
+                                    BASE_URL + "/{id}",
+                                    testCompanyId,
+                                    testCompanyCountryId,
+                                    testRegionId,
+                                    testZoneId,
+                                    testStoreId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isPreconditionFailed())
+                    .andExpect(jsonPath("$.status").value(412))
                     .andExpect(jsonPath("$.message")
                             .value("The company store conflicts with the current server state; reload and try again"));
         }
