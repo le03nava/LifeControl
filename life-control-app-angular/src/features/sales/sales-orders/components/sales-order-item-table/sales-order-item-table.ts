@@ -21,6 +21,9 @@ export interface ItemTableRow {
   discountApplied: number;
 }
 
+/** Shared empty set, so the default input value stays referentially stable. */
+const NO_ROWS_SAVING: ReadonlySet<string> = new Set<string>();
+
 /**
  * Standalone line-items table component for sales orders.
  *
@@ -53,13 +56,19 @@ export class SalesOrderItemTable {
   /** Whether the parent order is in Draft status (mutation guard). */
   readonly isDraft = input<boolean>(false);
 
-  /** Index of the row currently being saved by the parent, or null if idle.
-   *  Controls are disabled while any save operation is in progress. */
-  readonly isSaving = input<number | null>(null);
+  /**
+   * Row ids with a write in flight.
+   *
+   * Scoped per row on purpose: disabling the whole table on every mutation reads
+   * as a hang and blocks the operator's next scan for no gain. Keyed by id rather
+   * than by index so that a row is never re-enabled while its own write is still
+   * open — the local row has not absorbed that write yet, and editing it from the
+   * stale copy would send the pre-edit value back to the server.
+   */
+  readonly savingRowIds = input<ReadonlySet<string>>(NO_ROWS_SAVING);
 
   /** Emits the index when a row's remove button is clicked. */
   readonly itemRemoved = output<number>();
-
   /** Emits the row index and new value when quantity is changed. */
   readonly quantityChanged = output<{ index: number; value: number }>();
 
@@ -85,6 +94,24 @@ export class SalesOrderItemTable {
     'subtotal',
     'actions',
   ];
+
+  /** Whether the row identified by `rowId` has a write in flight. */
+  isRowSaving(rowId: string | undefined): boolean {
+    return rowId !== undefined && this.savingRowIds().has(rowId);
+  }
+
+  /**
+   * Track data rows by their server id.
+   *
+   * Without it, `mat-table` falls back to object identity. Every reconciliation
+   * hands it freshly built row objects for items that did not change, so it
+   * re-creates the whole body on each add: a visible blink once an order holds a
+   * couple of dozen items, and an arrival highlight replayed on rows that did not
+   * arrive.
+   */
+  trackRow(index: number, row: ItemTableRow): string | number {
+    return row.id ?? index;
+  }
 
   readonly lineItemsTotal = computed(() =>
     this.items().reduce((sum, item) => sum + this.rowSubtotal(item), 0),

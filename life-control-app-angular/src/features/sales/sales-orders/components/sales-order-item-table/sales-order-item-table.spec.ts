@@ -25,14 +25,14 @@ describe('SalesOrderItemTable', () => {
   function createFixture(overrides?: {
     items?: ItemTableRow[];
     isDraft?: boolean;
-    isSaving?: number | null;
+    savingRowIds?: ReadonlySet<string>;
   }): { fixture: ComponentFixture<SalesOrderItemTable>; comp: SalesOrderItemTable } {
     const fixture = TestBed.createComponent(SalesOrderItemTable);
     const comp = fixture.componentInstance;
 
     fixture.componentRef.setInput('items', overrides?.items ?? []);
     fixture.componentRef.setInput('isDraft', overrides?.isDraft ?? true);
-    fixture.componentRef.setInput('isSaving', overrides?.isSaving ?? null);
+    fixture.componentRef.setInput('savingRowIds', overrides?.savingRowIds ?? new Set<string>());
     fixture.detectChanges();
 
     return { fixture, comp };
@@ -259,57 +259,124 @@ describe('SalesOrderItemTable', () => {
     });
   });
 
-  describe('isSaving input', () => {
-    it('should disable inputs when isSaving is non-null', () => {
+  describe('savingRowIds input', () => {
+    const threeRows: ItemTableRow[] = [
+      createItem({ id: 'a' }),
+      createItem({ id: 'b', productVariantId: 'v2' }),
+      createItem({ id: 'c', productVariantId: 'v3' }),
+    ];
+
+    /** The three number inputs of the row at `rowIndex`, in column order. */
+    function inputsOfRow(
+      fixture: ComponentFixture<SalesOrderItemTable>,
+      rowIndex: number,
+    ): HTMLInputElement[] {
+      const all = Array.from<HTMLInputElement>(
+        fixture.nativeElement.querySelectorAll('input[type="number"]'),
+      );
+      return all.slice(rowIndex * 3, rowIndex * 3 + 3);
+    }
+
+    function removeButtons(fixture: ComponentFixture<SalesOrderItemTable>): HTMLButtonElement[] {
+      return Array.from<HTMLButtonElement>(
+        fixture.nativeElement.querySelectorAll('button[color="warn"]'),
+      );
+    }
+
+    it('should disable only the rows with a write in flight', () => {
       const { fixture } = createFixture({
-        items: [createItem()],
+        items: threeRows,
         isDraft: true,
-        isSaving: 0,
+        savingRowIds: new Set(['a', 'c']),
       });
 
-      const quantityInput: HTMLInputElement | null =
-        fixture.nativeElement.querySelector('input[type="number"]');
-      expect(quantityInput).toBeTruthy();
-      expect(quantityInput!.disabled).toBe(true);
+      expect(inputsOfRow(fixture, 0)).toHaveLength(3);
+      expect(inputsOfRow(fixture, 0).every((input) => input.disabled)).toBe(true);
+      expect(inputsOfRow(fixture, 1).some((input) => input.disabled)).toBe(false);
+      expect(inputsOfRow(fixture, 2).every((input) => input.disabled)).toBe(true);
     });
 
-    it('should enable inputs when isSaving is null', () => {
+    it('should disable the remove button only on rows with a write in flight', () => {
       const { fixture } = createFixture({
-        items: [createItem()],
+        items: threeRows,
         isDraft: true,
-        isSaving: null,
+        savingRowIds: new Set(['b']),
       });
 
-      const quantityInput: HTMLInputElement | null =
-        fixture.nativeElement.querySelector('input[type="number"]');
-      expect(quantityInput).toBeTruthy();
-      expect(quantityInput!.disabled).toBe(false);
+      const [first, second, third] = removeButtons(fixture);
+      expect(first.disabled).toBe(false);
+      expect(second.disabled).toBe(true);
+      expect(third.disabled).toBe(false);
     });
 
-    it('should disable remove button when isSaving is non-null', () => {
+    it('should leave every row enabled when nothing is in flight', () => {
+      const { fixture } = createFixture({ items: threeRows, isDraft: true });
+
+      expect(
+        Array.from<HTMLInputElement>(
+          fixture.nativeElement.querySelectorAll('input[type="number"]'),
+        ).some((input) => input.disabled),
+      ).toBe(false);
+    });
+
+    it('should not disable a row that has no server id', () => {
       const { fixture } = createFixture({
         items: [createItem()],
         isDraft: true,
-        isSaving: 1,
+        savingRowIds: new Set(['a']),
       });
 
-      const removeButton: HTMLButtonElement | null =
-        fixture.nativeElement.querySelector('button[color="warn"]');
-      expect(removeButton).toBeTruthy();
-      expect(removeButton!.disabled).toBe(true);
+      expect(inputsOfRow(fixture, 0).some((input) => input.disabled)).toBe(false);
     });
 
-    it('should enable remove button when isSaving is null and isDraft is true', () => {
+    it('should enable remove button when nothing is in flight and isDraft is true', () => {
       const { fixture } = createFixture({
-        items: [createItem()],
+        items: [createItem({ id: 'a' })],
         isDraft: true,
-        isSaving: null,
       });
 
       const removeButton: HTMLButtonElement | null =
         fixture.nativeElement.querySelector('button[color="warn"]');
       expect(removeButton).toBeTruthy();
       expect(removeButton!.disabled).toBe(false);
+    });
+  });
+
+  describe('row identity', () => {
+    it('should key a row by its server id', () => {
+      const { comp } = createFixture();
+      expect(comp.trackRow(0, createItem({ id: 'item-9' }))).toBe('item-9');
+    });
+
+    it('should fall back to the index for a row without a server id', () => {
+      const { comp } = createFixture();
+      expect(comp.trackRow(4, createItem())).toBe(4);
+    });
+
+    it('should keep existing row DOM when a row is added', () => {
+      const { fixture, comp } = createFixture({
+        items: [createItem({ id: 'a' }), createItem({ id: 'b', productVariantId: 'v2' })],
+      });
+
+      const before = Array.from<Element>(fixture.nativeElement.querySelectorAll('tr'));
+      expect(before).toHaveLength(3); // header + 2 data rows
+
+      // Same ids, fresh object identity: exactly what a reconciliation produces.
+      const items = comp.items();
+      fixture.componentRef.setInput('items', [
+        { ...items[0] },
+        { ...items[1] },
+        createItem({ id: 'c', productVariantId: 'v3', productVariantName: 'Keyboard' }),
+      ]);
+      fixture.detectChanges();
+
+      const after = Array.from<Element>(fixture.nativeElement.querySelectorAll('tr'));
+      expect(after).toHaveLength(4);
+      // Reusing the existing row elements is what makes the arrival highlight
+      // land on the new row only, and what stops the whole table repainting.
+      for (const row of before) {
+        expect(after).toContain(row);
+      }
     });
   });
 });
