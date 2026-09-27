@@ -39,6 +39,10 @@ describe('loadingInterceptor', () => {
 
       const { subject, unsubscribe } = pendingRequest();
 
+      // One millisecond is far short of the threshold, so a correctly delayed
+      // start is still pending here. A threshold collapsed to zero (including a
+      // bare `timer(0)`) fires inside this millisecond and trips the assertion.
+      vi.advanceTimersByTime(1);
       expect(loadingService.isLoading()).toBe(false);
       expect(loadingService.isLoadingKey(KEY)).toBe(false);
 
