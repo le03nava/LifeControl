@@ -44,8 +44,8 @@
     <app-error-banner [message]="errorMessage" />
   }
 
-  <!-- Loading Skeleton (edit mode — initial GET) -->
-  @if (isEditMode() && loading() && !loadedOrder()) {
+  <!-- Loading Skeleton (edit mode — bootstrap GET only) -->
+  @if (isEditMode() && initialLoading() && !loadedOrder()) {
     <div class="loading-skeleton" data-testid="edit-loading-skeleton">
       <div class="skeleton-form">
         @for (_ of [1, 2, 3, 4]; track $index) {
@@ -69,8 +69,10 @@
     </div>
   }
 
-  <!-- Content (shown after loading or in create mode) -->
-  @if (!isEditMode() || !loading()) {
+  <!-- Content (shown after the bootstrap load or in create mode).
+       Never gated by a row mutation: a page-level gate torn down by a scan is
+       what blanked the screen and dropped the scan input's focus. -->
+  @if (!isEditMode() || !initialLoading()) {
     <form [formGroup]="headerForm()" (ngSubmit)="onSave()" novalidate>
       <!-- Line Items Table (edit mode only — items require an existing order) -->
       @if (isEditMode()) {

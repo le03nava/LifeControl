@@ -1212,8 +1212,8 @@ describe('SalesOrderEdit', () => {
   // LOADING STATE
   // ══════════════════════════════════════════════════════════
 
-  describe('loading state', () => {
-    it('should set loading to true while fetching order in edit mode', async () => {
+  describe('bootstrap loading state', () => {
+    it('should set initialLoading to true while fetching order in edit mode', async () => {
       const orderSubject = new Subject<SalesOrder>();
 
       const mocks = baseMocks();
@@ -1228,19 +1228,19 @@ describe('SalesOrderEdit', () => {
       const comp = f.componentInstance;
       f.detectChanges();
 
-      // While the request is in flight, loading should be true
-      expect(comp.loading()).toBe(true);
+      // While the request is in flight, initialLoading should be true
+      expect(comp.initialLoading()).toBe(true);
 
       // Complete the request
       orderSubject.next(mockOrder);
       orderSubject.complete();
       f.detectChanges();
 
-      // After the request completes, loading should be false
-      expect(comp.loading()).toBe(false);
+      // After the request completes, initialLoading should be false
+      expect(comp.initialLoading()).toBe(false);
     });
 
-    it('should set loading to false after request errors', async () => {
+    it('should set initialLoading to false after request errors', async () => {
       const orderSubject = new Subject<SalesOrder>();
 
       const mocks = baseMocks();
@@ -1255,15 +1255,15 @@ describe('SalesOrderEdit', () => {
       const comp = f.componentInstance;
       f.detectChanges();
 
-      expect(comp.loading()).toBe(true);
+      expect(comp.initialLoading()).toBe(true);
 
       orderSubject.error(new HttpErrorResponse({ status: 404 }));
       f.detectChanges();
 
-      expect(comp.loading()).toBe(false);
+      expect(comp.initialLoading()).toBe(false);
     });
 
-    it('should NOT be loading in create mode', async () => {
+    it('should NOT be in the bootstrap loading state in create mode', async () => {
       await TestBed.configureTestingModule({
         imports: [SalesOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
         providers: baseProviders(null),
@@ -1273,7 +1273,62 @@ describe('SalesOrderEdit', () => {
       const comp = f.componentInstance;
       f.detectChanges();
 
-      expect(comp.loading()).toBe(false);
+      expect(comp.initialLoading()).toBe(false);
+    });
+
+    it('should not re-arm the page gate when a line item is added', async () => {
+      await TestBed.configureTestingModule({
+        imports: [SalesOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
+        providers: baseProviders('so-1'),
+      }).compileComponents();
+
+      const f = TestBed.createComponent(SalesOrderEdit);
+      const comp = f.componentInstance;
+      const service = TestBed.inject(SalesOrderService) as unknown as {
+        addItem: ReturnType<typeof vi.fn>;
+        getSalesOrder: ReturnType<typeof vi.fn>;
+      };
+      f.detectChanges();
+
+      const addedItem: SalesOrderItem = {
+        ...mockItem,
+        id: 'item-2',
+        productVariantId: 'pv-2',
+        productVariantName: 'Widget Blue - Medium',
+        listPrice: 50,
+      };
+      service.addItem = vi.fn().mockReturnValue(of(addedItem));
+      const syncSubject = new Subject<SalesOrder>();
+      service.getSalesOrder = vi.fn().mockReturnValue(syncSubject.asObservable());
+
+      const formBefore = f.debugElement.query(By.css('form'));
+      expect(formBefore).not.toBeNull();
+
+      comp.onVariantSelected({
+        id: 'pv-2',
+        productId: 'prod-1',
+        variantName: 'Widget Blue - Medium',
+        barCode: 'BAR-2',
+        sku: 'SKU-2',
+        listPrice: 50,
+        stock: 100,
+        enabled: true,
+        productName: 'Test Product',
+      });
+      f.detectChanges();
+
+      // The mutation re-syncs in the background without gating the page.
+      expect(service.getSalesOrder).toHaveBeenCalledWith('so-1');
+      expect(comp.initialLoading()).toBe(false);
+
+      // The content subtree survives the mutation: the same DOM node, not a rebuilt one.
+      const formAfter = f.debugElement.query(By.css('form'));
+      expect(formAfter).not.toBeNull();
+      expect(formAfter.nativeElement).toBe(formBefore.nativeElement);
+
+      // And the local row is already visible before the sync answers.
+      expect(comp.lineItems()).toHaveLength(2);
+      syncSubject.complete();
     });
   });
 
