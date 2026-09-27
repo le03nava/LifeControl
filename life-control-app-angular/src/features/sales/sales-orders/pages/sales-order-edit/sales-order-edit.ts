@@ -83,8 +83,21 @@ export class SalesOrderEdit implements OnInit {
   // ─── Store from user preferences ────────────────────────
   readonly userStoreName = signal<string | null>(null);
 
-  // ─── Loading state for initial GET (edit mode) ───────────
-  readonly loading = signal(false);
+  // ─── Loading state for the bootstrap GET (edit mode) ─────
+  //
+  // Gates the whole page, and only the bootstrap load may set it. No mutation
+  // path may set it again: a page-level gate torn down by a row mutation is what
+  // made scanning a barcode blank the screen. Row mutations use `syncing`.
+  readonly initialLoading = signal(false);
+
+  /**
+   * Background re-sync of the order header alongside a row mutation.
+   *
+   * Deliberately does NOT gate the template. The status chip and `isDraft` must
+   * follow the server (Draft → Pending on the first item) without paying for a
+   * page rebuild.
+   */
+  readonly syncing = signal(false);
 
   // ─── Loaded order data (edit mode) ─────────────────────
   readonly loadedOrder = signal<SalesOrder | null>(null);
@@ -344,8 +357,9 @@ export class SalesOrderEdit implements OnInit {
       });
   }
 
+  /** Bootstrap load (edit mode). The only setter of `initialLoading`. */
   private loadOrder(id: string): void {
-    this.loading.set(true);
+    this.initialLoading.set(true);
     this.generalError.set(null);
     this.salesOrderService
       .getSalesOrder(id)
@@ -353,17 +367,70 @@ export class SalesOrderEdit implements OnInit {
       .subscribe({
         next: (order) => {
           this.loadedOrder.set(order);
-          this.loading.set(false);
+          this.initialLoading.set(false);
           this.populateForm(order);
           this.populateLineItems(order.items);
         },
         error: (err: HttpErrorResponse) => {
-          this.loading.set(false);
+          this.initialLoading.set(false);
           this.generalError.set(
             err.status === 404 ? 'Order not found.' : 'Error loading sales order.',
           );
         },
       });
+  }
+
+  /**
+   * Refresh the order after a row mutation, without gating the template.
+   *
+   * The mutation already applied its own local change, so this call exists only
+   * to pick up server-derived state (order status, totals). A failure is
+   * non-fatal: the local row is authoritative, and the next successful mutation
+   * or a reload reconciles it.
+   */
+  private syncOrder(id: string): void {
+    this.syncing.set(true);
+    this.salesOrderService
+      .getSalesOrder(id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (order) => {
+          this.loadedOrder.set(order);
+          this.mergeLineItems(order.items);
+          this.syncing.set(false);
+        },
+        error: () => this.syncing.set(false),
+      });
+  }
+
+  /**
+   * Reconcile the server's line items into the local rows by server id.
+   *
+   * Unlike {@link populateLineItems}, this preserves the local values of the row
+   * with an edit in flight, and never drops a row the operator just added. Rows
+   * the server no longer returns are dropped, so a delete performed elsewhere
+   * still lands.
+   */
+  private mergeLineItems(items: SalesOrder['items']): void {
+    const pendingIndex = this.savingIndex();
+    const incoming = new Map(items.map((item) => [item.id, this.toItemTableRow(item)]));
+
+    this.lineItems.update((rows) => {
+      const merged: ItemTableRow[] = [];
+
+      rows.forEach((row, index) => {
+        if (!row.id) {
+          merged.push(row);
+          return;
+        }
+        const serverRow = incoming.get(row.id);
+        if (!serverRow) return;
+        incoming.delete(row.id);
+        merged.push(index === pendingIndex ? row : serverRow);
+      });
+
+      return [...merged, ...incoming.values()];
+    });
   }
 
   private populateForm(order: SalesOrder): void {
@@ -412,8 +479,9 @@ export class SalesOrderEdit implements OnInit {
         next: (created) => {
           this.lineItems.update((rows) => [...rows, this.toItemTableRow(created)]);
           this.savingIndex.set(null);
-          // Reload order to pick up status changes (e.g. Draft → Pending on first item)
-          this.loadOrder(orderId);
+          // Pick up server-derived state (e.g. Draft → Pending on the first item)
+          // without gating the page: the operator scans the next barcode immediately.
+          this.syncOrder(orderId);
         },
         error: (err: HttpErrorResponse) => {
           this.savingIndex.set(null);
