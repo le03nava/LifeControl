@@ -881,6 +881,44 @@ describe('SalesOrderEdit', () => {
       expect(component.generalError()).toContain('Insufficient stock');
       expect(component.lineItems()).toHaveLength(1); // item NOT added
     });
+
+    /** Locate the live selector instance so focus can be observed. */
+    function scanField(): ProductVariantSelector {
+      return fixture.debugElement.query(By.directive(ProductVariantSelector))
+        .componentInstance as ProductVariantSelector;
+    }
+
+    it('should hand focus back to the scan field after a successful add', () => {
+      const variant = makeVariant('pv-new', 'Widget Blue - Medium', 75);
+      const serverItem = createServerItem('pv-new', 'Widget Blue - Medium', 75);
+      salesOrderService.addItem = vi.fn().mockReturnValue(of(serverItem));
+      salesOrderService.getSalesOrder = vi
+        .fn()
+        .mockReturnValue(of({ ...mockOrder, items: [...mockOrder.items, serverItem] }));
+      const focusSpy = vi.spyOn(scanField(), 'focusInput');
+
+      component.onVariantSelected(variant);
+
+      expect(focusSpy).toHaveBeenCalled();
+    });
+
+    it('should hand focus back to the scan field after a failed add', () => {
+      const variant = makeVariant('pv-new', 'Test', 50);
+      salesOrderService.addItem = vi.fn().mockReturnValue(
+        throwError(
+          () =>
+            new HttpErrorResponse({
+              error: { message: 'Insufficient stock' },
+              status: 409,
+            }),
+        ),
+      );
+      const focusSpy = vi.spyOn(scanField(), 'focusInput');
+
+      component.onVariantSelected(variant);
+
+      expect(focusSpy).toHaveBeenCalled();
+    });
   });
 
   // ══════════════════════════════════════════════════════════

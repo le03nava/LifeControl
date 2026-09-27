@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
   ViewChild,
   computed,
   DestroyRef,
@@ -9,6 +10,7 @@ import {
   input,
   output,
   signal,
+  viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CurrencyPipe } from '@angular/common';
@@ -55,6 +57,9 @@ export class ProductVariantSelector {
 
   /** Emits when the user picks a variant. */
   readonly variantSelected = output<ProductVariantOption>();
+
+  /** Reference to the barcode field, so focus can be restored after a scan. */
+  private readonly scanInput = viewChild<ElementRef<HTMLInputElement>>('scanInput');
 
   /** Current search query typed / scanned by the user. */
   readonly searchQuery = signal('');
@@ -117,6 +122,22 @@ export class ProductVariantSelector {
     // Clear the input and results so the user can scan the next barcode.
     this.searchQuery.set('');
     this._variants.set([]);
+    // Leave the field armed for the next scan.
+    this.focusInput();
+  }
+
+  /**
+   * Focus the barcode field and select whatever it holds.
+   *
+   * Public because the parent restores focus after a successful add: on a
+   * point-of-sale screen the operator must be able to scan the next product
+   * without touching the mouse first.
+   */
+  focusInput(): void {
+    const input = this.scanInput()?.nativeElement;
+    if (!input) return;
+    input.focus();
+    input.select();
   }
 
   /**
@@ -149,6 +170,7 @@ export class ProductVariantSelector {
             this.variantSelected.emit(variants[0]);
             this.searchQuery.set('');
             this._variants.set([]);
+            this.focusInput();
           } else {
             // 0, >1, or zero stock → show in autocomplete for manual selection
             this._variants.set(variants);
