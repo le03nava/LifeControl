@@ -79,7 +79,7 @@
         <app-sales-order-item-table
           [items]="lineItems()"
           [isDraft]="isDraft()"
-          [isSaving]="savingIndex()"
+          [savingRowIds]="savingRowIds()"
           (itemRemoved)="onItemRemoved($event)"
           (quantityChanged)="onQuantityChanged($event)"
           (listPriceChanged)="onListPriceChanged($event)"

@@ -79,7 +79,18 @@ export class SalesOrderEdit implements OnInit {
   readonly serverErrors = signal<Record<string, string>>({});
   readonly generalError = signal<string | null>(null);
   readonly saving = signal(false);
-  readonly savingIndex = signal<number | null>(null);
+
+  // ─── Per-row write tracking ─────────────────────────────
+  //
+  // Keyed by row id, not by index. An index stops identifying the same row the
+  // moment another row is removed, and a single index cannot represent two writes
+  // in flight: it would re-enable a row whose own write is still open, and an
+  // edit made from the stale local copy would send the pre-edit value back to the
+  // server, silently reverting the write that was already accepted.
+  private readonly _savingRowIds = signal<ReadonlySet<string>>(new Set());
+
+  /** Row ids with a write in flight. Only these rows' controls are disabled. */
+  readonly savingRowIds = this._savingRowIds.asReadonly();
 
   // ─── Store from user preferences ────────────────────────
   readonly userStoreName = signal<string | null>(null);
@@ -421,13 +432,13 @@ export class SalesOrderEdit implements OnInit {
    * still lands.
    */
   private mergeLineItems(items: SalesOrder['items']): void {
-    const pendingIndex = this.savingIndex();
+    const saving = this.savingRowIds();
     const incoming = new Map(items.map((item) => [item.id, this.toItemTableRow(item)]));
 
     this.lineItems.update((rows) => {
       const merged: ItemTableRow[] = [];
 
-      rows.forEach((row, index) => {
+      rows.forEach((row) => {
         if (!row.id) {
           merged.push(row);
           return;
@@ -435,7 +446,9 @@ export class SalesOrderEdit implements OnInit {
         const serverRow = incoming.get(row.id);
         if (!serverRow) return;
         incoming.delete(row.id);
-        merged.push(index === pendingIndex ? row : serverRow);
+        // A row with its own write open keeps its local values: the server has
+        // not seen that write yet, so its copy of the row is the older one.
+        merged.push(saving.has(row.id) ? row : serverRow);
       });
 
       return [...merged, ...incoming.values()];
@@ -472,7 +485,9 @@ export class SalesOrderEdit implements OnInit {
     const orderId = this.orderId();
     if (!orderId) return;
 
-    this.savingIndex.set(this.lineItems().length);
+    // No row is marked in flight: the row does not exist until the server
+    // answers, so there is nothing to disable. Scanning twice appends two rows,
+    // which is what the operator asked for.
 
     const request: SalesOrderItemRequest = {
       productVariantId: variant.id,
@@ -487,14 +502,12 @@ export class SalesOrderEdit implements OnInit {
       .subscribe({
         next: (created) => {
           this.lineItems.update((rows) => [...rows, this.toItemTableRow(created)]);
-          this.savingIndex.set(null);
           // Pick up server-derived state (e.g. Draft → Pending on the first item)
           // without gating the page: the operator scans the next barcode immediately.
           this.syncOrder(orderId);
           this.variantSelector()?.focusInput();
         },
         error: (err: HttpErrorResponse) => {
-          this.savingIndex.set(null);
           this.handleItemError(err);
           // The add failed, but the next scan must still land without a click.
           this.variantSelector()?.focusInput();
@@ -506,20 +519,21 @@ export class SalesOrderEdit implements OnInit {
   onItemRemoved(index: number): void {
     const row = this.lineItems()[index];
     const orderId = this.orderId();
-    if (!row.id || !orderId) return;
+    const rowId = row.id;
+    if (!rowId || !orderId) return;
 
-    this.savingIndex.set(index);
+    this.markRowSaving(rowId);
 
     this.salesOrderService
-      .deleteItem(orderId, row.id)
+      .deleteItem(orderId, rowId)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: () => {
           this.lineItems.update((items) => items.filter((_, i) => i !== index));
-          this.savingIndex.set(null);
+          this.clearRowSaving(rowId);
         },
         error: (err: HttpErrorResponse) => {
-          this.savingIndex.set(null);
+          this.clearRowSaving(rowId);
           this.handleItemError(err);
         },
       });
@@ -529,10 +543,11 @@ export class SalesOrderEdit implements OnInit {
   onQuantityChanged(data: { index: number; value: number }): void {
     const row = this.lineItems()[data.index];
     const orderId = this.orderId();
-    if (!row.id || !orderId) return;
+    const rowId = row.id;
+    if (!rowId || !orderId) return;
     const previousValue = row.quantity;
 
-    this.savingIndex.set(data.index);
+    this.markRowSaving(rowId);
 
     const request: SalesOrderItemRequest = {
       productVariantId: row.productVariantId,
@@ -542,7 +557,7 @@ export class SalesOrderEdit implements OnInit {
     };
 
     this.salesOrderService
-      .updateItem(orderId, row.id, request)
+      .updateItem(orderId, rowId, request)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (updated) => {
@@ -558,7 +573,7 @@ export class SalesOrderEdit implements OnInit {
                 : item,
             ),
           );
-          this.savingIndex.set(null);
+          this.clearRowSaving(rowId);
         },
         error: () => {
           this.lineItems.update((items) =>
@@ -566,7 +581,7 @@ export class SalesOrderEdit implements OnInit {
               i === data.index ? { ...item, quantity: previousValue } : item,
             ),
           );
-          this.savingIndex.set(null);
+          this.clearRowSaving(rowId);
         },
       });
   }
@@ -575,10 +590,11 @@ export class SalesOrderEdit implements OnInit {
   onListPriceChanged(data: { index: number; value: number }): void {
     const row = this.lineItems()[data.index];
     const orderId = this.orderId();
-    if (!row.id || !orderId) return;
+    const rowId = row.id;
+    if (!rowId || !orderId) return;
     const previousValue = row.listPrice;
 
-    this.savingIndex.set(data.index);
+    this.markRowSaving(rowId);
 
     const request: SalesOrderItemRequest = {
       productVariantId: row.productVariantId,
@@ -588,7 +604,7 @@ export class SalesOrderEdit implements OnInit {
     };
 
     this.salesOrderService
-      .updateItem(orderId, row.id, request)
+      .updateItem(orderId, rowId, request)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (updated) => {
@@ -604,7 +620,7 @@ export class SalesOrderEdit implements OnInit {
                 : item,
             ),
           );
-          this.savingIndex.set(null);
+          this.clearRowSaving(rowId);
         },
         error: () => {
           this.lineItems.update((items) =>
@@ -612,7 +628,7 @@ export class SalesOrderEdit implements OnInit {
               i === data.index ? { ...item, listPrice: previousValue } : item,
             ),
           );
-          this.savingIndex.set(null);
+          this.clearRowSaving(rowId);
         },
       });
   }
@@ -621,10 +637,11 @@ export class SalesOrderEdit implements OnInit {
   onDiscountChanged(data: { index: number; value: number }): void {
     const row = this.lineItems()[data.index];
     const orderId = this.orderId();
-    if (!row.id || !orderId) return;
+    const rowId = row.id;
+    if (!rowId || !orderId) return;
     const previousValue = row.discountApplied;
 
-    this.savingIndex.set(data.index);
+    this.markRowSaving(rowId);
 
     const request: SalesOrderItemRequest = {
       productVariantId: row.productVariantId,
@@ -634,7 +651,7 @@ export class SalesOrderEdit implements OnInit {
     };
 
     this.salesOrderService
-      .updateItem(orderId, row.id, request)
+      .updateItem(orderId, rowId, request)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (updated) => {
@@ -650,7 +667,7 @@ export class SalesOrderEdit implements OnInit {
                 : item,
             ),
           );
-          this.savingIndex.set(null);
+          this.clearRowSaving(rowId);
         },
         error: () => {
           this.lineItems.update((items) =>
@@ -658,7 +675,7 @@ export class SalesOrderEdit implements OnInit {
               i === data.index ? { ...item, discountApplied: previousValue } : item,
             ),
           );
-          this.savingIndex.set(null);
+          this.clearRowSaving(rowId);
         },
       });
   }
@@ -678,7 +695,9 @@ export class SalesOrderEdit implements OnInit {
         next: () => {
           this.charging.set(false);
           this.notificationService.showSuccess('Sales order charged successfully.');
-          this.loadOrder(id);
+          // A background sync, not a bootstrap reload: charging is a mutation
+          // path, and no mutation path may re-arm the page gate.
+          this.syncOrder(id);
         },
         error: (err: HttpErrorResponse) => {
           this.charging.set(false);
@@ -796,6 +815,22 @@ export class SalesOrderEdit implements OnInit {
       listPrice: item.listPrice,
       discountApplied: item.discountApplied,
     };
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // PER-ROW WRITE TRACKING
+  // ══════════════════════════════════════════════════════════
+
+  private markRowSaving(rowId: string): void {
+    this._savingRowIds.update((ids) => new Set(ids).add(rowId));
+  }
+
+  private clearRowSaving(rowId: string): void {
+    this._savingRowIds.update((ids) => {
+      const next = new Set(ids);
+      next.delete(rowId);
+      return next;
+    });
   }
 
   // ══════════════════════════════════════════════════════════

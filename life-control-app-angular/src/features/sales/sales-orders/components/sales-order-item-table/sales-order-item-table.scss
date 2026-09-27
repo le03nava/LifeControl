@@ -18,6 +18,28 @@ table {
   font-size: 0.875rem;
 }
 
+/**
+ * Arrival highlight for a row that was just inserted.
+ *
+ * `[trackBy]` on the table is what makes this meaningful: a new item creates new
+ * row DOM and nothing else, so the animation plays for the new row only. It is
+ * pure CSS, so it cannot outlive the row and needs no timer to reset it. Reduced
+ * motion is already neutralized globally in `src/styles.scss`.
+ */
+tr.mat-mdc-row {
+  animation: row-arrival 500ms ease-out;
+}
+
+@keyframes row-arrival {
+  from {
+    background-color: var(--mat-sys-primary-container, #d7e3ff);
+  }
+
+  to {
+    background-color: transparent;
+  }
+}
+
 .no-line-items {
   display: flex;
   flex-direction: column;

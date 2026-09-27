@@ -842,7 +842,7 @@ describe('SalesOrderEdit', () => {
       expect(newItem.id).toBe('item-pv-new');
     });
 
-    it('should set savingIndex during addItem and clear on completion', () => {
+    it('should not block any row while an add is in flight', () => {
       const addSubject = new Subject<SalesOrderItem>();
       salesOrderService.addItem = vi.fn().mockReturnValue(addSubject.asObservable());
       const serverItem = createServerItem('pv-new', 'Test', 50);
@@ -851,19 +851,21 @@ describe('SalesOrderEdit', () => {
         .mockReturnValue(of({ ...mockOrder, items: [...mockOrder.items, serverItem] }));
       const variant = makeVariant('pv-new', 'Test', 50);
 
-      expect(component.savingIndex()).toBeNull();
+      expect(component.savingRowIds().size).toBe(0);
 
       component.onVariantSelected(variant);
 
-      // In-flight: savingIndex should be set to the index of the new row
-      expect(component.savingIndex()).toBe(1);
+      // The add writes a row that does not exist yet, so no existing row may be
+      // blocked by it — the pre-existing row stays editable.
+      expect(component.savingRowIds().size).toBe(0);
+      expect(component.lineItems()).toHaveLength(1);
 
       // Complete the request
       addSubject.next(serverItem);
       addSubject.complete();
 
-      expect(component.savingIndex()).toBeNull();
       expect(component.lineItems()).toHaveLength(2);
+      expect(component.savingRowIds().size).toBe(0);
     });
 
     it('should show error and not add item on 409 InsufficientStock', () => {
@@ -877,7 +879,7 @@ describe('SalesOrderEdit', () => {
 
       component.onVariantSelected(variant);
 
-      expect(component.savingIndex()).toBeNull();
+      expect(component.savingRowIds().size).toBe(0);
       expect(component.generalError()).toContain('Insufficient stock');
       expect(component.lineItems()).toHaveLength(1); // item NOT added
     });
@@ -1094,38 +1096,120 @@ describe('SalesOrderEdit', () => {
       });
     });
 
-    describe('savingIndex for item operations', () => {
-      it('should set savingIndex during deleteItem and clear on success', () => {
+    describe('per-row write tracking', () => {
+      it('should mark a row while its delete is in flight and release it on success', () => {
         const deleteSubject = new Subject<void>();
         salesOrderService.deleteItem = vi.fn().mockReturnValue(deleteSubject.asObservable());
 
-        expect(component.savingIndex()).toBeNull();
+        expect(component.savingRowIds().size).toBe(0);
 
         component.onItemRemoved(0);
 
-        // In-flight
-        expect(component.savingIndex()).toBe(0);
+        // In-flight: only the row being written is marked, by its id.
+        expect(component.savingRowIds().has('item-1')).toBe(true);
 
         // Complete
         deleteSubject.next();
         deleteSubject.complete();
 
-        expect(component.savingIndex()).toBeNull();
+        expect(component.savingRowIds().size).toBe(0);
       });
 
-      it('should set savingIndex during updateItem and clear on success', () => {
+      it('should mark a row while its update is in flight and release it on success', () => {
         const updateSubject = new Subject<SalesOrderItem>();
         salesOrderService.updateItem = vi.fn().mockReturnValue(updateSubject.asObservable());
 
-        expect(component.savingIndex()).toBeNull();
+        expect(component.savingRowIds().size).toBe(0);
         component.onQuantityChanged({ index: 0, value: 10 });
 
-        expect(component.savingIndex()).toBe(0);
+        expect(component.savingRowIds().has('item-1')).toBe(true);
 
         updateSubject.next({ ...mockItem, quantity: 10, finalPrice: 1000 });
         updateSubject.complete();
 
-        expect(component.savingIndex()).toBeNull();
+        expect(component.savingRowIds().size).toBe(0);
+      });
+
+      it('should release the row when its write fails', () => {
+        salesOrderService.updateItem = vi
+          .fn()
+          .mockReturnValue(
+            throwError(() => new HttpErrorResponse({ status: 500, statusText: 'Server Error' })),
+          );
+
+        component.onQuantityChanged({ index: 0, value: 10 });
+
+        expect(component.savingRowIds().size).toBe(0);
+      });
+
+      it('should block a second edit to a row while its own write is open', () => {
+        const updateSubject = new Subject<SalesOrderItem>();
+        salesOrderService.updateItem = vi.fn().mockReturnValue(updateSubject.asObservable());
+
+        component.onQuantityChanged({ index: 0, value: 9 });
+        fixture.detectChanges();
+
+        // The row's local copy has not absorbed the write yet. If the price input
+        // stayed live, editing it would read the pre-edit quantity and send it
+        // back, silently undoing the quantity that was already accepted.
+        const inputs = Array.from<HTMLInputElement>(
+          fixture.nativeElement.querySelectorAll('input[type="number"]'),
+        );
+        expect(inputs).toHaveLength(3);
+        expect(inputs.every((input) => input.disabled)).toBe(true);
+
+        updateSubject.next({ ...mockItem, quantity: 9 });
+        updateSubject.complete();
+        fixture.detectChanges();
+
+        expect(inputs.some((input) => input.disabled)).toBe(false);
+      });
+
+      it('should track two rows independently while both writes are open', () => {
+        const firstSubject = new Subject<SalesOrderItem>();
+        const secondSubject = new Subject<SalesOrderItem>();
+        salesOrderService.updateItem = vi
+          .fn()
+          .mockReturnValueOnce(firstSubject.asObservable())
+          .mockReturnValueOnce(secondSubject.asObservable());
+
+        component.lineItems.set([
+          {
+            id: 'item-1',
+            productVariantId: 'pv-1',
+            productVariantName: 'A',
+            quantity: 1,
+            listPrice: 10,
+            discountApplied: 0,
+          },
+          {
+            id: 'item-2',
+            productVariantId: 'pv-2',
+            productVariantName: 'B',
+            quantity: 1,
+            listPrice: 20,
+            discountApplied: 0,
+          },
+        ]);
+
+        component.onQuantityChanged({ index: 0, value: 2 });
+        component.onQuantityChanged({ index: 1, value: 3 });
+
+        expect(component.savingRowIds().has('item-1')).toBe(true);
+        expect(component.savingRowIds().has('item-2')).toBe(true);
+
+        // Settling one row must not release the other: a single index could not
+        // represent this state.
+        firstSubject.next({ ...mockItem, id: 'item-1', quantity: 2 });
+        firstSubject.complete();
+
+        expect(component.savingRowIds().has('item-1')).toBe(false);
+        expect(component.savingRowIds().has('item-2')).toBe(true);
+
+        secondSubject.next({ ...mockItem, id: 'item-2', quantity: 3 });
+        secondSubject.complete();
+
+        expect(component.savingRowIds().size).toBe(0);
       });
     });
   });
