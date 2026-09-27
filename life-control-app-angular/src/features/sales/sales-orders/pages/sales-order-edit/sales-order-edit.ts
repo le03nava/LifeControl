@@ -7,6 +7,7 @@ import {
   inject,
   OnInit,
   signal,
+  viewChild,
 } from '@angular/core';
 import { HttpErrorResponse, HttpClient } from '@angular/common/http';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
@@ -160,6 +161,14 @@ export class SalesOrderEdit implements OnInit {
   toggleScanMode(): void {
     this.scanMode.update((v) => !v);
   }
+
+  /**
+   * Reference to the scan field.
+   *
+   * Used to restore focus after a row mutation: a scan that leaves the field
+   * blurred forces the operator to reach for the mouse before the next barcode.
+   */
+  private readonly variantSelector = viewChild(ProductVariantSelector);
 
   // ─── Charge / Cobrar ─────────────────────────────────────
   readonly paymentMethods = signal<PaymentMethodOption[]>([]);
@@ -482,10 +491,13 @@ export class SalesOrderEdit implements OnInit {
           // Pick up server-derived state (e.g. Draft → Pending on the first item)
           // without gating the page: the operator scans the next barcode immediately.
           this.syncOrder(orderId);
+          this.variantSelector()?.focusInput();
         },
         error: (err: HttpErrorResponse) => {
           this.savingIndex.set(null);
           this.handleItemError(err);
+          // The add failed, but the next scan must still land without a click.
+          this.variantSelector()?.focusInput();
         },
       });
   }

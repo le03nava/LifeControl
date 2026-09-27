@@ -270,6 +270,50 @@ describe('ProductVariantSelector', () => {
     }, 10000);
   });
 
+  describe('focus retention', () => {
+    /** jsdom only reports `document.activeElement` for attached elements. */
+    function attachInput(): HTMLInputElement {
+      document.body.appendChild(fixture.nativeElement);
+      return fixture.nativeElement.querySelector('input') as HTMLInputElement;
+    }
+
+    afterEach(() => fixture.nativeElement.remove());
+
+    const variant: ProductVariantOption = {
+      id: 'v1',
+      productId: 'p1',
+      variantName: 'Vanilla 1L',
+      barCode: 'BAR-011',
+      sku: 'VAN-001',
+      listPrice: 80,
+      stock: 20,
+      enabled: true,
+      productName: 'Ice Cream',
+    };
+
+    it('should focus the barcode field on request', () => {
+      const input = attachInput();
+      input.blur();
+
+      component.focusInput();
+
+      expect(document.activeElement).toBe(input);
+    });
+
+    it('should leave the field armed after a variant is selected', () => {
+      const input = attachInput();
+      input.blur();
+
+      component.onVariantSelect(variant);
+
+      expect(document.activeElement).toBe(input);
+    });
+
+    it('should not throw when the field is not rendered yet', () => {
+      expect(() => component.focusInput()).not.toThrow();
+    });
+  });
+
   describe('error handling', () => {
     it('should clear results on server error', async () => {
       component.onSearchChange('lap');

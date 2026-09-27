@@ -9,6 +9,7 @@
   </mat-label>
   <input
     matInput
+    #scanInput
     type="text"
     [value]="searchQuery()"
     (input)="onSearchChange($any($event.target).value)"
