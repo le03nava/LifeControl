@@ -150,6 +150,7 @@ constant was not pinned (closed, above), and the range `main...HEAD` is **2 file
 | 2026-09-27 | Fix committed as `d445425` (2 files, +124 −28) and the spec tightening as `ebc0f79` (+4). The `pre-commit` hook re-staged nothing in either commit: `git diff <lint-staged backup> <commit> -- <the two files>` is empty for both. |
 | 2026-09-27 | Gates measured on the committed bytes by an independent read-only verifier: focused spec 7/7; coverage gate 130 files / 2575 tests / 0 failures; coverage 94.11/75.98/89.28/94.11; lint clean. `git status` at gate time showed only the untracked record, so the measured bytes were the committed ones. |
 | 2026-09-27 | Mutation experiment, each mutation reverted and verified by an empty `git diff` against `d445425`: the delay constant at `0` fails the fast-path tests (1 before `ebc0f79`, 2 after), and removing `delayedStart.unsubscribe()` fails the three late-paint tests. |
+| 2026-09-27 | Delivery: `fix/loading-overlay-flash` pushed (HEAD `9618bc1`) and PR **#193** opened against `main` @ `879ae2a` — https://github.com/le03nava/LifeControl/pull/193. This row records the dated event; the PR's own state is deliberately not asserted anywhere in this record, and merging is a separate human decision. |
 
 ## Follow-ups
 
