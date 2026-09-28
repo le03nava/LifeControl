@@ -11,6 +11,7 @@ import com.lifecontrol.api.scheduling.model.SchedulingActivity;
 import com.lifecontrol.api.scheduling.model.SchedulingAvailability;
 import com.lifecontrol.api.scheduling.repository.SchedulingActivityRepository;
 import com.lifecontrol.api.scheduling.repository.SchedulingAvailabilityRepository;
+import com.lifecontrol.api.scheduling.repository.SchedulingSlotRepository;
 import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import java.util.Comparator;
@@ -41,16 +42,19 @@ public class SchedulingAvailabilityService {
 
     private final SchedulingActivityRepository schedulingActivityRepository;
     private final SchedulingAvailabilityRepository schedulingAvailabilityRepository;
+    private final SchedulingSlotRepository schedulingSlotRepository;
     private final CompanyStoreRepository companyStoreRepository;
     private final CurrentUserContext currentUserContext;
 
     public SchedulingAvailabilityService(
             SchedulingActivityRepository schedulingActivityRepository,
             SchedulingAvailabilityRepository schedulingAvailabilityRepository,
+            SchedulingSlotRepository schedulingSlotRepository,
             CompanyStoreRepository companyStoreRepository,
             CurrentUserContext currentUserContext) {
         this.schedulingActivityRepository = schedulingActivityRepository;
         this.schedulingAvailabilityRepository = schedulingAvailabilityRepository;
+        this.schedulingSlotRepository = schedulingSlotRepository;
         this.companyStoreRepository = companyStoreRepository;
         this.currentUserContext = currentUserContext;
     }
@@ -81,6 +85,12 @@ public class SchedulingAvailabilityService {
      * one flush, and {@code UNIQUE(activity_id, day_of_week, start_time)} would then reject a window
      * that merely replaces the one it is identical to.</p>
      *
+     * <p>The replacement also reconciles the activity's materialized slots (G14): the unbooked ones
+     * are removed in the same transaction, so a window that was deleted stops producing bookable
+     * slots. Slots an appointment already holds ({@code booked > 0}) are left alone, because deleting
+     * one would orphan a real appointment; when the new template still calls for that slot,
+     * re-materialization re-inserts an unbooked one and the booked row is not disturbed.</p>
+     *
      * @throws SchedulingActivityNotFoundException when the activity does not exist
      * @throws CompanyStoreNotFoundException when the activity's store does not exist
      * @throws org.springframework.security.access.AccessDeniedException when the caller cannot
@@ -98,6 +108,8 @@ public class SchedulingAvailabilityService {
 
         schedulingAvailabilityRepository.deleteByActivityId(activityId);
         schedulingAvailabilityRepository.flush();
+
+        schedulingSlotRepository.deleteUnbookedByActivityId(activityId);
 
         schedulingAvailabilityRepository.saveAll(
                 windows.stream().map(window -> toEntity(activityId, window)).toList());

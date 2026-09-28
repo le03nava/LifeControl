@@ -25,6 +25,7 @@ import com.lifecontrol.api.scheduling.model.SchedulingActivity;
 import com.lifecontrol.api.scheduling.model.SchedulingAvailability;
 import com.lifecontrol.api.scheduling.repository.SchedulingActivityRepository;
 import com.lifecontrol.api.scheduling.repository.SchedulingAvailabilityRepository;
+import com.lifecontrol.api.scheduling.repository.SchedulingSlotRepository;
 import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
@@ -80,6 +81,9 @@ class SchedulingAvailabilityServiceTest {
     private SchedulingAvailabilityRepository schedulingAvailabilityRepository;
 
     @Mock
+    private SchedulingSlotRepository schedulingSlotRepository;
+
+    @Mock
     private CompanyStoreRepository companyStoreRepository;
 
     @Mock
@@ -94,6 +98,7 @@ class SchedulingAvailabilityServiceTest {
         service = new SchedulingAvailabilityService(
                 schedulingActivityRepository,
                 schedulingAvailabilityRepository,
+                schedulingSlotRepository,
                 companyStoreRepository,
                 currentUserContext);
 
@@ -248,9 +253,10 @@ class SchedulingAvailabilityServiceTest {
             assertThat(response.activityId()).isEqualTo(ACTIVITY_ID);
             assertThat(response.windows()).hasSize(2);
 
-            InOrder inOrder = inOrder(schedulingAvailabilityRepository);
+            InOrder inOrder = inOrder(schedulingAvailabilityRepository, schedulingSlotRepository);
             inOrder.verify(schedulingAvailabilityRepository).deleteByActivityId(ACTIVITY_ID);
             inOrder.verify(schedulingAvailabilityRepository).flush();
+            inOrder.verify(schedulingSlotRepository).deleteUnbookedByActivityId(ACTIVITY_ID);
             inOrder.verify(schedulingAvailabilityRepository).saveAll(anyList());
         }
 
