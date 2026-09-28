@@ -3,13 +3,10 @@
 **Repository**: LifeControl — Angular frontend (`life-control-app-angular/**`) only. One shared HTTP
 interceptor, its spec, and the two records that describe the diagnosis. No backend edit, no template
 edit, no route, no contract change, no build config, no CI change.
-**Status**: implemented and committed as two work units on `fix/loading-overlay-flash` —
-`d445425` (the fix: 2 files, +124 −28) and `ebc0f79` (the spec tightening that makes the threshold
-load-bearing, +4) — with the gates measured on those exact committed bytes: `test:coverage:check`
-130 files / 2575 tests / 0 failures, coverage 94.11 / 75.98 / 89.28 / 94.11 against floors
-80/60/75/80, and `lint` clean. `npm run test:e2e` was **not** run (see `## Gaps`). This line makes no
-claim about push or PR state. The `row-arrival` initial-render defect found while diagnosing this is
-**deferred**, not fixed here; see `## Follow-ups`.
+**Status**: merged — PR #193 (`fix/loading-overlay-flash` @ `9137ca783`), 2026-09-27. Gate results and
+commit identities are in `## Verification` and the evidence log. What remains: the `test:e2e` control
+recorded as a gap below was never run, and the two follow-ups below are separate work, not unfinished
+work here.
 **Created**: 2026-09-27
 **Risk**: **medium.** The blast radius is app-wide: `loadingInterceptor` is registered globally in
 `app.config.ts` and runs on **every** HTTP request of every feature, so the changed behaviour is not
@@ -150,7 +147,7 @@ constant was not pinned (closed, above), and the range `main...HEAD` is **2 file
 | 2026-09-27 | Fix committed as `d445425` (2 files, +124 −28) and the spec tightening as `ebc0f79` (+4). The `pre-commit` hook re-staged nothing in either commit: `git diff <lint-staged backup> <commit> -- <the two files>` is empty for both. |
 | 2026-09-27 | Gates measured on the committed bytes by an independent read-only verifier: focused spec 7/7; coverage gate 130 files / 2575 tests / 0 failures; coverage 94.11/75.98/89.28/94.11; lint clean. `git status` at gate time showed only the untracked record, so the measured bytes were the committed ones. |
 | 2026-09-27 | Mutation experiment, each mutation reverted and verified by an empty `git diff` against `d445425`: the delay constant at `0` fails the fast-path tests (1 before `ebc0f79`, 2 after), and removing `delayedStart.unsubscribe()` fails the three late-paint tests. |
-| 2026-09-27 | Delivery: `fix/loading-overlay-flash` pushed (HEAD `9618bc1`) and PR **#193** opened against `main` @ `879ae2a` — https://github.com/le03nava/LifeControl/pull/193. This row records the dated event; the PR's own state is deliberately not asserted anywhere in this record, and merging is a separate human decision. |
+| 2026-09-27 | Delivery: `fix/loading-overlay-flash` pushed and PR **#193** opened against `main` @ `879ae2a`, then merged the same day as `9137ca7` — https://github.com/le03nava/LifeControl/pull/193. The merge commit has two parents and its tree is byte-identical to the verified branch tip. |
 
 ## Follow-ups
 
