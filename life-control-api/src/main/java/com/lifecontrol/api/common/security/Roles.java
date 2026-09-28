@@ -58,4 +58,11 @@ public final class Roles {
     public static final String COMPANY_STORE = "lc-company-store";
     public static final String COMPANY_STORE_READ = "lc-company-store-read";
     public static final String RECEIVING = "lc-receiving";
+
+    /** Scheduling write role: manages the store's bookable activities and appointments.
+     *  Client role of {@code life-control-client}. */
+    public static final String SCHEDULING = "lc-scheduling";
+
+    /** Scheduling read-only role. Client role of {@code life-control-client}. */
+    public static final String SCHEDULING_READ = "lc-scheduling-read";
 }

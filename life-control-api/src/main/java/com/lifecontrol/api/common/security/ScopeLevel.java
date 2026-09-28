@@ -44,8 +44,11 @@ public enum ScopeLevel {
      * caller with no scope in range and no way to pass the store check at all. {@code lc-receiving}
      * is the receiving persona and {@code lc-sales} is the sales persona (the frontend gates the
      * whole sales module on {@code lc-admin}/{@code lc-sales}); both are store-scoped and both reach
-     * store-scoped endpoints through this same check. Because the dispatch is by broadest granted
-     * scope, a caller who also holds a broader role keeps that broader scope.</p>
+     * store-scoped endpoints through this same check. {@code lc-scheduling}/{@code lc-scheduling-read}
+     * is the scheduling persona pair that manages a store's bookable activities and appointments;
+     * both are store-scoped and reach store-scoped endpoints through this same check. Because the
+     * dispatch is by broadest granted scope, a caller who also holds a broader role keeps that
+     * broader scope.</p>
      *
      * <p>The parent levels of the store path are verified against {@linkplain #claim() claims}, not
      * against the parent roles ({@code verifyLevel} never calls {@code hasAnyRole}), so a caller
@@ -59,7 +62,9 @@ public enum ScopeLevel {
             Roles.COMPANY_STORE,
             Roles.COMPANY_STORE_READ,
             Roles.RECEIVING,
-            Roles.SALES);
+            Roles.SALES,
+            Roles.SCHEDULING,
+            Roles.SCHEDULING_READ);
 
     private static final List<ScopeLevel> ORDERED = List.of(values());
 
