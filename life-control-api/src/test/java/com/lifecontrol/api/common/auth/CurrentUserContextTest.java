@@ -1562,10 +1562,17 @@ class CurrentUserContextTest {
         // ── lc-receiving ──
 
         @Test
-        @DisplayName("ScopeLevel.STORE lists exactly the store roles, including lc-receiving and lc-sales")
+        @DisplayName(
+                "ScopeLevel.STORE lists exactly the store roles, including lc-receiving, lc-sales and lc-scheduling")
         void storeScopeListsStoreRoles() {
             assertThat(ScopeLevel.STORE.roleNames())
-                    .containsExactly(Roles.COMPANY_STORE, Roles.COMPANY_STORE_READ, Roles.RECEIVING, Roles.SALES);
+                    .containsExactly(
+                            Roles.COMPANY_STORE,
+                            Roles.COMPANY_STORE_READ,
+                            Roles.RECEIVING,
+                            Roles.SALES,
+                            Roles.SCHEDULING,
+                            Roles.SCHEDULING_READ);
         }
 
         @Test
