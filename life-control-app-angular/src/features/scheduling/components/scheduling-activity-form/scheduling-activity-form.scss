@@ -1,0 +1,12 @@
+// Scheduling activity form: base grid/action styles come from the shared form layout.
+@use '../../../../shared/styles/form-layout' as *;
+
+// ─── Save-blocked hint ───────────────────────────────────────
+// Explains why the submit control is disabled while the authoritative state was
+// never read, so the operator knows the retry is the way forward.
+.save-blocked-hint {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--color-gray-700);
+  font-size: 0.875rem;
+}

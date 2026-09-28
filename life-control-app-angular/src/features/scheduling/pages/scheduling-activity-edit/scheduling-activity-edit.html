@@ -1,0 +1,48 @@
+<div class="scheduling-activity-edit-page">
+  <app-page-header
+    [title]="isEditMode() ? 'Editar actividad' : 'Nueva actividad'"
+    subtitle="Datos de la actividad agendable"
+    [showActions]="false"
+  />
+
+  <!--
+    A failed read and a failed write are independent events with different recovery
+    routes (retry the read; re-submit or fix the form), so each banner owns its own
+    condition. Coupling them would let a stale load failure swallow a later write
+    failure and leave the operator with no feedback at all.
+  -->
+  @if (loadError(); as loadFailure) {
+    <div class="error-state">
+      <app-error-banner [message]="loadFailure" />
+      <button mat-stroked-button type="button" (click)="retryLoad()">Reintentar</button>
+    </div>
+  }
+
+  <app-error-banner [message]="generalError()" />
+
+  @if (!isEditMode()) {
+    @if (storePending()) {
+      <p class="loading-text">Resolviendo la tienda…</p>
+    } @else if (storeError(); as storeFailure) {
+      <div class="error-state">
+        <app-error-banner [message]="'No pudimos determinar la tienda: ' + storeFailure" />
+        <button mat-stroked-button type="button" (click)="retryStore()">Reintentar</button>
+      </div>
+    } @else if (storeUnconfigured()) {
+      <app-error-banner
+        [message]="'No hay una tienda configurada para tu usuario, así que no podés crear actividades.'"
+      />
+    }
+  }
+
+  <app-scheduling-activity-form
+    [formGroup]="activityForm()"
+    [isEditMode]="isEditMode()"
+    [saving]="saving()"
+    [canWrite]="canWrite"
+    [serverErrors]="serverErrors()"
+    [saveBlockedReason]="saveBlockedReason()"
+    (save)="onSave($event)"
+    (cancelForm)="onCancel()"
+  />
+</div>
