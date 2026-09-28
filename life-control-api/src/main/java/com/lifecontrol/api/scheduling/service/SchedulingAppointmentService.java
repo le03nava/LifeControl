@@ -8,6 +8,7 @@ import com.lifecontrol.api.scheduling.dto.SchedulingAppointmentRequest;
 import com.lifecontrol.api.scheduling.dto.SchedulingAppointmentRescheduleRequest;
 import com.lifecontrol.api.scheduling.dto.SchedulingAppointmentResponse;
 import com.lifecontrol.api.scheduling.dto.SchedulingAppointmentStatusRequest;
+import com.lifecontrol.api.scheduling.exception.InvalidSchedulingRangeException;
 import com.lifecontrol.api.scheduling.exception.SchedulingActivityNotFoundException;
 import com.lifecontrol.api.scheduling.exception.SchedulingAppointmentNotFoundException;
 import com.lifecontrol.api.scheduling.exception.SchedulingAppointmentNotModifiableException;
@@ -24,7 +25,9 @@ import com.lifecontrol.api.status.repository.StatusRepository;
 import com.lifecontrol.api.status.service.StatusValidator;
 import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
+import java.time.LocalDateTime;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -216,6 +219,68 @@ public class SchedulingAppointmentService {
                 .orElseThrow(() -> new SchedulingSlotNotFoundException(appointment.getSlotId()));
         var statusNames = resolveStatusNames(Set.of(appointment.getStatusId()));
         return toResponse(appointment, slot, requireName(statusNames, appointment.getStatusId()));
+    }
+
+    /**
+     * Reads the store's appointments whose slot's {@code start_at} falls in {@code [from, to)},
+     * ordered by that start, optionally narrowed to one {@code userId}.
+     *
+     * <p>The range is interpreted on the <b>slot's</b> start, the same half-open convention
+     * {@code GET /slots} uses, and the slots are loaded in one batch to fill each response's window
+     * so the read never issues one query per row.</p>
+     *
+     * <p><b>An appointment whose slot row is gone is dropped, not fatal.</b> The range query
+     * inner-joins the slot, so every row it returns has a slot at query time, but the follow-up
+     * {@code findAllById} is a <b>second statement</b>: under {@code READ COMMITTED} a concurrent
+     * {@code PUT} of the activity's availability can commit the deletion of a {@code booked = 0} slot
+     * between the two. An appointment whose slot is missing from that batch is omitted from the
+     * result rather than raised as a 404, because the appointment's time <b>is</b> its slot and it is
+     * no longer findable by either range read (G20). One orphaned row must not fail the whole read.
+     * The calendar path degrades the same way; neither read materializes or repairs the missing row.</p>
+     *
+     * <p><b>Soft-deleted appointments are included.</b> An appointment the store cancelled is a row
+     * with {@code enabled = false}, not a deleted one, and this read deliberately does not filter it
+     * out: the response carries the {@code enabled} flag so a consumer can choose, which keeps the
+     * flat list consistent with the calendar projection (D36), where a soft-deleted {@code Completed}
+     * appointment still holds capacity and is still counted by {@code booked}. Consumers that want
+     * only live appointments filter on {@code enabled}.</p>
+     *
+     * @throws CompanyStoreNotFoundException when the store does not exist
+     * @throws AccessDeniedException when the caller cannot access the store's scope
+     * @throws InvalidSchedulingRangeException when {@code to} is not strictly after {@code from} or
+     *     the span exceeds 90 days (400)
+     * @throws StatusNotFoundException when an appointment's status no longer exists
+     */
+    @Transactional(readOnly = true)
+    public List<SchedulingAppointmentResponse> getAppointments(
+            UUID storeId, LocalDateTime from, LocalDateTime to, String userId) {
+        verifyStoreAccess(storeId);
+        SchedulingRangeGuard.validate(from, to);
+
+        var appointments = userId == null
+                ? schedulingAppointmentRepository.findInRangeByStore(storeId, from, to)
+                : schedulingAppointmentRepository.findInRangeByStoreAndUserId(storeId, userId, from, to);
+        if (appointments.isEmpty()) {
+            return List.of();
+        }
+
+        var slotIds =
+                appointments.stream().map(SchedulingAppointment::getSlotId).collect(Collectors.toSet());
+        var slotsById = schedulingSlotRepository.findAllById(slotIds).stream()
+                .collect(Collectors.toMap(SchedulingSlot::getId, slot -> slot));
+        var statusNames = resolveStatusNames(
+                appointments.stream().map(SchedulingAppointment::getStatusId).collect(Collectors.toSet()));
+
+        // An appointment whose slot vanished between the range query and this batch is filtered out
+        // here: G20 drops it from the read instead of turning one orphaned row into a 404 for the
+        // whole store.
+        return appointments.stream()
+                .filter(appointment -> slotsById.containsKey(appointment.getSlotId()))
+                .map(appointment -> toResponse(
+                        appointment,
+                        slotsById.get(appointment.getSlotId()),
+                        requireName(statusNames, appointment.getStatusId())))
+                .toList();
     }
 
     /**

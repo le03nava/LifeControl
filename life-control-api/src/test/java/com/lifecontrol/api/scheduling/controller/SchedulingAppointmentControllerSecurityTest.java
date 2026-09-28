@@ -15,6 +15,7 @@ import com.lifecontrol.api.exception.GlobalExceptionHandler;
 import com.lifecontrol.api.scheduling.dto.SchedulingAppointmentResponse;
 import com.lifecontrol.api.scheduling.service.SchedulingAppointmentService;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -149,6 +150,8 @@ class SchedulingAppointmentControllerSecurityTest {
                         0L,
                         LocalDateTime.now(),
                         LocalDateTime.now()));
+        when(schedulingAppointmentService.getAppointments(any(), any(), any(), any()))
+                .thenReturn(List.of());
     }
 
     // ─── GET (read) ─────────────────────────────────────────────────────
@@ -254,6 +257,47 @@ class SchedulingAppointmentControllerSecurityTest {
         @DisplayName("reject an unauthenticated write")
         void unauthenticatedWriteIsRejected() throws Exception {
             mockMvc.perform(delete(BASE_URL + "/" + appointmentId)).andExpect(status().isUnauthorized());
+        }
+    }
+
+    // ─── GET list (read) ────────────────────────────────────────────
+
+    @Nested
+    @DisplayName("GET " + BASE_URL)
+    class ListEndpointTests {
+
+        @Test
+        @WithMockUser(roles = {"lc-scheduling-read"})
+        @DisplayName("admits the read-only role")
+        void readOnlyRoleCanList() throws Exception {
+            mockMvc.perform(listRequest()).andExpect(status().isOk());
+        }
+
+        @Test
+        @WithMockUser(roles = {"lc-scheduling"})
+        @DisplayName("does not block a principal holding only the write role")
+        void writeRoleCanList() throws Exception {
+            mockMvc.perform(listRequest()).andExpect(status().isOk());
+        }
+
+        @Test
+        @WithMockUser(roles = {"other-role"})
+        @DisplayName("rejects a caller with no scheduling role")
+        void unrelatedRoleIsForbidden() throws Exception {
+            mockMvc.perform(listRequest()).andExpect(status().isForbidden());
+        }
+
+        @Test
+        @DisplayName("rejects an unauthenticated list request")
+        void unauthenticatedIsRejected() throws Exception {
+            mockMvc.perform(listRequest()).andExpect(status().isUnauthorized());
+        }
+
+        private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder listRequest() {
+            return get(BASE_URL)
+                    .param("storeId", UUID.randomUUID().toString())
+                    .param("from", "2026-09-28T00:00:00")
+                    .param("to", "2026-09-29T00:00:00");
         }
     }
 }

@@ -1,6 +1,7 @@
 package com.lifecontrol.api.scheduling.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
@@ -21,6 +22,7 @@ import com.lifecontrol.api.purchaseorder.exception.InvalidStatusTransitionExcept
 import com.lifecontrol.api.scheduling.dto.SchedulingAppointmentRequest;
 import com.lifecontrol.api.scheduling.dto.SchedulingAppointmentRescheduleRequest;
 import com.lifecontrol.api.scheduling.dto.SchedulingAppointmentStatusRequest;
+import com.lifecontrol.api.scheduling.exception.InvalidSchedulingRangeException;
 import com.lifecontrol.api.scheduling.exception.SchedulingActivityNotFoundException;
 import com.lifecontrol.api.scheduling.exception.SchedulingAppointmentNotFoundException;
 import com.lifecontrol.api.scheduling.exception.SchedulingAppointmentNotModifiableException;
@@ -38,6 +40,7 @@ import com.lifecontrol.api.status.repository.StatusRepository;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -672,6 +675,185 @@ class SchedulingAppointmentServiceTest {
             assertThatThrownBy(() -> service.reschedule(
                             APPOINTMENT_ID, new SchedulingAppointmentRescheduleRequest(TARGET_SLOT_ID)))
                     .isInstanceOf(SchedulingAppointmentNotFoundException.class);
+        }
+    }
+
+    // ── Appointment list read ────────────────────────────────────────────
+
+    @Nested
+    @DisplayName("appointment list read")
+    class ReadTests {
+
+        private static final LocalDateTime FROM = LocalDateTime.of(2026, 9, 28, 0, 0);
+        private static final LocalDateTime TO = LocalDateTime.of(2026, 9, 29, 0, 0);
+        private static final UUID SECOND_SLOT_ID = UUID.fromString("00000000-0000-0000-0000-0000000000ae");
+
+        private SchedulingAppointment appointmentAt(UUID id, UUID slotId, String userId, boolean enabled) {
+            return SchedulingAppointment.builder()
+                    .id(id)
+                    .slotId(slotId)
+                    .activityId(ACTIVITY_ID)
+                    .companyStoreId(STORE_ID)
+                    .userId(userId)
+                    .statusId(SCHEDULED_STATUS_ID)
+                    .notes("notes")
+                    .enabled(enabled)
+                    .build();
+        }
+
+        private Status scheduledStatus() {
+            return Status.builder()
+                    .id(SCHEDULED_STATUS_ID)
+                    .statusName("Scheduled")
+                    .statusType(StatusType.builder()
+                            .id(STATUS_TYPE_ID)
+                            .statusTypeName("APPOINTMENT")
+                            .build())
+                    .enabled(true)
+                    .build();
+        }
+
+        @Test
+        @DisplayName("should map the slot window and the resolved status name in one status batch")
+        void mapsWindowAndResolvesStatusOnce() {
+            var appointment = appointmentAt(APPOINTMENT_ID, SLOT_ID, "employee-1", true);
+            when(schedulingAppointmentRepository.findInRangeByStore(STORE_ID, FROM, TO))
+                    .thenReturn(List.of(appointment));
+            when(schedulingSlotRepository.findAllById(any())).thenReturn(List.of(slot));
+            when(statusRepository.findAllById(any())).thenReturn(List.of(scheduledStatus()));
+
+            var result = service.getAppointments(STORE_ID, FROM, TO, null);
+
+            assertThat(result).hasSize(1);
+            var response = result.getFirst();
+            assertThat(response.id()).isEqualTo(APPOINTMENT_ID);
+            assertThat(response.startAt()).isEqualTo(SLOT_START);
+            assertThat(response.endAt()).isEqualTo(SLOT_START.plusMinutes(60));
+            assertThat(response.statusName()).isEqualTo("Scheduled");
+            // The slot and the status names are each resolved with one batched read.
+            verify(schedulingSlotRepository).findAllById(any());
+            verify(statusRepository).findAllById(any());
+        }
+
+        @Test
+        @DisplayName("should keep a soft-deleted appointment in the list and expose its enabled flag")
+        void softDeletedAppointmentStaysInTheList() {
+            var appointment = appointmentAt(APPOINTMENT_ID, SLOT_ID, "employee-1", false);
+            when(schedulingAppointmentRepository.findInRangeByStore(STORE_ID, FROM, TO))
+                    .thenReturn(List.of(appointment));
+            when(schedulingSlotRepository.findAllById(any())).thenReturn(List.of(slot));
+            when(statusRepository.findAllById(any())).thenReturn(List.of(scheduledStatus()));
+
+            var result = service.getAppointments(STORE_ID, FROM, TO, null);
+
+            assertThat(result)
+                    .singleElement()
+                    .satisfies(response -> assertThat(response.enabled()).isFalse());
+        }
+
+        @Test
+        @DisplayName("should omit an appointment whose slot vanished and keep the rest, instead of a 404")
+        void orphanedSlotAppointmentIsOmitted() {
+            var orphaned = appointmentAt(APPOINTMENT_ID, SLOT_ID, "employee-1", true);
+            var kept = appointmentAt(UUID.randomUUID(), SECOND_SLOT_ID, "employee-2", true);
+            when(schedulingAppointmentRepository.findInRangeByStore(STORE_ID, FROM, TO))
+                    .thenReturn(List.of(orphaned, kept));
+            // The batch returns only the kept slot: the orphaned appointment's slot was deleted
+            // between the range query and the batch (G20). The read drops the orphan, never throws.
+            when(schedulingSlotRepository.findAllById(any()))
+                    .thenReturn(List.of(
+                            slot(SECOND_SLOT_ID, ACTIVITY_ID, SLOT_START.plusHours(1), 1, 0, "Available", true)));
+            when(statusRepository.findAllById(any())).thenReturn(List.of(scheduledStatus()));
+
+            var result = service.getAppointments(STORE_ID, FROM, TO, null);
+
+            assertThat(result)
+                    .singleElement()
+                    .satisfies(response -> assertThat(response.id()).isEqualTo(kept.getId()));
+        }
+
+        @Test
+        @DisplayName("should narrow with userId and never call the unfiltered finder")
+        void userIdFilterIsApplied() {
+            when(schedulingAppointmentRepository.findInRangeByStoreAndUserId(STORE_ID, "employee-1", FROM, TO))
+                    .thenReturn(List.of(appointmentAt(APPOINTMENT_ID, SLOT_ID, "employee-1", true)));
+            when(schedulingSlotRepository.findAllById(any())).thenReturn(List.of(slot));
+            when(statusRepository.findAllById(any())).thenReturn(List.of(scheduledStatus()));
+
+            service.getAppointments(STORE_ID, FROM, TO, "employee-1");
+
+            verify(schedulingAppointmentRepository).findInRangeByStoreAndUserId(STORE_ID, "employee-1", FROM, TO);
+            verify(schedulingAppointmentRepository, never()).findInRangeByStore(any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("should use the unfiltered finder when userId is absent")
+        void noUserUsesTheUnfilteredFinder() {
+            when(schedulingAppointmentRepository.findInRangeByStore(STORE_ID, FROM, TO))
+                    .thenReturn(List.of());
+
+            service.getAppointments(STORE_ID, FROM, TO, null);
+
+            verify(schedulingAppointmentRepository).findInRangeByStore(STORE_ID, FROM, TO);
+            verify(schedulingAppointmentRepository, never()).findInRangeByStoreAndUserId(any(), any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("should resolve the statuses of several appointments in one batch, not one per row")
+        void statusResolutionIsBatchedAcrossRows() {
+            when(schedulingAppointmentRepository.findInRangeByStore(STORE_ID, FROM, TO))
+                    .thenReturn(List.of(
+                            appointmentAt(APPOINTMENT_ID, SLOT_ID, "employee-1", true),
+                            appointmentAt(UUID.randomUUID(), SECOND_SLOT_ID, "employee-2", true)));
+            when(schedulingSlotRepository.findAllById(any()))
+                    .thenReturn(List.of(
+                            slot, slot(SECOND_SLOT_ID, ACTIVITY_ID, SLOT_START.plusHours(1), 1, 0, "Available", true)));
+            when(statusRepository.findAllById(any())).thenReturn(List.of(scheduledStatus()));
+
+            service.getAppointments(STORE_ID, FROM, TO, null);
+
+            verify(statusRepository).findAllById(any());
+        }
+
+        @Test
+        @DisplayName("should reject an inverted range with 400 before reading any appointment")
+        void invertedRangeIsRejected() {
+            assertThatThrownBy(() -> service.getAppointments(STORE_ID, TO, FROM, null))
+                    .isInstanceOf(InvalidSchedulingRangeException.class)
+                    .hasMessageContaining("to must be after from");
+
+            verifyNoInteractions(schedulingAppointmentRepository);
+        }
+
+        @Test
+        @DisplayName("should reject a span wider than 90 days with 400")
+        void tooWideRangeIsRejected() {
+            assertThatThrownBy(() -> service.getAppointments(STORE_ID, FROM, FROM.plusDays(91), null))
+                    .isInstanceOf(InvalidSchedulingRangeException.class)
+                    .hasMessageContaining("90");
+
+            verifyNoInteractions(schedulingAppointmentRepository);
+        }
+
+        @Test
+        @DisplayName("should accept a range of exactly 90 days")
+        void exactlyNinetyDaysIsAccepted() {
+            when(schedulingAppointmentRepository.findInRangeByStore(STORE_ID, FROM, FROM.plusDays(90)))
+                    .thenReturn(List.of());
+
+            assertThatCode(() -> service.getAppointments(STORE_ID, FROM, FROM.plusDays(90), null))
+                    .doesNotThrowAnyException();
+        }
+
+        @Test
+        @DisplayName("should raise AccessDenied and read no appointment when the store scope is denied")
+        void deniedStoreScopeReadsNothing() {
+            denyStoreAccess();
+
+            assertThatThrownBy(() -> service.getAppointments(STORE_ID, FROM, TO, null))
+                    .isInstanceOf(AccessDeniedException.class);
+
+            verifyNoInteractions(schedulingAppointmentRepository);
         }
     }
 }
