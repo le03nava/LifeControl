@@ -1,10 +1,13 @@
 package com.lifecontrol.api.scheduling.repository;
 
 import com.lifecontrol.api.scheduling.model.SchedulingSlot;
+import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -53,6 +56,21 @@ public interface SchedulingSlotRepository extends JpaRepository<SchedulingSlot, 
 
     List<SchedulingSlot> findByActivityIdAndStartAtGreaterThanEqualAndStartAtLessThanOrderByStartAtAsc(
             UUID activityId, LocalDateTime from, LocalDateTime to);
+
+    /**
+     * Pessimistic write lock on the slot, the serialization point of every booking. The booking path
+     * takes it as its first database interaction (D28), reads {@code booked}/{@code capacity} and
+     * raises the room guard inside it, so two concurrent bookings of the last seat queue here instead
+     * of both reading the same free count. It is a lock of the documented {@code appointment -> slot}
+     * order; a reschedule holds the appointment lock first and then takes both slots in ascending
+     * {@code (start_at, id)} order, so the global order is cycle-free.
+     *
+     * <p>Deliberately does not filter by {@code enabled}: a disabled slot is found so the caller can
+     * answer with an actionable not-bookable 409 instead of a not-found.</p>
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT s FROM SchedulingSlot s WHERE s.id = :id")
+    Optional<SchedulingSlot> findByIdForUpdate(@Param("id") UUID id);
 
     /**
      * Removes the activity's unbooked slots, the reconciliation half of a template replacement.
