@@ -1,18 +1,24 @@
 # ODD feature: scheduling-calendar
 
-**Status**: **W3 delivered** — the availability template and its materialized slots are reachable end
-to end: `V17` creates `scheduling_availability` and `scheduling_slots`,
+**Status**: **merged** — PR **#198** (`feat/scheduling-availability` @ `7e5920c`, merge `a28f28d`) and
+PR **#199** (`feat/scheduling-slots` @ `77efff6`, merge `016cdd6`), 2026-09-28. W3 is delivered:
+`V17` creates `scheduling_availability` and `scheduling_slots`,
 `GET`/`PUT /api/scheduling/activities/{id}/availability` read and replace the whole window set, and
 `GET /api/scheduling/slots?activityId=&from=&to=` materializes that range idempotently and reads it
-back, all under the existing `lc-scheduling` / `lc-scheduling-read` role pair (see the evidence log).
-W4–W7 are planned. This header makes no claim about push or PR state; see the evidence log.
+back, all under the existing `lc-scheduling` / `lc-scheduling-read` role pair. What remains: **W4**
+(appointments and the calendar, which owns booking-by-id, the `APPOINTMENT` status family and the
+slot-identity contract **G17** leaves open), **W5**/**W6** (frontend) and **W7** (wiring and closure).
+Gaps G1–G17 stay as declared, with **G13** and **G14** closed by W3b. Gate results, verification
+rounds and commit identities are in the evidence log.
 **Repository**: LifeControl — spans `life-control-api/**` (Spring Boot, Java 21, PostgreSQL +
 Flyway), `api-gateway/**` and `life-control-app-angular/**` (Angular 20.3 + Material/CDK 20).
 **Created**: 2026-09-27 · **Risk**: **high** out of the gate — new domain with four tables, a new
 authorization role pair, a new gateway route, a booking path that serializes concurrent writers, and
 a calendar UI built from scratch because no date/calendar primitive exists in the app. No existing
 contract changes and no data migration.
-**Branch**: `feat/scheduling-calendar` · **Base**: `main` @ `091660a` · **Worktree**:
+**Branches**: one per slice, all merged — `feat/scheduling-foundation` (W1),
+`feat/scheduling-activity-domain` + `feat/scheduling-activity-api` (W2), `feat/scheduling-availability`
+(W3a) and `feat/scheduling-slots` (W3b); see the task log. · **Base**: `main` @ `091660a` (W0) · **Worktree**:
 `~/workspace/LifeControl-worktrees/feat-scheduling-calendar` (herdr `wC`), created with the procedure
 in `.agents/skills/project-conventions/references/worktrees.md`.
 **Requested by**: the user — "el user_id es el empleado que atiende y se le pueden asignar tareas,
@@ -277,6 +283,8 @@ is the user's call at delivery, and the honest number to decide with is this one
 | 2026-09-28 | **First independent verification of W3b: 8 of 12 claims upheld.** Its five findings were fixed rather than declared: the slice's central guarantee (re-materialization never touching `booked`) had **no** behavioural proof, so a booked row now survives a second materialization of the same range against real PostgreSQL; the `validTo` upper bound was unasserted, so one fixture now has both an inside and an after-validity day; the range guard's 400s were mock-level only, so inverted, over-90 and exactly-90 now run through the real service to HTTP; the `available` fixture (`capacity = 4, booked = 2`) was mutation-blind, so it is now `4 / 1 / 3`; and the guard's comment justified itself with an unverifiable product claim about booking horizons, which the checkable window-cap reason replaced. |
 | 2026-09-28 | **Second independent verification re-adjudicated all five: upheld**, confirming the re-materialization proof re-runs the same `ON CONFLICT` path over a `booked > 0` row (`created=0` on the second materialization), and that no existing assertion was weakened. It also reported the stale `Status` header this commit fixes, and named two remaining mutation-blind spots kept deliberately rather than hidden: the `materializesRangeWithExactDateTimes` fixture keeps `4 / 0 / 4`, so a substitution of `capacity` for `available` survives *there* (the other two fixtures reject it), and `validateRange`'s first javadoc sentence mostly re-reads its two `if`s (its second sentence carries the inclusive-end and exactly-90 facts). |
 | 2026-09-28 | **Measured review load**: W3b is **+1663 −1** in one commit, also about four times the 400-line budget. W3 as a whole, including this record, is **26 files / +3653 −17** across two slices and four commits (two of code, two of record), so packaging is a real decision rather than a formality. |
+
+| 2026-09-28 | **W3 delivered and merged.** Packaged as **two stacked PRs** to `main`, the same pattern W2 used: **#198** (`feat/scheduling-availability` @ `7e5920c`, merge **`a28f28d`**) for W3a and **#199** (`feat/scheduling-slots` @ `77efff6`, merge **`016cdd6`**) for W3b. The retarget of #199 to `main` after #198 landed was verified, not assumed: its visible diff stayed exactly the 13 W3b paths with **no W3a file** in it — a polluted diff would have been a branching bug. CI green on both (2 of the 4 workflows run; the Angular and Docker ones are path-filtered). Review load accepted knowingly at **1997** and **1693** changed lines against the repo's 400-line budget. |
 
 ## Open gaps (declared, not hidden)
 
