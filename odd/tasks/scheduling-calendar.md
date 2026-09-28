@@ -1,10 +1,11 @@
 # ODD feature: scheduling-calendar
 
-**Status**: **W2 delivered** — the Activity CRUD is reachable end to end: `V16`, the role pair with
-its `ScopeLevel.STORE` registration, the store-scoped service carrying the version precondition, the
-controller and the `/api/scheduling/**` gateway route are implemented and gated (see the evidence
-log). W3–W7 are planned, not implemented. This header makes no claim about push or PR state; see the
-evidence log.
+**Status**: **W3a delivered** — the availability template is reachable end to end: `V17` creates
+`scheduling_availability` and `scheduling_slots`, and `GET`/`PUT /api/scheduling/activities/{id}/availability`
+read and replace the whole window set under the existing `lc-scheduling` / `lc-scheduling-read` role
+pair (see the evidence log). **W3b is not implemented**: `scheduling_slots` still has no entity and
+nothing materializes slots yet, and W3b also owes the `PUT` its window→slot reconciliation (G14).
+W4–W7 are planned. This header makes no claim about push or PR state; see the evidence log.
 **Repository**: LifeControl — spans `life-control-api/**` (Spring Boot, Java 21, PostgreSQL +
 Flyway), `api-gateway/**` and `life-control-app-angular/**` (Angular 20.3 + Material/CDK 20).
 **Created**: 2026-09-27 · **Risk**: **high** out of the gate — new domain with four tables, a new
@@ -52,6 +53,10 @@ slots + capacity) come from that recovered material and were re-confirmed by the
 | D12 | Time is `LocalDateTime` + `TIMESTAMP` (no TZ), matching every existing entity | Repo-wide convention. **Declared gap**: slot boundaries are store-local wall-clock with no conversion, so a DST jump is unmodelled. Not inventing a TZ layer this slice |
 | D13 | The calendar is a **projection endpoint**, never a table | `GET` over a range joins slots + appointments + activity + customer + status |
 | D14 | The frontend calendar is **built with CDK** (no new dependency) | No calendar library and no date library exist in `package.json`; adding FullCalendar is a dependency decision the user has not made |
+| D15 | `PUT .../availability` **replaces the whole window set** of the activity (delete-then-insert in one transaction) | The template is a set of windows; a merge protocol would need per-window identities the model does not carry. Whole-set validation (day 1..7, `end_time > start_time`, `valid_from <= valid_to`, no overlap inside one `day_of_week`) is then checkable in a single pass |
+| D16 | `GET .../slots?from=&to=` **materializes** the requested range lazily via the native `INSERT … ON CONFLICT (activity_id, start_at) DO NOTHING` idiom that already exists (`ProductVariantStoreStockRepository.java:63-69`), guarded by a **maximum range** rule | D10's lazy materialization needs a trigger and there is no scheduler. The guard keeps an absurd range from turning one read into an unbounded insert. Consequence declared in **G11** |
+| D17 | `day_of_week` is **ISO-8601 `1..7` (`MONDAY=1` … `SUNDAY=7`)**, in the column and in the API, instead of the `0..6` this record sketched | No day-of-week convention exists anywhere in the repo — backend, gateway and frontend greps are all negative — so the sketch's `0..6` had no origin and `0` could mean Sunday or Monday. ISO needs no conversion in Java (`LocalDate.getDayOfWeek().getValue()`), and the choice is pinned at the HTTP boundary by the DTO's `@Min(1) @Max(7)` for **both** ends of the range (`0` and `8` → 400). The day→date mapping — a `MONDAY` window landing on a Monday — is **W3b's** to prove with the materialization tests and is not asserted by W3a. The frontend slices (W5, W6) map `Date.getDay()` with one documented `0 → 7` rule |
+| D18 | `PUT .../availability` carries **no version precondition**; the whole window set is last-writer-wins | The record's own API surface marks the activity `PUT` with `(+ version precondition)` and the availability `PUT` without it, because the set has no single version to assert. Each window row keeps its own `version` for future per-window operations |
 
 ## Verified exploration evidence
 
@@ -115,15 +120,19 @@ scheduling_activities        the catalogue: what can be booked, per store
   UNIQUE(company_store_id, activity_name)
 
 scheduling_availability      the template: when it can be booked
-  id, activity_id FK, day_of_week SMALLINT 0..6, start_time TIME, end_time TIME,
-  valid_from DATE, valid_to DATE, enabled, version, created_at, updated_at
+  id, activity_id FK, day_of_week SMALLINT 1..7 (ISO-8601, MONDAY=1 … SUNDAY=7 — D17),
+  start_time TIME, end_time TIME, valid_from DATE, valid_to DATE (both required),
+  enabled, version, created_at, updated_at
   UNIQUE(activity_id, day_of_week, start_time)
+  CHECK(day_of_week BETWEEN 1 AND 7), CHECK(end_time > start_time), CHECK(valid_from <= valid_to)
+  INDEX(activity_id)
 
 scheduling_slots             the bookable instance (lazily materialized)
   id, activity_id FK, start_at TIMESTAMP, end_at TIMESTAMP,
   capacity, booked, status, enabled, version, created_at, updated_at
   UNIQUE(activity_id, start_at)          <- the idempotent upsert key
-  CHECK(booked <= capacity), CHECK(booked >= 0), CHECK(capacity > 0)
+  CHECK(booked <= capacity), CHECK(booked >= 0), CHECK(capacity > 0), CHECK(end_at > start_at)
+  INDEX(activity_id, start_at)
 
 scheduling_appointments      the appointment (== the task assigned to the employee)
   id, slot_id FK, activity_id FK (denormalized), company_store_id FK,
@@ -150,7 +159,9 @@ the counter cannot drift from the appointment count.
 
 **Slot materialization (W3)**: for a requested `[from, to)` range, expand the activity's enabled
 availability windows intersected with `valid_from/valid_to`, step by `duration_minutes`, and upsert
-on `UNIQUE(activity_id, start_at)` — insert if absent, never touch an existing row's `booked`.
+on `UNIQUE(activity_id, start_at)` — insert if absent, never touch an existing row's `booked`. The
+requested range is rejected with 400 when it is inverted or wider than the materialization guard
+(D16).
 
 ## API surface (phase 1)
 
@@ -187,7 +198,8 @@ user decides packaging at delivery.
 | **W1** | activities table + access | `V16__scheduling_activities.sql` (table, indexes, checks, `SCHEDULING` audit seed), `Roles.java` pair (`lc-scheduling`, `lc-scheduling-read`), `ScopeLevel.STORE`, `keycloak-setup.sh` | ~120 (mostly SQL) |
 | **W2a** | Activity domain layer | entity, repository, DTO records, the two exceptions, service (store-scoped + version precondition + soft-delete + re-enable), 26 unit tests | **delivered** — 8 files, **+1154** |
 | **W2b** | Activity HTTP surface + route | controller, standalone contract test, method-security slice, the single gateway route | **delivered** — 4 files, **+629** |
-| **W3** | availability + slots | `V17__scheduling_availability_slots.sql`, availability read/write, window validation, range expansion + idempotent upsert, `GET slots` | ~500 → **may split** |
+| **W3a** | availability template + `V17` | `V17__scheduling_availability_slots.sql` (both W3 tables, so `V18` stays free for W4), the availability entity/repository/DTOs/validation, `GET`+`PUT /activities/{id}/availability`, the `GoodsReceiptIntegrationTest` head bump | ~350 |
+| **W3b** | slot materialization | slots entity + repository (native idempotent upsert), window→slot range expansion service, `GET /slots` with the range guard (D16) | ~300 |
 | **W4** | appointments + calendar | `V18__scheduling_appointments.sql` (table + `APPOINTMENT` status type and statuses), booking with pessimistic lock, status transitions, reschedule, cancel, `GET calendar` projection, Testcontainers concurrency test | ~600 → **may split** (booking / calendar projection) |
 | **W5** | frontend activities | feature skeleton (`scheduling.routes.ts`), activities list + form, availability editor | ~500 |
 | **W6** | frontend calendar | week/day grid + day agenda + appointment dialog (CDK, no new dependency) | ~600 → **may split** (grid / dialog) |
@@ -224,7 +236,8 @@ is the user's call at delivery, and the honest number to decide with is this one
 | W0 | Spec + record + mirror | **done** | this file; Engram mirror `odd/scheduling-calendar/tasks`; worktree `wC` verified (`git worktree list` + `.git` file) |
 | W1 | activities table + access | **done** | 6 files, **`bcff2b4`** (+77 −11): `V16__scheduling_activities.sql` (new, 47 lines), `Roles.java` (+2 constants), `ScopeLevel.java` (STORE list + javadoc), `keycloak-setup.sh` (2 client roles), and the two pinned tests updated under explicit authorization. Gates: `spotlessApply`/`spotlessCheck`/`spotbugsMain`/`test` all successful, 2154 tests / 0 failures; independent verification 9/9 upheld |
 | W2 | Activity CRUD + route | **done** | Two work units: **`8cd5a25`** (W2a — 8 files, +1154: entity, repository, DTOs, exceptions, service, 26 unit tests) and **`8e344ad`** (W2b — 4 files, +629: controller, contract test, security slice, gateway route). Gates: API 2200 tests / 0 failures / 0 errors / 0 skipped, gateway 7/7 including `GatewayRouteCoverageTests`, `spotlessCheck`+`spotbugsMain` green |
-| W3 | availability + slots | pending | — |
+| W3a | availability template + `V17` schema | **done** | **`5760620`** (15 files, **+1942 −5**): `V17__scheduling_availability_slots.sql` (67 lines, both W3 tables), the availability entity, repository, four DTO records and `InvalidSchedulingAvailabilityException`, `SchedulingAvailabilityService` (whole-set replace, `deleteByActivityId` → `flush()` → `saveAll`), `SchedulingAvailabilityController` (`GET`/`PUT .../availability`, one-line `@RequestMapping`), four test classes, and the `GoodsReceiptIntegrationTest` head literal `16` → `17`. Gates: API **2240 tests / 0 failures / 0 errors / 0 skipped**, gateway 7/7, `spotlessCheck`+`spotbugsMain` green. Two independent read-only verifications: the first upheld 9 of 14 claims (the one refutation was this record's, not the code) and all five findings were fixed; the second re-adjudicated every one of them **upheld** |
+| W3b | slot materialization + `GET slots` | pending | planned per D16 |
 | W4 | appointments + calendar | pending | — |
 | W5 | frontend activities | pending | — |
 | W6 | frontend calendar | pending | — |
@@ -248,6 +261,13 @@ is the user's call at delivery, and the honest number to decide with is this one
 | 2026-09-27 | **The gateway gate was reproduced, not trusted**: the verifier re-ran `GatewayRouteCoverageTests`' own two regexes over their real trees and computed 23 API prefixes (including `scheduling`) against 24 gateway prefixes, with `unreachable = ∅`, both above the guard's 15/15 positive-control minimums. A passing test on a prefix the guard cannot see would have been the false green this check exists to prevent. |
 | 2026-09-27 | **Design decisions kept from the two verifications**: `create` answering 400 on a null `companyStoreId` has precedent (`GlobalExceptionHandler.java:58` plus `InventoryService`/`PurchaseOrderService`/`StatusValidator` throwing it for invalid input), and `@PageableDefault(size = 12)` matches the dominant convention (10 of 12 paginated controllers) rather than being an outlier. |
 
+| 2026-09-28 | **W3a implemented** on branch `feat/scheduling-availability` off `main @ 92b483e` and committed as **`5760620`** (15 files, **+1942 −5**): `V17__scheduling_availability_slots.sql` (both W3 tables with their CHECKs, UNIQUEs and indexes), `SchedulingAvailability` (raw-UUID activity FK, ISO `short dayOfWeek`, `LocalTime`/`LocalDate`, `@Version`), its repository, four DTO records, `InvalidSchedulingAvailabilityException` (400 by inheritance from `IllegalArgumentException`), `SchedulingAvailabilityService` (store scope re-derived from the activity's own store, whole-set replace with `deleteByActivityId` → `flush()` → `saveAll`), `SchedulingAvailabilityController`, four test classes, and the `GoodsReceiptIntegrationTest` head literal `16` → `17`. |
+| 2026-09-28 | **W3a gates**: `spotlessCheck spotbugsMain test` — BUILD SUCCESSFUL, **2240 tests / 0 failures / 0 errors / 0 skipped**; gateway `test` **7/7** including `GatewayRouteCoverageTests`; the new controller's `@RequestMapping` re-read as a single line, so that gate still sees the mapping rather than passing blind. |
+| 2026-09-28 | **The writer reported a defect against its own work**: `PUT .../availability` echoed the request order through `saveAll` while `GET` answered sorted, so one contract had two orders. Fixed before the first gate run by reading the response back through the same ordered finder the read path uses, with a unit test and the PostgreSQL round trip pinning the equality for an unsorted body. |
+| 2026-09-28 | **First independent verification: 9 of 14 claims upheld, 1 refuted, 4 partial.** The refutation was this record's, not the code's: D15 still said `day 0..6` and D17 claimed tests that did not exist (an `8` rejection, and a `MONDAY` window landing on a Monday). Both were corrected here, and the day→date proof was **moved to W3b** rather than left as an unearned claim. |
+| 2026-09-28 | **The four code-side findings were fixed, not declared away.** The `flush()` hazard was white-box only — a single `PUT` into a table `setUp` had already emptied, where Hibernate could reorder the pending inserts ahead of the queued delete unnoticed — so a **second `PUT` reusing the same `(day_of_week, start_time)` keys** now proves it against real PostgreSQL. The `400` of `InvalidSchedulingAvailabilityException` was never exercised at the HTTP boundary (the standalone slice stubs the service, so its 400s were bean validation), so a controller-slice case now throws it through `GlobalExceptionHandler` and asserts the message; the `8` end of the range was added alongside the `0` case. `authorizesStoreBeforeWriting` only verified the call despite its name, and now asserts the order with `InOrder`. The entity javadoc claimed `ddl-auto=validate` catches type drift, which it does not. |
+| 2026-09-28 | **Second independent verification re-adjudicated all of it: upheld.** It reported the one stale fact fixed in G7 above (the head literal), and left two declared, non-blocking notes: whether the explicit `flush()` is strictly load-bearing rests on Hibernate's action ordering rather than on a mutation anyone ran, and the corrected javadoc's "only asserts the column exists" slightly **understates** `validate` — an understatement deliberately preferred over the overstatement it replaced. |
+
 ## Open gaps (declared, not hidden)
 
 | # | Gap | Why it is not fixed here |
@@ -258,7 +278,13 @@ is the user's call at delivery, and the honest number to decide with is this one
 | G4 | **Appointment status transitions are not yet enumerated** as a `Map<String, Set<String>>`. | It belongs to W4 where it is tested; declaring it here without evidence would be a guess. |
 | G5 | Phase 2 and phase 3 (customer account, public booking) are undesigned. | Deliberate: `D5` phases them, and designing them now would freeze choices phase 1 has not validated. |
 | G6 | The frontend has **no date-entry primitive at all** (E18): the availability editor's time inputs are new ground. | Accepted cost of D14 (no new dependency). If it proves painful, the alternative is a dependency decision by the user, not a silent `npm install`. |
-| G7 | `GoodsReceiptIntegrationTest` pins the Flyway head as the literal string `"16"`, so V17 (W3) and V18 (W4) must edit that test again, and its `@DisplayName`/comment must move with it. The assertion itself earns its keep (an unapplied migration leaves `pending()` non-empty); the literal is the maintenance cost. | Deriving the expected head from the migration directory changes an existing test's contract, which is its own work unit rather than a rider on W1. Recorded so the next two slices expect the edit instead of being surprised by it. |
+| G7 | `GoodsReceiptIntegrationTest` pins the Flyway head as the literal string **`"17"`** after W3a, so V18 (W4) must edit that test again, and its `@DisplayName`/comment must move with it. The assertion itself earns its keep (an unapplied migration leaves `pending()` non-empty); the literal is the maintenance cost. | Deriving the expected head from the migration directory changes an existing test's contract, which is its own work unit rather than a rider on W1. Recorded so the next slice expects the edit instead of being surprised by it. |
 | G8 | W1 could not validate `scheduling_activities` against a JPA entity: none exists until W2, so `ddl-auto=validate` proves only that Flyway applied V16, not that an entity matches the table. | By construction of the slice split. **Closed by W2a**: the entity now maps column for column and the integration tests start the context with `ddl-auto=validate`. |
 | G9 | The method-security slice test pins the **annotations**, not production's `@EnableMethodSecurity` in `config/security/SecurityConfig.java`, nor the JWT→`ROLE_*` mapping that makes `lc-scheduling` resolvable. Removing that enablement from production would not fail any test, in either module. | Same limitation as the pre-existing `StoreInventorySettingsControllerSecurityTest` this test mirrors, so it is the repo's accepted level of proof rather than a regression introduced here. A test that asserts the production security configuration is its own work unit. |
 | G10 | `SchedulingActivityControllerTest` stubs the service, so it cannot catch entity→DTO mapping drift, and it asserts only some response fields (`description`, `userId`, `version`, `createdAt`, `updatedAt` are unasserted). | The mapping is covered by the committed `SchedulingActivityServiceTest`; the unasserted fields are the ordinary cost of a contract test. Declared so a future rename is not mistaken for a covered change. |
+| G11 | **A read-scoped caller can create rows**: `GET /api/scheduling/slots` materializes what it is asked for (D16), so `lc-scheduling-read` performs inserts. The rows are purely derived from availability the write roles declared, are idempotent, and never touch `booked` — but the privilege boundary is no longer "reads only read". | The alternative (materialize on the availability write, or a scheduled job) contradicts D10's "no background job, no unbounded pre-generation", or needs a scheduler this repo does not have. The max-range guard bounds the insert per request. Revisit if the read role ever reaches an untrusted audience. |
+| G12 | `LocalTime`/`LocalDate` crossing HTTP in a **response** body is new ground: no `spring.jackson.*` setting, no `@JsonFormat` and no HTTP `ObjectMapper` bean exist repo-wide (the one Jackson wiring is the Redis cache serializer), and no existing response field carries those types. | Pinned by an explicit JSON-format assertion in the availability controller test instead of left to the Spring Boot default: if the wire format is not the ISO one, the test fails rather than the frontend discovering it later. |
+| G13 | `V17` creates `scheduling_slots` with no JPA entity until **W3b**, so during W3a `ddl-auto=validate` proves only that Flyway applied the migration, not that an entity matches that table. | Same shape as **G8** in W1, and it closes the same way (W3b's entity maps it column for column). Splitting `V17` into two migrations would push `V18`/`V19` onto W4's appointments, which this record's migration plan does not have. |
+| G14 | W3a's `PUT .../availability` replaces the window set but **does not reconcile already-materialized slots**: removing a window leaves the future, still-unbooked slots it produced, and they stay bookable. | W3a has no slots entity to reconcile against (G13), so the rule lands in **W3b** with the table's first consumer. Declared now so W3a's semantics are not mistaken for the final ones. |
+| G15 | `scheduling_availability.enabled` is stored `true` on every `PUT` and is not settable through the API: under whole-set replacement, omitting a window is how you disable it. | Keeps the repo-wide `enabled` + `includeDisabled` soft-delete convention and every table's uniform shape, and leaves a per-window `PATCH .../enable` as a pure code change with no migration. Called out so the column does not read as an unreachable trap. |
+| G16 | `scheduling_slots.status` (`VARCHAR(50) NOT NULL DEFAULT 'Available'`) is created by `V17` but nothing in W3 ever changes it: the row is inserted with the default and availability is derivable from `capacity`/`booked`. | The column is in this record's own model and D8 scopes the status catalogue to appointments, so a plain string is the consistent shape (`Shift.status` is the precedent). W4's booking path is its first real writer (full ↔ available). Declared so W3 does not read as if it maintains a status it does not maintain. |
