@@ -8,17 +8,35 @@
     <ul class="agenda-list">
       @for (entry of entries(); track entry.slotId) {
         @for (appointment of entry.appointments; track appointment.id) {
-          <li class="agenda-item" [class.disabled]="!appointment.enabled">
-            <span class="agenda-time"
-              >{{ timeLabel(entry.startAt) }}–{{ timeLabel(entry.endAt) }}</span
-            >
-            <span class="agenda-status">{{ appointment.statusName }}</span>
-            <span class="agenda-customer">{{ appointment.customerName ?? 'Sin cliente' }}</span>
-            <span class="agenda-employee">{{ appointment.userId ?? 'Sin responsable' }}</span>
-            @if (!appointment.enabled) {
-              <span class="agenda-disabled-marker">Inactiva</span>
-            }
-          </li>
+          @if (canManage() && appointment.enabled) {
+            <li class="agenda-item">
+              <button
+                type="button"
+                class="agenda-action"
+                [attr.aria-label]="manageLabel(entry, appointment)"
+                (click)="onSelectAppointment(entry, appointment)"
+              >
+                <span class="agenda-time"
+                  >{{ timeLabel(entry.startAt) }}–{{ timeLabel(entry.endAt) }}</span
+                >
+                <span class="agenda-status">{{ appointment.statusName }}</span>
+                <span class="agenda-customer">{{ appointment.customerName ?? 'Sin cliente' }}</span>
+                <span class="agenda-employee">{{ appointment.userId ?? 'Sin responsable' }}</span>
+              </button>
+            </li>
+          } @else {
+            <li class="agenda-item" [class.disabled]="!appointment.enabled">
+              <span class="agenda-time"
+                >{{ timeLabel(entry.startAt) }}–{{ timeLabel(entry.endAt) }}</span
+              >
+              <span class="agenda-status">{{ appointment.statusName }}</span>
+              <span class="agenda-customer">{{ appointment.customerName ?? 'Sin cliente' }}</span>
+              <span class="agenda-employee">{{ appointment.userId ?? 'Sin responsable' }}</span>
+              @if (!appointment.enabled) {
+                <span class="agenda-disabled-marker">Inactiva</span>
+              }
+            </li>
+          }
         }
       }
     </ul>

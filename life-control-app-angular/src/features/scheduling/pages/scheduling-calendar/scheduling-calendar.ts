@@ -19,7 +19,10 @@ import { httpErrorMessage } from '@shared/data';
 import { NotificationService } from '@shared/data/notification';
 import { hasAnyClientRole, SCHEDULING_WRITE_ROLES } from '@core/security/roles';
 import { SchedulingWeekGrid } from '../../components/scheduling-week-grid/scheduling-week-grid';
-import { SchedulingDayAgenda } from '../../components/scheduling-day-agenda/scheduling-day-agenda';
+import {
+  SchedulingAgendaSelection,
+  SchedulingDayAgenda,
+} from '../../components/scheduling-day-agenda/scheduling-day-agenda';
 import {
   SchedulingAppointmentDialog,
   SchedulingAppointmentDialogData,
@@ -342,22 +345,75 @@ export class SchedulingCalendar {
         SchedulingAppointmentDialog,
         SchedulingAppointmentDialogData,
         SchedulingAppointmentDialogResult
-      >(SchedulingAppointmentDialog, { data: { entry, activityUserId } })
+      >(SchedulingAppointmentDialog, { data: { mode: 'book', entry, activityUserId } })
       .afterClosed()
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((result) => this.onBookingClosed(result));
+      .subscribe((result) => this.onDialogClosed(result));
   }
 
   /**
-   * Reacts to the dialog's close (D72).
+   * Opens the manage dialog for an appointment the agenda offered (D90).
+   *
+   * The affordance is already gated on this page's `canWrite` and on the agenda's
+   * `enabled` term (D89), so this guard is defence in depth: a writable dialog a
+   * reader could reach by a second route would be the same defect arriving twice.
+   *
+   * The **whole week's** entries travel as `weekEntries`, never the selected day's:
+   * the dialog resolves the reschedule destinations from the loaded week (D67, D85),
+   * and the agenda's day is only a slice of it.
+   */
+  onAppointmentSelected(selection: SchedulingAgendaSelection): void {
+    // Doubled on purpose, like the agenda's own gate: the component withholds the
+    // affordance (D60, D89) and the page refuses the open, so neither a reader nor a
+    // soft-deleted appointment can reach a writable dialog by any route.
+    if (!this.canWrite || !selection.appointment.enabled) {
+      return;
+    }
+
+    this.dialog
+      .open<
+        SchedulingAppointmentDialog,
+        SchedulingAppointmentDialogData,
+        SchedulingAppointmentDialogResult
+      >(SchedulingAppointmentDialog, {
+        data: {
+          mode: 'manage',
+          entry: selection.entry,
+          appointment: selection.appointment,
+          weekEntries: this.weekEntries(),
+        },
+      })
+      .afterClosed()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((result) => this.onDialogClosed(result));
+  }
+
+  /**
+   * Reacts to the dialog's close (D72), from either the booking or the manage open.
    *
    * `undefined` is treated as no result on purpose: Material can close the ref
    * itself (Esc or backdrop) and that close carries no result, so it means the
    * same thing as `null` — no write and no conflict.
    */
-  private onBookingClosed(result: SchedulingAppointmentDialogResult | undefined): void {
+  private onDialogClosed(result: SchedulingAppointmentDialogResult | undefined): void {
     if (result?.outcome === 'booked') {
       this.notifications.showSuccess('Turno reservado correctamente.');
+      this.weekResource.reload();
+      return;
+    }
+
+    // A manage write — a status change, a reschedule or a removal (D86) — reloads
+    // the same way but claims no booking: 'Turno reservado' after a cancellation
+    // would be a lie, and no single copy is true for all three members behind
+    // 'updated' ('actualizado' would be false for a removal). The booking toast
+    // exists because a booking's answer can land off-screen — the slot is in the
+    // week grid while the agenda may show another day — whereas every manage answer
+    // is visible where the operator is looking: a status change moves the row's
+    // chip, a removal adds the `enabled=false` marker the agenda already renders,
+    // and a reschedule moves the destination slot's `booked` count in the very grid
+    // the operator picked it from. The reloaded row states the new situation, so
+    // this branch stays silent on purpose (the record's declared position).
+    if (result?.outcome === 'updated') {
       this.weekResource.reload();
       return;
     }

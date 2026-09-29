@@ -8,6 +8,8 @@ import { SchedulingAppointmentService } from './scheduling-appointment.service';
 import {
   SchedulingAppointment,
   SchedulingAppointmentBookingRequest,
+  SchedulingAppointmentRescheduleRequest,
+  SchedulingAppointmentStatusRequest,
 } from '../models/scheduling-appointment.models';
 
 describe('SchedulingAppointmentService', () => {
@@ -126,6 +128,179 @@ describe('SchedulingAppointmentService', () => {
       // as a gap (G36; G27 is its read-side twin) rather than silencing it.
       expect(req.request.context.get(SKIP_ERROR_NOTIFICATION)).toBe(false);
       req.flush(mockAppointment);
+    });
+  });
+
+  describe('updateStatus', () => {
+    const statusRequest: SchedulingAppointmentStatusRequest = { statusId: 'status-confirmed' };
+
+    it('should PATCH the status sub-path with exactly { statusId }', () => {
+      service.updateStatus('appointment-1', statusRequest).subscribe({ error: () => undefined });
+
+      const req = httpMock.expectOne(`${base}/appointment-1/status`);
+      expect(req.request.method).toBe('PATCH');
+      // The field is `statusId`, never a name: the server resolves by id and rejects
+      // a status of the wrong type with 400 (E42). Object.keys pins that no second
+      // field travels.
+      expect(Object.keys(req.request.body)).toEqual(['statusId']);
+      expect(req.request.body).toEqual({ statusId: 'status-confirmed' });
+      req.flush({ ...mockAppointment, statusId: 'status-confirmed', statusName: 'Confirmed' });
+    });
+
+    it('should return the updated appointment as the response', async () => {
+      const promise = firstValueFrom(service.updateStatus('appointment-1', statusRequest));
+
+      const updated = { ...mockAppointment, statusId: 'status-confirmed', statusName: 'Confirmed' };
+      httpMock.expectOne(`${base}/appointment-1/status`).flush(updated);
+
+      await expect(promise).resolves.toEqual(updated);
+    });
+
+    it('should leave the global error notification enabled, since the service owns no error signal', () => {
+      service.updateStatus('appointment-1', statusRequest).subscribe({ error: () => undefined });
+
+      const req = httpMock.expectOne(`${base}/appointment-1/status`);
+      // D75 covers every write, not only booking: the method sets no
+      // SKIP_ERROR_NOTIFICATION token, so the interceptor's global toast is not silenced.
+      expect(req.request.context.get(SKIP_ERROR_NOTIFICATION)).toBe(false);
+      req.flush(mockAppointment);
+    });
+
+    it('should rethrow a 409 illegal-transition error untouched', () => {
+      let caught: unknown;
+      service.updateStatus('appointment-1', statusRequest).subscribe({
+        error: (err: unknown) => {
+          caught = err;
+        },
+      });
+
+      httpMock
+        .expectOne(`${base}/appointment-1/status`)
+        .flush(
+          { message: 'Invalid status transition: Scheduled -> Completed' },
+          { status: 409, statusText: 'Conflict' },
+        );
+
+      // Nothing catches, rewraps or swallows the error (D75), so the caller receives the
+      // original HttpErrorResponse and can map the server's own message.
+      expect(caught).toBeInstanceOf(HttpErrorResponse);
+      const httpError = caught as HttpErrorResponse;
+      expect(httpError.status).toBe(409);
+      expect(httpError.error).toEqual({
+        message: 'Invalid status transition: Scheduled -> Completed',
+      });
+    });
+  });
+
+  describe('reschedule', () => {
+    const rescheduleRequest: SchedulingAppointmentRescheduleRequest = { slotId: 'slot-2' };
+
+    it('should PUT the appointment path with exactly { slotId }', () => {
+      service.reschedule('appointment-1', rescheduleRequest).subscribe({ error: () => undefined });
+
+      const req = httpMock.expectOne(`${base}/appointment-1`);
+      expect(req.request.method).toBe('PUT');
+      expect(Object.keys(req.request.body)).toEqual(['slotId']);
+      expect(req.request.body).toEqual({ slotId: 'slot-2' });
+      req.flush({ ...mockAppointment, slotId: 'slot-2' });
+    });
+
+    it('should leave the global error notification enabled, since the service owns no error signal', () => {
+      service.reschedule('appointment-1', rescheduleRequest).subscribe({ error: () => undefined });
+
+      const req = httpMock.expectOne(`${base}/appointment-1`);
+      expect(req.request.context.get(SKIP_ERROR_NOTIFICATION)).toBe(false);
+      req.flush(mockAppointment);
+    });
+
+    it('should rethrow a 409 full-destination error untouched', () => {
+      let caught: unknown;
+      service.reschedule('appointment-1', rescheduleRequest).subscribe({
+        error: (err: unknown) => {
+          caught = err;
+        },
+      });
+
+      httpMock.expectOne(`${base}/appointment-1`).flush(
+        {
+          message: 'Scheduling slot slot-2 is not bookable: it is full (booked 3 of capacity 3)',
+        },
+        { status: 409, statusText: 'Conflict' },
+      );
+
+      expect(caught).toBeInstanceOf(HttpErrorResponse);
+      expect((caught as HttpErrorResponse).status).toBe(409);
+    });
+
+    it('should rethrow a 404 missing-appointment error untouched', () => {
+      let caught: unknown;
+      service.reschedule('appointment-1', rescheduleRequest).subscribe({
+        error: (err: unknown) => {
+          caught = err;
+        },
+      });
+
+      httpMock
+        .expectOne(`${base}/appointment-1`)
+        .flush(
+          { message: 'Scheduling appointment appointment-1 not found' },
+          { status: 404, statusText: 'Not Found' },
+        );
+
+      expect(caught).toBeInstanceOf(HttpErrorResponse);
+      const httpError = caught as HttpErrorResponse;
+      expect(httpError.status).toBe(404);
+      expect(httpError.error).toEqual({
+        message: 'Scheduling appointment appointment-1 not found',
+      });
+    });
+  });
+
+  describe('remove', () => {
+    it('should DELETE the appointment path and complete on a 204', async () => {
+      const promise = firstValueFrom(service.remove('appointment-1'));
+
+      const req = httpMock.expectOne(`${base}/appointment-1`);
+      expect(req.request.method).toBe('DELETE');
+      expect(req.request.body).toBeNull();
+      req.flush(null, { status: 204, statusText: 'No Content' });
+
+      // `HttpClient.delete<void>` is typed `void` but emits the parsed empty body, which is
+      // `null` at runtime: this asserts the framework's behaviour, not a contract of ours.
+      await expect(promise).resolves.toBeNull();
+    });
+
+    it('should leave the global error notification enabled, since the service owns no error signal', () => {
+      service.remove('appointment-1').subscribe({ error: () => undefined });
+
+      const req = httpMock.expectOne(`${base}/appointment-1`);
+      expect(req.request.context.get(SKIP_ERROR_NOTIFICATION)).toBe(false);
+      req.flush(null, { status: 204, statusText: 'No Content' });
+    });
+
+    it('should rethrow a 404 missing-appointment error untouched', () => {
+      let caught: unknown;
+      service.remove('appointment-1').subscribe({
+        error: (err: unknown) => {
+          caught = err;
+        },
+      });
+
+      // DELETE never answers 409 (E44), so the reachable failure this method must not
+      // swallow is the 404 for a missing appointment.
+      httpMock
+        .expectOne(`${base}/appointment-1`)
+        .flush(
+          { message: 'Scheduling appointment appointment-1 not found' },
+          { status: 404, statusText: 'Not Found' },
+        );
+
+      expect(caught).toBeInstanceOf(HttpErrorResponse);
+      const httpError = caught as HttpErrorResponse;
+      expect(httpError.status).toBe(404);
+      expect(httpError.error).toEqual({
+        message: 'Scheduling appointment appointment-1 not found',
+      });
     });
   });
 });

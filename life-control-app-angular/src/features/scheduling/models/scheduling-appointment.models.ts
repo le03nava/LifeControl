@@ -49,3 +49,25 @@ export interface SchedulingAppointmentBookingRequest {
   userId: string | null;
   notes: string | null;
 }
+
+/**
+ * Request body of `PATCH /api/scheduling/appointments/{id}/status`.
+ *
+ * The field is `statusId` — a UUID, never a name: the server resolves the status
+ * by id and rejects one of the wrong type with 400. The request carries no
+ * `version` and no `enabled` flag (E42): the appointment's `version` is
+ * emit-only and the endpoint never touches `enabled`.
+ */
+export interface SchedulingAppointmentStatusRequest {
+  readonly statusId: string;
+}
+
+/**
+ * Request body of `PUT /api/scheduling/appointments/{id}`.
+ *
+ * Carries only the destination slot: a reschedule keeps the appointment's status
+ * (D29). No `version` and no `enabled` flag, matching the server DTO (E42).
+ */
+export interface SchedulingAppointmentRescheduleRequest {
+  readonly slotId: string;
+}

@@ -1,8 +1,10 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { MAT_DIALOG_DATA, MatDialog, MatDialogRef } from '@angular/material/dialog';
-import { of, Subject, throwError } from 'rxjs';
+import { MatSelect } from '@angular/material/select';
+import { of, Observable, Subject, throwError } from 'rxjs';
 import { httpErrorMessage } from '@shared/data';
 import { ConfirmDialog } from '@shared/ui';
 import {
@@ -10,7 +12,11 @@ import {
   SchedulingAppointmentDialogData,
 } from './scheduling-appointment-dialog';
 import { SchedulingAppointmentService } from '../../data/scheduling-appointment.service';
-import { SchedulingCalendarEntry } from '../../models/scheduling-calendar.models';
+import { SchedulingStatusService } from '../../data/scheduling-status.service';
+import {
+  SchedulingCalendarAppointment,
+  SchedulingCalendarEntry,
+} from '../../models/scheduling-calendar.models';
 import { SchedulingAppointment } from '../../models/scheduling-appointment.models';
 
 /**
@@ -26,12 +32,45 @@ const SLOT_GONE_COPY = 'Ese horario ya no existe. Volvé a leer la semana y eleg
 // store), where the week is still stale but the slot is not the thing that is gone.
 const WEEK_STALE_COPY = 'La semana que ves quedó desactualizada. Volvé a leerla.';
 
+/**
+ * The manage-mode copies (D87), pinned literally for the same reason: the
+ * discrimination is by the server's free text, so a server copy edit degrades a
+ * specific message into the generic one silently and nothing else would fail.
+ */
+const STATUS_CHANGED_COPY =
+  'El estado del turno cambió mientras lo mirabas. Volvé a leer la semana para ver su situación actual.';
+const APPOINTMENT_CLOSED_COPY =
+  'Este turno ya está cerrado y no admite cambios. Volvé a leer la semana para ver su estado actual.';
+const DESTINATION_UNAVAILABLE_COPY =
+  'El horario de destino dejó de estar disponible. Volvé a leer la semana y elegí otro.';
+const CATALOGUE_FAILED_COPY =
+  'No se pudo cargar el catálogo de estados del turno. Cerrá el diálogo y volvé a abrirlo para intentarlo de nuevo.';
+
+/** The `statusName -> statusId` map the catalogue read resolves to in every happy spec. */
+const STATUS_IDS: ReadonlyMap<string, string> = new Map([
+  ['Scheduled', 'status-scheduled-id'],
+  ['Confirmed', 'status-confirmed-id'],
+  ['Completed', 'status-completed-id'],
+  ['Cancelled', 'status-cancelled-id'],
+  ['NoShow', 'status-noshow-id'],
+]);
+
+type BookData = Extract<SchedulingAppointmentDialogData, { mode: 'book' }>;
+type ManageData = Extract<SchedulingAppointmentDialogData, { mode: 'manage' }>;
+
 describe('SchedulingAppointmentDialog', () => {
   let component: SchedulingAppointmentDialog;
   let fixture: ComponentFixture<SchedulingAppointmentDialog>;
   let dialogRef: { close: ReturnType<typeof vi.fn>; disableClose: boolean };
   let dialogMock: { open: ReturnType<typeof vi.fn> };
-  let appointmentServiceMock: { bookAppointment: ReturnType<typeof vi.fn> };
+  let appointmentServiceMock: {
+    bookAppointment: ReturnType<typeof vi.fn>;
+    updateStatus: ReturnType<typeof vi.fn>;
+    reschedule: ReturnType<typeof vi.fn>;
+    remove: ReturnType<typeof vi.fn>;
+  };
+  let statusServiceMock: { loadAppointmentStatusIds: ReturnType<typeof vi.fn> };
+  let statusIds$: Observable<ReadonlyMap<string, string>>;
 
   const entry: SchedulingCalendarEntry = {
     slotId: 'slot-1',
@@ -65,35 +104,73 @@ describe('SchedulingAppointmentDialog', () => {
     updatedAt: '2026-09-30T09:00:00',
   };
 
-  function setup(
-    overrides: {
-      data?: Partial<SchedulingAppointmentDialogData>;
-      entry?: SchedulingCalendarEntry;
-    } = {},
-  ): void {
+  // The embedded projection appointment: it carries no `slotId` and no time of its
+  // own (E41), which is why manage mode also receives the wrapping entry and the week.
+  const calendarAppointment: SchedulingCalendarAppointment = {
+    id: 'appt-1',
+    userId: 'ana.gomez',
+    customerId: null,
+    customerName: 'María López',
+    statusId: 'status-scheduled-id',
+    statusName: 'Scheduled',
+    notes: null,
+    enabled: true,
+  };
+
+  beforeEach(() => {
+    statusIds$ = of(STATUS_IDS);
+  });
+
+  function build(data: SchedulingAppointmentDialogData): void {
     dialogRef = { close: vi.fn(), disableClose: false };
     dialogMock = { open: vi.fn().mockReturnValue({ afterClosed: () => of(true) }) };
-    appointmentServiceMock = { bookAppointment: vi.fn().mockReturnValue(of(appointment)) };
+    appointmentServiceMock = {
+      bookAppointment: vi.fn().mockReturnValue(of(appointment)),
+      updateStatus: vi.fn().mockReturnValue(of(appointment)),
+      reschedule: vi.fn().mockReturnValue(of(appointment)),
+      remove: vi.fn().mockReturnValue(of(undefined)),
+    };
+    statusServiceMock = {
+      loadAppointmentStatusIds: vi.fn().mockReturnValue(statusIds$),
+    };
 
     TestBed.configureTestingModule({
       imports: [SchedulingAppointmentDialog, NoopAnimationsModule],
       providers: [
         { provide: MatDialogRef, useValue: dialogRef },
         { provide: MatDialog, useValue: dialogMock },
-        {
-          provide: MAT_DIALOG_DATA,
-          useValue: {
-            entry: overrides.entry ?? entry,
-            activityUserId: null,
-            ...overrides.data,
-          } satisfies SchedulingAppointmentDialogData,
-        },
+        { provide: MAT_DIALOG_DATA, useValue: data },
         { provide: SchedulingAppointmentService, useValue: appointmentServiceMock },
+        { provide: SchedulingStatusService, useValue: statusServiceMock },
       ],
     });
 
     fixture = TestBed.createComponent(SchedulingAppointmentDialog);
     component = fixture.componentInstance;
+  }
+
+  function setup(
+    overrides: {
+      data?: Partial<BookData>;
+      entry?: SchedulingCalendarEntry;
+    } = {},
+  ): void {
+    build({
+      mode: 'book',
+      entry: overrides.entry ?? entry,
+      activityUserId: null,
+      ...overrides.data,
+    });
+  }
+
+  function setupManage(overrides: Partial<ManageData> = {}): void {
+    build({
+      mode: 'manage',
+      entry,
+      appointment: calendarAppointment,
+      weekEntries: [entry],
+      ...overrides,
+    });
   }
 
   function normalized(selector: string): string {
@@ -113,6 +190,13 @@ describe('SchedulingAppointmentDialog', () => {
     setup();
     fixture.detectChanges();
     expect(component).toBeTruthy();
+  });
+
+  it('should not read the status catalogue in book mode (D88: once per manage open)', () => {
+    setup();
+    fixture.detectChanges();
+
+    expect(statusServiceMock.loadAppointmentStatusIds).not.toHaveBeenCalled();
   });
 
   it('should render the slot facts: activity, day, time and booked / capacity', () => {
@@ -477,6 +561,381 @@ describe('SchedulingAppointmentDialog', () => {
       component.cancel();
 
       expect(dialogRef.close).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('manage mode (D81, D83, D85)', () => {
+    const serverError = (status: number, message: string): HttpErrorResponse =>
+      new HttpErrorResponse({
+        status,
+        error: { status, message, path: '/api/scheduling/appointments', correlationId: 'corr' },
+      });
+
+    function firstEdge(name: string) {
+      const edge = component.transitions().find((transition) => transition.name === name);
+      if (!edge) {
+        throw new Error(`expected a ${name} edge on the resolved catalogue`);
+      }
+      return edge;
+    }
+
+    it('should render the appointment facts with the Spanish state noun, not the raw statusName', () => {
+      setupManage();
+      fixture.detectChanges();
+
+      expect(normalized('.slot-activity')).toBe('Clase de yoga');
+      expect(normalized('.slot-when')).toContain('09:00');
+      expect(normalized('.slot-when')).toContain('10:00');
+      expect(normalized('.slot-capacity')).toContain('1 / 4');
+      expect(normalized('.status-label')).toBe('Agendado');
+      expect(normalized('.appointment-status')).not.toContain('Scheduled');
+      expect(normalized('.appointment-user')).toContain('ana.gomez');
+      expect(normalized('.appointment-customer')).toContain('María López');
+    });
+
+    it('should render the honest fallbacks when the appointment has no user or customer', () => {
+      setupManage({
+        appointment: { ...calendarAppointment, userId: null, customerName: null },
+      });
+      fixture.detectChanges();
+
+      expect(normalized('.appointment-user')).toContain('Sin responsable');
+      expect(normalized('.appointment-customer')).toContain('Sin cliente');
+    });
+
+    it('should render the notes when the appointment carries them', () => {
+      setupManage({ appointment: { ...calendarAppointment, notes: 'Vino con muletas' } });
+      fixture.detectChanges();
+
+      expect(normalized('.appointment-notes')).toContain('Vino con muletas');
+    });
+
+    it('should offer exactly the four Scheduled edges, labelled from the transition map', () => {
+      setupManage();
+      fixture.detectChanges();
+
+      expect(component.transitions().map((transition) => transition.label)).toEqual([
+        'Confirmar',
+        'Completar',
+        'Cancelar',
+        'Marcar ausente',
+      ]);
+      for (const label of ['Confirmar', 'Completar', 'Cancelar', 'Marcar ausente']) {
+        expect(buttonByText(label)).toBeTruthy();
+      }
+    });
+
+    it('should offer exactly the three Confirmed edges and no way back to Confirmed', () => {
+      setupManage({ appointment: { ...calendarAppointment, statusName: 'Confirmed' } });
+      fixture.detectChanges();
+
+      expect(component.transitions().map((transition) => transition.label)).toEqual([
+        'Completar',
+        'Cancelar',
+        'Marcar ausente',
+      ]);
+      expect(buttonByText('Confirmar')).toBeUndefined();
+    });
+
+    it('should render the closed copy, no edge and no reschedule for a terminal status, but still offer removal', () => {
+      setupManage({ appointment: { ...calendarAppointment, statusName: 'Completed' } });
+      fixture.detectChanges();
+
+      expect(component.isTerminal()).toBe(true);
+      expect(component.transitions()).toEqual([]);
+      expect(buttonByText('Confirmar')).toBeUndefined();
+      expect(buttonByText('Completar')).toBeUndefined();
+      expect(normalized('.status-closed')).toContain('cerrado');
+      expect(fixture.nativeElement.querySelector('.reschedule')).toBeNull();
+      expect(buttonByText('Eliminar turno')).toBeTruthy();
+    });
+
+    it('should render the raw server name beside the closed copy when the status is outside the mirror (declared drift)', () => {
+      // Unreachable except through drift between this mirror and the server: no seeded
+      // appointment carries a name outside the five-name map (G32/G40).
+      setupManage({ appointment: { ...calendarAppointment, statusName: 'Rescheduled' } });
+      fixture.detectChanges();
+
+      expect(component.isTerminal()).toBe(true);
+      expect(component.currentStatusLabel()).toBe('Rescheduled');
+      expect(normalized('.status-label')).toBe('Rescheduled');
+      expect(normalized('.status-closed')).toContain('cerrado');
+    });
+
+    it('should fail closed: a catalogue failure renders no edge button and shows its copy', () => {
+      statusIds$ = throwError(() => new HttpErrorResponse({ status: 500 }));
+      setupManage();
+      fixture.detectChanges();
+
+      expect(component.catalogueFailed()).toBe(true);
+      expect(component.transitions()).toEqual([]);
+      expect(buttonByText('Confirmar')).toBeUndefined();
+      expect(component.generalError()).toBe(CATALOGUE_FAILED_COPY);
+      expect(normalized('app-error-banner')).toContain('catálogo de estados');
+    });
+
+    it('should disable the edge buttons while the catalogue is loading because no edge has a resolved statusId yet', () => {
+      statusIds$ = new Subject<ReadonlyMap<string, string>>();
+      setupManage();
+      fixture.detectChanges();
+
+      // The mechanism the disabled button actually reads: an unresolved map leaves
+      // every edge's `statusId` null, so `!transition.statusId` disables it.
+      expect(component.transitions()[0]?.statusId).toBeNull();
+      const confirm = buttonByText('Confirmar');
+      expect(confirm).toBeTruthy();
+      expect(confirm?.disabled).toBe(true);
+    });
+
+    it('should PATCH the resolved statusId, not the status name, and close with updated', () => {
+      setupManage();
+      fixture.detectChanges();
+
+      buttonByText('Confirmar')?.click();
+
+      expect(appointmentServiceMock.updateStatus).toHaveBeenCalledWith('appt-1', {
+        statusId: 'status-confirmed-id',
+      });
+      expect(appointmentServiceMock.updateStatus).not.toHaveBeenCalledWith('appt-1', {
+        statusId: 'Confirmed',
+      });
+      expect(dialogRef.close).toHaveBeenCalledWith({ outcome: 'updated' });
+    });
+
+    it('should list only same-activity, enabled, roomy, different slots as destinations', () => {
+      const ownSlot = entry;
+      const valid: SchedulingCalendarEntry = {
+        ...entry,
+        slotId: 'slot-9',
+        activityId: 'act-1',
+        activityEnabled: true,
+        available: 2,
+      };
+      const foreign: SchedulingCalendarEntry = { ...entry, slotId: 'slot-2', activityId: 'act-2' };
+      const retired: SchedulingCalendarEntry = {
+        ...entry,
+        slotId: 'slot-3',
+        activityEnabled: false,
+      };
+      const full: SchedulingCalendarEntry = { ...entry, slotId: 'slot-4', available: 0 };
+      setupManage({ weekEntries: [ownSlot, valid, foreign, retired, full] });
+      fixture.detectChanges();
+
+      expect(component.destinations().map((destination) => destination.slotId)).toEqual(['slot-9']);
+    });
+
+    it('should render each destination option with its day, its HH:mm range and its remaining capacity', () => {
+      const valid: SchedulingCalendarEntry = {
+        ...entry,
+        slotId: 'slot-9',
+        activityId: 'act-1',
+        activityEnabled: true,
+        available: 2,
+        startAt: '2026-10-01T11:00:00',
+        endAt: '2026-10-01T12:00:00',
+      };
+      setupManage({ weekEntries: [entry, valid] });
+      fixture.detectChanges();
+
+      const select = fixture.debugElement.query(By.directive(MatSelect))
+        .componentInstance as MatSelect;
+      select.open();
+      fixture.detectChanges();
+
+      const options = Array.from(document.querySelectorAll('mat-option')) as HTMLElement[];
+      expect(options.length).toBe(1);
+      const text = (options[0].textContent ?? '').replace(/\s+/g, ' ').trim();
+      expect(text).toContain('2026-10-01');
+      expect(text).toContain('11:00');
+      expect(text).toContain('12:00');
+      expect(text).toContain('quedan 2');
+
+      select.close();
+      fixture.detectChanges();
+    });
+
+    it('should render an honest empty state and no select when no destination is available', () => {
+      setupManage({ weekEntries: [entry] });
+      fixture.detectChanges();
+
+      expect(component.destinations()).toEqual([]);
+      expect(fixture.nativeElement.querySelector('mat-select')).toBeNull();
+      expect(normalized('.reschedule-empty')).toContain('No hay otro horario');
+    });
+
+    it('should PUT the chosen destination and close with updated on success', () => {
+      const valid: SchedulingCalendarEntry = { ...entry, slotId: 'slot-9', available: 2 };
+      setupManage({ weekEntries: [entry, valid] });
+      component.rescheduleTarget.set('slot-9');
+      fixture.detectChanges();
+
+      buttonByText('Reprogramar')?.click();
+
+      expect(appointmentServiceMock.reschedule).toHaveBeenCalledWith('appt-1', {
+        slotId: 'slot-9',
+      });
+      expect(dialogRef.close).toHaveBeenCalledWith({ outcome: 'updated' });
+    });
+
+    it('should open ConfirmDialog with destructive: true and issue no request when dismissed', () => {
+      setupManage();
+      fixture.detectChanges();
+      dialogMock.open.mockReturnValue({ afterClosed: () => of(undefined) });
+
+      component.onRemove();
+
+      expect(dialogMock.open).toHaveBeenCalledWith(
+        ConfirmDialog,
+        expect.objectContaining({ data: expect.objectContaining({ destructive: true }) }),
+      );
+      expect(appointmentServiceMock.remove).not.toHaveBeenCalled();
+      expect(dialogRef.close).not.toHaveBeenCalled();
+    });
+
+    it('should DELETE only on an exact true and close with updated', () => {
+      setupManage();
+      fixture.detectChanges();
+      dialogMock.open.mockReturnValue({ afterClosed: () => of(true) });
+
+      component.onRemove();
+
+      expect(appointmentServiceMock.remove).toHaveBeenCalledWith('appt-1');
+      expect(dialogRef.close).toHaveBeenCalledWith({ outcome: 'updated' });
+    });
+
+    describe('lifecycle failure vocabulary (D87)', () => {
+      it('should treat Invalid status transition as stale with the status-changed copy', () => {
+        setupManage();
+        fixture.detectChanges();
+        appointmentServiceMock.updateStatus.mockReturnValue(
+          throwError(() => serverError(409, 'Invalid status transition: Scheduled → NoShow')),
+        );
+
+        component.onTransition(firstEdge('Confirmed'));
+        fixture.detectChanges();
+
+        expect(component.generalError()).toBe(STATUS_CHANGED_COPY);
+        expect(dialogRef.disableClose).toBe(true);
+        component.cancel();
+        expect(dialogRef.close).toHaveBeenCalledWith({ outcome: 'stale' });
+      });
+
+      it('should treat cannot-be-modified as stale with the already-closed copy', () => {
+        setupManage();
+        fixture.detectChanges();
+        appointmentServiceMock.updateStatus.mockReturnValue(
+          throwError(() =>
+            serverError(
+              409,
+              "Scheduling appointment appt-1 cannot be modified while in status 'Completed'",
+            ),
+          ),
+        );
+
+        component.onTransition(firstEdge('Confirmed'));
+        fixture.detectChanges();
+
+        expect(component.generalError()).toBe(APPOINTMENT_CLOSED_COPY);
+        expect(dialogRef.disableClose).toBe(true);
+        component.cancel();
+        expect(dialogRef.close).toHaveBeenCalledWith({ outcome: 'stale' });
+      });
+
+      it('should treat a full destination as stale with the capacity copy', () => {
+        const valid: SchedulingCalendarEntry = { ...entry, slotId: 'slot-9', available: 2 };
+        setupManage({ weekEntries: [entry, valid] });
+        component.rescheduleTarget.set('slot-9');
+        fixture.detectChanges();
+        appointmentServiceMock.reschedule.mockReturnValue(
+          throwError(() =>
+            serverError(409, 'Slot slot-9 is not bookable: it is full (booked 4 of capacity 4)'),
+          ),
+        );
+
+        component.onReschedule();
+        fixture.detectChanges();
+
+        expect(component.generalError()).toBe(CAPACITY_CONFLICT_COPY);
+        expect(dialogRef.disableClose).toBe(true);
+        component.cancel();
+        expect(dialogRef.close).toHaveBeenCalledWith({ outcome: 'stale' });
+      });
+
+      it('should treat a non-bookable destination alone as stale with the unavailable copy', () => {
+        const valid: SchedulingCalendarEntry = { ...entry, slotId: 'slot-9', available: 2 };
+        setupManage({ weekEntries: [entry, valid] });
+        component.rescheduleTarget.set('slot-9');
+        fixture.detectChanges();
+        appointmentServiceMock.reschedule.mockReturnValue(
+          throwError(() => serverError(409, 'Slot slot-9 is not bookable: the slot is disabled')),
+        );
+
+        component.onReschedule();
+        fixture.detectChanges();
+
+        expect(component.generalError()).toBe(DESTINATION_UNAVAILABLE_COPY);
+        expect(dialogRef.disableClose).toBe(true);
+        component.cancel();
+        expect(dialogRef.close).toHaveBeenCalledWith({ outcome: 'stale' });
+      });
+
+      it('should treat any 404 as stale with the neutral week copy', () => {
+        setupManage();
+        fixture.detectChanges();
+        appointmentServiceMock.updateStatus.mockReturnValue(
+          throwError(() => serverError(404, 'Scheduling appointment not found: appt-1')),
+        );
+
+        component.onTransition(firstEdge('Confirmed'));
+        fixture.detectChanges();
+
+        expect(component.generalError()).toBe(WEEK_STALE_COPY);
+        expect(component.generalError()).not.toBe(SLOT_GONE_COPY);
+        expect(dialogRef.disableClose).toBe(true);
+        component.cancel();
+        expect(dialogRef.close).toHaveBeenCalledWith({ outcome: 'stale' });
+      });
+
+      it('should show the banner without a stale verdict on a 403', () => {
+        setupManage();
+        fixture.detectChanges();
+        const forbidden = new HttpErrorResponse({ status: 403 });
+        appointmentServiceMock.updateStatus.mockReturnValue(throwError(() => forbidden));
+
+        component.onTransition(firstEdge('Confirmed'));
+        fixture.detectChanges();
+
+        expect(component.generalError()).toBe(httpErrorMessage(forbidden));
+        expect(dialogRef.disableClose).toBe(false);
+        component.cancel();
+        expect(dialogRef.close).toHaveBeenCalledWith(null);
+      });
+    });
+
+    it('should disable every manage action and issue one request on a double click', () => {
+      const valid: SchedulingCalendarEntry = {
+        ...entry,
+        slotId: 'slot-9',
+        booked: 2,
+        available: 2,
+      };
+      setupManage({ weekEntries: [entry, valid] });
+      const pending = new Subject<SchedulingAppointment>();
+      appointmentServiceMock.updateStatus.mockReturnValue(pending.asObservable());
+      component.rescheduleTarget.set('slot-9');
+      fixture.detectChanges();
+
+      const edge = firstEdge('Confirmed');
+      component.onTransition(edge);
+      component.onTransition(edge);
+      fixture.detectChanges();
+
+      expect(appointmentServiceMock.updateStatus).toHaveBeenCalledTimes(1);
+      expect(component.saving()).toBe(true);
+      expect(buttonByText('Confirmar')?.disabled).toBe(true);
+      expect(buttonByText('Cancelar')?.disabled).toBe(true);
+      expect(buttonByText('Reprogramar')?.disabled).toBe(true);
+      expect(buttonByText('Eliminar turno')?.disabled).toBe(true);
     });
   });
 });

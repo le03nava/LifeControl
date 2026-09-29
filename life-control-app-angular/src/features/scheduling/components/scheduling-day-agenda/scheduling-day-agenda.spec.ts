@@ -1,7 +1,7 @@
 /// <reference types="vitest/globals" />
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
-import { SchedulingDayAgenda } from './scheduling-day-agenda';
+import { SchedulingAgendaSelection, SchedulingDayAgenda } from './scheduling-day-agenda';
 import { SchedulingCalendarEntry } from '../../models/scheduling-calendar.models';
 
 describe('SchedulingDayAgenda', () => {
@@ -37,7 +37,7 @@ describe('SchedulingDayAgenda', () => {
     ...overrides,
   });
 
-  function setup(entries: SchedulingCalendarEntry[], date = '2026-09-30'): void {
+  function setup(entries: SchedulingCalendarEntry[], date = '2026-09-30', canManage = false): void {
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
       imports: [SchedulingDayAgenda, NoopAnimationsModule],
@@ -46,6 +46,7 @@ describe('SchedulingDayAgenda', () => {
     component = fixture.componentInstance;
     fixture.componentRef.setInput('date', date);
     fixture.componentRef.setInput('entries', entries);
+    fixture.componentRef.setInput('canManage', canManage);
     fixture.detectChanges();
   }
 
@@ -139,5 +140,82 @@ describe('SchedulingDayAgenda', () => {
     setup([entry()]);
 
     expect((fixture.nativeElement as HTMLElement).querySelectorAll('button')).toHaveLength(0);
+  });
+
+  it('should not render a control for a reader, and emit nothing on a row click (D60)', () => {
+    setup([entry()], '2026-09-30', false);
+    const emitted = vi.fn();
+    component.appointmentSelected.subscribe(emitted);
+
+    const item = items()[0];
+    expect(item.querySelector('button')).toBeNull();
+    item.click();
+
+    expect(emitted).not.toHaveBeenCalled();
+  });
+
+  it('should emit the entry and the appointment when a manager activates an enabled row (D90)', () => {
+    setup([entry()], '2026-09-30', true);
+    const emitted = vi.fn();
+    component.appointmentSelected.subscribe(emitted);
+
+    const button = items()[0].querySelector('button');
+    expect(button).not.toBeNull();
+    (button as HTMLButtonElement).click();
+
+    expect(emitted).toHaveBeenCalledTimes(1);
+    const selection = emitted.mock.calls[0][0] as SchedulingAgendaSelection;
+    expect(selection.entry.slotId).toBe('slot-1');
+    expect(selection.appointment.id).toBe('appointment-1');
+  });
+
+  it('should keep every fact visible in the interactive row, like the reader row', () => {
+    setup([entry()], '2026-09-30', true);
+
+    const item = items()[0];
+    expect(item.querySelector('.agenda-time')?.textContent?.trim()).toBe('09:00–10:30');
+    expect(item.querySelector('.agenda-status')?.textContent).toContain('Confirmed');
+    expect(item.textContent).toContain('Ana Pérez');
+    expect(item.textContent).toContain('user-1');
+  });
+
+  it('should fall back to the same literals in the interactive row when customer and employee are missing', () => {
+    setup(
+      [
+        entry({
+          appointments: [appointment({ userId: null, customerId: null, customerName: null })],
+        }),
+      ],
+      '2026-09-30',
+      true,
+    );
+
+    const item = items()[0];
+    expect(item.querySelector('button')).not.toBeNull();
+    expect(item.textContent).toContain('Sin cliente');
+    expect(item.textContent).toContain('Sin responsable');
+  });
+
+  it('should keep a soft-deleted appointment non-interactive and silent (D89)', () => {
+    setup([entry({ appointments: [appointment({ enabled: false })] })], '2026-09-30', true);
+    const emitted = vi.fn();
+    component.appointmentSelected.subscribe(emitted);
+
+    const item = items()[0];
+    expect(item.textContent).toContain('Inactiva');
+    expect(item.querySelector('button')).toBeNull();
+    item.click();
+
+    expect(emitted).not.toHaveBeenCalled();
+  });
+
+  it('should name the appointment status and time in the manage control label', () => {
+    setup([entry()], '2026-09-30', true);
+
+    const button = items()[0].querySelector('button');
+    const label = button?.getAttribute('aria-label') ?? '';
+    expect(label).toContain('Confirmed');
+    expect(label).toContain('09:00');
+    expect(label).toContain('10:30');
   });
 });

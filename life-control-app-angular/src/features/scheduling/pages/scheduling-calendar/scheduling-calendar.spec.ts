@@ -1,6 +1,7 @@
 /// <reference types="vitest/globals" />
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
+import { By } from '@angular/platform-browser';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
 import { MatDialog } from '@angular/material/dialog';
@@ -10,6 +11,10 @@ import { NotificationService } from '@shared/data/notification';
 import { ProfileResponse } from '@features/user/profile/data/profile.models';
 import { ProfileService } from '@features/user/profile/data/profile.service';
 import { SchedulingCalendar } from './scheduling-calendar';
+import {
+  SchedulingAgendaSelection,
+  SchedulingDayAgenda,
+} from '../../components/scheduling-day-agenda/scheduling-day-agenda';
 import {
   SchedulingAppointmentDialog,
   SchedulingAppointmentDialogData,
@@ -685,7 +690,7 @@ describe('SchedulingCalendar', () => {
         { data: SchedulingAppointmentDialogData },
       ];
       expect(opened).toBe(SchedulingAppointmentDialog);
-      expect(config.data).toEqual({ entry: slot, activityUserId: 'employee-9' });
+      expect(config.data).toEqual({ mode: 'book', entry: slot, activityUserId: 'employee-9' });
     });
 
     it('should pass a null activityUserId when the activity is not in the catalogue', async () => {
@@ -695,7 +700,7 @@ describe('SchedulingCalendar', () => {
       component.onSlotSelected(entry());
 
       const config = dialog.open.mock.calls[0][1] as { data: SchedulingAppointmentDialogData };
-      expect(config.data.activityUserId).toBeNull();
+      expect(config.data.mode === 'book' ? config.data.activityUserId : 'not-book-mode').toBeNull();
     });
 
     it('should not open the dialog when the user cannot write (D74)', async () => {
@@ -757,6 +762,196 @@ describe('SchedulingCalendar', () => {
 
       expect(calendarService.loadCalendarWeek).toHaveBeenCalledTimes(1);
       expect(notifications.showSuccess).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('the manage dialog (D90, D86, D85)', () => {
+    const agendaSelection = (
+      overrides: Partial<SchedulingAgendaSelection> = {},
+    ): SchedulingAgendaSelection => {
+      const slot = entry();
+      return { entry: slot, appointment: slot.appointments[0], ...overrides };
+    };
+
+    function agenda(): SchedulingDayAgenda {
+      return fixture.debugElement.query(By.directive(SchedulingDayAgenda))
+        .componentInstance as SchedulingDayAgenda;
+    }
+
+    it('should pass canWrite down to the agenda for a writer (D74, D90)', async () => {
+      setup({ roles: WRITE_ROLES });
+      await settle();
+
+      expect(agenda().canManage()).toBe(true);
+      expect((fixture.nativeElement as HTMLElement).querySelector('.agenda-action')).not.toBeNull();
+    });
+
+    it('should pass canWrite=false down to the agenda for a reader (D74, D90)', async () => {
+      setup({ roles: READ_ROLES });
+      await settle();
+
+      expect(agenda().canManage()).toBe(false);
+      expect((fixture.nativeElement as HTMLElement).querySelector('.agenda-action')).toBeNull();
+    });
+
+    it('should open the manage dialog with the entry, the appointment and the whole week entries (D90, D85)', async () => {
+      const wed = entry({
+        slotId: 'slot-wed',
+        startAt: '2026-09-30T09:00:00',
+        endAt: '2026-09-30T10:00:00',
+      });
+      const thu = entry({
+        slotId: 'slot-thu',
+        startAt: '2026-10-01T11:00:00',
+        endAt: '2026-10-01T12:00:00',
+        appointments: [
+          {
+            id: 'appointment-thu',
+            userId: 'user-2',
+            customerId: null,
+            customerName: 'Bruno Díaz',
+            statusId: 'status-1',
+            statusName: 'Scheduled',
+            notes: null,
+            enabled: true,
+          },
+        ],
+      });
+      setup({ roles: WRITE_ROLES, weekResult: [wed, thu] });
+      await settle();
+      // The agenda shows one day at a time; the dialog must still receive both.
+      component.onDaySelected('2026-10-01');
+      await settle();
+      expect(component.selectedDayEntries()).toHaveLength(1);
+
+      component.onAppointmentSelected({ entry: thu, appointment: thu.appointments[0] });
+
+      expect(dialog.open).toHaveBeenCalledTimes(1);
+      const [opened, config] = dialog.open.mock.calls[0] as [
+        unknown,
+        { data: SchedulingAppointmentDialogData },
+      ];
+      expect(opened).toBe(SchedulingAppointmentDialog);
+      expect(config.data).toEqual({
+        mode: 'manage',
+        entry: thu,
+        appointment: thu.appointments[0],
+        weekEntries: [wed, thu],
+      });
+      expect(config.data.mode === 'manage' ? config.data.weekEntries : []).not.toEqual(
+        component.selectedDayEntries(),
+      );
+    });
+
+    it('should open the manage dialog when the operator activates the agenda control (D90)', async () => {
+      // End-to-end through the template binding: every other manage spec calls
+      // `onAppointmentSelected` directly, so deleting the `(appointmentSelected)`
+      // binding from the page template would leave them all green while the feature
+      // is dead. This test activates the rendered control as a user would.
+      const wed = entry({
+        slotId: 'slot-wed',
+        startAt: '2026-09-30T09:00:00',
+        endAt: '2026-09-30T10:00:00',
+      });
+      const thu = entry({
+        slotId: 'slot-thu',
+        startAt: '2026-10-01T11:00:00',
+        endAt: '2026-10-01T12:00:00',
+        appointments: [
+          {
+            id: 'appointment-thu',
+            userId: 'user-2',
+            customerId: null,
+            customerName: 'Bruno Díaz',
+            statusId: 'status-1',
+            statusName: 'Scheduled',
+            notes: null,
+            enabled: true,
+          },
+        ],
+      });
+      setup({ roles: WRITE_ROLES, weekResult: [wed, thu] });
+      await settle();
+      component.onDaySelected('2026-10-01');
+      await settle();
+
+      const action = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(
+        '.agenda-action',
+      );
+      expect(action).not.toBeNull();
+      action?.click();
+      await settle();
+
+      expect(dialog.open).toHaveBeenCalledTimes(1);
+      const [opened, config] = dialog.open.mock.calls[0] as [
+        unknown,
+        { data: SchedulingAppointmentDialogData },
+      ];
+      expect(opened).toBe(SchedulingAppointmentDialog);
+      expect(config.data).toEqual({
+        mode: 'manage',
+        entry: thu,
+        appointment: thu.appointments[0],
+        weekEntries: [wed, thu],
+      });
+    });
+
+    it('should reload the week after a manage write and not claim a booking (D86, D72)', async () => {
+      setup({ roles: WRITE_ROLES, dialogResult: { outcome: 'updated' } });
+      await settle();
+      expect(calendarService.loadCalendarWeek).toHaveBeenCalledTimes(1);
+
+      component.onAppointmentSelected(agendaSelection());
+      await settle();
+
+      expect(calendarService.loadCalendarWeek).toHaveBeenCalledTimes(2);
+      expect(notifications.showSuccess).not.toHaveBeenCalled();
+    });
+
+    it('should reload the week without a success toast when a manage write proved the week stale (D87)', async () => {
+      setup({ roles: WRITE_ROLES, dialogResult: { outcome: 'stale' } });
+      await settle();
+      expect(calendarService.loadCalendarWeek).toHaveBeenCalledTimes(1);
+
+      component.onAppointmentSelected(agendaSelection());
+      await settle();
+
+      expect(calendarService.loadCalendarWeek).toHaveBeenCalledTimes(2);
+      expect(notifications.showSuccess).not.toHaveBeenCalled();
+    });
+
+    it('should do nothing when the manage dialog closes without a write', async () => {
+      setup({ roles: WRITE_ROLES, dialogResult: null });
+      await settle();
+      expect(calendarService.loadCalendarWeek).toHaveBeenCalledTimes(1);
+
+      component.onAppointmentSelected(agendaSelection());
+      await settle();
+
+      expect(calendarService.loadCalendarWeek).toHaveBeenCalledTimes(1);
+      expect(notifications.showSuccess).not.toHaveBeenCalled();
+    });
+
+    it('should not open the manage dialog for a reader even if the handler is reached (D74, D90)', async () => {
+      setup({ roles: READ_ROLES });
+      await settle();
+
+      component.onAppointmentSelected(agendaSelection());
+
+      expect(dialog.open).not.toHaveBeenCalled();
+    });
+
+    it('should not open the manage dialog for a soft-deleted appointment even if the handler is reached (D89)', async () => {
+      setup({ roles: WRITE_ROLES });
+      await settle();
+
+      const selection = agendaSelection();
+      component.onAppointmentSelected({
+        entry: selection.entry,
+        appointment: { ...selection.appointment, enabled: false },
+      });
+
+      expect(dialog.open).not.toHaveBeenCalled();
     });
   });
 });
