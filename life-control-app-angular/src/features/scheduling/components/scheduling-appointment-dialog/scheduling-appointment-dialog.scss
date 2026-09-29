@@ -1,0 +1,42 @@
+// The dialog is self-contained: no shared form-layout partial, because that partial
+// styles a full-page `.form-card` (background, shadow, max-width) that a modal must
+// not inherit. Only the field width and the slot summary are styled here.
+:host {
+  display: block;
+}
+
+.slot-summary {
+  padding: var(--space-md, 1rem);
+  margin-bottom: var(--space-md, 1rem);
+  background-color: var(--mat-sys-surface-container-low, #f7f7f7);
+  border: 1px solid var(--mat-sys-outline-variant, #e0e0e0);
+  border-radius: var(--radius-md, 0.5rem);
+
+  p {
+    margin: 0;
+  }
+
+  .slot-activity {
+    font-weight: 600;
+  }
+
+  .slot-when,
+  .slot-capacity {
+    color: var(--mat-sys-on-surface-variant, #4b5563);
+    font-size: 0.875rem;
+  }
+
+  .slot-available {
+    font-weight: 600;
+  }
+
+  .slot-retired {
+    margin-top: var(--space-xs, 0.25rem);
+    color: var(--mat-sys-error, #b3261e);
+    font-size: 0.8125rem;
+  }
+}
+
+.full-width {
+  width: 100%;
+}
