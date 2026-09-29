@@ -940,5 +940,18 @@ describe('SchedulingCalendar', () => {
 
       expect(dialog.open).not.toHaveBeenCalled();
     });
+
+    it('should not open the manage dialog for a soft-deleted appointment even if the handler is reached (D89)', async () => {
+      setup({ roles: WRITE_ROLES });
+      await settle();
+
+      const selection = agendaSelection();
+      component.onAppointmentSelected({
+        entry: selection.entry,
+        appointment: { ...selection.appointment, enabled: false },
+      });
+
+      expect(dialog.open).not.toHaveBeenCalled();
+    });
   });
 });

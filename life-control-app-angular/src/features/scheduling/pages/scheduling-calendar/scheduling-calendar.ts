@@ -363,7 +363,10 @@ export class SchedulingCalendar {
    * and the agenda's day is only a slice of it.
    */
   onAppointmentSelected(selection: SchedulingAgendaSelection): void {
-    if (!this.canWrite) {
+    // Doubled on purpose, like the agenda's own gate: the component withholds the
+    // affordance (D60, D89) and the page refuses the open, so neither a reader nor a
+    // soft-deleted appointment can reach a writable dialog by any route.
+    if (!this.canWrite || !selection.appointment.enabled) {
       return;
     }
 
