@@ -74,6 +74,8 @@
       <app-scheduling-day-agenda
         [date]="effectiveSelectedDate()"
         [entries]="selectedDayEntries()"
+        [canManage]="canWrite"
+        (appointmentSelected)="onAppointmentSelected($event)"
       />
     }
   }

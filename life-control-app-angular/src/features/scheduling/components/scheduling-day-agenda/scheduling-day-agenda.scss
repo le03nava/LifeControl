@@ -34,6 +34,27 @@
     opacity: 0.75;
   }
 
+  .agenda-action {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-sm, 0.5rem);
+    align-items: baseline;
+    width: 100%;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    background: none;
+    border: none;
+
+    &:hover,
+    &:focus-visible {
+      outline: 2px solid var(--mat-sys-primary, #1d4ed8);
+      outline-offset: 2px;
+    }
+  }
+
   .agenda-time {
     font-weight: 600;
     font-size: 0.8125rem;
