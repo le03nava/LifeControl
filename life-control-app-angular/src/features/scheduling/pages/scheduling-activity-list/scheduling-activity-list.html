@@ -1,5 +1,10 @@
 <div class="scheduling-activity-list-page">
   <app-page-header title="Actividades" subtitle="Catálogo de actividades agendables de la tienda">
+    @if (canReadCalendar) {
+      <button mat-stroked-button type="button" (click)="onOpenCalendar()">
+        <mat-icon fontIcon="calendar_month" /> Calendario
+      </button>
+    }
     @if (canWrite) {
       <button mat-flat-button color="primary" type="button" (click)="onCreate()">
         <mat-icon fontIcon="add" /> Nueva actividad

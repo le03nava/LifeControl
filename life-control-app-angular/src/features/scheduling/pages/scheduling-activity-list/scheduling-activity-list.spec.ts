@@ -474,4 +474,52 @@ describe('SchedulingActivityList', () => {
       expect(text()).toContain('Reintentar');
     });
   });
+
+  describe('calendar entry point (D61)', () => {
+    it('should offer the calendar action for a read role', async () => {
+      setup({ roles: READ_ROLES, queryStoreId: 'store-1' });
+      await settle();
+
+      expect(component.canReadCalendar).toBe(true);
+      expect(text()).toContain('Calendario');
+    });
+
+    it('should offer the calendar action for a write role too, since the write set is inside the read set', async () => {
+      setup({ roles: WRITE_ROLES, queryStoreId: 'store-1' });
+      await settle();
+
+      expect(component.canReadCalendar).toBe(true);
+      expect(text()).toContain('Calendario');
+    });
+
+    it('should not offer the calendar action to a role outside the read set', async () => {
+      setup({ roles: ['lc-sales'], queryStoreId: 'store-1' });
+      await settle();
+
+      expect(component.canReadCalendar).toBe(false);
+      expect(text()).not.toContain('Calendario');
+    });
+
+    it('should navigate to the calendar carrying the already-resolved store', async () => {
+      setup({ roles: READ_ROLES, queryStoreId: 'store-1' });
+      await settle();
+
+      component.onOpenCalendar();
+
+      expect(router.navigate).toHaveBeenCalledWith(['/scheduling/calendar'], {
+        queryParams: { storeId: 'store-1' },
+      });
+    });
+
+    it('should navigate without a store param when none is resolved', async () => {
+      setup({ roles: READ_ROLES, queryStoreId: null, profileResult: profile(null) });
+      await settle();
+
+      component.onOpenCalendar();
+
+      expect(router.navigate).toHaveBeenCalledWith(['/scheduling/calendar'], {
+        queryParams: undefined,
+      });
+    });
+  });
 });

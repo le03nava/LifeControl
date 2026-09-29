@@ -1,0 +1,78 @@
+<div class="scheduling-calendar-page">
+  <app-page-header title="Calendario" [subtitle]="weekLabel()" />
+
+  @if (storePending()) {
+    <p class="loading-text">Resolviendo la tienda…</p>
+  } @else if (storeError(); as storeFailure) {
+    <div class="error-state">
+      <app-error-banner [message]="'No pudimos determinar la tienda: ' + storeFailure" />
+      <button mat-stroked-button type="button" (click)="retryStore()">Reintentar</button>
+    </div>
+  } @else if (storeUnconfigured()) {
+    <div class="error-state">
+      <app-error-banner
+        message="No hay una tienda configurada para tu usuario, así que no hay calendario para mostrar."
+      />
+    </div>
+  } @else {
+    <div class="calendar-toolbar">
+      <mat-form-field class="activity-filter" appearance="outline">
+        <mat-label>Actividad</mat-label>
+        <mat-select
+          [value]="activityFilter()"
+          (selectionChange)="onActivityFilterChange($event.value)"
+        >
+          <mat-option [value]="null">Todas las actividades</mat-option>
+          @for (activity of activities(); track activity.id) {
+            <mat-option [value]="activity.id">{{ activity.activityName }}</mat-option>
+          }
+        </mat-select>
+      </mat-form-field>
+
+      <div class="week-navigation">
+        <button
+          mat-icon-button
+          type="button"
+          aria-label="Semana anterior"
+          (click)="onPreviousWeek()"
+        >
+          <mat-icon>chevron_left</mat-icon>
+        </button>
+        <span class="week-label">{{ weekLabel() }}</span>
+        <button mat-icon-button type="button" aria-label="Semana siguiente" (click)="onNextWeek()">
+          <mat-icon>chevron_right</mat-icon>
+        </button>
+        <button mat-stroked-button type="button" (click)="onToday()">Hoy</button>
+      </div>
+    </div>
+
+    @if (weekPending()) {
+      <p class="loading-text">Cargando la semana…</p>
+    } @else if (weekError(); as weekFailure) {
+      <div class="error-state">
+        <app-error-banner [message]="'No pudimos cargar la semana: ' + weekFailure" />
+        <button mat-stroked-button type="button" (click)="retryWeek()">Reintentar</button>
+      </div>
+    } @else if (weekWithoutSlots()) {
+      <div class="empty-state">
+        <h3 class="empty-title">No hay horarios esta semana</h3>
+        <p class="empty-subtitle">
+          El calendario prepara la semana a partir de la disponibilidad de cada actividad antes de
+          mostrarla, así que una semana vacía significa que ninguna disponibilidad cubre estas
+          fechas. Revisá la disponibilidad de las actividades o cambiá el filtro de actividad.
+        </p>
+      </div>
+    } @else {
+      <app-scheduling-week-grid
+        [days]="weekDays()"
+        [selectedDate]="effectiveSelectedDate()"
+        (daySelected)="onDaySelected($event)"
+      />
+
+      <app-scheduling-day-agenda
+        [date]="effectiveSelectedDate()"
+        [entries]="selectedDayEntries()"
+      />
+    }
+  }
+</div>

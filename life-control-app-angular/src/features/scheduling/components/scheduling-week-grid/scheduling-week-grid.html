@@ -1,0 +1,32 @@
+<div class="week-grid">
+  @for (day of days(); track day.date) {
+    <section class="day-column" [class.selected]="day.date === selectedDate()">
+      <button
+        type="button"
+        class="day-header"
+        [attr.aria-pressed]="day.date === selectedDate()"
+        (click)="onSelectDay(day.date)"
+      >
+        <span class="day-name">{{ weekdayLabel(day.weekdayIndex) }}</span>
+        <span class="day-date">{{ day.dayOfMonth }}/{{ day.month }}</span>
+      </button>
+
+      <div class="day-slots">
+        @for (entry of day.entries; track entry.slotId) {
+          <article class="slot-block" [class.retired]="!entry.activityEnabled">
+            <span class="slot-activity">{{ entry.activityName }}</span>
+            <span class="slot-time">
+              {{ timeLabel(entry.startAt) }}–{{ timeLabel(entry.endAt) }}
+            </span>
+            <span class="slot-capacity">{{ entry.booked }} / {{ entry.capacity }}</span>
+            @if (!entry.activityEnabled) {
+              <span class="slot-retired-marker">Actividad retirada</span>
+            }
+          </article>
+        } @empty {
+          <p class="day-empty">Sin horarios</p>
+        }
+      </div>
+    </section>
+  }
+</div>
