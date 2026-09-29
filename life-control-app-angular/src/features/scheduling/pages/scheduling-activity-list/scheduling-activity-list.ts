@@ -20,7 +20,11 @@ import { MatTableModule } from '@angular/material/table';
 import { ConfirmDialog, ErrorBanner, PageHeader } from '@shared/ui';
 import { NotificationService } from '@shared/data/notification';
 import { httpErrorMessage } from '@shared/data';
-import { hasAnyClientRole, SCHEDULING_WRITE_ROLES } from '@core/security/roles';
+import {
+  hasAnyClientRole,
+  SCHEDULING_READ_ROLES,
+  SCHEDULING_WRITE_ROLES,
+} from '@core/security/roles';
 import { SchedulingActivityService } from '../../data/scheduling-activity.service';
 import { SchedulingStoreContext } from '../../data/scheduling-store-context.service';
 import { SchedulingActivity } from '../../models/scheduling-activity.models';
@@ -72,6 +76,12 @@ export class SchedulingActivityList {
    * for it.
    */
   readonly canWrite = hasAnyClientRole(SCHEDULING_WRITE_ROLES);
+
+  /**
+   * The calendar route admits the whole read set (D60), so its entry point does
+   * too: a reader who can open the calendar must be able to reach it (D61).
+   */
+  readonly canReadCalendar = hasAnyClientRole(SCHEDULING_READ_ROLES);
 
   readonly storeId = this.storeContext.storeId;
   readonly storePending = this.storeContext.pending;
@@ -181,6 +191,11 @@ export class SchedulingActivityList {
 
   onEditAvailability(activity: SchedulingActivity): void {
     this.router.navigate(['/scheduling/activities', activity.id, 'availability']);
+  }
+
+  /** Opens the read-only calendar, carrying the already-resolved store (D61). */
+  onOpenCalendar(): void {
+    this.router.navigate(['/scheduling/calendar'], { queryParams: this.storeQueryParams() });
   }
 
   onDisable(activity: SchedulingActivity): void {

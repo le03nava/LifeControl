@@ -1,0 +1,55 @@
+@use '../../../../shared/styles/form-layout' as *;
+
+.scheduling-calendar-page {
+  display: block;
+}
+
+.calendar-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md, 1rem);
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-md, 1rem);
+}
+
+.activity-filter {
+  min-width: 16rem;
+}
+
+.week-navigation {
+  display: flex;
+  gap: var(--space-sm, 0.5rem);
+  align-items: center;
+
+  .week-label {
+    font-weight: 600;
+  }
+}
+
+.loading-text {
+  color: var(--color-gray-700, #4b5563);
+}
+
+.error-state,
+.empty-state {
+  padding: var(--space-md, 1rem);
+  background-color: var(--color-gray-100, #f3f4f6);
+  border-radius: var(--radius-md, 0.5rem);
+}
+
+.error-state {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm, 0.5rem);
+  align-items: flex-start;
+}
+
+.empty-title {
+  margin: 0 0 var(--space-xs, 0.25rem);
+}
+
+.empty-subtitle {
+  margin: 0;
+  color: var(--color-gray-700, #4b5563);
+}

@@ -36,12 +36,13 @@ describe('schedulingRoutes', () => {
     });
   });
 
-  it('should declare list, create, edit/:id and the availability editor children', () => {
+  it('should declare list, create, edit/:id, the availability editor and the calendar children', () => {
     expect(children().map((route) => route.path)).toEqual([
       'list',
       'create',
       'edit/:id',
       'activities/:id/availability',
+      'calendar',
     ]);
   });
 
@@ -81,5 +82,20 @@ describe('schedulingRoutes', () => {
       clientId: 'life-control-client',
     });
     expect(route?.canDeactivate).toEqual([unsavedChangesGuard]);
+  });
+
+  it('should gate the calendar with the read roles and no discard guard (D60)', () => {
+    const route = child('calendar');
+
+    expect(route).toBeDefined();
+    // Its own guard: a child `data` without its own `canActivate` is inert.
+    expect(route?.canActivate).toEqual([keycloakRoleGuard]);
+    expect(route?.data).toEqual({
+      roles: ['lc-admin', 'lc-scheduling', 'lc-scheduling-read'],
+      clientId: 'life-control-client',
+    });
+    // A read-only grid has nothing to discard.
+    expect(route?.canDeactivate).toBeUndefined();
+    expect(typeof route?.loadComponent).toBe('function');
   });
 });

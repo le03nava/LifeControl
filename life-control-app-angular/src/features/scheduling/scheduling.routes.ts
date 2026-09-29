@@ -59,6 +59,17 @@ export const schedulingRoutes: Routes = [
             (m) => m.SchedulingActivityAvailability,
           ),
       },
+      {
+        // The read-only calendar (D60): the read role set, and no `canDeactivate`
+        // because a read-only screen has nothing to discard.
+        path: 'calendar',
+        canActivate: [keycloakRoleGuard],
+        data: { roles: SCHEDULING_READ_ROLES, clientId: CLIENT_ID },
+        loadComponent: () =>
+          import('./pages/scheduling-calendar/scheduling-calendar').then(
+            (m) => m.SchedulingCalendar,
+          ),
+      },
     ],
   },
 ];
