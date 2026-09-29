@@ -26,7 +26,11 @@ describe('SchedulingWeekGrid', () => {
     ...overrides,
   });
 
-  function setup(days: SchedulingWeekDay[], selectedDate: string | null = null): void {
+  function setup(
+    days: SchedulingWeekDay[],
+    selectedDate: string | null = null,
+    canBook = false,
+  ): void {
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
       imports: [SchedulingWeekGrid, NoopAnimationsModule],
@@ -35,6 +39,7 @@ describe('SchedulingWeekGrid', () => {
     component = fixture.componentInstance;
     fixture.componentRef.setInput('days', days);
     fixture.componentRef.setInput('selectedDate', selectedDate);
+    fixture.componentRef.setInput('canBook', canBook);
     fixture.detectChanges();
   }
 
@@ -148,5 +153,89 @@ describe('SchedulingWeekGrid', () => {
     const selected = columns().filter((column) => column.classList.contains('selected'));
     expect(selected).toHaveLength(1);
     expect(selected[0].querySelector('.day-date')?.textContent).toContain('30');
+  });
+
+  describe('the slot selection (D57, D65, D74)', () => {
+    it('should emit the selected slot when a bookable block is clicked', () => {
+      const slot = entry();
+      setup(buildWeek(weekStart, [slot]), null, true);
+      const spy = vi.fn();
+      component.slotSelected.subscribe(spy);
+
+      const control = (fixture.nativeElement as HTMLElement).querySelector(
+        '.slot-block.bookable',
+      ) as HTMLButtonElement;
+      expect(control?.tagName).toBe('BUTTON');
+      control.click();
+
+      expect(spy).toHaveBeenCalledWith(slot);
+    });
+
+    it('should give the booking control its own accessible name', () => {
+      setup(buildWeek(weekStart, [entry()]), null, true);
+
+      const control = (fixture.nativeElement as HTMLElement).querySelector('.slot-block.bookable');
+      const label = control?.getAttribute('aria-label') ?? '';
+      expect(label).toContain('Yoga');
+      expect(label).toContain('09:00');
+    });
+
+    it('should render no interactive block and emit nothing when the user cannot book (D74)', () => {
+      setup(buildWeek(weekStart, [entry()]), null, false);
+      const spy = vi.fn();
+      component.slotSelected.subscribe(spy);
+
+      const block = (fixture.nativeElement as HTMLElement).querySelector('.slot-block');
+      expect(block?.tagName).toBe('ARTICLE');
+      expect(block?.querySelector('button')).toBeNull();
+      (block as HTMLElement).click();
+
+      // The only interactive elements remain the seven day headers.
+      const buttons = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('button'));
+      expect(buttons).toHaveLength(7);
+      expect(buttons.every((button) => button.classList.contains('day-header'))).toBe(true);
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('should not offer booking on a retired activity, even when the user can book (D57)', () => {
+      setup(buildWeek(weekStart, [entry({ activityEnabled: false })]), null, true);
+      const spy = vi.fn();
+      component.slotSelected.subscribe(spy);
+
+      const block = (fixture.nativeElement as HTMLElement).querySelector('.slot-block');
+      expect(block?.tagName).toBe('ARTICLE');
+      expect(block?.querySelector('button')).toBeNull();
+      (block as HTMLElement).click();
+
+      // The block still renders its facts, marker included (D37, D57).
+      expect(text()).toContain('Yoga');
+      expect(text()).toContain('Actividad retirada');
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('should not offer booking on a full slot, whose 409 would read as stale (D21)', () => {
+      setup(buildWeek(weekStart, [entry({ capacity: 8, booked: 8, available: 0 })]), null, true);
+      const spy = vi.fn();
+      component.slotSelected.subscribe(spy);
+
+      const block = (fixture.nativeElement as HTMLElement).querySelector('.slot-block');
+      expect(block?.tagName).toBe('ARTICLE');
+      expect(block?.querySelector('button')).toBeNull();
+      (block as HTMLElement).click();
+
+      // The booked / capacity readout still renders for every block.
+      expect(block?.querySelector('.slot-capacity')?.textContent?.trim()).toBe('8 / 8');
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('should keep the day header working while blocks are bookable', () => {
+      setup(buildWeek(weekStart, [entry()]), null, true);
+      const spy = vi.fn();
+      component.daySelected.subscribe(spy);
+
+      (columns()[2].querySelector('.day-header') as HTMLButtonElement).click();
+
+      expect(spy).toHaveBeenCalledWith('2026-09-30');
+    });
   });
 });

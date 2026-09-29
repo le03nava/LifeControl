@@ -3,10 +3,18 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
+import { MatDialog } from '@angular/material/dialog';
 import { BehaviorSubject, Observable, Subject, of, throwError } from 'rxjs';
+import Keycloak from 'keycloak-js';
+import { NotificationService } from '@shared/data/notification';
 import { ProfileResponse } from '@features/user/profile/data/profile.models';
 import { ProfileService } from '@features/user/profile/data/profile.service';
 import { SchedulingCalendar } from './scheduling-calendar';
+import {
+  SchedulingAppointmentDialog,
+  SchedulingAppointmentDialogData,
+  SchedulingAppointmentDialogResult,
+} from '../../components/scheduling-appointment-dialog/scheduling-appointment-dialog';
 import {
   MAX_CATALOGUE_PAGES,
   SchedulingCalendarService,
@@ -19,6 +27,7 @@ import {
   toIsoDate,
 } from '../../data/scheduling-calendar-week';
 import { SchedulingActivity } from '../../models/scheduling-activity.models';
+import { SchedulingAppointment } from '../../models/scheduling-appointment.models';
 import {
   SchedulingCalendarEntry,
   SchedulingCalendarWeekRequest,
@@ -32,8 +41,13 @@ describe('SchedulingCalendar', () => {
     listEnabledActivities: ReturnType<typeof vi.fn>;
   };
   let profileService: { getProfile: ReturnType<typeof vi.fn> };
+  let notifications: { showSuccess: ReturnType<typeof vi.fn> };
+  let dialog: { open: ReturnType<typeof vi.fn> };
   let router: { navigate: ReturnType<typeof vi.fn> };
   let queryParams$: BehaviorSubject<ReturnType<typeof convertToParamMap>>;
+
+  const WRITE_ROLES = ['lc-scheduling'];
+  const READ_ROLES = ['lc-scheduling-read'];
 
   const activity = (id: string, activityName = `Actividad ${id}`): SchedulingActivity => ({
     id,
@@ -88,6 +102,24 @@ describe('SchedulingCalendar', () => {
     companyStoreId,
   });
 
+  const booking = (): SchedulingAppointment => ({
+    id: 'appointment-1',
+    slotId: 'slot-1',
+    startAt: '2026-09-30T09:00:00',
+    endAt: '2026-09-30T10:00:00',
+    activityId: 'activity-1',
+    companyStoreId: 'store-1',
+    userId: null,
+    customerId: null,
+    statusId: 'status-1',
+    statusName: 'Scheduled',
+    notes: null,
+    enabled: true,
+    version: 0,
+    createdAt: '2026-09-30T09:00:00',
+    updatedAt: '2026-09-30T09:00:00',
+  });
+
   interface SetupOptions {
     queryParams?: Record<string, string>;
     profileResult?: ProfileResponse | HttpErrorResponse;
@@ -96,6 +128,9 @@ describe('SchedulingCalendar', () => {
     weekObservable?: Observable<SchedulingCalendarEntry[]>;
     weekError?: boolean;
     activities?: SchedulingActivity[];
+    roles?: string[];
+    /** What the appointment dialog closes with; `undefined` is a bare dismissal. */
+    dialogResult?: SchedulingAppointmentDialogResult | undefined;
   }
 
   function setup(options: SetupOptions = {}): void {
@@ -123,6 +158,10 @@ describe('SchedulingCalendar', () => {
     const profileResult = options.profileResult ?? profile('store-from-profile');
     const profileStream = options.profileObservable;
     router = { navigate: vi.fn().mockResolvedValue(true) };
+    notifications = { showSuccess: vi.fn() };
+    dialog = {
+      open: vi.fn().mockReturnValue({ afterClosed: () => of(options.dialogResult) }),
+    };
     profileService = {
       getProfile: profileStream
         ? vi.fn((): Observable<ProfileResponse> => profileStream)
@@ -138,6 +177,16 @@ describe('SchedulingCalendar', () => {
         { provide: Router, useValue: router },
         { provide: SchedulingCalendarService, useValue: calendarService },
         { provide: ProfileService, useValue: profileService },
+        { provide: NotificationService, useValue: notifications },
+        { provide: MatDialog, useValue: dialog },
+        {
+          provide: Keycloak,
+          useValue: {
+            tokenParsed: {
+              resource_access: { 'life-control-client': { roles: options.roles ?? READ_ROLES } },
+            },
+          },
+        },
         {
           provide: ActivatedRoute,
           useValue: {
@@ -616,6 +665,98 @@ describe('SchedulingCalendar', () => {
       for (const block of Array.from(blocks)) {
         expect(block.querySelector('button')).toBeNull();
       }
+    });
+  });
+
+  describe('the booking dialog (D71, D72, D74)', () => {
+    it('should open the dialog with the entry and the activity userId taken from the loaded catalogue', async () => {
+      setup({
+        roles: WRITE_ROLES,
+        activities: [{ ...activity('activity-1', 'Yoga'), userId: 'employee-9' }],
+      });
+      await settle();
+
+      const slot = entry();
+      component.onSlotSelected(slot);
+
+      expect(dialog.open).toHaveBeenCalledTimes(1);
+      const [opened, config] = dialog.open.mock.calls[0] as [
+        unknown,
+        { data: SchedulingAppointmentDialogData },
+      ];
+      expect(opened).toBe(SchedulingAppointmentDialog);
+      expect(config.data).toEqual({ entry: slot, activityUserId: 'employee-9' });
+    });
+
+    it('should pass a null activityUserId when the activity is not in the catalogue', async () => {
+      setup({ roles: WRITE_ROLES, activities: [] });
+      await settle();
+
+      component.onSlotSelected(entry());
+
+      const config = dialog.open.mock.calls[0][1] as { data: SchedulingAppointmentDialogData };
+      expect(config.data.activityUserId).toBeNull();
+    });
+
+    it('should not open the dialog when the user cannot write (D74)', async () => {
+      setup({ roles: READ_ROLES });
+      await settle();
+
+      expect(component.canWrite).toBe(false);
+      component.onSlotSelected(entry());
+
+      expect(dialog.open).not.toHaveBeenCalled();
+    });
+
+    it('should reload the week and toast once the booking is confirmed (D72)', async () => {
+      setup({
+        roles: WRITE_ROLES,
+        dialogResult: { outcome: 'booked', appointment: booking() },
+      });
+      await settle();
+      expect(calendarService.loadCalendarWeek).toHaveBeenCalledTimes(1);
+
+      component.onSlotSelected(entry());
+      await settle();
+
+      expect(calendarService.loadCalendarWeek).toHaveBeenCalledTimes(2);
+      expect(notifications.showSuccess).toHaveBeenCalledTimes(1);
+    });
+
+    it('should reload the week without a toast when the write proved the week stale (D72)', async () => {
+      setup({ roles: WRITE_ROLES, dialogResult: { outcome: 'stale' } });
+      await settle();
+      expect(calendarService.loadCalendarWeek).toHaveBeenCalledTimes(1);
+
+      component.onSlotSelected(entry());
+      await settle();
+
+      expect(calendarService.loadCalendarWeek).toHaveBeenCalledTimes(2);
+      expect(notifications.showSuccess).not.toHaveBeenCalled();
+    });
+
+    it('should do nothing when the dialog closes without a write', async () => {
+      setup({ roles: WRITE_ROLES, dialogResult: null });
+      await settle();
+      expect(calendarService.loadCalendarWeek).toHaveBeenCalledTimes(1);
+
+      component.onSlotSelected(entry());
+      await settle();
+
+      expect(calendarService.loadCalendarWeek).toHaveBeenCalledTimes(1);
+      expect(notifications.showSuccess).not.toHaveBeenCalled();
+    });
+
+    it('should treat an undefined close result as no write (Material closes the ref itself)', async () => {
+      setup({ roles: WRITE_ROLES, dialogResult: undefined });
+      await settle();
+      expect(calendarService.loadCalendarWeek).toHaveBeenCalledTimes(1);
+
+      component.onSlotSelected(entry());
+      await settle();
+
+      expect(calendarService.loadCalendarWeek).toHaveBeenCalledTimes(1);
+      expect(notifications.showSuccess).not.toHaveBeenCalled();
     });
   });
 });
