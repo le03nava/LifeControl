@@ -342,7 +342,7 @@ export class SchedulingCalendar {
         SchedulingAppointmentDialog,
         SchedulingAppointmentDialogData,
         SchedulingAppointmentDialogResult
-      >(SchedulingAppointmentDialog, { data: { entry, activityUserId } })
+      >(SchedulingAppointmentDialog, { data: { mode: 'book', entry, activityUserId } })
       .afterClosed()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((result) => this.onBookingClosed(result));

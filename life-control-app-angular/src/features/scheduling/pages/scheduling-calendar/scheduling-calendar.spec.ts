@@ -685,7 +685,7 @@ describe('SchedulingCalendar', () => {
         { data: SchedulingAppointmentDialogData },
       ];
       expect(opened).toBe(SchedulingAppointmentDialog);
-      expect(config.data).toEqual({ entry: slot, activityUserId: 'employee-9' });
+      expect(config.data).toEqual({ mode: 'book', entry: slot, activityUserId: 'employee-9' });
     });
 
     it('should pass a null activityUserId when the activity is not in the catalogue', async () => {
@@ -695,7 +695,7 @@ describe('SchedulingCalendar', () => {
       component.onSlotSelected(entry());
 
       const config = dialog.open.mock.calls[0][1] as { data: SchedulingAppointmentDialogData };
-      expect(config.data.activityUserId).toBeNull();
+      expect(config.data.mode === 'book' ? config.data.activityUserId : 'not-book-mode').toBeNull();
     });
 
     it('should not open the dialog when the user cannot write (D74)', async () => {

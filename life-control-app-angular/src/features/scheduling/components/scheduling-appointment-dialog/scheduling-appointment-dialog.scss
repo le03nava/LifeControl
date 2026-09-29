@@ -35,6 +35,48 @@
     color: var(--mat-sys-error, #b3261e);
     font-size: 0.8125rem;
   }
+
+  .appointment-status,
+  .appointment-user,
+  .appointment-customer,
+  .appointment-notes {
+    margin-top: var(--space-xs, 0.25rem);
+    font-size: 0.875rem;
+  }
+
+  .status-label {
+    font-weight: 600;
+  }
+
+  .appointment-notes {
+    color: var(--mat-sys-on-surface-variant, #4b5563);
+  }
+}
+
+// Manage mode: one section per decision surface, each with the same title treatment,
+// so a lifecycle write is offered where its facts are and never as an unlabelled button.
+.status-actions,
+.reschedule {
+  margin-bottom: var(--space-md, 1rem);
+}
+
+.section-title {
+  margin: 0 0 var(--space-sm, 0.5rem);
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.transition-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm, 0.5rem);
+}
+
+.status-closed,
+.reschedule-empty {
+  margin: 0;
+  color: var(--mat-sys-on-surface-variant, #4b5563);
+  font-size: 0.875rem;
 }
 
 .full-width {

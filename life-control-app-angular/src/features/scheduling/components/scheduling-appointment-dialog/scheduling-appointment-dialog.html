@@ -1,22 +1,81 @@
-<h2 mat-dialog-title>Reservar un turno</h2>
+<h2 mat-dialog-title>{{ data.mode === 'book' ? 'Reservar un turno' : 'Gestionar turno' }}</h2>
 
-<form [formGroup]="form" (ngSubmit)="onBook()">
+@if (data.mode === 'book') {
+  <form [formGroup]="form" (ngSubmit)="onBook()">
+    <mat-dialog-content>
+      <section class="slot-summary">
+        <p class="slot-activity">{{ entry.activityName }}</p>
+        <p class="slot-when">
+          {{ day }} · {{ timeLabel(entry.startAt) }}–{{ timeLabel(entry.endAt) }}
+        </p>
+        <p class="slot-capacity">
+          {{ entry.booked }} / {{ entry.capacity }} reservados
+          @if (slotHasRoom) {
+            <span class="slot-available">· quedan {{ entry.available }}</span>
+          } @else {
+            <span class="slot-available">· sin lugar</span>
+          }
+        </p>
+        @if (!entry.activityEnabled) {
+          <p class="slot-retired">Actividad retirada: no es un destino reservable.</p>
+        }
+      </section>
+
+      @if (generalError(); as errorMessage) {
+        <app-error-banner [message]="errorMessage" />
+      }
+
+      <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+        <mat-label>Responsable (opcional)</mat-label>
+        <!--
+          Mirrors the server's real bound: the `user_id` column is `VARCHAR(255)` and the
+          service carries no `@Size` (D45), so the DB is the bound and this attribute follows
+          it. The notes field below has no column bound (`TEXT`), so it carries no maxlength.
+        -->
+        <input
+          matInput
+          type="text"
+          formControlName="userId"
+          maxlength="255"
+          placeholder="Ej. ana.gomez"
+        />
+        <mat-hint>
+          Usuario de Keycloak (sub) del empleado que atiende el turno. La app no tiene lista de
+          empleados, así que va a mano: un error de tipeo deja un turno que nadie puede resolver.
+        </mat-hint>
+      </mat-form-field>
+
+      <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+        <mat-label>Notas (opcional)</mat-label>
+        <textarea
+          matInput
+          formControlName="notes"
+          rows="3"
+          placeholder="Notas internas del turno"
+        ></textarea>
+      </mat-form-field>
+    </mat-dialog-content>
+
+    <mat-dialog-actions align="end">
+      <button mat-button type="button" (click)="cancel()" [disabled]="saving()">Cancelar</button>
+      <button mat-flat-button color="primary" type="submit" [disabled]="saving()">Reservar</button>
+    </mat-dialog-actions>
+  </form>
+} @else if (manage; as m) {
   <mat-dialog-content>
     <section class="slot-summary">
-      <p class="slot-activity">{{ data.entry.activityName }}</p>
+      <p class="slot-activity">{{ entry.activityName }}</p>
       <p class="slot-when">
-        {{ day }} · {{ timeLabel(data.entry.startAt) }}–{{ timeLabel(data.entry.endAt) }}
+        {{ day }} · {{ timeLabel(entry.startAt) }}–{{ timeLabel(entry.endAt) }}
       </p>
-      <p class="slot-capacity">
-        {{ data.entry.booked }} / {{ data.entry.capacity }} reservados
-        @if (slotHasRoom) {
-          <span class="slot-available">· quedan {{ data.entry.available }}</span>
-        } @else {
-          <span class="slot-available">· sin lugar</span>
-        }
+      <p class="slot-capacity">{{ entry.booked }} / {{ entry.capacity }} reservados</p>
+      <p class="appointment-status">
+        Estado: <span class="status-label">{{ currentStatusLabel() }}</span>
       </p>
-      @if (!data.entry.activityEnabled) {
-        <p class="slot-retired">Actividad retirada: no es un destino reservable.</p>
+      <p class="appointment-user">{{ m.appointment.userId ?? 'Sin responsable' }}</p>
+      <p class="appointment-customer">Cliente: {{ m.appointment.customerName ?? 'Sin cliente' }}</p>
+      @if (m.appointment.notes) {
+        <p class="appointment-notes">Notas: {{ m.appointment.notes }}</p>
       }
     </section>
 
@@ -24,39 +83,66 @@
       <app-error-banner [message]="errorMessage" />
     }
 
-    <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
-      <mat-label>Responsable (opcional)</mat-label>
-      <!--
-        Mirrors the server's real bound: the `user_id` column is `VARCHAR(255)` and the
-        service carries no `@Size` (D45), so the DB is the bound and this attribute follows
-        it. The notes field below has no column bound (`TEXT`), so it carries no maxlength.
-      -->
-      <input
-        matInput
-        type="text"
-        formControlName="userId"
-        maxlength="255"
-        placeholder="Ej. ana.gomez"
-      />
-      <mat-hint>
-        Usuario de Keycloak (sub) del empleado que atiende el turno. La app no tiene lista de
-        empleados, así que va a mano: un error de tipeo deja un turno que nadie puede resolver.
-      </mat-hint>
-    </mat-form-field>
+    <section class="status-actions">
+      <h3 class="section-title">Estado del turno</h3>
+      @if (isTerminal()) {
+        <p class="status-closed">{{ closedStatusMessage }}</p>
+      } @else {
+        <div class="transition-buttons">
+          @for (transition of transitions(); track transition.name) {
+            <button
+              mat-stroked-button
+              type="button"
+              [disabled]="saving() || !transition.statusId"
+              (click)="onTransition(transition)"
+            >
+              {{ transition.label }}
+            </button>
+          }
+        </div>
+      }
+    </section>
 
-    <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
-      <mat-label>Notas (opcional)</mat-label>
-      <textarea
-        matInput
-        formControlName="notes"
-        rows="3"
-        placeholder="Notas internas del turno"
-      ></textarea>
-    </mat-form-field>
+    @if (!isTerminal()) {
+      <section class="reschedule">
+        <h3 class="section-title">Reprogramar</h3>
+        @if (destinations().length > 0) {
+          <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+            <mat-label>Nuevo horario</mat-label>
+            <mat-select [value]="rescheduleTarget()" (valueChange)="rescheduleTarget.set($event)">
+              @for (destination of destinations(); track destination.slotId) {
+                <mat-option [value]="destination.slotId">
+                  {{ dayLabel(destination.startAt) }} · {{ timeLabel(destination.startAt) }}–{{
+                    timeLabel(destination.endAt)
+                  }}
+                  · quedan
+                  {{ destination.available }}
+                </mat-option>
+              }
+            </mat-select>
+          </mat-form-field>
+          <button
+            mat-flat-button
+            color="primary"
+            type="button"
+            [disabled]="saving() || !rescheduleTarget()"
+            (click)="onReschedule()"
+          >
+            Reprogramar
+          </button>
+        } @else {
+          <p class="reschedule-empty">
+            No hay otro horario con lugar en esta semana para reprogramar el turno.
+          </p>
+        }
+      </section>
+    }
   </mat-dialog-content>
 
   <mat-dialog-actions align="end">
-    <button mat-button type="button" (click)="cancel()" [disabled]="saving()">Cancelar</button>
-    <button mat-flat-button color="primary" type="submit" [disabled]="saving()">Reservar</button>
+    <button mat-button color="warn" type="button" [disabled]="saving()" (click)="onRemove()">
+      Eliminar turno
+    </button>
+    <button mat-button type="button" [disabled]="saving()" (click)="cancel()">Cerrar</button>
   </mat-dialog-actions>
-</form>
+}
