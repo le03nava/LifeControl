@@ -35,6 +35,14 @@
     }
   }
 
+  @if (isEditMode() && canWrite) {
+    <div class="availability-link">
+      <button mat-stroked-button type="button" (click)="onEditAvailability()">
+        <mat-icon fontIcon="calendar_month" /> Editar disponibilidad
+      </button>
+    </div>
+  }
+
   <app-scheduling-activity-form
     [formGroup]="activityForm()"
     [isEditMode]="isEditMode()"

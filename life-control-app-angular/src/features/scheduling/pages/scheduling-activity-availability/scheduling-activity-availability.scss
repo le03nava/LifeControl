@@ -1,0 +1,14 @@
+@use '../../../../shared/styles/form-layout' as *;
+
+.scheduling-activity-availability-page {
+  display: block;
+}
+
+.side-effect-note {
+  margin: 0 0 var(--space-lg);
+  padding: var(--space-md);
+  color: var(--color-gray-700);
+  font-size: 0.875rem;
+  background-color: var(--color-gray-100);
+  border-radius: var(--radius-md);
+}

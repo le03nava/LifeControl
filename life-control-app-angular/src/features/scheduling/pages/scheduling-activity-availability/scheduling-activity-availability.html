@@ -1,0 +1,43 @@
+<div class="scheduling-activity-availability-page">
+  <app-page-header
+    title="Disponibilidad semanal"
+    [subtitle]="activity()?.activityName ?? ''"
+    [showActions]="false"
+  />
+
+  <p class="side-effect-note">
+    Guardar regenera los horarios reservables de la actividad y descarta los que todavía nadie
+    reservó; las reservas existentes conservan su horario.
+  </p>
+
+  <!--
+    A failed read and a failed save are independent events, so each banner owns
+    its own condition. Coupling them would let a load failure swallow a later
+    save failure and leave the operator with no feedback at all.
+  -->
+  @if (loadError(); as loadFailure) {
+    <div class="error-state">
+      <app-error-banner [message]="loadFailure" />
+      <button mat-stroked-button type="button" (click)="retryLoad()">Reintentar</button>
+    </div>
+  }
+
+  @if (generalError(); as generalFailure) {
+    <app-error-banner [message]="generalFailure" />
+  }
+
+  @if (loading()) {
+    <p class="loading-text">Cargando la disponibilidad…</p>
+  } @else if (hasLoadedAvailability() && !loadError()) {
+    <app-scheduling-availability-editor
+      [formGroup]="form()"
+      [canWrite]="canWrite"
+      [saving]="saving()"
+      [maxWindows]="maxWindows"
+      (save)="onSave()"
+      (cancelForm)="onCancel()"
+      (addWindow)="onAddWindow()"
+      (removeWindow)="onRemoveWindow($event)"
+    />
+  }
+</div>

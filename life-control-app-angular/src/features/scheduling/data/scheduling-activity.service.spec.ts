@@ -7,6 +7,8 @@ import {
   Page,
   SchedulingActivity,
   SchedulingActivityRequest,
+  SchedulingAvailabilityRequest,
+  SchedulingAvailabilityResponse,
 } from '../models/scheduling-activity.models';
 
 describe('SchedulingActivityService', () => {
@@ -222,6 +224,105 @@ describe('SchedulingActivityService', () => {
       httpMock.expectOne(`${base}/activity-1`).flush({}, { status: 403, statusText: 'Forbidden' });
 
       expect(service.error()).toBe('Error al deshabilitar la actividad');
+    });
+  });
+
+  describe('getAvailability', () => {
+    it('should GET the activity availability from its suffix path', async () => {
+      const response: SchedulingAvailabilityResponse = {
+        activityId: 'activity-1',
+        windows: [
+          {
+            id: 'window-1',
+            dayOfWeek: 1,
+            startTime: '09:00:00',
+            endTime: '13:00:00',
+            validFrom: '2026-09-28',
+            validTo: '2027-09-28',
+          },
+        ],
+      };
+
+      const promise = firstValueFrom(service.getAvailability('activity-1'));
+
+      const req = httpMock.expectOne(`${base}/activity-1/availability`);
+      expect(req.request.method).toBe('GET');
+      req.flush(response);
+
+      await expect(promise).resolves.toEqual(response);
+    });
+  });
+
+  describe('replaceAvailability', () => {
+    const request: SchedulingAvailabilityRequest = {
+      windows: [
+        {
+          dayOfWeek: 1,
+          startTime: '09:00:00',
+          endTime: '13:00:00',
+          validFrom: '2026-09-28',
+          validTo: '2027-09-28',
+        },
+      ],
+    };
+
+    const response: SchedulingAvailabilityResponse = {
+      activityId: 'activity-1',
+      windows: [
+        {
+          id: 'window-1',
+          dayOfWeek: 1,
+          startTime: '09:00:00',
+          endTime: '13:00:00',
+          validFrom: '2026-09-28',
+          validTo: '2027-09-28',
+        },
+      ],
+    };
+
+    it('should PUT the whole set to the suffix path with no id and no enabled', async () => {
+      const promise = firstValueFrom(service.replaceAvailability('activity-1', request));
+
+      const req = httpMock.expectOne(`${base}/activity-1/availability`);
+      expect(req.request.method).toBe('PUT');
+      expect(req.request.body).toEqual({
+        windows: [
+          {
+            dayOfWeek: 1,
+            startTime: '09:00:00',
+            endTime: '13:00:00',
+            validFrom: '2026-09-28',
+            validTo: '2027-09-28',
+          },
+        ],
+      });
+      // The stored row is regenerated on every save, so the request never echoes
+      // its id; the response exposes no enabled flag either.
+      expect(req.request.body.windows[0]).not.toHaveProperty('id');
+      expect(req.request.body.windows[0]).not.toHaveProperty('enabled');
+      expect(service.loading()).toBe(true);
+      req.flush(response);
+
+      await expect(promise).resolves.toEqual(response);
+      expect(service.loading()).toBe(false);
+      expect(service.error()).toBeNull();
+    });
+
+    it('should record a friendly error and rethrow on failure', () => {
+      let caught: unknown;
+      service.replaceAvailability('activity-1', request).subscribe({
+        error: (err: unknown) => {
+          caught = err;
+        },
+      });
+
+      httpMock
+        .expectOne(`${base}/activity-1/availability`)
+        .flush({}, { status: 400, statusText: 'Bad Request' });
+
+      expect(caught).toBeTruthy();
+      expect(service.error()).toBe('Error al guardar la disponibilidad');
+      expect(service.loading()).toBe(false);
     });
   });
 
