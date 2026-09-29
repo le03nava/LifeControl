@@ -102,6 +102,14 @@
                     <button mat-icon-button type="button" (click)="onEdit(row)" aria-label="Editar">
                       <mat-icon>edit</mat-icon>
                     </button>
+                    <button
+                      mat-icon-button
+                      type="button"
+                      (click)="onEditAvailability(row)"
+                      aria-label="Editar disponibilidad"
+                    >
+                      <mat-icon>calendar_month</mat-icon>
+                    </button>
                     @if (row.enabled) {
                       <button
                         mat-icon-button

@@ -48,6 +48,17 @@ export const schedulingRoutes: Routes = [
             (m) => m.SchedulingActivityEdit,
           ),
       },
+      {
+        path: 'activities/:id/availability',
+        canActivate: [keycloakRoleGuard],
+        data: { roles: SCHEDULING_WRITE_ROLES, clientId: CLIENT_ID },
+        // A half-edited window set must not be discarded by a stray navigation.
+        canDeactivate: [unsavedChangesGuard],
+        loadComponent: () =>
+          import('./pages/scheduling-activity-availability/scheduling-activity-availability').then(
+            (m) => m.SchedulingActivityAvailability,
+          ),
+      },
     ],
   },
 ];

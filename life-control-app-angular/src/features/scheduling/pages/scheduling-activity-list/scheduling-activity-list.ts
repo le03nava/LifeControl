@@ -179,6 +179,10 @@ export class SchedulingActivityList {
     this.router.navigate(['/scheduling/edit', activity.id]);
   }
 
+  onEditAvailability(activity: SchedulingActivity): void {
+    this.router.navigate(['/scheduling/activities', activity.id, 'availability']);
+  }
+
   onDisable(activity: SchedulingActivity): void {
     const dialogRef = this.dialog.open(ConfirmDialog, {
       data: {

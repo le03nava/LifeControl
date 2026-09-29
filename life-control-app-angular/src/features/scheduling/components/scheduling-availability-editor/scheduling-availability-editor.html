@@ -1,0 +1,114 @@
+<div class="form-card availability-editor">
+  <form [formGroup]="formGroup()" (ngSubmit)="onSave()">
+    <div class="editor-header full-width">
+      <h2>Ventanas de disponibilidad</h2>
+      <p class="hint">
+        Cada ventana repite un rango horario en un día de la semana durante el período de vigencia.
+      </p>
+    </div>
+
+    @if (overlapError(); as overlapMsg) {
+      <p class="rows-error full-width">{{ overlapMsg }}</p>
+    }
+
+    <div class="windows-list full-width" formArrayName="windows">
+      @if (windows().length === 0) {
+        <p class="empty-rows">
+          No hay ventanas cargadas. Agregá la primera para definir los horarios de la actividad.
+        </p>
+      }
+
+      @for (row of rowGroups(); track row.controls.key.value; let i = $index) {
+        <div class="window-row" [formGroup]="row">
+          <span class="row-number">{{ i + 1 }}</span>
+
+          <mat-form-field appearance="outline" subscriptSizing="dynamic" class="day-field">
+            <mat-label>Día</mat-label>
+            <mat-select formControlName="dayOfWeek">
+              @for (day of weekdays; track day.value) {
+                <mat-option [value]="day.value">{{ day.label }}</mat-option>
+              }
+            </mat-select>
+            @if (getErrorMessage(row.controls.dayOfWeek); as msg) {
+              <mat-error>{{ msg }}</mat-error>
+            }
+          </mat-form-field>
+
+          <mat-form-field appearance="outline" subscriptSizing="dynamic" class="time-field">
+            <mat-label>Desde</mat-label>
+            <input matInput type="time" formControlName="startTime" />
+            @if (getErrorMessage(row.controls.startTime); as msg) {
+              <mat-error>{{ msg }}</mat-error>
+            }
+          </mat-form-field>
+
+          <mat-form-field appearance="outline" subscriptSizing="dynamic" class="time-field">
+            <mat-label>Hasta</mat-label>
+            <input matInput type="time" formControlName="endTime" />
+            @if (getErrorMessage(row.controls.endTime); as msg) {
+              <mat-error>{{ msg }}</mat-error>
+            }
+          </mat-form-field>
+
+          <mat-form-field appearance="outline" subscriptSizing="dynamic" class="date-field">
+            <mat-label>Vigente desde</mat-label>
+            <input matInput type="date" formControlName="validFrom" />
+            @if (getErrorMessage(row.controls.validFrom); as msg) {
+              <mat-error>{{ msg }}</mat-error>
+            }
+          </mat-form-field>
+
+          <mat-form-field appearance="outline" subscriptSizing="dynamic" class="date-field">
+            <mat-label>Vigente hasta</mat-label>
+            <input matInput type="date" formControlName="validTo" />
+            @if (getErrorMessage(row.controls.validTo); as msg) {
+              <mat-error>{{ msg }}</mat-error>
+            }
+          </mat-form-field>
+
+          @if (canWrite()) {
+            <button
+              mat-icon-button
+              color="warn"
+              type="button"
+              (click)="onRemoveWindow(i)"
+              [attr.aria-label]="'Quitar la ventana ' + (i + 1)"
+            >
+              <mat-icon>delete</mat-icon>
+            </button>
+          }
+
+          @if (rowError(row); as rowMsg) {
+            <p class="row-error">{{ rowMsg }}</p>
+          }
+        </div>
+      }
+    </div>
+
+    @if (atCapacity()) {
+      <p class="cap-hint full-width">
+        Alcanzaste el máximo de {{ maxWindows() }} ventanas, que es el límite que acepta el
+        servidor.
+      </p>
+    }
+
+    <div class="form-actions">
+      @if (canWrite()) {
+        <button mat-stroked-button type="button" [disabled]="atCapacity()" (click)="onAddWindow()">
+          <mat-icon fontIcon="add" /> Agregar ventana
+        </button>
+      }
+      <button mat-button type="button" (click)="onCancel()">Volver</button>
+      @if (canWrite()) {
+        <button
+          mat-flat-button
+          color="primary"
+          type="submit"
+          [disabled]="saving() || !formGroup().valid"
+        >
+          Guardar
+        </button>
+      }
+    </div>
+  </form>
+</div>

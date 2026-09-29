@@ -11,6 +11,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormGroup, NonNullableFormBuilder, Validators } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
+import { MatIconModule } from '@angular/material/icon';
 import { Observable } from 'rxjs';
 import { finalize } from 'rxjs/operators';
 import { ErrorBanner, PageHeader } from '@shared/ui';
@@ -50,7 +51,7 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
   // Per screen in create mode: the page resolves the store it creates in.
   providers: [SchedulingStoreContext],
-  imports: [PageHeader, ErrorBanner, SchedulingActivityForm, MatButtonModule],
+  imports: [PageHeader, ErrorBanner, SchedulingActivityForm, MatButtonModule, MatIconModule],
   templateUrl: './scheduling-activity-edit.html',
   styleUrl: './scheduling-activity-edit.scss',
 })
@@ -186,6 +187,15 @@ export class SchedulingActivityEdit implements UnsavedChangesAware {
 
   onCancel(): void {
     this.router.navigate(['/scheduling/list']);
+  }
+
+  /** Opens the availability editor for the activity being edited. */
+  onEditAvailability(): void {
+    const id = this.activityId();
+    if (!id) {
+      return;
+    }
+    this.router.navigate(['/scheduling/activities', id, 'availability']);
   }
 
   /** Re-runs a store resolution that failed: a failed read is not "no store set". */

@@ -77,6 +77,7 @@ describe('SchedulingActivityEdit', () => {
 
   interface SetupOptions {
     edit?: boolean;
+    roles?: string[];
     loaded?: SchedulingActivity;
     /** Sequential by-id read results; the last one is reused for further calls. */
     loadResults?: (SchedulingActivity | HttpErrorResponse)[];
@@ -132,7 +133,9 @@ describe('SchedulingActivityEdit', () => {
           provide: Keycloak,
           useValue: {
             tokenParsed: {
-              resource_access: { 'life-control-client': { roles: ['lc-scheduling'] } },
+              resource_access: {
+                'life-control-client': { roles: options.roles ?? ['lc-scheduling'] },
+              },
             },
           },
         },
@@ -491,5 +494,45 @@ describe('SchedulingActivityEdit', () => {
     await settle();
 
     expect(component.canWrite).toBe(true);
+  });
+
+  describe('availability editor link', () => {
+    function availabilityButton(): HTMLButtonElement | undefined {
+      return Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('button')).find(
+        (button) => button.textContent?.includes('Editar disponibilidad'),
+      );
+    }
+
+    it('should link to the availability editor in edit mode for a write role', async () => {
+      setup({ edit: true });
+      await settle();
+
+      const button = availabilityButton();
+      expect(button).toBeDefined();
+
+      button!.click();
+      await settle();
+
+      expect(router.navigate).toHaveBeenCalledWith([
+        '/scheduling/activities',
+        'activity-1',
+        'availability',
+      ]);
+    });
+
+    it('should hide the availability link in create mode', async () => {
+      setup({ edit: false, queryStoreId: 'store-1' });
+      await settle();
+
+      expect(availabilityButton()).toBeUndefined();
+    });
+
+    it('should hide the availability link for a read-only role', async () => {
+      setup({ edit: true, roles: ['lc-scheduling-read'] });
+      await settle();
+
+      expect(component.canWrite).toBe(false);
+      expect(availabilityButton()).toBeUndefined();
+    });
   });
 });
