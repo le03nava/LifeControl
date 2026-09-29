@@ -25,6 +25,8 @@ export const LC_COMPANY_ZONE = 'lc-company-zone';
 export const LC_COMPANY_ZONE_READ = 'lc-company-zone-read';
 export const LC_COMPANY_STORE = 'lc-company-store';
 export const LC_COMPANY_STORE_READ = 'lc-company-store-read';
+export const LC_SCHEDULING = 'lc-scheduling';
+export const LC_SCHEDULING_READ = 'lc-scheduling-read';
 
 /** Const array mirroring `Roles.java`. */
 export const CLIENT_ROLES = [
@@ -41,6 +43,8 @@ export const CLIENT_ROLES = [
   LC_COMPANY_ZONE_READ,
   LC_COMPANY_STORE,
   LC_COMPANY_STORE_READ,
+  LC_SCHEDULING,
+  LC_SCHEDULING_READ,
 ] as const;
 
 /**
@@ -78,6 +82,31 @@ export const STORE_WRITE_ROLES = [
   LC_COMPANY_ZONE,
   LC_COMPANY_STORE,
 ];
+
+/**
+ * Roles allowed to read the scheduling catalog (activities today, availability
+ * in the next slice).
+ *
+ * Mirrors the `@PreAuthorize` set of every read endpoint in
+ * `SchedulingActivityController`, which gate on
+ * `hasAnyRole('lc-admin','lc-scheduling','lc-scheduling-read')`. No role is
+ * deliberately absent: this is the full read set, and it grants no write.
+ */
+export const SCHEDULING_READ_ROLES = [LC_ADMIN, LC_SCHEDULING, LC_SCHEDULING_READ];
+
+/**
+ * Roles allowed to create, edit, disable or re-enable a scheduling activity.
+ *
+ * Mirrors the `@PreAuthorize` set of every write endpoint in
+ * `SchedulingActivityController`, which gate on
+ * `hasAnyRole('lc-admin','lc-scheduling')`.
+ *
+ * `lc-scheduling-read` is deliberately absent: the read role reaches the list
+ * but must not render a control it can never use. A flat allow-list — not a
+ * role hierarchy, and never a "not read-only" test, so a user holding neither a
+ * write nor a read role stays gated too.
+ */
+export const SCHEDULING_WRITE_ROLES = [LC_ADMIN, LC_SCHEDULING];
 
 /**
  * Returns `true` when the authenticated user holds at least one of `roles` as a

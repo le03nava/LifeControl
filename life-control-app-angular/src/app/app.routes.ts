@@ -27,6 +27,11 @@ export const routes: Routes = [
     loadChildren: () => import('@features/sales/sales.routes').then((m) => m.salesRoutes),
   },
   {
+    path: 'scheduling',
+    loadChildren: () =>
+      import('@features/scheduling/scheduling.routes').then((m) => m.schedulingRoutes),
+  },
+  {
     path: 'users-admin',
     loadChildren: () =>
       import('@features/users-admin/users-admin.routes').then((m) => m.usersAdminRoutes),
