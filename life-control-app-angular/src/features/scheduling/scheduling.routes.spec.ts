@@ -36,8 +36,13 @@ describe('schedulingRoutes', () => {
     });
   });
 
-  it('should declare list, create and edit/:id children', () => {
-    expect(children().map((route) => route.path)).toEqual(['list', 'create', 'edit/:id']);
+  it('should declare list, create, edit/:id and the availability editor children', () => {
+    expect(children().map((route) => route.path)).toEqual([
+      'list',
+      'create',
+      'edit/:id',
+      'activities/:id/availability',
+    ]);
   });
 
   it('should gate the list with the read roles and no discard guard', () => {
@@ -64,5 +69,17 @@ describe('schedulingRoutes', () => {
       });
       expect(route?.canDeactivate).toEqual([unsavedChangesGuard]);
     }
+  });
+
+  it('should gate the availability editor with the write roles and the discard guard (D42)', () => {
+    const route = child('activities/:id/availability');
+
+    expect(route).toBeDefined();
+    expect(route?.canActivate).toEqual([keycloakRoleGuard]);
+    expect(route?.data).toEqual({
+      roles: ['lc-admin', 'lc-scheduling'],
+      clientId: 'life-control-client',
+    });
+    expect(route?.canDeactivate).toEqual([unsavedChangesGuard]);
   });
 });

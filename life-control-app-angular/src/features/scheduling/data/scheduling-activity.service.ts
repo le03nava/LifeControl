@@ -7,6 +7,8 @@ import {
   Page,
   SchedulingActivity,
   SchedulingActivityRequest,
+  SchedulingAvailabilityRequest,
+  SchedulingAvailabilityResponse,
 } from '../models/scheduling-activity.models';
 
 /**
@@ -119,6 +121,44 @@ export class SchedulingActivityService {
         return throwError(() => err);
       }),
     );
+  }
+
+  /**
+   * The activity's whole availability template.
+   *
+   * A flat read by activity id, like `getActivityById`: no store segment is in
+   * the path, and the error state belongs to the page's loader rather than to the
+   * mutation signals below.
+   */
+  getAvailability(activityId: string): Observable<SchedulingAvailabilityResponse> {
+    return this.http.get<SchedulingAvailabilityResponse>(
+      `${this.apiUrl}/${activityId}/availability`,
+    );
+  }
+
+  /**
+   * Replaces the activity's availability template with the whole set.
+   *
+   * The response is the server's ordered re-read, not an echo of the request, so
+   * the caller adopts it verbatim. The mutation owns the `loading`/`error`
+   * signals, following `updateActivity`.
+   */
+  replaceAvailability(
+    activityId: string,
+    request: SchedulingAvailabilityRequest,
+  ): Observable<SchedulingAvailabilityResponse> {
+    this._loading.set(true);
+    this._error.set(null);
+
+    return this.http
+      .put<SchedulingAvailabilityResponse>(`${this.apiUrl}/${activityId}/availability`, request)
+      .pipe(
+        finalize(() => this._loading.set(false)),
+        catchError((err) => {
+          this._error.set('Error al guardar la disponibilidad');
+          return throwError(() => err);
+        }),
+      );
   }
 
   clearError(): void {

@@ -1,0 +1,82 @@
+// Availability editor: the shared form grid supplies the card and the actions.
+@use '../../../../shared/styles/form-layout' as *;
+@use '../../../../shared/styles/variables' as *;
+
+.availability-editor {
+  display: block;
+}
+
+.editor-header {
+  .hint {
+    margin: 0;
+    color: var(--color-gray-700);
+    font-size: 0.875rem;
+  }
+}
+
+.windows-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.empty-rows {
+  margin: 0;
+  padding: var(--space-md);
+  color: var(--color-gray-700);
+  font-size: 0.875rem;
+  background-color: var(--color-gray-100);
+  border-radius: var(--radius-md);
+}
+
+.window-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-sm);
+  align-items: start;
+  padding: var(--space-md);
+  background-color: var(--color-gray-50);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-md);
+
+  @media (min-width: $bp-sm) {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  @media (min-width: $bp-md) {
+    grid-template-columns: auto repeat(5, minmax(0, 1fr)) auto;
+  }
+
+  .row-number {
+    display: none;
+    align-self: center;
+    color: var(--color-gray-500);
+    font-size: 0.875rem;
+    font-weight: 600;
+
+    @media (min-width: $bp-md) {
+      display: block;
+    }
+  }
+
+  .row-error {
+    grid-column: 1 / -1;
+    margin: 0;
+    color: var(--mat-sys-error, #b3261e);
+    font-size: 0.875rem;
+  }
+}
+
+.rows-error,
+.cap-hint {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.rows-error {
+  color: var(--mat-sys-error, #b3261e);
+}
+
+.cap-hint {
+  color: var(--color-gray-700);
+}

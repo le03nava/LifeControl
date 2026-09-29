@@ -250,6 +250,7 @@ describe('SchedulingActivityList', () => {
       expect(component.canWrite).toBe(false);
       expect(text()).not.toContain('Nueva actividad');
       expect(actionButton('Editar')).toBeNull();
+      expect(actionButton('Editar disponibilidad')).toBeNull();
       expect(actionButton('Deshabilitar')).toBeNull();
     });
 
@@ -260,6 +261,7 @@ describe('SchedulingActivityList', () => {
       expect(component.canWrite).toBe(true);
       expect(text()).toContain('Nueva actividad');
       expect(actionButton('Editar')).not.toBeNull();
+      expect(actionButton('Editar disponibilidad')).not.toBeNull();
       expect(actionButton('Deshabilitar')).not.toBeNull();
     });
   });
@@ -416,6 +418,19 @@ describe('SchedulingActivityList', () => {
     component.onEdit(activity());
 
     expect(router.navigate).toHaveBeenCalledWith(['/scheduling/edit', 'activity-1']);
+  });
+
+  it('should navigate to the availability editor for a row', async () => {
+    setup({ queryStoreId: 'store-1' });
+    await settle();
+
+    component.onEditAvailability(activity());
+
+    expect(router.navigate).toHaveBeenCalledWith([
+      '/scheduling/activities',
+      'activity-1',
+      'availability',
+    ]);
   });
 
   describe('fail-closed and list states', () => {
