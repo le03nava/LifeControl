@@ -4,3 +4,5 @@ export * from './scheduling-availability-wire';
 export * from './scheduling-calendar-week';
 export * from './scheduling-calendar.service';
 export * from './scheduling-appointment.service';
+export * from './scheduling-appointment-status';
+export * from './scheduling-status.service';

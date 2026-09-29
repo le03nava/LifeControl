@@ -5,6 +5,8 @@ import { ConfigService } from '@app/services/config.service';
 import {
   SchedulingAppointment,
   SchedulingAppointmentBookingRequest,
+  SchedulingAppointmentRescheduleRequest,
+  SchedulingAppointmentStatusRequest,
 } from '../models/scheduling-appointment.models';
 
 /**
@@ -15,7 +17,12 @@ import {
  * store being derived from the slot's activity server-side.
  *
  * Unlike {@link SchedulingActivityService}, this service owns **no** error or
- * loading signal: the booking dialog owns its own error state.
+ * loading signal: the booking dialog owns its own error state. That contract holds
+ * for **every** write here — booking, the status change, the reschedule and the
+ * removal — not only for the booking (D75): each rethrows the error untouched, so
+ * the caller can discriminate the failure by the server's own message, and none
+ * sets a `SKIP_ERROR_NOTIFICATION` token, so the interceptor's global toast fires
+ * alongside the caller's own banner (G36).
  */
 @Injectable({
   providedIn: 'root',
@@ -48,5 +55,52 @@ export class SchedulingAppointmentService {
    */
   bookAppointment(request: SchedulingAppointmentBookingRequest): Observable<SchedulingAppointment> {
     return this.http.post<SchedulingAppointment>(this.appointmentsUrl, request);
+  }
+
+  /**
+   * Moves the appointment to the status named by the request's `statusId`:
+   * `PATCH /api/scheduling/appointments/{id}/status` answers `200` with the
+   * updated appointment.
+   *
+   * The server validates the status type and the transition edge and answers a
+   * wrong status type with `400` and an illegal edge with `409`; the error is
+   * rethrown untouched so the caller can discriminate it by the server's own
+   * message, and this method owns no error or loading signal (D75).
+   */
+  updateStatus(
+    id: string,
+    request: SchedulingAppointmentStatusRequest,
+  ): Observable<SchedulingAppointment> {
+    return this.http.patch<SchedulingAppointment>(`${this.appointmentsUrl}/${id}/status`, request);
+  }
+
+  /**
+   * Moves the appointment to the slot named by the request's `slotId`:
+   * `PUT /api/scheduling/appointments/{id}` answers `200` with the updated
+   * appointment, keeping its current status (D29).
+   *
+   * The server answers a terminal appointment or an unbookable destination with
+   * `409`; the error is rethrown untouched and this method owns no error or
+   * loading signal (D75).
+   */
+  reschedule(
+    id: string,
+    request: SchedulingAppointmentRescheduleRequest,
+  ): Observable<SchedulingAppointment> {
+    return this.http.put<SchedulingAppointment>(`${this.appointmentsUrl}/${id}`, request);
+  }
+
+  /**
+   * Soft-deletes the appointment: `DELETE /api/scheduling/appointments/{id}`
+   * answers `204`. A Scheduled or Confirmed appointment is also moved to Cancelled
+   * and its capacity released; a terminal one keeps its status and its capacity
+   * (E45).
+   *
+   * The error is rethrown untouched and this method owns no error or loading
+   * signal (D75). The emission on success is the empty `204` response body, not a
+   * value this service synthesizes.
+   */
+  remove(id: string): Observable<void> {
+    return this.http.delete<void>(`${this.appointmentsUrl}/${id}`);
   }
 }
