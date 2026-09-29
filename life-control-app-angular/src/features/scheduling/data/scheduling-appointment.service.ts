@@ -33,10 +33,18 @@ export class SchedulingAppointmentService {
    * answers `201` with the created appointment, the store being derived from the
    * slot's activity.
    *
-   * The error is rethrown untouched and the method owns no error/loading signal,
-   * because the booking dialog owns its error state. It also sets no
-   * `SKIP_ERROR_NOTIFICATION`, so a failed booking still reaches the global toast —
-   * the app-wide net for anything the dialog does not map by name.
+   * The error is rethrown untouched and the method owns no error/loading signal, so
+   * the caller owns the error state and the dialog's banner is the message that names
+   * the cause.
+   *
+   * It also sets no `SKIP_ERROR_NOTIFICATION`, so the interceptor's global toast fires
+   * for **every** failed write, the ones the dialog maps by name included: a capacity
+   * conflict shows the dialog's banner **and** the generic toast — two parallel
+   * signals, not a fallback. That double signal is the app-wide write convention
+   * (`scheduling-activity-edit` behaves the same way), and the record declares this
+   * write-side duplicate-toast cost as a gap (**G36**; **G27** is its read-side twin
+   * in the activity service) rather than silencing it; removing it, if ever wanted, is
+   * a service-or-interceptor change and not this dialog's business.
    */
   bookAppointment(request: SchedulingAppointmentBookingRequest): Observable<SchedulingAppointment> {
     return this.http.post<SchedulingAppointment>(this.appointmentsUrl, request);

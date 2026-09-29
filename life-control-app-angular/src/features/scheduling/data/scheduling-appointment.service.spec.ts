@@ -118,8 +118,12 @@ describe('SchedulingAppointmentService', () => {
       service.bookAppointment(bookingRequest).subscribe({ error: () => undefined });
 
       const req = httpMock.expectOne(base);
-      // No SKIP_ERROR_NOTIFICATION token: a failed booking must still reach the
-      // app-wide toast as the net for anything the dialog does not map by name.
+      // No SKIP_ERROR_NOTIFICATION token: the interceptor's global toast fires for
+      // every failed write, the ones the dialog maps by name included, so a failed
+      // booking shows the dialog's banner and the generic toast in parallel. That
+      // double signal is the app-wide write convention (the merged
+      // `scheduling-activity-edit` behaves the same way) and the record declares it
+      // as a gap (G36; G27 is its read-side twin) rather than silencing it.
       expect(req.request.context.get(SKIP_ERROR_NOTIFICATION)).toBe(false);
       req.flush(mockAppointment);
     });

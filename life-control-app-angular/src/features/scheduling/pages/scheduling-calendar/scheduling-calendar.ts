@@ -362,8 +362,11 @@ export class SchedulingCalendar {
       return;
     }
 
-    // A stale verdict is already stated in the dialog's own copy; the re-read is
-    // the remedy, and a toast on top of it would say the same thing twice.
+    // A stale verdict is already stated in the dialog's own copy, so the page adds no
+    // toast of its own: the re-read is the remedy. The interceptor's toast for the
+    // failed write is a separate signal and it already fired; this branch stays silent
+    // to avoid a page-level toast on top of the dialog's copy, not to claim that no
+    // toast happened.
     if (result?.outcome === 'stale') {
       this.weekResource.reload();
     }

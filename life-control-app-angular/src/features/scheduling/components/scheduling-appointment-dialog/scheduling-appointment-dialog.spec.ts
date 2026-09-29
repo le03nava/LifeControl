@@ -127,6 +127,28 @@ describe('SchedulingAppointmentDialog', () => {
     expect(normalized('.slot-capacity')).toContain('quedan 3');
   });
 
+  it('should render the no-room state and still submit when the slot has no room left', () => {
+    // The page only opens the dialog for `available > 0` (D67), so this is a defensive
+    // render of the component's own contract (it renders the slot it is given, D21):
+    // `booked === capacity` makes `slotHasRoom` false and the readout says `sin lugar`
+    // instead of the remaining count.
+    setup({ entry: { ...entry, booked: 4, available: 0 } });
+    fixture.detectChanges();
+
+    expect(component.slotHasRoom).toBe(false);
+    expect(normalized('.slot-capacity')).toContain('4 / 4');
+    expect(normalized('.slot-capacity')).toContain('sin lugar');
+    expect(normalized('.slot-capacity')).not.toContain('quedan');
+
+    // No client-side room guard: the dialog still issues its one write and the
+    // server's capacity 409 is the authority, so the submit path stays coherent.
+    component.form.patchValue({ userId: 'ana.gomez' });
+    component.onBook();
+
+    expect(appointmentServiceMock.bookAppointment).toHaveBeenCalledTimes(1);
+    expect(dialogRef.close).toHaveBeenCalledWith({ outcome: 'booked', appointment });
+  });
+
   it('should show the retired-activity condition when the activity is retired', () => {
     setup({ entry: { ...entry, activityEnabled: false } });
     fixture.detectChanges();
