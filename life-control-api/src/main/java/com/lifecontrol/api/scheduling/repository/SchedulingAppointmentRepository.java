@@ -2,7 +2,9 @@ package com.lifecontrol.api.scheduling.repository;
 
 import com.lifecontrol.api.scheduling.model.SchedulingAppointment;
 import jakarta.persistence.LockModeType;
+import java.time.LocalDateTime;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -38,4 +40,54 @@ public interface SchedulingAppointmentRepository extends JpaRepository<Schedulin
      * this is how the integration test asserts it from the data.
      */
     long countBySlotIdAndStatusIdIn(UUID slotId, Collection<UUID> statusIds);
+
+    /**
+     * The filtered appointment list (W4b): one appointment per row, ranging on the <b>slot's</b>
+     * {@code start_at} in {@code [from, to)} and ordered by that start, so the list is deterministic
+     * without a client-supplied sort tied to the appointment itself.
+     *
+     * <p>Soft-deleted rows are <b>included</b> on purpose: {@code enabled = false} is a soft delete,
+     * not a deletion, and the projected record carries the flag so a consumer can filter. It also
+     * keeps this read consistent with the calendar (D36), where a soft-deleted {@code Completed}
+     * appointment is still counted by {@code booked}.</p>
+     */
+    @Query("""
+            SELECT a FROM SchedulingAppointment a
+            JOIN SchedulingSlot s ON s.id = a.slotId
+            WHERE a.companyStoreId = :storeId
+              AND s.startAt >= :from
+              AND s.startAt < :to
+            ORDER BY s.startAt ASC, a.id ASC
+            """)
+    List<SchedulingAppointment> findInRangeByStore(
+            @Param("storeId") UUID storeId, @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    /**
+     * The filtered appointment list narrowed to one {@code userId}. The service chooses this finder
+     * over {@link #findInRangeByStore(UUID, LocalDateTime, LocalDateTime)} when the optional
+     * {@code userId} is present, so the predicate is never a null-bound parameter.
+     */
+    @Query("""
+            SELECT a FROM SchedulingAppointment a
+            JOIN SchedulingSlot s ON s.id = a.slotId
+            WHERE a.companyStoreId = :storeId
+              AND a.userId = :userId
+              AND s.startAt >= :from
+              AND s.startAt < :to
+            ORDER BY s.startAt ASC, a.id ASC
+            """)
+    List<SchedulingAppointment> findInRangeByStoreAndUserId(
+            @Param("storeId") UUID storeId,
+            @Param("userId") String userId,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to);
+
+    /** D35's second batched read: every appointment of every returned slot in one query. */
+    List<SchedulingAppointment> findBySlotIdInOrderByIdAsc(Collection<UUID> slotIds);
+
+    /**
+     * D35's second batched read narrowed to one {@code userId}. Chosen by the service when the
+     * optional calendar filter is present, so the predicate is never a null-bound parameter.
+     */
+    List<SchedulingAppointment> findBySlotIdInAndUserIdOrderByIdAsc(Collection<UUID> slotIds, String userId);
 }

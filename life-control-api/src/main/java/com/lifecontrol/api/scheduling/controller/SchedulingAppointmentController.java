@@ -14,7 +14,10 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -26,6 +29,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -83,6 +87,26 @@ public class SchedulingAppointmentController {
     })
     public ResponseEntity<SchedulingAppointmentResponse> getAppointmentById(@PathVariable UUID id) {
         return ResponseEntity.ok(schedulingAppointmentService.getById(id));
+    }
+
+    @GetMapping
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SCHEDULING + "','" + SCHEDULING_READ + "')")
+    @Operation(
+            summary = "List a store's appointments for a range",
+            description =
+                    "Returns the store's appointments whose slot's start_at falls in [from, to), ordered by slot start, optionally narrowed to one userId. Soft-deleted appointments are included with their enabled flag. The range must be non-empty and at most 90 days wide. The caller must be able to access the store scope.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "The store's appointments in the requested range"),
+        @ApiResponse(responseCode = "400", description = "The range is empty, inverted or wider than 90 days"),
+        @ApiResponse(responseCode = "403", description = "The caller cannot access the store"),
+        @ApiResponse(responseCode = "404", description = "Scheduling store, slot or status not found")
+    })
+    public ResponseEntity<List<SchedulingAppointmentResponse>> getAppointments(
+            @RequestParam UUID storeId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to,
+            @RequestParam(required = false) String userId) {
+        return ResponseEntity.ok(schedulingAppointmentService.getAppointments(storeId, from, to, userId));
     }
 
     @PutMapping("/{id}")

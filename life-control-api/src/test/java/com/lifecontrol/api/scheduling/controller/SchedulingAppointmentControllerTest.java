@@ -19,11 +19,13 @@ import com.lifecontrol.api.exception.GlobalExceptionHandler;
 import com.lifecontrol.api.purchaseorder.exception.InvalidStatusTransitionException;
 import com.lifecontrol.api.scheduling.dto.SchedulingAppointmentRequest;
 import com.lifecontrol.api.scheduling.dto.SchedulingAppointmentResponse;
+import com.lifecontrol.api.scheduling.exception.InvalidSchedulingRangeException;
 import com.lifecontrol.api.scheduling.exception.SchedulingAppointmentNotFoundException;
 import com.lifecontrol.api.scheduling.exception.SchedulingSlotNotBookableException;
 import com.lifecontrol.api.scheduling.exception.SchedulingSlotNotFoundException;
 import com.lifecontrol.api.scheduling.service.SchedulingAppointmentService;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -181,6 +183,57 @@ class SchedulingAppointmentControllerTest {
                     .thenThrow(new SchedulingAppointmentNotFoundException(appointmentId));
 
             mockMvc.perform(get(BASE_URL + "/" + appointmentId)).andExpect(status().isNotFound());
+        }
+    }
+
+    // ─── GET list ────────────────────────────────────────────────
+
+    @Nested
+    @DisplayName("GET " + BASE_URL)
+    class GetAppointmentsTests {
+
+        @Test
+        @DisplayName("should return 200 and pin the ISO-8601 wire format of the filtered list")
+        void returns200WithIsoWireFormat() throws Exception {
+            var storeId = UUID.randomUUID();
+            when(schedulingAppointmentService.getAppointments(eq(storeId), any(), any(), any()))
+                    .thenReturn(List.of(response));
+
+            mockMvc.perform(get(BASE_URL)
+                            .param("storeId", storeId.toString())
+                            .param("from", "2026-09-28T00:00:00")
+                            .param("to", "2026-09-29T00:00:00"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$[0].id").value(appointmentId.toString()))
+                    .andExpect(jsonPath("$[0].startAt").value("2026-09-28T09:00:00"))
+                    .andExpect(jsonPath("$[0].endAt").value("2026-09-28T10:00:00"))
+                    .andExpect(jsonPath("$[0].statusName").value("Scheduled"))
+                    .andExpect(jsonPath("$[0].enabled").value(true));
+        }
+
+        @Test
+        @DisplayName("should return 400 through GlobalExceptionHandler when the range is inverted")
+        void returns400ForInvertedRange() throws Exception {
+            var storeId = UUID.randomUUID();
+            when(schedulingAppointmentService.getAppointments(eq(storeId), any(), any(), any()))
+                    .thenThrow(new InvalidSchedulingRangeException("to must be after from"));
+
+            mockMvc.perform(get(BASE_URL)
+                            .param("storeId", storeId.toString())
+                            .param("from", "2026-09-29T00:00:00")
+                            .param("to", "2026-09-28T00:00:00"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value("to must be after from"));
+        }
+
+        @Test
+        @DisplayName("should return 400 through GlobalExceptionHandler when a required parameter is missing")
+        void returns400WhenRequiredParameterMissing() throws Exception {
+            mockMvc.perform(get(BASE_URL)
+                            .param("storeId", UUID.randomUUID().toString())
+                            .param("from", "2026-09-28T00:00:00"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value("Missing required parameter 'to'"));
         }
     }
 
