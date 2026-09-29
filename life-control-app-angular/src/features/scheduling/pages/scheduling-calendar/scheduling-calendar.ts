@@ -1,21 +1,30 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   computed,
   effect,
   inject,
   signal,
 } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
-import { rxResource, toSignal } from '@angular/core/rxjs-interop';
+import { rxResource, takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
+import { MatDialog } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatSelectModule } from '@angular/material/select';
 import { ErrorBanner, PageHeader } from '@shared/ui';
 import { httpErrorMessage } from '@shared/data';
+import { NotificationService } from '@shared/data/notification';
+import { hasAnyClientRole, SCHEDULING_WRITE_ROLES } from '@core/security/roles';
 import { SchedulingWeekGrid } from '../../components/scheduling-week-grid/scheduling-week-grid';
 import { SchedulingDayAgenda } from '../../components/scheduling-day-agenda/scheduling-day-agenda';
+import {
+  SchedulingAppointmentDialog,
+  SchedulingAppointmentDialogData,
+  SchedulingAppointmentDialogResult,
+} from '../../components/scheduling-appointment-dialog/scheduling-appointment-dialog';
 import {
   SchedulingCalendarService,
   SchedulingCatalogueTooLargeError,
@@ -58,8 +67,10 @@ function unwrapCatalogueError(error: unknown): SchedulingCatalogueTooLargeError 
  * plus the selected day's agenda, both built from **one** `GET /calendar`
  * response (D54).
  *
- * W6a renders no write affordance at all (D65); the appointment dialog is a
- * separate slice. The page is reachable for the read role set (D60, D61).
+ * The page is reachable for the read role set (D60, D61) and owns the write path
+ * (D71): the grid emits the slot that was chosen, this page opens the appointment
+ * dialog and, on a booked or stale result, re-reads the week (D72). A reader sees
+ * no booking affordance at all (D65, D74).
  *
  * The week read is a chain the service owns (D50): read the store's enabled
  * activities, fan out the materializing `GET /slots` per activity at a bounded
@@ -95,6 +106,16 @@ export class SchedulingCalendar {
   private readonly router = inject(Router);
   private readonly calendarService = inject(SchedulingCalendarService);
   private readonly storeContext = inject(SchedulingStoreContext);
+  private readonly dialog = inject(MatDialog);
+  private readonly notifications = inject(NotificationService);
+  private readonly destroyRef = inject(DestroyRef);
+
+  /**
+   * `lc-scheduling-read` reaches this page but the backend answers 403 on every
+   * write, so no booking affordance is rendered for it (D74). Read once, as the
+   * sibling pages do; the grid receives the value and reads no role itself.
+   */
+  readonly canWrite = hasAnyClientRole(SCHEDULING_WRITE_ROLES);
 
   /**
    * The route's query params **as a stream** (D64), never from the snapshot.
@@ -294,6 +315,61 @@ export class SchedulingCalendar {
 
   onDaySelected(date: string): void {
     this.selectedDate.set(date);
+  }
+
+  /**
+   * Opens the booking dialog for a slot the grid offered (D71, D74).
+   *
+   * The affordance is already gated on both this page's `canWrite` and the grid's
+   * own `activityEnabled`/`available` terms, so this guard is defence in depth:
+   * nothing that cannot complete the write opens a dialog.
+   *
+   * The dialog performs **no read** of its own, so the attending employee's
+   * `userId` is resolved here from the catalogue this page already holds (the
+   * per-store activity list). An activity absent from that list contributes `null`
+   * and the dialog's field stays empty and editable (D30, D45).
+   */
+  onSlotSelected(entry: SchedulingCalendarEntry): void {
+    if (!this.canWrite) {
+      return;
+    }
+
+    const activityUserId =
+      this.activities().find((activity) => activity.id === entry.activityId)?.userId ?? null;
+
+    this.dialog
+      .open<
+        SchedulingAppointmentDialog,
+        SchedulingAppointmentDialogData,
+        SchedulingAppointmentDialogResult
+      >(SchedulingAppointmentDialog, { data: { entry, activityUserId } })
+      .afterClosed()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((result) => this.onBookingClosed(result));
+  }
+
+  /**
+   * Reacts to the dialog's close (D72).
+   *
+   * `undefined` is treated as no result on purpose: Material can close the ref
+   * itself (Esc or backdrop) and that close carries no result, so it means the
+   * same thing as `null` — no write and no conflict.
+   */
+  private onBookingClosed(result: SchedulingAppointmentDialogResult | undefined): void {
+    if (result?.outcome === 'booked') {
+      this.notifications.showSuccess('Turno reservado correctamente.');
+      this.weekResource.reload();
+      return;
+    }
+
+    // A stale verdict is already stated in the dialog's own copy, so the page adds no
+    // toast of its own: the re-read is the remedy. The interceptor's toast for the
+    // failed write is a separate signal and it already fired; this branch stays silent
+    // to avoid a page-level toast on top of the dialog's copy, not to claim that no
+    // toast happened.
+    if (result?.outcome === 'stale') {
+      this.weekResource.reload();
+    }
   }
 
   /** A new `?date=` merged onto the current params, so `storeId` survives (D64). */

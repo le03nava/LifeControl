@@ -55,9 +55,21 @@
   flex-direction: column;
   gap: 2px;
   padding: var(--space-xs, 0.25rem) var(--space-sm, 0.5rem);
+  font: inherit;
+  color: inherit;
+  text-align: left;
   background-color: var(--mat-sys-surface, #fff);
   border: 1px solid var(--mat-sys-outline-variant, #e0e0e0);
   border-radius: var(--radius-sm, 0.25rem);
+
+  &.bookable {
+    cursor: pointer;
+
+    &:hover,
+    &:focus-visible {
+      border-color: var(--mat-sys-primary, #1d4ed8);
+    }
+  }
 
   &.retired {
     opacity: 0.75;

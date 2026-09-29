@@ -1,0 +1,62 @@
+<h2 mat-dialog-title>Reservar un turno</h2>
+
+<form [formGroup]="form" (ngSubmit)="onBook()">
+  <mat-dialog-content>
+    <section class="slot-summary">
+      <p class="slot-activity">{{ data.entry.activityName }}</p>
+      <p class="slot-when">
+        {{ day }} · {{ timeLabel(data.entry.startAt) }}–{{ timeLabel(data.entry.endAt) }}
+      </p>
+      <p class="slot-capacity">
+        {{ data.entry.booked }} / {{ data.entry.capacity }} reservados
+        @if (slotHasRoom) {
+          <span class="slot-available">· quedan {{ data.entry.available }}</span>
+        } @else {
+          <span class="slot-available">· sin lugar</span>
+        }
+      </p>
+      @if (!data.entry.activityEnabled) {
+        <p class="slot-retired">Actividad retirada: no es un destino reservable.</p>
+      }
+    </section>
+
+    @if (generalError(); as errorMessage) {
+      <app-error-banner [message]="errorMessage" />
+    }
+
+    <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+      <mat-label>Responsable (opcional)</mat-label>
+      <!--
+        Mirrors the server's real bound: the `user_id` column is `VARCHAR(255)` and the
+        service carries no `@Size` (D45), so the DB is the bound and this attribute follows
+        it. The notes field below has no column bound (`TEXT`), so it carries no maxlength.
+      -->
+      <input
+        matInput
+        type="text"
+        formControlName="userId"
+        maxlength="255"
+        placeholder="Ej. ana.gomez"
+      />
+      <mat-hint>
+        Usuario de Keycloak (sub) del empleado que atiende el turno. La app no tiene lista de
+        empleados, así que va a mano: un error de tipeo deja un turno que nadie puede resolver.
+      </mat-hint>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+      <mat-label>Notas (opcional)</mat-label>
+      <textarea
+        matInput
+        formControlName="notes"
+        rows="3"
+        placeholder="Notas internas del turno"
+      ></textarea>
+    </mat-form-field>
+  </mat-dialog-content>
+
+  <mat-dialog-actions align="end">
+    <button mat-button type="button" (click)="cancel()" [disabled]="saving()">Cancelar</button>
+    <button mat-flat-button color="primary" type="submit" [disabled]="saving()">Reservar</button>
+  </mat-dialog-actions>
+</form>

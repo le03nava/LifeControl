@@ -13,16 +13,31 @@
 
       <div class="day-slots">
         @for (entry of day.entries; track entry.slotId) {
-          <article class="slot-block" [class.retired]="!entry.activityEnabled">
-            <span class="slot-activity">{{ entry.activityName }}</span>
-            <span class="slot-time">
-              {{ timeLabel(entry.startAt) }}–{{ timeLabel(entry.endAt) }}
-            </span>
-            <span class="slot-capacity">{{ entry.booked }} / {{ entry.capacity }}</span>
-            @if (!entry.activityEnabled) {
-              <span class="slot-retired-marker">Actividad retirada</span>
-            }
-          </article>
+          @if (isBookable(entry)) {
+            <button
+              type="button"
+              class="slot-block bookable"
+              [attr.aria-label]="bookLabel(entry, day)"
+              (click)="onSelectSlot(entry)"
+            >
+              <span class="slot-activity">{{ entry.activityName }}</span>
+              <span class="slot-time">
+                {{ timeLabel(entry.startAt) }}–{{ timeLabel(entry.endAt) }}
+              </span>
+              <span class="slot-capacity">{{ entry.booked }} / {{ entry.capacity }}</span>
+            </button>
+          } @else {
+            <article class="slot-block" [class.retired]="!entry.activityEnabled">
+              <span class="slot-activity">{{ entry.activityName }}</span>
+              <span class="slot-time">
+                {{ timeLabel(entry.startAt) }}–{{ timeLabel(entry.endAt) }}
+              </span>
+              <span class="slot-capacity">{{ entry.booked }} / {{ entry.capacity }}</span>
+              @if (!entry.activityEnabled) {
+                <span class="slot-retired-marker">Actividad retirada</span>
+              }
+            </article>
+          }
         } @empty {
           <p class="day-empty">Sin horarios</p>
         }
