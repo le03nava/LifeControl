@@ -719,7 +719,11 @@ export async function installApiMock(page: Page, options: ApiMockOptions = {}): 
       const activityId = url.searchParams.get('activityId') ?? '';
       const from = url.searchParams.get('from') ?? '';
       const to = url.searchParams.get('to') ?? '';
-      await fulfillJson(route, buildSchedulingSlots(activityId, from, to), cors);
+      await fulfillJson(
+        route,
+        buildSchedulingSlots(activityId, from, to, schedulingAppointments),
+        cors,
+      );
       return;
     }
 
@@ -764,7 +768,9 @@ export async function installApiMock(page: Page, options: ApiMockOptions = {}): 
         return;
       }
 
-      const createdAt = new Date().toISOString();
+      // `SchedulingAppointmentResponse` serializes zone-less `LocalDateTime`, so the
+      // fixture keeps the same shape the real API answers (no trailing `Z`).
+      const createdAt = new Date().toISOString().slice(0, 19);
       const created: SchedulingAppointmentMock = {
         id: `e2e-appointment-${nextId++}`,
         slotId: base.slotId,
@@ -916,22 +922,32 @@ function buildSchedulingCalendarEntries(
 /**
  * The bare-array slots the materializing read answers for one activity.
  *
- * Derived from {@link buildSchedulingCalendarEntries} so the two reads never drift:
- * the page discards this response, but the fixture still describes the same slots
- * the projection will render.
+ * Derived from {@link buildSchedulingCalendarEntries} **and** from the appointments the
+ * session has booked, so the two reads never drift: a booking moves `booked`/`available`
+ * here exactly as it does in the projection. The page discards this response, but the
+ * fixture describes the same slots the projection will render, and a mock that disagreed
+ * with itself would fail the first assertion that ever read the slots body.
  */
-function buildSchedulingSlots(activityId: string, from: string, to: string): SchedulingSlotMock[] {
-  return buildSchedulingCalendarEntries(from, to, activityId).map((entry) => ({
-    id: entry.slotId,
-    activityId: entry.activityId,
-    startAt: entry.startAt,
-    endAt: entry.endAt,
-    capacity: entry.capacity,
-    booked: entry.booked,
-    available: entry.available,
-    status: entry.status,
-    enabled: true,
-  }));
+function buildSchedulingSlots(
+  activityId: string,
+  from: string,
+  to: string,
+  bookedAppointments: ReadonlyMap<string, SchedulingCalendarAppointmentMock[]>,
+): SchedulingSlotMock[] {
+  return buildSchedulingCalendarEntries(from, to, activityId).map((entry) => {
+    const booked = entry.booked + (bookedAppointments.get(entry.slotId)?.length ?? 0);
+    return {
+      id: entry.slotId,
+      activityId: entry.activityId,
+      startAt: entry.startAt,
+      endAt: entry.endAt,
+      capacity: entry.capacity,
+      booked,
+      available: entry.capacity - booked,
+      status: entry.status,
+      enabled: true,
+    };
+  });
 }
 
 /** `YYYY-MM-DD` a number of days after the date part of a zone-less ISO date-time. */
