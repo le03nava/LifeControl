@@ -12,6 +12,7 @@ app.describe('Navigation and role-based menus', () => {
       await expect(page.getByRole('link', { name: 'Products' })).toBeVisible();
       await expect(page.getByRole('link', { name: 'Compras' })).toBeVisible();
       await expect(page.getByRole('link', { name: 'Users Admin' })).toBeVisible();
+      await expect(page.getByRole('link', { name: 'Calendario y citas' })).toBeVisible();
     });
 
     app('loads the companies dashboard and the companies list', async ({ page }) => {
@@ -39,6 +40,7 @@ app.describe('Navigation and role-based menus', () => {
       await expect(page.getByRole('link', { name: 'Compras' })).toBeVisible();
       await expect(page.getByRole('link', { name: 'Products' })).toHaveCount(0);
       await expect(page.getByRole('link', { name: 'Users Admin' })).toHaveCount(0);
+      await expect(page.getByRole('link', { name: 'Calendario y citas' })).toHaveCount(0);
     });
   });
 
@@ -52,6 +54,7 @@ app.describe('Navigation and role-based menus', () => {
       await expect(page.getByRole('link', { name: 'Products' })).toHaveCount(0);
       await expect(page.getByRole('link', { name: 'Compras' })).toHaveCount(0);
       await expect(page.getByRole('link', { name: 'Users Admin' })).toHaveCount(0);
+      await expect(page.getByRole('link', { name: 'Calendario y citas' })).toHaveCount(0);
     });
 
     app('is redirected to unauthorized on admin routes', async ({ page }) => {
