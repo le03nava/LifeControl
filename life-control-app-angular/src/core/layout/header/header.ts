@@ -14,7 +14,7 @@ import { MatDividerModule } from '@angular/material/divider';
 import { MatIconModule } from '@angular/material/icon';
 import { MatMenuModule } from '@angular/material/menu';
 import { Router, RouterModule } from '@angular/router';
-import { LC_RECEIVING } from '@core/security/roles';
+import { LC_RECEIVING, SCHEDULING_READ_ROLES } from '@core/security/roles';
 import { Button, Hyperlink } from '@shared/ui';
 import { CompanyContextService } from '@shared/data/company-context.service';
 import Keycloak from 'keycloak-js';
@@ -51,6 +51,7 @@ export class Header implements OnInit {
   isAdmin = signal(false);
   isReceiving = signal(false);
   isSalesRole = signal(false);
+  isSchedulingRead = signal(false);
 
   /** User display name from Keycloak token — signal for template reactivity */
   userName = signal('');
@@ -141,6 +142,27 @@ export class Header implements OnInit {
       });
     }
 
+    // The activities list and the week calendar are URL-only without an entry here, so a
+    // scheduling reader has no rendered control reaching `/scheduling`. The gate reuses the
+    // read roster constant as the single source of truth shared with the route data.
+    if (this.isSchedulingRead()) {
+      menuItems.push({
+        id: '8',
+        routeLink: '/scheduling/list',
+        textLink: 'Calendario y citas',
+        icon: 'calendar_month',
+        children: [
+          { id: '8-1', routeLink: '/scheduling/list', textLink: 'Actividades', icon: 'list_alt' },
+          {
+            id: '8-2',
+            routeLink: '/scheduling/calendar',
+            textLink: 'Calendario',
+            icon: 'calendar_month',
+          },
+        ],
+      });
+    }
+
     return menuItems;
   });
 
@@ -183,6 +205,7 @@ export class Header implements OnInit {
             clientRoles.includes('lc-company-store'),
         );
         this.isSalesRole.set(clientRoles.includes('lc-sales') || clientRoles.includes('lc-admin'));
+        this.isSchedulingRead.set(SCHEDULING_READ_ROLES.some((role) => clientRoles.includes(role)));
         this.updateUserFromToken();
       }
       if (event?.type === KeycloakEventType.AuthLogout) {
@@ -191,6 +214,7 @@ export class Header implements OnInit {
         this.isReceiving.set(false);
         this.isCompanyRole.set(false);
         this.isSalesRole.set(false);
+        this.isSchedulingRead.set(false);
         this.userName.set('');
       }
     });

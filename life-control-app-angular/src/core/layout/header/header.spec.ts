@@ -122,7 +122,7 @@ describe('Header', () => {
       expect(companiesItem).toBeDefined();
       expect(companiesItem?.textLink).toBe('Companies');
       expect(items.some((i) => i.routeLink === '/users-admin')).toBe(true);
-      expect(items.length).toBe(6); // Companies + Sales + Products + Stock by store + Purchases + Users Admin
+      expect(items.length).toBe(7); // Companies + Sales + Products + Stock by store + Purchases + Users Admin + Calendario y citas
     });
 
     it('should NOT show Companies menu when user has no company client roles', () => {
@@ -192,8 +192,8 @@ describe('Header', () => {
     it('should render the caret trigger only for items that have children', () => {
       const { fixture } = setup(['lc-admin']);
       const triggers = fixture.nativeElement.querySelectorAll('.submenu-trigger');
-      // Only the Companies item has children among the 5 admin items
-      expect(triggers).toHaveLength(1);
+      // Companies and Calendario y citas are the admin items that carry children.
+      expect(triggers).toHaveLength(2);
       expect(triggers[0].getAttribute('aria-label')).toBe('Companies submenu');
     });
 
@@ -213,7 +213,7 @@ describe('Header', () => {
       expect(component.isCompanyRole()).toBe(true);
       const items = component.items();
       expect(items.some((i) => i.routeLink === '/users-admin')).toBe(true);
-      expect(items.length).toBe(6); // Companies + Sales + Products + Stock by store + Purchases + Users Admin
+      expect(items.length).toBe(7); // Companies + Sales + Products + Stock by store + Purchases + Users Admin + Calendario y citas
     });
 
     it('should NOT show Users Admin for lc-company role', () => {
@@ -520,7 +520,7 @@ describe('Header', () => {
       const items = component.items();
       const salesItem = items.find((i) => i.routeLink === '/sales');
       expect(salesItem).toBeDefined();
-      expect(items.length).toBe(6); // Companies + Sales + Products + Stock by store + Purchases + Users Admin
+      expect(items.length).toBe(7); // Companies + Sales + Products + Stock by store + Purchases + Users Admin + Calendario y citas
     });
 
     it('should reset isSalesRole on AuthLogout event', () => {
@@ -675,6 +675,81 @@ describe('Header', () => {
       expect(component.isReceiving()).toBe(false);
       const comprasItem = component.items().find((i) => i.routeLink === '/purchases');
       expect(comprasItem).toBeUndefined();
+    });
+  });
+
+  // ─── Scheduling menu gating (lc-admin / lc-scheduling / lc-scheduling-read) ───
+
+  describe('scheduling menu gating', () => {
+    it('should show the Calendario y citas parent with its two children for a scheduling-read user', () => {
+      const { component } = setup(['lc-scheduling-read']);
+      const items = component.items();
+
+      // A scheduling-read-only user is in the read roster and in nothing else, so the
+      // scheduling parent is the whole menu.
+      expect(items).toHaveLength(1);
+      expect(items[0]).toEqual({
+        id: '8',
+        routeLink: '/scheduling/list',
+        textLink: 'Calendario y citas',
+        icon: 'calendar_month',
+        children: [
+          { id: '8-1', routeLink: '/scheduling/list', textLink: 'Actividades', icon: 'list_alt' },
+          {
+            id: '8-2',
+            routeLink: '/scheduling/calendar',
+            textLink: 'Calendario',
+            icon: 'calendar_month',
+          },
+        ],
+      });
+    });
+
+    it('should render the Calendario y citas link for a scheduling-read user', () => {
+      const { fixture } = setup(['lc-scheduling-read']);
+      const navItems = Array.from(
+        fixture.nativeElement.querySelectorAll('li.nav-item') as NodeListOf<HTMLElement>,
+      );
+      const parent = navItems.find((li) => li.textContent?.includes('Calendario y citas'));
+
+      expect(parent).toBeDefined();
+      expect(parent?.querySelector('a')).toBeTruthy();
+    });
+
+    it('should show the parent for the scheduling write role lc-scheduling', () => {
+      const { component } = setup(['lc-scheduling']);
+      expect(component.isSchedulingRead()).toBe(true);
+      expect(component.items().some((i) => i.routeLink === '/scheduling/list')).toBe(true);
+    });
+
+    it('should show the parent for an admin', () => {
+      const { component } = setup(['lc-admin']);
+      expect(component.items().some((i) => i.routeLink === '/scheduling/list')).toBe(true);
+    });
+
+    it('should NOT show the parent for a sales-only user', () => {
+      const { component } = setup(['lc-sales']);
+      expect(component.isSchedulingRead()).toBe(false);
+      expect(component.items().some((i) => i.routeLink === '/scheduling/list')).toBe(false);
+    });
+
+    it('should NOT show the parent for a receiving-only user', () => {
+      const { component } = setup(['lc-receiving']);
+      expect(component.isSchedulingRead()).toBe(false);
+      expect(component.items().some((i) => i.routeLink === '/scheduling/list')).toBe(false);
+    });
+
+    it('should render the parent caret and no caret on a childless item', () => {
+      const { fixture } = setup(['lc-admin']);
+      const navItems = Array.from(
+        fixture.nativeElement.querySelectorAll('li.nav-item') as NodeListOf<HTMLElement>,
+      );
+
+      const parent = navItems.find((li) => li.textContent?.includes('Calendario y citas'));
+      expect(parent?.querySelector('.submenu-trigger')).toBeTruthy();
+
+      const childless = navItems.find((li) => li.textContent?.includes('Products'));
+      expect(childless?.querySelector('.submenu-trigger')).toBeNull();
     });
   });
 

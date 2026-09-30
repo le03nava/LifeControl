@@ -129,6 +129,94 @@ export interface StoreInventorySettingsMock {
   salesLocationId: string;
 }
 
+/** `GET /api/profile`: the identity plus the location preferences the store resolver reads. */
+export interface ProfileMock {
+  keycloakUserId: string;
+  username: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  companyCountryId: string | null;
+  companyId: string | null;
+  companyRegionId: string | null;
+  companyZoneId: string | null;
+  companyStoreId: string | null;
+}
+
+/** One scheduling activity as `GET /api/scheduling/activities` returns it. */
+export interface SchedulingActivityMock {
+  id: string;
+  companyStoreId: string;
+  userId: string | null;
+  activityName: string;
+  description: string | null;
+  durationMinutes: number;
+  capacityPerSlot: number;
+  enabled: boolean;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** One materialized slot as `GET /api/scheduling/slots` returns it (bare array). */
+export interface SchedulingSlotMock {
+  id: string;
+  activityId: string;
+  startAt: string;
+  endAt: string;
+  capacity: number;
+  booked: number;
+  available: number;
+  status: string;
+  enabled: boolean;
+}
+
+/** One appointment nested inside a `GET /api/scheduling/calendar` entry. */
+export interface SchedulingCalendarAppointmentMock {
+  id: string;
+  userId: string | null;
+  customerId: string | null;
+  customerName: string | null;
+  statusId: string;
+  statusName: string;
+  notes: string | null;
+  enabled: boolean;
+}
+
+/** One entry of `GET /api/scheduling/calendar`, which answers a bare array. */
+export interface SchedulingCalendarEntryMock {
+  slotId: string;
+  activityId: string;
+  activityName: string;
+  activityEnabled: boolean;
+  startAt: string;
+  endAt: string;
+  capacity: number;
+  booked: number;
+  available: number;
+  status: string;
+  appointments: SchedulingCalendarAppointmentMock[];
+}
+
+/** The `POST /api/scheduling/appointments` response shape. */
+export interface SchedulingAppointmentMock {
+  id: string;
+  slotId: string;
+  startAt: string;
+  endAt: string;
+  activityId: string;
+  companyStoreId: string;
+  userId: string | null;
+  customerId: string | null;
+  statusId: string;
+  statusName: string;
+  notes: string | null;
+  enabled: boolean;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 const SAMPLE_COMPANIES: CompanyMock[] = [
   {
     id: 'company-1',
@@ -303,6 +391,57 @@ const SAMPLE_INVENTORY_SETTINGS: StoreInventorySettingsMock = {
   salesLocationId: 'location-2',
 };
 
+/**
+ * The authenticated user's profile.
+ *
+ * `companyStoreId` is the store every scheduling screen falls back to: the header
+ * entry carries no `?storeId=`, so the page resolves the store from this read.
+ */
+const SAMPLE_PROFILE: ProfileMock = {
+  keycloakUserId: 'e2e-keycloak-user',
+  username: DEFAULT_MOCK_USERNAME,
+  email: 'e2e-admin@example.com',
+  firstName: 'E2E',
+  lastName: 'User',
+  companyCountryId: STORE_CHAIN.companyCountryId,
+  companyId: STORE_CHAIN.companyId,
+  companyRegionId: STORE_CHAIN.regionId,
+  companyZoneId: STORE_CHAIN.zoneId,
+  companyStoreId: STORE_CHAIN.storeId,
+};
+
+/** The store's enabled activity catalogue, the source of the week's slot names. */
+const SAMPLE_SCHEDULING_ACTIVITIES: SchedulingActivityMock[] = [
+  {
+    id: 'e2e-activity-1',
+    companyStoreId: STORE_CHAIN.storeId,
+    // `null` on purpose: the booking dialog prefills the responsable field from the
+    // activity's `userId`, and the spec submits the dialog untouched expecting `null`.
+    userId: null,
+    activityName: 'Corte de cabello',
+    description: null,
+    durationMinutes: 30,
+    capacityPerSlot: 3,
+    enabled: true,
+    version: 0,
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+  },
+  {
+    id: 'e2e-activity-2',
+    companyStoreId: STORE_CHAIN.storeId,
+    userId: null,
+    activityName: 'Barba',
+    description: null,
+    durationMinutes: 30,
+    capacityPerSlot: 2,
+    enabled: true,
+    version: 0,
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+  },
+];
+
 export interface ApiMockOptions {
   companies?: CompanyMock[];
   countries?: CountryMock[];
@@ -311,6 +450,10 @@ export interface ApiMockOptions {
   storeLocations?: StoreLocationMock[];
   /** Store inventory settings; `null` makes the endpoint answer 404 (store not configured). */
   inventorySettings?: StoreInventorySettingsMock | null;
+  /** Authenticated user's profile; its `companyStoreId` resolves the scheduling store. */
+  profile?: ProfileMock;
+  /** Scheduling activity catalogue; the calendar's slots are derived from the request range. */
+  schedulingActivities?: SchedulingActivityMock[];
 }
 
 /**
@@ -335,6 +478,15 @@ export async function installApiMock(page: Page, options: ApiMockOptions = {}): 
     : [...SAMPLE_STORE_LOCATIONS];
   const inventorySettings: StoreInventorySettingsMock | null =
     options.inventorySettings === undefined ? SAMPLE_INVENTORY_SETTINGS : options.inventorySettings;
+  const profile: ProfileMock = options.profile ? { ...options.profile } : { ...SAMPLE_PROFILE };
+  const schedulingActivities: SchedulingActivityMock[] = options.schedulingActivities
+    ? [...options.schedulingActivities]
+    : [...SAMPLE_SCHEDULING_ACTIVITIES];
+  // Per-test state: the base slots derive from the requested week, so what a booking
+  // changes is the extra `booked` count and the appointments it appends. Both live
+  // here so the week re-read after a booking renders the new numbers.
+  const schedulingAppointments = new Map<string, SchedulingCalendarAppointmentMock[]>();
+  const lastCalendarBase = new Map<string, SchedulingCalendarEntryMock>();
   let nextId = 1;
 
   await page.route(`${API_BASE}/**`, async (route) => {
@@ -541,6 +693,121 @@ export async function installApiMock(page: Page, options: ApiMockOptions = {}): 
       return;
     }
 
+    if (path === '/api/profile' && method === 'GET') {
+      await fulfillJson(route, profile, cors);
+      return;
+    }
+
+    if (path === '/api/scheduling/activities' && method === 'GET') {
+      const url = new URL(request.url());
+      const storeId = url.searchParams.get('storeId');
+      const includeDisabled = url.searchParams.get('includeDisabled') === 'true';
+      const rows = schedulingActivities.filter(
+        (activity) =>
+          (includeDisabled || activity.enabled) &&
+          (!storeId || activity.companyStoreId === storeId),
+      );
+      await fulfillJson(route, pageResponse(rows, url), cors);
+      return;
+    }
+
+    // The materializing read is called for its side effect and the page discards the
+    // response, but it must **never** fail: one 404 here would fail the whole week
+    // closed and make every grid assertion moot. Always a 200 bare array.
+    if (path === '/api/scheduling/slots' && method === 'GET') {
+      const url = new URL(request.url());
+      const activityId = url.searchParams.get('activityId') ?? '';
+      const from = url.searchParams.get('from') ?? '';
+      const to = url.searchParams.get('to') ?? '';
+      await fulfillJson(
+        route,
+        buildSchedulingSlots(activityId, from, to, schedulingAppointments),
+        cors,
+      );
+      return;
+    }
+
+    if (path === '/api/scheduling/calendar' && method === 'GET') {
+      const url = new URL(request.url());
+      const from = url.searchParams.get('from') ?? '';
+      const to = url.searchParams.get('to') ?? '';
+      const activityId = url.searchParams.get('activityId');
+      const baseEntries = buildSchedulingCalendarEntries(from, to, activityId);
+      lastCalendarBase.clear();
+      for (const entry of baseEntries) {
+        lastCalendarBase.set(entry.slotId, entry);
+      }
+      const entries = baseEntries.map((entry) => {
+        const bookedAppointments = schedulingAppointments.get(entry.slotId) ?? [];
+        const booked = entry.booked + bookedAppointments.length;
+        return {
+          ...entry,
+          booked,
+          available: entry.capacity - booked,
+          appointments: [...entry.appointments, ...bookedAppointments],
+        };
+      });
+      await fulfillJson(route, entries, cors);
+      return;
+    }
+
+    if (path === '/api/scheduling/appointments' && method === 'POST') {
+      const body = JSON.parse(request.postData() ?? '{}') as {
+        slotId?: string;
+        userId?: string | null;
+        notes?: string | null;
+      };
+      const base = body.slotId ? lastCalendarBase.get(body.slotId) : undefined;
+      if (!base) {
+        await fulfillJson(
+          route,
+          { status: 404, message: `Scheduling slot not found: ${body.slotId ?? ''}` },
+          cors,
+          404,
+        );
+        return;
+      }
+
+      // `SchedulingAppointmentResponse` serializes zone-less `LocalDateTime`, so the
+      // fixture keeps the same shape the real API answers (no trailing `Z`).
+      const createdAt = new Date().toISOString().slice(0, 19);
+      const created: SchedulingAppointmentMock = {
+        id: `e2e-appointment-${nextId++}`,
+        slotId: base.slotId,
+        startAt: base.startAt,
+        endAt: base.endAt,
+        activityId: base.activityId,
+        companyStoreId:
+          schedulingActivities.find((activity) => activity.id === base.activityId)
+            ?.companyStoreId ?? STORE_CHAIN.storeId,
+        userId: body.userId ?? null,
+        customerId: null,
+        statusId: 'status-scheduled',
+        statusName: 'Scheduled',
+        notes: body.notes ?? null,
+        enabled: true,
+        version: 0,
+        createdAt,
+        updatedAt: createdAt,
+      };
+      const bookedAppointments = schedulingAppointments.get(base.slotId) ?? [];
+      schedulingAppointments.set(base.slotId, [
+        ...bookedAppointments,
+        {
+          id: created.id,
+          userId: created.userId,
+          customerId: null,
+          customerName: null,
+          statusId: 'status-scheduled',
+          statusName: 'Scheduled',
+          notes: created.notes,
+          enabled: true,
+        },
+      ]);
+      await fulfillJson(route, created, cors, 201);
+      return;
+    }
+
     await fulfillJson(route, { status: 404, message: 'Not found' }, cors, 404);
   });
 }
@@ -565,6 +832,130 @@ function filterPurchaseOrders(orders: PurchaseOrderMock[], url: URL): PurchaseOr
   return orders.filter((order) =>
     [order.orderNumber, order.supplierName].some((value) => value.toLowerCase().includes(search)),
   );
+}
+
+/**
+ * The calendar's two slot facts, derived from the requested range so the spec never
+ * depends on the wall clock: the visible week's Monday `00:00` is the `from` bound.
+ *
+ * Timestamps are zone-less local ISO (`YYYY-MM-DDTHH:mm:ss`, no `Z`, no offset),
+ * matching the server's `LocalDateTime` contract. `available` is always
+ * `capacity - booked`, exactly as the projection derives it.
+ *
+ * The first entry is the bookable one (`booked: 0`), the second is full
+ * (`booked === capacity`) so the grid renders it without a booking affordance.
+ * Both live on the requested range: entry one on the Monday itself, entry two the
+ * following day.
+ */
+function buildSchedulingCalendarEntries(
+  from: string,
+  to: string,
+  activityId: string | null,
+): SchedulingCalendarEntryMock[] {
+  if (!/^\d{4}-\d{2}-\d{2}T/.test(from) || !/^\d{4}-\d{2}-\d{2}T/.test(to)) {
+    return [];
+  }
+
+  const firstDay = shiftIsoDate(from, 0);
+  const secondDay = shiftIsoDate(from, 1);
+  const rangeStart = from.slice(0, 10);
+  const rangeEnd = to.slice(0, 10);
+
+  const entries: SchedulingCalendarEntryMock[] = [
+    {
+      slotId: 'e2e-slot-1',
+      activityId: 'e2e-activity-1',
+      activityName: 'Corte de cabello',
+      activityEnabled: true,
+      startAt: `${firstDay}T09:00:00`,
+      endAt: `${firstDay}T09:30:00`,
+      capacity: 3,
+      booked: 0,
+      available: 3,
+      status: 'Scheduled',
+      appointments: [],
+    },
+    {
+      slotId: 'e2e-slot-2',
+      activityId: 'e2e-activity-2',
+      activityName: 'Barba',
+      activityEnabled: true,
+      startAt: `${secondDay}T10:00:00`,
+      endAt: `${secondDay}T10:30:00`,
+      capacity: 2,
+      booked: 2,
+      available: 0,
+      status: 'Scheduled',
+      appointments: [
+        {
+          id: 'e2e-appointment-1',
+          userId: 'ana.gomez',
+          customerId: null,
+          customerName: null,
+          statusId: 'status-scheduled',
+          statusName: 'Scheduled',
+          notes: null,
+          enabled: true,
+        },
+        {
+          id: 'e2e-appointment-2',
+          userId: null,
+          customerId: null,
+          customerName: null,
+          statusId: 'status-scheduled',
+          statusName: 'Scheduled',
+          notes: null,
+          enabled: true,
+        },
+      ],
+    },
+  ];
+
+  return entries.filter((entry) => {
+    const date = entry.startAt.slice(0, 10);
+    const insideRange = date >= rangeStart && date < rangeEnd;
+    const matchesActivity = activityId === null || entry.activityId === activityId;
+    return insideRange && matchesActivity;
+  });
+}
+
+/**
+ * The bare-array slots the materializing read answers for one activity.
+ *
+ * Derived from {@link buildSchedulingCalendarEntries} **and** from the appointments the
+ * session has booked, so the two reads never drift: a booking moves `booked`/`available`
+ * here exactly as it does in the projection. The page discards this response, but the
+ * fixture describes the same slots the projection will render, and a mock that disagreed
+ * with itself would fail the first assertion that ever read the slots body.
+ */
+function buildSchedulingSlots(
+  activityId: string,
+  from: string,
+  to: string,
+  bookedAppointments: ReadonlyMap<string, SchedulingCalendarAppointmentMock[]>,
+): SchedulingSlotMock[] {
+  return buildSchedulingCalendarEntries(from, to, activityId).map((entry) => {
+    const booked = entry.booked + (bookedAppointments.get(entry.slotId)?.length ?? 0);
+    return {
+      id: entry.slotId,
+      activityId: entry.activityId,
+      startAt: entry.startAt,
+      endAt: entry.endAt,
+      capacity: entry.capacity,
+      booked,
+      available: entry.capacity - booked,
+      status: entry.status,
+      enabled: true,
+    };
+  });
+}
+
+/** `YYYY-MM-DD` a number of days after the date part of a zone-less ISO date-time. */
+function shiftIsoDate(value: string, days: number): string {
+  const [year, month, day] = value.split('T')[0].split('-').map(Number);
+  const shifted = new Date(year, month - 1, day + days);
+  const pad = (part: number): string => part.toString().padStart(2, '0');
+  return `${shifted.getFullYear()}-${pad(shifted.getMonth() + 1)}-${pad(shifted.getDate())}`;
 }
 
 function filterReceipts(receipts: GoodsReceiptMock[], url: URL): GoodsReceiptMock[] {
