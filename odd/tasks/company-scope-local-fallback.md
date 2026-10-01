@@ -1,6 +1,6 @@
 # ODD feature: company-scope-local-fallback
 
-**Status**: designed — **not implemented**. **D3 and D6 are closed**: the membership is the organisational fact asserted when a contract is activated, and the access flow projects it through a worker that reconciles Keycloak to the current truth (see "The membership flow" and "The asynchronous boundary"). The **mechanism** (**D1**) is the last open decision, and the flow strengthens the case for A. This header claims no branch, push or PR state; see the evidence log.
+**Status**: designed — **not implemented**, and **every decision in this record is closed** (D1 = A, D3, D6). The remaining work is W0–W3 below, and its prerequisites live elsewhere: `employee-store-assignments` (the fact) and `employee-access-provisioning` (the projection), both unwritten. This header claims no branch, push or PR state; see the evidence log.
 **Created**: 2026-10-01 · **Risk**: **high** — it decides what an authorization input *is*. The wrong
 answer turns a scope guard into a self-service tenant switcher (see "The escalation the name hides"),
 and it lands on the single choke point that all 37 scoped call sites in the repository go through.
@@ -84,8 +84,8 @@ Two further structural facts point the same way:
 | **B1** | **Locally stored membership, admin-owned**: the ids come from a table an operator with `lc-admin` writes (never the subject), read as the fallback when the claim is absent | A new membership table (or an admin-only write path on the existing row), a validation pass, and a `CurrentUserContext` that can read it | Safe **if and only if** the write path is not the profile screen. This is where the repository's own future source of "who belongs where" already points: HR's `employee-store-assignments`/**G8** and its employee record are exactly that assertion, made by an operator |
 | **B2** | **Locally stored preferences as they are today** | Nothing — the data is already there | **Rejected.** Self-asserted, unvalidated, single-valued, and it is the exact input the guard exists to distrust. Documented here so nobody "solves" this with a ten-line change |
 
-**Recommendation** (mine, to be decided by the user): **A as the destination, B1 only if the HR/employee
-source is what feeds it**, and no fallback at all until an administrator can assert the membership.
+**Recommendation — adopted: D1 was closed as A.** A as the destination, B1 only if the HR/employee
+source is what feeds it, and no fallback at all until an administrator can assert the membership.
 If a bridge is needed before A lands, it must be B1 with `lc-admin`-only writes — never B2.
 
 ## The membership flow (decided by the maintainer, 2026-10-01)
@@ -196,12 +196,12 @@ one of them is an anchor rather than a summary.
 | E26 | **The repository's one instance of "fire an event after commit" swallows its failure**: `KeycloakGroupEventListener` has five `@TransactionalEventListener(AFTER_COMMIT)` handlers that create the `lc-company-*` groups, and each catches `IdentityProviderException` with a `logger.warn` — no retry, no persisted state, no repair, and the class Javadoc says so: "Group creation failures are logged but never propagated" | `company/listener/KeycloakGroupEventListener.java:41,44-52,57,81,103,122`; the group attribute it writes is `Map.of("company_id", List.of(event.getId().toString()))`, which is exactly the value a mapper would read. This is **G9** |
 | E27 | The activity-log listener is the one that runs with `fallbackExecution = true`, so the audit trail does not depend on a surrounding transaction | `activity/listener/ActivityLogEventListener.java:31` |
 
-## Decisions (user-owned — **D1 and D2 remain open**; D3 and D6 are closed)
+## Decisions (user-owned — **all closed**; kept as the record of what was decided and by whom)
 
 | # | Decision | Options and consequence |
 | --- | --- | --- |
-| **D1** | **Which mechanism closes the gap** | **(A)** IdP-provisioned claims + membership · **(B1)** locally stored, admin-owned membership read as a fallback · **(B2)** locally stored preferences as they are — **rejected above** · **(A+B1)** phase A in, B1 as the bridge. The choice decides whether this repository keeps one authorization source (the token) or gains a second one (its own DB) |
-| **D2** | If B1 is used: **is it a bridge or the destination?** | A bridge writes a thing we intend to delete, and every endpoint built on it inherits the deletion. As a destination it becomes the fourth source of truth `hr-org-structure`'s T12 already warned about in a different context (Keycloak, the template, a mirror, the token) |
+| **D1** | **Which mechanism closes the gap — CLOSED by the maintainer on 2026-10-01: A**, IdP-provisioned claims with the membership **projected** into Keycloak from the contract activation | **B1 is dropped as redundant**, not merely as unsafe: the flow D3 decided already writes to Keycloak (create or link the account, assign the template's roles), so the membership is materialised there anyway and a local table would be a **second source of a fact the IdP already holds** — the same fourth-source problem `hr-org-structure`'s T12 warned about in another context. **B2 stays rejected** (the escalation, above). The decision also fixes the shape of the projection: the assignment is the **truth**, Keycloak holds a **materialisation**, and the diff is how divergence is detected |
+| **D2** | If B1 is used: **is it a bridge or the destination?** — **CLOSED, not applicable**: with D1 = A there is no local authorisation source to bridge | Kept in the table on purpose. It is the question to reopen if B1 ever returns as a real requirement, and the answer it recorded — a bridge writes a thing we intend to delete, and every endpoint built on it inherits the deletion — is what makes it unattractive even then |
 | **D3** | **Who may write the membership** — **CLOSED by the maintainer on 2026-10-01: the organisational fact leads and the access flow projects it.** The writer is **HR, acting on the contract**: activating it assigns the **store** and **the position**, and the position↔roles relation produces a Keycloak user with its roles and its attributes (the flow is spelled out above) | Rejected alternatives: the platform admin assigning companies per user with no involvement of the org chart, and abandoning the org chart as an authorisation input. Both create two truths that diverge. **The subject never writes it** (E8, E9) and the profile screen stops writing the company/country/region/zone ids — whether it keeps writing the **store** is still open (E20 shows two features read `companyStoreId` back). Two sub-questions survived inside this decision and are now closed as **D6**. **A note on D1**: this flow makes creating or linking the Keycloak user mandatory anyway (step 4), so whoever provisions already writes to Keycloak — which is exactly where mechanism A reads from. B1 existed as the alternative for granting access **without** touching Keycloak; under this flow it would be a second source of a fact that is already being written to the IdP, so the flow points at **A** and D1 should be confirmed with that in mind |
 | **D4** | **Multi-company users** | The stored row is single-valued (E5, E23) and the claims are lists (E12). If multi-company is real, B1 needs a table with a composite key and A needs one group membership per company; if it is not real, the single-valued column is a documented ceiling |
 | **D5** | **Whether A's infra work is in scope here** | A needs a mapper and a membership operation. The mapper is environment configuration this repository cannot test; the membership is backend code (`IdentityProvider` has no `addUserToGroup`, E14). Splitting "the code" from "the environment" is a delivery decision |
@@ -227,15 +227,17 @@ one of them is an anchor rather than a summary.
 
 ## Work units
 
-Contingent on D1. Sizing follows the repository's 400-line review budget, and each row is declared
-**over or under** it explicitly.
+**Under D1 = A this record is mostly a contract plus an environment procedure, not a code slice.** That
+is worth stating plainly, because the record's name promises a fallback the decision removed: what remains
+is the mapper, the membership operation, and the projection — and the last one belongs to another record.
+Sizing follows the repository's 400-line review budget, declared explicitly per row.
 
 | | Content | Sizing note |
 | --- | --- | --- |
-| **W0** | *(only under A)* The environment half: the protocol mappers, written down as the artifact the deployment needs, plus the group membership the mappers read | **Not testable from this repository**, and that is the reason it is its own row rather than a task inside W1 |
-| **W1** | *(only under A)* The backend half of membership: an `addUserToGroup`/`removeUserFromGroup` capability on `IdentityProvider` and its Keycloak implementation, with tests against the existing identity abstraction | Bounded: one interface, one implementation, its tests |
-| **W2** | The **decision implementation** for D1: either the mapper documentation and its verification procedure (A), or the membership table + migration + admin-only write path + validation (B1) | Under B1 this row carries a migration, an entity, a service, an admin endpoint and its tests: **declared over budget**, and the natural split is migration+model / write path / read path |
-| **W3** | The fallback read at the choke point (T1–T4) plus the deny-path tests (T6) | **Declared over budget** if B1 is chosen, because every level needs its own pin |
+| **W0** | The environment half: the **protocol mappers** (claim names, top-level, multivalued — T9) and the membership they read, written down as the artifact a deployment needs plus the procedure that verifies it end to end (a token that actually carries the five ids) | **Not testable from this repository**, which is why it is its own row. It also carries the unmade sub-choice: **user attributes** (proven here by the `locale` mapper) versus **group attributes** (the `lc-company-*` groups exist with the right attributes, but the standard membership mapper emits group **names**, not attributes — never verified in the target Keycloak version) |
+| **W1** | The backend half of membership: `addUserToGroup` / `removeUserFromGroup` on `IdentityProvider` and its Keycloak implementation, with tests against the existing identity abstraction | **Under budget**: one interface, one implementation, its tests |
+| **W2** | The **projection**: the outbox and the worker that reconcile Keycloak to the current truth ("The asynchronous boundary") | **Implemented by `employee-access-provisioning`**, which is unwritten — this record defines the contract and that record builds it. **Declared over budget there**, not here |
+| **W3** | **Retire the profile's tenancy writes** and prove nothing regressed: the profile screen stops writing company/country/region/zone (D3), the tests that pin "claim absent ⇒ denied" stay green (T6), and the open **store** question moves to `employee-store-assignments`, where it becomes a derived default instead of a free-form preference | Small in lines, but it changes a merged surface and its Angular consumer (E20), so it needs its own review pass |
 
 ## Gaps
 
@@ -282,22 +284,23 @@ Contingent on D1. Sizing follows the repository's 400-line review budget, and ea
 
 ## Deferred and blocking
 
-- **Blocked on D1**, which is the user's, and on D2 only if B1 is chosen. D3 and D6 are closed: the
-  membership is the organisational fact of a contract activation, and the trigger and the gate are
-  specified in "The asynchronous boundary". The flow itself argues for A — whoever provisions already
-  writes to Keycloak — so D1 is the last thing standing between this record and its work units.
-- **Blocked on the HR branch for migration numbering** if B1 needs a migration: `V19`/`V20` are taken
-  in flight, so B1's migration cannot be numbered until `hr-org-structure` lands or renumbers. Under A
-  this record needs no migration at all.
-- **Deferred**: re-validating existing rows (G6), multi-company support unless D4 says it is real, the
-  k8s/docker realm divergence (G2), which is a deployment decision larger than this record, and the
-  **G9** repair (the group listener's swallowed failures), which the outbox design would absorb but
-  which is not this slice's to change.
+- **Nothing blocks the decisions**: D1, D2, D3 and D6 are closed. What remains is **elsewhere**:
+  `employee-store-assignments` must exist before the projection has a fact to project, and
+  `employee-access-provisioning` before the projection itself exists.
+- **Blocked on the HR branch for migration numbering**: `V19`/`V20` are taken in flight. Under A this
+  record needs **no migration at all**, so the decision removes the collision rather than scheduling it.
+- **Blocked on the environment for W0**: the mapper cannot be verified from this repository's test loop;
+  the procedure that verifies it has to run against a real realm with a real token.
+- **Deferred**: the `lc-company-*` group repair (**G9**), which the outbox would absorb but which is not
+  this slice's to change; the k8s/docker realm divergence (**G2**), a deployment decision larger than this
+  record; and re-validating existing `user_preferences` rows (**G6**), unnecessary now that they are not
+  an authorisation input.
 
 ## Evidence log
 
 | Date | Evidence |
 | --- | --- |
 | 2026-10-01 | **D3 closed by the maintainer** while breaking the decision down: the membership is the organisational fact asserted on contract activation, and the access flow projects it (the flow table above). The plural for positions was considered and **rejected** — recorded as **D6** in `employee-registry` — which left V20 as designed and made the store assignment the load-bearing piece of the flow. Two sub-questions survive and are recorded as this record's **D6**: the trigger (explicit action or date-derived) with its failure modes, and the collision with `hr-org-structure` D8. **No source line was written**; the mechanism (D1) is still open |
+| 2026-10-01 | **D1 closed by the maintainer: mechanism A**, on the strength of D3's flow rather than on a preference — the flow already creates or links the Keycloak user, so the membership is written to the IdP in any case and B1 would only add a second source of the same fact. **D2 closed as not applicable** in the same pass, kept in the table as the question to reopen if a local source ever becomes a real requirement. The work units were rewritten to match: under A this record is an environment procedure, an identity-membership operation, and a projection whose implementation belongs to `employee-access-provisioning`. **No source line was written**, and under this decision the record needs no migration at all |
 | 2026-10-01 | **D6 closed by the maintainer (a and b together)**, after the parent established what the repository actually offers for the asynchronous half: no broker, no scheduler, no retry state, and one `AFTER_COMMIT` listener that swallows its failure (E25–E27, read by the parent — nobody had looked at the messaging layer before). **(a)** the intent is an outbox row in the same transaction as the fact, and the worker reconciles the current truth instead of replaying a payload; no broker now, with the outbox as the later relay. **(b)** the gate is a policy over the computed diff, defaulting to auto-apply for the template's roles with approval for first access and the sensitive roles — which preserves D8 in spirit and literally only where the two roles sit with different people. The security precondition of auto-apply was named in the same pass: **`keycloak_user_id` must not be operator-typable**, or a holder of `lc-employee` grants themselves the roles of a position they chose — recorded as **T17** of `employee-registry`. The pass also produced **G9**, a pre-existing silent divergence (E26). |
 | 2026-10-01 | Design round opened against `main @ 274c67f` in the worktree `wN`, created with `herdr worktree create` per the repository's worktree procedure. E1–E12 read by the parent: the scope-resolution path, the claim shape, the `user_preferences` DDL and its two writers, and the absence of any read for authorization. E13–E24 mapped read-only by a scout run in this same worktree, including the Keycloak provisioning picture and the test pins. **The parent independently re-verified the three load-bearing facts** (E13/E14/E15 and the 37 call sites): `grep` over `docker/scripts/keycloak-setup.sh` shows no mapper and no group line, `grep` for `addUserToGroup`/`joinGroup` returns nothing while `createGroup` appears in five places, and the k8s manifests import `spring-microservices-security-realm` with zero `lc-*` roles and zero `company_*` claims — which the scout had not reported. `grep -c currentUserContext.verify` → **37 hits in 18 files**. **No source line was written**, and no decision was taken: D1–D5 are open. |
