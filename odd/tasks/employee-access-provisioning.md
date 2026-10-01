@@ -44,7 +44,7 @@ is the projection.
 | # | Responsibility | Comes from |
 | --- | --- | --- |
 | 1 | **The Keycloak account**: create it, or **link** an existing one, keyed on the generated corporate email and `employees.keycloak_user_id` | `employee-registry` D1/D2/T9, its F13 |
-| 2 | **The roles**: derive them from the position template of the current contract, apply the **diff**, converge | `hr-org-structure` D6/D7, `position_roles` (its W1b) |
+| 2 | **The roles**: derive them from the position template of the current contract, apply the **diff**, converge | `hr-org-structure` D6/D7, `position_roles` (its W1b-2) |
 | 3 | **The membership attributes**: write the five claim ids derived from the store assignments | `employee-store-assignments` T6/T9, `company-scope-local-fallback` T9 |
 | 4 | **The durable intent**: the outbox row in the same transaction as the fact, and the worker that reconciles | `company-scope-local-fallback` T11/T12 |
 | 5 | **The gate**: approval for the grants that carry the risk, and the record of who approved what | `company-scope-local-fallback` D6(b)/T13 |
@@ -200,7 +200,7 @@ something is waiting without holding the access role. The **role names** are not
 | | Content | Sizing note |
 | --- | --- | --- |
 | **W1** | `V22` + the task entity, repository and service, and the **state machine** with its tests (every legal transition, and the illegal ones refused) | **Declared over budget**, and the state machine is the part not to rush: the states are the contract with the worker, the gate and the UI |
-| **W2** | The Keycloak side: **create or link** (T5), the **role diff** and convergence (T4/T7/T8/T12), and the missing application **client id property** (F8) | **Declared over budget**; the natural split is (a) the account lifecycle, (b) the roles. Needs `position_roles` (`hr-org-structure`'s W1b) |
+| **W2** | The Keycloak side: **create or link** (T5), the **role diff** and convergence (T4/T7/T8/T12), and the missing application **client id property** (F8) | **Declared over budget**; the natural split is (a) the account lifecycle, (b) the roles. Needs `position_roles` (`hr-org-structure`'s W1b-2) |
 | **W3** | The **membership projection**: write and delete the five attributes from the derivation (T1), with the tests that pin the list semantics | **Under budget** — the capability exists (F1/F2), and the derivation is already specified and tested in `employee-store-assignments`. Needs its `V21` |
 | **W4** | The **worker**: the scheduler, the claim that stops two workers taking the same task, the retry with backoff, and the visible failure (T10/T13) | **Declared over budget.** It is also the piece that would repair `company-scope-local-fallback`'s G9 class of defect, so its shape should be reusable for the group mirror |
 | **W5** | The **gate** (the approval status, the frozen diff, self-approval refused), the six endpoints, and the frontend (the Access section and the inbox) | **Declared over budget**: backend and frontend separable |
@@ -230,7 +230,7 @@ a live realm.
 
 | Record | Relation |
 | --- | --- |
-| `hr-org-structure` | **Prerequisite**: `position_roles` (its W1b, unwritten) is the role source, and D6/D7/D8/D10 are the rules it applies. Its E15 is G2 here |
+| `hr-org-structure` | **Prerequisite**: `position_roles` (its W1b-2) is the role source, and D6/D7/D8/D10 are the rules it applies. Its E15 is G2 here |
 | `employee-registry` | **Prerequisite**: `employees` (its `V20`), the generated email, `keycloak_user_id` (its T17 is the precondition of auto-apply), and its G7 is the hole this record closes |
 | `employee-store-assignments` | **Prerequisite**: `V21` and its derivation (F10) are the input for the claim attributes. It declares that the projection is explicitly not its job |
 | `company-scope-local-fallback` | The rules this record implements (its D3, D6, T9, T11–T13) and its **W2**, which is this record. Its **W0** (the mapper) is what makes all of this reachable in a token, and its T1's choke point is where the app reads the result |
