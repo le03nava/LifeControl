@@ -1,6 +1,6 @@
 # ODD feature: hr-org-structure
 
-**Status**: planned, nothing implemented — the remaining work is W1–W4 below. This header makes
+**Status**: planned, nothing implemented — the remaining work is W1a–W4 below. This header makes
 no claim about branch, push or PR state; see the evidence log.
 **Created**: 2026-09-30 · **Risk**: **medium–high** — four new tables plus a role template, the
 repository's first self-referencing foreign key, and its first company-scoped catalog (no
@@ -43,6 +43,7 @@ repository's conventions. Every adaptation below cites the convention it derives
 | D8 | Identity provisioning gets its **own role** (`lc-employee-access`), separate from `lc-employee` | "Editing HR data" and "granting system access" are different privileges; sharing them would let every HR clerk grant roles |
 | D9 | The corporate email is generated with rule **R2** — `first_name + "." + paternal_last_name`, normalized — and the Keycloak **username is the full email** | `juan.perez@<company-domain>`. The generated token is the local part; the username is built from it plus the domain (see T13 for why the bare local part is not usable as a username) |
 | D10 | The provisioned password is **temporary, with a forced change** | Not `setTemporary(false)` as the existing users-admin path does (E15). How the temporary value reaches the person is an open question of `employee-access-provisioning`, because the repository has no SMTP configuration |
+| D11 | The original **W1 is cut in two** — **W1a** (the three catalogs) and **W1b** (salary bands and the role template) — and the branch delivers W1a first | Decided by the user on 2026-09-30, before the first source line, at the cut point this record's own sizing note had already named. **The migration is not cut**: `V19` creates all five tables in one file, so W1b adds an API over tables that already exist, not a migration |
 
 ## Decisions (mine, technical — challenge them if you disagree)
 
@@ -61,6 +62,7 @@ repository's conventions. Every adaptation below cites the convention it derives
 | T11 | `PositionList` is a flat list with a department filter; nested navigation is not used | A position belongs to exactly one department. The store tree nests because an area owns N zones; here flattening loses nothing and avoids a second navigation level |
 | T12 | **No local mirror of assigned roles.** The diff is resolved live against Keycloak | A table of "roles this user has" would be a **fourth** source of truth (Keycloak, the position template, a mirror, the token). Cost, declared: the employee Access section depends on the Keycloak Admin API and needs its own error state while the HR data still renders |
 | T13 | The Keycloak **username is the full email**, not the generated local part | Keycloak usernames are unique **per realm**, and this repository has a single realm for every company, while `employees.email` is unique **per company**. A bare `juan.perez` username would therefore collide across companies **deterministically**, not rarely. The full email carries the company domain and is realm-unique by construction while the domains differ. It also makes the login the least surprising one. If two companies share a domain, the 409 from Keycloak means "this person already has an account — link it instead of creating it" |
+| T14 | The role constants are registered in **two commit halves, not one**: the backend registration (`Roles.java`, `ScopeLevel.COMPANY`, `keycloak-setup.sh`) lands in **W1a** because W1a's `@PreAuthorize` expressions reference it, and the frontend `core/security/roles.ts` constants land in **W2** because that is where the first guard reads them | This refines W4. Shipping unused frontend constants in W1a would be dead code no test can justify; shipping the backend ones late would not compile. W4 survives as the *checklist* of the four registration sites, with its two halves attached to the slices that need them |
 
 ## Verified exploration evidence
 
@@ -83,6 +85,8 @@ Read-only exploration ran on 2026-09-30 against `main @ 274c67f`. Every line is 
 | E13 | `paymentmethod/**` is the catalog template to copy: the only catalog with the full test triad (service + controller + security). Package layout is `controller/ service/ repository/ model/ dto/ exception/`, DTOs are records, and **no `mapper/` layer exists anywhere** | `paymentmethod/**`; `AbstractPostgresIntegrationTest.java` for integration work |
 | E14 | Frontend: header ids `2,2-1,2-2,3,4,5,6,7,8,8-1,8-2` are taken; the product order is pinned by `indexOf` assertions; `Calendario y citas` was appended last for that reason; role constants live in `core/security/roles.ts` and the menu reads them with `.some(...)` | `core/layout/header/header.ts`; `core/layout/header/header.spec.ts:125,196,216,493,523,620-633`; `core/security/roles.ts:95,109` |
 | E15 | The mechanism for everything that `position_roles` will later feed already exists, but three capabilities are missing | `IdentityProvider.assignRoleToUser(userId, roleName, RoleScope, clientId)` (`KeycloakIdentityProvider.java:272`), `removeRoleFromUser` (`:294`), `getUserRoles`, `updateUser` (`:86`), enum `RoleScope{REALM, CLIENT}`. **Missing**: group-membership operations, a batch user fetch, and the application client id as a configured property (`life-control-client` appears only in javadoc; `JwtDecoderConfig` reads `resource_access.<azp>`) |
+| E17 | **The integration stack runs the real migrations, and one test pins the head version.** `AbstractPostgresIntegrationTest` extends nothing but sets `spring.flyway.enabled=true` and `spring.jpa.hibernate.ddl-auto=validate`, and `GoodsReceiptIntegrationTest.flywayAppliesLatestAndSchemaValidates` asserts `flyway.info().current().getVersion()` is **`"18"`** — the only such assertion in the suite. `V19` breaks it by construction, so updating it is part of task 1, not a surprise | `support/AbstractPostgresIntegrationTest.java:29-43`; `goodsreceipt/GoodsReceiptIntegrationTest.java:571-582`; `application-test.properties` (H2, Flyway off, `create-drop`) applies only to the non-integration slices |
+| E18 | The role registration sites are the ones D2 lists, and the client-role loop is a single line-continued `for` in the setup script | `Roles.java`; `ScopeLevel.java`; `docker/scripts/keycloak-setup.sh:152-157` (client roles) and `:167` (realm roles, not this record's) |
 | E16 | Frontend templates: `regions-list`/`regions-edit` for a catalog **without** a version precondition; `store-areas-edit` for a form **with** version + 412; `scheduling-activity-list` for a list with `canWrite` + `ConfirmDialog`; `AddressFormComponent` is already shared | `features/companies/.../regions-*`, `.../store-areas-edit`, `features/scheduling/pages/scheduling-activity-list`, `shared/ui` |
 
 ## Schema — `V19`
@@ -233,12 +237,23 @@ informative text.
 
 | | Content | Sizing note |
 | --- | --- | --- |
-| **W1** | `V19` + the five entities, repositories, services, controllers, DTOs and exceptions, with the service/controller/security test triad per catalog | Declared **over** the 400-line review budget, like the four slices of the scheduling domain that were accepted over it. The five tables are separable into two PRs if the review load proves too high: catalogs first, banks and the role template second |
+| **W1a** | `V19` (all five tables — the migration is one unit) + the three catalogs end to end: entities, repositories, services, controllers, DTOs and exceptions, with the service/controller/security test triad per catalog, the `reports_to_position_id` guard (T5) and W4's backend constants (T14) | Declared **over** the 400-line review budget. The five tables were separated into two PRs by **D11**, taken before the first source line. The two tables left unmapped — `position_salary_bands`, `position_roles` — are legal here because `ddl-auto=validate` checks mapped entities, not the reverse, and nothing references them yet |
+| **W1b** | `position_salary_bands` (the upsert of T10) and `position_roles` (the allowlist of D7) with their endpoints and test triad | The second half of the original W1. Depends on W1a: both rows point at a `positions` row |
 | **W2** | The three catalog screens plus the header entry, the routes and the role constants | **The header entry ships here, not at the end.** The scheduling record's own E53 is the reason: "no rendered control reaches `/scheduling`" was found only after four frontend slices had merged, and a slice nobody can reach is a slice nobody can review by hand |
 | **W3** | `PositionSettings`: the salary-band editor (upsert, T10) and the role-template editor with the allowlist check | The two sections are independent and could ship as two PRs |
-| **W4** | The `roles.ts` constants, the `keycloak-setup.sh` role loop entries and `ScopeLevel.COMPANY` | Sequential: the role constants must exist before W2's guards can reference them, so in practice W4's constants land inside W1 |
+| **W4** | The role registration **checklist**: `Roles.java`, `keycloak-setup.sh`, `ScopeLevel.COMPANY` and `core/security/roles.ts` | Split by **T14**: the backend three land inside **W1a** task 2, because W1a's guards reference them; `roles.ts` lands inside **W2**, where it is first read. W4 is not a slice of its own |
 
-Dependency order inside the slice: **W1 → W2 → W3**, with W4's constants interleaved into W1.
+Dependency order inside the slice: **W1a → W1b → W2 → W3**, with W4's constants split as T14 describes.
+
+**W1a's own task order** (each one a work-unit commit; the parent commits, the writers do not):
+
+| # | Task | Why this order |
+| --- | --- | --- |
+| 1 | `V19` + the head assertion in `GoodsReceiptIntegrationTest` + a schema integration test for what the service cannot prove | Nothing compiles against the tables until they exist, and the head assertion is a **known breakage** (E17), not a discovery to make later |
+| 2 | Role registration: `Roles.java`, `ScopeLevel.COMPANY.roleNames()`, `docker/scripts/keycloak-setup.sh` (T14) | The `@PreAuthorize` expressions of tasks 4 and 5 cannot compile without it |
+| 3 | `seniority_levels` end to end | The one unscoped catalog: it exercises the catalog mold with the least machinery (no company scope, no self-FK) |
+| 4 | `departments` end to end | Adds the company scope and the `resolveCompany` chain walk |
+| 5 | `positions` end to end | Adds the self-FK, the deep-cycle service check and the same-company check (T5, G6). Last because it needs the department of task 4 |
 
 ## Gaps
 
@@ -267,10 +282,16 @@ Dependency order inside the slice: **W1 → W2 → W3**, with W4's constants int
 
 ## Task log
 
-- [ ] W1 — `V19` and the backend surface
-- [ ] W2 — catalog screens, routes, header entry
+- [ ] W1a — `V19` and the three catalogs end to end
+  - [ ] 1 — `V19` migration, the Flyway head assertion, the schema integration test
+  - [ ] 2 — role registration (`Roles.java`, `ScopeLevel.COMPANY`, `docker/scripts/keycloak-setup.sh`)
+  - [ ] 3 — `seniority_levels` end to end
+  - [ ] 4 — `departments` end to end
+  - [ ] 5 — `positions` end to end, with the cycle and same-company service checks
+- [ ] W1b — salary bands and the role template
+- [ ] W2 — catalog screens, routes, header entry (plus the frontend role constants, T14)
 - [ ] W3 — position settings (salary bands + role template)
-- [ ] W4 — role registration (`Roles.java`, `keycloak-setup.sh`, `ScopeLevel.COMPANY`)
+- [ ] W4 — role registration, split by T14: backend half in W1a task 2, frontend half in W2
 
 ## Deferred and blocking
 
@@ -284,3 +305,4 @@ Dependency order inside the slice: **W1 → W2 → W3**, with W4's constants int
 | Date | Evidence |
 | --- | --- |
 | 2026-09-30 | Design closed in a working session against `main @ 274c67f`. Convention extraction and capability inventory recorded above as E1–E16; every anchor read from the working tree. No code written. |
+| 2026-09-30 | Both HR records committed to `feat/hr-org-structure` as the branch's first commit, **`95ce632`** `docs(odd): plan the HR domain (org structure + employee registry)` (tree identity checked: `git write-tree` == `HEAD^{tree}`, the hook rewrote nothing). The git worktree was missing `life-control-app-angular/node_modules`, so the anchor's copy was linked. **W1 cut into W1a/W1b by the user (D11)** and W1a's task order fixed (T1–T5) before the first source line. Exploration re-run against the worktree head added **E17** (the integration stack runs Flyway and one test pins the head at `18`) and **E18** (the role registration sites). No source written. |
