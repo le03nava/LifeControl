@@ -1,8 +1,9 @@
 # ODD feature: employee-access-provisioning
 
-**Status**: planned, nothing implemented — the remaining work is W1–W5 below, and **O1–O5 are open**
-(five product questions, listed under "Decisions (user-owned — **open**)"). This header claims no branch,
-push or PR state; see the evidence log.
+**Status**: planned, nothing implemented — the remaining work is W1–W6 below, and **O1–O5 are closed**
+(2026-10-01): the activation link, the store-scoped auto-apply rule, no self-approval, automatic
+revocation, and no read pair. **O1 moved SMTP into scope** (W6), so this record is now the one that also
+configures the invitation channel. This header claims no branch, push or PR state; see the evidence log.
 **Created**: 2026-10-01 · **Risk**: **high** — this is the only record in the chain that **writes to
 another system**: it creates accounts, grants business roles and materialises the tenant claims. It is
 also the convergence point of five records, and the one place where a mistake is an authorization defect
@@ -49,15 +50,15 @@ is the projection.
 | 5 | **The gate**: approval for the grants that carry the risk, and the record of who approved what | `company-scope-local-fallback` D6(b)/T13 |
 | 6 | **The revocation**: disable, remove roles, remove attributes — the same pipe, the same key | `employee-registry` G7 |
 
-## Decisions (user-owned — **open**)
+## Decisions (user-owned — **all closed**, 2026-10-01)
 
 | # | Decision | Recommendation and consequence |
 | --- | --- | --- |
-| **O1** | **How does the person actually get in?** The account is created with a temporary password and a forced change, and the repository has **no SMTP at all** (F8), so today there is no channel to tell anyone anything | **Recommend: the operator hands over a password shown once**, with `setTemporary(true)` (or a `credential` + `UPDATE_PASSWORD` required action) — and **SMTP + an invitation flow as its own slice**. The honest cost: a human handles a secret, and the person must change it at first login. The alternative is to make SMTP part of this record, which turns a security slice into an infrastructure slice (templates, credentials, deliverability) — that is a bigger decision than this flow needs |
-| **O2** | **Which grants need approval?** (the gate's set) | **Recommend a rule, not a list**: auto-apply only the roles that are in **`ScopeLevel.STORE.roleNames()`** (F5) — they are meaningless without an assignment and they are the operational set — and require approval for **everything else** (the company-scoped catalogs, the HR read/write pair, anything broader). A list would rot; the rule is derivable from code that already exists, and it puts the gate exactly where the blast radius is: a role that reads salaries and birth dates is not `lc-sales` |
-| **O3** | **May the requester approve their own request?** | **Recommend no** — the gate exists to put a second pair of eyes on the grant. Honest consequence: in a small company where one person holds `lc-employee` and `lc-employee-access`, the approver must be someone else (an `lc-admin`) or the gate is turned off for the auto-apply set. A self-approval rule would make the gate audit theatre, which is worse than not having it |
-| **O4** | **Is revocation automatic or manual?** | **Recommend automatic**: the task the same pipe produces (`DEACTIVATE`) disables the account, removes the roles the template owns, and removes the claim attributes. `employee-registry`'s **G7** is exactly this hole, and doing it by hand is what keeps the hole open |
-| **O5** | Does the access officer need a **read-only pair** (`lc-employee-access-read`) to see the diff and the inbox without the power to apply? | **Recommend no pair for now**: reads gated by `lc-employee-access` (and `lc-admin`). The screen shows role **names**, not PII — the reason `employee-registry` needed `lc-employee-read` (birth dates, salaries) does not apply here. If the inbox is ever shown to someone who must not be able to apply, the pair is a two-line addition |
+| **O1** | **How does the person actually get in?** — **CLOSED: an activation link, by email.** Not a password handed over | The account is created **without a usable password**: `enabled = true`, `emailVerified = false`, `requiredActions = [VERIFY_EMAIL, UPDATE_PASSWORD]`, and Keycloak emails the **invitation link** (T14). The person sets their own password, so **no secret ever travels through this application** — which is strictly better than the show-once alternative, at the cost of making SMTP part of this record (**W6**) instead of its own slice. Three consequences recorded rather than discovered: the **Frontend URL** the link must point at is realm configuration (defaulting to Keycloak's own host, which would send people to the wrong address), the **address must be deliverable**, which upgrades `employee-registry`'s G6 into a hard requirement (**G9** here), and the link expires, so the Access section needs a **resend** action. **T15** keeps the operator hand-over as the fallback for a company with no deliverable domain |
+| **O2** | **Which grants need approval?** — **CLOSED: a rule, not a list** | Auto-apply only the roles that are in **`ScopeLevel.STORE.roleNames()`** (F5) — they are meaningless without an assignment and they are the operational set — and require approval for **everything else** (the company-scoped catalogs, the HR read/write pair, anything broader). A list would rot; the rule is derivable from code that already exists, and it puts the gate where the blast radius is: a role that reads salaries and birth dates is not `lc-sales` |
+| **O3** | **May the requester approve their own request?** — **CLOSED: no** | The gate exists to put a second pair of eyes on the grant. Honest consequence, accepted: in a small company where one person holds `lc-employee` and `lc-employee-access`, the approver must be someone else (an `lc-admin`) or the gate is turned off for the auto-apply set. Self-approval would make the gate audit theatre, which is worse than not having it |
+| **O4** | **Is revocation automatic?** — **CLOSED: automatic** | The same pipe produces a `DEACTIVATE` task that disables the account, removes the roles the template owns and removes the claim attributes. `employee-registry`'s **G7** is exactly this hole, and doing it by hand is what keeps it open |
+| **O5** | Does the access officer need a **read-only pair** (`lc-employee-access-read`)? — **CLOSED: no pair for now** | Reads are gated by `lc-employee-access` and `lc-admin`. The screen shows role **names**, not PII — the reason `employee-registry` needed `lc-employee-read` (birth dates, salaries) does not apply here. If the inbox is ever shown to someone who must not be able to apply, the pair is a two-line addition |
 
 ## Decisions (mine, technical — challenge them if you disagree)
 
@@ -76,6 +77,8 @@ is the projection.
 | T11 | The **gate is the task's status**, not a second flow, and the diff is computed and stored on every task | `company-scope-local-fallback`'s T13. A gated task is `APPROVAL_PENDING` with its diff frozen for review, and **re-derived when it is applied** — approving a snapshot from before a contract change would approve something that is no longer true |
 | T12 | The **allowlist is enforced here** (`hr-org-structure` D7): only the roles the position template declares, of the same company, for an employee whose status allows it, and **`lc-admin` is never grantable** — with a test that fails if it is ever added to the list | This is the projection's blast radius, and the projection is the only thing that can widen access in this flow. Note that the users-admin surface's own protection is a **URL rule** (`/api/users-admin/**` → realm `admin`, F1), which does **not** apply to Java calls: the projection calling the service directly is the system acting, so this record's authorization (who may create a task, who may approve) plus the allowlist are the controls |
 | T13 | The projection is **fail-closed**: any unexpected Keycloak error leaves the task `FAILED` with its reason and retries; it never degrades into "granted but unrecorded", and it never writes a partial state without recording it | Same class as T10, one step earlier: the invariant is that the record and reality move together, and when they cannot, the record says so |
+| T14 | **The invitation is Keycloak's own execute-actions flow**, not a password this application generates or transmits: create the account with `requiredActions = [VERIFY_EMAIL, UPDATE_PASSWORD]`, `emailVerified = false` and no usable credential, then ask Keycloak to **send the actions email** with a bounded lifespan; the person opens the link, sets their own password and is verified in the same act | O1. It needs **one new method on `IdentityProvider`** (send the actions email for a user, with its lifespan) — the interface has `createUser`/`updateUser` but nothing that triggers an email today. The advantages are the reason to prefer it: **no secret passes through this application**, no password is ever seen by an operator, and the email verification comes free. The cost is W6 (the realm's SMTP, its Frontend URL, a dev mail container) and G9 (the address must be deliverable) |
+| T15 | **The operator hand-over stays as the fallback, chosen by the data and not by a toggle**: when the company has no `email_domain` (or the address cannot be delivered), the task resolves to a temporary credential **shown once** to the operator with `setTemporary(true)` and `UPDATE_PASSWORD`, and the Access section says so plainly | O1 chose the email path, but `companies.email_domain` is **nullable** and `employee-registry`'s write path already fails closed without it. Without a fallback, a company that has not configured a domain simply cannot onboard anyone — an outage disguised as a policy. The operator must **see which path applies** rather than discover it from a bounced message |
 
 ## Verified exploration evidence
 
@@ -201,9 +204,9 @@ something is waiting without holding the access role. The **role names** are not
 | **W3** | The **membership projection**: write and delete the five attributes from the derivation (T1), with the tests that pin the list semantics | **Under budget** — the capability exists (F1/F2), and the derivation is already specified and tested in `employee-store-assignments`. Needs its `V21` |
 | **W4** | The **worker**: the scheduler, the claim that stops two workers taking the same task, the retry with backoff, and the visible failure (T10/T13) | **Declared over budget.** It is also the piece that would repair `company-scope-local-fallback`'s G9 class of defect, so its shape should be reusable for the group mirror |
 | **W5** | The **gate** (the approval status, the frozen diff, self-approval refused), the six endpoints, and the frontend (the Access section and the inbox) | **Declared over budget**: backend and frontend separable |
+| **W6** | **The invitation channel**: the realm's **SMTP** configuration, the **Frontend URL** the activation link must point at, the `sendActionsEmail` method on `IdentityProvider` and its Keycloak implementation, a **dev mail container** so the flow is exercisable locally, and the procedure that verifies it end to end (an email that arrives, a link that works, a password set by the person) | **Not testable from this repository's test loop** beyond the interface method and its mocked test, which is why it is a row of its own. It is **the only row in this record that is infrastructure rather than code**, and it is the price O1 was chosen with its eyes open |
 
-Dependency order: **W1 → W2/W3 → W4 → W5**. W3 needs `employee-store-assignments` implemented; W2 needs
-`position_roles`; and the whole flow also needs the **mapper** (`company-scope-local-fallback`'s W0) to be
+Dependency order: **W1 → W6 → W2/W3 → W4 → W5** — W6 precedes W2 because creating the account **sends the invitation**, so there is no usable account lifecycle until a channel exists. W3 needs `employee-store-assignments` implemented; W2 needs `position_roles`; and the whole flow also needs the **mapper** (`company-scope-local-fallback`'s W0) to be
 reachable in a token at all. Nothing here can be verified end to end until that mapper exists in the
 environment, which is why W4's tests must run against a **fake or embedded** identity provider rather than
 a live realm.
@@ -212,7 +215,7 @@ a live realm.
 
 | # | Gap | Note |
 | --- | --- | --- |
-| G1 | **No SMTP**, so the person cannot be told anything | `employee-registry`'s G6. It is why **O1** decides how a password ever reaches a human, and it is a real slice of its own (templates, credentials, deliverability) |
+| G1 | **No SMTP** — and O1 moved it **into scope** instead of deferring it | `employee-registry`'s G6. It is now **W6**: realm SMTP configuration, the Frontend URL the link must point at, a dev mail container, and the verification procedure. Not testable end to end from the test loop, which is why it is its own row |
 | G2 | The application **client id is not a configured property**, and client roles cannot be assigned without it | `hr-org-structure`'s E15. Small, blocking for W2, and fixed inside this record |
 | G3 | **No batch user fetch** in `IdentityProvider` | One Admin API call per employee. That is why the diff lives in the **employee detail** and not in the employee **list**: a list that showed access state would fan out one call per row |
 | G4 | `employees.email` and the Keycloak login email do not synchronize | `employee-registry`'s G4. T5's link rule is the mitigation: the account that gets roles must be the one whose email matches |
@@ -220,6 +223,8 @@ a live realm.
 | G6 | **Per-store role scoping is not expressible** | `employee-store-assignments`' G1, inherited: the roles this record applies are person-global, so a person with two stores and two roles has both capabilities in both |
 | G7 | Offboarding is **not exhaustive**: the projection converges the template's roles, not the roles granted by hand outside it | An `lc-sales` granted manually in Keycloak survives a `Terminated` employee. Declared rather than half-solved: converging "every role the person holds" would mean the projection owns roles the template never declared, which contradicts D6 |
 | G8 | The `lc-company-*` group mirror becomes **cosmetic** under T1 | `company-scope-local-fallback`'s **G9** (a group that may be missing, silently) no longer affects authorization, because the membership travels as user attributes. The divergence is still real, it is now just not a security concern — which lowers that gap's severity without closing it |
+| G9 | **The generated corporate address may not be deliverable, and O1 made that a hard requirement** | `employee-registry`'s G6/T16 upgraded in severity: if the company does not control the domain — or has none, since `companies.email_domain` is nullable — the activation email never arrives and the person **cannot log in at all**. **T15** is the escape hatch, and the Access section must tell the operator which path applies instead of letting them discover it from a bounce |
+| G10 | The email's **copy, language and branding** are Keycloak's defaults | The repository has no custom login theme and no realm locale decision, so the invitation arrives in whatever the realm is configured with, with no company branding. Declared because it is the first thing an operator will notice, and it is theme work rather than a defect |
 
 ## Cross-record dependencies
 
@@ -244,7 +249,8 @@ a live realm.
 
 ## Task log
 
-- [ ] O1–O5 decided by the user
+- [x] O1–O5 decided by the user (2026-10-01): an **activation link by email** (which moved SMTP into
+  scope), the store-scoped auto-apply rule, no self-approval, automatic revocation, no read pair
 - [ ] W1 — `V22`, the task model and the state machine
 - [ ] W2 — the account lifecycle and the role diff
 - [ ] W3 — the membership attributes from the derivation
@@ -253,14 +259,13 @@ a live realm.
 
 ## Deferred and blocking
 
-- **Blocked on O1–O5**: the five product questions above, listed because each one changes code. O1 in
-  particular decides whether this record touches the password path at all, and O2 decides the gate's
-  boundary.
+- **Nothing blocks the design any more**: O1–O5 are closed. O1 put **SMTP in scope** (**W6**) rather than
+  deferring it, so the first thing the account lifecycle needs is a channel that can deliver an email.
 - **Blocked on its prerequisites, in order**: `position_roles` (W2), `V21` (W3), and the **mapper** for
   anything to be observable end to end (W3's output is invisible in a token until `company-scope-local-fallback`'s
   W0 exists).
-- **Deferred**: the SMTP slice (G1), the batch user fetch (G3), the divergence policy (G5), roles granted
-  outside the template (G7), and the inbox's home in the menu.
+- **Deferred**: the batch user fetch (G3), the divergence policy (G5), roles granted outside the template
+  (G7), the email theme and language (G10), and the inbox's home in the menu.
 - **Explicitly not blocked**: W1 can be built today. Its migrations, state machine and tests need no
   Keycloak at all, and the worker's tests run against a fake identity provider.
 
@@ -268,4 +273,5 @@ a live realm.
 
 | Date | Evidence |
 | --- | --- |
-| 2026-10-01 | Record written on `feat/hr-org-structure`, after `company-scope-local-fallback` closed its D1 as **A** and `employee-store-assignments` closed D1–D4. F1–F6 were read in this worktree while writing it, and two of them changed the design: **F1/F2 removed a work unit** from `company-scope-local-fallback` (the attribute operations exist, are implemented, and replace the whole list, so no `addUserToGroup` is needed and the attributes-versus-groups sub-choice is settled) and **F6** decided T8 (a child table, because the repository has exactly one `jsonb` column) and T9 (the task row is the audit, because `activity_logs` is HTTP-shaped). F7–F11 are anchors inherited from the sibling records named in each row. **Nothing is implemented; O1–O5 are open**, and no source line was written. |
+| 2026-10-01 | **O1–O5 closed by the user in one pass.** **O1 chose the activation link by email** over the operator hand-over, which **moved SMTP into this record** (the new **W6**) and produced **T14** (Keycloak's execute-actions flow with `VERIFY_EMAIL` + `UPDATE_PASSWORD`, `emailVerified = false`, no credential this application ever handles, plus one new method on `IdentityProvider` and a resend action) and **T15** (the hand-over stays as the fallback, selected by the data, because `companies.email_domain` is nullable and the write path already fails closed without it). It also upgraded `employee-registry`'s G6 into **G9** here — an undeliverable address now means the person cannot log in at all — and added **G10** (the email is Keycloak's default copy and language). **O2–O5 were accepted as recommended** and are recorded as closed: the store-scoped auto-apply rule, no self-approval, automatic revocation, no read pair. **No source line was written**, and the record now has no open decision. |
+| 2026-10-01 | Record written on `feat/hr-org-structure`, after `company-scope-local-fallback` closed its D1 as **A** and `employee-store-assignments` closed D1–D4. F1–F6 were read in this worktree while writing it, and two of them changed the design: **F1/F2 removed a work unit** from `company-scope-local-fallback` (the attribute operations exist, are implemented, and replace the whole list, so no `addUserToGroup` is needed and the attributes-versus-groups sub-choice is settled) and **F6** decided T8 (a child table, because the repository has exactly one `jsonb` column) and T9 (the task row is the audit, because `activity_logs` is HTTP-shaped). F7–F11 are anchors inherited from the sibling records named in each row. **Nothing is implemented**, and no source line was written. |
