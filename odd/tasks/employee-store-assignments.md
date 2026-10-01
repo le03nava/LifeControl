@@ -1,8 +1,9 @@
 # ODD feature: employee-store-assignments
 
-**Status**: planned, nothing implemented — the remaining work is W1–W3 below, and **D1–D4 are open**
-(four product questions, listed under "Decisions (user-owned — **open**)"). This header claims no
-branch, push or PR state; see the evidence log.
+**Status**: planned, nothing implemented — the remaining work is W1–W3 below. **D1–D4 are closed**
+(2026-10-01): several stores at once, the profile's store as a **derived default**, **no** row for a
+company-wide person, and the **store** as the only granularity. `V21` is therefore unblocked. This header
+claims no branch, push or PR state; see the evidence log.
 **Created**: 2026-10-01 · **Risk**: **high** — this table becomes the **fact** that feeds the token
 claims, so a wrong row is a wrong authorization; and it is the first table in the schema whose invariant
 admits **many rows per person** for the same level.
@@ -36,14 +37,14 @@ Three records declare this one, and each for a different reason:
 So this record owns one question and must answer it precisely: **which stores does a person work in, and
 since when** — with the ancestors derived, never stored.
 
-## Decisions (user-owned — **open**)
+## Decisions (user-owned — **all closed**, 2026-10-01)
 
-| # | Decision | Recommendation and consequence |
+| # | Decision | Decision taken, and its consequence |
 | --- | --- | --- |
-| **D1** | Can a person be assigned to **several stores at once**? | **Recommend yes.** Three independent reasons: the claim parser accepts a list, so the token can express it; covering two stores is ordinary (a supervisor, a relief cashier); and forbidding it would force an exclusion on `employee_id` alone, which the store tree does not justify. **Consequence if yes**: the invariant is per `(employee, store)`, never per employee, and the derived chain can legitimately hold several stores in several countries at once — which is exactly the multi-company case `company-scope-local-fallback`'s D4 left open, answered here by the data rather than by policy |
-| **D2** | What happens to the profile screen's **store selector**? | **Recommend it becomes a derived default**, not an independent preference: today `user_preferences.company_store_id` is a free-form choice with no validation and two Angular features read it back as "the active store" (F8). With this table, that field is a **second source** for a fact the assignment already answers — and it can point at a store the person is not assigned to. Either the selector narrows to "assigned stores only" (a display default), or it disappears and the UI picks the single assignment when there is one |
-| **D3** | Does a **company-wide** person (no store) need a row here? | **Recommend no, and this is the elegant part**: `employees.company_id` already answers "belongs to this company" (it is `NOT NULL`), so the company-level fact stays on the record that owns it and this table stays purely about stores. **Consequence**: a holder of a company-scoped role with no store — the HR clerk, accounting — derives `company_id` and no store/zone/region/country, and that is correct, because only the deeper checks require a country. What must **not** happen is a nullable `company_store_id` meaning "all of them": ambiguity in a column that feeds an authorization input |
-| **D4** | Is the granularity the **store** the right one, or does anything need a zone/region row? | **Recommend store only.** A zone- or region-wide grant is expressible by assigning the stores inside it, and the ancestors are derived anyway. A coarser row would add a second way to say the same thing, which is the shape that ends in divergence |
+| **D1** | Can a person be assigned to **several stores at once**? — **CLOSED: yes** | Three independent reasons: the claim parser accepts a list, so the token can express it; covering two stores is ordinary (a supervisor, a relief cashier); and forbidding it would force an exclusion on `employee_id` alone, which the store tree does not justify. **Consequence**: the invariant is per `(employee, store)`, never per employee (T2), and the derived chain can legitimately hold several stores in several countries at once — which is the multi-company case `company-scope-local-fallback`'s D4 left open, answered here by the data rather than by policy. **This is the decision `V21`'s constraint depends on** |
+| **D2** | What happens to the profile screen's **store selector**? — **CLOSED: it becomes a derived default** | Today `user_preferences.company_store_id` is a free-form choice with no validation and two Angular features read it back as "the active store" (F8). With this table that field is a **second answer** to a question the assignment already answers, and it can point at a store the person is not assigned to. **Consequence**: the field stops being free-form — it narrows to the **assigned stores**, and the backend refuses a store the caller is not assigned to (T11). It still never feeds the claim, so a wrong value cannot grant anything; what the constraint removes is a UI that lies about where you work |
+| **D3** | Does a **company-wide** person (no store) need a row here? — **CLOSED: no** | `employees.company_id` already answers "belongs to this company" (it is `NOT NULL`), so the company-level fact stays on the record that owns it and this table stays purely about stores. **Consequence**: a holder of a company-scoped role with no store — the HR clerk, accounting — derives `company_id` and no store/zone/region/country, and that is correct, because only the deeper checks require a country. What must **not** happen is a nullable `company_store_id` meaning "all of them": ambiguity in a column that feeds an authorization input |
+| **D4** | Is the granularity the **store**, or does anything need a zone/region row? — **CLOSED: store only** | A zone- or region-wide grant is expressible by assigning the stores inside it, and the ancestors are derived anyway. A coarser row would add a second way to say the same thing, which is the shape that ends in divergence — and it is also why **G1** stays declared rather than worked around |
 
 ## Decisions (mine, technical — challenge them if you disagree)
 
@@ -59,6 +60,7 @@ since when** — with the ancestors derived, never stored.
 | T8 | The **same-company** rule (the store must belong to the employee's company) is a **service-level** check, and it is a gap, not a guarantee | The database cannot express a fact two hops away (`store → zone → region → country → company`); the same limitation `hr-org-structure` declares as its G6. It is checked on write and covered by a test that proves another company's store is refused |
 | T9 | This record **produces the fact and never writes the projection**: it does not touch Keycloak, and it does not know the mapper exists | One truth, one materialisation: the assignment is the truth, Keycloak holds a projection, and the diff between them is how divergence is detected (`company-scope-local-fallback`'s T12/`employee-access-provisioning`'s job). A table that also wrote the IdP would be the second source the whole design round refused |
 | T10 | **No cache** anywhere on these reads | The read feeds authorization, and `hr-org-structure`'s **G12** is a live example in this repository of what caching an authorization input does when the cache outlives the decision |
+| T11 | **The profile's store preference is display-only and constrained to the assigned set.** The field stays — the UI needs a default when several stores are assigned — but it must resolve to a store the caller is **currently assigned to**, and the claim never reads it (T9) | D2. Two unconstrained answers to "which store am I in" is the divergence `company-scope-local-fallback`'s D3 was about; this makes the preference a **pointer into** the assignment set instead of an assertion of its own. Because it is not an authorization input, the harm it prevents is not an escalation but a UI that shows a store the person cannot work in, and an API call that fails confusingly later |
 
 ## Verified exploration evidence
 
@@ -159,7 +161,7 @@ the token at the next issuance, which is the revocation path the other record's 
 | `/hr/employees/:id` (the `EmployeeDetail` of `employee-registry`'s W4) | A new **Tiendas asignadas** section: store, validity, status, with "Asignar tienda" and "Cerrar" (confirm). The list shows the **derived** company/country/region/zone per row, because that is what the token will carry and the operator should see what they are granting |
 | the contract activation flow of `employee-registry`'s W3/W4 | The store picker, because the maintainer's flow puts the assignment in that act. **Same act, two rows**: the activation creates the contract and the assignment |
 
-The profile screen's store selector is **D2** and is the one existing surface this record would change.
+The profile screen's store selector is **D2, closed**: it narrows to the assigned stores (T11). That is the one existing surface this record changes, and it is why the change is not backend-only.
 
 ## Work units
 
@@ -169,7 +171,7 @@ The profile screen's store selector is **D2** and is the one existing surface th
 | **W2** | The three endpoints and their tests: the same-company refusal (T8), the overlap refusal **proven against real PostgreSQL** (T2/T4, using the `ddl-auto=validate` + Flyway integration stack), the close path, and the 404 for another company's row | Under budget if the tests reuse the existing integration base class |
 | **W3** | The frontend: the employee detail's section and the store picker in the activation flow | **Over budget**, and separable into the two halves above |
 
-Dependency order: **W1 → W2 → W3**. Nothing here depends on the projection: this record can be delivered
+Dependency order: **W1 → W2 → W3**. D1–D4 are closed, so `V21`'s shape is settled and W1 can start. Nothing here depends on the projection: this record can be delivered
 and tested with no Keycloak involvement at all (T9), which is what makes it safe to land before
 `employee-access-provisioning` exists.
 
@@ -202,20 +204,21 @@ and tested with no Keycloak involvement at all (T9), which is what makes it safe
 - **Not** expressing roles per store (**G1**), workload (**G5**), or a primary store (**G7**).
 - **Not** moving the store into the contract: a transfer must not close a legal contract
   (`employee-registry` T13), so the assignment keeps its own row and its own dates.
-- **Not** changing the profile screen's store field until **D2** is answered (though this record is where
-  the question gets its answer, because this table is what makes the free-form field redundant).
+- **Not** turning the profile's store field into an authorization input: it becomes a display default
+  constrained to the assigned stores (**D2**, T11).
 
 ## Task log
 
-- [ ] D1–D4 decided by the user
+- [x] D1–D4 decided by the user (2026-10-01): several stores at once, the store profile field as a derived
+  default, no row for company-wide people, store-only granularity
 - [ ] W1 — `V21`, model, service and the derivation with its spec
 - [ ] W2 — the three endpoints and their tests
 - [ ] W3 — the employee-detail section and the store picker in the activation flow
 
 ## Deferred and blocking
 
-- **Blocked on D1–D4**: the four product questions above. D1 in particular decides the exclusion
-  constraint's shape, so it must be answered before the migration is written, not after.
+- **Nothing blocks `V21`**: D1–D4 are closed and D1's answer settles the exclusion constraint's shape
+  (per `(employee, store)`, T2).
 - **Blocked for its purpose, not for its delivery**: this record can be built and tested today (T9), but
   it changes nothing observable until `employee-access-provisioning` projects the derivation into Keycloak
   and the mapper (`company-scope-local-fallback`'s W0) makes it reachable in a token.
@@ -226,4 +229,5 @@ and tested with no Keycloak involvement at all (T9), which is what makes it safe
 
 | Date | Evidence |
 | --- | --- |
-| 2026-10-01 | Record written on `feat/hr-org-structure`, after the membership flow was decided in `company-scope-local-fallback` (its D3) and the mechanism was closed as **A** (its D1). F1–F10 are anchors: F1–F4 were read again in this worktree for this record; F5–F10 are inherited from the sibling records named in each row, and they are the ones this design leans on. **Nothing is implemented and no decision here is taken** — D1–D4 are the user's, and **D1 must be answered before `V21` is written** because it decides the exclusion constraint. No source line was written. |
+| 2026-10-01 | Record written on `feat/hr-org-structure`, after the membership flow was decided in `company-scope-local-fallback` (its D3) and the mechanism was closed as **A** (its D1). F1–F10 are anchors: F1–F4 were read again in this worktree for this record; F5–F10 are inherited from the sibling records named in each row, and they are the ones this design leans on. **Nothing is implemented.** |
+| 2026-10-01 | **D1–D4 decided by the user in one pass**: **D1 yes** (several stores at once, which settles T2's per-`(employee, store)` constraint and closes `V21`'s only blocker), **D2** the profile's store becomes a **derived default constrained to the assigned stores** (T11, and it closes the store half of `company-scope-local-fallback`'s D3, which had left it open), **D3 no** (a company-wide person has no row; the company-level fact stays on `employees.company_id`), **D4 store-only**. **No source line was written**, and the record now has no open decision: `V21` can be written. |
