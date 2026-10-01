@@ -1,6 +1,6 @@
 # ODD feature: company-scope-local-fallback
 
-**Status**: designed — **not implemented**. **D3 is closed**: the membership is the organisational fact asserted when a contract is activated, and the access flow projects it (see "The membership flow"). The **mechanism** (D1) and the two sub-questions inside D3 (**D6**) are still the user's, and W0–W3 wait on D1. This header claims no branch, push or PR state; see the evidence log.
+**Status**: designed — **not implemented**. **D3 and D6 are closed**: the membership is the organisational fact asserted when a contract is activated, and the access flow projects it through a worker that reconciles Keycloak to the current truth (see "The membership flow" and "The asynchronous boundary"). The **mechanism** (**D1**) is the last open decision, and the flow strengthens the case for A. This header claims no branch, push or PR state; see the evidence log.
 **Created**: 2026-10-01 · **Risk**: **high** — it decides what an authorization input *is*. The wrong
 answer turns a scope guard into a self-service tenant switcher (see "The escalation the name hides"),
 and it lands on the single choke point that all 37 scoped call sites in the repository go through.
@@ -114,9 +114,51 @@ Two facts the flow pins down, and one question it does not answer:
   (T12 there) and a new contract closing the previous one (T13 there), "two positions at once" is not
   expressible **without a child table** — so the role template a person receives is the union of
   exactly one position.
-- **What is still open** is the trigger and the privilege collision, both recorded as **D6** below:
-  who presses what, and whether activating a contract may also create a Keycloak account with business
-  roles when `hr-org-structure` D8 deliberately split those two privileges.
+- **What was still open** — the trigger and the privilege collision — **was answered on 2026-10-01**, and it is **D6** below. The pipeline it forces is specified next.
+
+## The asynchronous boundary (D6a's answer)
+
+The flow above ends in a write to **another system**, so the question is not "should it be asynchronous" — it
+has to be, or a Keycloak outage becomes a half-done hire — but **where the intent survives a failure**.
+
+**The trigger.** The transaction that asserts the fact (contract activation, a store-assignment change, a
+termination) writes the intent as an **outbox row, in the same transaction**. Not "publish an event and hope":
+the repository's existing instance of that pattern is the counter-example (E26) — `KeycloakGroupEventListener`
+fires on `AFTER_COMMIT`, catches `IdentityProviderException`, logs a warning and **never retries**, so a
+Keycloak outage at company creation leaves a company without its group, silently and permanently. With the
+intent in the same transaction, a crash between the commit and the Keycloak write loses nothing.
+
+**The payload is a reference, never an instruction.** The row says *"the contract of employee X changed"*,
+not *"give X `lc-sales` on store 3"*. That is a security rule, not a style preference: with an instruction,
+whoever writes the message decides the grant, and the privilege collision D8 was about comes back — the topic
+is just a new door for it. With a reference, the worker reads the **current** truth (contract + assignment +
+`position_roles`) and **derives** the grant, so the enqueuer decides nothing.
+
+**The worker reconciles; it does not replay.** For each intent: read the current truth → compute the **diff**
+against what Keycloak already has → apply it idempotently → record the outcome. The natural key is
+`employees.keycloak_user_id`, unique in V20: it is how "this person already has an account" becomes **link**
+instead of **create** (the 409 that `employee-registry` T13 already anticipates). Reconcile-not-replay brings
+three properties for free: duplicates and out-of-order processing are harmless, retries are safe, and the
+**revocation** path is the same pipe — an employee who becomes `Terminated` produces an intent that the same
+worker resolves by disabling the account and removing the membership, which is how `employee-registry`'s G7
+("nobody revokes anything") closes without a second flow.
+
+**The states are visible.** `pending` → `applied` | `failed` (reason, attempts), shown in the employee's
+Access section next to the requester and the approver. Without that, the operator assumes it worked — which
+is exactly what happens today with the group listener.
+
+**The transport.** An **outbox table plus a `@Scheduled` poller** is the recommendation: durable, retryable,
+inside the monolith's transaction, and with **no new infrastructure** — an important consideration because the
+repository has **no broker at all**, no scheduler and no retry machinery (E25). Kafka's real advantage
+(partition-key ordering) is not needed here, because reconciliation makes ordering irrelevant. A broker
+becomes justified when a **second consumer** exists (access + audit + notifications), when something **outside
+the JVM** needs the signal, or at real volume — none of which is true today. And the outbox keeps that door
+open: the day a broker is wanted, a relay publishes the same rows and **no producer changes**.
+
+Two things the async boundary adds on the approval side, and they are easy to forget: the **diff is mandatory**
+(the gate reviews it, and the auto-apply path logs it), and a request that waits **must be re-derived when it
+is applied** — approving a snapshot from before a contract change means approving something that is no longer
+true.
 
 ## Verified exploration evidence
 
@@ -150,17 +192,20 @@ one of them is an anchor rather than a summary.
 | E22 | Integration tests authenticate non-admins in both shapes: the claim-bearing helper sets all five claims (`scopedSalesJwt`), and admin-only classes use `jwt().authorities(...)` with **no** claims at all, which only works because `isAdmin()` short-circuits. `store-claim-hardening` measured **12** `SalesOrderIntegrationTest` cases failing precisely because a non-admin JWT arrived without the claim path | `salesorder/controller/SalesOrderIntegrationTest.java:2370-2386`; `scheduling/SchedulingSlotIntegrationTest.java:379-385` (+3 siblings); `store/StoreAreaIntegrationTest.java:169`; `odd/tasks/store-claim-hardening.md` |
 | E23 | The stored row is per-user, so "which company is this user in" is answered for **one** company only, and `keycloak_user_id` holds the JWT `sub` (a 36-char UUID) — the same value `getUserId()` returns | `V1:366`; `CurrentUserContext.java:299-306`; `ProfileService.java:51,98` |
 | E24 | Nothing resembling a fallback exists today: no "claim absent ⇒ X" concept anywhere outside `CurrentUserContext`'s own javadoc, and no repository injected into it | grep `local fallback\|claim is absent\|fall back to` → only unrelated UI copy and `CurrentUserContext.java:405` |
+| E25 | **The repository has no asynchronous infrastructure to lean on**: **no** broker dependency of any kind (no Kafka, Rabbit, AMQP, JMS), **no** `@Scheduled`/`@EnableScheduling`, **no** `@Async`, and no retry, outbox or pending-state concept anywhere in `src/main/java`. The entire async vocabulary is Spring's `@TransactionalEventListener` after commit | `life-control-api/build.gradle`, `build.gradle`, `settings.gradle` (grepped for the broker names — zero hits); grep for `@Scheduled`/`@EnableScheduling`/`@Async`/`@TransactionalEventListener` → only the six listener methods below; grep for `retry`/`outbox`/`reconcile`/`pending` → only unrelated domain prose |
+| E26 | **The repository's one instance of "fire an event after commit" swallows its failure**: `KeycloakGroupEventListener` has five `@TransactionalEventListener(AFTER_COMMIT)` handlers that create the `lc-company-*` groups, and each catches `IdentityProviderException` with a `logger.warn` — no retry, no persisted state, no repair, and the class Javadoc says so: "Group creation failures are logged but never propagated" | `company/listener/KeycloakGroupEventListener.java:41,44-52,57,81,103,122`; the group attribute it writes is `Map.of("company_id", List.of(event.getId().toString()))`, which is exactly the value a mapper would read. This is **G9** |
+| E27 | The activity-log listener is the one that runs with `fallbackExecution = true`, so the audit trail does not depend on a surrounding transaction | `activity/listener/ActivityLogEventListener.java:31` |
 
-## Decisions (user-owned — **open**, this is D1's content)
+## Decisions (user-owned — **D1 and D2 remain open**; D3 and D6 are closed)
 
 | # | Decision | Options and consequence |
 | --- | --- | --- |
 | **D1** | **Which mechanism closes the gap** | **(A)** IdP-provisioned claims + membership · **(B1)** locally stored, admin-owned membership read as a fallback · **(B2)** locally stored preferences as they are — **rejected above** · **(A+B1)** phase A in, B1 as the bridge. The choice decides whether this repository keeps one authorization source (the token) or gains a second one (its own DB) |
 | **D2** | If B1 is used: **is it a bridge or the destination?** | A bridge writes a thing we intend to delete, and every endpoint built on it inherits the deletion. As a destination it becomes the fourth source of truth `hr-org-structure`'s T12 already warned about in a different context (Keycloak, the template, a mirror, the token) |
-| **D3** | **Who may write the membership** — **CLOSED by the maintainer on 2026-10-01: the organisational fact leads and the access flow projects it.** The writer is **HR, acting on the contract**: activating it assigns the **store** and **the position**, and the position↔roles relation produces a Keycloak user with its roles and its attributes (the flow is spelled out above) | Rejected alternatives: the platform admin assigning companies per user with no involvement of the org chart, and abandoning the org chart as an authorisation input. Both create two truths that diverge. **The subject never writes it** (E8, E9) and the profile screen stops writing the company/country/region/zone ids — whether it keeps writing the **store** is still open (E20 shows two features read `companyStoreId` back). Two sub-questions survive inside this decision: **D6** |
+| **D3** | **Who may write the membership** — **CLOSED by the maintainer on 2026-10-01: the organisational fact leads and the access flow projects it.** The writer is **HR, acting on the contract**: activating it assigns the **store** and **the position**, and the position↔roles relation produces a Keycloak user with its roles and its attributes (the flow is spelled out above) | Rejected alternatives: the platform admin assigning companies per user with no involvement of the org chart, and abandoning the org chart as an authorisation input. Both create two truths that diverge. **The subject never writes it** (E8, E9) and the profile screen stops writing the company/country/region/zone ids — whether it keeps writing the **store** is still open (E20 shows two features read `companyStoreId` back). Two sub-questions survived inside this decision and are now closed as **D6**. **A note on D1**: this flow makes creating or linking the Keycloak user mandatory anyway (step 4), so whoever provisions already writes to Keycloak — which is exactly where mechanism A reads from. B1 existed as the alternative for granting access **without** touching Keycloak; under this flow it would be a second source of a fact that is already being written to the IdP, so the flow points at **A** and D1 should be confirmed with that in mind |
 | **D4** | **Multi-company users** | The stored row is single-valued (E5, E23) and the claims are lists (E12). If multi-company is real, B1 needs a table with a composite key and A needs one group membership per company; if it is not real, the single-valued column is a documented ceiling |
 | **D5** | **Whether A's infra work is in scope here** | A needs a mapper and a membership operation. The mapper is environment configuration this repository cannot test; the membership is backend code (`IdentityProvider` has no `addUserToGroup`, E14). Splitting "the code" from "the environment" is a delivery decision |
-| **D6** | **Two sub-questions inside D3, still open** | **(a) The trigger and its dirty side.** Is activation an explicit action with its own endpoint, or derived from `start_date`? The second needs a scheduled job. Either way activation writes to **another system**, so it needs a defined outcome for "Keycloak is down" (retry plus a visible pending state, not a silent half-done hire) and for "the person already has an account" (link it; `employee-registry` T13's 409 means exactly that). Idempotency and audit are part of the answer. **(b) The privilege collision.** `hr-org-structure` D8 deliberately separated "editing HR data" (`lc-employee`) from "granting system access" (`lc-employee-access`), and this flow merges them: activating a contract would create accounts holding business roles. Either the merge is accepted — with D7's allowlist (never `lc-admin`), the same-company rule and an audit as compensating controls — or activation leaves a **pending access request** that someone holding `lc-employee-access` applies |
+| **D6** | **The trigger and the privilege collision — CLOSED by the maintainer on 2026-10-01.** **(a)** The trigger is the transaction that asserts the organisational fact: it writes the intent (an **outbox row**) alongside the fact, and a **worker** executes it by reconciling Keycloak to the current truth. **(b)** The gate is a **policy over the computed diff**, defaulting to **auto-apply for the roles the position template declares**, with approval reserved for the cases that carry the risk (a person's first access, and the sensitive roles). The pipeline is specified in "The asynchronous boundary" | The asynchronous boundary is what answers (b): it turns the HR act from *granting* into *requesting*, so `lc-employee` no longer provokes access with its own hands — the **system** derives the grant from the org chart. Two honest caveats are recorded with it: the separation is preserved only **in spirit** while the same person may hold both roles (a gate that the same human walks through twice is audit theatre, not control), and auto-apply has a precondition — **`keycloak_user_id` must not be operator-typable** (`employee-registry` T17), or a holder of `lc-employee` can point a new record at their own account and have the system grant them the roles of a position they chose |
 
 ## Decisions (mine, technical — challenge them if you disagree)
 
@@ -176,6 +221,9 @@ one of them is an anchor rather than a summary.
 | T8 | `verifyCompanyAccess`'s **claim-only, role-agnostic** behaviour (E1) is not changed by this record | It was measured during the HR slice (`hr-org-structure`'s E19/T15/G11) and tightening it denies principals that pass today, including the legacy `life-control-country` caller. It is a separate decision with its own blast radius |
 | T9 | **The membership emits a complete chain, top-level and multivalued.** The claim values are derived from the assigned **store** — `company_id`, `company_country_id`, `company_region_id`, `company_zone_id`, `company_store_id` — never only the store, and they carry the **exports/names `extractUuidSetFromClaim` reads, at the root of the token** | E3: `company_id` and `company_country_id` are **required** levels, so an assignment that emits only the store leaves the caller denied at the company level and the 403 survives the whole flow. E12: the parser accepts lists, so multiple stores are a list. E4: top-level, because the guard calls `getClaim("company_id")` and anything nested under `resource_access.<azp>` is invisible. This is the spec the provisioning code needs, and the likeliest bug if it is assumed |
 | T10 | **Attributes are not claims.** Writing `company_id` as a Keycloak user attribute — or joining a `lc-company-<id>` group, whose attribute already exists — puts **nothing** in the token on its own: a **protocol mapper** is what turns the attribute into the claim the guard reads | E13–E15: this repository provisions no mapper for any `company_*` claim, in either the docker script or the k8s realm export (which ships mappers for standard attributes only). "Generate the user with its attributes" is necessary and **not sufficient**; the mapper is the piece nobody has written, and it is W0 |
+| T11 | **The intent is an outbox row written in the same transaction as the fact, and the worker reconciles instead of replaying** (detail in "The asynchronous boundary") | E25/E26: the repository's only async mechanism is `@TransactionalEventListener` after commit, its one instance swallows the failure and nothing retries, and there is no scheduler, no retry state and no broker. "Enqueue an event" therefore means "lose it quietly" today. The outbox is the smallest shape that fixes that without buying infrastructure, and it keeps a future broker as a relay rather than a redesign |
+| T12 | **The payload is a reference, never an instruction** | With an instruction, whoever writes the message decides the grant — the same privilege collision, one queue further away. With a reference, the worker derives the grant from the current contract, the assignment and the template, and the enqueuer decides nothing |
+| T13 | **The gate is a policy over a computed diff, not a separate flow.** Default: auto-apply for the roles the position template declares; approval reserved for a person's first access and for the sensitive roles. The diff is always computed and logged, and a request that waits is **re-derived at apply time** | The flow already needs the diff (it is the revocability plan of `hr-org-structure` T12), so the gate is a policy switch rather than a redesign — which makes the decision reversible with information rather than a bet taken today. Re-deriving protects the approver from approving a snapshot that a later contract change made false |
 
 ## Work units
 
@@ -201,6 +249,7 @@ Contingent on D1. Sizing follows the repository's 400-line review budget, and ea
 | G6 | `user_preferences`' five FK columns accept **any existing** id, and nothing has ever validated them | Pre-existing data may already point anywhere, so B1 cannot adopt the existing rows without deciding what to do with them |
 | G7 | The legacy realm roles (`life-control-admin`, `life-control-country`) take part in `isAdmin()` and in the tests | Any change here must keep them working, and there is no inventory of who holds them (E1, E21) |
 | G8 | No record in the repository states which of the four merged records' "declared follow-up" this one is meant to close | They each declared the mapper; this record is the first attempt to decide the mechanism, and it should say plainly that it supersedes nothing until D1 is answered |
+| G9 | **A pre-existing silent divergence: the Keycloak group for a company may not exist and nothing detects it.** `KeycloakGroupEventListener` fires on `AFTER_COMMIT`, and each of its five handlers catches `IdentityProviderException` with a `logger.warn` and no retry, no state and no repair path | So the `lc-company-*` groups — the very artifact this record's mechanism A would join users to — can be missing for companies created while Keycloak was unavailable, and no test, job or screen would notice. It is the same class of defect as **G12** of `hr-org-structure`: a non-transactional side effect that outlives the decision, discovered while designing this record rather than by a failure. **Not this slice's to fix**, and the outbox design (T11) is also its repair: once intents are durable rows, group creation stops being fire-and-forget |
 
 ## Cross-record dependencies
 
@@ -233,16 +282,22 @@ Contingent on D1. Sizing follows the repository's 400-line review budget, and ea
 
 ## Deferred and blocking
 
-- **Blocked on D1**, which is the user's: no work unit starts before it is answered. This is the whole
-  content of the record — the exploration is done, the mechanism is not chosen.
+- **Blocked on D1**, which is the user's, and on D2 only if B1 is chosen. D3 and D6 are closed: the
+  membership is the organisational fact of a contract activation, and the trigger and the gate are
+  specified in "The asynchronous boundary". The flow itself argues for A — whoever provisions already
+  writes to Keycloak — so D1 is the last thing standing between this record and its work units.
 - **Blocked on the HR branch for migration numbering** if B1 needs a migration: `V19`/`V20` are taken
-  in flight, so B1's migration cannot be numbered until `hr-org-structure` lands or renumbers.
-- **Deferred**: re-validating existing rows (G6), multi-company support unless D4 says it is real, and
-  the k8s/docker realm divergence (G2), which is a deployment decision larger than this record.
+  in flight, so B1's migration cannot be numbered until `hr-org-structure` lands or renumbers. Under A
+  this record needs no migration at all.
+- **Deferred**: re-validating existing rows (G6), multi-company support unless D4 says it is real, the
+  k8s/docker realm divergence (G2), which is a deployment decision larger than this record, and the
+  **G9** repair (the group listener's swallowed failures), which the outbox design would absorb but
+  which is not this slice's to change.
 
 ## Evidence log
 
 | Date | Evidence |
 | --- | --- |
 | 2026-10-01 | **D3 closed by the maintainer** while breaking the decision down: the membership is the organisational fact asserted on contract activation, and the access flow projects it (the flow table above). The plural for positions was considered and **rejected** — recorded as **D6** in `employee-registry` — which left V20 as designed and made the store assignment the load-bearing piece of the flow. Two sub-questions survive and are recorded as this record's **D6**: the trigger (explicit action or date-derived) with its failure modes, and the collision with `hr-org-structure` D8. **No source line was written**; the mechanism (D1) is still open |
+| 2026-10-01 | **D6 closed by the maintainer (a and b together)**, after the parent established what the repository actually offers for the asynchronous half: no broker, no scheduler, no retry state, and one `AFTER_COMMIT` listener that swallows its failure (E25–E27, read by the parent — nobody had looked at the messaging layer before). **(a)** the intent is an outbox row in the same transaction as the fact, and the worker reconciles the current truth instead of replaying a payload; no broker now, with the outbox as the later relay. **(b)** the gate is a policy over the computed diff, defaulting to auto-apply for the template's roles with approval for first access and the sensitive roles — which preserves D8 in spirit and literally only where the two roles sit with different people. The security precondition of auto-apply was named in the same pass: **`keycloak_user_id` must not be operator-typable**, or a holder of `lc-employee` grants themselves the roles of a position they chose — recorded as **T17** of `employee-registry`. The pass also produced **G9**, a pre-existing silent divergence (E26). |
 | 2026-10-01 | Design round opened against `main @ 274c67f` in the worktree `wN`, created with `herdr worktree create` per the repository's worktree procedure. E1–E12 read by the parent: the scope-resolution path, the claim shape, the `user_preferences` DDL and its two writers, and the absence of any read for authorization. E13–E24 mapped read-only by a scout run in this same worktree, including the Keycloak provisioning picture and the test pins. **The parent independently re-verified the three load-bearing facts** (E13/E14/E15 and the 37 call sites): `grep` over `docker/scripts/keycloak-setup.sh` shows no mapper and no group line, `grep` for `addUserToGroup`/`joinGroup` returns nothing while `createGroup` appears in five places, and the k8s manifests import `spring-microservices-security-realm` with zero `lc-*` roles and zero `company_*` claims — which the scout had not reported. `grep -c currentUserContext.verify` → **37 hits in 18 files**. **No source line was written**, and no decision was taken: D1–D5 are open. |
