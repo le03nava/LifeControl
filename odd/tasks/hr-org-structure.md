@@ -1,0 +1,286 @@
+# ODD feature: hr-org-structure
+
+**Status**: planned, nothing implemented — the remaining work is W1–W4 below. This header makes
+no claim about branch, push or PR state; see the evidence log.
+**Created**: 2026-09-30 · **Risk**: **medium–high** — four new tables plus a role template, the
+repository's first self-referencing foreign key, and its first company-scoped catalog (no
+precedent exists). No existing contract changes and no data migration: all six tables are new and
+nothing references them yet.
+**Repository**: LifeControl — spans `life-control-api/**` (Spring Boot, Java 21, PostgreSQL 18.1 +
+Flyway) and `life-control-app-angular/**` (Angular 20.3 + Material/CDK 20). No gateway change: the
+routes land under the existing `/api/**` prefix and no new first path segment is introduced.
+**Migration**: **`V19`** (V18 is the current head).
+**Base**: `main` @ `274c67f` · **Branch**: `feat/hr-org-structure` · **Worktree**:
+`~/workspace/LifeControl-worktrees/feat-hr-org-structure` (herdr `wM`), created with the procedure
+in `.agents/skills/project-conventions/references/worktrees.md`.
+**Requested by**: the user — "quiero empezar primero con lo relacionado a los empleados de la
+compañía", 2026-09-30.
+
+## Origin
+
+The `scheduling` domain was delivered and merged (W1–W7, PRs #198–#215) and then paused: its
+employee link is `scheduling_activities.user_id` / `scheduling_appointments.user_id`, a free-text
+Keycloak `sub` with **no authorized source** — the gap its own record declared as **G21** and
+**G31**. The user reframed the next step as the missing "who": the company's employee model. This
+record is that model's **org-structure half**; the employee and contract tables are
+`employee-registry`, and the access half is `employee-access-provisioning`.
+
+The four tables and the role template below were designed across a working session on 2026-09-30,
+starting from a MySQL-flavoured draft the user wrote independently and adapting it to this
+repository's conventions. Every adaptation below cites the convention it derives from.
+
+## Decisions (user-owned, closed)
+
+| # | Decision | Consequence |
+| --- | --- | --- |
+| D1 | `seniority_levels` is **global reference data**, not company-scoped | It follows `measure_units`/`payment_methods`, not `departments`. Consequences: its role stays **unscoped** (no `ScopeLevel` entry), and disabling a level affects every company. The real per-company policy lives in `position_salary_bands`, which is company-scoped through its position |
+| D2 | **One role per catalog**, following the repository's stated convention | `lc-department`, `lc-position`, `lc-seniority-level`. Each is registered in four places: `Roles.java`, `docker/scripts/keycloak-setup.sh`, the write `@PreAuthorize` of every endpoint, and — for the two company-scoped ones — `ScopeLevel.COMPANY.roleNames()` |
+| D3 | Company scope through `verifyCompanyAccess` **plus a local fallback** (option (b) of the design round) | `lc-department`/`lc-position` join `ScopeLevel.COMPANY`, and the fallback is its own record (`company-scope-local-fallback`). **Blocking for merge**: without it a caller holding only those roles is denied whenever the token lacks the `company_id` claim — and no code in this repository emits that claim (E12) |
+| D4 | A new top-level header entry **`Recursos Humanos`** with three children — Departamentos, Puestos, Empleados — appended **last** | Id `9`, children `9-1`/`9-2`/`9-3`. Appending preserves the pinned product-order assertion (`indexOf('/products') < indexOf('/purchases') < indexOf('/users-admin')`) that the scheduling parent already respected (E14) |
+| D5 | Seniority levels are a **secondary screen reached from Puestos**, not a fourth child | This repository's global catalogs have **no menu entry** at all — `countries`, `measure_units` and `payment_methods` are absent from the header |
+| D6 | `position_roles` is a **provisioning seed, never a live authority** (model A) | The roles are applied once, on an explicit action; **Keycloak stays authoritative** afterwards. Changing a position's template does not alter anyone's existing access, and the API exposes a **diff** instead of overwriting silently. Derived authority (model B) is a later evolution for which this is a prerequisite |
+| D7 | The grantable role set is an **allowlist** of business roles, and **`lc-admin` is never grantable** | Without it, `lc-employee` would be an escalation to full admin: `isAdmin()` short-circuits **every** `verifyCompany*Access`, so an admin reads every company's data including salaries. A test must fail if `lc-admin` is ever added to the allowlist |
+| D8 | Identity provisioning gets its **own role** (`lc-employee-access`), separate from `lc-employee` | "Editing HR data" and "granting system access" are different privileges; sharing them would let every HR clerk grant roles |
+| D9 | The corporate email is generated with rule **R2** — `first_name + "." + paternal_last_name`, normalized — and the Keycloak **username is the full email** | `juan.perez@<company-domain>`. The generated token is the local part; the username is built from it plus the domain (see T13 for why the bare local part is not usable as a username) |
+| D10 | The provisioned password is **temporary, with a forced change** | Not `setTemporary(false)` as the existing users-admin path does (E15). How the temporary value reaches the person is an open question of `employee-access-provisioning`, because the repository has no SMTP configuration |
+
+## Decisions (mine, technical — challenge them if you disagree)
+
+| # | Decision | Why |
+| --- | --- | --- |
+| T1 | `id UUID PRIMARY KEY DEFAULT gen_random_uuid()`, entities extend `Auditable`, soft delete through `enabled BOOLEAN NOT NULL DEFAULT true` | The repository's universal shape: all 39 existing tables have UUID primary keys and **zero** use `SERIAL`/`AUTO_INCREMENT`/`CREATE SEQUENCE` (E2); `Auditable` supplies `created_at`/`updated_at` (E1); `DELETE` soft-deletes (E4) |
+| T2 | **No `version` column on any of the five tables** | The repository's rule is visible in its data: `version` sits on **9** mutable edited aggregates (store tree, inventory settings, the four scheduling tables) and on **no catalog** (E5). These are catalogs. The consequence is worth stating plainly: **these forms carry no 412 precondition and are simpler than the store-tree ones** |
+| T3 | `enabled` is the only state column here; **no native enum and no `CHECK (col IN ...)`** | The repository contains **zero** `CREATE TYPE ... AS ENUM` and **zero** membership `CHECK`s (E6). The `status_types`/`statuses` catalogue is reserved for entity lifecycles and is used by the employee record, not by these catalogs |
+| T4 | Money is `DECIMAL(12,2)` mapped to `BigDecimal`, with a single implied currency | Every monetary column in the schema is `DECIMAL(12,2)` and **no currency column or catalogue exists anywhere** (E7). Declared as **G2** rather than half-solved here |
+| T5 | `positions.reports_to_position_id` is a **self-referencing foreign key** — a first for this repository — guarded by a named `CHECK` for the trivial cycle, with deeper cycles validated in the service | No `parent_id` self-FK exists anywhere; the established hierarchy pattern is a **chain of distinct tables**, and no `WITH RECURSIVE` exists in the codebase (E8). An org chart cannot be a chain of N tables, so the new pattern is taken deliberately and declared as **G5** |
+| T6 | **`hierarchy_level` is dropped.** Depth is derivable from the tree | The original draft carried both a parent pointer and a stored depth: two truths for one fact, desynchronized by the first reorganization. If it is ever needed for performance it must be a declared cache with an update rule, not a plain column |
+| T7 | `positions` inherits the company through `department_id` and **never duplicates `company_id`** | The repository's habit is to derive the ancestor chain rather than denormalize it; denormalizing would create a second truth for a fact the join already answers |
+| T8 | `position_roles` carries **no scope or client column** | Every business role in this repository is a client role of the application client, and the realm roles are legacy or `admin` (E11). Modelling scope would prepare a case that must not be permitted. A note for any future widening: adding a nullable `client_id` to that `UNIQUE` would silently stop deduplicating, because PostgreSQL treats `NULL`s as distinct — `UNIQUE NULLS NOT DISTINCT` (PG 15+) would be required. The simplified table needs neither |
+| T9 | **"Configuración del puesto" is one page with two independent sections** — Tabuladores and Roles del sistema — each with its own save and its own endpoint | This refines the earlier "Tabuladores gets its own route" recommendation: with **two** position policies, two separate routes are worse for the administrator. The actual requirement recorded by D42 of the scheduling record is that two write contracts **do not share one save button**, not that they cannot share a screen |
+| T10 | The salary-band save is an **upsert keyed on `(position_id, seniority_level_id)`**, never a delete-then-insert | These rows have a **natural key**, unlike the scheduling windows. The delete-then-insert idiom is exactly what destroyed unbooked slots in the merged scheduling domain (its D19 and G17); it is not repeated where it is not needed |
+| T11 | `PositionList` is a flat list with a department filter; nested navigation is not used | A position belongs to exactly one department. The store tree nests because an area owns N zones; here flattening loses nothing and avoids a second navigation level |
+| T12 | **No local mirror of assigned roles.** The diff is resolved live against Keycloak | A table of "roles this user has" would be a **fourth** source of truth (Keycloak, the position template, a mirror, the token). Cost, declared: the employee Access section depends on the Keycloak Admin API and needs its own error state while the HR data still renders |
+| T13 | The Keycloak **username is the full email**, not the generated local part | Keycloak usernames are unique **per realm**, and this repository has a single realm for every company, while `employees.email` is unique **per company**. A bare `juan.perez` username would therefore collide across companies **deterministically**, not rarely. The full email carries the company domain and is realm-unique by construction while the domains differ. It also makes the login the least surprising one. If two companies share a domain, the 409 from Keycloak means "this person already has an account — link it instead of creating it" |
+
+## Verified exploration evidence
+
+Read-only exploration ran on 2026-09-30 against `main @ 274c67f`. Every line is anchored.
+
+| # | Fact | Anchor |
+| --- | --- | --- |
+| E1 | `Auditable` is a `@MappedSuperclass` with `created_at`/`updated_at` as `LocalDateTime`, written by `@PrePersist`/`@PreUpdate` | `common/model/Auditable.java:11-28`; DDL twin `V16__scheduling_activities.sql:34-35` |
+| E2 | All 39 tables in `db/migration/**` use UUID primary keys. **Zero** `SERIAL`, `AUTO_INCREMENT` or `CREATE SEQUENCE`. 28 declare `DEFAULT gen_random_uuid()`, 10 are bare `UUID PRIMARY KEY`, 1 uses a FK as its PK | `db/migration/**`; `V1__baseline_schema.sql:11-18`, `:445-463`; `V11__store_inventory_settings.sql:21-22` |
+| E3 | Catalog shape: `<entity>_name` plus `<entity>_code`, `enabled`, no `display_order` (only the store tree has it) | `V1:11-18` (`countries`), `V1:255-262` (`status_types`), `V1:284-295` (`measure_units`), `V1:302-309` (`payment_methods`); `V5:15`, `V6:16`, `V7:16` for `display_order` |
+| E4 | `enabled BOOLEAN DEFAULT true NOT NULL` is the universal soft-delete flag and `DELETE /{id}` sets it to `false` | `CountryController.java:64-69`; `CountryService.java:94-97`. Hard deletes exist only for M:N join rows (`ProductSupplierService.java:120-128`) |
+| E5 | `version BIGINT NOT NULL DEFAULT 0` exists on **exactly 9** tables: `company_stores`, `store_areas`, `store_zones`, `store_locations`, `store_inventory_settings`, `scheduling_activities`, `scheduling_availability`, `scheduling_slots`, `scheduling_appointments`. No catalog carries it | `V8:11-14`, `V11:25`, `V16:32`, `V17:39,58`, `V18:41` |
+| E6 | State is modelled three ways, and two of the three are absent: the `status_types`/`statuses` catalogue (`V3:11-12, 24-28`), a free-form `VARCHAR` with **no** `CHECK` (`shifts.status` `V1:455`, `inventory_movements.movement_type` `V10:35`), and **zero** `CREATE TYPE ... AS ENUM` and **zero** `CHECK (col IN (...))` in the whole schema | `db/migration/**`; `V12:44` is the representative comparison `CHECK` |
+| E7 | Every monetary column is `DECIMAL(12,2)` → `BigDecimal`. **No currency column and no currency catalogue exist anywhere** | `V1:208, 346-347, 428, 433, 477, 500-503`; `V10:22, 36`; `V12:44`; `V13:27-29` |
+| E8 | **No self-referencing foreign key exists anywhere**, and no `WITH RECURSIVE` exists in the codebase. The established hierarchy is a chain of distinct tables with traversal done iteratively in Java | `V5`, `V6`, `V7`; `StoreLocationService.java:107-131`; `PurchaseOrderService` chain walk |
+| E9 | `addresses` exists and is linked with `@OneToOne(cascade = {PERSIST, MERGE}, fetch = LAZY)` — no `REMOVE`, no `orphanRemoval` | `V1:25-37`; `CompanyStore.java:30-34`; `Company.java:63-67` |
+| E10 | Foreign keys are **unnamed and inline** in every migration, with no `ON DELETE`. `uq_*`/`ck_*` naming starts at V16 | `V16:14`, `V17:25-26` (the rule, verbatim), `V14:74-75` (named) vs `V12:19-31` (unnamed) |
+| E11 | Catalog roles are one per catalog and **absent from `ScopeLevel`** — reads are `isAuthenticated()`, writes are `hasAnyRole(ADMIN, <catalog>)` | `Roles.java:38-45`; `PaymentMethodController.java`; `docker/scripts/keycloak-setup.sh` client-role loop; `ScopeLevel.java` declares only COMPANY…STORE |
+| E12 | Company-scope authorization is `CurrentUserContext.verifyCompanyAccess(UUID)` called as the **first statement** of the service method, before the load. Store-scope levels are verified against **claims, never against parent roles**, so a store-scoped caller must carry the claim path — and **no code in the repository emits the `company_*` claims** | `CurrentUserContext.java:205, 285`; `CompanyService.java:74-76`; `ScopeLevel.java` STORE javadoc; `odd/tasks/store-claim-hardening.md:185` |
+| E13 | `paymentmethod/**` is the catalog template to copy: the only catalog with the full test triad (service + controller + security). Package layout is `controller/ service/ repository/ model/ dto/ exception/`, DTOs are records, and **no `mapper/` layer exists anywhere** | `paymentmethod/**`; `AbstractPostgresIntegrationTest.java` for integration work |
+| E14 | Frontend: header ids `2,2-1,2-2,3,4,5,6,7,8,8-1,8-2` are taken; the product order is pinned by `indexOf` assertions; `Calendario y citas` was appended last for that reason; role constants live in `core/security/roles.ts` and the menu reads them with `.some(...)` | `core/layout/header/header.ts`; `core/layout/header/header.spec.ts:125,196,216,493,523,620-633`; `core/security/roles.ts:95,109` |
+| E15 | The mechanism for everything that `position_roles` will later feed already exists, but three capabilities are missing | `IdentityProvider.assignRoleToUser(userId, roleName, RoleScope, clientId)` (`KeycloakIdentityProvider.java:272`), `removeRoleFromUser` (`:294`), `getUserRoles`, `updateUser` (`:86`), enum `RoleScope{REALM, CLIENT}`. **Missing**: group-membership operations, a batch user fetch, and the application client id as a configured property (`life-control-client` appears only in javadoc; `JwtDecoderConfig` reads `resource_access.<azp>`) |
+| E16 | Frontend templates: `regions-list`/`regions-edit` for a catalog **without** a version precondition; `store-areas-edit` for a form **with** version + 412; `scheduling-activity-list` for a list with `canWrite` + `ConfirmDialog`; `AddressFormComponent` is already shared | `features/companies/.../regions-*`, `.../store-areas-edit`, `features/scheduling/pages/scheduling-activity-list`, `shared/ui` |
+
+## Schema — `V19`
+
+```sql
+-- ============================================
+-- V19 — HR org structure (departments, seniority levels, positions, salary bands, role template)
+-- ============================================
+-- `departments` is company-scoped: two companies may both have an "Operaciones", so every
+-- uniqueness constraint is per company. `positions` hangs off a department and inherits the
+-- company through it; `company_id` is never duplicated. `reports_to_position_id` is the first
+-- self-referencing foreign key in this schema: the CHECK blocks only the trivial one-node cycle,
+-- and the deeper cycles are validated in the service. `position_roles` is the role TEMPLATE of a
+-- position — a provisioning seed, never the authority — and `role_name` is validated against a
+-- declared allowlist in the service (`lc-admin` is deliberately absent).
+-- Foreign keys are unnamed, matching the baseline and the V9..V18 style. The CHECKs and the
+-- unique keys are named so a violation identifies the rule it broke.
+-- ============================================
+
+CREATE TABLE departments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id UUID NOT NULL REFERENCES companies(id),
+    department_code VARCHAR(10) NOT NULL,
+    department_name VARCHAR(100) NOT NULL,
+    description VARCHAR(255),
+    display_order INTEGER,
+    enabled BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_departments_company_code UNIQUE (company_id, department_code),
+    CONSTRAINT uq_departments_company_name UNIQUE (company_id, department_name)
+);
+CREATE INDEX idx_departments_company_id ON departments(company_id);
+
+CREATE TABLE seniority_levels (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    level_code VARCHAR(10) NOT NULL UNIQUE,
+    level_name VARCHAR(50) NOT NULL UNIQUE,
+    rank INTEGER NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_seniority_levels_rank UNIQUE (rank),
+    CONSTRAINT ck_seniority_levels_rank CHECK (rank > 0)
+);
+
+CREATE TABLE positions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    department_id UUID NOT NULL REFERENCES departments(id),
+    position_code VARCHAR(10) NOT NULL,
+    position_name VARCHAR(100) NOT NULL,
+    description VARCHAR(500),
+    reports_to_position_id UUID REFERENCES positions(id),
+    display_order INTEGER,
+    enabled BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_positions_department_code UNIQUE (department_id, position_code),
+    CONSTRAINT uq_positions_department_name UNIQUE (department_id, position_name),
+    CONSTRAINT ck_positions_not_self_reporting
+        CHECK (reports_to_position_id IS NULL OR reports_to_position_id <> id)
+);
+CREATE INDEX idx_positions_department_id ON positions(department_id);
+CREATE INDEX idx_positions_reports_to_position_id ON positions(reports_to_position_id);
+
+CREATE TABLE position_salary_bands (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    position_id UUID NOT NULL REFERENCES positions(id),
+    seniority_level_id UUID NOT NULL REFERENCES seniority_levels(id),
+    minimum_salary DECIMAL(12,2) NOT NULL,
+    maximum_salary DECIMAL(12,2) NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_position_salary_bands_position_level UNIQUE (position_id, seniority_level_id),
+    CONSTRAINT ck_position_salary_bands_range CHECK (maximum_salary >= minimum_salary),
+    CONSTRAINT ck_position_salary_bands_non_negative CHECK (minimum_salary >= 0)
+);
+CREATE INDEX idx_position_salary_bands_position_id ON position_salary_bands(position_id);
+CREATE INDEX idx_position_salary_bands_seniority_level_id ON position_salary_bands(seniority_level_id);
+
+CREATE TABLE position_roles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    position_id UUID NOT NULL REFERENCES positions(id),
+    role_name VARCHAR(100) NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_position_roles UNIQUE (position_id, role_name)
+);
+CREATE INDEX idx_position_roles_position_id ON position_roles(position_id);
+```
+
+No seed data: this migration creates empty catalogs. The `EMPLOYEE_STATUS` family is seeded by
+`employee-registry`.
+
+## API surface
+
+All six endpoints of the first two groups nest under
+`/api/companies/{companyId}/...`, resolved with a `resolveCompany`-style private method that calls
+`verifyCompanyAccess(companyId)` first and then loads the entity chain, mirroring
+`StoreLocationService.resolveStore` (E12). Seniority levels are **not** nested, because they are
+global (D1).
+
+| Method | Path | Roles |
+| --- | --- | --- |
+| `GET` | `/api/companies/{companyId}/departments?includeDisabled=` | `isAuthenticated()` |
+| `GET` | `/api/companies/{companyId}/departments/{id}` | `isAuthenticated()` |
+| `POST` | `/api/companies/{companyId}/departments` | `lc-admin`, `lc-department` |
+| `PUT` | `/api/companies/{companyId}/departments/{id}` | `lc-admin`, `lc-department` |
+| `DELETE` | `/api/companies/{companyId}/departments/{id}` | `lc-admin`, `lc-department` |
+| `PATCH` | `/api/companies/{companyId}/departments/{id}/enable` | `lc-admin`, `lc-department` |
+| `GET` | `/api/companies/{companyId}/positions?departmentId=&includeDisabled=` | `isAuthenticated()` |
+| `GET` | `/api/companies/{companyId}/positions/{id}` | `isAuthenticated()` |
+| `POST` | `/api/companies/{companyId}/positions` | `lc-admin`, `lc-position` |
+| `PUT` | `/api/companies/{companyId}/positions/{id}` | `lc-admin`, `lc-position` |
+| `DELETE` | `/api/companies/{companyId}/positions/{id}` | `lc-admin`, `lc-position` |
+| `PATCH` | `/api/companies/{companyId}/positions/{id}/enable` | `lc-admin`, `lc-position` |
+| `GET` | `/api/companies/{companyId}/positions/{positionId}/salary-bands` | `isAuthenticated()` |
+| `PUT` | `/api/companies/{companyId}/positions/{positionId}/salary-bands` | `lc-admin`, `lc-position` |
+| `GET` | `/api/companies/{companyId}/positions/{positionId}/roles` | `isAuthenticated()` |
+| `PUT` | `/api/companies/{companyId}/positions/{positionId}/roles` | `lc-admin`, `lc-position` |
+| `GET` | `/api/seniority-levels?includeDisabled=` | `isAuthenticated()` |
+| `POST` `PUT` `DELETE` `PATCH` | `/api/seniority-levels[...]` | `lc-admin`, `lc-seniority-level` |
+
+`PUT .../roles` rejects a `role_name` that is not in the allowlist (400) **or** that does not exist
+as a client role of the application client (400), by validating against
+`IdentityProvider.listClientRoles(clientId)` (E15).
+
+## Screens
+
+Feature folder `src/features/hr/`, routed through one lazy `loadChildren` entry at `/hr`.
+
+| Route | Page | Content |
+| --- | --- | --- |
+| `/hr/departments` | `DepartmentList` | Code, name, position count, order, status; search; "show disabled"; create / edit / disable (confirm) / re-enable |
+| `/hr/departments/create`, `/hr/departments/edit/:id` | `DepartmentEdit` | Code, name, description, order. **No version, no 412** (T2) |
+| `/hr/positions` | `PositionList` | Code, name, department, reports-to, order, status; department filter; actions plus a per-row **Configuración** action |
+| `/hr/positions/create`, `/hr/positions/edit/:id` | `PositionEdit` | Department, code, name, description, reports-to, order. **No version, no 412** |
+| `/hr/positions/:id/settings` | `PositionSettings` | Two independent sections — **Tabuladores** (one row per global seniority level; the row set is the catalog, not free rows) and **Roles del sistema** — each with its own save and its own endpoint (T9) |
+| `/hr/seniority-levels` | `SeniorityLevelList` | Rank, code, name, status. Secondary screen reached from Puestos; no menu entry (D5) and no company context |
+
+The route guards follow the repository's own split: the route admits the read set and **the screen
+decides what to render** through `canWrite = hasAnyClientRole(...)`, which gates actions and never
+informative text.
+
+## Work units
+
+| | Content | Sizing note |
+| --- | --- | --- |
+| **W1** | `V19` + the five entities, repositories, services, controllers, DTOs and exceptions, with the service/controller/security test triad per catalog | Declared **over** the 400-line review budget, like the four slices of the scheduling domain that were accepted over it. The five tables are separable into two PRs if the review load proves too high: catalogs first, banks and the role template second |
+| **W2** | The three catalog screens plus the header entry, the routes and the role constants | **The header entry ships here, not at the end.** The scheduling record's own E53 is the reason: "no rendered control reaches `/scheduling`" was found only after four frontend slices had merged, and a slice nobody can reach is a slice nobody can review by hand |
+| **W3** | `PositionSettings`: the salary-band editor (upsert, T10) and the role-template editor with the allowlist check | The two sections are independent and could ship as two PRs |
+| **W4** | The `roles.ts` constants, the `keycloak-setup.sh` role loop entries and `ScopeLevel.COMPANY` | Sequential: the role constants must exist before W2's guards can reference them, so in practice W4's constants land inside W1 |
+
+Dependency order inside the slice: **W1 → W2 → W3**, with W4's constants interleaved into W1.
+
+## Gaps
+
+| # | Gap | Note |
+| --- | --- | --- |
+| G1 | These are the repository's **first company-scoped catalogs**, and the only actor model that makes them safe is `ScopeLevel.COMPANY` plus the `company_id` claim — which **no code emits** | **Blocking for merge.** It is `company-scope-local-fallback`'s to close. Until then the choice is between a 403 for the intended role and a cross-tenant leak |
+| G2 | No currency anywhere in the schema | Salary bands carry a single implied currency. Multi-currency is a platform-wide change, not this slice's |
+| G3 | Salary bands have **no effective dating** | Editing a band rewrites current policy retroactively. The real salary history lives in `employee_contracts.monthly_salary`, so the band table is "current policy" and a dated history of bands is separate work |
+| G4 | Only the **immediate manager** is rendered in phase 1 | The full org chart needs the repository's first recursive read (`WITH RECURSIVE`) or an iterative Java walk (E8) |
+| G5 | `reports_to_position_id` is a **new pattern** for this repository | The deep-cycle guard is service-level; only the trivial cycle is a DB guarantee |
+| G6 | Two invariants the database cannot express | A position may not report to a position of another company, and a salary band's position must belong to the company in the path. Both are service-level checks |
+| G7 | No store assignment here | `employee-store-assignments` owns it, and it is what gives the store-scoped roles their scope (E12) |
+| G8 | `position_roles` **cannot enforce the allowlist at the database level** | The allowlist lives in a service constant plus a test that fails if `lc-admin` is added (D7) |
+| G9 | `display_order` is borrowed from the store-tree tables | No catalog in the repository has it (E3) |
+| G10 | No shared table, paginator or empty-state component exists in the frontend | These pages use raw Material like every other feature (E16) |
+
+## Cross-record dependencies
+
+| Record | Relation |
+| --- | --- |
+| `company-scope-local-fallback` | **Blocking** for this record's merge (G1) |
+| `employee-registry` | Sibling. Depends on `departments`/`positions` existing for the contract's `position_id` |
+| `employee-store-assignments` | Depends on `employee-registry`; not on this record |
+| `employee-access-provisioning` | Depends on this record's `position_roles` (D6) **and** on `employee-store-assignments` |
+| `scheduling-calendar` | Merged and paused. Its G21/G31 are the gaps this domain exists to close, and its `user_id` free text is what `employee-registry` replaces |
+
+## Task log
+
+- [ ] W1 — `V19` and the backend surface
+- [ ] W2 — catalog screens, routes, header entry
+- [ ] W3 — position settings (salary bands + role template)
+- [ ] W4 — role registration (`Roles.java`, `keycloak-setup.sh`, `ScopeLevel.COMPANY`)
+
+## Deferred and blocking
+
+- **Blocked on `company-scope-local-fallback`** for merge (G1). Development is not blocked: the
+  tables and endpoints can be built and tested against an admin principal, which bypasses the scope
+  check entirely.
+- **Deferred**: the full org chart (G4), dated salary-band history (G3), currency (G2).
+
+## Evidence log
+
+| Date | Evidence |
+| --- | --- |
+| 2026-09-30 | Design closed in a working session against `main @ 274c67f`. Convention extraction and capability inventory recorded above as E1–E16; every anchor read from the working tree. No code written. |
