@@ -812,6 +812,32 @@ class PositionServiceTest {
                     .hasMessageContaining("cannot report to itself or to one of its descendants");
             verify(positionRepository, never()).save(any());
         }
+
+        @Test
+        @DisplayName("should reject a two-level cycle: A -> B, making B report to A")
+        void updatePosition_TwoLevelChain_RejectsDirectCycle() {
+            // A reports to B, B reports to nobody. Making B report to A would close the loop
+            // A -> B -> A, so the walk must take the direct parent hop before it can see B.
+            var aId = UUID.randomUUID();
+            var positionB = position(positionId, "B", "Lead", null);
+            var positionA = position(aId, "A", "Analyst", positionB);
+            var request = new PositionRequest(departmentId, "B", "Lead", null, aId, 1, true);
+
+            companyExists();
+            when(positionRepository.findByDepartmentCompanyIdAndId(companyId, positionId))
+                    .thenReturn(Optional.of(positionB));
+            departmentExists();
+            when(positionRepository.existsByDepartmentIdAndPositionCodeAndIdNot(departmentId, "B", positionId))
+                    .thenReturn(false);
+            when(positionRepository.existsByDepartmentIdAndPositionNameAndIdNot(departmentId, "Lead", positionId))
+                    .thenReturn(false);
+            when(positionRepository.findById(aId)).thenReturn(Optional.of(positionA));
+
+            assertThatThrownBy(() -> positionService.updatePosition(companyId, positionId, request))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("cannot report to itself or to one of its descendants");
+            verify(positionRepository, never()).save(any());
+        }
     }
 
     @Nested

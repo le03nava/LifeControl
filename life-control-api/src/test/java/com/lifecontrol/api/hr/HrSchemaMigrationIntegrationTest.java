@@ -91,6 +91,19 @@ class HrSchemaMigrationIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     @Test
+    @DisplayName("uq_seniority_levels_rank rejects a duplicate rank")
+    void duplicateSeniorityLevelRankIsRejectedByUniqueKey() {
+        insertSeniorityLevel("JUN", "Junior", 1);
+
+        assertViolatesConstraint("uq_seniority_levels_rank", """
+                INSERT INTO seniority_levels (id, level_code, level_name, rank)
+                VALUES (?, 'MID', 'Mid', 1)
+                """, UUID.randomUUID());
+
+        assertThat(count("seniority_levels")).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("ck_position_salary_bands_range rejects maximum below minimum and leaves the table untouched")
     void invertedSalaryRangeIsRejectedByCheckConstraint() {
         var departmentId = insertDepartment("OPS", "Operaciones");
@@ -153,6 +166,20 @@ class HrSchemaMigrationIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     @Test
+    @DisplayName("uq_departments_company_name rejects a duplicate department_name for one company")
+    void duplicateDepartmentNameIsRejectedByUniqueKey() {
+        var companyId = hrCompanyId();
+        insertDepartment(companyId, "OPS", "Operaciones");
+
+        assertViolatesConstraint("uq_departments_company_name", """
+                INSERT INTO departments (id, company_id, department_code, department_name)
+                VALUES (?, ?, 'OPS2', 'Operaciones')
+                """, UUID.randomUUID(), companyId);
+
+        assertThat(count("departments")).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("uq_positions_department_code rejects a duplicate position_code within one department")
     void duplicatePositionCodeIsRejectedByUniqueKey() {
         var departmentId = insertDepartment("OPS", "Operaciones");
@@ -161,6 +188,20 @@ class HrSchemaMigrationIntegrationTest extends AbstractPostgresIntegrationTest {
         assertViolatesConstraint("uq_positions_department_code", """
                 INSERT INTO positions (id, department_id, position_code, position_name)
                 VALUES (?, ?, 'OP1', 'Operador Duplicado')
+                """, UUID.randomUUID(), departmentId);
+
+        assertThat(count("positions")).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("uq_positions_department_name rejects a duplicate position_name within one department")
+    void duplicatePositionNameIsRejectedByUniqueKey() {
+        var departmentId = insertDepartment("OPS", "Operaciones");
+        insertPosition(departmentId, "OP1", "Operador");
+
+        assertViolatesConstraint("uq_positions_department_name", """
+                INSERT INTO positions (id, department_id, position_code, position_name)
+                VALUES (?, ?, 'OP2', 'Operador')
                 """, UUID.randomUUID(), departmentId);
 
         assertThat(count("positions")).isEqualTo(1);
