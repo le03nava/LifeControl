@@ -68,7 +68,7 @@ is the projection.
 | T2 | The outbox row **is** the task, and its state machine is the record of the decision: `PENDING` → `RUNNING` → `APPLIED` \| `FAILED` (with `attempts` and `last_error`), plus `APPROVAL_PENDING` and `REJECTED` when the gate applies. Schema `access_provisioning_tasks` | F1 of `company-scope-local-fallback`: durable, retryable, and readable by a screen. The states are the contract between the worker, the gate and the UI |
 | T3 | The task carries a **reference**, never an instruction: the employee and the kind (`ACTIVATE`, `DEACTIVATE`, `RECONCILE`), never the role names | `company-scope-local-fallback`'s T12. With an instruction, whoever writes the row decides the grant; with a reference, the worker derives it from the contract, the assignment and the template, so the requester decides nothing |
 | T4 | **Idempotency by construction**: the natural key is `employees.keycloak_user_id` (nullable and `UNIQUE`), and applying means "read what is there → compute the diff → converge", so a retry and a duplicate are both no-ops | `company-scope-local-fallback`'s reconcile-not-replay. It is also what makes the retry with backoff safe without a distributed lock |
-| T5 | **Create or link, never hijack**: a 409 from Keycloak (the username/email is taken) is resolved by **linking only when the existing account's email matches the employee's corporate one**; otherwise the task fails **visibly** | `employee-registry` D9/T13 anticipated the 409 ("this person already has an account — link it instead of creating it"). The rule keeps the innocent case working and refuses the dangerous one: the account that gets roles must be the account of *this* person, and the check is the email the record already froze |
+| T5 | **Create or link, never hijack**: a 409 from Keycloak (the username/email is taken) is resolved by **linking only when the existing account's email matches the employee's corporate one**; otherwise the task fails **visibly** | `hr-org-structure`'s **T13** anticipated the 409 ("this person already has an account — link it instead of creating it"). The rule keeps the innocent case working and refuses the dangerous one: the account that gets roles must be the account of *this* person, and the check is the email the record already froze |
 | T6 | **Never `deleteUser`**: `Terminated` means `updateUser(enabled = false)`, the template's roles removed and the claim attributes deleted | `activity_logs.user_id` holds the Keycloak `sub` (F6), so a deleted account orphans its own audit trail. Deactivating also keeps the `sub` stable if the person is rehired |
 | T7 | **No local mirror of the current roles.** The diff is read **live** from Keycloak; what is stored is the **applied snapshot** as immutable history attached to the task | `hr-org-structure`'s T12 refused a fourth source of truth, and a mirror of "what they have" is exactly that. The distinction that makes the snapshot legitimate: it answers *"what did we do, when, on whose order"* — history — not *"what do they have now"*, which is only Keycloak's to answer |
 | T8 | The applied snapshot is a **child table** (`access_provisioning_applied_roles(task_id, role_name)`), not JSON | The repository has exactly **one** `jsonb` column (`products.attributes`, F6) and no array columns; the snapshot is a queryable set, and the allowlist test (T12) wants to read it as rows |
@@ -193,7 +193,7 @@ something is waiting without holding the access role. The **role names** are not
 | --- | --- |
 | `/hr/employees/:id`, the **Access** section (planned by `employee-registry`'s W4 as this record's) | Account link state, required vs current roles with the diff, the five claim attributes as the token would carry them, the open task with its state and reason, and the actions (apply, retry, deactivate) |
 | the same section, for a gated task | The **diff frozen for review**, with approve/reject and the requester's name. Re-derived at apply time (T11) |
-| the pending-requests **inbox** | **Open**: the least invasive home is a tab or filter inside `Empleados` rather than a fourth child in the menu, because `hr-org-structure`'s D4 pinned the header ids. Appending `9-4` is legal under that decision, but it is a menu change and it is not needed to make the flow work |
+| the pending-requests **inbox** | **A tab or filter inside `Empleados`** — decided 2026-10-01, closing the last item this record had left open. It is the least invasive home rather than a fourth child in the menu, because `hr-org-structure`'s D4 pinned the header ids. Appending `9-4` is legal under that decision, but it is a menu change and it is not needed to make the flow work |
 
 ## Work units
 
@@ -239,7 +239,7 @@ a live realm.
 
 ## Non-goals
 
-- **Not** SMTP and not an invitation flow, unless **O1** says otherwise.
+- **Not** SMTP and not an invitation flow *as this record's own idea* — **O1 said otherwise**, so the invitation channel is in scope as **W6** (realm SMTP, the Frontend URL, `sendActionsEmail`, a dev mail container). What stays out is a general notification system: this is the one email the flow needs.
 - **Not** a local mirror of the current roles (T7), and not a second authorization source: Keycloak stays
   authoritative.
 - **Not** per-store role scoping (**G6**), and not converging roles granted outside the template (**G7**).
@@ -256,6 +256,9 @@ a live realm.
 - [ ] W3 — the membership attributes from the derivation
 - [ ] W4 — the worker: scheduler, claim, retry, visible failure
 - [ ] W5 — the gate, the endpoints and the frontend
+- [ ] W6 — the invitation channel: the realm's SMTP configuration, the Frontend URL the activation link must
+      point at, `sendActionsEmail` on `IdentityProvider` and its Keycloak implementation, the dev mail
+      container, and the procedure that verifies it end to end
 
 ## Deferred and blocking
 
@@ -273,5 +276,6 @@ a live realm.
 
 | Date | Evidence |
 | --- | --- |
+| 2026-10-01 | **The record reconciled with itself: the task log gained the W6 row its header and table already carried, the SMTP non-goal was inverted now that O1 said otherwise, the T5 citation was re-pointed to the record that contains it, and the inbox home was decided.** The task log had stopped at W5 while the header read "W1–W6", the table carried W6 and the dependency order was **W1 → W6 → W2/W3 → W4 → W5**; the non-goal still read "Not SMTP… unless O1 says otherwise" after O1 had moved SMTP into scope; **T5** attributed the 409 rule to `employee-registry` D9/T13, a record whose decisions stop at D6 and whose T13 is the contract-closure rule (the rule and the sentence are `hr-org-structure`'s **T13**); and the Screens table still marked the inbox home **Open** while this log read "no open decision" — now **a tab or filter inside `Empleados`**, as less invasive than a fourth header child under `hr-org-structure`'s D4. **No source line and no decision reversed** |
 | 2026-10-01 | **O1–O5 closed by the user in one pass.** **O1 chose the activation link by email** over the operator hand-over, which **moved SMTP into this record** (the new **W6**) and produced **T14** (Keycloak's execute-actions flow with `VERIFY_EMAIL` + `UPDATE_PASSWORD`, `emailVerified = false`, no credential this application ever handles, plus one new method on `IdentityProvider` and a resend action) and **T15** (the hand-over stays as the fallback, selected by the data, because `companies.email_domain` is nullable and the write path already fails closed without it). It also upgraded `employee-registry`'s G6 into **G9** here — an undeliverable address now means the person cannot log in at all — and added **G10** (the email is Keycloak's default copy and language). **O2–O5 were accepted as recommended** and are recorded as closed: the store-scoped auto-apply rule, no self-approval, automatic revocation, no read pair. **No source line was written**, and the record now has no open decision. |
 | 2026-10-01 | Record written on `feat/hr-org-structure`, after `company-scope-local-fallback` closed its D1 as **A** and `employee-store-assignments` closed D1–D4. F1–F6 were read in this worktree while writing it, and two of them changed the design: **F1/F2 removed a work unit** from `company-scope-local-fallback` (the attribute operations exist, are implemented, and replace the whole list, so no `addUserToGroup` is needed and the attributes-versus-groups sub-choice is settled) and **F6** decided T8 (a child table, because the repository has exactly one `jsonb` column) and T9 (the task row is the audit, because `activity_logs` is HTTP-shaped). F7–F11 are anchors inherited from the sibling records named in each row. **Nothing is implemented**, and no source line was written. |
