@@ -673,6 +673,12 @@ class CurrentUserContextTest {
                     org.springframework.security.access.AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyAccess(otherId));
         }
+
+        @Test
+        @DisplayName("ScopeLevel.COMPANY lists exactly the company roles, including the HR catalog roles")
+        void companyScopeListsCompanyRoles() {
+            assertThat(ScopeLevel.COMPANY.roleNames()).containsExactly(Roles.COMPANY, Roles.DEPARTMENT, Roles.POSITION);
+        }
     }
 
     @Nested
@@ -792,6 +798,87 @@ class CurrentUserContextTest {
             assertThrows(
                     AccessDeniedException.class,
                     () -> currentUserContext.verifyCompanyCountryAccess(UUID.randomUUID(), UUID.randomUUID()));
+        }
+
+        // ── lc-department / lc-position: the company-scoped HR catalog roles ──
+
+        @Test
+        @DisplayName("lc-department accesses a company country through the company branch resolved from its role")
+        void departmentUserResolvesToCompanyScopeAndOnlyVerifiesCompanyClaim() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-department"));
+            UUID companyId = UUID.randomUUID();
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
+            // broadestGrantedScope(COUNTRY) resolves lc-department to COMPANY — this is exactly what
+            // ScopeLevel.COMPANY.roleNames() provides. Because the broadest granted scope is COMPANY,
+            // only the company claim is verified and the absent company_country_id claim is never
+            // read. Without that registration broadestGrantedScope(COUNTRY) would return null and
+            // this same call would be denied with "Insufficient role for company-country access".
+
+            assertDoesNotThrow(() -> currentUserContext.verifyCompanyCountryAccess(companyId, UUID.randomUUID()));
+        }
+
+        @Test
+        @DisplayName("lc-department is denied at the company claim path when the company_id claim is missing")
+        void departmentUserWithoutCompanyClaimIsDeniedAtTheClaimPath() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-department"));
+            UUID companyId = UUID.randomUUID();
+            // company_id (a required level) is deliberately absent: the role is recognized, so the
+            // denial lands on the company claim path instead of "Insufficient role for
+            // company-country access".
+
+            var denied = assertThrows(
+                    AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyCountryAccess(companyId, UUID.randomUUID()));
+
+            assertThat(denied.getMessage()).isEqualTo("Access denied to company: " + companyId);
+        }
+
+        @Test
+        @DisplayName("lc-position accesses a company country through the company branch resolved from its role")
+        void positionUserResolvesToCompanyScopeAndOnlyVerifiesCompanyClaim() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-position"));
+            UUID companyId = UUID.randomUUID();
+            when(jwt.getClaim("company_id")).thenReturn(companyId.toString());
+            // Same mechanism as lc-department: ScopeLevel.COMPANY.roleNames() resolves the role to
+            // COMPANY, so the country claim is never read for a position-scoped caller.
+
+            assertDoesNotThrow(() -> currentUserContext.verifyCompanyCountryAccess(companyId, UUID.randomUUID()));
+        }
+
+        @Test
+        @DisplayName("lc-position is denied at the company claim path when the company_id claim is missing")
+        void positionUserWithoutCompanyClaimIsDeniedAtTheClaimPath() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-position"));
+            UUID companyId = UUID.randomUUID();
+
+            var denied = assertThrows(
+                    AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyCountryAccess(companyId, UUID.randomUUID()));
+
+            assertThat(denied.getMessage()).isEqualTo("Access denied to company: " + companyId);
+        }
+
+        // ── lc-seniority-level: global reference data, deliberately unscoped (D1) ──
+
+        @Test
+        @DisplayName("lc-seniority-level grants no company scope and is denied for lack of a role in range")
+        void seniorityLevelUserIsDeniedWithoutAnyScope() {
+            mockAuthorities(List.of((GrantedAuthority) () -> "ROLE_lc-seniority-level"));
+            // No claim is stubbed: the role is absent from every ScopeLevel, so broadestGrantedScope
+            // returns null and the denial is the insufficient-role one, before any claim path.
+
+            var denied = assertThrows(
+                    AccessDeniedException.class,
+                    () -> currentUserContext.verifyCompanyCountryAccess(UUID.randomUUID(), UUID.randomUUID()));
+
+            assertThat(denied.getMessage()).isEqualTo("Insufficient role for company-country access");
+        }
+
+        @Test
+        @DisplayName("no ScopeLevel lists lc-seniority-level, because seniority levels are global reference data")
+        void noScopeLevelListsSeniorityLevel() {
+            assertThat(ScopeLevel.values())
+                    .allSatisfy(level -> assertThat(level.roleNames()).doesNotContain(Roles.SENIORITY_LEVEL));
         }
     }
 

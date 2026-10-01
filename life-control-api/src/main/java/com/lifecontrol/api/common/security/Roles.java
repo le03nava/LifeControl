@@ -44,6 +44,20 @@ public final class Roles {
     public static final String MEASURE_UNIT = "lc-measure-unit";
     public static final String PRODUCT_SUPPLIER = "lc-product-supplier";
 
+    /** HR department catalog write role. One write role per catalog, as {@code lc-department}.
+     *  Client role of {@code life-control-client}; company-scoped through {@link ScopeLevel#COMPANY}. */
+    public static final String DEPARTMENT = "lc-department";
+
+    /** HR position catalog write role. One write role per catalog, as {@code lc-position}.
+     *  Client role of {@code life-control-client}; company-scoped through {@link ScopeLevel#COMPANY}. */
+    public static final String POSITION = "lc-position";
+
+    /** HR seniority-level catalog write role. One write role per catalog, as
+     *  {@code lc-seniority-level}. Client role of {@code life-control-client}; seniority levels are
+     *  global reference data, so this role is deliberately unscoped and absent from every
+     *  {@link ScopeLevel}. */
+    public static final String SENIORITY_LEVEL = "lc-seniority-level";
+
     // ---- Feature roles ----
 
     public static final String SALES = "lc-sales";
