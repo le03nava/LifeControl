@@ -1,8 +1,6 @@
 # ODD feature: company-scope-local-fallback
 
-**Status**: designed — **not decided and not implemented**. The mechanism choice is **D1**, and it is
-the user's; W1–W3 below wait on it. This header claims no branch, push or PR state; see the evidence
-log.
+**Status**: designed — **not implemented**. **D3 is closed**: the membership is the organisational fact asserted when a contract is activated, and the access flow projects it (see "The membership flow"). The **mechanism** (D1) and the two sub-questions inside D3 (**D6**) are still the user's, and W0–W3 wait on D1. This header claims no branch, push or PR state; see the evidence log.
 **Created**: 2026-10-01 · **Risk**: **high** — it decides what an authorization input *is*. The wrong
 answer turns a scope guard into a self-service tenant switcher (see "The escalation the name hides"),
 and it lands on the single choke point that all 37 scoped call sites in the repository go through.
@@ -90,6 +88,36 @@ Two further structural facts point the same way:
 source is what feeds it**, and no fallback at all until an administrator can assert the membership.
 If a bridge is needed before A lands, it must be B1 with `lc-admin`-only writes — never B2.
 
+## The membership flow (decided by the maintainer, 2026-10-01)
+
+The flow below is **D3's content**, specified by the maintainer while breaking the decision down. It
+is the answer to "who writes the membership": the **organisational fact leads, and the access flow
+projects it**. The subject never writes anything.
+
+| # | Act | Who acts | Where it lives today |
+| --- | --- | --- | --- |
+| 1 | Hire: the personnel record and the contract (position, level, salary, dates) | HR (`lc-employee`) | `employees` + `employee_contracts` — designed as `V20` in `employee-registry`, **nothing implemented** |
+| 2 | **The contract is activated**: the **store** and **the position** are assigned | HR | **Nowhere**: the store assignment is `employee-store-assignments`' (a record nobody has written yet) |
+| 3 | Access is derived: roles from the position↔roles relation, attributes from the membership | the access flow | `position_roles` — **W1b of `hr-org-structure`, not built** — plus attributes/groups in Keycloak |
+| 4 | The user is **created or linked**, with those roles and attributes | the access flow (`lc-employee-access`) | Keycloak. The existing create path is broken (it discards the generated password, marks it non-temporary, has no SMTP and no configured application client id — `employee-registry` F13) |
+| 5 | The token finally carries `company_id` … `company_store_id`, and the store-scoped roles that were granted months ago stop answering 403 | Keycloak, through the mapper | **The mapper exists nowhere** (E13–E15) |
+
+Two facts the flow pins down, and one question it does not answer:
+
+- **The store is not part of the contract.** A transfer must not close a legal contract (`employee-registry`
+  T13 closes the previous one the day before), so the assignment is **its own dated row created in the
+  same act**: same moment, different truth. That row is what feeds the claim, which is why
+  `employee-store-assignments` becomes load-bearing for this record rather than a neighbour.
+- **A person holds one position.** The maintainer considered "the position **or positions**" and
+  rejected the plural; it is recorded as **D6** in `employee-registry`. Its consequence is stronger
+  than a preference: with the exclusion constraint forbidding overlapping contracts of one employee
+  (T12 there) and a new contract closing the previous one (T13 there), "two positions at once" is not
+  expressible **without a child table** — so the role template a person receives is the union of
+  exactly one position.
+- **What is still open** is the trigger and the privilege collision, both recorded as **D6** below:
+  who presses what, and whether activating a contract may also create a Keycloak account with business
+  roles when `hr-org-structure` D8 deliberately split those two privileges.
+
 ## Verified exploration evidence
 
 Read-only exploration ran on 2026-10-01 against `main @ 274c67f`, in this worktree. E1–E12 were read
@@ -129,9 +157,10 @@ one of them is an anchor rather than a summary.
 | --- | --- | --- |
 | **D1** | **Which mechanism closes the gap** | **(A)** IdP-provisioned claims + membership · **(B1)** locally stored, admin-owned membership read as a fallback · **(B2)** locally stored preferences as they are — **rejected above** · **(A+B1)** phase A in, B1 as the bridge. The choice decides whether this repository keeps one authorization source (the token) or gains a second one (its own DB) |
 | **D2** | If B1 is used: **is it a bridge or the destination?** | A bridge writes a thing we intend to delete, and every endpoint built on it inherits the deletion. As a destination it becomes the fourth source of truth `hr-org-structure`'s T12 already warned about in a different context (Keycloak, the template, a mirror, the token) |
-| **D3** | **Who may write the membership** | The only safe answer is an operator with `lc-admin`, never the subject — and the profile screen must stop writing the company/country/region/zone ids. Does the profile keep writing the **store** (E20 shows two features depend on it today), or does that move too? |
+| **D3** | **Who may write the membership** — **CLOSED by the maintainer on 2026-10-01: the organisational fact leads and the access flow projects it.** The writer is **HR, acting on the contract**: activating it assigns the **store** and **the position**, and the position↔roles relation produces a Keycloak user with its roles and its attributes (the flow is spelled out above) | Rejected alternatives: the platform admin assigning companies per user with no involvement of the org chart, and abandoning the org chart as an authorisation input. Both create two truths that diverge. **The subject never writes it** (E8, E9) and the profile screen stops writing the company/country/region/zone ids — whether it keeps writing the **store** is still open (E20 shows two features read `companyStoreId` back). Two sub-questions survive inside this decision: **D6** |
 | **D4** | **Multi-company users** | The stored row is single-valued (E5, E23) and the claims are lists (E12). If multi-company is real, B1 needs a table with a composite key and A needs one group membership per company; if it is not real, the single-valued column is a documented ceiling |
 | **D5** | **Whether A's infra work is in scope here** | A needs a mapper and a membership operation. The mapper is environment configuration this repository cannot test; the membership is backend code (`IdentityProvider` has no `addUserToGroup`, E14). Splitting "the code" from "the environment" is a delivery decision |
+| **D6** | **Two sub-questions inside D3, still open** | **(a) The trigger and its dirty side.** Is activation an explicit action with its own endpoint, or derived from `start_date`? The second needs a scheduled job. Either way activation writes to **another system**, so it needs a defined outcome for "Keycloak is down" (retry plus a visible pending state, not a silent half-done hire) and for "the person already has an account" (link it; `employee-registry` T13's 409 means exactly that). Idempotency and audit are part of the answer. **(b) The privilege collision.** `hr-org-structure` D8 deliberately separated "editing HR data" (`lc-employee`) from "granting system access" (`lc-employee-access`), and this flow merges them: activating a contract would create accounts holding business roles. Either the merge is accepted — with D7's allowlist (never `lc-admin`), the same-company rule and an audit as compensating controls — or activation leaves a **pending access request** that someone holding `lc-employee-access` applies |
 
 ## Decisions (mine, technical — challenge them if you disagree)
 
@@ -145,6 +174,8 @@ one of them is an anchor rather than a summary.
 | T6 | The **existing tests must not be weakened**, and the fallback needs its own: the 10 "claim absent ⇒ empty set" getters and the 3 "required claim absent ⇒ denied" cases (E21) stay as they are, and the new behaviour is pinned by a separate, explicitly named test per level | They encode the intended fail-closed semantics. Rewriting them to pass with a fallback would delete the record of what the system does when there is nothing to fall back to |
 | T7 | No cache in front of the membership read, and no memoization beyond the existing per-request `claimIds` map | G12 of `hr-org-structure` is a live example in this repository of what caching an authorization input does when the cache outlives the decision |
 | T8 | `verifyCompanyAccess`'s **claim-only, role-agnostic** behaviour (E1) is not changed by this record | It was measured during the HR slice (`hr-org-structure`'s E19/T15/G11) and tightening it denies principals that pass today, including the legacy `life-control-country` caller. It is a separate decision with its own blast radius |
+| T9 | **The membership emits a complete chain, top-level and multivalued.** The claim values are derived from the assigned **store** — `company_id`, `company_country_id`, `company_region_id`, `company_zone_id`, `company_store_id` — never only the store, and they carry the **exports/names `extractUuidSetFromClaim` reads, at the root of the token** | E3: `company_id` and `company_country_id` are **required** levels, so an assignment that emits only the store leaves the caller denied at the company level and the 403 survives the whole flow. E12: the parser accepts lists, so multiple stores are a list. E4: top-level, because the guard calls `getClaim("company_id")` and anything nested under `resource_access.<azp>` is invisible. This is the spec the provisioning code needs, and the likeliest bug if it is assumed |
+| T10 | **Attributes are not claims.** Writing `company_id` as a Keycloak user attribute — or joining a `lc-company-<id>` group, whose attribute already exists — puts **nothing** in the token on its own: a **protocol mapper** is what turns the attribute into the claim the guard reads | E13–E15: this repository provisions no mapper for any `company_*` claim, in either the docker script or the k8s realm export (which ships mappers for standard attributes only). "Generate the user with its attributes" is necessary and **not sufficient**; the mapper is the piece nobody has written, and it is W0 |
 
 ## Work units
 
@@ -213,4 +244,5 @@ Contingent on D1. Sizing follows the repository's 400-line review budget, and ea
 
 | Date | Evidence |
 | --- | --- |
+| 2026-10-01 | **D3 closed by the maintainer** while breaking the decision down: the membership is the organisational fact asserted on contract activation, and the access flow projects it (the flow table above). The plural for positions was considered and **rejected** — recorded as **D6** in `employee-registry` — which left V20 as designed and made the store assignment the load-bearing piece of the flow. Two sub-questions survive and are recorded as this record's **D6**: the trigger (explicit action or date-derived) with its failure modes, and the collision with `hr-org-structure` D8. **No source line was written**; the mechanism (D1) is still open |
 | 2026-10-01 | Design round opened against `main @ 274c67f` in the worktree `wN`, created with `herdr worktree create` per the repository's worktree procedure. E1–E12 read by the parent: the scope-resolution path, the claim shape, the `user_preferences` DDL and its two writers, and the absence of any read for authorization. E13–E24 mapped read-only by a scout run in this same worktree, including the Keycloak provisioning picture and the test pins. **The parent independently re-verified the three load-bearing facts** (E13/E14/E15 and the 37 call sites): `grep` over `docker/scripts/keycloak-setup.sh` shows no mapper and no group line, `grep` for `addUserToGroup`/`joinGroup` returns nothing while `createGroup` appears in five places, and the k8s manifests import `spring-microservices-security-realm` with zero `lc-*` roles and zero `company_*` claims — which the scout had not reported. `grep -c currentUserContext.verify` → **37 hits in 18 files**. **No source line was written**, and no decision was taken: D1–D5 are open. |
