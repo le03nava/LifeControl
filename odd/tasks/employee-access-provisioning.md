@@ -1,0 +1,271 @@
+# ODD feature: employee-access-provisioning
+
+**Status**: planned, nothing implemented — the remaining work is W1–W5 below, and **O1–O5 are open**
+(five product questions, listed under "Decisions (user-owned — **open**)"). This header claims no branch,
+push or PR state; see the evidence log.
+**Created**: 2026-10-01 · **Risk**: **high** — this is the only record in the chain that **writes to
+another system**: it creates accounts, grants business roles and materialises the tenant claims. It is
+also the convergence point of five records, and the one place where a mistake is an authorization defect
+rather than a data defect.
+**Repository**: LifeControl — `life-control-api/**` (Spring Boot, Java 21, PostgreSQL 18.1 + Flyway) and
+`life-control-app-angular/**` (Angular 20.3 + Material/CDK 20). No gateway change.
+**Migration**: **`V22`** — `V19`–`V21` precede it on this same branch.
+**Base**: `main` @ `274c67f` · **Branch**: `feat/hr-org-structure` · **Worktree**:
+`~/workspace/LifeControl-worktrees/feat-hr-org-structure` (herdr `wM`). It shares the branch with the other
+three employee records: this is the fourth and last piece of the same domain.
+**Requested by**: the user — the membership flow of 2026-10-01 ("cuando se active [el contrato] se debe de
+asignar la tienda y la posición … y en base a la relación de posiciones con roles se genera el usuario en
+keycloak con los roles y atributos"). This record implements steps 3–5 of that flow.
+
+## Origin
+
+Four records named this one, each from its own side:
+
+- `hr-org-structure` (**D6, D7, D8, D10**): the role **template** (`position_roles`) is a provisioning seed
+  applied once on an explicit action, the grantable set is an **allowlist** from which `lc-admin` is
+  absent, identity provisioning gets its **own role** (`lc-employee-access`) separate from editing HR data,
+  and the provisioned password is **temporary with a forced change**.
+- `employee-registry` (**G7**, **T17**): nobody revokes anything when an employee becomes `Terminated`, and
+  `keycloak_user_id` must never be operator-typable — which is the security precondition of the auto-apply
+  policy below.
+- `employee-store-assignments` (**T6/T9**): it produces the **derivation** — the five id sets, in lists,
+  never a partial chain — and owns the fact; the projection is explicitly **not** its job.
+- `company-scope-local-fallback` (**D3, D6, D1 = A, T9, T11–T13**): who asserts the membership, the outbox
+  boundary, the reference-not-instruction rule, the reconcile-not-replay worker, the visible states, the
+  gate as a policy over the diff, and the claim shape (top-level, multivalued, complete chain).
+
+And one distinction from that last record decides the whole shape of this one: those records make a
+distinction between the **fact** (who works where) and the **projection** of it into the IdP. This record
+is the projection.
+
+## What this record is responsible for
+
+| # | Responsibility | Comes from |
+| --- | --- | --- |
+| 1 | **The Keycloak account**: create it, or **link** an existing one, keyed on the generated corporate email and `employees.keycloak_user_id` | `employee-registry` D1/D2/T9, its F13 |
+| 2 | **The roles**: derive them from the position template of the current contract, apply the **diff**, converge | `hr-org-structure` D6/D7, `position_roles` (its W1b) |
+| 3 | **The membership attributes**: write the five claim ids derived from the store assignments | `employee-store-assignments` T6/T9, `company-scope-local-fallback` T9 |
+| 4 | **The durable intent**: the outbox row in the same transaction as the fact, and the worker that reconciles | `company-scope-local-fallback` T11/T12 |
+| 5 | **The gate**: approval for the grants that carry the risk, and the record of who approved what | `company-scope-local-fallback` D6(b)/T13 |
+| 6 | **The revocation**: disable, remove roles, remove attributes — the same pipe, the same key | `employee-registry` G7 |
+
+## Decisions (user-owned — **open**)
+
+| # | Decision | Recommendation and consequence |
+| --- | --- | --- |
+| **O1** | **How does the person actually get in?** The account is created with a temporary password and a forced change, and the repository has **no SMTP at all** (F8), so today there is no channel to tell anyone anything | **Recommend: the operator hands over a password shown once**, with `setTemporary(true)` (or a `credential` + `UPDATE_PASSWORD` required action) — and **SMTP + an invitation flow as its own slice**. The honest cost: a human handles a secret, and the person must change it at first login. The alternative is to make SMTP part of this record, which turns a security slice into an infrastructure slice (templates, credentials, deliverability) — that is a bigger decision than this flow needs |
+| **O2** | **Which grants need approval?** (the gate's set) | **Recommend a rule, not a list**: auto-apply only the roles that are in **`ScopeLevel.STORE.roleNames()`** (F5) — they are meaningless without an assignment and they are the operational set — and require approval for **everything else** (the company-scoped catalogs, the HR read/write pair, anything broader). A list would rot; the rule is derivable from code that already exists, and it puts the gate exactly where the blast radius is: a role that reads salaries and birth dates is not `lc-sales` |
+| **O3** | **May the requester approve their own request?** | **Recommend no** — the gate exists to put a second pair of eyes on the grant. Honest consequence: in a small company where one person holds `lc-employee` and `lc-employee-access`, the approver must be someone else (an `lc-admin`) or the gate is turned off for the auto-apply set. A self-approval rule would make the gate audit theatre, which is worse than not having it |
+| **O4** | **Is revocation automatic or manual?** | **Recommend automatic**: the task the same pipe produces (`DEACTIVATE`) disables the account, removes the roles the template owns, and removes the claim attributes. `employee-registry`'s **G7** is exactly this hole, and doing it by hand is what keeps the hole open |
+| **O5** | Does the access officer need a **read-only pair** (`lc-employee-access-read`) to see the diff and the inbox without the power to apply? | **Recommend no pair for now**: reads gated by `lc-employee-access` (and `lc-admin`). The screen shows role **names**, not PII — the reason `employee-registry` needed `lc-employee-read` (birth dates, salaries) does not apply here. If the inbox is ever shown to someone who must not be able to apply, the pair is a two-line addition |
+
+## Decisions (mine, technical — challenge them if you disagree)
+
+| # | Decision | Why |
+| --- | --- | --- |
+| T1 | **The membership is projected as multivalued Keycloak user attributes** (`company_id`, `company_country_id`, `company_region_id`, `company_zone_id`, `company_store_id`) through `updateUserAttribute`, and **no new identity capability is needed** | F1/F2: the operation already exists in `IdentityProvider`, is implemented (`attrs.put(key, values)` **replaces the whole list**, which is exactly what a reconcile needs), and is already wired through `UsersAdminService` and an HTTP endpoint. The **mapper** is the only missing piece, and it is `company-scope-local-fallback`'s W0. This also settles that record's open sub-choice: **user attributes win over group attributes**, because the operations exist and the realm export proves the technique with its `locale` mapper — the `lc-company-*` groups stay an organizational mirror |
+| T2 | The outbox row **is** the task, and its state machine is the record of the decision: `PENDING` → `RUNNING` → `APPLIED` \| `FAILED` (with `attempts` and `last_error`), plus `APPROVAL_PENDING` and `REJECTED` when the gate applies. Schema `access_provisioning_tasks` | F1 of `company-scope-local-fallback`: durable, retryable, and readable by a screen. The states are the contract between the worker, the gate and the UI |
+| T3 | The task carries a **reference**, never an instruction: the employee and the kind (`ACTIVATE`, `DEACTIVATE`, `RECONCILE`), never the role names | `company-scope-local-fallback`'s T12. With an instruction, whoever writes the row decides the grant; with a reference, the worker derives it from the contract, the assignment and the template, so the requester decides nothing |
+| T4 | **Idempotency by construction**: the natural key is `employees.keycloak_user_id` (nullable and `UNIQUE`), and applying means "read what is there → compute the diff → converge", so a retry and a duplicate are both no-ops | `company-scope-local-fallback`'s reconcile-not-replay. It is also what makes the retry with backoff safe without a distributed lock |
+| T5 | **Create or link, never hijack**: a 409 from Keycloak (the username/email is taken) is resolved by **linking only when the existing account's email matches the employee's corporate one**; otherwise the task fails **visibly** | `employee-registry` D9/T13 anticipated the 409 ("this person already has an account — link it instead of creating it"). The rule keeps the innocent case working and refuses the dangerous one: the account that gets roles must be the account of *this* person, and the check is the email the record already froze |
+| T6 | **Never `deleteUser`**: `Terminated` means `updateUser(enabled = false)`, the template's roles removed and the claim attributes deleted | `activity_logs.user_id` holds the Keycloak `sub` (F6), so a deleted account orphans its own audit trail. Deactivating also keeps the `sub` stable if the person is rehired |
+| T7 | **No local mirror of the current roles.** The diff is read **live** from Keycloak; what is stored is the **applied snapshot** as immutable history attached to the task | `hr-org-structure`'s T12 refused a fourth source of truth, and a mirror of "what they have" is exactly that. The distinction that makes the snapshot legitimate: it answers *"what did we do, when, on whose order"* — history — not *"what do they have now"*, which is only Keycloak's to answer |
+| T8 | The applied snapshot is a **child table** (`access_provisioning_applied_roles(task_id, role_name)`), not JSON | The repository has exactly **one** `jsonb` column (`products.attributes`, F6) and no array columns; the snapshot is a queryable set, and the allowlist test (T12) wants to read it as rows |
+| T9 | **The task row is the audit.** It records `requested_by`, `requested_at`, `decided_by`, `decided_at`, the applied set and its timestamps | F6: the existing `activity_logs` is **HTTP-shaped** (`http_method`, `http_status`, `request_path`, `payload_json`) and cannot express "who approved this grant for this employee". Pointing the audit at it would produce a trail nobody can answer a question with |
+| T10 | **A failure is visible and never silent.** A failed task stays in the Access section with its reason and is retried with backoff; no screen may claim access was granted while the task is not `APPLIED` | `company-scope-local-fallback`'s **G9** is the counter-example living in this repository: a listener that logs the failure and forgets it. That is the defect class this record must not reproduce, and the fix is not a better log line but a state the operator can see |
+| T11 | The **gate is the task's status**, not a second flow, and the diff is computed and stored on every task | `company-scope-local-fallback`'s T13. A gated task is `APPROVAL_PENDING` with its diff frozen for review, and **re-derived when it is applied** — approving a snapshot from before a contract change would approve something that is no longer true |
+| T12 | The **allowlist is enforced here** (`hr-org-structure` D7): only the roles the position template declares, of the same company, for an employee whose status allows it, and **`lc-admin` is never grantable** — with a test that fails if it is ever added to the list | This is the projection's blast radius, and the projection is the only thing that can widen access in this flow. Note that the users-admin surface's own protection is a **URL rule** (`/api/users-admin/**` → realm `admin`, F1), which does **not** apply to Java calls: the projection calling the service directly is the system acting, so this record's authorization (who may create a task, who may approve) plus the allowlist are the controls |
+| T13 | The projection is **fail-closed**: any unexpected Keycloak error leaves the task `FAILED` with its reason and retries; it never degrades into "granted but unrecorded", and it never writes a partial state without recording it | Same class as T10, one step earlier: the invariant is that the record and reality move together, and when they cannot, the record says so |
+
+## Verified exploration evidence
+
+Read-only verification ran on 2026-10-01 in this worktree; F1–F6 were read directly by the parent, F7–F11
+are anchors inherited from the sibling records named in each row.
+
+| # | Fact | Anchor |
+| --- | --- | --- |
+| F1 | **The identity capability this record needs already exists and is wired end to end**: `IdentityProvider` declares `getUserAttributes`, `updateUserAttribute(userId, key, List<String> values)` and `deleteUserAttribute`; `KeycloakIdentityProvider` implements them; `UsersAdminService:179-190` wraps them; and `UsersAdminController` exposes `GET /{id}/attributes`, `PUT /{id}/attributes/{key}` and `DELETE /{id}/attributes/{key}` under `/api/users-admin/users` | `usersadmin/identity/IdentityProvider.java:79-83`; `usersadmin/identity/keycloak/KeycloakIdentityProvider.java` (`updateUserAttribute`, `getUserAttributes`); `usersadmin/service/UsersAdminService.java:179-190`; `usersadmin/controller/UsersAdminController.java:38,138-155` |
+| F2 | `updateUserAttribute` **replaces the whole list** for the key (`attrs.put(key, values); user.update(userRep)`), and reads it back as `Map<String, List<String>>` — so a multivalued claim can be written and reconciled, not appended | `KeycloakIdentityProvider.java` (`updateUserAttribute`, `getUserAttributes`) |
+| F3 | The claim names and their requirements: `company_id` and `company_country_id` are **required** levels, the region/zone/store are optional; the parser accepts lists | `common/security/ScopeLevel.java:26,29,32,35,58`; `common/auth/CurrentUserContext.java:349-357`, `:408-457` |
+| F4 | **The mapper does not exist**: no `company_*` protocol mapper in `docker/scripts/keycloak-setup.sh`, none in the k8s realm export, and no group-membership operation anywhere | `company-scope-local-fallback`'s E13–E15 |
+| F5 | The store-scoped role set, which O2's rule uses as the auto-apply boundary: `lc-company-store`, `lc-company-store-read`, `lc-receiving`, `lc-sales`, `lc-scheduling`, `lc-scheduling-read` | `common/security/ScopeLevel.java:58-68` |
+| F6 | Two schema facts that decide T8 and T9: the repository has exactly **one** `jsonb` column (`products.attributes`) and no array columns; and `activity_logs` is HTTP-shaped — `user_id VARCHAR(255)`, `username`, `activity_process_id`, `activity_event_id`, `http_method`, `http_status`, `request_path`, `ip_address`, `user_agent`, `payload_json`, `created_at` | `V1__baseline_schema.sql:191` (jsonb); `V1:445-463` (activity_logs); `activity/listener/ActivityLogEventListener.java:31` |
+| F7 | **`lc-employee-access` does not exist anywhere yet** — not in `Roles.java`, not in the setup script — so this record has to register it | grep for `lc-employee-access`/`EMPLOYEE_ACCESS` over `src/main/java` → zero hits |
+| F8 | The existing user-creation path is broken for this purpose: it generates a random password, marks it **non-temporary** and returns only the id, so the password is discarded and the created user cannot log in; there is **no SMTP configuration**, and the application **client id is not a configured property** | `employee-registry`'s F13/F12; `hr-org-structure`'s E15 |
+| F9 | The identity rules this record must respect: the corporate email is generated with **R2** and frozen after provisioning, the Keycloak **username is the full email**, and `employees.keycloak_user_id` is a nullable `UNIQUE VARCHAR(36)` holding the `sub` | `employee-registry`'s D1/D2/T9/T17 and its V20 block |
+| F10 | The projection's **input** for the claims is a pure derivation over the assignments valid today, returning the five id sets as lists and never a partial chain | `employee-store-assignments`' T6/T7/T9 and its "The derivation" section |
+| F11 | What the repository has for the outbox's transport: **no** broker, **no** `@Scheduled`/`@EnableScheduling`, **no** retry machinery, and one `AFTER_COMMIT` listener that swallows its failure | `company-scope-local-fallback`'s E25–E27 |
+
+## Scope of the projection
+
+The projection **converges** these facts into Keycloak, and the table says where each one comes from, so
+that nothing is invented here:
+
+| Keycloak fact | Source of truth | Removed when |
+| --- | --- | --- |
+| the account exists, enabled | `employees.keycloak_user_id` + the employee's status | the employee is `Terminated` → `enabled = false` (T6) |
+| the client roles | `position_roles` of the **position of the current contract**, filtered by the allowlist (T12) | the role leaves the template, the position changes, or employment ends |
+| `company_id` … `company_store_id` attributes | `employee-store-assignments`' derivation (F10) | the assignments stop being valid today, or employment ends |
+| nothing else | — | the projection touches **no** other attribute, role or setting: everything it did not write, it does not own |
+
+## Schema — `V22`
+
+```sql
+-- ============================================
+-- V22 — Employee access provisioning tasks
+-- ============================================
+-- The durable intent of the access flow: a row is written in the same transaction that asserts the
+-- organisational fact (contract activation, a store-assignment change, a termination) and a worker
+-- resolves it by RECONCILING Keycloak against the current truth. The row is also the audit: it
+-- records who asked, who approved and what was applied, because the existing `activity_logs` is
+-- HTTP-shaped (method, status, path) and cannot answer "who granted this".
+-- `kind` and `status` are free-form VARCHAR validated by a Java enum: this schema has ZERO
+-- `CHECK (col IN ...)` and zero native enums, and the established answer is the VARCHAR plus the
+-- enum (inventory_movements.movement_type is the precedent).
+-- The partial unique index is the schema's first: at most one OPEN task per employee, so a second
+-- intent cannot race the first. Foreign keys are unnamed, matching the baseline and the V9..V21 style.
+-- ============================================
+
+CREATE TABLE access_provisioning_tasks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    employee_id UUID NOT NULL REFERENCES employees(id),
+    kind VARCHAR(20) NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error VARCHAR(500),
+    requested_by VARCHAR(36) NOT NULL,
+    requested_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    decided_by VARCHAR(36),
+    decided_at TIMESTAMP,
+    applied_at TIMESTAMP,
+    enabled BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_access_provisioning_tasks_employee_id ON access_provisioning_tasks(employee_id);
+CREATE INDEX idx_access_provisioning_tasks_status ON access_provisioning_tasks(status);
+CREATE UNIQUE INDEX uq_access_provisioning_tasks_open
+    ON access_provisioning_tasks(employee_id)
+    WHERE status IN ('PENDING', 'APPROVAL_PENDING', 'RUNNING', 'FAILED');
+
+-- The applied snapshot: immutable history, one row per role the task actually granted or removed.
+-- It is a table and not a JSON column because the repository has exactly one jsonb column and no
+-- array columns, and because the allowlist test wants to read it as rows.
+CREATE TABLE access_provisioning_applied_roles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    task_id UUID NOT NULL REFERENCES access_provisioning_tasks(id),
+    role_name VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_access_provisioning_applied_roles UNIQUE (task_id, role_name)
+);
+CREATE INDEX idx_access_provisioning_applied_roles_task_id ON access_provisioning_applied_roles(task_id);
+```
+
+No seed data. `access_provisioning_applied_roles` carries only `created_at` on purpose: it is an immutable
+log line, and an `updated_at` would suggest a mutation that must never happen.
+
+## API surface
+
+| Method | Path | Roles |
+| --- | --- | --- |
+| `GET` | `/api/companies/{companyId}/employees/{employeeId}/access` | `lc-admin`, `lc-employee-access` |
+| `POST` | `/api/companies/{companyId}/employees/{employeeId}/access/apply` | `lc-admin`, `lc-employee-access` |
+| `POST` | `/api/companies/{companyId}/employees/{employeeId}/access/retry` | `lc-admin`, `lc-employee-access` |
+| `POST` | `/api/companies/{companyId}/employees/{employeeId}/access/deactivate` | `lc-admin`, `lc-employee-access` |
+| `POST` | `/api/companies/{companyId}/employees/{employeeId}/access/requests/{taskId}/approve` | `lc-admin`, `lc-employee-access` |
+| `POST` | `/api/companies/{companyId}/employees/{employeeId}/access/requests/{taskId}/reject` | `lc-admin`, `lc-employee-access` |
+
+`GET …/access` returns the linked account, the **required** roles (from the template), the **current** ones
+(read live, T7), the **diff** and the open task with its history. `reject` takes a reason. Every method
+resolves the company first — `verifyCompanyAccess` before the load (E12 of `hr-org-structure`) — and then
+scopes the employee to that company.
+
+**One endpoint outside this shape**: the employee's **`GET`** carries the access **state** (`pending`,
+`failed`) as a field for holders of `lc-employee`, so the clerk who activated the contract can see that
+something is waiting without holding the access role. The **role names** are not in that payload.
+
+## Screens
+
+| Where | Content |
+| --- | --- |
+| `/hr/employees/:id`, the **Access** section (planned by `employee-registry`'s W4 as this record's) | Account link state, required vs current roles with the diff, the five claim attributes as the token would carry them, the open task with its state and reason, and the actions (apply, retry, deactivate) |
+| the same section, for a gated task | The **diff frozen for review**, with approve/reject and the requester's name. Re-derived at apply time (T11) |
+| the pending-requests **inbox** | **Open**: the least invasive home is a tab or filter inside `Empleados` rather than a fourth child in the menu, because `hr-org-structure`'s D4 pinned the header ids. Appending `9-4` is legal under that decision, but it is a menu change and it is not needed to make the flow work |
+
+## Work units
+
+| | Content | Sizing note |
+| --- | --- | --- |
+| **W1** | `V22` + the task entity, repository and service, and the **state machine** with its tests (every legal transition, and the illegal ones refused) | **Declared over budget**, and the state machine is the part not to rush: the states are the contract with the worker, the gate and the UI |
+| **W2** | The Keycloak side: **create or link** (T5), the **role diff** and convergence (T4/T7/T8/T12), and the missing application **client id property** (F8) | **Declared over budget**; the natural split is (a) the account lifecycle, (b) the roles. Needs `position_roles` (`hr-org-structure`'s W1b) |
+| **W3** | The **membership projection**: write and delete the five attributes from the derivation (T1), with the tests that pin the list semantics | **Under budget** — the capability exists (F1/F2), and the derivation is already specified and tested in `employee-store-assignments`. Needs its `V21` |
+| **W4** | The **worker**: the scheduler, the claim that stops two workers taking the same task, the retry with backoff, and the visible failure (T10/T13) | **Declared over budget.** It is also the piece that would repair `company-scope-local-fallback`'s G9 class of defect, so its shape should be reusable for the group mirror |
+| **W5** | The **gate** (the approval status, the frozen diff, self-approval refused), the six endpoints, and the frontend (the Access section and the inbox) | **Declared over budget**: backend and frontend separable |
+
+Dependency order: **W1 → W2/W3 → W4 → W5**. W3 needs `employee-store-assignments` implemented; W2 needs
+`position_roles`; and the whole flow also needs the **mapper** (`company-scope-local-fallback`'s W0) to be
+reachable in a token at all. Nothing here can be verified end to end until that mapper exists in the
+environment, which is why W4's tests must run against a **fake or embedded** identity provider rather than
+a live realm.
+
+## Gaps
+
+| # | Gap | Note |
+| --- | --- | --- |
+| G1 | **No SMTP**, so the person cannot be told anything | `employee-registry`'s G6. It is why **O1** decides how a password ever reaches a human, and it is a real slice of its own (templates, credentials, deliverability) |
+| G2 | The application **client id is not a configured property**, and client roles cannot be assigned without it | `hr-org-structure`'s E15. Small, blocking for W2, and fixed inside this record |
+| G3 | **No batch user fetch** in `IdentityProvider` | One Admin API call per employee. That is why the diff lives in the **employee detail** and not in the employee **list**: a list that showed access state would fan out one call per row |
+| G4 | `employees.email` and the Keycloak login email do not synchronize | `employee-registry`'s G4. T5's link rule is the mitigation: the account that gets roles must be the one whose email matches |
+| G5 | The template is a **seed, not live authority** (`hr-org-structure` D6), so after a `position_roles` change the diff shows divergence and **nothing acts on it** | The diff is informational today. Who closes that divergence — a periodic `RECONCILE` task, or a human acting on the diff — is **not decided here** and is not required for the flow to work |
+| G6 | **Per-store role scoping is not expressible** | `employee-store-assignments`' G1, inherited: the roles this record applies are person-global, so a person with two stores and two roles has both capabilities in both |
+| G7 | Offboarding is **not exhaustive**: the projection converges the template's roles, not the roles granted by hand outside it | An `lc-sales` granted manually in Keycloak survives a `Terminated` employee. Declared rather than half-solved: converging "every role the person holds" would mean the projection owns roles the template never declared, which contradicts D6 |
+| G8 | The `lc-company-*` group mirror becomes **cosmetic** under T1 | `company-scope-local-fallback`'s **G9** (a group that may be missing, silently) no longer affects authorization, because the membership travels as user attributes. The divergence is still real, it is now just not a security concern — which lowers that gap's severity without closing it |
+
+## Cross-record dependencies
+
+| Record | Relation |
+| --- | --- |
+| `hr-org-structure` | **Prerequisite**: `position_roles` (its W1b, unwritten) is the role source, and D6/D7/D8/D10 are the rules it applies. Its E15 is G2 here |
+| `employee-registry` | **Prerequisite**: `employees` (its `V20`), the generated email, `keycloak_user_id` (its T17 is the precondition of auto-apply), and its G7 is the hole this record closes |
+| `employee-store-assignments` | **Prerequisite**: `V21` and its derivation (F10) are the input for the claim attributes. It declares that the projection is explicitly not its job |
+| `company-scope-local-fallback` | The rules this record implements (its D3, D6, T9, T11–T13) and its **W2**, which is this record. Its **W0** (the mapper) is what makes all of this reachable in a token, and its T1's choke point is where the app reads the result |
+| the `users-admin` surface | The attribute operations this record uses (F1) live there, protected at URL level by the realm `admin` role. This record calls the **service**, not the endpoint, so that rule does not apply to it — which is why T12 and the task's own authorization are the controls |
+| Migration numbering | `V19`–`V21` are on this same branch, so `V22` is safe **here only**. If any of those records is split into its own branch, renumber before merge (`life-control-api/AGENTS.md:874`) |
+
+## Non-goals
+
+- **Not** SMTP and not an invitation flow, unless **O1** says otherwise.
+- **Not** a local mirror of the current roles (T7), and not a second authorization source: Keycloak stays
+  authoritative.
+- **Not** per-store role scoping (**G6**), and not converging roles granted outside the template (**G7**).
+- **Not** a change to the `users-admin` surface: it stays the platform admin's, and this record only
+  consumes its service operations.
+- **Not** user self-service: nobody views or edits their own access here.
+
+## Task log
+
+- [ ] O1–O5 decided by the user
+- [ ] W1 — `V22`, the task model and the state machine
+- [ ] W2 — the account lifecycle and the role diff
+- [ ] W3 — the membership attributes from the derivation
+- [ ] W4 — the worker: scheduler, claim, retry, visible failure
+- [ ] W5 — the gate, the endpoints and the frontend
+
+## Deferred and blocking
+
+- **Blocked on O1–O5**: the five product questions above, listed because each one changes code. O1 in
+  particular decides whether this record touches the password path at all, and O2 decides the gate's
+  boundary.
+- **Blocked on its prerequisites, in order**: `position_roles` (W2), `V21` (W3), and the **mapper** for
+  anything to be observable end to end (W3's output is invisible in a token until `company-scope-local-fallback`'s
+  W0 exists).
+- **Deferred**: the SMTP slice (G1), the batch user fetch (G3), the divergence policy (G5), roles granted
+  outside the template (G7), and the inbox's home in the menu.
+- **Explicitly not blocked**: W1 can be built today. Its migrations, state machine and tests need no
+  Keycloak at all, and the worker's tests run against a fake identity provider.
+
+## Evidence log
+
+| Date | Evidence |
+| --- | --- |
+| 2026-10-01 | Record written on `feat/hr-org-structure`, after `company-scope-local-fallback` closed its D1 as **A** and `employee-store-assignments` closed D1–D4. F1–F6 were read in this worktree while writing it, and two of them changed the design: **F1/F2 removed a work unit** from `company-scope-local-fallback` (the attribute operations exist, are implemented, and replace the whole list, so no `addUserToGroup` is needed and the attributes-versus-groups sub-choice is settled) and **F6** decided T8 (a child table, because the repository has exactly one `jsonb` column) and T9 (the task row is the audit, because `activity_logs` is HTTP-shaped). F7–F11 are anchors inherited from the sibling records named in each row. **Nothing is implemented; O1–O5 are open**, and no source line was written. |
