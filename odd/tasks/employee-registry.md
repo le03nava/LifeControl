@@ -117,7 +117,7 @@ ALTER TABLE companies ADD COLUMN email_domain VARCHAR(255);
 
 CREATE TABLE employees (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    company_id UUID NOT NULL REFERENCES companies(id),
+    company_id UUID NOT NULL REFERENCES companies(id), -- the single-valued company is the DECIDED ceiling of company-scope-local-fallback's D4 = no (2026-10-02), not an accident of the design
     employee_number VARCHAR(30) NOT NULL,
     first_name VARCHAR(100) NOT NULL,
     paternal_last_name VARCHAR(100) NOT NULL,
@@ -291,3 +291,4 @@ the frozen-email rule both need the employee endpoints.
 | 2026-09-30 | Design closed in a working session against `main @ 274c67f`. Own anchors F1–F13 read from the working tree; the shared convention anchors are E1–E16 of `hr-org-structure`. No code written. |
 | 2026-10-01 | **D6 decided** while designing the membership bridge (`company-scope-local-fallback`, its D3): the user described the flow as "assign the store and the position or positions when the contract is activated" and, on review, chose the singular. V20 therefore stays exactly as designed — the rejection cost nothing because the migration has no source line yet. The same session recorded, in that record, why the store stays **out** of the contract (a transfer must not close a legal contract, T13) and why the store assignment becomes the load-bearing row of the flow. No source written. |
 | 2026-10-01 | **T17 added** as the security precondition of the auto-apply policy that `company-scope-local-fallback` closed as its D6(b): `keycloak_user_id` is written only by access provisioning, never by the employee record path. The reasoning is in that record's `The asynchronous boundary`, and it is a path removal, not a schema change — the column keeps its `UNIQUE` and stays nullable. The same pass added the note that the store stays outside the contract and that the position stays singular (**D6** above). No source written. |
+| 2026-10-02 | **V20's single `company_id` is now sanctioned by `company-scope-local-fallback`'s D4 = no rather than merely assumed.** D4 closed on 2026-10-02 as **no — one company per person**, so the `NOT NULL` company column and the `UNIQUE (company_id, employee_number)` / `UNIQUE (company_id, email)` pair are the **decided** ceiling of the model, not an accident of the design; the one-line SQL comment on the column records it where a reader of the migration will see it, and V20's shape is otherwise unchanged. **No source line was written** |
