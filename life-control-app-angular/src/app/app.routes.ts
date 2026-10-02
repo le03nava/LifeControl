@@ -32,6 +32,10 @@ export const routes: Routes = [
       import('@features/scheduling/scheduling.routes').then((m) => m.schedulingRoutes),
   },
   {
+    path: 'hr',
+    loadChildren: () => import('@features/hr/hr.routes').then((m) => m.hrRoutes),
+  },
+  {
     path: 'users-admin',
     loadChildren: () =>
       import('@features/users-admin/users-admin.routes').then((m) => m.usersAdminRoutes),

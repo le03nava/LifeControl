@@ -1,0 +1,97 @@
+<div class="department-edit-page">
+  <div class="form-card">
+    <h2>
+      @if (isEditMode()) {
+        Editar Departamento
+      } @else {
+        Nuevo Departamento
+      }
+    </h2>
+
+    @if (loadError(); as loadErrorMsg) {
+      <app-error-banner class="error-state" [message]="loadErrorMsg" />
+    }
+
+    @if (submitError(); as submitErrorMsg) {
+      <app-error-banner class="error-state" [message]="submitErrorMsg" />
+    }
+
+    <form [formGroup]="formGroup" (ngSubmit)="onSubmit()">
+      <mat-form-field appearance="outline" class="selector-field">
+        <mat-label>Empresa</mat-label>
+        <mat-select
+          [value]="selectedCompanyId()"
+          [disabled]="isEditMode()"
+          (selectionChange)="onCompanyChange($event.value)"
+        >
+          <mat-option value="">— Seleccionar empresa —</mat-option>
+          @for (company of companies(); track company.id) {
+            <mat-option [value]="company.id">{{ company.companyName }}</mat-option>
+          }
+        </mat-select>
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Código de Departamento</mat-label>
+        <input
+          matInput
+          type="text"
+          formControlName="departmentCode"
+          placeholder="Ingrese el código (máx. 10 caracteres)"
+        />
+        @if (getErrorMessage(formGroup.controls.departmentCode); as msg) {
+          <mat-error>{{ msg }}</mat-error>
+        }
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Nombre de Departamento</mat-label>
+        <input
+          matInput
+          type="text"
+          formControlName="departmentName"
+          placeholder="Ingrese el nombre del departamento"
+        />
+        @if (getErrorMessage(formGroup.controls.departmentName); as msg) {
+          <mat-error>{{ msg }}</mat-error>
+        }
+      </mat-form-field>
+
+      <mat-form-field appearance="outline" class="full-width">
+        <mat-label>Descripción</mat-label>
+        <textarea
+          matInput
+          rows="3"
+          formControlName="description"
+          placeholder="Descripción opcional (máx. 255 caracteres)"
+        ></textarea>
+        @if (getErrorMessage(formGroup.controls.description); as msg) {
+          <mat-error>{{ msg }}</mat-error>
+        }
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Orden</mat-label>
+        <input matInput type="number" min="1" formControlName="displayOrder" />
+        @if (getErrorMessage(formGroup.controls.displayOrder); as msg) {
+          <mat-error>{{ msg }}</mat-error>
+        }
+      </mat-form-field>
+
+      <div class="toggle-container">
+        <mat-slide-toggle formControlName="enabled">Activo</mat-slide-toggle>
+      </div>
+
+      <div class="form-actions">
+        <button mat-button type="button" (click)="onCancel()">Cancelar</button>
+        <button mat-flat-button color="primary" type="submit" [disabled]="loading()">
+          @if (isEditMode()) {
+            Actualizar
+          } @else {
+            Guardar
+          }
+        </button>
+      </div>
+    </form>
+  </div>
+</div>

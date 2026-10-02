@@ -51,4 +51,10 @@ describe('app.routes', () => {
     expect(salesRoute).toBeDefined();
     expect(salesRoute?.loadChildren).toBeDefined();
   });
+
+  it('should contain the hr route with loadChildren for the lazy-loaded feature', () => {
+    const hrRoute = routes.find((r) => r.path === 'hr');
+    expect(hrRoute).toBeDefined();
+    expect(hrRoute?.loadChildren).toBeDefined();
+  });
 });
