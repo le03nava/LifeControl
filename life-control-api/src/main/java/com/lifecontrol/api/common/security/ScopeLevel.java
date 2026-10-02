@@ -22,8 +22,24 @@ import java.util.List;
  */
 public enum ScopeLevel {
 
-    /** Company level, scoped by the {@code company_id} claim. */
-    COMPANY("company_id", "company", true, Roles.COMPANY),
+    /**
+     * Company level, scoped by the {@code company_id} claim.
+     *
+     * <p>{@link Roles#DEPARTMENT} and {@link Roles#POSITION} belong in this list because they are
+     * the company-scoped HR catalogs: they are the sole scope those roles carry, so the list is what
+     * makes their broadest granted scope be this level, exactly as {@link #STORE} explains for its
+     * own roles. A role absent from {@code roleNames()} would leave such a caller with no scope in
+     * range and no way to pass any company-scoped check at all.</p>
+     *
+     * <p>{@link Roles#SENIORITY_LEVEL} is deliberately <b>not</b> in any level: seniority levels are
+     * global reference data, so that role is unscoped. The verification for the roles listed here
+     * then requires the {@code company_id} <b>claim</b>, and <b>no code in this repository emits
+     * that claim today</b>: the local fallback that will emit or synthesize it is the separate
+     * {@code company-scope-local-fallback} record. Until it lands, a caller holding only
+     * {@code lc-department} or {@code lc-position} is denied whenever the token lacks the
+     * claim.</p>
+     */
+    COMPANY("company_id", "company", true, Roles.COMPANY, Roles.DEPARTMENT, Roles.POSITION),
 
     /** Company-country level, scoped by the {@code company_country_id} claim. */
     COUNTRY("company_country_id", "company country", true, Roles.COMPANY_COUNTRY, Roles.COMPANY_COUNTRY_READ),

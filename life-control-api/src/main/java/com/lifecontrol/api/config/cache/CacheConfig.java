@@ -119,7 +119,8 @@ public class CacheConfig {
                 new ConcurrentMapCache("statusTypes"),
                 new ConcurrentMapCache("statuses"),
                 new ConcurrentMapCache("measureUnits"),
-                new ConcurrentMapCache("paymentMethods")));
+                new ConcurrentMapCache("paymentMethods"),
+                new ConcurrentMapCache("seniorityLevels")));
         return cacheManager;
     }
 }
