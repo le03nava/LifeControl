@@ -184,6 +184,34 @@ Provisión idempotente del realm `life-control-realm`, los clients (`life-contro
 ```
 > En dev la password del admin del realm la define `docker/secrets/keycloak_admin_password`; el service account del admin client toma `docker/secrets/keycloak_admin_client_secret`. Tras crear users en el realm hay que asignarles los roles correspondientes (ej. `lc-admin`) para que el frontend muestre los menús.
 
+### Claims de tenancy (`company_*`) en el token
+
+El guard de alcance de `life-control-api` **no lee la base**: `CurrentUserContext` resuelve company, country, region, zone y store leyendo cinco claims **en la raíz del JWT** — `company_id`, `company_country_id`, `company_region_id`, `company_zone_id`, `company_store_id`. `keycloak-setup.sh` provee lo que hace que existan, en tres piezas que tienen que estar las tres o ninguna sirve:
+
+1. **Un protocol mapper por claim** en el client público `life-control-client`: `oidc-usermodel-attribute-mapper`, **multivaluado** y a nivel raíz. Los nombres tienen que coincidir con los de `ScopeLevel.claim()`; `KeycloakClaimMapperCoverageTest` acopla el script al código en las dos direcciones, así que un claim que el código lea sin mapper en el script rompe un test en vez de romper en runtime.
+2. **`unmanagedAttributePolicy=ADMIN_EDIT`** en el user profile del realm. Sin esto Keycloak 24+ **descarta los atributos en silencio**: la Admin API responde **204** y no guarda nada, el mapper no emite, y el guard responde 403 sin que ningún test de Java lo vea. `ADMIN_EDIT` (nunca `ENABLED`) deja escribir a los endpoints de administración y evita que el sujeto se auto-asigne su propia tenancy.
+3. **El atributo del usuario**, que escribe el flujo de aprovisionamiento de acceso.
+
+**Verificar de punta a punta**, con el stack arriba (`./docker/scripts/keycloak-setup.sh dev` primero):
+
+```bash
+# 1) El atributo. OJO: `kcadm update users/<id>` NO escribe atributos de usuario — devuelve 0 y
+#    los deja vacíos. Hay que usar la Admin REST API con un token de master:
+#    PUT /admin/realms/life-control-realm/users/<id>
+#    {"attributes": {"company_id": ["<uuid>"], "company_country_id": ["<uuid>"], ...}}
+
+# 2) Un token real por password grant (el client público tiene directAccessGrantsEnabled):
+curl -s -X POST "http://localhost:8181/realms/life-control-realm/protocol/openid-connect/token" \
+  -d client_id=life-control-client -d grant_type=password -d username=<user> -d password=<pass>
+
+# 3) Decodificá el payload y mirá la RAÍZ del token: los cinco claims tienen que estar, cada uno
+#    como ARRAY JSON. Un atributo con dos valores (dos tiendas) es la prueba de que `multivalued`
+#    funciona: sin ese flag Keycloak colapsa la lista al primer valor y el caller pierde alcance
+#    en silencio.
+```
+
+> Un caller con solo `lc-department` o `lc-position` recibe **403** cuando el claim falta y **201** cuando está. Si ves 403 en un endpoint scoped, mirá primero el token y no los roles.
+
 ### Service URLs
 
 > **Source of truth**: Service URLs are defined by port variables in `docker/.env.<env>` files.
