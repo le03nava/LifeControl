@@ -1,11 +1,12 @@
 # ODD feature: company-scope-local-fallback
 
-**Status**: designed — **not implemented**. **D4 (multi-company users) is the only decision left open**;
-D1 = A, D2 is not applicable, and D3, D5 and D6 are closed. The remaining work is **W0, W2 and W3**
-below (W1 was deleted on 2026-10-01 — the capability already exists), and its prerequisites now exist
-as records of their own: `employee-store-assignments` (the fact) and `employee-access-provisioning`
-(the projection), both written on 2026-10-01 and neither implemented. This header claims no branch,
-push or PR state; see the evidence log.
+**Status**: **W0 is implemented and verified against a live realm** (2026-10-02 — see the evidence
+log); **W2 and W3 remain**, and **D4 (multi-company users) is the only decision left open**.
+D1 = A, D2 is not applicable, and D3, D5 and D6 are closed. W1 was deleted on 2026-10-01 — the
+capability already exists — and this record's prerequisites now exist as records of their own:
+`employee-store-assignments` (the fact) and `employee-access-provisioning` (the projection), both
+written on 2026-10-01 and neither implemented. This header claims no branch, push or PR state; see
+the evidence log.
 **Created**: 2026-10-01 · **Risk**: **high** — it decides what an authorization input *is*. The wrong
 answer turns a scope guard into a self-service tenant switcher (see "The escalation the name hides"),
 and it lands on the single choke point that all 37 scoped call sites in the repository go through.
@@ -242,7 +243,7 @@ explicitly per row.
 
 | | Content | Sizing note |
 | --- | --- | --- |
-| **W0** | The environment half: the **protocol mappers** (claim names, top-level, multivalued — T9) and the membership they read, written down as the artifact a deployment needs plus the procedure that verifies it end to end (a token that actually carries the five ids) | **Not testable from this repository**, which is why it is its own row. Its sub-choice is **no longer open**: **user attributes**, because the write operation already exists (`employee-access-provisioning`'s F1/F2) and because the `locale` mapper in this repository's own realm export proves the technique. Group attributes would need a mapper nobody has verified, and the group mirror has no authorization role under this decision |
+| **W0** | The environment half: the **protocol mappers** (claim names, top-level, multivalued — T9) and the membership they read, written down as the artifact a deployment needs plus the procedure that verifies it end to end (a token that actually carries the five ids) | **Not testable from this repository in its original reading, and that changed on 2026-10-02**: the mappers, the membership they read and the realm's user-profile policy now live in `docker/scripts/keycloak-setup.sh` — the only artifact that provisions `life-control-realm` — and `KeycloakClaimMapperCoverageTest` couples that script to `ScopeLevel.claim()` in **both** directions (W0a/W0b/W0b2, evidence log). What stays outside the test loop is the **live realm**, not the declaration: the pin asserts what the script declares, never the state of a running Keycloak. Its sub-choice is **no longer open**: **user attributes**, because the write operation already exists (`employee-access-provisioning`'s F1/F2) and because the `locale` mapper in this repository's own realm export proves the technique. Group attributes would need a mapper nobody has verified, and the group mirror has no authorization role under this decision |
 | **W1** | ~~The backend half of membership~~ — **NOT NEEDED, removed on 2026-10-01.** The row was going to be a group-membership operation (`addUserToGroup` / `removeUserFromGroup`); it is unnecessary because the membership travels as **user attributes** (W0), and `IdentityProvider` **already declares** `getUserAttributes`, `updateUserAttribute(userId, key, List<String>)` and `deleteUserAttribute`, implemented in `KeycloakIdentityProvider` and wired through `UsersAdminService:179-190` and `UsersAdminController:138-155` | A **deletion**, not a deferral: the capability exists, so the work moved to `employee-access-provisioning`'s **W3** (declared under budget). Discovered while writing that record; the anchor is its F1/F2. `updateUserAttribute` replaces the whole list for the key, which is exactly what a reconcile needs |
 | **W2** | The **projection**: the outbox and the worker that reconcile Keycloak to the current truth ("The asynchronous boundary") | **Implemented by `employee-access-provisioning`**, which is unwritten — this record defines the contract and that record builds it. **Declared over budget there**, not here |
 | **W3** | **Retire the profile's tenancy writes** and prove nothing regressed: the profile screen stops writing company/country/region/zone (D3), the tests that pin "claim absent ⇒ denied" stay green (T6), and the open **store** question moves to `employee-store-assignments`, where it becomes a derived default instead of a free-form preference | Small in lines, but it changes a merged surface and its Angular consumer (E20), so it needs its own review pass |
@@ -260,6 +261,8 @@ explicitly per row.
 | G7 | The legacy realm roles (`life-control-admin`, `life-control-country`) take part in `isAdmin()` and in the tests | Any change here must keep them working, and there is no inventory of who holds them (E1, E21) |
 | G8 | No record in the repository states which of the four merged records' "declared follow-up" this one is meant to close | They each declared the mapper; this record is the first attempt to decide the mechanism, and it should say plainly that it supersedes nothing until D1 is answered |
 | G9 | **A pre-existing silent divergence: the Keycloak group for a company may not exist and nothing detects it.** `KeycloakGroupEventListener` fires on `AFTER_COMMIT`, and each of its five handlers catches `IdentityProviderException` with a `logger.warn` and no retry, no state and no repair path | So the `lc-company-*` groups — the very artifact this record's mechanism A would join users to — can be missing for companies created while Keycloak was unavailable, and no test, job or screen would notice. It is the same class of defect as **G12** of `hr-org-structure`: a non-transactional side effect that outlives the decision, discovered while designing this record rather than by a failure. **Not this slice's to fix**, and the outbox design (T11) is also its repair: once intents are durable rows, group creation stops being fire-and-forget. **Severity lowered on 2026-10-01**: with the membership travelling as user attributes (T1 of `employee-access-provisioning`), the group mirror has **no authorization role**, so this divergence is cosmetic rather than a security concern — still real, still unrepaired, and no longer a reason to hurry |
+| G10 | **The only HTTP path that writes a tenancy attribute is gated on `admin`, not on `lc-employee-access`.** `SecurityConfig:56-57` guards `/api/users-admin/**` with `.hasAuthority("ROLE_admin")` — the Keycloak **realm** role `admin` — and `UsersAdminController` deliberately carries no method-level `@PreAuthorize`. So the write operation the projection needs (`PUT /api/users-admin/users/{id}/attributes/{key}`, the anchor of `employee-access-provisioning`'s F1/F2) is reachable **only** by a caller holding `admin`, which is strictly broader than the `lc-employee-access` role **D8** of `hr-org-structure` created precisely to separate "grant access" from "edit HR data" | Found on 2026-10-02 while executing W0c, and it is a **dependency of the projection, not of W0**: W0 only needs a write path to exist, and an administrator has one. But the projection is written by whoever holds `lc-employee-access`, so either that flow gets its own endpoint (mirroring the HR catalogs) or `/api/users-admin/**` gains a narrower rule. **Declared, not fixed**: adding a rule to that path changes a merged surface guarded by `ROLE_admin` today, and the record that owns the projection is `employee-access-provisioning` |
+| G11 | **`ADMIN_EDIT` is a realm-wide policy, not a tenancy-specific one.** Allowing administrators to manage unmanaged attributes lets the admin endpoints write **any** undeclared attribute, not only the five `company_*` ones | The narrower alternative — declaring the five attributes in the user profile schema instead of enabling unmanaged ones — would pin them one by one, at the cost of duplicating the claim list in a second place that nothing couples to `ScopeLevel` (the drift class **W0a** exists to close). Chosen deliberately on 2026-10-02 with the trade stated: `ADMIN_EDIT` (never `ENABLED`) keeps the subject from assigning itself a tenancy, which is this record's central concern, and the write path is the admin client the projection already uses |
 
 ## Cross-record dependencies
 
@@ -276,8 +279,13 @@ explicitly per row.
 
 - **Not** changing `verifyCompanyAccess` into a role-aware check (T8). Its claim-only shape is a
   separate, measured decision with its own blast radius.
-- **Not** implementing the Keycloak mappers from this repository (they are environment configuration,
-  and W0 exists only to write down what the environment needs).
+- **Not** the reading this list first declared, which **W0 falsified on 2026-10-02**: it said the
+  Keycloak mappers were "environment configuration, and W0 exists only to write down what the
+  environment needs". The maintainer chose to implement them in the repository's own provisioning
+  script — `docker/scripts/keycloak-setup.sh` is the **only** artifact that provisions
+  `life-control-realm` — together with a pin coupling that script to `ScopeLevel`. What stays out of
+  scope is the live realm: the script runs at deployment, and the build documents the procedure
+  rather than executing it.
 - **Not** re-validating or cleaning existing `user_preferences` rows (G6) unless B1 is chosen.
 - **Not** touching the Angular profile screen beyond what D3 requires (G5).
 - **Not** a general "user ↔ company" model: that is HR's `employee-store-assignments`, and this record
@@ -289,7 +297,27 @@ Reconciled on 2026-10-01 with the **Work units** table above. The four rows belo
 while **D1** was still open and before **W1** was deleted, so they still offered W1 as pending and
 described W2/W3 as the `B1` alternative and the choke-point read.
 
-- [ ] W0 — the environment half of A: the protocol mappers and the membership they read
+- [x] W0 — the environment half of A: the protocol mappers and the membership they read. Broken into
+      its concrete steps on 2026-10-02, when the maintainer started it, and **all of them done**:
+  - [x] W0a — a deterministic pin that couples `docker/scripts/keycloak-setup.sh` to
+        `ScopeLevel.claim()`, so a claim the code reads without a mapper in the script fails a test
+        instead of failing at runtime. Written **first** and observed **RED** against the unmapped
+        script (the sibling record declared this same coupling gap as its **G13**). The pin is
+        two-directional set equality plus the mapper-shape and policy assertions
+  - [x] W0b — the five protocol mappers in `docker/scripts/keycloak-setup.sh`, idempotent like the
+        rest of that script, `oidc-usermodel-attribute-mapper`, **multivalued** and **top-level**
+        (T9), reading user attributes (W0's settled sub-choice), created by the script from an empty
+        baseline and reported `exists` on the second run
+  - [x] W0b2 — **the prerequisite the design did not know about, found by the live run**: the realm's
+        declarative user profile must allow unmanaged attributes at all (**G11** and the 2026-10-02
+        evidence row). Without it the five attributes are **discarded silently** — the
+        admin API answers 204 and stores nothing — so the mappers had nothing to read
+  - [x] W0c — the end-to-end procedure, and its **execution** against the live dev realm: the five
+        attributes set, a real token obtained, and the five claims observed **at the root of the
+        token as JSON arrays**, including a two-value `company_store_id`
+  - [x] W0d — **G1 proven closed for a non-admin caller**: a principal holding `lc-department` and no
+        `lc-admin` is denied **403** without the `company_id` claim and succeeds **201** with it, on
+        the HR department endpoint itself
 - **W1 — removed on 2026-10-01; not needed and not done.** ~~The membership capability on
   `IdentityProvider`~~ — the capability already exists (E28), so the row is a **deletion, not a
   deferral**, and its work moved to `employee-access-provisioning`'s **W3**
@@ -304,8 +332,12 @@ described W2/W3 as the `B1` alternative and the choke-point read.
   `employee-access-provisioning` before the projection itself exists.
 - **Blocked on the HR branch for migration numbering**: `V19`/`V20` are taken in flight. Under A this
   record needs **no migration at all**, so the decision removes the collision rather than scheduling it.
-- **Blocked on the environment for W0**: the mapper cannot be verified from this repository's test loop;
-  the procedure that verifies it has to run against a real realm with a real token.
+- **No longer blocked on the environment for W0** (2026-10-02). The mappers and the user-profile
+  policy are provisioned by `docker/scripts/keycloak-setup.sh` and pinned by
+  `KeycloakClaimMapperCoverageTest`; the token-level behaviour was executed against the live dev
+  realm (W0c), and the non-admin 403 → 201 was observed on the HR endpoint (W0d). What the test loop
+  still cannot see is anything **inside** Keycloak: the pin asserts what the script *declares*, never
+  the state of a realm, so the script has to actually run for the claims to exist.
 - **Deferred**: the `lc-company-*` group repair (**G9**), which the outbox would absorb but which is not
   this slice's to change; the k8s/docker realm divergence (**G2**), a deployment decision larger than this
   record; and re-validating existing `user_preferences` rows (**G6**), unnecessary now that they are not
@@ -322,3 +354,5 @@ described W2/W3 as the `B1` alternative and the choke-point read.
 | 2026-10-01 | **D1 closed by the maintainer: mechanism A**, on the strength of D3's flow rather than on a preference — the flow already creates or links the Keycloak user, so the membership is written to the IdP in any case and B1 would only add a second source of the same fact. **D2 closed as not applicable** in the same pass, kept in the table as the question to reopen if a local source ever becomes a real requirement. The work units were rewritten to match: under A this record is an environment procedure, an identity-membership operation, and a projection whose implementation belongs to `employee-access-provisioning`. **No source line was written**, and under this decision the record needs no migration at all |
 | 2026-10-01 | **D6 closed by the maintainer (a and b together)**, after the parent established what the repository actually offers for the asynchronous half: no broker, no scheduler, no retry state, and one `AFTER_COMMIT` listener that swallows its failure (E25–E27, read by the parent — nobody had looked at the messaging layer before). **(a)** the intent is an outbox row in the same transaction as the fact, and the worker reconciles the current truth instead of replaying a payload; no broker now, with the outbox as the later relay. **(b)** the gate is a policy over the computed diff, defaulting to auto-apply for the template's roles with approval for first access and the sensitive roles — which preserves D8 in spirit and literally only where the two roles sit with different people. The security precondition of auto-apply was named in the same pass: **`keycloak_user_id` must not be operator-typable**, or a holder of `lc-employee` grants themselves the roles of a position they chose — recorded as **T17** of `employee-registry`. The pass also produced **G9**, a pre-existing silent divergence (E26). |
 | 2026-10-01 | Design round opened against `main @ 274c67f` in the worktree `wN`, created with `herdr worktree create` per the repository's worktree procedure. E1–E12 read by the parent: the scope-resolution path, the claim shape, the `user_preferences` DDL and its two writers, and the absence of any read for authorization. E13–E24 mapped read-only by a scout run in this same worktree, including the Keycloak provisioning picture and the test pins. **The parent independently re-verified the three load-bearing facts** (E13/E14/E15 and the 37 call sites): `grep` over `docker/scripts/keycloak-setup.sh` shows no mapper and no group line, `grep` for `addUserToGroup`/`joinGroup` returns nothing while `createGroup` appears in five places, and the k8s manifests import `spring-microservices-security-realm` with zero `lc-*` roles and zero `company_*` claims — which the scout had not reported. `grep -c currentUserContext.verify` → **37 hits in 18 files**. **No source line was written**, and no decision was taken: D1–D5 are open. |
+| 2026-10-02 | **W0a and W0b implemented, and the repository's gates re-run over the final bytes.** `docker/scripts/keycloak-setup.sh` gained a `mapper_exists` helper, a `TENANCY_CLAIMS` array (the claim list's single home in the script) and an idempotent loop creating the five `oidc-usermodel-attribute-mapper` mappers on the app client, reading user attributes, `multivalued=true`, `access.token.claim=true`, `id`/`userinfo` false. A new plain-JUnit `KeycloakClaimMapperCoverageTest` resolves the checkout root the way `GatewayRouteCoverageTests` does and asserts **two-directional set equality** between `ScopeLevel.claim()` and the script's array, plus the mapper shape. **Observed RED first**, then GREEN, then triangulated by removing one claim (direction 1 fails, naming it) and adding one (direction 2 fails, naming it). Gates over the final bytes: `cleanTest test` → **737 reports / 2700 tests / 0 failures / 0 errors / 0 skipped**, with the new class present at `tests=4`; `spotlessCheck --rerun-tasks` and `spotbugsMain --rerun-tasks` green; `bash -n` clean. The script was then run against the live dev realm **from an empty baseline**: it created all five mappers, and a second run reported `exists` for each — idempotency measured, not assumed. Only `docker/scripts/keycloak-setup.sh`, the new test and this record were touched |
+| 2026-10-02 | **The live run refuted the design's completeness, and G1 was then proven closed.** Two findings, both invisible to every Java test because both happen inside Keycloak. **(1) The mappers were necessary and not sufficient**: the realm's declarative user profile declares only `username`/`email`/`firstName`/`lastName` and its `unmanagedAttributePolicy` was **unset**, so writing `company_id` through the admin API answered **204 and stored nothing** — the attribute read back `null`, the mappers emitted no claim, and the whole chain was silently dead. Setting the policy to **`ADMIN_EDIT`** (the maintainer's decision, over `ENABLED`) made the attributes persist, and `keycloak-setup.sh` now sets it idempotently, pinned by a fourth assertion that was likewise observed RED first. **(2) The dev API container was a stale image** (built 2026-09-30, before `hr-org-structure` merged), which turned a *routing* miss into an HTTP **500** and would have been read as an authorization defect; the image was rebuilt from this branch before the endpoint was judged. With both fixed, and with the probe holding only `lc-department`: **403 Access denied** with the `company_id` claim absent and **201 Created** with it, on `POST /api/companies/{id}/departments` — G1's residual ("HR writes work for an `lc-admin` caller only") is empirically closed by the claim. The claim itself was observed at the **root of a real token, as JSON arrays**, including a two-value `company_store_id`, without which `multivalued`'s purpose would be untested. Side effects, declared: the dev realm keeps the `e2e-probe-dept` user (no `lc-admin`, holding `lc-department` and `lc-company-country-read`, password `Probe1234!`) as the reusable probe the procedure describes, and two probe departments exist **disabled** (the catalog's DELETE is a soft delete) |

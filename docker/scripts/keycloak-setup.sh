@@ -73,6 +73,12 @@ client_role_exists() {
 	kcadm get "clients/$cid/roles/$role" -r "$REALM" >/dev/null 2>&1
 }
 
+mapper_exists() {
+	local cid="$1"
+	local name="$2"
+	kcadm get "clients/$cid/protocol-mappers/models" -r "$REALM" --fields name --format csv --noquotes | tr -d '\r' | grep -qx "$name"
+}
+
 realm_role_exists() {
 	local role="$1"
 	kcadm get "roles/$role" -r "$REALM" >/dev/null 2>&1
@@ -161,6 +167,66 @@ for role in lc-admin lc-company lc-company-read lc-company-country lc-company-co
 	else
 		kcadm create "clients/$APP_CID/roles" -r "$REALM" -s name="$role" -s description="LifeControl $role" >/dev/null
 		print_success "Client role $APP_CLIENT/$role created"
+	fi
+done
+
+# ---- User profile: let administrators store unmanaged attributes ----
+# The tenancy attributes (company_id ... company_store_id) travel as Keycloak user
+# attributes, but this realm has the declarative user profile enabled with only
+# username, email, firstName and lastName declared. With the unmanaged-attribute
+# policy unset, writing company_id through the admin REST API still answers 204
+# and the attribute is silently DISCARDED: reading it back yields null, the
+# protocol mappers below emit no claim, and every scoped caller is denied — a
+# failure no Java test can see, because it happens inside Keycloak. ADMIN_EDIT
+# (never ENABLED) lets the administrator endpoints — the path an access
+# projection writes through — manage unmanaged attributes, while keeping the
+# subject from assigning itself a tenancy. This step runs before the mapper
+# block below because the attributes have to be storable for the mappers to mean
+# anything; KeycloakClaimMapperCoverageTest pins the setting.
+if [ "$(kcadm get users/profile -r "$REALM" --fields unmanagedAttributePolicy --format csv --noquotes | tr -d '\r')" = "ADMIN_EDIT" ]; then
+	print_success "User profile unmanaged attribute policy already ADMIN_EDIT"
+else
+	print_status "Setting user profile unmanaged attribute policy to ADMIN_EDIT..."
+	kcadm update users/profile -r "$REALM" -s unmanagedAttributePolicy=ADMIN_EDIT >/dev/null
+	print_success "User profile unmanaged attribute policy set to ADMIN_EDIT"
+fi
+
+# ---- Tenancy claim protocol mappers (must match ScopeLevel.claim()) ----
+# A scoped caller is authorized by the top-level JWT claims company_id,
+# company_country_id, company_region_id, company_zone_id and company_store_id,
+# read by CurrentUserContext.extractUuidSetFromClaim. An attribute alone puts
+# nothing in the token: each claim needs its own mapper on the app client. The
+# membership travels as multivalued Keycloak user attributes (the backend's
+# PUT /api/users-admin/users/{id}/attributes/{key}), and multivalued=true is
+# what makes several values arrive as a JSON array instead of a single
+# collapsed value. This array is the single home of the claim names in this
+# script and is pinned to ScopeLevel.claim() by
+# KeycloakClaimMapperCoverageTest.
+TENANCY_CLAIMS=(
+	company_id
+	company_country_id
+	company_region_id
+	company_zone_id
+	company_store_id
+)
+
+for claim in "${TENANCY_CLAIMS[@]}"; do
+	if mapper_exists "$APP_CID" "$claim"; then
+		print_success "Protocol mapper $APP_CLIENT/$claim exists"
+	else
+		print_status "Creating protocol mapper $APP_CLIENT/$claim..."
+		kcadm create "clients/$APP_CID/protocol-mappers/models" -r "$REALM" \
+			-s name="$claim" \
+			-s protocol=openid-connect \
+			-s protocolMapper=oidc-usermodel-attribute-mapper \
+			-s "config.\"claim.name\"=$claim" \
+			-s "config.\"user.attribute\"=$claim" \
+			-s "config.\"multivalued\"=true" \
+			-s "config.\"access.token.claim\"=true" \
+			-s "config.\"id.token.claim\"=false" \
+			-s "config.\"userinfo.token.claim\"=false" \
+			-s "config.\"jsonType.label\"=String" >/dev/null
+		print_success "Protocol mapper $APP_CLIENT/$claim created"
 	fi
 done
 
