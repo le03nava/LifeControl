@@ -56,32 +56,93 @@ kcadm() {
 	docker exec "$CONTAINER" /opt/keycloak/bin/kcadm.sh "$@"
 }
 
+# ---- Fail-closed reads ----
+# `kcadm get` exits 1 both when a resource is genuinely absent and when the Admin
+# API did not answer at all (measured 2026-10-02: an absent resource prints
+# "Resource not found for url: ...", while an unreachable Admin API prints
+# "HTTP request error: ..."). Reading the second as "absent" is how the script
+# would provision on top of a dead Admin API, so the only discriminator is that
+# diagnostic text.
+#
+# The read helper passes its output through the global KCADM_GET_OUT and never
+# through stdout captured by the caller: `exit 1` inside a command substitution or
+# a pipeline element runs in a subshell and kills only that subshell, which would
+# turn a hard abort back into a plain non-zero exit the caller reads as "absent".
+# Call sites therefore invoke it directly (`kcadm_get ... || return 1`), never as
+# `$(kcadm_get ...)` and never as `kcadm_get ... | grep ...`. The helpers below
+# follow the same rule and report through their own globals (KCADM_GET_OUT,
+# MAPPER_ID, CLIENT_ID) instead of echoing, so no caller has to capture them.
+KCADM_GET_OUT=""
+kcadm_get() {
+	local out status
+	if out="$(kcadm get "$@" 2>&1)"; then
+		KCADM_GET_OUT="$out"
+		return 0
+	else
+		status=$?
+	fi
+	if printf '%s' "$out" | grep -q "Resource not found"; then
+		KCADM_GET_OUT=""
+		return 1
+	fi
+	print_error "The Admin API did not answer the read of '$*' (exit $status):" >&2
+	print_error "  $out" >&2
+	print_error "Refusing to read an unanswered Admin API call as \"not found\"." >&2
+	exit 1
+}
+
 client_exists() {
 	local client_id="$1"
 	local count
-	count="$(kcadm get clients -r "$REALM" -q clientId="$client_id" --fields id --format csv --noquotes | tr -d '\r' | grep -c . || true)"
+	kcadm_get clients -r "$REALM" -q clientId="$client_id" --fields id --format csv --noquotes || return 1
+	count="$(printf '%s\n' "$KCADM_GET_OUT" | tr -d '\r' | grep -c . || true)"
 	[ "$count" -gt 0 ]
 }
 
-get_client_id() {
-	kcadm get clients -r "$REALM" -q clientId="$1" --fields id --format csv --noquotes | tr -d '\r' | tr -d '"' | head -1
+# Resolves a client's id into CLIENT_ID. It reports through the global rather than
+# through stdout, for the same reason kcadm_get does: its callers run under
+# `set -e`, but a substitution that is merely *wrapped* in a condition, placed
+# behind `||`, or run with errexit off would swallow the failure and continue
+# with an empty id — the silent misread this block exists to remove.
+CLIENT_ID=""
+resolve_client_id() {
+	local client_id="$1"
+	CLIENT_ID=""
+	if ! kcadm_get clients -r "$REALM" -q clientId="$client_id" --fields id --format csv --noquotes; then
+		print_error "Client $client_id is absent from realm $REALM, so its id cannot be resolved." >&2
+		return 1
+	fi
+	CLIENT_ID="$(printf '%s\n' "$KCADM_GET_OUT" | tr -d '\r' | tr -d '"' | head -1)"
+	if [ -z "$CLIENT_ID" ]; then
+		print_error "Client $client_id resolved to an empty id in realm $REALM; refusing to continue silently." >&2
+		return 1
+	fi
+	return 0
 }
 
 client_role_exists() {
 	local cid="$1"
 	local role="$2"
-	kcadm get "clients/$cid/roles/$role" -r "$REALM" >/dev/null 2>&1
+	kcadm_get "clients/$cid/roles/$role" -r "$REALM"
 }
 
-mapper_exists() {
-	local cid="$1"
-	local name="$2"
-	kcadm get "clients/$cid/protocol-mappers/models" -r "$REALM" --fields name --format csv --noquotes | tr -d '\r' | grep -qx "$name"
+# Resolves the id of a claim's protocol mapper on the app client. Sets MAPPER_ID
+# (empty when the claim has no mapper) and returns non-zero when the read failed
+# or the claim has no mapper. `-q name=...` is NOT used: measured 2026-10-02, it
+# ignores the query and returns the whole list, so the name is selected
+# client-side from the id,name CSV.
+MAPPER_ID=""
+find_mapper_id() {
+	local claim="$1"
+	MAPPER_ID=""
+	kcadm_get "clients/$APP_CID/protocol-mappers/models" -r "$REALM" --fields id,name --format csv --noquotes || return 1
+	MAPPER_ID="$(printf '%s\n' "$KCADM_GET_OUT" | tr -d '\r' | grep -E "^[^,]*,${claim}$" | head -1 | cut -d, -f1)"
+	[ -n "$MAPPER_ID" ]
 }
 
 realm_role_exists() {
 	local role="$1"
-	kcadm get "roles/$role" -r "$REALM" >/dev/null 2>&1
+	kcadm_get "roles/$role" -r "$REALM"
 }
 
 if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER"; then
@@ -112,7 +173,7 @@ print_status "Authenticating kcadm as $KC_ADMIN_USER against $CONTAINER..."
 kcadm config credentials --server "$KC_BASE" --realm master --user "$KC_ADMIN_USER" --password "$KC_ADMIN_PASS" >/dev/null
 
 # ---- Realm ----
-if kcadm get "realms/$REALM" >/dev/null 2>&1; then
+if kcadm_get "realms/$REALM"; then
 	print_success "Realm $REALM already exists"
 else
 	print_status "Creating realm $REALM..."
@@ -122,7 +183,8 @@ fi
 
 # ---- Public client (frontend) ----
 if client_exists "$APP_CLIENT"; then
-	APP_CID="$(get_client_id "$APP_CLIENT")"
+	resolve_client_id "$APP_CLIENT" || exit 1
+	APP_CID="$CLIENT_ID"
 	print_success "Client $APP_CLIENT already exists ($APP_CID)"
 else
 	print_status "Creating public client $APP_CLIENT..."
@@ -134,13 +196,15 @@ else
 		-s directAccessGrantsEnabled=true \
 		-s "redirectUris=[\"${APP_ORIGIN}/*\"]" \
 		-s "webOrigins=[\"${APP_ORIGIN}\"]" >/dev/null
-	APP_CID="$(get_client_id "$APP_CLIENT")"
+	resolve_client_id "$APP_CLIENT" || exit 1
+	APP_CID="$CLIENT_ID"
 	print_success "Client $APP_CLIENT created ($APP_CID)"
 fi
 
 # ---- Confidencial client (backend admin / service account) ----
 if client_exists "$ADMIN_CLIENT"; then
-	ADM_CID="$(get_client_id "$ADMIN_CLIENT")"
+	resolve_client_id "$ADMIN_CLIENT" || exit 1
+	ADM_CID="$CLIENT_ID"
 	print_success "Client $ADMIN_CLIENT already exists ($ADM_CID)"
 else
 	print_status "Creating confidential client $ADMIN_CLIENT (service account)..."
@@ -151,7 +215,8 @@ else
 		-s standardFlowEnabled=false \
 		-s serviceAccountsEnabled=true \
 		-s secret="$ADM_CLIENT_SECRET" >/dev/null
-	ADM_CID="$(get_client_id "$ADMIN_CLIENT")"
+	resolve_client_id "$ADMIN_CLIENT" || exit 1
+	ADM_CID="$CLIENT_ID"
 	print_success "Client $ADMIN_CLIENT created ($ADM_CID)"
 fi
 
@@ -183,12 +248,27 @@ done
 # subject from assigning itself a tenancy. This step runs before the mapper
 # block below because the attributes have to be storable for the mappers to mean
 # anything; KeycloakClaimMapperCoverageTest pins the setting.
-if [ "$(kcadm get users/profile -r "$REALM" --fields unmanagedAttributePolicy --format csv --noquotes | tr -d '\r')" = "ADMIN_EDIT" ]; then
+if ! kcadm_get users/profile -r "$REALM" --fields unmanagedAttributePolicy --format csv --noquotes; then
+	print_error "Could not read the unmanaged attribute policy of realm $REALM; refusing to guess." >&2
+	exit 1
+fi
+if [ "$(printf '%s\n' "$KCADM_GET_OUT" | tr -d '\r')" = "ADMIN_EDIT" ]; then
 	print_success "User profile unmanaged attribute policy already ADMIN_EDIT"
 else
 	print_status "Setting user profile unmanaged attribute policy to ADMIN_EDIT..."
 	kcadm update users/profile -r "$REALM" -s unmanagedAttributePolicy=ADMIN_EDIT >/dev/null
-	print_success "User profile unmanaged attribute policy set to ADMIN_EDIT"
+	# Read the policy back: an update nobody verifies is how the tenancy attributes
+	# would be silently DISCARDED, which no Java test can observe.
+	if ! kcadm_get users/profile -r "$REALM" --fields unmanagedAttributePolicy --format csv --noquotes; then
+		print_error "Could not read back the unmanaged attribute policy of realm $REALM." >&2
+		exit 1
+	fi
+	if [ "$(printf '%s\n' "$KCADM_GET_OUT" | tr -d '\r')" = "ADMIN_EDIT" ]; then
+		print_success "User profile unmanaged attribute policy set and verified ADMIN_EDIT"
+	else
+		print_error "User profile unmanaged attribute policy is not ADMIN_EDIT after the update; the tenancy attributes would be silently DISCARDED, so the script refuses to continue." >&2
+		exit 1
+	fi
 fi
 
 # ---- Tenancy claim protocol mappers (must match ScopeLevel.claim()) ----
@@ -210,9 +290,42 @@ TENANCY_CLAIMS=(
 	company_store_id
 )
 
+# Verifies a mapper's JSON against the tenancy contract the script declares.
+# The single-mapper read is pretty-printed, so whitespace is stripped before the
+# fixed-string matches. The Keycloak image ships no jq, python or awk, but this
+# parsing runs on the host, so POSIX grep/tr is used.
+verify_tenancy_mapper() {
+	local claim="$1"
+	local json="$2"
+	local compact requirement
+	compact="$(printf '%s' "$json" | tr -d ' \n\t')"
+	for requirement in \
+		"\"protocolMapper\":\"oidc-usermodel-attribute-mapper\"" \
+		"\"claim.name\":\"$claim\"" \
+		"\"user.attribute\":\"$claim\"" \
+		"\"multivalued\":\"true\"" \
+		"\"access.token.claim\":\"true\"" \
+		"\"id.token.claim\":\"false\"" \
+		"\"userinfo.token.claim\":\"false\"" \
+		"\"jsonType.label\":\"String\""; do
+		if ! printf '%s' "$compact" | grep -qF "$requirement"; then
+			print_error "Protocol mapper $APP_CLIENT/$claim is missing $requirement." >&2
+			print_error "$APP_CLIENT declares oidc-usermodel-attribute-mapper with claim.name=$claim, user.attribute=$claim, multivalued=true, access.token.claim=true, id.token.claim=false, userinfo.token.claim=false and jsonType.label=String." >&2
+			print_error "The script fails rather than repairs a drifted mapper; an operator must fix the authorization artifact deliberately." >&2
+			exit 1
+		fi
+	done
+}
+
 for claim in "${TENANCY_CLAIMS[@]}"; do
-	if mapper_exists "$APP_CID" "$claim"; then
-		print_success "Protocol mapper $APP_CLIENT/$claim exists"
+	if find_mapper_id "$claim"; then
+		# Re-read the existing mapper by id instead of trusting its name in the list.
+		kcadm_get "clients/$APP_CID/protocol-mappers/models/$MAPPER_ID" -r "$REALM" || {
+			print_error "Protocol mapper $APP_CLIENT/$claim exists but could not be read back by id $MAPPER_ID." >&2
+			exit 1
+		}
+		verify_tenancy_mapper "$claim" "$KCADM_GET_OUT"
+		print_success "Protocol mapper $APP_CLIENT/$claim exists and matches the declared contract"
 	else
 		print_status "Creating protocol mapper $APP_CLIENT/$claim..."
 		kcadm create "clients/$APP_CID/protocol-mappers/models" -r "$REALM" \
@@ -226,7 +339,18 @@ for claim in "${TENANCY_CLAIMS[@]}"; do
 			-s "config.\"id.token.claim\"=false" \
 			-s "config.\"userinfo.token.claim\"=false" \
 			-s "config.\"jsonType.label\"=String" >/dev/null
-		print_success "Protocol mapper $APP_CLIENT/$claim created"
+		# Do not trust the create's exit code: read the new mapper back and verify
+		# that it means what the tenancy contract declares.
+		if ! find_mapper_id "$claim"; then
+			print_error "Protocol mapper $APP_CLIENT/$claim was created but is absent from the mapper list read back." >&2
+			exit 1
+		fi
+		kcadm_get "clients/$APP_CID/protocol-mappers/models/$MAPPER_ID" -r "$REALM" || {
+			print_error "Protocol mapper $APP_CLIENT/$claim was created but could not be read back by id $MAPPER_ID." >&2
+			exit 1
+		}
+		verify_tenancy_mapper "$claim" "$KCADM_GET_OUT"
+		print_success "Protocol mapper $APP_CLIENT/$claim created and verified"
 	fi
 done
 
