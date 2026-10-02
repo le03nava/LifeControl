@@ -122,7 +122,7 @@ describe('Header', () => {
       expect(companiesItem).toBeDefined();
       expect(companiesItem?.textLink).toBe('Companies');
       expect(items.some((i) => i.routeLink === '/users-admin')).toBe(true);
-      expect(items.length).toBe(7); // Companies + Sales + Products + Stock by store + Purchases + Users Admin + Calendario y citas
+      expect(items.length).toBe(8); // Companies + Sales + Products + Stock by store + Purchases + Users Admin + Calendario y citas + Recursos Humanos
     });
 
     it('should NOT show Companies menu when user has no company client roles', () => {
@@ -192,8 +192,8 @@ describe('Header', () => {
     it('should render the caret trigger only for items that have children', () => {
       const { fixture } = setup(['lc-admin']);
       const triggers = fixture.nativeElement.querySelectorAll('.submenu-trigger');
-      // Companies and Calendario y citas are the admin items that carry children.
-      expect(triggers).toHaveLength(2);
+      // Companies, Calendario y citas and Recursos Humanos are the admin items that carry children.
+      expect(triggers).toHaveLength(3);
       expect(triggers[0].getAttribute('aria-label')).toBe('Companies submenu');
     });
 
@@ -213,7 +213,7 @@ describe('Header', () => {
       expect(component.isCompanyRole()).toBe(true);
       const items = component.items();
       expect(items.some((i) => i.routeLink === '/users-admin')).toBe(true);
-      expect(items.length).toBe(7); // Companies + Sales + Products + Stock by store + Purchases + Users Admin + Calendario y citas
+      expect(items.length).toBe(8); // Companies + Sales + Products + Stock by store + Purchases + Users Admin + Calendario y citas + Recursos Humanos
     });
 
     it('should NOT show Users Admin for lc-company role', () => {
@@ -520,7 +520,7 @@ describe('Header', () => {
       const items = component.items();
       const salesItem = items.find((i) => i.routeLink === '/sales');
       expect(salesItem).toBeDefined();
-      expect(items.length).toBe(7); // Companies + Sales + Products + Stock by store + Purchases + Users Admin + Calendario y citas
+      expect(items.length).toBe(8); // Companies + Sales + Products + Stock by store + Purchases + Users Admin + Calendario y citas + Recursos Humanos
     });
 
     it('should reset isSalesRole on AuthLogout event', () => {
@@ -750,6 +750,89 @@ describe('Header', () => {
 
       const childless = navItems.find((li) => li.textContent?.includes('Products'));
       expect(childless?.querySelector('.submenu-trigger')).toBeNull();
+    });
+  });
+
+  // ─── HR menu gating (lc-admin / lc-department / lc-position / lc-seniority-level) ───
+
+  describe('human resources menu gating', () => {
+    it('should show the Recursos Humanos parent with only the Departamentos child for a department user', () => {
+      const { component } = setup(['lc-department']);
+      const items = component.items();
+
+      // A department-only user is in the HR write union and in nothing else, so
+      // the HR parent is the whole menu.
+      expect(items).toHaveLength(1);
+      expect(items[0]).toEqual({
+        id: '9',
+        routeLink: '/hr/departments',
+        textLink: 'Recursos Humanos',
+        icon: 'badge',
+        children: [
+          {
+            id: '9-1',
+            routeLink: '/hr/departments',
+            textLink: 'Departamentos',
+            icon: 'account_tree',
+          },
+        ],
+      });
+    });
+
+    it.each(['lc-department', 'lc-position', 'lc-seniority-level', 'lc-admin'])(
+      'should show the Recursos Humanos parent for %s',
+      (role) => {
+        const { component } = setup([role]);
+        expect(component.isHr()).toBe(true);
+        expect(component.items().some((i) => i.routeLink === '/hr/departments')).toBe(true);
+      },
+    );
+
+    it('should NOT show the Recursos Humanos parent for an unrelated role', () => {
+      const { component } = setup(['lc-sales']);
+      expect(component.isHr()).toBe(false);
+      expect(component.items().some((i) => i.routeLink === '/hr/departments')).toBe(false);
+    });
+
+    it('should reset isHr on AuthLogout event', () => {
+      const keycloakEventSignal = signal({
+        type: KeycloakEventType.Ready,
+        token: null,
+      });
+
+      TestBed.configureTestingModule({
+        providers: [
+          provideRouter([]),
+          provideLocationMocks(),
+          provideHttpClient(),
+          {
+            provide: Keycloak,
+            useValue: {
+              login: vi.fn(),
+              logout: vi.fn(),
+              accountManagement: vi.fn(),
+              hasRealmRole: vi.fn().mockReturnValue(false),
+              tokenParsed: {
+                resource_access: { 'life-control-client': { roles: ['lc-department'] } },
+              },
+              authenticated: true,
+            } as Partial<Keycloak>,
+          },
+          { provide: KEYCLOAK_EVENT_SIGNAL, useValue: keycloakEventSignal },
+        ],
+      });
+
+      const fixture = TestBed.createComponent(Header);
+      const component = fixture.componentInstance;
+      fixture.detectChanges();
+
+      expect(component.isHr()).toBe(true);
+
+      keycloakEventSignal.set({ type: KeycloakEventType.AuthLogout, token: null });
+      fixture.detectChanges();
+
+      expect(component.isHr()).toBe(false);
+      expect(component.items().some((i) => i.routeLink === '/hr/departments')).toBe(false);
     });
   });
 

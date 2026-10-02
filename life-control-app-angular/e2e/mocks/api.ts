@@ -47,6 +47,19 @@ export interface PageMock<T> {
   empty: boolean;
 }
 
+/** One department as `GET /api/companies/{companyId}/departments` returns it. */
+export interface DepartmentMock {
+  id: string;
+  companyId: string;
+  departmentCode: string;
+  departmentName: string;
+  description: string | null;
+  displayOrder: number | null;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface PurchaseOrderDetailMock {
   id: string;
   purchaseOrderId: string;
@@ -265,6 +278,31 @@ const SAMPLE_COUNTRIES: CountryMock[] = [
   },
 ];
 
+const SAMPLE_DEPARTMENTS: DepartmentMock[] = [
+  {
+    id: 'department-1',
+    companyId: 'company-1',
+    departmentCode: 'OPS',
+    departmentName: 'Operaciones',
+    description: 'Operaciones de planta',
+    displayOrder: 1,
+    enabled: true,
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+  },
+  {
+    id: 'department-2',
+    companyId: 'company-1',
+    departmentCode: 'FIN',
+    departmentName: 'Finanzas',
+    description: null,
+    displayOrder: 2,
+    enabled: false,
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+  },
+];
+
 /** Store chain the purchase orders and the inventory endpoints hang from. */
 const STORE_CHAIN = {
   companyId: 'company-1',
@@ -454,6 +492,8 @@ export interface ApiMockOptions {
   profile?: ProfileMock;
   /** Scheduling activity catalogue; the calendar's slots are derived from the request range. */
   schedulingActivities?: SchedulingActivityMock[];
+  /** Company-scoped department catalogue; the list filter is server-side on `includeDisabled`. */
+  departments?: DepartmentMock[];
 }
 
 /**
@@ -482,6 +522,9 @@ export async function installApiMock(page: Page, options: ApiMockOptions = {}): 
   const schedulingActivities: SchedulingActivityMock[] = options.schedulingActivities
     ? [...options.schedulingActivities]
     : [...SAMPLE_SCHEDULING_ACTIVITIES];
+  const departments: DepartmentMock[] = options.departments
+    ? [...options.departments]
+    : [...SAMPLE_DEPARTMENTS];
   // Per-test state: the base slots derive from the requested week, so what a booking
   // changes is the extra `booked` count and the appointments it appends. Both live
   // here so the week re-read after a booking renders the new numbers.
@@ -695,6 +738,90 @@ export async function installApiMock(page: Page, options: ApiMockOptions = {}): 
 
     if (path === '/api/profile' && method === 'GET') {
       await fulfillJson(route, profile, cors);
+      return;
+    }
+
+    // Department catalogue: stateful so create / edit / disable reflect back.
+    const departmentsRootMatch = /^\/api\/companies\/([^/]+)\/departments$/.exec(path);
+    if (departmentsRootMatch) {
+      const companyId = departmentsRootMatch[1];
+      if (method === 'GET') {
+        const url = new URL(request.url());
+        const includeDisabled = url.searchParams.get('includeDisabled') === 'true';
+        const rows = departments.filter(
+          (department) =>
+            department.companyId === companyId && (includeDisabled || department.enabled),
+        );
+        await fulfillJson(route, rows, cors);
+        return;
+      }
+      if (method === 'POST') {
+        const body = JSON.parse(request.postData() ?? '{}') as Partial<DepartmentMock>;
+        const now = new Date().toISOString();
+        const created: DepartmentMock = {
+          id: `e2e-department-${nextId++}`,
+          companyId,
+          departmentCode: body.departmentCode ?? '',
+          departmentName: body.departmentName ?? '',
+          description: body.description ?? null,
+          displayOrder: body.displayOrder ?? null,
+          enabled: body.enabled ?? true,
+          createdAt: now,
+          updatedAt: now,
+        };
+        departments.push(created);
+        await fulfillJson(route, created, cors, 201);
+        return;
+      }
+    }
+
+    const departmentItemMatch = /^\/api\/companies\/([^/]+)\/departments\/([^/]+)$/.exec(path);
+    if (departmentItemMatch) {
+      const companyId = departmentItemMatch[1];
+      const id = departmentItemMatch[2];
+      const index = departments.findIndex((d) => d.id === id && d.companyId === companyId);
+      if (index === -1) {
+        await fulfillJson(route, { status: 404, message: 'Departamento no encontrado' }, cors, 404);
+        return;
+      }
+      if (method === 'GET') {
+        await fulfillJson(route, departments[index], cors);
+        return;
+      }
+      if (method === 'PUT') {
+        departments[index] = {
+          ...departments[index],
+          ...(JSON.parse(request.postData() ?? '{}') as Partial<DepartmentMock>),
+          updatedAt: new Date().toISOString(),
+        };
+        await fulfillJson(route, departments[index], cors);
+        return;
+      }
+      if (method === 'DELETE') {
+        // Soft delete: the row is kept with `enabled` false.
+        departments[index] = { ...departments[index], enabled: false };
+        await route.fulfill({ status: 204, headers: cors, body: '' });
+        return;
+      }
+    }
+
+    const departmentEnableMatch = /^\/api\/companies\/([^/]+)\/departments\/([^/]+)\/enable$/.exec(
+      path,
+    );
+    if (departmentEnableMatch && method === 'PATCH') {
+      const companyId = departmentEnableMatch[1];
+      const id = departmentEnableMatch[2];
+      const index = departments.findIndex((d) => d.id === id && d.companyId === companyId);
+      if (index === -1) {
+        await fulfillJson(route, { status: 404, message: 'Departamento no encontrado' }, cors, 404);
+        return;
+      }
+      departments[index] = {
+        ...departments[index],
+        enabled: true,
+        updatedAt: new Date().toISOString(),
+      };
+      await fulfillJson(route, departments[index], cors);
       return;
     }
 

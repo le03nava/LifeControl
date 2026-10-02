@@ -14,7 +14,7 @@ import { MatDividerModule } from '@angular/material/divider';
 import { MatIconModule } from '@angular/material/icon';
 import { MatMenuModule } from '@angular/material/menu';
 import { Router, RouterModule } from '@angular/router';
-import { LC_RECEIVING, SCHEDULING_READ_ROLES } from '@core/security/roles';
+import { HR_WRITE_ROLES, LC_RECEIVING, SCHEDULING_READ_ROLES } from '@core/security/roles';
 import { Button, Hyperlink } from '@shared/ui';
 import { CompanyContextService } from '@shared/data/company-context.service';
 import Keycloak from 'keycloak-js';
@@ -52,6 +52,7 @@ export class Header implements OnInit {
   isReceiving = signal(false);
   isSalesRole = signal(false);
   isSchedulingRead = signal(false);
+  isHr = signal(false);
 
   /** User display name from Keycloak token — signal for template reactivity */
   userName = signal('');
@@ -163,6 +164,29 @@ export class Header implements OnInit {
       });
     }
 
+    // Recursos Humanos is appended last so the pinned product-order relations are
+    // untouched. Its visibility is the union of the three HR write sets (D17):
+    // anyone who can write in at least one HR catalog gets the entry, and each
+    // screen then gates its own controls on the narrower list. The `9-2` Puestos
+    // child arrives with W2b and `9-3` Empleados with `employee-registry`; a child
+    // with no destination is not rendered here.
+    if (this.isHr()) {
+      menuItems.push({
+        id: '9',
+        routeLink: '/hr/departments',
+        textLink: 'Recursos Humanos',
+        icon: 'badge',
+        children: [
+          {
+            id: '9-1',
+            routeLink: '/hr/departments',
+            textLink: 'Departamentos',
+            icon: 'account_tree',
+          },
+        ],
+      });
+    }
+
     return menuItems;
   });
 
@@ -206,6 +230,7 @@ export class Header implements OnInit {
         );
         this.isSalesRole.set(clientRoles.includes('lc-sales') || clientRoles.includes('lc-admin'));
         this.isSchedulingRead.set(SCHEDULING_READ_ROLES.some((role) => clientRoles.includes(role)));
+        this.isHr.set(HR_WRITE_ROLES.some((role) => clientRoles.includes(role)));
         this.updateUserFromToken();
       }
       if (event?.type === KeycloakEventType.AuthLogout) {
@@ -215,6 +240,7 @@ export class Header implements OnInit {
         this.isCompanyRole.set(false);
         this.isSalesRole.set(false);
         this.isSchedulingRead.set(false);
+        this.isHr.set(false);
         this.userName.set('');
       }
     });

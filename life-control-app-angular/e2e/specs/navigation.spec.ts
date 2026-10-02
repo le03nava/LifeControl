@@ -13,7 +13,23 @@ app.describe('Navigation and role-based menus', () => {
       await expect(page.getByRole('link', { name: 'Compras' })).toBeVisible();
       await expect(page.getByRole('link', { name: 'Users Admin' })).toBeVisible();
       await expect(page.getByRole('link', { name: 'Calendario y citas' })).toBeVisible();
+      await expect(page.getByRole('link', { name: 'Recursos Humanos' })).toBeVisible();
     });
+
+    app(
+      'reaches the departments screen from the Recursos Humanos entry (E53)',
+      async ({ page }) => {
+        await page.goto('/');
+
+        const hrLink = page.getByRole('link', { name: 'Recursos Humanos' });
+        await expect(hrLink).toBeVisible();
+
+        await hrLink.click();
+
+        await expect(page).toHaveURL(/\/hr\/departments$/);
+        await expect(page.getByRole('heading', { name: 'Departamentos' })).toBeVisible();
+      },
+    );
 
     app('loads the companies dashboard and the companies list', async ({ page }) => {
       await page.goto('/companies');

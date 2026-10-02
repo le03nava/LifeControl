@@ -27,6 +27,9 @@ export const LC_COMPANY_STORE = 'lc-company-store';
 export const LC_COMPANY_STORE_READ = 'lc-company-store-read';
 export const LC_SCHEDULING = 'lc-scheduling';
 export const LC_SCHEDULING_READ = 'lc-scheduling-read';
+export const LC_DEPARTMENT = 'lc-department';
+export const LC_POSITION = 'lc-position';
+export const LC_SENIORITY_LEVEL = 'lc-seniority-level';
 
 /** Const array mirroring `Roles.java`. */
 export const CLIENT_ROLES = [
@@ -45,6 +48,9 @@ export const CLIENT_ROLES = [
   LC_COMPANY_STORE_READ,
   LC_SCHEDULING,
   LC_SCHEDULING_READ,
+  LC_DEPARTMENT,
+  LC_POSITION,
+  LC_SENIORITY_LEVEL,
 ] as const;
 
 /**
@@ -107,6 +113,51 @@ export const SCHEDULING_READ_ROLES = [LC_ADMIN, LC_SCHEDULING, LC_SCHEDULING_REA
  * write nor a read role stays gated too.
  */
 export const SCHEDULING_WRITE_ROLES = [LC_ADMIN, LC_SCHEDULING];
+
+/**
+ * Roles allowed to create, edit, disable or re-enable a department.
+ *
+ * Mirrors the `@PreAuthorize` write set of `DepartmentController`, which gates
+ * every write on `hasAnyRole('lc-admin','lc-department')`. A flat allow-list,
+ * not a role hierarchy. The reads of the same controller are `isAuthenticated()`
+ * only, so the screen keeps its informative text for every authenticated caller
+ * and gates its controls on this list; it is also the write set the
+ * `departments` `create` and `edit/:id` routes carry.
+ */
+export const DEPARTMENT_WRITE_ROLES = [LC_ADMIN, LC_DEPARTMENT];
+
+/**
+ * Roles allowed to create, edit, disable or re-enable a position.
+ *
+ * Mirrors the `@PreAuthorize` write set of `PositionController`, which gates
+ * every write on `hasAnyRole('lc-admin','lc-position')`. Registered now, with
+ * the departments slice, so the positions screens do not have to re-edit this
+ * file; the `positions` routes are its first consumer.
+ */
+export const POSITION_WRITE_ROLES = [LC_ADMIN, LC_POSITION];
+
+/**
+ * Roles allowed to create, edit, disable or re-enable a global seniority level.
+ *
+ * Mirrors the `@PreAuthorize` write set of `SeniorityLevelController`, which
+ * gates every write on `hasAnyRole('lc-admin','lc-seniority-level')`. Registered
+ * now for the same reason as {@link POSITION_WRITE_ROLES}: the seniority-level
+ * screen is the secondary read reached from Puestos, and its write routes are
+ * its first consumer.
+ */
+export const SENIORITY_LEVEL_WRITE_ROLES = [LC_ADMIN, LC_SENIORITY_LEVEL];
+
+/**
+ * Union of the three HR write sets — the set that decides whether the
+ * `Recursos Humanos` menu entry is rendered (D17).
+ *
+ * This is a **menu-visibility set, not a gate for any endpoint**: the header
+ * offers the entry to anyone who can write in at least one HR catalog, and each
+ * screen then gates its own controls on the narrower list above. It is also not
+ * a read roster: every HR read endpoint admits any authenticated caller, and a
+ * holder of no HR write role still reads them, only without the menu entry.
+ */
+export const HR_WRITE_ROLES = [LC_ADMIN, LC_DEPARTMENT, LC_POSITION, LC_SENIORITY_LEVEL];
 
 /**
  * Returns `true` when the authenticated user holds at least one of `roles` as a
