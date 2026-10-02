@@ -39,3 +39,6 @@ jobs:
 
       - name: JAR version consistency tests
         run: ./docker/scripts/tests/version-consistency.test.sh
+
+      - name: Keycloak setup offline behaviour tests
+        run: ./docker/scripts/tests/keycloak-setup.test.sh
