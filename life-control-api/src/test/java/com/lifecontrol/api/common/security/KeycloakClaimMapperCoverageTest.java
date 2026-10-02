@@ -12,8 +12,8 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
 /**
- * Pins the Keycloak protocol mappers in {@code docker/scripts/keycloak-setup.sh} to the claims
- * {@link ScopeLevel} reads.
+ * Pins the Keycloak protocol mappers in {@code docker/scripts/keycloak-setup.sh}, and the realm's
+ * unmanaged-attribute policy they depend on, to the claims {@link ScopeLevel} reads.
  *
  * <p>{@link ScopeLevel} is the single source of truth for the five scoped-authorization claim names,
  * and {@code CurrentUserContext} reads them straight out of the top level of the JWT. Nothing in the
@@ -25,15 +25,18 @@ import org.junit.jupiter.api.Test;
  * <p>This test closes that gap deterministically and offline: it reads the script's {@code
  * TENANCY_CLAIMS} array and asserts <b>set equality in both directions</b> with {@code
  * ScopeLevel.values()}. The forward direction catches "the code reads a claim nobody provisions"; the
- * reverse direction catches drift and unprovisioned extras. A third assertion verifies the script
- * actually creates the mappers (not merely lists the claims) and that they are
- * {@code oidc-usermodel-attribute-mapper}s with the multivalued flag enabled, which is what makes a
- * multi-store attribute arrive as a JSON array instead of a single collapsed value. It starts no
- * Spring context, touches no network, and depends on no timing.</p>
+ * reverse direction catches drift and unprovisioned extras. A third assertion bounds the script's
+ * mapper loop and verifies the loop body actually binds every declared claim — the mapper name, the
+ * emitted token claim and the user attribute all come from the loop variable — as an {@code
+ * oidc-usermodel-attribute-mapper} with the multivalued flag enabled, which is what makes a
+ * multi-store attribute arrive as a JSON array instead of a single collapsed value. A fourth
+ * assertion pins the realm policy that makes those attributes storable at all. It starts no Spring
+ * context, touches no network, and depends on no timing.</p>
  *
  * <p>Known limitation: this asserts a convention. The script must declare its claims as literal
- * lines strictly between {@code TENANCY_CLAIMS=(} and its closing {@code )}. If that shape changes,
- * the anchor assertions below fail loudly instead of passing vacuously.</p>
+ * lines strictly between {@code TENANCY_CLAIMS=(} and its closing {@code )}, and must keep the mapper
+ * loop headed by {@code for claim in "${TENANCY_CLAIMS[@]}"} and terminated by its {@code done}. If
+ * that shape changes, the anchor assertions below fail loudly instead of passing vacuously.</p>
  *
  * @see ScopeLevel#claim()
  */
@@ -45,8 +48,23 @@ class KeycloakClaimMapperCoverageTest {
     /** The explicit bash array the setup script declares; this test's stable anchor. */
     private static final String TENANCY_CLAIMS_DECLARATION = "TENANCY_CLAIMS=(";
 
+    /** The loop header the mapper block is bounded to, and the claim its body binds. */
+    private static final String MAPPER_LOOP_HEADER = "for claim in \"${TENANCY_CLAIMS[@]}\"; do";
+
+    /** The line that closes the mapper loop: the block ends here, not at the claims array. */
+    private static final String MAPPER_LOOP_TERMINATOR = "\ndone";
+
     /** The only protocol mapper type that turns a user attribute into a top-level token claim. */
     private static final String USER_ATTRIBUTE_MAPPER = "oidc-usermodel-attribute-mapper";
+
+    /** Binds the mapper's name to the loop variable; a literal here provisions only one claim. */
+    private static final String NAME_BINDING = "-s name=\"$claim\"";
+
+    /** Binds the emitted token claim to the loop variable, written the way the script writes it. */
+    private static final String CLAIM_NAME_BINDING = "-s \"config.\"claim.name\"=$claim\"";
+
+    /** Binds the user attribute the mapper reads to the loop variable. */
+    private static final String USER_ATTRIBUTE_BINDING = "-s \"config.\"user.attribute\"=$claim\"";
 
     /**
      * The load-bearing config flag, written the way the script writes it after shell unescaping.
@@ -54,10 +72,20 @@ class KeycloakClaimMapperCoverageTest {
      * <p>Without it Keycloak collapses a multivalued user attribute to its first value instead of
      * emitting a JSON array, and multi-store callers silently lose scopes.</p>
      */
-    private static final String MULTIVALUED_CONFIG = "config.\"multivalued\"=true";
+    private static final String MULTIVALUED_BINDING = "-s \"config.\"multivalued\"=true\"";
 
     /** The resource kcadm reads and writes the declarative user-profile policy through. */
     private static final String USER_PROFILE_RESOURCE = "users/profile";
+
+    /**
+     * The kcadm invocation that must carry the policy assignment itself, not a nearby line.
+     *
+     * <p>Asserted as a line prefix, not as a substring: a diagnostic or comment that merely quotes
+     * the command would otherwise satisfy the assertion without the value ever reaching the command.
+     * The script keeps this invocation on one line, which is the same kind of declared convention the
+     * {@code TENANCY_CLAIMS} anchor is.</p>
+     */
+    private static final String POLICY_UPDATE_COMMAND = "kcadm update " + USER_PROFILE_RESOURCE;
 
     /**
      * The policy value that keeps unmanaged attributes storable once an administrator writes them.
@@ -110,23 +138,55 @@ class KeycloakClaimMapperCoverageTest {
         String mapperBlock = mapperCreationBlock(setupScript()).replace("\\", "");
 
         assertTrue(
+                mapperBlock.contains(MAPPER_LOOP_HEADER),
+                "The bounded mapper block in "
+                        + SETUP_SCRIPT
+                        + " must begin at the loop header "
+                        + MAPPER_LOOP_HEADER
+                        + " and bind the claim through the loop variable, but it does not; the bound in this"
+                        + " test no longer matches the script's mapper loop.");
+        assertTrue(
                 mapperBlock.contains(USER_ATTRIBUTE_MAPPER),
-                "The mapper-creation block after "
-                        + TENANCY_CLAIMS_DECLARATION
-                        + " in "
+                "The mapper-creation loop in "
                         + SETUP_SCRIPT
                         + " must create "
                         + USER_ATTRIBUTE_MAPPER
-                        + " mappers reading user attributes, but the block contains no such mapper type.");
-
+                        + " mappers reading user attributes, but the loop body contains no such mapper type.");
         assertTrue(
-                mapperBlock.contains(MULTIVALUED_CONFIG),
-                "The mapper-creation block in "
+                mapperBlock.contains(NAME_BINDING),
+                "The mapper-creation loop in "
+                        + SETUP_SCRIPT
+                        + " must bind the mapper name to the loop variable ("
+                        + NAME_BINDING
+                        + "), but it does not. A literal name provisions only one claim, so the remaining "
+                        + TENANCY_CLAIMS_DECLARATION
+                        + " claims never reach the token and their callers are denied.");
+        assertTrue(
+                mapperBlock.contains(CLAIM_NAME_BINDING),
+                "The mapper-creation loop in "
+                        + SETUP_SCRIPT
+                        + " must bind config.\"claim.name\" to the loop variable ("
+                        + CLAIM_NAME_BINDING
+                        + "), but it does not. Without it the emitted token claim is not the one "
+                        + TENANCY_CLAIMS_DECLARATION
+                        + " declares.");
+        assertTrue(
+                mapperBlock.contains(USER_ATTRIBUTE_BINDING),
+                "The mapper-creation loop in "
+                        + SETUP_SCRIPT
+                        + " must bind config.\"user.attribute\" to the loop variable ("
+                        + USER_ATTRIBUTE_BINDING
+                        + "), but it does not. Without it the mapper reads no user attribute, so no tenancy"
+                        + " value reaches the token.");
+        assertTrue(
+                mapperBlock.contains(MULTIVALUED_BINDING),
+                "The mapper-creation loop in "
                         + SETUP_SCRIPT
                         + " must set "
-                        + MULTIVALUED_CONFIG
-                        + ". Without it Keycloak collapses a multivalued user attribute to a single value"
-                        + " instead of emitting a JSON array, and multi-store callers silently lose scopes.");
+                        + MULTIVALUED_BINDING
+                        + ", but it does not. Without it Keycloak collapses a multivalued user attribute to a"
+                        + " single value instead of emitting a JSON array, and multi-store callers silently"
+                        + " lose scopes.");
     }
 
     /**
@@ -143,27 +203,30 @@ class KeycloakClaimMapperCoverageTest {
     void theSetupScriptMakesUnmanagedAttributesStorable() throws IOException {
         String script = setupScript();
         String setting = "unmanagedAttributePolicy=" + UNMANAGED_ATTRIBUTE_POLICY;
-        boolean setsPolicy = Stream.of(script.split("\n"))
+        boolean updatesPolicy = Stream.of(script.split("\n"))
                 .map(String::trim)
                 .filter(line -> !line.startsWith("#"))
-                .anyMatch(line -> line.contains(USER_PROFILE_RESOURCE) && line.contains(setting));
+                .anyMatch(line -> line.startsWith(POLICY_UPDATE_COMMAND) && line.contains(setting));
 
         assertTrue(
-                setsPolicy,
+                updatesPolicy,
                 "The setup script "
                         + SETUP_SCRIPT
-                        + " never updates "
-                        + USER_PROFILE_RESOURCE
-                        + " with "
+                        + " never runs a line that *starts with* `"
+                        + POLICY_UPDATE_COMMAND
+                        + "` and carries "
                         + setting
-                        + ". The realm's declarative user profile has unmanaged attributes disabled, so"
-                        + " the tenancy attributes the mappers above read are silently DISCARDED: the admin"
-                        + " REST API still answers 204, the attribute reads back as null, no claim reaches the"
-                        + " token, and every scoped caller is denied. No Java test can see it, because it"
-                        + " happens inside Keycloak. Set it to "
+                        + ". The realm's declarative user profile has unmanaged attributes disabled, so the"
+                        + " tenancy attributes the mappers read are silently DISCARDED: the admin REST API still"
+                        + " answers 204, the attribute reads back as null, no claim reaches the token, and every"
+                        + " scoped caller is denied. No Java test can see it, because it happens inside Keycloak."
+                        + " The assignment is required on the update command itself: a read-back or diagnostic"
+                        + " line that merely mentions "
+                        + setting
+                        + " does not prove the value reaches the command. Set it to "
                         + UNMANAGED_ATTRIBUTE_POLICY
-                        + " (never ENABLED: the administrator endpoints are the write path, and a subject"
-                        + " must not be able to assign itself a tenancy).");
+                        + " (never ENABLED: the administrator endpoints are the write path, and a subject must"
+                        + " not be able to assign itself a tenancy).");
     }
 
     /** The claim names this repository reads, derived from {@link ScopeLevel}. */
@@ -186,9 +249,34 @@ class KeycloakClaimMapperCoverageTest {
         return claims;
     }
 
-    /** Everything the script does after listing the claims — where the mappers must be created. */
+    /**
+     * The tenancy mapper loop: from the {@code for claim in "${TENANCY_CLAIMS[@]}"} header to its
+     * terminating {@code done}.
+     *
+     * <p>Bounded to the loop so text elsewhere in the script (for example a comment describing the
+     * mappers, or a helper used by them) cannot satisfy the assertions above. "Everything after the
+     * claims array" was too broad: it accepted a binding that had drifted out of the loop.</p>
+     */
     private static String mapperCreationBlock(String script) {
-        return script.substring(tenancyClaimsDeclarationEnd(script) + 1);
+        int start = script.indexOf(MAPPER_LOOP_HEADER);
+        assertTrue(
+                start >= 0,
+                "The setup script "
+                        + SETUP_SCRIPT
+                        + " no longer contains the mapper loop header "
+                        + MAPPER_LOOP_HEADER
+                        + " this test bounds its assertions to. Restore the loop shape, or update this test's"
+                        + " bound, so the claim-to-mapper binding stays pinned.");
+        int end = script.indexOf(MAPPER_LOOP_TERMINATOR, start);
+        assertTrue(
+                end > start,
+                "The mapper loop starting at offset "
+                        + start
+                        + " in "
+                        + SETUP_SCRIPT
+                        + " has no terminating line starting with 'done', so this test cannot bound the block it"
+                        + " asserts on.");
+        return script.substring(start, end);
     }
 
     private static int tenancyClaimsDeclarationStart(String script) {
