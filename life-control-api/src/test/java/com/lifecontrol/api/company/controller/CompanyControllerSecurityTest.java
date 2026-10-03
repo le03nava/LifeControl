@@ -74,7 +74,16 @@ class CompanyControllerSecurityTest {
 
     private CompanyRequest buildCompanyRequest() {
         return new CompanyRequest(
-                "1", "Test Company", 1, "Razon Social", "XAXX010101000", "+1234567890", "test@company.com", true, null);
+                "1",
+                "Test Company",
+                1,
+                "Razon Social",
+                "XAXX010101000",
+                "+1234567890",
+                "test@company.com",
+                null,
+                true,
+                null);
     }
 
     // ─── GET /api/companies ──────────────────────────────────
@@ -96,6 +105,7 @@ class CompanyControllerSecurityTest {
                     "XAXX010101000",
                     "555",
                     "e@e.com",
+                    null,
                     true,
                     LocalDateTime.now(),
                     LocalDateTime.now(),
@@ -133,6 +143,7 @@ class CompanyControllerSecurityTest {
                     "XAXX010101000",
                     "555",
                     "e@e.com",
+                    null,
                     true,
                     LocalDateTime.now(),
                     LocalDateTime.now(),
@@ -163,6 +174,7 @@ class CompanyControllerSecurityTest {
                     "XAXX010101000",
                     "555",
                     "e@e.com",
+                    null,
                     true,
                     LocalDateTime.now(),
                     LocalDateTime.now(),
@@ -185,6 +197,7 @@ class CompanyControllerSecurityTest {
                     "XAXX010101000",
                     "555",
                     "e@e.com",
+                    null,
                     true,
                     LocalDateTime.now(),
                     LocalDateTime.now(),
@@ -221,6 +234,7 @@ class CompanyControllerSecurityTest {
                     "XAXX010101000",
                     "555",
                     "e@e.com",
+                    null,
                     true,
                     LocalDateTime.now(),
                     LocalDateTime.now(),
@@ -266,6 +280,7 @@ class CompanyControllerSecurityTest {
                     "XAXX010101000",
                     "555",
                     "e@e.com",
+                    null,
                     true,
                     LocalDateTime.now(),
                     LocalDateTime.now(),
@@ -298,6 +313,7 @@ class CompanyControllerSecurityTest {
                     "XAXX010101000",
                     "555",
                     "e@e.com",
+                    null,
                     true,
                     LocalDateTime.now(),
                     LocalDateTime.now(),
@@ -323,6 +339,7 @@ class CompanyControllerSecurityTest {
                     "XAXX010101000",
                     "555",
                     "e@e.com",
+                    null,
                     true,
                     LocalDateTime.now(),
                     LocalDateTime.now(),
@@ -396,6 +413,7 @@ class CompanyControllerSecurityTest {
                     "XAXX010101000",
                     "555",
                     "e@e.com",
+                    null,
                     true,
                     LocalDateTime.now(),
                     LocalDateTime.now(),
@@ -421,6 +439,7 @@ class CompanyControllerSecurityTest {
                     "XAXX010101000",
                     "555",
                     "e@e.com",
+                    null,
                     true,
                     LocalDateTime.now(),
                     LocalDateTime.now(),

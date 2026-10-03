@@ -13,6 +13,7 @@ public record CompanyResponse(
         String rfc,
         String phone,
         String email,
+        String emailDomain,
         Boolean enabled,
         LocalDateTime createdAt,
         LocalDateTime updatedAt,

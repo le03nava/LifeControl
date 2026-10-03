@@ -37,6 +37,15 @@ describe('CompaniesForm', () => {
         validators: [Validators.required, Validators.pattern(/^[A-ZÑ&]{3,4}\d{6}[A-Z\d]{3}$/)],
       }),
       email: new FormControl('', { nonNullable: true, validators: [Validators.email] }),
+      emailDomain: new FormControl('', {
+        nonNullable: true,
+        validators: [
+          Validators.pattern(
+            /^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$/,
+          ),
+          Validators.maxLength(255),
+        ],
+      }),
       phone: new FormControl('', {
         nonNullable: true,
         validators: [Validators.pattern(/^\+?\d{10,13}$/)],
@@ -100,6 +109,43 @@ describe('CompaniesForm', () => {
     expect(matIcons[0].textContent).toContain('mail');
     expect(matIcons[1].textContent).toContain('phone');
     expect(matIcons[2].textContent).toContain('location_on');
+  });
+
+  it('should render the emailDomain field with its label and hint', () => {
+    const formField = fixture.nativeElement
+      .querySelector('input[formControlName="emailDomain"]')
+      ?.closest('mat-form-field');
+
+    expect(formField).not.toBeNull();
+    expect(formField?.querySelector('mat-label')?.textContent).toContain('Dominio de correo');
+    expect(formField?.querySelector('mat-hint')?.textContent).toContain(
+      'Se usa para generar el correo corporativo de los empleados',
+    );
+  });
+
+  it('should cap the emailDomain input at the backend limit', () => {
+    const input = fixture.nativeElement.querySelector('input[formControlName="emailDomain"]');
+
+    expect(input).not.toBeNull();
+    expect(input?.getAttribute('maxlength')).toBe('255');
+  });
+
+  it('should render the maxlength message on the emailDomain mat-error', () => {
+    const control = component.formGroup().controls.emailDomain;
+    control.setValue(`${'a'.repeat(252)}.com`);
+    control.markAsTouched();
+    fixture.detectChanges();
+
+    const formField = fixture.nativeElement
+      .querySelector('input[formControlName="emailDomain"]')
+      ?.closest('mat-form-field');
+
+    expect(control.hasError('maxlength')).toBe(true);
+    // The exact sentence, not a substring: it pins the custom entry against the generic
+    // `defaultErrorMessages.maxlength` fallback, which reads "No puede superar los 255 caracteres.".
+    expect(formField?.querySelector('mat-error')?.textContent?.trim()).toBe(
+      'El dominio no puede superar los 255 caracteres.',
+    );
   });
 
   describe('serverErrors', () => {
@@ -197,6 +243,21 @@ describe('CompaniesForm', () => {
 
       expect(emitted).toBeDefined();
       expect(emitted!.address).toBeUndefined();
+    });
+
+    it('should emit the typed emailDomain', () => {
+      fillRequiredFields();
+      component.formGroup().controls.emailDomain.setValue('acme.com');
+
+      let emitted: Company | undefined;
+      component.saveCompany.subscribe((c: Company) => {
+        emitted = c;
+      });
+
+      component.onSave();
+
+      expect(emitted).toBeDefined();
+      expect(emitted!.emailDomain).toBe('acme.com');
     });
   });
 });

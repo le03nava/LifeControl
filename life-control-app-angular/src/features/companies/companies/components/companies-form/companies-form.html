@@ -66,6 +66,15 @@
     </mat-form-field>
 
     <mat-form-field appearance="outline">
+      <mat-label>Dominio de correo</mat-label>
+      <input matInput formControlName="emailDomain" placeholder="acme.com" maxlength="255" />
+      <mat-hint>Se usa para generar el correo corporativo de los empleados. Ej.: acme.com</mat-hint>
+      @if (getErrorMessage(formGroup().controls.emailDomain, emailDomainErrorMessages); as msg) {
+        <mat-error>{{ msg }}</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
       <mat-label>Teléfono</mat-label>
       <mat-icon matPrefix>phone</mat-icon>
       <input matInput formControlName="phone" placeholder="+52XXXXXXXXXX o 10 dígitos" />

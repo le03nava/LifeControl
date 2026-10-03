@@ -1,5 +1,6 @@
 package com.lifecontrol.api.company.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
@@ -27,6 +28,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -76,6 +78,7 @@ class CompanyControllerTest {
                 "XAXX010101000",
                 "+1234567890",
                 "test@company.com",
+                null,
                 true,
                 now,
                 now,
@@ -89,6 +92,7 @@ class CompanyControllerTest {
                 "XAXX010101000",
                 "+9876543210",
                 "updated@company.com",
+                null,
                 false,
                 null);
     }
@@ -192,6 +196,58 @@ class CompanyControllerTest {
         }
 
         @Test
+        @DisplayName("updateCompany - should pin the emailDomain wire name on request and response")
+        void updateCompany_EmailDomainWireName() throws Exception {
+            // Arrange - a renamed response field would degrade to `undefined` in the frontend type
+            // `emailDomain?: string` and render an empty input with no error anywhere.
+            var responseWithDomain = new CompanyResponse(
+                    testCompanyId,
+                    "1",
+                    "Test Company",
+                    1,
+                    "Razon Social Test SA de CV",
+                    "XAXX010101000",
+                    "+1234567890",
+                    "test@company.com",
+                    "acme.com",
+                    true,
+                    LocalDateTime.now(),
+                    LocalDateTime.now(),
+                    null);
+            when(companyService.updateCompany(eq(testCompanyId), any(CompanyRequest.class)))
+                    .thenReturn(responseWithDomain);
+
+            var requestWithDomain = new CompanyRequest(
+                    "1",
+                    "Updated Company",
+                    2,
+                    "Nueva Razon Social",
+                    "XAXX010101000",
+                    "+9876543210",
+                    "updated@company.com",
+                    "acme.com",
+                    false,
+                    null);
+
+            // Arrange - the request wire name matters as much as the response one: a renamed
+            // component would be dropped by the server, and `CompanyService.updateCompany` sets the
+            // domain unconditionally, so every edit would clear it instead of failing loudly.
+            var requestJson = objectMapper.writeValueAsString(requestWithDomain);
+            assertThat(requestJson).contains("\"emailDomain\":\"acme.com\"");
+
+            // Act & Assert
+            mockMvc.perform(put("/api/companies/{id}", testCompanyId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(requestJson))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.emailDomain").value("acme.com"));
+
+            var requestCaptor = ArgumentCaptor.forClass(CompanyRequest.class);
+            verify(companyService).updateCompany(eq(testCompanyId), requestCaptor.capture());
+            assertThat(requestCaptor.getValue().emailDomain()).isEqualTo("acme.com");
+        }
+
+        @Test
         @DisplayName("updateCompany - should return 404 Not Found when company not exists")
         void updateCompany_NotFound() throws Exception {
             // Arrange
@@ -231,6 +287,7 @@ class CompanyControllerTest {
                     null,
                     null,
                     "XAXX010101000",
+                    null,
                     null,
                     null,
                     null,

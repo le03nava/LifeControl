@@ -14,6 +14,7 @@ import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.country.exception.CountryNotFoundException;
 import com.lifecontrol.api.country.model.Country;
 import com.lifecontrol.api.country.repository.CountryRepository;
+import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -97,6 +98,7 @@ public class CompanyService {
                 .rfc(request.rfc())
                 .phone(request.phone())
                 .email(request.email())
+                .emailDomain(normalizeEmailDomain(request.emailDomain()))
                 .enabled(request.enabled() != null ? request.enabled() : true)
                 .address(buildAddress(request.address()))
                 .build();
@@ -133,6 +135,7 @@ public class CompanyService {
         company.setRfc(request.rfc());
         company.setPhone(request.phone());
         company.setEmail(request.email());
+        company.setEmailDomain(normalizeEmailDomain(request.emailDomain()));
         company.setEnabled(request.enabled() != null ? request.enabled() : true);
         // Update address (dual-path: update existing Address entity or create new one)
         if (request.address() != null) {
@@ -174,10 +177,29 @@ public class CompanyService {
                 company.getRfc(),
                 company.getPhone(),
                 company.getEmail(),
+                company.getEmailDomain(),
                 company.getEnabled(),
                 company.getCreatedAt(),
                 company.getUpdatedAt(),
                 buildAddressResponse(company));
+    }
+
+    /**
+     * Normalizes the corporate email domain to a single stored form: trimmed, lowercased with
+     * {@link Locale#ROOT}, and blank collapsed to {@code null}.
+     *
+     * <p>One case form is what keeps "one domain, one login identity" true: {@code EmployeeService}
+     * compares {@code requestedDomain.equalsIgnoreCase(company.getEmailDomain())}, the generated login
+     * identity embeds the domain verbatim, and {@code uq_employees_company_email} plus
+     * {@code EmployeeRepository.existsByCompanyIdAndEmail} are case-sensitive. Blank becomes
+     * {@code null} because a company without a domain fails the employee write path closed with a 400
+     * (feature decision D8), never an empty-string domain.
+     */
+    private static String normalizeEmailDomain(String emailDomain) {
+        if (emailDomain == null || emailDomain.isBlank()) {
+            return null;
+        }
+        return emailDomain.trim().toLowerCase(Locale.ROOT);
     }
 
     private AddressResponse buildAddressResponse(Company company) {

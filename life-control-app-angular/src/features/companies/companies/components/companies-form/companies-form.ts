@@ -49,6 +49,11 @@ export class CompaniesForm {
     email: () => 'Ingrese un correo electrónico válido.',
   };
 
+  protected readonly emailDomainErrorMessages: Record<string, (error: unknown) => string> = {
+    pattern: () => 'Ingrese un dominio válido (ej.: acme.com).',
+    maxlength: () => 'El dominio no puede superar los 255 caracteres.',
+  };
+
   protected readonly phoneErrorMessages: Record<string, (error: unknown) => string> = {
     pattern: () => 'Ingrese un número de teléfono válido.',
   };
@@ -142,6 +147,7 @@ export class CompaniesForm {
         razonSocial: raw.razonSocial,
         rfc: raw.rfc,
         email: raw.email,
+        emailDomain: raw.emailDomain ?? '',
         phone: raw.phone,
         enabled: raw.enabled,
         createdAt: '',
