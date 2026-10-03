@@ -1,8 +1,9 @@
 /// <reference types="vitest/globals" />
 import { Route, Routes } from '@angular/router';
 import { keycloakRoleGuard } from '@core/guards/auth-keycloak-guard';
-import { CLIENT_ID, DEPARTMENT_WRITE_ROLES } from '@core/security/roles';
+import { CLIENT_ID, DEPARTMENT_WRITE_ROLES, EMPLOYEE_WRITE_ROLES } from '@core/security/roles';
 import { hrRoutes } from './hr.routes';
+import { EmployeeEdit } from './pages/employee-edit/employee-edit';
 import { EmployeeList } from './pages/employee-list/employee-list';
 
 /**
@@ -88,8 +89,39 @@ describe('hr.routes', () => {
       expect(loaded).toBe(EmployeeList);
     });
 
-    it('should declare only the list child until W3b-3 registers create and edit', () => {
-      expect(employeesBranch().children?.map((route) => route.path)).toEqual(['']);
+    it('should register the list, create and edit children in that order', () => {
+      expect(employeesBranch().children?.map((route) => route.path)).toEqual([
+        '',
+        'create',
+        'edit/:id',
+      ]);
+    });
+
+    it('should carry the employee write roles and clientId on the create and edit children', () => {
+      const children = employeesBranch().children;
+      for (const path of ['create', 'edit/:id']) {
+        const writeChild = routeAt(children, path);
+        expect(writeChild.data?.['roles']).toEqual(EMPLOYEE_WRITE_ROLES);
+        expect(writeChild.data?.['clientId']).toBe(CLIENT_ID);
+      }
+    });
+
+    it('should guard both employee write children with keycloakRoleGuard', () => {
+      const children = employeesBranch().children;
+      for (const path of ['create', 'edit/:id']) {
+        expect(routeAt(children, path).canActivate).toContain(keycloakRoleGuard);
+      }
+    });
+
+    it('should resolve the lazy imports of the employee write children to EmployeeEdit', async () => {
+      const children = employeesBranch().children;
+      for (const path of ['create', 'edit/:id']) {
+        const writeChild = routeAt(children, path);
+        expect(typeof writeChild.loadComponent).toBe('function');
+
+        const loaded = await writeChild.loadComponent!();
+        expect(loaded).toBe(EmployeeEdit);
+      }
     });
   });
 });

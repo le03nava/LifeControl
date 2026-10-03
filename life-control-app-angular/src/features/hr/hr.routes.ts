@@ -1,6 +1,6 @@
 import { Routes } from '@angular/router';
 import { keycloakRoleGuard } from '@core/guards/auth-keycloak-guard';
-import { CLIENT_ID, DEPARTMENT_WRITE_ROLES } from '@core/security/roles';
+import { CLIENT_ID, DEPARTMENT_WRITE_ROLES, EMPLOYEE_WRITE_ROLES } from '@core/security/roles';
 
 /**
  * Feature routes for `/hr`.
@@ -16,13 +16,11 @@ import { CLIENT_ID, DEPARTMENT_WRITE_ROLES } from '@core/security/roles';
  * `canActivate`; a `data` block without its own guard would be inert.
  *
  * Both catalogs are registered here: `departments` with its read child and its
- * own write children, and `employees` with its read child only. The employees
- * slice registers **no** write child in this commit: its `create` and `edit/:id`
- * children arrive with `EmployeeEdit` (`W3b-3`), gated exactly like the
- * department write children, and the list page's "Nuevo empleado" / "Editar"
- * links point at routes this commit deliberately does not register yet, instead
- * of stubbing a page or a redirect. The `positions` catalog (`9-2`) still arrives
- * with its own later slice.
+ * own write children, and `employees` with its read child and its own write
+ * children (`create` and `edit/:id`, which load `EmployeeEdit`). The employees
+ * write children are gated exactly like their department siblings, and the list
+ * page's "Nuevo empleado" / "Editar" links now point at registered routes. The
+ * `positions` catalog (`9-2`) still arrives with its own later slice.
  */
 export const hrRoutes: Routes = [
   {
@@ -60,6 +58,20 @@ export const hrRoutes: Routes = [
             path: '',
             loadComponent: () =>
               import('./pages/employee-list/employee-list').then((m) => m.EmployeeList),
+          },
+          {
+            path: 'create',
+            canActivate: [keycloakRoleGuard],
+            data: { roles: EMPLOYEE_WRITE_ROLES, clientId: CLIENT_ID },
+            loadComponent: () =>
+              import('./pages/employee-edit/employee-edit').then((m) => m.EmployeeEdit),
+          },
+          {
+            path: 'edit/:id',
+            canActivate: [keycloakRoleGuard],
+            data: { roles: EMPLOYEE_WRITE_ROLES, clientId: CLIENT_ID },
+            loadComponent: () =>
+              import('./pages/employee-edit/employee-edit').then((m) => m.EmployeeEdit),
           },
         ],
       },

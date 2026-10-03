@@ -1,0 +1,152 @@
+<div class="employee-edit-page">
+  <div class="form-card">
+    <h2>
+      @if (isEditMode()) {
+        Editar Empleado
+      } @else {
+        Nuevo Empleado
+      }
+    </h2>
+
+    @if (loadError(); as loadErrorMsg) {
+      <app-error-banner class="error-state" [message]="loadErrorMsg" />
+    }
+
+    @if (submitError(); as submitErrorMsg) {
+      <app-error-banner class="error-state" [message]="submitErrorMsg" />
+    }
+
+    @if (loading()) {
+      <p class="loading-state">Cargando empleado…</p>
+    }
+
+    @let form = formGroup();
+
+    <form [formGroup]="form" (ngSubmit)="onSubmit()">
+      <!-- ─── Datos personales ──────────────────────────────── -->
+      <h3 class="section-title">Datos personales</h3>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Número de empleado</mat-label>
+        <input matInput type="text" formControlName="employeeNumber" placeholder="EMP-001" />
+        @if (getErrorMessage(form.controls.employeeNumber); as msg) {
+          <mat-error>{{ msg }}</mat-error>
+        }
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Nombre(s)</mat-label>
+        <input matInput type="text" formControlName="firstName" />
+        @if (getErrorMessage(form.controls.firstName); as msg) {
+          <mat-error>{{ msg }}</mat-error>
+        }
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Apellido paterno</mat-label>
+        <input matInput type="text" formControlName="paternalLastName" />
+        @if (getErrorMessage(form.controls.paternalLastName); as msg) {
+          <mat-error>{{ msg }}</mat-error>
+        }
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Apellido materno</mat-label>
+        <input matInput type="text" formControlName="maternalLastName" placeholder="Opcional" />
+        @if (getErrorMessage(form.controls.maternalLastName); as msg) {
+          <mat-error>{{ msg }}</mat-error>
+        }
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Correo electrónico</mat-label>
+        <input
+          matInput
+          type="email"
+          formControlName="email"
+          [readonly]="emailFrozen()"
+          placeholder="Opcional; se genera desde los nombres"
+        />
+        @if (getErrorMessage(form.controls.email); as msg) {
+          <mat-error>{{ msg }}</mat-error>
+        }
+      </mat-form-field>
+
+      @if (emailFrozen()) {
+        <p class="field-hint full-width">
+          El correo está congelado porque el empleado ya tiene acceso provisionado. Se conserva tal
+          cual y no se envía en el guardado.
+        </p>
+      } @else if (suggestionMessage(); as msg) {
+        <p class="suggestion suggestion-error full-width">{{ msg }}</p>
+      } @else if (suggestedEmail(); as email) {
+        <p class="suggestion full-width">
+          Sugerencia: <strong>{{ email }}</strong> (no reservado).
+          <button mat-button type="button" (click)="acceptSuggestion()">Usar esta dirección</button>
+        </p>
+      }
+
+      <mat-form-field appearance="outline">
+        <mat-label>Teléfono</mat-label>
+        <input matInput type="tel" formControlName="phoneNumber" placeholder="Opcional" />
+        @if (getErrorMessage(form.controls.phoneNumber); as msg) {
+          <mat-error>{{ msg }}</mat-error>
+        }
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Fecha de nacimiento</mat-label>
+        <input matInput type="date" formControlName="birthDate" />
+        @if (getErrorMessage(form.controls.birthDate); as msg) {
+          <mat-error>{{ msg }}</mat-error>
+        }
+      </mat-form-field>
+
+      <!-- ─── Datos laborales ───────────────────────────────── -->
+      <h3 class="section-title">Datos laborales</h3>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Fecha de ingreso</mat-label>
+        <input matInput type="date" formControlName="hireDate" />
+        @if (getErrorMessage(form.controls.hireDate); as msg) {
+          <mat-error>{{ msg }}</mat-error>
+        }
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Fecha de baja</mat-label>
+        <input matInput type="date" formControlName="terminationDate" />
+        @if (getErrorMessage(form.controls.terminationDate); as msg) {
+          <mat-error>{{ msg }}</mat-error>
+        }
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Estado</mat-label>
+        <mat-select
+          [value]="form.controls.statusId.value"
+          (selectionChange)="onStatusChange($event.value)"
+        >
+          @for (option of statusOptions(); track option.id) {
+            <mat-option [value]="option.id">{{ option.label }}</mat-option>
+          }
+        </mat-select>
+      </mat-form-field>
+
+      @if (statusCatalogueError(); as msg) {
+        <p class="suggestion suggestion-error full-width">{{ msg }}</p>
+      }
+
+      <div class="form-actions">
+        <button mat-button type="button" (click)="onCancel()">Cancelar</button>
+        <button mat-flat-button color="primary" type="submit" [disabled]="loading()">
+          @if (isEditMode()) {
+            Actualizar
+          } @else {
+            Guardar
+          }
+        </button>
+      </div>
+    </form>
+  </div>
+</div>

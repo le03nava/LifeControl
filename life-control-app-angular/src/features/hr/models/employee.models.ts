@@ -1,3 +1,5 @@
+import { FormControl } from '@angular/forms';
+
 /**
  * Wire model of a company-scoped employee.
  *
@@ -66,4 +68,18 @@ export interface EmployeeRequest {
 export interface EmployeeEmailSuggestion {
   email: string | null;
   reason: string | null;
+}
+
+/** Typed control map for the employee edit form's self-contained `FormGroup`. */
+export interface EmployeeControl {
+  employeeNumber: FormControl<string>;
+  firstName: FormControl<string>;
+  paternalLastName: FormControl<string>;
+  maternalLastName: FormControl<string | null>;
+  email: FormControl<string | null>;
+  phoneNumber: FormControl<string | null>;
+  birthDate: FormControl<string>;
+  hireDate: FormControl<string>;
+  terminationDate: FormControl<string | null>;
+  statusId: FormControl<string | null>;
 }
