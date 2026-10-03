@@ -606,6 +606,24 @@ class ContractServiceTest {
         }
 
         @Test
+        @DisplayName("a contract that starts today closed without a body is accepted and ends today")
+        void close_StartingTodayWithoutEndDate_EndsToday() {
+            employeeExists();
+            var today = LocalDate.now();
+            var open = contract(UUID.randomUUID(), today, null, true);
+            when(contractRepository.findByEmployeeIdAndId(employeeId, open.getId()))
+                    .thenReturn(Optional.of(open));
+            contractSaveReturnsArgument();
+
+            var result = contractService.closeContract(companyId, employeeId, open.getId(), null);
+
+            // Today is on or after the contract's own start date, so the close is accepted; the API
+            // endDate is today (today is covered) and the exclusive column bound is tomorrow (D14).
+            assertThat(result.endDate()).isEqualTo(today);
+            assertThat(open.getEndDate()).isEqualTo(today.plusDays(1));
+        }
+
+        @Test
         @DisplayName("an already-closed contract is a 409 and is not written again")
         void close_AlreadyClosed_IsRejected() {
             employeeExists();

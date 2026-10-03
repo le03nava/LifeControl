@@ -329,6 +329,14 @@ class ContractCrudIntegrationTest extends AbstractPostgresIntegrationTest {
                     .as("the day before the successor's start is covered by the predecessor: no one-day hole")
                     .isTrue();
             assertThat(endDateAtStart(employeeId, LocalDate.of(2026, 6, 1))).isNull();
+
+            // The user-visible consequence of the same fact, read back through the API: the history
+            // is newest first, so the predecessor is the second row and its inclusive endDate is the
+            // last day it covers, one day before the successor's start.
+            mockMvc.perform(get(BASE_URL, companyId, employeeId).with(jwt().authorities(ROLE_LC_ADMIN)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$[1].startDate").value("2026-01-01"))
+                    .andExpect(jsonPath("$[1].endDate").value("2026-05-31"));
         }
 
         @Test
