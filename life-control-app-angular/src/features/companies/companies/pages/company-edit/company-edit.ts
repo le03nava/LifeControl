@@ -28,6 +28,10 @@ import {
 import { CompaniesForm } from '@features/companies/companies/components/companies-form/companies-form';
 import { ErrorBanner } from '@shared/ui';
 
+/** Mirrors the backend domain shape: at least one dot, no leading/trailing hyphen, no whitespace, no @. */
+const EMAIL_DOMAIN_PATTERN =
+  /^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$/;
+
 @Component({
   selector: 'app-company-edit',
   imports: [ReactiveFormsModule, ErrorBanner, CompaniesForm],
@@ -90,6 +94,10 @@ export class CompanyEdit implements OnInit {
                 Validators.pattern(/^[A-Za-z0-9]{12,13}$/),
               ]),
               email: this.fb.control(company.email, Validators.email),
+              emailDomain: this.fb.control(company.emailDomain ?? '', [
+                Validators.pattern(EMAIL_DOMAIN_PATTERN),
+                Validators.maxLength(255),
+              ]),
               phone: this.fb.control(company.phone, Validators.pattern(/^(\+52\d{10}|\d{10})$/)),
               address: new FormGroup<AddressControl>({
                 street: new FormControl<string | null>(company.address?.street ?? null, {
@@ -139,6 +147,10 @@ export class CompanyEdit implements OnInit {
       razonSocial: this.fb.control('', Validators.required),
       rfc: this.fb.control('', [Validators.required, Validators.pattern(/^[A-Za-z0-9]{12,13}$/)]),
       email: this.fb.control('', Validators.email),
+      emailDomain: this.fb.control('', [
+        Validators.pattern(EMAIL_DOMAIN_PATTERN),
+        Validators.maxLength(255),
+      ]),
       phone: this.fb.control('', Validators.pattern(/^(\+52\d{10}|\d{10})$/)),
       address: new FormGroup<AddressControl>({
         street: new FormControl<string | null>(null, { nonNullable: false }),
