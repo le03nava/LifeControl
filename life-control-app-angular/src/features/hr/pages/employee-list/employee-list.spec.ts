@@ -228,6 +228,13 @@ describe('EmployeeList', () => {
     );
   }
 
+  /** The rendered include-disabled toggle's switch button. */
+  function includeDisabledToggle(): HTMLElement | null {
+    return (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(
+      'mat-slide-toggle button.mdc-switch',
+    );
+  }
+
   it('should create', () => {
     setup();
     expect(component).toBeTruthy();
@@ -287,7 +294,7 @@ describe('EmployeeList', () => {
     component.onIncludeDisabledChange(true);
     await settle();
 
-    expect(component.includeDisabled()).toBe(true);
+    expect(includeDisabledToggle()?.getAttribute('aria-checked')).toBe('true');
     expect(employeeService.getEmployees).toHaveBeenLastCalledWith(
       'company-1',
       undefined,
@@ -386,6 +393,30 @@ describe('EmployeeList', () => {
     await settle();
 
     expect(text()).toContain('No hay empleados registrados');
+    expect(text()).toContain('para crear el primero');
+    expect(text()).not.toContain('No hay coincidencias');
+  });
+
+  it('should render the filtered-empty copy when a status filter matches no rows', async () => {
+    setup({ queryCompanyId: 'company-1', rows: [] });
+    await settle();
+
+    component.onStatusChange('status-terminated');
+    await settle();
+
+    expect(text()).toContain('No hay coincidencias con los filtros aplicados');
+    expect(text()).not.toContain('No hay empleados registrados');
+    expect(text()).not.toContain('para crear el primero');
+  });
+
+  it('should render the filtered-empty copy when the search term matches no rows', async () => {
+    setup({ queryCompanyId: 'company-1', rows: [] });
+    await settle();
+
+    await typeAndDebounce('zzz');
+
+    expect(text()).toContain('No hay coincidencias con los filtros aplicados');
+    expect(text()).not.toContain('No hay empleados registrados');
   });
 
   it('should render the error state and retry', async () => {
@@ -483,7 +514,7 @@ describe('EmployeeList', () => {
       await settle();
 
       expect(statusService.loadEmployeeStatusIds).toHaveBeenCalledTimes(1);
-      expect(component.catalogueFailed()).toBe(false);
+      expect(component.catalogueResolved()).toBe(true);
       expect(component.statusOptions()).toEqual([
         { id: 'status-active', name: 'Active', label: 'Activo' },
         { id: 'status-inactive', name: 'Inactive', label: 'Inactivo' },
@@ -607,7 +638,23 @@ describe('EmployeeList', () => {
       component.onDisable(employee());
       await settle();
 
-      expect(dialog.open).toHaveBeenCalledWith(ConfirmDialog, expect.anything());
+      expect(dialog.open).toHaveBeenCalledWith(ConfirmDialog, {
+        data: {
+          title: 'Deshabilitar empleado',
+          message:
+            '¿Confirmás que querés deshabilitar a "Ana Gómez Ruiz"? Deja de aparecer en el registro, pero se conserva y podés habilitarlo más adelante.',
+          confirmLabel: 'Deshabilitar',
+          destructive: true,
+        },
+      });
+      // The copy names the disable (T3); it never conflates it with the Terminated status.
+      const [, config] = dialog.open.mock.calls[0] as [
+        unknown,
+        { data: { title: string; message: string; confirmLabel: string; destructive: boolean } },
+      ];
+      const copy = [config.data.title, config.data.message, config.data.confirmLabel].join(' ');
+      expect(copy).toMatch(/deshabilitar/i);
+      expect(copy).not.toMatch(/baja|Terminated/);
       expect(employeeService.removeEmployee).not.toHaveBeenCalled();
     });
 

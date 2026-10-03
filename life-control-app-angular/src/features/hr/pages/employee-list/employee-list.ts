@@ -129,6 +129,15 @@ export class EmployeeList {
   readonly selectedStatusId = signal<string>('');
   readonly includeDisabled = signal(false);
 
+  /**
+   * True when a server-side filter is narrowing the read, so an empty result
+   * means "no match" rather than "empty registry". Derived from the same
+   * signals the resource params read, not a separate source of truth.
+   */
+  readonly hasActiveFilters = computed(
+    () => this.debouncedSearch().trim() !== '' || this.selectedStatusId() !== '',
+  );
+
   /** A failed disable / re-enable, surfaced instead of swallowed. */
   readonly actionError = signal<string | null>(null);
 
@@ -137,6 +146,8 @@ export class EmployeeList {
   private readonly catalogueState = signal<CatalogueState>('loading');
   /** True when the catalogue could not be resolved; no option is offered then. */
   readonly catalogueFailed = computed(() => this.catalogueState() === 'failed');
+  /** True once the catalogue resolved successfully, distinct from `loading`. */
+  readonly catalogueResolved = computed(() => this.catalogueState() === 'resolved');
   /** The copy shown beside the empty status filter when the resolution failed. */
   readonly catalogueError = computed(() =>
     this.catalogueFailed() ? CATALOGUE_FAILED_MESSAGE : null,
@@ -219,7 +230,9 @@ export class EmployeeList {
 
   /**
    * Writes the selection back to the URL (replace, so the back button is not
-   * polluted by mid-page selector changes) and clears the dependent filter.
+   * polluted by mid-page selector changes). Only the `includeDisabled`
+   * widening is reset: the selected status is **kept**, because the status
+   * catalogue is global and not company-scoped.
    */
   onCompanyChange(companyId: string): void {
     const next = companyId || null;

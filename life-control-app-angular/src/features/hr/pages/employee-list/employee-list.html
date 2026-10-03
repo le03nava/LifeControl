@@ -143,9 +143,13 @@
       </mat-card>
     } @else {
       <div class="empty-state">
-        <h3 class="empty-title">No hay empleados registrados</h3>
-        @if (canWrite) {
-          <p class="empty-subtitle">Clic en "Nuevo empleado" para crear el primero</p>
+        @if (hasActiveFilters()) {
+          <h3 class="empty-title">No hay coincidencias con los filtros aplicados</h3>
+        } @else {
+          <h3 class="empty-title">No hay empleados registrados</h3>
+          @if (canWrite) {
+            <p class="empty-subtitle">Clic en "Nuevo empleado" para crear el primero</p>
+          }
         }
       </div>
     }
