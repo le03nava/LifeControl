@@ -45,6 +45,7 @@ describe('CompanyEdit', () => {
       razonSocial: 'Test SA',
       rfc: 'RFC123456789',
       email: 'test@test.com',
+      emailDomain: 'test.com',
       phone: '5551234567',
       enabled: true,
       createdAt: '',
@@ -73,6 +74,7 @@ describe('CompanyEdit', () => {
       razonSocial: 'Test Corp SA',
       rfc: 'XAXX010101000',
       email: 'corp@test.com',
+      emailDomain: 'test.com',
       phone: '555-0001',
       address: { ...defaultAddress },
       enabled: true,
@@ -268,6 +270,42 @@ describe('CompanyEdit', () => {
       expect(captured).toBeDefined();
       expect(captured!.address?.street).toBe('Av. Reforma');
       expect(captured!.address?.city).toBe('CDMX');
+    });
+  });
+
+  describe('emailDomain field', () => {
+    it('should include an emailDomain control in the create form', () => {
+      expect(component.companyForm().controls.emailDomain.value).toBe('');
+    });
+
+    it('should hydrate emailDomain from the loaded company', () => {
+      const company = createCompanyWithAddress({ emailDomain: 'acme.com' });
+      companyServiceMock.getCompanyById = vi.fn().mockReturnValue(of(company));
+
+      (component as unknown as { loadCompany: (id: string) => void }).loadCompany(company.id);
+      fixture.detectChanges();
+
+      expect(component.companyForm().controls.emailDomain.value).toBe('acme.com');
+    });
+
+    it('should fall back to an empty emailDomain when the loaded company has none', () => {
+      const company = createCompanyWithAddress({ emailDomain: null as unknown as string });
+      companyServiceMock.getCompanyById = vi.fn().mockReturnValue(of(company));
+
+      (component as unknown as { loadCompany: (id: string) => void }).loadCompany(company.id);
+      fixture.detectChanges();
+
+      expect(component.companyForm().controls.emailDomain.value).toBe('');
+    });
+
+    it('should reject an emailDomain longer than 255 characters', () => {
+      const control = component.companyForm().controls.emailDomain;
+
+      control.setValue(`${'a'.repeat(251)}.com`);
+      expect(control.valid).toBe(true);
+
+      control.setValue(`${'a'.repeat(252)}.com`);
+      expect(control.hasError('maxlength')).toBe(true);
     });
   });
 });

@@ -69,6 +69,7 @@ describe('CompanyModels — Country Types', () => {
       razonSocial: 'Test Corp SA',
       rfc: 'XAXX010101000',
       email: 'test@test.com',
+      emailDomain: 'acme.com',
       phone: '555-0001',
       enabled: true,
       createdAt: '2024-01-01',
@@ -76,6 +77,7 @@ describe('CompanyModels — Country Types', () => {
       countries: [],
     };
     expect(company.countries).toEqual([]);
+    expect(company.emailDomain).toBe('acme.com');
   });
 
   it('should allow Company without countries field', () => {
@@ -87,6 +89,7 @@ describe('CompanyModels — Country Types', () => {
       razonSocial: 'Other Corp SA',
       rfc: 'XAXX010101001',
       email: 'other@test.com',
+      emailDomain: 'other.com',
       phone: '555-0002',
       enabled: true,
       createdAt: '2024-01-01',
@@ -105,6 +108,7 @@ describe('CompanyModels — Country Types', () => {
       razonSocial: 'Addr Corp SA',
       rfc: 'XAXX010101002',
       email: 'addr@test.com',
+      emailDomain: 'addr.com',
       phone: '555-0003',
       address: {
         street: 'Av. Reforma',
@@ -139,6 +143,7 @@ describe('CompanyModels — Country Types', () => {
       razonSocial: 'No Addr Corp SA',
       rfc: 'XAXX010101003',
       email: 'noaddr@test.com',
+      emailDomain: 'noaddr.com',
       phone: '555-0004',
       enabled: true,
       createdAt: '2024-01-01',

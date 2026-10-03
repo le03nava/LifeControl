@@ -117,6 +117,7 @@ class CompanyServiceTest {
                 "XAXX010101000",
                 "+1234567890",
                 "test@company.com",
+                null,
                 true,
                 null);
 
@@ -128,6 +129,7 @@ class CompanyServiceTest {
                 "XAXX010101001",
                 "+9876543210",
                 "addr@company.com",
+                null,
                 true,
                 new AddressRequest(
                         "Av. Reforma", "456", "B", "Juarez", "67890", "Guadalajara", "Jalisco", testCountryId));
@@ -347,6 +349,7 @@ class CompanyServiceTest {
                     "XAXX010101000",
                     "+9876543210",
                     "updated@company.com",
+                    null,
                     false,
                     null);
 
@@ -383,6 +386,7 @@ class CompanyServiceTest {
                     null,
                     null,
                     "XAXX010101000",
+                    null,
                     null,
                     null,
                     null,
@@ -437,7 +441,7 @@ class CompanyServiceTest {
         void updateCompany_DuplicateRfc_ThrowsException() {
             // Arrange
             CompanyRequest duplicateRfcRequest =
-                    new CompanyRequest("1", "Test Company", null, null, "DUPLICATE_RFC", null, null, null, null);
+                    new CompanyRequest("1", "Test Company", null, null, "DUPLICATE_RFC", null, null, null, null, null);
 
             when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
             when(companyRepository.existsByRfcAndIdNot("DUPLICATE_RFC", testCompanyId))
@@ -459,6 +463,7 @@ class CompanyServiceTest {
                     null,
                     null,
                     "XAXX010101000",
+                    null,
                     null,
                     null,
                     null,
@@ -492,6 +497,7 @@ class CompanyServiceTest {
                     null,
                     null,
                     null,
+                    null,
                     null);
 
             when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
@@ -503,6 +509,99 @@ class CompanyServiceTest {
             CompanyResponse result = companyService.updateCompany(testCompanyId, sameRfcRequest);
             assertThat(result).isNotNull();
             assertThat(result.companyName()).isEqualTo("Updated Name");
+        }
+
+        @Test
+        @DisplayName("updateCompany - should lowercase the email domain")
+        void updateCompany_LowercasesEmailDomain() {
+            // Arrange
+            CompanyRequest updateRequest = new CompanyRequest(
+                    "1",
+                    "Test Company",
+                    1,
+                    "Razon Social",
+                    "XAXX010101000",
+                    "+1234567890",
+                    "test@company.com",
+                    "ACME.com",
+                    true,
+                    null);
+
+            when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
+            when(companyRepository.existsByRfcAndIdNot(any(), eq(testCompanyId)))
+                    .thenReturn(false);
+            when(companyRepository.save(any(Company.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            // Act
+            CompanyResponse result = companyService.updateCompany(testCompanyId, updateRequest);
+
+            // Assert
+            assertThat(result.emailDomain()).isEqualTo("acme.com");
+        }
+
+        /**
+         * Defense-in-depth for a value the HTTP boundary cannot deliver: {@code @Pattern} rejects a
+         * whitespace-only domain with a 400 before the service runs, so over HTTP only {@code null}
+         * (the field omitted) and {@code ""} — the empty string the DTO accepts through its {@code ^$}
+         * alternative — reach this method, and both clear to {@code null}.
+         */
+        @Test
+        @DisplayName("updateCompany - should clear the email domain when blank or whitespace")
+        void updateCompany_BlankEmailDomain_ClearsToNull() {
+            // Arrange
+            testCompany.setEmailDomain("acme.com");
+            CompanyRequest updateRequest = new CompanyRequest(
+                    "1",
+                    "Test Company",
+                    1,
+                    "Razon Social",
+                    "XAXX010101000",
+                    "+1234567890",
+                    "test@company.com",
+                    "   ",
+                    true,
+                    null);
+
+            when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
+            when(companyRepository.existsByRfcAndIdNot(any(), eq(testCompanyId)))
+                    .thenReturn(false);
+            when(companyRepository.save(any(Company.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            // Act
+            CompanyResponse result = companyService.updateCompany(testCompanyId, updateRequest);
+
+            // Assert
+            assertThat(result.emailDomain()).isNull();
+            assertThat(testCompany.getEmailDomain()).isNull();
+        }
+
+        @Test
+        @DisplayName("updateCompany - should not crash when the email domain is null")
+        void updateCompany_NullEmailDomain_NoCrash() {
+            // Arrange
+            testCompany.setEmailDomain("acme.com");
+            CompanyRequest updateRequest = new CompanyRequest(
+                    "1",
+                    "Test Company",
+                    1,
+                    "Razon Social",
+                    "XAXX010101000",
+                    "+1234567890",
+                    "test@company.com",
+                    null,
+                    true,
+                    null);
+
+            when(companyRepository.findById(testCompanyId)).thenReturn(Optional.of(testCompany));
+            when(companyRepository.existsByRfcAndIdNot(any(), eq(testCompanyId)))
+                    .thenReturn(false);
+            when(companyRepository.save(any(Company.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            // Act
+            CompanyResponse result = companyService.updateCompany(testCompanyId, updateRequest);
+
+            // Assert
+            assertThat(result.emailDomain()).isNull();
         }
     }
 
@@ -591,6 +690,7 @@ class CompanyServiceTest {
                     "XAXX010101001",
                     "+9876543210",
                     "addr@company.com",
+                    null,
                     true,
                     new AddressRequest("Av. Reforma", "456", "B", "Juarez", "67890", "Guadalajara", "Jalisco", null));
 
@@ -640,6 +740,7 @@ class CompanyServiceTest {
                     "XAXX010101002",
                     "+1111111111",
                     "noaddr@company.com",
+                    null,
                     true,
                     null);
 
@@ -653,6 +754,36 @@ class CompanyServiceTest {
             // Assert
             assertThat(result).isNotNull();
             assertThat(result.address()).isNull();
+        }
+
+        @Test
+        @DisplayName("createCompany - should store and return the normalized email domain")
+        void createCompany_StoresEmailDomain() {
+            // Arrange
+            CompanyRequest request = new CompanyRequest(
+                    "1",
+                    "Test Company",
+                    1,
+                    "Razon Social",
+                    "XAXX010101000",
+                    "+1234567890",
+                    "test@company.com",
+                    "  Acme.COM  ",
+                    true,
+                    null);
+
+            when(companyRepository.existsByCompanyKey(any())).thenReturn(false);
+            when(companyRepository.existsByRfc(any())).thenReturn(false);
+            when(companyRepository.save(any(Company.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            // Act
+            CompanyResponse result = companyService.createCompany(request);
+
+            // Assert
+            assertThat(result.emailDomain()).isEqualTo("acme.com");
+            var captor = ArgumentCaptor.forClass(Company.class);
+            verify(companyRepository).save(captor.capture());
+            assertThat(captor.getValue().getEmailDomain()).isEqualTo("acme.com");
         }
     }
 }
