@@ -33,6 +33,9 @@ public class Company extends Auditable {
 
     private String email;
 
+    @Column(name = "email_domain", length = 255)
+    private String emailDomain;
+
     @Column(nullable = false)
     private Boolean enabled = true;
 
@@ -100,6 +103,10 @@ public class Company extends Auditable {
 
     public String getEmail() {
         return email;
+    }
+
+    public String getEmailDomain() {
+        return emailDomain;
     }
 
     public Boolean getEnabled() {
@@ -173,6 +180,10 @@ public class Company extends Auditable {
 
     public void setEmail(String email) {
         this.email = email;
+    }
+
+    public void setEmailDomain(String emailDomain) {
+        this.emailDomain = emailDomain;
     }
 
     public void setEnabled(Boolean enabled) {
@@ -260,6 +271,11 @@ public class Company extends Auditable {
 
         public Builder email(String email) {
             company.email = email;
+            return this;
+        }
+
+        public Builder emailDomain(String emailDomain) {
+            company.emailDomain = emailDomain;
             return this;
         }
 
