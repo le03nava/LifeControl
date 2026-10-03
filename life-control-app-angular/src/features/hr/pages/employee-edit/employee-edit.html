@@ -123,15 +123,19 @@
 
       <mat-form-field appearance="outline">
         <mat-label>Estado</mat-label>
-        <mat-select
-          [value]="form.controls.statusId.value"
-          (selectionChange)="onStatusChange($event.value)"
-        >
+        <mat-select formControlName="statusId" (selectionChange)="onStatusChange($event.value)">
           @for (option of statusOptions(); track option.id) {
             <mat-option [value]="option.id">{{ option.label }}</mat-option>
           }
         </mat-select>
+        @if (getErrorMessage(form.controls.statusId); as msg) {
+          <mat-error>{{ msg }}</mat-error>
+        }
       </mat-form-field>
+
+      @if (dateOrderError(); as msg) {
+        <p class="suggestion suggestion-error full-width">{{ msg }}</p>
+      }
 
       @if (statusCatalogueError(); as msg) {
         <p class="suggestion suggestion-error full-width">{{ msg }}</p>

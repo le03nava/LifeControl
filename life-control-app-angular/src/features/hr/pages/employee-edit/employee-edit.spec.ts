@@ -194,6 +194,26 @@ describe('EmployeeEdit', () => {
     expect(text()).toContain('No se pudo cargar el catálogo de estados.');
   });
 
+  it('should refuse to submit in create mode when the status catalogue failed', async () => {
+    setup({ companyId: 'company-1', statusCatalogueError: true });
+    await settle();
+
+    component.formGroup().patchValue({
+      employeeNumber: 'EMP-042',
+      firstName: 'Ana',
+      paternalLastName: 'Gómez',
+      birthDate: '1990-05-01',
+      hireDate: '2024-02-15',
+    });
+    component.onSubmit();
+    await settle();
+
+    // The only payload the client could build carries `statusId: null`, which it
+    // already knows the service rejects; it must fail closed and say why.
+    expect(employeeService.addEmployee).not.toHaveBeenCalled();
+    expect(text()).toContain('No se pudo cargar el catálogo de estados.');
+  });
+
   it('should keep the loaded status selectable and unchanged on update when the catalogue fails', async () => {
     setup({ id: 'emp-1', companyId: 'company-1', statusCatalogueError: true });
     await settle();
@@ -626,6 +646,48 @@ describe('EmployeeEdit', () => {
       expect(component.formGroup().controls.terminationDate.errors).toBeNull();
       expect(component.formGroup().valid).toBe(true);
     });
+
+    it('should treat a differently-cased Terminated name the way the server does', async () => {
+      setup({
+        id: 'emp-1',
+        companyId: 'company-1',
+        statusCatalogue: new Map([['terminated', 'status-terminated']]),
+        employee: { statusId: 'status-terminated', statusName: 'terminated' },
+      });
+      await settle();
+
+      component.onStatusChange('status-terminated');
+      fixture.detectChanges();
+
+      expect(
+        component.formGroup().controls.terminationDate.errors?.['terminationDateRequired'],
+      ).toBe(true);
+    });
+  });
+
+  describe('the date-order rule (mirrors EmployeeService.validateDates, which stays authoritative)', () => {
+    it('should reject a birthDate on or after the hireDate', async () => {
+      setup({ id: 'emp-1', companyId: 'company-1' });
+      await settle();
+
+      component.formGroup().patchValue({ birthDate: '2024-02-15', hireDate: '2024-02-15' });
+      fixture.detectChanges();
+
+      expect(component.formGroup().errors?.['birthDateBeforeHireDate']).toBe(true);
+      expect(text()).toContain('La fecha de nacimiento debe ser anterior a la fecha de ingreso.');
+    });
+
+    it('should reject a termination date before the hireDate', async () => {
+      setup({ id: 'emp-1', companyId: 'company-1' });
+      await settle();
+
+      component.onStatusChange('status-terminated');
+      component.formGroup().patchValue({ terminationDate: '2024-01-01' });
+      fixture.detectChanges();
+
+      expect(component.formGroup().errors?.['terminationDateOnOrAfterHireDate']).toBe(true);
+      expect(text()).toContain('La fecha de baja no puede ser anterior a la fecha de ingreso.');
+    });
   });
 
   describe('server errors', () => {
@@ -665,6 +727,51 @@ describe('EmployeeEdit', () => {
       await settle();
 
       expect(text()).toContain('número inválido');
+    });
+
+    it('should surface a 400 field error with no rendered control in the banner', async () => {
+      setup({
+        id: 'emp-1',
+        companyId: 'company-1',
+        saveError: new HttpErrorResponse({
+          status: 400,
+          error: { message: 'Validation error', errors: { addressId: 'dirección inválida' } },
+        }),
+      });
+      await settle();
+
+      component.onSubmit();
+      await settle();
+
+      expect(text()).toContain('dirección inválida');
+    });
+
+    it('should surface a 400 per-field error on the status control', async () => {
+      setup({
+        id: 'emp-1',
+        companyId: 'company-1',
+        saveError: new HttpErrorResponse({
+          status: 400,
+          error: { message: 'Validation error', errors: { statusId: 'estado inválido' } },
+        }),
+      });
+      await settle();
+
+      component.onSubmit();
+      await settle();
+
+      expect(text()).toContain('estado inválido');
+    });
+  });
+
+  describe('the status form binding', () => {
+    it('should drive the status select through formControlName, not a value binding', async () => {
+      setup({ companyId: 'company-1' });
+      await settle();
+
+      expect(
+        fixture.nativeElement.querySelector('mat-select[formcontrolname="statusId"]'),
+      ).not.toBeNull();
     });
   });
 

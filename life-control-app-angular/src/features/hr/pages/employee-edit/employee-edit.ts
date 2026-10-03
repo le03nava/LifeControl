@@ -138,7 +138,6 @@ export class EmployeeEdit implements OnInit {
   readonly loading = signal(false);
   readonly loadError = signal<string | null>(null);
   readonly submitError = signal<string | null>(null);
-  readonly serverErrors = signal<Record<string, string>>({});
 
   /** True once the loaded employee carries a `keycloakUserId`; the email is then frozen. */
   readonly emailFrozen = signal(false);
@@ -185,6 +184,16 @@ export class EmployeeEdit implements OnInit {
     this.statusCatalogueFailed() ? STATUS_CATALOGUE_ERROR_MESSAGE : null,
   );
 
+  /**
+   * True when create mode has no resolvable status catalogue. The select is then
+   * empty and the only payload the client could build carries `statusId: null`,
+   * which the service already rejects, so `onSubmit` fails closed instead of
+   * sending it; the catalogue-failure copy is already on screen.
+   */
+  private readonly statusCatalogueBlocksCreate = computed(
+    () => !this.isEditMode() && this.statusCatalogueFailed(),
+  );
+
   /** The copy for the current suggestion reason, or `null` when there is none. */
   readonly suggestionMessage = computed(() => {
     const reason = this.suggestionReason();
@@ -208,7 +217,9 @@ export class EmployeeEdit implements OnInit {
     const statusName = this.statusNameFor(statusId);
     const hasDate = !!control.value;
 
-    if (statusName === TERMINATED_STATUS_NAME) {
+    // The server compares case-insensitively (`EmployeeStatuses.isTerminated`),
+    // so a differently-cased catalogue name must not disable this mirror.
+    if (statusName?.toLowerCase() === TERMINATED_STATUS_NAME.toLowerCase()) {
       return hasDate ? null : { terminationDateRequired: true };
     }
     if (statusName && hasDate) {
@@ -217,33 +228,61 @@ export class EmployeeEdit implements OnInit {
     return null;
   };
 
+  /**
+   * Client **mirror** of `EmployeeService.validateDates`, which stays the
+   * authority and whose 400 is still surfaced: `birthDate` must be strictly
+   * before `hireDate`, and a `terminationDate` may not be before `hireDate`. It is
+   * a **group-level** validator because both rules span controls, and it exists so
+   * the operator sees the rule before the round trip instead of only the server's
+   * banner.
+   *
+   * ISO `type="date"` values compare chronologically as strings, so the string
+   * comparisons below match the server's `LocalDate` comparisons exactly.
+   */
+  private readonly dateOrder: ValidatorFn = (group: AbstractControl): ValidationErrors | null => {
+    const birthDate = (group.get('birthDate')?.value ?? '') as string;
+    const hireDate = (group.get('hireDate')?.value ?? '') as string;
+    const terminationDate = (group.get('terminationDate')?.value ?? '') as string;
+
+    if (birthDate && hireDate && !(birthDate < hireDate)) {
+      return { birthDateBeforeHireDate: true };
+    }
+    if (terminationDate && hireDate && terminationDate < hireDate) {
+      return { terminationDateOnOrAfterHireDate: true };
+    }
+    return null;
+  };
+
   readonly formGroup = signal<FormGroup<EmployeeControl>>(
-    this.fb.group<EmployeeControl>({
-      employeeNumber: this.fb.control('', {
-        validators: [Validators.required, Validators.maxLength(30)],
-      }),
-      firstName: this.fb.control('', {
-        validators: [Validators.required, Validators.maxLength(100)],
-      }),
-      paternalLastName: this.fb.control('', {
-        validators: [Validators.required, Validators.maxLength(100)],
-      }),
-      maternalLastName: this.fb.control<string | null>(null, {
-        validators: [Validators.maxLength(100)],
-      }),
-      email: this.fb.control<string | null>(null, {
-        validators: [Validators.email, Validators.maxLength(255)],
-      }),
-      phoneNumber: this.fb.control<string | null>(null, {
-        validators: [Validators.maxLength(50)],
-      }),
-      birthDate: this.fb.control('', { validators: [Validators.required] }),
-      hireDate: this.fb.control('', { validators: [Validators.required] }),
-      terminationDate: this.fb.control<string | null>(null, {
-        validators: [this.terminationDateForStatus],
-      }),
-      statusId: this.fb.control<string | null>(null),
-    }),
+    this.fb.group<EmployeeControl>(
+      {
+        employeeNumber: this.fb.control('', {
+          validators: [Validators.required, Validators.maxLength(30)],
+        }),
+        firstName: this.fb.control('', {
+          validators: [Validators.required, Validators.maxLength(100)],
+        }),
+        paternalLastName: this.fb.control('', {
+          validators: [Validators.required, Validators.maxLength(100)],
+        }),
+        maternalLastName: this.fb.control<string | null>(null, {
+          validators: [Validators.maxLength(100)],
+        }),
+        email: this.fb.control<string | null>(null, {
+          validators: [Validators.email, Validators.maxLength(255)],
+        }),
+        phoneNumber: this.fb.control<string | null>(null, {
+          validators: [Validators.maxLength(50)],
+        }),
+        birthDate: this.fb.control('', { validators: [Validators.required] }),
+        hireDate: this.fb.control('', { validators: [Validators.required] }),
+        terminationDate: this.fb.control<string | null>(null, {
+          validators: [this.terminationDateForStatus],
+        }),
+        statusId: this.fb.control<string | null>(null),
+      },
+      { validators: [this.dateOrder] },
+    ),
   );
 
   private readonly defaultErrorMessages: Record<string, (error: unknown) => string> = {
@@ -266,6 +305,23 @@ export class EmployeeEdit implements OnInit {
     const errorDetail = control.errors[firstErrorKey];
     const message = this.defaultErrorMessages[firstErrorKey];
     return message ? message(errorDetail) : 'Campo inválido.';
+  }
+
+  /**
+   * The copy for the current group-level date-order error, or `null`. The error
+   * lives on the group (a mirror of `EmployeeService.validateDates`), so it is
+   * surfaced here rather than through `getErrorMessage`.
+   */
+  protected dateOrderError(): string | null {
+    const errors = this.formGroup().errors;
+    if (!errors) return null;
+    if (errors['birthDateBeforeHireDate']) {
+      return 'La fecha de nacimiento debe ser anterior a la fecha de ingreso.';
+    }
+    if (errors['terminationDateOnOrAfterHireDate']) {
+      return 'La fecha de baja no puede ser anterior a la fecha de ingreso.';
+    }
+    return null;
   }
 
   ngOnInit(): void {
@@ -314,6 +370,13 @@ export class EmployeeEdit implements OnInit {
 
     const companyId = this.companyId();
     if (!companyId) return;
+
+    // Fail closed: create mode with a failed status catalogue can only build
+    // `statusId: null`, which the client already knows the service rejects. The
+    // catalogue-failure copy is already rendered, so refuse instead of a 400.
+    if (this.statusCatalogueBlocksCreate()) {
+      return;
+    }
 
     if (this.formGroup().invalid) {
       this.formGroup().markAllAsTouched();
@@ -495,29 +558,35 @@ export class EmployeeEdit implements OnInit {
   }
 
   /**
-   * Maps the API error envelope: a per-field `errors` map lands on the controls,
-   * anything else becomes the banner. The 409 duplicate and the frozen-email
-   * conflict are `message`-only payloads, so they take the banner path and are
-   * surfaced verbatim instead of being swallowed.
+   * Maps the API error envelope: a per-field error for a key that has a control
+   * (every control renders a `mat-error`) lands on that control, and **every**
+   * other message goes to the banner -- a key with no control at all (`addressId`)
+   * or a `message`-only payload such as the 409 duplicate and the frozen-email
+   * conflict. No server error is swallowed.
    */
   private handleSubmitError(err: HttpErrorResponse): void {
     const apiError = err.error as ApiError | undefined;
-    if (apiError?.errors && Object.keys(apiError.errors).length > 0) {
-      this.serverErrors.set(apiError.errors);
-      for (const [field, message] of Object.entries(apiError.errors)) {
-        const control = this.formGroup().get(field);
-        if (control) {
-          control.setErrors({ ...(control.errors ?? {}), serverError: message });
-          control.markAsTouched();
-        }
+    const fieldErrors = apiError?.errors ?? {};
+    const unmapped: string[] = [];
+
+    for (const [field, message] of Object.entries(fieldErrors)) {
+      const control = this.formGroup().get(field);
+      if (control) {
+        control.setErrors({ ...(control.errors ?? {}), serverError: message });
+        control.markAsTouched();
+      } else {
+        unmapped.push(message);
       }
-      return;
     }
-    this.submitError.set(apiError?.message ?? httpErrorMessage(err));
+
+    if (unmapped.length > 0) {
+      this.submitError.set(unmapped.join(' '));
+    } else if (Object.keys(fieldErrors).length === 0) {
+      this.submitError.set(apiError?.message ?? httpErrorMessage(err));
+    }
   }
 
   private clearServerErrors(): void {
-    this.serverErrors.set({});
     for (const control of Object.values(this.formGroup().controls)) {
       if (control.errors && 'serverError' in control.errors) {
         const { serverError: _serverError, ...rest } = control.errors;
