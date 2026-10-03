@@ -16,6 +16,7 @@ export interface Company {
   razonSocial: string;
   rfc: string;
   email: string;
+  emailDomain?: string;
   phone: string;
   address?: AddressValue;
   enabled: boolean;
@@ -43,6 +44,7 @@ export interface CompanyControl {
   razonSocial: FormControl<string>;
   rfc: FormControl<string>;
   email: FormControl<string>;
+  emailDomain: FormControl<string>;
   phone: FormControl<string>;
   address: FormGroup<AddressControl>;
   enabled: FormControl<boolean>;

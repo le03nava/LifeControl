@@ -16,6 +16,7 @@ describe('CompanyService', () => {
     razonSocial: 'Razon A',
     rfc: 'RFC123456789',
     email: 'test@a.com',
+    emailDomain: 'a.com',
     phone: '5551234567',
     enabled: true,
     createdAt: '',
