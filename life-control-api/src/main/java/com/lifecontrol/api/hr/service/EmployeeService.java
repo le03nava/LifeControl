@@ -69,7 +69,6 @@ public class EmployeeService {
 
     private static final String EMPLOYEE_STATUS_TYPE = "EMPLOYEE_STATUS";
     private static final String ACTIVE_STATUS_NAME = "Active";
-    private static final String TERMINATED_STATUS_NAME = "Terminated";
 
     /** Attempts of the email collision loop: the plain local part plus suffixes 2..20. */
     private static final int MAX_EMAIL_ATTEMPTS = 20;
@@ -302,7 +301,7 @@ public class EmployeeService {
     }
 
     private void validateStatusAndTerminationDate(Status status, LocalDate terminationDate) {
-        var isTerminated = TERMINATED_STATUS_NAME.equalsIgnoreCase(status.getStatusName());
+        var isTerminated = EmployeeStatuses.isTerminated(status);
         if (isTerminated && terminationDate == null) {
             throw new IllegalArgumentException("terminationDate is required when the employee status is Terminated");
         }

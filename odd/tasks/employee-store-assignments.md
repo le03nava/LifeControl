@@ -12,8 +12,13 @@ claims, so a wrong row is a wrong authorization; and it is the first table in th
 admits **many rows per person** for the same level.
 **Repository**: LifeControl — spans `life-control-api/**` (Spring Boot, Java 21, PostgreSQL 18.1 +
 Flyway) and `life-control-app-angular/**` (Angular 20.3 + Material/CDK 20). No gateway change.
-**Migration**: **`V21`** — `V19` (`hr-org-structure`) and `V20` (`employee-registry`) precede it **on
-this same branch**, and `V21` depends on one of V20's side effects (see the schema note).
+**Migration**: **the next free number when this lands — not `V21` by right** (corrected 2026-10-03).
+`V19` (`hr-org-structure`) and `V20` (`employee-registry` W1a) are merged, and this record depends on
+one of `employee-registry`'s side effects (see the schema note). **`V21` is taken**:
+`employee-registry` settled its **W2a** on 2026-10-03 as `V21` (`D10` there), because
+`spring.flyway.out-of-order` is unset (default `false`) with `validate-on-migrate` defaulting to
+`true`, so a gap is not a free slot — a `V21` arriving after an applied `V22` fails validation on
+every environment that ran it. This record is **unwritten**, so renaming it costs one line here.
 **Base**: `main` @ `274c67f` · **Branch**: `feat/hr-org-structure` · **Worktree**:
 `~/workspace/LifeControl-worktrees/feat-hr-org-structure` (herdr `wM`). It shares the branch with the
 other two employee records deliberately: the three are one domain, designed together, and this is the
@@ -54,7 +59,7 @@ since when** — with the ancestors derived, never stored.
 | # | Decision | Why |
 | --- | --- | --- |
 | T1 | `id UUID PRIMARY KEY DEFAULT gen_random_uuid()`, `Auditable`, `enabled BOOLEAN NOT NULL DEFAULT true`, and **no `version`** | T1 of `hr-org-structure` and T2 of `employee-registry`: `version` sits on mutable edited aggregates and on no history table. A contract has none because its only mutation is being closed; an assignment is the same shape, so it gets none either — and therefore **no 412 precondition** on this form |
-| T2 | The invariant is **"no two *enabled* assignments of the same `(employee, company_store)` may overlap"**, expressed as a **partial exclusion constraint** (`EXCLUDE USING gist (employee_id WITH =, company_store_id WITH =, daterange(valid_from, valid_to, '[)') WITH &&) WHERE (enabled)`) | The same idiom V20 introduces for contracts, reused because it is the right one: the `WHERE (enabled)` predicate makes it *partial*, so a revoked assignment stops blocking its replacement — which a partial index would not do. **Deliberately not an exclusion on `employee_id` alone**: that would forbid the multiple stores D1 recommends. Note the idempotent dependency: it needs the `btree_gist` extension, which **V20 creates**; if this migration ever lands without V20, it must create it itself |
+| T2 | The invariant is **"no two *enabled* assignments of the same `(employee, company_store)` may overlap"**, expressed as a **partial exclusion constraint** (`EXCLUDE USING gist (employee_id WITH =, company_store_id WITH =, daterange(valid_from, valid_to, '[)') WITH &&) WHERE (enabled)`) | The same idiom V20 introduces for contracts, reused because it is the right one: the `WHERE (enabled)` predicate makes it *partial*, so a revoked assignment stops blocking its replacement — which a partial index would not do. **Deliberately not an exclusion on `employee_id` alone**: that would forbid the multiple stores D1 recommends. Note the idempotent dependency: it needs the `btree_gist` extension, which **`employee-registry`'s W2a creates in its own migration (`V21` as of 2026-10-03)** — **not** `V20`, which creates neither the extension nor `employee_contracts`; if this migration ever lands without that one, it must create the extension itself |
 | T3 | `valid_from`/`valid_to` are **`DATE`**, not timestamps | A store is a day-granular fact, and the schema's only `DATE` precedent is V17's range (F7). Timestamps would invent a time-of-day for a fact that has none, and would make the overlap arithmetic lie about "today" |
 | T4 | Opening a new assignment for the **same store** closes the previous one **the day before**, in the same transaction, and the database is the one that proves the overlap is refused | Mirrors `employee_contracts`' T13 exactly. Note what it does **not** do: opening an assignment for a *different* store closes nothing, because that is how a second concurrent store is created (D1) |
 | T5 | **No `PUT` and no `DELETE`**: a transfer is a new assignment and a mistake is closed | Consistent with `employee-registry`'s "no contract PUT": the history is the point, and rewriting a row would erase when someone stopped working somewhere. A wrong row is closed with the right date, which is also what removes it from the derivation |
@@ -78,13 +83,18 @@ this pass, the record is named.
 | F3 | The claim path accepts lists: `extractUuidSetFromClaim` reads the JWT from the security context and accepts a list, an array or a comma-separated string, collapsing malformed/missing/blank to an **empty set** | `common/auth/CurrentUserContext.java:372-374`, `:408-457`; pinned per level by the `missingClaim`/`blankClaim` getters |
 | F4 | Level requirements decide what the derivation must emit: `company_id` and `company_country_id` are **required**, `company_region_id`/`company_zone_id`/`company_store_id` are optional (denied only on a non-null mismatch) | `common/security/ScopeLevel.java:26,29,32,35,58`; `CurrentUserContext.java:349-357` |
 | F5 | `employees.company_id` is `NOT NULL` and `employees.keycloak_user_id` is a nullable `UNIQUE VARCHAR(36)` — the company-level fact already has a home, and the link to the account already has its natural key | `employee-registry`'s V20 schema block (same branch), F13 there |
-| F6 | `employee_contracts` carries **no `version`**, and its overlap invariant is a **partial exclusion constraint** over `daterange(start_date, end_date, '[)')` with `WHERE (enabled)`, which needs the `btree_gist` extension this branch's **V20 creates** | `employee-registry`'s T2/T12 and its V20 block; F8 there records that the repository had no `CREATE EXTENSION`, no exclusion constraint and no partial index before it |
+| F6 | `employee_contracts` carries **no `version`**, and its overlap invariant is a **partial exclusion constraint** over `daterange(start_date, end_date, '[)')` with `WHERE (enabled)`, which needs the `btree_gist` extension that **`employee-registry`'s W2a creates in its own migration** (corrected 2026-10-03: this row said `V20`, which creates neither the extension nor `employee_contracts`) | `employee-registry`'s T2/T12 and its V20/V21 blocks; F8 there records that the repository had no `CREATE EXTENSION`, no exclusion constraint and no partial index before it |
 | F7 | `DATE` columns map to `LocalDate` and the schema's only precedent is V17's `valid_from`/`valid_to`, which that migration documents as the first `DATE` columns | `employee-registry`'s F10; `V17:36-37, 14-17` |
 | F8 | **A second source already exists for "which store am I in"**: `user_preferences.company_store_id` is written by the profile screen with no validation, and two Angular services read it back as the active store (`variant-store-context.service.ts`, `scheduling-store-context.service.ts`) | `company-scope-local-fallback`'s E20; `V1__baseline_schema.sql:371`; `features/user/products…`, `features/scheduling/data/scheduling-store-context.service.ts:24-27,46-49` |
 | F9 | Employment status is a `statuses` row of the seeded `EMPLOYEE_STATUS` family (`Active`, `Inactive`, `OnLeave`, `Terminated`), and `Terminated` requires a `termination_date` | `employee-registry`'s T3/T5 and its V20 seed block |
 | F10 | **Nothing in the backend can yet consume this table's output**: `IdentityProvider` has `createGroup` and **no** group-membership operation, and no protocol mapper exists for any `company_*` claim | `company-scope-local-fallback`'s E13/E14; `usersadmin/identity/IdentityProvider.java:104` |
 
 ## Schema — `V21`
+
+> The `V21` in this heading is **the number the design was written against, not a reservation**: see
+the migration note in the header. `employee-registry` settled its **W2a** as `V21` on 2026-10-03, so
+this record takes the next free number when it lands. The SQL below is left **byte-identical** as the
+design it was written against.
 
 ```sql
 -- ============================================
@@ -96,7 +106,7 @@ this pass, the record is named.
 -- be invisible in a column that feeds an authorization decision.
 -- Several stores at once are legal (a supervisor, a relief cashier), so the invariant is per
 -- (employee, store) and not per employee — see T2. It reuses V20's partial-exclusion idiom, and
--- therefore depends on the `btree_gist` extension V20 creates.
+-- therefore depends on the `btree_gist` extension employee-registry's W2a creates (not `V20`).
 -- `employee_contracts`' rules apply unchanged: no `version` (the only mutation is closing), and
 -- opening a new row for the same store closes the previous one the day before, in the same
 -- transaction. Foreign keys are unnamed, matching the baseline and the V9..V20 style; the CHECK and
@@ -121,8 +131,8 @@ CREATE INDEX idx_employee_store_assignments_employee_id ON employee_store_assign
 CREATE INDEX idx_employee_store_assignments_company_store_id ON employee_store_assignments(company_store_id);
 ```
 
-No seed data and no `CREATE EXTENSION` of its own (V20 creates `btree_gist`; see T2 for the case where this
-migration could land without it).
+No seed data and no `CREATE EXTENSION` of its own (`employee-registry`'s W2a creates `btree_gist` in its
+own migration; see T2 for the case where this migration could land without it).
 
 ## API surface
 
@@ -235,3 +245,4 @@ and tested with no Keycloak involvement at all (T9), which is what makes it safe
 | 2026-10-01 | Record written on `feat/hr-org-structure`, after the membership flow was decided in `company-scope-local-fallback` (its D3) and the mechanism was closed as **A** (its D1). F1–F10 are anchors: F1–F4 were read again in this worktree for this record; F5–F10 are inherited from the sibling records named in each row, and they are the ones this design leans on. **Nothing is implemented.** |
 | 2026-10-01 | **D1–D4 decided by the user in one pass**: **D1 yes** (several stores at once, which settles T2's per-`(employee, store)` constraint and closes `V21`'s only blocker), **D2** the profile's store becomes a **derived default constrained to the assigned stores** (T11, and it closes the store half of `company-scope-local-fallback`'s D3, which had left it open), **D3 no** (a company-wide person has no row; the company-level fact stays on `employees.company_id`), **D4 store-only**. **No source line was written**, and the record now has no open decision: `V21` can be written. |
 | 2026-10-02 | **D1's clause corrected, T8 reframed from gap to decided invariant, and G2 closed — done while closing `company-scope-local-fallback`'s D4 = no.** D1's rationale claimed the multi-country chain was "the multi-company case `company-scope-local-fallback`'s D4 left open, answered here by the data rather than by policy", which conflates several **countries** with several **companies**: `company_countries` carries `UNIQUE (company_id, country_id)` (`V1__baseline_schema.sql:76-86`), so several stores in several countries of **one** company are ordinary, and the multi-company case is that record's **D4, closed on 2026-10-02 as no — one company per person** — not something this table's cardinality answers, because `employees.company_id` is singular. T8 no longer reads as "a gap, not a guarantee": the same-company rule is a **decided invariant** whose residual is an **accepted** database limitation, and its write-path check plus its refusal test are load-bearing. **G2 is closed** with it, as that accepted limitation. **No source line was written** |
+| 2026-10-03 | **The migration number stopped being available and one of this record's premises was already false; both corrected, no source written.** Taken while `employee-registry` settled its **W2** against `main @ a7ac439`: that record closed **`D10`** as **`V21`** for its W2a, because `spring.flyway.out-of-order` is unset in `life-control-api/src/main/resources/application.properties` (default `false`) and `validate-on-migrate` is unset (default `true`), which makes a numbered hole a **failing validation** on any environment that applied the later migration. This record's header therefore moves from "**`V21`**" to **the next free number when it lands**, and the `## Schema — `V21`` block keeps its SQL byte-identical with a note at its head saying the number was the design's and not a reservation — the same treatment `employee-access-provisioning` gave its `V22` on 2026-10-02, for the same reason. **Second, and older**: this record's **F6**, its **T2** and its schema note all said the `btree_gist` extension was created by **`V20`**, which was true when the design was written on 2026-10-01 but **stopped being true on 2026-10-02**, when the extension and `employee_contracts` moved out of `V20` into `employee-registry`'s own W2 migration; `V20` creates neither. The three mentions now point at that migration, and this is the second premise in this chain that was asserted rather than measured — the other being the projection record's claim that `V19`–`V21` preceded it. **No source line was written, no decision was reversed, and this record's cardinality rules, its T2 constraint shape and its derivation are untouched** |
