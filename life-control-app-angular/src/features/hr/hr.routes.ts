@@ -15,9 +15,14 @@ import { CLIENT_ID, DEPARTMENT_WRITE_ROLES } from '@core/security/roles';
  * `keycloakRoleGuard` only reads `route.data` when it is itself listed in
  * `canActivate`; a `data` block without its own guard would be inert.
  *
- * Only the departments children exist in this slice: `positions` (`9-2`) and the
- * employee registry (`9-3`) arrive with later work, and a route with no menu
- * destination is deliberately absent rather than stubbed.
+ * Both catalogs are registered here: `departments` with its read child and its
+ * own write children, and `employees` with its read child only. The employees
+ * slice registers **no** write child in this commit: its `create` and `edit/:id`
+ * children arrive with `EmployeeEdit` (`W3b-3`), gated exactly like the
+ * department write children, and the list page's "Nuevo empleado" / "Editar"
+ * links point at routes this commit deliberately does not register yet, instead
+ * of stubbing a page or a redirect. The `positions` catalog (`9-2`) still arrives
+ * with its own later slice.
  */
 export const hrRoutes: Routes = [
   {
@@ -45,6 +50,16 @@ export const hrRoutes: Routes = [
             data: { roles: DEPARTMENT_WRITE_ROLES, clientId: CLIENT_ID },
             loadComponent: () =>
               import('./pages/department-edit/department-edit').then((m) => m.DepartmentEdit),
+          },
+        ],
+      },
+      {
+        path: 'employees',
+        children: [
+          {
+            path: '',
+            loadComponent: () =>
+              import('./pages/employee-list/employee-list').then((m) => m.EmployeeList),
           },
         ],
       },

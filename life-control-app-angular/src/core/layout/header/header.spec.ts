@@ -753,10 +753,10 @@ describe('Header', () => {
     });
   });
 
-  // ─── HR menu gating (lc-admin / lc-department / lc-position / lc-seniority-level) ───
+  // ─── HR menu gating (lc-admin / lc-department / lc-position / lc-seniority-level / lc-employee) ───
 
   describe('human resources menu gating', () => {
-    it('should show the Recursos Humanos parent with only the Departamentos child for a department user', () => {
+    it('should show the Recursos Humanos parent with its two children for a department user', () => {
       const { component } = setup(['lc-department']);
       const items = component.items();
 
@@ -775,11 +775,17 @@ describe('Header', () => {
             textLink: 'Departamentos',
             icon: 'account_tree',
           },
+          {
+            id: '9-3',
+            routeLink: '/hr/employees',
+            textLink: 'Empleados',
+            icon: 'groups',
+          },
         ],
       });
     });
 
-    it.each(['lc-department', 'lc-position', 'lc-seniority-level', 'lc-admin'])(
+    it.each(['lc-department', 'lc-position', 'lc-seniority-level', 'lc-employee', 'lc-admin'])(
       'should show the Recursos Humanos parent for %s',
       (role) => {
         const { component } = setup([role]);
@@ -787,6 +793,13 @@ describe('Header', () => {
         expect(component.items().some((i) => i.routeLink === '/hr/departments')).toBe(true);
       },
     );
+
+    it('should expose the Empleados child to an employee-only user', () => {
+      const { component } = setup(['lc-employee']);
+      expect(component.isHr()).toBe(true);
+      const hrItem = component.items().find((item) => item.id === '9');
+      expect(hrItem?.children?.some((child) => child.routeLink === '/hr/employees')).toBe(true);
+    });
 
     it('should NOT show the Recursos Humanos parent for an unrelated role', () => {
       const { component } = setup(['lc-sales']);

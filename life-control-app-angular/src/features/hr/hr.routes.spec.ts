@@ -3,6 +3,7 @@ import { Route, Routes } from '@angular/router';
 import { keycloakRoleGuard } from '@core/guards/auth-keycloak-guard';
 import { CLIENT_ID, DEPARTMENT_WRITE_ROLES } from '@core/security/roles';
 import { hrRoutes } from './hr.routes';
+import { EmployeeList } from './pages/employee-list/employee-list';
 
 /**
  * Pins the guard split T22 establishes by walking the **real** `hrRoutes` tree:
@@ -60,5 +61,35 @@ describe('hr.routes', () => {
     for (const writeChild of [create, edit]) {
       expect(writeChild.canActivate).toContain(keycloakRoleGuard);
     }
+  });
+
+  describe('employees', () => {
+    /** The `employees` sibling of `departments`, looked up under the same parent. */
+    function employeesBranch(): Route {
+      return routeAt(routeAt(hrRoutes, '').children, 'employees');
+    }
+
+    it('should be a sibling of the departments route under the guarded hr parent', () => {
+      const parent = routeAt(hrRoutes, '');
+      expect(parent.children?.map((route) => route.path)).toContain('employees');
+      expect(parent.children?.map((route) => route.path)).toContain('departments');
+    });
+
+    it('should require no roles on the employees list child, so any authenticated caller reads it', () => {
+      const read = routeAt(employeesBranch().children, '');
+      expect(read.data?.['roles']).toBeUndefined();
+    });
+
+    it('should resolve the lazy import of the employees list child to EmployeeList', async () => {
+      const read = routeAt(employeesBranch().children, '');
+      expect(typeof read.loadComponent).toBe('function');
+
+      const loaded = await read.loadComponent!();
+      expect(loaded).toBe(EmployeeList);
+    });
+
+    it('should declare only the list child until W3b-3 registers create and edit', () => {
+      expect(employeesBranch().children?.map((route) => route.path)).toEqual(['']);
+    });
   });
 });
