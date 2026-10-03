@@ -144,9 +144,15 @@ export class EmployeeService {
     );
   }
 
-  /** Soft delete: the API sets `enabled = false` and keeps the row. */
+  /**
+   * Soft delete: the API sets `enabled = false` and keeps the row.
+   *
+   * Clears `_error` on entry — a deliberate deviation from the copied
+   * `DepartmentService.removeDepartment` idiom, which leaves a stale error behind.
+   */
   removeEmployee(companyId: string, id: string): Observable<void> {
     this._loading.set(true);
+    this._error.set(null);
     return this.http.delete<void>(`${this.employeesUrl(companyId)}/${id}`).pipe(
       tap(() => {
         this._employees.set(this._employees().filter((e) => e.id !== id));

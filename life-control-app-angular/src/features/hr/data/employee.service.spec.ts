@@ -168,6 +168,12 @@ describe('EmployeeService', () => {
 
   describe('getEmployee', () => {
     it('should fetch a single employee by id and not touch the list signal', async () => {
+      // Seed the list first: with an unseeded signal, a `getEmployee` that wrote
+      // `[]` would be indistinguishable from one that wrote nothing at all.
+      const listPromise = firstValueFrom(service.getEmployees(companyId));
+      httpMock.expectOne((r) => r.url === employeesUrl && r.method === 'GET').flush(mockEmployees);
+      await listPromise;
+
       const promise = firstValueFrom(service.getEmployee(companyId, 'emp-1'));
 
       const req = httpMock.expectOne(`${employeesUrl}/emp-1`);
@@ -175,7 +181,17 @@ describe('EmployeeService', () => {
       req.flush(mockEmployees[0]);
 
       await expect(promise).resolves.toEqual(mockEmployees[0]);
-      expect(service.employees()).toEqual([]);
+      expect(service.employees()).toEqual(mockEmployees);
+    });
+
+    it('should set the error signal on failure and re-throw to the caller', async () => {
+      const promise = firstValueFrom(service.getEmployee(companyId, 'emp-1'));
+      httpMock
+        .expectOne(`${employeesUrl}/emp-1`)
+        .flush({ status: 500 }, { status: 500, statusText: 'Server Error' });
+
+      await expect(promise).rejects.toMatchObject({ status: 500 });
+      expect(service.error()).toBe('Error al cargar el empleado');
     });
   });
 
@@ -234,6 +250,16 @@ describe('EmployeeService', () => {
       await expect(promise).rejects.toBeTruthy();
       expect(service.error()).toBe('Ya existe un empleado con ese número o correo');
     });
+
+    it('should map a non-409 failure to the create message and re-throw', async () => {
+      const promise = firstValueFrom(service.addEmployee(companyId, request));
+      httpMock
+        .expectOne((r) => r.url === employeesUrl && r.method === 'POST')
+        .flush({ status: 500 }, { status: 500, statusText: 'Server Error' });
+
+      await expect(promise).rejects.toMatchObject({ status: 500 });
+      expect(service.error()).toBe('Error al crear el empleado');
+    });
   });
 
   describe('updateEmployee', () => {
@@ -264,6 +290,16 @@ describe('EmployeeService', () => {
       await expect(promise).rejects.toBeTruthy();
       expect(service.error()).toBe('Ya existe un empleado con ese número o correo');
     });
+
+    it('should map a non-409 failure to the update message and re-throw', async () => {
+      const promise = firstValueFrom(service.updateEmployee(companyId, 'emp-1', request));
+      httpMock
+        .expectOne((r) => r.url === `${employeesUrl}/emp-1` && r.method === 'PUT')
+        .flush({ status: 500 }, { status: 500, statusText: 'Server Error' });
+
+      await expect(promise).rejects.toMatchObject({ status: 500 });
+      expect(service.error()).toBe('Error al actualizar el empleado');
+    });
   });
 
   describe('removeEmployee', () => {
@@ -279,6 +315,33 @@ describe('EmployeeService', () => {
 
       await promise;
       expect(service.employees().map((e) => e.id)).toEqual(['emp-2']);
+    });
+
+    it('should set the error signal on failure and re-throw', async () => {
+      const promise = firstValueFrom(service.removeEmployee(companyId, 'emp-1'));
+      httpMock
+        .expectOne(`${employeesUrl}/emp-1`)
+        .flush({ status: 500 }, { status: 500, statusText: 'Server Error' });
+
+      await expect(promise).rejects.toMatchObject({ status: 500 });
+      expect(service.error()).toBe('Error al deshabilitar el empleado');
+    });
+
+    it('should clear a stale error on a successful remove after a failure', async () => {
+      const failing = firstValueFrom(service.removeEmployee(companyId, 'emp-1'));
+      httpMock
+        .expectOne(`${employeesUrl}/emp-1`)
+        .flush({ status: 500 }, { status: 500, statusText: 'Server Error' });
+      await expect(failing).rejects.toMatchObject({ status: 500 });
+      expect(service.error()).toBe('Error al deshabilitar el empleado');
+
+      const succeeding = firstValueFrom(service.removeEmployee(companyId, 'emp-1'));
+      httpMock
+        .expectOne(`${employeesUrl}/emp-1`)
+        .flush(null, { status: 204, statusText: 'No Content' });
+      await succeeding;
+
+      expect(service.error()).toBeNull();
     });
   });
 
@@ -298,6 +361,16 @@ describe('EmployeeService', () => {
 
       await promise;
       expect(service.employees().find((e) => e.id === 'emp-2')?.enabled).toBe(true);
+    });
+
+    it('should set the error signal on failure and re-throw', async () => {
+      const promise = firstValueFrom(service.enableEmployee(companyId, 'emp-2'));
+      httpMock
+        .expectOne(`${employeesUrl}/emp-2/enable`)
+        .flush({ status: 500 }, { status: 500, statusText: 'Server Error' });
+
+      await expect(promise).rejects.toMatchObject({ status: 500 });
+      expect(service.error()).toBe('Error al reactivar el empleado');
     });
   });
 
