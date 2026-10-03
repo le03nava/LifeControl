@@ -38,6 +38,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -200,6 +201,13 @@ class ContractServiceTest {
             }
             return c;
         });
+    }
+
+    /** The entity handed to {@code save}, as stored: the D14 tests assert the raw column bound. */
+    private Contract savedContract() {
+        var captor = ArgumentCaptor.forClass(Contract.class);
+        verify(contractRepository).save(captor.capture());
+        return captor.getValue();
     }
 
     @Nested
@@ -372,7 +380,7 @@ class ContractServiceTest {
         }
 
         @Test
-        @DisplayName("endDate equal to startDate is legal (the CHECK is >=)")
+        @DisplayName("endDate equal to startDate is a legal one-day contract, stored as startDate + 1 (D14)")
         void create_EndEqualToStart_IsAccepted() {
             employeeExists();
             positionExists();
@@ -382,7 +390,26 @@ class ContractServiceTest {
 
             var result = contractService.createContract(companyId, employeeId, request(START, START));
 
+            // An inclusive one-day contract covers only START, so the exclusive column bound is
+            // START + 1 and the response converts it back to the single day the operator asked for.
             assertThat(result.endDate()).isEqualTo(START);
+            assertThat(savedContract().getEndDate()).isEqualTo(START.plusDays(1));
+        }
+
+        @Test
+        @DisplayName("an inclusive endDate is stored one day later as the exclusive bound (D14)")
+        void create_InclusiveEndDate_IsStoredAsTheExclusiveBound() {
+            employeeExists();
+            positionExists();
+            seniorityLevelExists();
+            noPredecessor();
+            contractSaveReturnsArgument();
+            var inclusiveEnd = START.plusMonths(5);
+
+            var result = contractService.createContract(companyId, employeeId, request(START, inclusiveEnd));
+
+            assertThat(result.endDate()).isEqualTo(inclusiveEnd);
+            assertThat(savedContract().getEndDate()).isEqualTo(inclusiveEnd.plusDays(1));
         }
     }
 
@@ -406,7 +433,7 @@ class ContractServiceTest {
         }
 
         @Test
-        @DisplayName("a predecessor covering the new start date is closed the day before it")
+        @DisplayName("a predecessor covering the new start date stores the successor's start as its bound (T13/D14)")
         void create_PredecessorCoveringStart_IsClosedTheDayBefore() {
             var predecessor = contract(UUID.randomUUID(), PREDECESSOR_START, null, true);
             employeeExists();
@@ -418,7 +445,9 @@ class ContractServiceTest {
 
             contractService.createContract(companyId, employeeId, request(START, null));
 
-            assertThat(predecessor.getEndDate()).isEqualTo(START.minusDays(1));
+            // The column is exclusive, so storing the successor's start date as the predecessor's
+            // bound makes the predecessor's last covered day START - 1: no gap and no overlap.
+            assertThat(predecessor.getEndDate()).isEqualTo(START);
             // The close is flushed before the insert: Hibernate flushes INSERTs before UPDATEs, so a
             // deferred close would let the new row reach the constraint while the predecessor still
             // covers the range.
@@ -503,12 +532,16 @@ class ContractServiceTest {
                     .thenReturn(Optional.of(open));
             contractSaveReturnsArgument();
 
-            var result = contractService.closeContract(
-                    companyId, employeeId, open.getId(), new CloseContractRequest(LocalDate.of(2025, 6, 30)));
+            var inclusiveEnd = LocalDate.of(2025, 6, 30);
 
-            assertThat(result.endDate()).isEqualTo(LocalDate.of(2025, 6, 30));
+            var result = contractService.closeContract(
+                    companyId, employeeId, open.getId(), new CloseContractRequest(inclusiveEnd));
+
+            assertThat(result.endDate()).isEqualTo(inclusiveEnd);
             assertThat(result.startDate()).isEqualTo(PREDECESSOR_START);
-            assertThat(open.getEndDate()).isEqualTo(LocalDate.of(2025, 6, 30));
+            // Closing inclusive means the contract covers inclusiveEnd, so the exclusive column
+            // bound is the first day NOT covered (D14).
+            assertThat(open.getEndDate()).isEqualTo(inclusiveEnd.plusDays(1));
         }
 
         @Test
@@ -522,7 +555,9 @@ class ContractServiceTest {
 
             var result = contractService.closeContract(companyId, employeeId, open.getId(), null);
 
-            assertThat(result.endDate()).isEqualTo(LocalDate.now());
+            var today = LocalDate.now();
+            assertThat(result.endDate()).isEqualTo(today);
+            assertThat(open.getEndDate()).isEqualTo(today.plusDays(1));
         }
 
         @Test
@@ -537,7 +572,9 @@ class ContractServiceTest {
             var result =
                     contractService.closeContract(companyId, employeeId, open.getId(), new CloseContractRequest(null));
 
-            assertThat(result.endDate()).isEqualTo(LocalDate.now());
+            var today = LocalDate.now();
+            assertThat(result.endDate()).isEqualTo(today);
+            assertThat(open.getEndDate()).isEqualTo(today.plusDays(1));
         }
 
         @Test

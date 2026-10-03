@@ -47,12 +47,21 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p><b>T13</b>: opening a contract closes the previous one the day before the new start date, in the
  * same transaction. The employee's enabled contract whose range contains the new start date is found
- * with a plain JPQL query ({@code startDate <= :start AND (endDate IS NULL OR endDate >= :start)}),
+ * with a plain JPQL query ({@code startDate <= :start AND (endDate IS NULL OR endDate > :start)}),
  * not a Postgres range expression. If there is none, the new row is inserted. If one starts on the
  * new start date, that is a 400 — the only reachable form of T13's "a new contract starting on or
  * before the previous one's start date", because a contract containing the new start date already
- * starts on or before it. Otherwise its end date is set to {@code startDate.minusDays(1)} and the new
- * row is inserted.</p>
+ * starts on or before it. Otherwise its stored end bound is set to the new start date itself and the
+ * new row is inserted.</p>
+ *
+ * <p><b>D14</b>: the column's {@code end_date} is <b>exclusive</b> (it is the first day NOT covered,
+ * per the frozen {@code daterange(start_date, end_date, '[)')} of T12) while the <b>API is
+ * inclusive</b> — {@code endDate} means the last day covered, the way {@code employees.termination_date}
+ * reads. This class is the only place the one-day arithmetic lives, at the DTO boundary:
+ * {@link #toStoredEndDate(LocalDate)} converts a request's inclusive date to the stored bound, and
+ * {@link #toApiEndDate(LocalDate)} converts it back for every response. T13 is stated in covered-day
+ * terms above, so storing the successor's start date verbatim as the predecessor's exclusive bound
+ * makes the predecessor's last covered day {@code start - 1} and leaves no gap.</p>
  *
  * <p>An overlap the pre-check cannot see — a new <b>open-ended</b> contract whose predecessor is
  * closed but which reaches into a later contract — is deliberately <b>not</b> pre-checked and the
@@ -172,7 +181,7 @@ public class ContractService {
                 .contractType(contractType)
                 .monthlySalary(request.monthlySalary())
                 .startDate(request.startDate())
-                .endDate(request.endDate())
+                .endDate(toStoredEndDate(request.endDate()))
                 .enabled(true)
                 .build();
 
@@ -216,7 +225,9 @@ public class ContractService {
             throw new IllegalArgumentException("endDate must be on or after startDate");
         }
 
-        contract.setEndDate(endDate);
+        // D14: the requested date is inclusive ("last day covered"), so the exclusive stored bound is
+        // the day after it. Closing today therefore means today is covered.
+        contract.setEndDate(endDate.plusDays(1));
         var saved = contractRepository.save(contract);
         logger.info(
                 "Contract closed: id={}, companyId={}, employeeId={}, endDate={}", id, companyId, employeeId, endDate);
@@ -230,13 +241,20 @@ public class ContractService {
      *
      * <p>The finder returns a {@code List} (see {@link ContractRepository}) even though the partial
      * exclusion constraint makes the result unique today; the empty list means "no predecessor", and
-     * an unexpected extra row is closed too rather than becoming a 500.</p>
+     * an unexpected extra row is closed too rather than becoming a 500. The finder's coverage
+     * comparison is strict ({@code endDate > :startDate}) because the column is exclusive (D14): a
+     * predecessor whose stored bound already equals the new start date does not cover it and is not
+     * truncated.</p>
      *
      * <p>The predecessor is written with {@code saveAndFlush}, not {@code save}: Hibernate's action
      * queue executes INSERTs before UPDATEs within one flush, so a deferred close would let the new
      * open-ended row reach the database while the predecessor still covers the range, and the partial
      * exclusion constraint would refuse a write the close-the-previous rule had already made legal.
      * Flushing the close first is what keeps T13 and T12 consistent.</p>
+     *
+     * <p>The stored bound is the successor's start date <b>verbatim</b> (D14): under the exclusive
+     * column that is T13's "the day before the new start date" in covered-day terms — the
+     * predecessor's last covered day becomes {@code startDate - 1} — and it leaves no gap.</p>
      */
     private void closePredecessor(UUID employeeId, LocalDate startDate) {
         var predecessors = contractRepository.findEnabledContractCoveringDate(employeeId, startDate);
@@ -247,7 +265,9 @@ public class ContractService {
             }
         }
         for (var predecessor : predecessors) {
-            predecessor.setEndDate(startDate.minusDays(1));
+            // D14: the exclusive bound IS the successor's start date; the predecessor's last covered
+            // day is then startDate - 1, with no gap and no overlap.
+            predecessor.setEndDate(startDate);
             contractRepository.saveAndFlush(predecessor);
         }
     }
@@ -269,7 +289,22 @@ public class ContractService {
                 contract.getContractType(),
                 contract.getMonthlySalary(),
                 contract.getStartDate(),
-                contract.getEndDate(),
+                toApiEndDate(contract.getEndDate()),
                 contract.getEnabled());
+    }
+
+    /**
+     * D14, the DTO boundary in: the API's {@code endDate} is the <b>last day covered</b> (inclusive)
+     * and the column stores the <b>first day NOT covered</b> (exclusive), so the stored bound is one
+     * day after the requested date. An open-ended contract stays {@code null}. This and
+     * {@link #toApiEndDate(LocalDate)} are the only places the one-day arithmetic lives.
+     */
+    private static LocalDate toStoredEndDate(LocalDate apiEndDate) {
+        return apiEndDate == null ? null : apiEndDate.plusDays(1);
+    }
+
+    /** D14, the DTO boundary out: the exclusive stored bound is reported as the last day it covers. */
+    private static LocalDate toApiEndDate(LocalDate storedEndDate) {
+        return storedEndDate == null ? null : storedEndDate.minusDays(1);
     }
 }

@@ -52,7 +52,8 @@ import org.springframework.test.web.servlet.ResultActions;
  * short-circuits the company-scope check the same way the store-scoped integration suites do; the
  * service's own scope logic is pinned by {@code ContractServiceTest}. What this suite proves is the
  * wire contract and the persistence semantics together: the 201/200/400/404/409 status codes, the
- * close-the-previous rule leaving exactly two rows with the predecessor closed the day before, and
+ * close-the-previous rule leaving exactly two rows with the predecessor's exclusive stored bound set
+ * to the successor's start date (D14), and
  * the one overlap the service pre-check cannot see — a new open-ended contract reaching into a later
  * contract — ending as the repository's generic 409 with the whole transaction rolled back.</p>
  *
@@ -215,6 +216,39 @@ class ContractCrudIntegrationTest extends AbstractPostgresIntegrationTest {
         }
 
         @Test
+        @DisplayName("an inclusive endDate round-trips through the create response and the list (D14)")
+        void inclusiveEndDateRoundTrips() throws Exception {
+            var inclusiveEnd = LocalDate.of(2026, 6, 30);
+
+            postContract(employeeId, request(LocalDate.of(2026, 1, 1), inclusiveEnd))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.endDate").value("2026-06-30"));
+
+            mockMvc.perform(get(BASE_URL, companyId, employeeId).with(jwt().authorities(ROLE_LC_ADMIN)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$", hasSize(1)))
+                    .andExpect(jsonPath("$[0].endDate").value("2026-06-30"));
+
+            // The API is inclusive ("last day covered") and the column exclusive, so the stored
+            // bound is one day after the requested end date (D14).
+            assertThat(endDateAtStart(employeeId, LocalDate.of(2026, 1, 1))).isEqualTo(inclusiveEnd.plusDays(1));
+        }
+
+        @Test
+        @DisplayName("a one-day contract (endDate == startDate) is accepted and round-trips that day")
+        void oneDayContractRoundTrips() throws Exception {
+            var day = LocalDate.of(2026, 3, 15);
+
+            postContract(employeeId, request(day, day))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.startDate").value("2026-03-15"))
+                    .andExpect(jsonPath("$.endDate").value("2026-03-15"));
+
+            assertThat(countContracts(employeeId)).isEqualTo(1);
+            assertThat(endDateAtStart(employeeId, day)).isEqualTo(day.plusDays(1));
+        }
+
+        @Test
         @DisplayName("closes an open contract with the requested end date")
         void closeSetsTheEndDate() throws Exception {
             postContract(employeeId, request(LocalDate.of(2026, 1, 1), null)).andExpect(status().isCreated());
@@ -231,7 +265,7 @@ class ContractCrudIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.endDate").value("2026-06-30"));
 
-            assertThat(endDateAtStart(employeeId, LocalDate.of(2026, 1, 1))).isEqualTo(LocalDate.of(2026, 6, 30));
+            assertThat(endDateAtStart(employeeId, LocalDate.of(2026, 1, 1))).isEqualTo(LocalDate.of(2026, 7, 1));
         }
 
         @Test
@@ -247,6 +281,10 @@ class ContractCrudIntegrationTest extends AbstractPostgresIntegrationTest {
                             .with(jwt().authorities(ROLE_LC_ADMIN)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.endDate").value(LocalDate.now().toString()));
+
+            // Closing today means today is covered, so the exclusive column bound is tomorrow (D14).
+            assertThat(endDateAtStart(employeeId, LocalDate.of(2026, 1, 1)))
+                    .isEqualTo(LocalDate.now().plusDays(1));
         }
 
         @Test
@@ -282,10 +320,32 @@ class ContractCrudIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(jsonPath("$.startDate").value("2026-06-01"));
 
             assertThat(countContracts(employeeId)).isEqualTo(2);
+            // The column is exclusive, so the predecessor's stored bound is the successor's start
+            // date itself; the predecessor's last covered day is 2026-05-31, immediately before it.
             assertThat(endDateAtStart(employeeId, LocalDate.of(2026, 1, 1)))
-                    .as("the predecessor is closed the day before the new start date")
-                    .isEqualTo(LocalDate.of(2026, 5, 31));
+                    .as("the predecessor's stored bound is the successor's start date (exclusive column)")
+                    .isEqualTo(LocalDate.of(2026, 6, 1));
+            assertThat(predecessorCovers(employeeId, LocalDate.of(2026, 1, 1), LocalDate.of(2026, 5, 31)))
+                    .as("the day before the successor's start is covered by the predecessor: no one-day hole")
+                    .isTrue();
             assertThat(endDateAtStart(employeeId, LocalDate.of(2026, 6, 1))).isNull();
+        }
+
+        @Test
+        @DisplayName("a successor touching the predecessor's exclusive bound leaves it untouched")
+        void touchingRangesLeaveThePredecessorUntouched() throws Exception {
+            // Inclusive 2026-06-30 is stored as the exclusive bound 2026-07-01, so a successor
+            // starting 2026-07-01 touches it without overlapping: the predecessor does not cover
+            // that day and must not be truncated.
+            postContract(employeeId, request(LocalDate.of(2026, 1, 1), LocalDate.of(2026, 6, 30)))
+                    .andExpect(status().isCreated());
+
+            postContract(employeeId, request(LocalDate.of(2026, 7, 1), null)).andExpect(status().isCreated());
+
+            assertThat(countContracts(employeeId)).isEqualTo(2);
+            assertThat(endDateAtStart(employeeId, LocalDate.of(2026, 1, 1)))
+                    .as("the touching predecessor keeps its stored bound")
+                    .isEqualTo(LocalDate.of(2026, 7, 1));
         }
 
         @Test
@@ -315,7 +375,7 @@ class ContractCrudIntegrationTest extends AbstractPostgresIntegrationTest {
             postContract(employeeId, request(LocalDate.of(2027, 1, 1), null)).andExpect(status().isCreated());
             assertThat(countContracts(employeeId)).isEqualTo(2);
 
-            // Open-ended from 2026-06-01: the pre-check sees only A, closes it at 2026-05-31, and the
+            // Open-ended from 2026-06-01: the pre-check sees only A, closes it at 2026-06-01, and the
             // insert then overlaps C. The partial exclusion constraint refuses it; the handler maps
             // DataIntegrityViolationException to the generic 409, not a 500.
             postContract(employeeId, request(LocalDate.of(2026, 6, 1), null))
@@ -327,7 +387,7 @@ class ContractCrudIntegrationTest extends AbstractPostgresIntegrationTest {
                     .isEqualTo(2);
             assertThat(endDateAtStart(employeeId, LocalDate.of(2026, 1, 1)))
                     .as("the predecessor close rolled back with the refused insert")
-                    .isEqualTo(LocalDate.of(2026, 12, 31));
+                    .isEqualTo(LocalDate.of(2027, 1, 1));
         }
     }
 
@@ -468,5 +528,21 @@ class ContractCrudIntegrationTest extends AbstractPostgresIntegrationTest {
                 (rs, rowNum) -> rs.getObject("end_date", LocalDate.class),
                 employeeId,
                 startDate);
+    }
+
+    /**
+     * Whether the contract that starts on {@code predecessorStart} covers {@code day} under the
+     * column's exclusive rule: {@code start_date <= day AND (end_date IS NULL OR end_date > day)}.
+     * The strict comparison is the substance: a predecessor closed with inclusive arithmetic — the
+     * defect this branch carried — leaves the day before the successor's start uncovered, and this
+     * returns {@code false} for exactly that day.
+     */
+    private boolean predecessorCovers(UUID employeeId, LocalDate predecessorStart, LocalDate day) {
+        var count = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM employee_contracts
+                WHERE employee_id = ? AND start_date = ?
+                  AND start_date <= ? AND (end_date IS NULL OR end_date > ?)
+                """, Integer.class, employeeId, predecessorStart, day, day);
+        return count != null && count == 1;
     }
 }

@@ -59,8 +59,13 @@ public interface ContractRepository extends JpaRepository<Contract, UUID> {
     Optional<Contract> findByEmployeeIdAndId(UUID employeeId, UUID id);
 
     /**
-     * The employee's enabled contract whose range contains {@code startDate}, as
-     * {@code startDate <= :startDate AND (endDate IS NULL OR endDate >= :startDate)}.
+     * The employee's enabled contract whose <b>exclusive</b> stored range contains {@code startDate},
+     * as {@code startDate <= :startDate AND (endDate IS NULL OR endDate > :startDate)}.
+     *
+     * <p>The comparison is strict because the column is exclusive (decision D14): a contract whose
+     * stored bound equals {@code startDate} does not cover that day — its last covered day is the
+     * day before — so it is not a predecessor and must not be truncated. Using {@code >=} here would
+     * re-introduce the one-day hole the API/column convention exists to remove.</p>
      *
      * <p>Written on the entity's own fields, in the style of
      * {@code EmployeeRepository.findCompanyEmployees}: it deliberately does not use a Postgres
@@ -72,7 +77,7 @@ public interface ContractRepository extends JpaRepository<Contract, UUID> {
             WHERE c.employee.id = :employeeId
               AND c.enabled = true
               AND c.startDate <= :startDate
-              AND (c.endDate IS NULL OR c.endDate >= :startDate)
+              AND (c.endDate IS NULL OR c.endDate > :startDate)
             """)
     List<Contract> findEnabledContractCoveringDate(
             @Param("employeeId") UUID employeeId, @Param("startDate") LocalDate startDate);

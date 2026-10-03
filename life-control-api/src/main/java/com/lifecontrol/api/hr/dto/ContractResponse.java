@@ -15,10 +15,13 @@ import java.util.UUID;
  * history view forces: a contract row is shown as text, and resolving the position and level names
  * from their own endpoints would cost one call per row.</p>
  *
- * <p>{@code endDate} is {@code null} for an open-ended contract, which is <b>not</b> the same fact
- * as "current" (decision T11). {@code enabled} is exposed because the read returns disabled rows too
- * (decision T12's partial predicate): the history is the whole record, and the client can tell a
- * soft-deleted contract from a live one.</p>
+ * <p>{@code endDate} is the <b>last day covered</b> (inclusive), the same convention as the request
+ * and {@code employees.termination_date}, and {@code null} for an open-ended contract — which is
+ * <b>not</b> the same fact as "current" (decision T11). The column stores the exclusive bound (the
+ * first day NOT covered), so the service subtracts one day at the DTO boundary (decision D14) and the
+ * value round-trips symmetrically with {@code ContractRequest}. {@code enabled} is exposed because the
+ * read returns disabled rows too (decision T12's partial predicate): the history is the whole record,
+ * and the client can tell a soft-deleted contract from a live one.</p>
  */
 public record ContractResponse(
         UUID id,
@@ -30,5 +33,7 @@ public record ContractResponse(
         ContractType contractType,
         BigDecimal monthlySalary,
         LocalDate startDate,
+        // The last day covered (inclusive), converted from the column's exclusive bound (decision
+        // D14). Null means open-ended.
         LocalDate endDate,
         Boolean enabled) {}
