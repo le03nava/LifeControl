@@ -40,11 +40,12 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <p>Cleanup is deliberately broad on {@code employees} and narrow everywhere else: the PostgreSQL
  * container is shared per JVM, so the {@code @BeforeEach} runs an unconditional
- * {@code DELETE FROM employees} that removes every row of the table, not a scoped subset. That is
- * safe today because no other suite in the repository writes {@code employees} (a {@code src/test}
- * search finds only this class), and it keeps every count assertion reading a table this class fully
- * owns. The delete never touches {@code statuses}, {@code status_types} or {@code companies}, which
- * other suites depend on, and the count assertions are additionally scoped by {@code company_id}.</p>
+ * {@code DELETE FROM employees} that removes every row of the table, not a scoped subset. Two suites
+ * write this table — this class and {@code EmployeeCrudIntegrationTest} — and both start by deleting
+ * all of its rows, so they share the container without stepping on each other and every count
+ * assertion reads a table fully owned by the running test. The delete never touches {@code statuses},
+ * {@code status_types} or {@code companies}, which other suites depend on, and the count assertions
+ * are additionally scoped by {@code company_id}.</p>
  */
 @SpringBootTest
 @DisplayName("Employee Registry Schema Integration Tests")
@@ -75,9 +76,9 @@ class EmployeeSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
 
     @BeforeEach
     void resetEmployeeTable() {
-        // Unconditional: removes every row of employees, not a scoped subset. Safe because no other
-        // test suite writes this table. status_types, statuses and companies are shared and are
-        // never touched here.
+        // Unconditional: removes every row of employees, not a scoped subset. Both suites that
+        // write this table do the same, so the shared container is cleaned without cross-test
+        // interference. status_types, statuses and companies are shared and are never touched here.
         jdbcTemplate.update("DELETE FROM employees");
     }
 

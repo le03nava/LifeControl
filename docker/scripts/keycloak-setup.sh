@@ -226,7 +226,7 @@ for role in lc-admin lc-company lc-company-read lc-company-country lc-company-co
             lc-company-store lc-company-store-read lc-receiving \
             lc-country lc-status lc-status-type lc-payment-method lc-measure-unit \
             lc-product-supplier lc-sales lc-scheduling lc-scheduling-read \
-            lc-department lc-position lc-seniority-level; do
+            lc-department lc-position lc-seniority-level lc-employee; do
 	if client_role_exists "$APP_CID" "$role"; then
 		print_success "Client role $APP_CLIENT/$role exists"
 	else
