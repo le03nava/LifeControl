@@ -1,0 +1,47 @@
+// employee-edit.scss — employee form
+// Responsive CSS Grid via shared _form-layout.scss
+//
+// Base styles injected from _form-layout.scss (shared):
+// - .form-card (card, container sizing, h2)
+// - form grid (1col xs | 2col sm | 3col md/lg)
+// - .form-actions (button bar, full-width span)
+// - .full-width (span all grid columns)
+
+@use '../../../../shared/styles/form-layout' as *;
+
+:host {
+  display: block;
+  width: 100%;
+}
+
+.section-title {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--color-gray-600);
+  font-size: 1rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.field-hint,
+.suggestion {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--color-gray-600);
+  font-size: 0.875rem;
+}
+
+.suggestion-error {
+  color: var(--color-warning-700, #b45309);
+}
+
+.loading-state {
+  margin-bottom: var(--space-md);
+  color: var(--color-gray-600);
+}
+
+.error-state {
+  display: block;
+  margin-bottom: var(--space-md);
+}

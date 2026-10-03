@@ -4,10 +4,12 @@ import {
   CLIENT_ID,
   CLIENT_ROLES,
   DEPARTMENT_WRITE_ROLES,
+  EMPLOYEE_WRITE_ROLES,
   hasAnyClientRole,
   HR_WRITE_ROLES,
   LC_ADMIN,
   LC_DEPARTMENT,
+  LC_EMPLOYEE,
   LC_POSITION,
   LC_SALES,
   LC_SENIORITY_LEVEL,
@@ -51,11 +53,12 @@ describe('roles', () => {
     });
   });
 
-  describe('department, position and seniority-level roles', () => {
+  describe('department, position, seniority-level and employee roles', () => {
     it.each([
       ['lc-department', LC_DEPARTMENT],
       ['lc-position', LC_POSITION],
       ['lc-seniority-level', LC_SENIORITY_LEVEL],
+      ['lc-employee', LC_EMPLOYEE],
     ])('should register %s in CLIENT_ROLES', (wire, constant) => {
       expect(constant).toBe(wire);
       expect(CLIENT_ROLES).toContain(constant);
@@ -75,19 +78,27 @@ describe('roles', () => {
       expect(SENIORITY_LEVEL_WRITE_ROLES).toEqual(['lc-admin', 'lc-seniority-level']);
     });
 
-    it('should make HR_WRITE_ROLES the union of the three write sets', () => {
-      // The menu-visibility set (D17). A literal pin because it is the exact
+    it('should keep EMPLOYEE_WRITE_ROLES as the flat [lc-admin, lc-employee] allow-list', () => {
+      // Literal wire strings: EmployeeController's @PreAuthorize write set matches
+      // these exact names.
+      expect(EMPLOYEE_WRITE_ROLES).toEqual(['lc-admin', 'lc-employee']);
+    });
+
+    it('should make HR_WRITE_ROLES the union of the four write sets', () => {
+      // The menu-visibility set (D17/D20). A literal pin because it is the exact
       // condition the header entry renders on.
       expect(HR_WRITE_ROLES).toEqual([
         'lc-admin',
         'lc-department',
         'lc-position',
         'lc-seniority-level',
+        'lc-employee',
       ]);
       const union = new Set([
         ...DEPARTMENT_WRITE_ROLES,
         ...POSITION_WRITE_ROLES,
         ...SENIORITY_LEVEL_WRITE_ROLES,
+        ...EMPLOYEE_WRITE_ROLES,
       ]);
       expect([...HR_WRITE_ROLES].sort()).toEqual([...union].sort());
     });

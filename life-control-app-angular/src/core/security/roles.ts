@@ -30,6 +30,7 @@ export const LC_SCHEDULING_READ = 'lc-scheduling-read';
 export const LC_DEPARTMENT = 'lc-department';
 export const LC_POSITION = 'lc-position';
 export const LC_SENIORITY_LEVEL = 'lc-seniority-level';
+export const LC_EMPLOYEE = 'lc-employee';
 
 /** Const array mirroring `Roles.java`. */
 export const CLIENT_ROLES = [
@@ -51,6 +52,7 @@ export const CLIENT_ROLES = [
   LC_DEPARTMENT,
   LC_POSITION,
   LC_SENIORITY_LEVEL,
+  LC_EMPLOYEE,
 ] as const;
 
 /**
@@ -148,8 +150,20 @@ export const POSITION_WRITE_ROLES = [LC_ADMIN, LC_POSITION];
 export const SENIORITY_LEVEL_WRITE_ROLES = [LC_ADMIN, LC_SENIORITY_LEVEL];
 
 /**
- * Union of the three HR write sets — the set that decides whether the
- * `Recursos Humanos` menu entry is rendered (D17).
+ * Roles allowed to create, edit, disable or re-enable an employee.
+ *
+ * Mirrors the `@PreAuthorize` write set of `EmployeeController`, which gates
+ * every write on `hasAnyRole('lc-admin','lc-employee')` (`D7`). The reads of the
+ * same controller are `isAuthenticated()` only, so the screen keeps its
+ * informative text for every authenticated caller and gates its controls on this
+ * list; it is also the write set the `employees` `create` and `edit/:id` routes
+ * will carry. A flat allow-list, not a role hierarchy.
+ */
+export const EMPLOYEE_WRITE_ROLES = [LC_ADMIN, LC_EMPLOYEE];
+
+/**
+ * Union of the four HR write sets — the set that decides whether the
+ * `Recursos Humanos` menu entry is rendered (`D17`, `D20`).
  *
  * This is a **menu-visibility set, not a gate for any endpoint**: the header
  * offers the entry to anyone who can write in at least one HR catalog, and each
@@ -157,7 +171,13 @@ export const SENIORITY_LEVEL_WRITE_ROLES = [LC_ADMIN, LC_SENIORITY_LEVEL];
  * a read roster: every HR read endpoint admits any authenticated caller, and a
  * holder of no HR write role still reads them, only without the menu entry.
  */
-export const HR_WRITE_ROLES = [LC_ADMIN, LC_DEPARTMENT, LC_POSITION, LC_SENIORITY_LEVEL];
+export const HR_WRITE_ROLES = [
+  LC_ADMIN,
+  LC_DEPARTMENT,
+  LC_POSITION,
+  LC_SENIORITY_LEVEL,
+  LC_EMPLOYEE,
+];
 
 /**
  * Returns `true` when the authenticated user holds at least one of `roles` as a
