@@ -1,19 +1,26 @@
 # ODD feature: employee-registry
 
-**Status**: planned, nothing implemented — the remaining work is W1–W4 below. This header makes
-no claim about branch, push or PR state; see the evidence log.
+**Status**: **W1a is implemented** (V20 with `companies.email_domain` and `employees`, the `Employee`
+model, `EmployeeRepository` and their tests; the evidence log carries the measurements) — **W1b
+remains**, then W2–W4 below. This header makes no claim about branch, push or PR state; see the
+evidence log.
 **Created**: 2026-09-30 · **Risk**: **high** — the first real person→company model in the schema,
 a generated identity whose rule is a one-way door, and the repository's first exclusion constraint
 (which needs its first PostgreSQL extension). No existing contract changes beyond one added column
 on `companies`.
 **Repository**: LifeControl — spans `life-control-api/**` (Spring Boot, Java 21, PostgreSQL 18.1 +
 Flyway) and `life-control-app-angular/**` (Angular 20.3 + Material/CDK 20). No gateway change.
-**Migration**: **`V20`** (V19 belongs to `hr-org-structure`; V18 is the current head).
-**Base**: `main` @ `274c67f` · **Branch**: `feat/hr-org-structure` · **Worktree**:
-`~/workspace/LifeControl-worktrees/feat-hr-org-structure` (herdr `wM`). This record shares the
-branch with `hr-org-structure` deliberately: **the two migrations are designed together**, because
-every contract row points at a `positions` row that V19 creates. If the review load proves too
-high, the split point is between the two records, not inside one.
+**Migration**: **`V20`** — it adds `companies.email_domain`, creates `employees` and seeds the
+`EMPLOYEE_STATUS` family. `V19` belongs to `hr-org-structure`, which merged on its own branch, so
+**this record no longer shares a branch with it**; the two migrations were designed together only
+because every contract row points at a `positions` row that V19 creates. **`V21` is not reserved
+here:** it stays claimed by `employee-store-assignments` (still unwritten), and `employee_contracts`,
+its exclusion constraint and the `btree_gist` extension move to **W2's own migration**, whose number
+is the next free one when it lands.
+**Work-unit split**: **declared 2026-10-02, before the first source line.** `W1` was measured over
+budget, so **the split point is inside `W1`** — `W1a` (schema, model, repository) and `W1b` (the CRUD
+service and the email generator) — superseding the earlier note that the split belonged between this
+record and `hr-org-structure`.
 **Requested by**: the user — the employee model request of 2026-09-30 and the follow-up decision
 "el email debe ser autogenerado … y ese mismo usarlo como usuario".
 
@@ -234,13 +241,14 @@ claim it.
 
 | | Content | Sizing note |
 | --- | --- | --- |
-| **W1** | `companies.email_domain` + `employees` + the `EMPLOYEE_STATUS` seed + the backend CRUD + the **email generator** as a pure helper with its own spec (T6) | Declared **over** the 400-line budget. The generator's spec is the part that must be thorough: accents, `Locale.ROOT`, particles, hyphens and apostrophes, a single given name from several, empty results, and length caps |
-| **W2** | `employee_contracts` + the contract endpoints + the close-the-previous rule (T13) + the exclusion constraint (T12) | Includes the integration test proving that an overlapping insert is refused by the database, and that a soft-deleted contract stops blocking |
+| **W1a** | `companies.email_domain` + `employees` + the `EMPLOYEE_STATUS` seed + the `Employee` model + `EmployeeRepository` + the migration and persistence tests. **Scope settled 2026-10-02**: `V20` carries exactly this and **not** `employee_contracts` | Measured at **~805 added lines across seven files**, so the split did **not** bring it under the 400-line budget: it remains a **size exception**, and the reviewer gets the migration, the model and their tests in one diff. `W1b` carries the rest of the original `W1` |
+| **W1b** | The backend CRUD and the **email generator** as a pure helper with its own spec (T6) | The generator's spec is the part that must be thorough: accents, `Locale.ROOT`, particles, hyphens and apostrophes, a single given name from several, empty results, and length caps |
+| **W2** | `employee_contracts` + **its own migration** + the contract endpoints + the close-the-previous rule (T13) + the exclusion constraint (T12) and the `btree_gist` extension it needs | **Revised 2026-10-02**: the table, the constraint and the extension moved out of `V20` into W2's own migration, because a single Flyway file cannot be half-written across two work units; the number is the next free one at that point. Includes the integration test proving that an overlapping insert is refused by the database, and that a soft-deleted contract stops blocking |
 | **W3** | `EmployeeList` + `EmployeeEdit` with the live suggestion, plus the companies form field | The suggestion is a read that reserves nothing (T8), and the spec must pin that the form falls back to manual entry without a domain |
 | **W4** | `EmployeeDetail` + `contract-history` + `contract-dialog` | The dialog carries no `MatDialog` in the presentational children: the page opens it and reloads, following the scheduling domain's D71 |
 
-Dependency order: **W1 → W2 → W3 → W4**. W1 must land before W3, because the form's suggestion and
-the frozen-email rule both need the employee endpoints.
+Dependency order: **W1a → W1b → W2 → W3 → W4**. W1b must land before W3, because the form's
+suggestion and the frozen-email rule both need the employee endpoints.
 
 ## Gaps
 
@@ -262,7 +270,7 @@ the frozen-email rule both need the employee endpoints.
 
 | Record | Relation |
 | --- | --- |
-| `hr-org-structure` | **Prerequisite**: every contract points at a `positions` row. Same branch, and V20 follows V19 |
+| `hr-org-structure` | **Prerequisite**: every contract points at a `positions` row. `V19` is merged and `V20` follows it; the shared branch this row used to claim was dropped on 2026-10-02 |
 | `company-scope-local-fallback` | **Blocking** for this record's merge (G1) |
 | `employee-store-assignments` | Depends on this record (it needs the employee to assign) |
 | `employee-access-provisioning` | Depends on this record (email + `keycloak_user_id`), on `hr-org-structure` (`position_roles`) and on `employee-store-assignments` (the scope the granted roles need) |
@@ -270,7 +278,9 @@ the frozen-email rule both need the employee endpoints.
 
 ## Task log
 
-- [ ] W1 — `companies.email_domain`, `employees`, `EMPLOYEE_STATUS` seed, backend CRUD, email generator
+- [x] W1a — `companies.email_domain`, `employees`, the `EMPLOYEE_STATUS` seed, the `Employee` model
+      and `EmployeeRepository` (implemented; the evidence log carries the measurements)
+- [ ] W1b — the backend CRUD service and the email generator
 - [ ] W2 — `employee_contracts`, contract endpoints, close-the-previous rule, exclusion constraint
 - [ ] W3 — `EmployeeList`, `EmployeeEdit` with the live suggestion, companies form field
 - [ ] W4 — `EmployeeDetail`, `contract-history`, `contract-dialog`
@@ -278,8 +288,8 @@ the frozen-email rule both need the employee endpoints.
 ## Deferred and blocking
 
 - **Blocked on `company-scope-local-fallback`** for merge (G1). Development is not blocked.
-- **Blocked on `btree_gist` being creatable**: the exclusion constraint needs the extension, and the
-  migration creates it. If a target environment forbids extensions, the documented fallback is a
+- **Blocked on `btree_gist` being creatable**: the exclusion constraint needs the extension, and
+  **W2's own migration** creates it (it left `V20` on 2026-10-02). If a target environment forbids extensions, the documented fallback is a
   partial unique index on the open-ended contract plus a service-level overlap check — strictly
   weaker, and the reason this is stated rather than assumed.
 - **Deferred**: payroll and tax identifiers (G10), workload hours (G9), offboarding (G7).
@@ -292,3 +302,4 @@ the frozen-email rule both need the employee endpoints.
 | 2026-10-01 | **D6 decided** while designing the membership bridge (`company-scope-local-fallback`, its D3): the user described the flow as "assign the store and the position or positions when the contract is activated" and, on review, chose the singular. V20 therefore stays exactly as designed — the rejection cost nothing because the migration has no source line yet. The same session recorded, in that record, why the store stays **out** of the contract (a transfer must not close a legal contract, T13) and why the store assignment becomes the load-bearing row of the flow. No source written. |
 | 2026-10-01 | **T17 added** as the security precondition of the auto-apply policy that `company-scope-local-fallback` closed as its D6(b): `keycloak_user_id` is written only by access provisioning, never by the employee record path. The reasoning is in that record's `The asynchronous boundary`, and it is a path removal, not a schema change — the column keeps its `UNIQUE` and stays nullable. The same pass added the note that the store stays outside the contract and that the position stays singular (**D6** above). No source written. |
 | 2026-10-02 | **V20's single `company_id` is now sanctioned by `company-scope-local-fallback`'s D4 = no rather than merely assumed.** D4 closed on 2026-10-02 as **no — one company per person**, so the `NOT NULL` company column and the `UNIQUE (company_id, employee_number)` / `UNIQUE (company_id, email)` pair are the **decided** ceiling of the model, not an accident of the design; the one-line SQL comment on the column records it where a reader of the migration will see it, and V20's shape is otherwise unchanged. **No source line was written** |
+| 2026-10-02 | **W1a implemented from `main @ 6072d65`, and the premise that made it the first step turned out to be a defect in another record.** `employee-access-provisioning` assumed `V19`–`V21` preceded it and that its `W1` was buildable today; measured against the tree, **`V19` was the head, `V20` and `V21` did not exist, and `employees` did not exist**, so that record's `REFERENCES employees(id)` was unapplicable and **this** record's W1 was the real prerequisite. **Scope settled before the first line**: `V20` carries `companies.email_domain` + `employees` + the `EMPLOYEE_STATUS` seed **only**, with `employee_contracts`, the exclusion constraint and the `btree_gist` extension moved to **W2's own migration** — one Flyway file cannot be half-written across two work units — and **`V21` deliberately left claimed by `employee-store-assignments`** so no other record renumbers. **The split was chosen by the user the same day**: `W1` → **`W1a`** (schema, model, repository) + **`W1b`** (CRUD and generator). **Two consequences the slice forced into the open**: adding `V20` broke **two** suites that pin the Flyway head (`HrSchemaMigrationIntegrationTest` and `GoodsReceiptIntegrationTest`), both re-pinned to `20` with method and display names renamed so no `V19` claim survives; and `spring.jpa.hibernate.ddl-auto=validate` means **an entity without its table breaks every integration test in the module**, so the migration could not be deferred behind the model. **Evidence**: tests first with the RED observed (`relation "employees" does not exist`, and both head pins reading `19`), then GREEN; the full API suite at **738 reports / 2710 tests / 0 failures / 0 errors / 0 skipped** — the baseline plus exactly this class's ten tests; `spotlessCheck` and `spotbugsMain` green (both returned `UP-TO-DATE` on the final run, which is cached rather than fresh evidence); **seven files changed and nothing else**, with the tree byte-identical before and after the verification run. An independent verification pass **refuted nothing** in the migration, the entity mapping or the T17 path removal, but found **two real test-value holes and one false claim**, all fixed before the commit: the boundary case now inserts `birth_date = hire_date` (the equality its display name always claimed, and the only input that discriminates `<` from `<=`), the class javadoc now says the `@BeforeEach` deletes the **whole** `employees` table, and it now says the seed guard's idempotency is **inherited from the V3/V12/V18 idiom rather than exercised by any test in this repository**. **Declared, not fixed**: the seed guard is pinned nowhere in the repository (a measurement, not an omission here); foreign-key enforcement, column defaults and the `address` association are not pinned by this suite; and W1a is **~805 added lines across seven files, over the 400-line budget even after the split**, so a size exception is owed to the reviewer. **No contract table, no extension, and no source line of any other record was written** |
