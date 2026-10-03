@@ -79,4 +79,11 @@ public final class Roles {
 
     /** Scheduling read-only role. Client role of {@code life-control-client}. */
     public static final String SCHEDULING_READ = "lc-scheduling-read";
+
+    /** HR employee-record write role. A <b>functional</b> role, like {@link #SENIORITY_LEVEL}: it
+     *  grants writing the employee record and is deliberately absent from every {@link ScopeLevel}
+     *  and from {@code GrantablePositionRoles}. Employee-record write is not a tenancy level, so it
+     *  must not be delegable by a position template; the company scope is still verified through the
+     *  {@code company_id} claim. Client role of {@code life-control-client}. */
+    public static final String EMPLOYEE = "lc-employee";
 }
