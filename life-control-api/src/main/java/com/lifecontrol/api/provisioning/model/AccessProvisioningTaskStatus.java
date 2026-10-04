@@ -13,8 +13,10 @@ package com.lifecontrol.api.provisioning.model;
  * and {@code REJECTED} are terminal and release that slot.</p>
  *
  * <p>These are <b>values only</b>. There is deliberately no transition logic here — no
- * {@code canTransitionTo}, no map — because the state machine and its guard belong to W1b, and the
- * enum is the entity's column type, not the machine.</p>
+ * {@code canTransitionTo}, no map — because the state machine and its guard belong to one service,
+ * {@code com.lifecontrol.api.provisioning.service.AccessProvisioningTaskService}, and the enum is the
+ * entity's column type, not the machine. A state that knew its own transitions would let any holder
+ * of the entity change the state (record T17).</p>
  */
 public enum AccessProvisioningTaskStatus {
     /** Written and waiting for a worker to pick it up. */
