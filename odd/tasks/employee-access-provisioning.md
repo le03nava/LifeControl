@@ -1,9 +1,11 @@
 # ODD feature: employee-access-provisioning
 
-**Status**: planned, nothing implemented — the remaining work is W1–W6 below, and **O1–O5 are closed**
-(2026-10-01): the activation link, the store-scoped auto-apply rule, no self-approval, automatic
-revocation, and no read pair. **O1 moved SMTP into scope** (W6), so this record is now the one that also
-configures the invitation channel. This header claims no branch, push or PR state; see the evidence log.
+**Status**: **implemented in part — W1a landed**: `V22` with the two tables, the two entities, the two
+repositories and the schema test, committed as `92026ac` on 2026-10-04; the remaining work is **W1b and
+W2–W6** below. **O1–O5 are closed** (2026-10-01): the activation link, the store-scoped auto-apply rule,
+no self-approval, automatic revocation, and no read pair — **O1 moved SMTP into scope** (W6), so this record
+is also the one that configures the invitation channel. This header makes no claim about push or PR state;
+see the evidence log.
 **Created**: 2026-10-01 · **Risk**: **high** — this is the only record in the chain that **writes to
 another system**: it creates accounts, grants business roles and materialises the tenant claims. It is
 also the convergence point of five records, and the one place where a mistake is an authorization defect
@@ -19,8 +21,8 @@ which is the claim this line carried until it was measured. The next free number
 label, which now **coincides with the measured head** instead of being a reservation.
 **Sequencing, corrected 2026-10-02**: this record **does not share a branch** with the other three
 employee records — `hr-org-structure` merged on its own branch, and `employee-registry`,
-`employee-store-assignments` and this one are each **their own unit of work**. Nothing here is
-written; see the evidence log.
+`employee-store-assignments` and this one are each **their own unit of work**. W1a is written on
+`feat/employee-access-provisioning`; see the evidence log.
 **Requested by**: the user — the membership flow of 2026-10-01 ("cuando se active [el contrato] se debe de
 asignar la tienda y la posición … y en base a la relación de posiciones con roles se genera el usuario en
 keycloak con los roles y atributos"). This record implements steps 3–5 of that flow.
@@ -124,7 +126,10 @@ that nothing is invented here:
 > The `V22` in this heading is **the number the design was written against, not a reservation**: see
 > the corrected `**Migration**` line in the header. What matters for this schema's shape is that
 > `employee_id` now has a real target — `employees`, created by `employee-registry`'s W1a as `V20` —
-> so the `REFERENCES employees(id)` below is applicable rather than aspirational.
+> so the `REFERENCES employees(id)` below is applicable rather than aspirational. **Implemented
+> statement by statement as `V22__employee_access_provisioning.sql` on 2026-10-04 (`92026ac`), with the
+> DDL below unchanged**: the only differences between this block and the migration are the migration's own
+> comments, and the repository's first **partial UNIQUE index** is the one this block declares.
 
 ```sql
 -- ============================================
@@ -266,7 +271,7 @@ a live realm.
 
 - [x] O1–O5 decided by the user (2026-10-01): an **activation link by email** (which moved SMTP into
   scope), the store-scoped auto-apply rule, no self-approval, automatic revocation, no read pair
-- [ ] W1a — `V22`, the two entities, the two repositories and the schema test
+- [x] W1a — `V22`, the two entities, the two repositories and the schema test — `92026ac` (2026-10-04)
 - [ ] W1b — the state machine and the service that owns its guard
 - [ ] W2 — the account lifecycle and the role diff
 - [ ] W3 — the membership attributes from the derivation
@@ -285,8 +290,9 @@ a live realm.
   W0 exists).
 - **Deferred**: the batch user fetch (G3), the divergence policy (G5), roles granted outside the template
   (G7), the email theme and language (G10), and the inbox's home in the menu.
-- **Explicitly not blocked**: W1 can be built today. Its migrations, state machine and tests need no
-  Keycloak at all, and the worker's tests run against a fake identity provider.
+- **Explicitly not blocked**: **W1b**, which is what is left of W1 — the state machine and the service that
+  owns its guard. Neither W1b nor W1a needs Keycloak: the schema, the transitions and their tests are
+  self-contained, and W4's tests will run against a fake identity provider.
 
 ## Evidence log
 
@@ -298,3 +304,4 @@ a live realm.
 | 2026-10-02 | **T1 gained the invariant `company-scope-local-fallback`'s D4 = no created.** The emitted set collapses on **one** level and not on the others: `company_id` derives from `employees.company_id` and is therefore always a **single element**, while `company_country_id`, `company_region_id`, `company_zone_id` and `company_store_id` remain **genuine** lists — several stores in several countries of that one company. A projection that emits **more than one** `company_id` is a **bug**, and the derivation must **fail closed** rather than write it, because this is an **authorisation input**. The decision lives in that record's **D4**, closed on 2026-10-02 as no — one company per person. **No source line was written** |
 | 2026-10-02 | **The record's migration premise was false and is corrected here.** The header read "`V22` — `V19`–`V21` precede it on this same branch" and the readiness note claimed *"W1 can be built today"*. Measured against the tree on 2026-10-02: **`V19` is the head, `V20` and `V21` do not exist, and `employees` does not exist**, so the `employee_id UUID NOT NULL REFERENCES employees(id)` in the schema was **unapplicable** and this record was **not** the buildable first step — `employee-registry`'s **W1a** was. What is corrected: this record's number is **the next free one when it lands, not `V22` by right**; **`V21` stays claimed by `employee-store-assignments`**; and the `employee_id` foreign key now has a real target, because W1a creates `employees` as `V20` through `companies.email_domain` + `employees` + the `EMPLOYEE_STATUS` seed. The `## Schema — V22` block is left **byte-identical** as the design it was written against, with a note at its head saying exactly that. The correction was found while **starting `employee-registry` W1a** — the record this one depends on for `employees.email` and `keycloak_user_id` — which is the second time this chain has paid for a premise that was asserted rather than measured. **No source line was written, no decision was reversed, and nothing about the projection's shape changed** |
 | 2026-10-04 | **The record's migration premise was measured before paying for it a third time, and it was stale again.** The `**Migration**` line claimed that `V21` was "claimed by `employee-store-assignments`, which is still unwritten"; measured against the tree, **`V21__employee_contracts.sql` exists and belongs to `employee-registry`'s W2**, so the next free number is **`V22`** — which is what the `## Schema` heading had said since the day it was written. The two earlier corrections in this log are why it was checked at all, and this is the third premise in the chain that a measurement refuted and the second time the refutation was cheap. **What else the pre-write measurement produced, and what it changed**: the module has **zero** `@EnableScheduling`, `@Scheduled`, `TaskScheduler`, `@Async` and no retry or queue dependency in `build.gradle`, so **W4's worker starts from nothing** — E25–E27 confirmed rather than assumed; **four** suites pin the Flyway head at `"21"` and belong to **W1a**; `employees` (V20) and `position_roles` (V19) exist, so W1a's `REFERENCES employees(id)` is applicable and W2's role source is already built; `lc-employee-access` appears **nowhere** outside `odd/tasks/*.md`, so this record must still register it; and `access_provisioning*` has **no** name collision in source, SQL or tests. Consequences recorded rather than carried in the head: **T16** fixes where the aggregate lives, and **W1 is split into W1a and W1b** (schema, model and repositories; then the state machine and its service) because the single row carried too much to review as one unit. **No source line was written, and no decision about the projection's shape changed** |
+| 2026-10-04 | **W1a landed: `V22`, the two entities, the two repositories and the schema test.** Branch `feat/employee-access-provisioning` off `main @ b01adbf`: `b448cf1` is the tracking commit (the W1 split, the migration-premise correction and **T16**) and **`92026ac`** is the code — `V22__employee_access_provisioning.sql` implementing this record's frozen DDL **statement by statement**, plus `com.lifecontrol.api.provisioning.{model,repository}` and `AccessProvisioningSchemaMigrationIntegrationTest`. The **four** Flyway head pins moved from `"21"` to `"22"`, and their method and display names with them, so no pinned test is left lying about the head it asserts. **Two independent verifications, both green, and the second one on the finished artifact**: `./gradlew test --no-daemon` reported **2932 tests / 0 failures / 0 errors / 791 classes** on the writer's artifact, and **2934 tests / 0 failures** after the test file was strengthened — the +2 methods are the whole delta, and no file under `src/main` is newer than the first run. **The first verification raised four findings and all four are closed rather than declared**: the column assertions checked names and types only, so **nullability, the VARCHAR lengths and the default values** were asserted nowhere and `ddl-auto=validate` does not check them either; the **three declared indexes** were asserted nowhere, so dropping one kept the suite green; the partial index's predicate was asserted with `.contains("PENDING")`, which `APPROVAL_PENDING` satisfies on its own; and the suite's `@BeforeEach` deleted **every** row of both provisioning tables, which would have deleted W1b's and W4's fixtures. The predicate assertion now derives its expectation from `AccessProvisioningTaskStatus.values()` and matches the **quoted** form, so the enum and the index must agree in both directions. **One value was corrected because it was measured rather than assumed**: PostgreSQL reports the timestamp defaults as `CURRENT_TIMESTAMP`, not `now()`, so the test pins the migration's own written form — the first version of that assertion failed, and the failure is what produced the value. **One instruction of mine was wrong and the writer refused it, correctly**: it was told to use `protected` setters, measured the repository (**337** public setters against **2**, with `life-control-api/AGENTS.md:312-345` documenting public ones) and followed the repository while declaring the divergence. **The native review did not run on this candidate, and the reason is recorded rather than hidden**: the preflight found the target ready, and the consent envelope it created **expired unanswered after ten minutes without ever being presented to the human**, because two of the START invocations returned a blocked or erroring state instead of the envelope. The provider then recorded `declined_this_candidate` for target `sha256:f511ab72…` with `lineage_created: false` and `mutation_performed: false`, so nothing was authorised and nothing was burned, and the decline is **candidate-scoped**: a later candidate gets its own envelope. W1a's evidence is therefore two independent verifier runs and a green full suite, **not** a native review. **No decision about the projection's shape changed, and `src/main` still contains no transition logic and no identity code** |
