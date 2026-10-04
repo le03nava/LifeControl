@@ -3,6 +3,7 @@ package com.lifecontrol.api.hr.controller;
 import static com.lifecontrol.api.common.security.Roles.ADMIN;
 import static com.lifecontrol.api.common.security.Roles.EMPLOYEE;
 
+import com.lifecontrol.api.hr.dto.CloseStoreAssignmentRequest;
 import com.lifecontrol.api.hr.dto.StoreAssignmentRequest;
 import com.lifecontrol.api.hr.dto.StoreAssignmentResponse;
 import com.lifecontrol.api.hr.service.EmployeeStoreAssignmentService;
@@ -29,7 +30,8 @@ import org.springframework.web.bind.annotation.*;
  * anything), so nothing here re-implements the scope check, the validation or the day arithmetic.
  * There is deliberately no {@code PUT} and no {@code DELETE} (decision T5): a transfer is a new
  * assignment and a mistake is closed, because rewriting a row would erase when someone stopped
- * working somewhere. The {@code PATCH …/{id}/close} route is W2b and is not part of this unit.</p>
+ * working somewhere. The {@code PATCH …/{id}/close} route closes an open assignment exactly once,
+ * with the body's end date defaulting to today (decisions T5 and D5).</p>
  */
 @RestController
 @RequestMapping("/api/companies/{companyId}/employees/{employeeId}/store-assignments")
@@ -81,5 +83,26 @@ public class EmployeeStoreAssignmentController {
             @Valid @RequestBody StoreAssignmentRequest request) {
         var response = employeeStoreAssignmentService.createAssignment(companyId, employeeId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @PatchMapping("/{id}/close")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + EMPLOYEE + "')")
+    @Operation(
+            summary = "Close an open store assignment",
+            description = "Closes a store assignment by setting its end date, defaulting to today when "
+                    + "the body is omitted; only an open-ended assignment can be closed and closing "
+                    + "changes nothing else")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Store assignment closed"),
+        @ApiResponse(responseCode = "400", description = "The end date precedes the assignment's start date"),
+        @ApiResponse(responseCode = "404", description = "Employee, company or store assignment not found"),
+        @ApiResponse(responseCode = "409", description = "The assignment is already closed")
+    })
+    public ResponseEntity<StoreAssignmentResponse> closeAssignment(
+            @PathVariable UUID companyId,
+            @PathVariable UUID employeeId,
+            @PathVariable UUID id,
+            @RequestBody(required = false) CloseStoreAssignmentRequest request) {
+        return ResponseEntity.ok(employeeStoreAssignmentService.closeAssignment(companyId, employeeId, id, request));
     }
 }

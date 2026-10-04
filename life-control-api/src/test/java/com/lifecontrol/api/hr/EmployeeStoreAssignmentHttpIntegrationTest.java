@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -18,6 +19,7 @@ import com.lifecontrol.api.company.repository.CompanyRegionRepository;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.company.repository.CompanyZoneRepository;
 import com.lifecontrol.api.country.repository.CountryRepository;
+import com.lifecontrol.api.hr.dto.CloseStoreAssignmentRequest;
 import com.lifecontrol.api.hr.dto.StoreAssignmentRequest;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
@@ -42,8 +44,8 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 /**
- * HTTP-level verification of the store-assignment read and create routes against real PostgreSQL,
- * with the V23 schema applied by Flyway and {@code ddl-auto=validate}.
+ * HTTP-level verification of the store-assignment read, create and close routes against real
+ * PostgreSQL, with the V23 schema applied by Flyway and {@code ddl-auto=validate}.
  *
  * <p>The requests carry a real {@code jwt()} whose claims {@code CurrentUserContext} reads from the
  * security context — the admin authority short-circuits {@code verifyCompanyAccess}, and the
@@ -56,7 +58,10 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
  * overlap the service pre-check cannot see ending as the generic 409 (W2a's slice of the refusal
  * matrix; the by-name proof stays W1a's JDBC-level assertion). The list also proves the history's
  * newest-first {@code validFrom} order, and asserts the id-descending tie-breaker for rows sharing a
- * {@code validFrom} (its regression sensitivity is probabilistic, since the id is a random UUID).</p>
+ * {@code validFrom} (its regression sensitivity is probabilistic, since the id is a random UUID).
+ * W2b adds the close path (decision T5/D5): the default-to-today close, the explicit end date, the
+ * inverted-date 400, the already-closed 409 and the foreign-assignment 404, all of them measured
+ * against the service as it is rather than asserted from the brief.</p>
  *
  * <p>Cleanup is scoped: every row of {@code employee_store_assignments} (this feature's own table)
  * and the employees of the two companies this suite creates. The store tree and the {@code companies}
@@ -82,6 +87,7 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
     private static final String FOREIGN_STORE_NAME = "Assignment HTTP Foreign Store";
 
     private static final String BASE_URL = "/api/companies/{companyId}/employees/{employeeId}/store-assignments";
+    private static final String CLOSE_URL = BASE_URL + "/{id}/close";
     private static final SimpleGrantedAuthority ROLE_LC_ADMIN = new SimpleGrantedAuthority("ROLE_lc-admin");
     private static final SimpleGrantedAuthority ROLE_LC_EMPLOYEE = new SimpleGrantedAuthority("ROLE_lc-employee");
 
@@ -270,6 +276,19 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
 
     private ResultActions getAssignments(String query, RequestPostProcessor auth) throws Exception {
         return mockMvc.perform(get(BASE_URL + query, companyId, employeeId).with(auth));
+    }
+
+    /** A close with no body at all: {@code @RequestBody(required = false)} must default the date. */
+    private ResultActions closeAssignment(UUID employee, UUID assignment, RequestPostProcessor auth) throws Exception {
+        return mockMvc.perform(patch(CLOSE_URL, companyId, employee, assignment).with(auth));
+    }
+
+    private ResultActions closeAssignment(UUID employee, UUID assignment, Object body, RequestPostProcessor auth)
+            throws Exception {
+        return mockMvc.perform(patch(CLOSE_URL, companyId, employee, assignment)
+                .with(auth)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(body)));
     }
 
     /** The id of the row a create call just returned, read from its 201 body. */
@@ -538,6 +557,165 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
             assertThat(storedValidToAt(LocalDate.of(2026, 1, 1)))
                     .as("the predecessor close rolled back with the refused insert")
                     .isEqualTo(LocalDate.of(2027, 1, 1));
+        }
+    }
+
+    @Nested
+    @DisplayName("close over HTTP")
+    class CloseTests {
+
+        @Test
+        @DisplayName("closing with no body returns 200 and reports today as the last covered day (D5)")
+        void closeWithoutBodyDefaultsToToday() throws Exception {
+            var id = createdAssignmentId(
+                    postAssignment(employeeId, new StoreAssignmentRequest(storeId, LocalDate.of(2026, 1, 1)), admin())
+                            .andExpect(status().isCreated()));
+            var today = LocalDate.now();
+
+            closeAssignment(employeeId, id, admin())
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.id").value(id.toString()))
+                    .andExpect(jsonPath("$.validTo").value(today.toString()));
+
+            assertThat(storedValidToAt(LocalDate.of(2026, 1, 1)))
+                    .as("the column stores the exclusive day after the inclusive API date (D5)")
+                    .isEqualTo(today.plusDays(1));
+        }
+
+        @Test
+        @DisplayName("closing with an explicit endDate returns 200 and reports exactly that date")
+        void closeWithExplicitEndDate() throws Exception {
+            var id = createdAssignmentId(
+                    postAssignment(employeeId, new StoreAssignmentRequest(storeId, LocalDate.of(2026, 1, 1)), admin())
+                            .andExpect(status().isCreated()));
+
+            closeAssignment(employeeId, id, new CloseStoreAssignmentRequest(LocalDate.of(2026, 3, 15)), admin())
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.validFrom").value("2026-01-01"))
+                    .andExpect(jsonPath("$.validTo").value("2026-03-15"));
+
+            assertThat(storedValidToAt(LocalDate.of(2026, 1, 1))).isEqualTo(LocalDate.of(2026, 3, 16));
+        }
+
+        @Test
+        @DisplayName("an endDate equal to validFrom is accepted, a single covered day (measured)")
+        void closeWithEndDateEqualToValidFromIsAccepted() throws Exception {
+            var id = createdAssignmentId(
+                    postAssignment(employeeId, new StoreAssignmentRequest(storeId, LocalDate.of(2026, 2, 1)), admin())
+                            .andExpect(status().isCreated()));
+
+            closeAssignment(employeeId, id, new CloseStoreAssignmentRequest(LocalDate.of(2026, 2, 1)), admin())
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.validFrom").value("2026-02-01"))
+                    .andExpect(jsonPath("$.validTo").value("2026-02-01"));
+
+            assertThat(storedValidToAt(LocalDate.of(2026, 2, 1)))
+                    .as("T2's '[)' range stores validFrom + 1, which is a legal one-day range")
+                    .isEqualTo(LocalDate.of(2026, 2, 2));
+        }
+
+        @Test
+        @DisplayName("an endDate before validFrom is a 400 and leaves the row open")
+        void closeWithEndDateBeforeValidFromIsA400() throws Exception {
+            var id = createdAssignmentId(
+                    postAssignment(employeeId, new StoreAssignmentRequest(storeId, LocalDate.of(2026, 5, 1)), admin())
+                            .andExpect(status().isCreated()));
+
+            closeAssignment(employeeId, id, new CloseStoreAssignmentRequest(LocalDate.of(2026, 4, 30)), admin())
+                    .andExpect(status().isBadRequest());
+
+            assertThat(storedValidToAt(LocalDate.of(2026, 5, 1)))
+                    .as("the refused close leaves valid_to null")
+                    .isNull();
+        }
+
+        @Test
+        @DisplayName("closing an already-closed assignment is a 409")
+        void closeAlreadyClosedIsA409() throws Exception {
+            var id = createdAssignmentId(
+                    postAssignment(employeeId, new StoreAssignmentRequest(storeId, LocalDate.of(2026, 1, 1)), admin())
+                            .andExpect(status().isCreated()));
+            closeAssignment(employeeId, id, new CloseStoreAssignmentRequest(LocalDate.of(2026, 1, 31)), admin())
+                    .andExpect(status().isOk());
+
+            closeAssignment(employeeId, id, new CloseStoreAssignmentRequest(LocalDate.of(2026, 2, 28)), admin())
+                    .andExpect(status().isConflict());
+
+            assertThat(storedValidToAt(LocalDate.of(2026, 1, 1)))
+                    .as("the second close changes nothing")
+                    .isEqualTo(LocalDate.of(2026, 2, 1));
+        }
+
+        @Test
+        @DisplayName("an unknown assignment id is a 404")
+        void closeUnknownAssignmentIsA404() throws Exception {
+            closeAssignment(
+                            employeeId,
+                            UUID.randomUUID(),
+                            new CloseStoreAssignmentRequest(LocalDate.of(2026, 1, 31)),
+                            admin())
+                    .andExpect(status().isNotFound());
+        }
+
+        @Test
+        @DisplayName("an assignment of another company is a 404, never a 200")
+        void closeForeignAssignmentIsA404() throws Exception {
+            var foreignId = createdAssignmentId(mockMvc.perform(post(BASE_URL, otherCompanyId, foreignEmployeeId)
+                            .with(admin())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(
+                                    new StoreAssignmentRequest(foreignStoreId, LocalDate.of(2026, 1, 1)))))
+                    .andExpect(status().isCreated()));
+
+            closeAssignment(employeeId, foreignId, new CloseStoreAssignmentRequest(LocalDate.of(2026, 1, 31)), admin())
+                    .andExpect(status().isNotFound());
+
+            assertThat(jdbcTemplate.queryForObject(
+                            "SELECT COUNT(*) FROM employee_store_assignments WHERE id = ? AND valid_to IS NULL",
+                            Integer.class,
+                            foreignId))
+                    .as("the foreign assignment stays open")
+                    .isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("close flips no flag: the closed row stays in the default list (measured)")
+        void closeDoesNotHideTheRowFromTheDefaultList() throws Exception {
+            var id = createdAssignmentId(
+                    postAssignment(employeeId, new StoreAssignmentRequest(storeId, LocalDate.of(2026, 1, 1)), admin())
+                            .andExpect(status().isCreated()));
+            closeAssignment(employeeId, id, new CloseStoreAssignmentRequest(LocalDate.of(2026, 1, 31)), admin())
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.enabled").value(true));
+
+            getAssignments("", admin())
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$", hasSize(1)))
+                    .andExpect(jsonPath("$[0].id").value(id.toString()))
+                    .andExpect(jsonPath("$[0].enabled").value(true));
+
+            getAssignments("?includeDisabled=true", admin())
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$", hasSize(1)))
+                    .andExpect(jsonPath("$[0].id").value(id.toString()));
+        }
+
+        @Test
+        @DisplayName("a closed row still carries its derived display chain; no token derivation is exposed (measured)")
+        void closedRowStillCarriesItsDerivedChain() throws Exception {
+            var id = createdAssignmentId(
+                    postAssignment(employeeId, new StoreAssignmentRequest(storeId, LocalDate.of(2026, 1, 1)), admin())
+                            .andExpect(status().isCreated()));
+            closeAssignment(employeeId, id, new CloseStoreAssignmentRequest(LocalDate.of(2026, 1, 31)), admin())
+                    .andExpect(status().isOk());
+
+            getAssignments("?includeDisabled=true", admin())
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$", hasSize(1)))
+                    .andExpect(jsonPath("$[0].companyStoreId").value(storeId.toString()))
+                    .andExpect(jsonPath("$[0].validTo").value("2026-01-31"))
+                    .andExpect(jsonPath("$[0].derived.companyId").value(companyId.toString()))
+                    .andExpect(jsonPath("$[0].derived.companyZoneId").value(zoneId.toString()));
         }
     }
 }

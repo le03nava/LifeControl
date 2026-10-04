@@ -4,6 +4,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -37,8 +38,8 @@ import org.springframework.test.web.servlet.MockMvc;
 /**
  * Method-level authorization slice of the store-assignment controller, mirroring
  * {@code ContractControllerSecurityTest}: the read is reachable for any authenticated caller and the
- * create is limited to {@code lc-admin} and {@code lc-employee}. The service is mocked, so the slice
- * boots neither PostgreSQL nor the JWT infrastructure.
+ * create and close are limited to {@code lc-admin} and {@code lc-employee}. The service is mocked,
+ * so the slice boots neither PostgreSQL nor the JWT infrastructure.
  */
 @WebMvcTest(EmployeeStoreAssignmentController.class)
 @DisplayName("Employee Store Assignment Controller Security — @PreAuthorize method-level authorization")
@@ -208,6 +209,66 @@ class EmployeeStoreAssignmentControllerSecurityTest {
                                     employeeId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(buildRequest())))
+                    .andExpect(status().isUnauthorized());
+        }
+    }
+
+    // ─── PATCH …/{id}/close ───────────────────────────────────────
+
+    @Nested
+    @DisplayName("PATCH /api/companies/{companyId}/employees/{employeeId}/store-assignments/{id}/close")
+    class CloseAssignmentSecurity {
+
+        @Test
+        @WithMockUser(roles = {"lc-admin"})
+        @DisplayName("returns 200 OK for lc-admin")
+        void adminCanClose() throws Exception {
+            when(employeeStoreAssignmentService.closeAssignment(eq(companyId), eq(employeeId), eq(assignmentId), any()))
+                    .thenReturn(buildResponse());
+
+            mockMvc.perform(patch(
+                            "/api/companies/{companyId}/employees/{employeeId}/store-assignments/{id}/close",
+                            companyId,
+                            employeeId,
+                            assignmentId))
+                    .andExpect(status().isOk());
+        }
+
+        @Test
+        @WithMockUser(roles = {"lc-employee"})
+        @DisplayName("returns 200 OK for lc-employee")
+        void employeeRoleCanClose() throws Exception {
+            when(employeeStoreAssignmentService.closeAssignment(eq(companyId), eq(employeeId), eq(assignmentId), any()))
+                    .thenReturn(buildResponse());
+
+            mockMvc.perform(patch(
+                            "/api/companies/{companyId}/employees/{employeeId}/store-assignments/{id}/close",
+                            companyId,
+                            employeeId,
+                            assignmentId))
+                    .andExpect(status().isOk());
+        }
+
+        @Test
+        @WithMockUser(roles = {"lc-department"})
+        @DisplayName("returns 403 Forbidden for a caller holding neither allowed role")
+        void unrelatedRoleGetsForbidden() throws Exception {
+            mockMvc.perform(patch(
+                            "/api/companies/{companyId}/employees/{employeeId}/store-assignments/{id}/close",
+                            companyId,
+                            employeeId,
+                            assignmentId))
+                    .andExpect(status().isForbidden());
+        }
+
+        @Test
+        @DisplayName("returns 401 Unauthorized for an unauthenticated request")
+        void unauthenticatedReturns401() throws Exception {
+            mockMvc.perform(patch(
+                            "/api/companies/{companyId}/employees/{employeeId}/store-assignments/{id}/close",
+                            companyId,
+                            employeeId,
+                            assignmentId))
                     .andExpect(status().isUnauthorized());
         }
     }
