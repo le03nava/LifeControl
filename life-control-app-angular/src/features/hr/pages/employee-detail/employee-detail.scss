@@ -1,0 +1,123 @@
+@use '../../../../shared/styles/variables' as *;
+
+:host {
+  display: block;
+  width: 100%;
+  padding: 0 var(--space-md);
+}
+
+.employee-detail-page {
+  width: 100%;
+}
+
+.filters-section {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+
+  .company-selector {
+    flex: 1 1 240px;
+    max-width: 360px;
+  }
+}
+
+.employee-card {
+  width: 100%;
+  margin-bottom: var(--space-lg);
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-md);
+}
+
+.detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.detail-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.detail-value {
+  font-size: 1rem;
+  color: var(--mat-sys-on-surface);
+}
+
+.badge.status {
+  display: inline-block;
+  align-self: flex-start;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  background-color: var(--mat-sys-surface-variant, #e5e7eb);
+  color: var(--mat-sys-on-surface-variant, #4b5563);
+}
+
+.section-title {
+  margin: 0 0 var(--space-md);
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--mat-sys-on-surface);
+}
+
+.loading-text {
+  color: var(--mat-sys-on-surface-variant);
+  font-style: italic;
+}
+
+.empty-prompt {
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 1rem;
+  margin-top: var(--space-md);
+}
+
+.error-state,
+.not-found-state {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-lg);
+  border-radius: var(--radius-lg);
+  font-size: 1rem;
+
+  mat-icon {
+    font-size: 24px;
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+  }
+
+  p {
+    margin: 0;
+  }
+}
+
+.error-state {
+  border: 1px solid var(--mat-sys-error);
+  background-color: color-mix(in srgb, var(--mat-sys-error) 8%, transparent);
+  color: var(--mat-sys-error);
+}
+
+.not-found-state {
+  border: 1px solid var(--mat-sys-outline-variant, #d1d5db);
+  background-color: var(--mat-sys-surface-variant, #f3f4f6);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+@media (max-width: $bp-mobile-max) {
+  .filters-section {
+    .company-selector {
+      max-width: 100%;
+      flex: 1 1 100%;
+    }
+  }
+}

@@ -64,7 +64,10 @@ interface StatusOption {
  * and says so, instead of offering an option that cannot resolve a status id.
  *
  * The list route carries no `roles` (any authenticated caller reads), so the
- * informative text renders for everyone and `canWrite` gates only the actions.
+ * informative text renders for everyone and `canWrite` gates only the write
+ * actions. The row action **"Ver"** is deliberately outside that gate: it opens
+ * the read-only detail (`/hr/employees/:id`), which is a read like this list, so
+ * every caller that can see a row can open it.
  *
  * Disable is a soft delete (`enabled = false`) and is **not** the `Terminated`
  * status (`T3`): the copy says "deshabilitar", the inverse action is offered for
@@ -284,6 +287,17 @@ export class EmployeeList {
 
   onEdit(employee: Employee): void {
     this.router.navigate(['/hr/employees/edit', employee.id], {
+      queryParams: { companyId: employee.companyId },
+    });
+  }
+
+  /**
+   * Opens the read-only detail of the row, carrying the company the same way
+   * `onEdit` does. It is deliberately outside the `canWrite` gate: the detail is a
+   * read (`isAuthenticated()`), so every caller that can see the row can open it.
+   */
+  onView(employee: Employee): void {
+    this.router.navigate(['/hr/employees', employee.id], {
       queryParams: { companyId: employee.companyId },
     });
   }

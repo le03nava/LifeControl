@@ -21,6 +21,13 @@ import { CLIENT_ID, DEPARTMENT_WRITE_ROLES, EMPLOYEE_WRITE_ROLES } from '@core/s
  * write children are gated exactly like their department siblings, and the list
  * page's "Nuevo empleado" / "Editar" links now point at registered routes. The
  * `positions` catalog (`9-2`) still arrives with its own later slice.
+ *
+ * The employees **detail** child (`:id`, which loads `EmployeeDetail`) is a read:
+ * it carries **no `roles`**, exactly like the list child, because the employee
+ * read endpoints are `isAuthenticated()`. It is declared **after** the literal
+ * `create` and `edit/:id` children on purpose — a path matcher prefers the first
+ * matching route, so a `:id` declared before them would swallow `/create` and
+ * `/edit/…`.
  */
 export const hrRoutes: Routes = [
   {
@@ -72,6 +79,13 @@ export const hrRoutes: Routes = [
             data: { roles: EMPLOYEE_WRITE_ROLES, clientId: CLIENT_ID },
             loadComponent: () =>
               import('./pages/employee-edit/employee-edit').then((m) => m.EmployeeEdit),
+          },
+          {
+            // Declared after every literal sibling: `create` and `edit/:id` must
+            // never be shadowed by this parameterized read child.
+            path: ':id',
+            loadComponent: () =>
+              import('./pages/employee-detail/employee-detail').then((m) => m.EmployeeDetail),
           },
         ],
       },

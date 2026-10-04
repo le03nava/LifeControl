@@ -573,6 +573,30 @@ describe('EmployeeList', () => {
         queryParams: { companyId: 'company-1' },
       });
     });
+
+    it('should navigate to the detail carrying the employee company', async () => {
+      setup({ queryCompanyId: 'company-1' });
+      await settle();
+
+      component.onView(employee());
+
+      expect(router.navigate).toHaveBeenCalledWith(['/hr/employees', 'emp-1'], {
+        queryParams: { companyId: 'company-1' },
+      });
+    });
+
+    it('should navigate to the detail when the rendered Ver action is clicked', async () => {
+      setup({ queryCompanyId: 'company-1' });
+      await settle();
+
+      const button = actionButton('Ver');
+      expect(button).not.toBeNull();
+      button?.click();
+
+      expect(router.navigate).toHaveBeenCalledWith(['/hr/employees', 'emp-1'], {
+        queryParams: { companyId: 'company-1' },
+      });
+    });
   });
 
   describe('write-role gating', () => {
@@ -596,6 +620,16 @@ describe('EmployeeList', () => {
       expect(text()).toContain('Mostrar deshabilitados');
       expect(text()).not.toContain('Nuevo empleado');
       expect(actionButton('Editar')).toBeNull();
+    });
+
+    it('should keep the additive Ver action for a caller without a write role', async () => {
+      setup({ roles: READ_ONLY_ROLES, queryCompanyId: 'company-1' });
+      await settle();
+
+      expect(component.canWrite).toBe(false);
+      expect(actionButton('Ver')).not.toBeNull();
+      expect(actionButton('Editar')).toBeNull();
+      expect(actionButton('Deshabilitar')).toBeNull();
     });
 
     it('should render the write controls for a write role', async () => {

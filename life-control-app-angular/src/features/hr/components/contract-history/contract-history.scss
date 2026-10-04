@@ -1,0 +1,46 @@
+:host {
+  display: block;
+  width: 100%;
+}
+
+.contract-history {
+  width: 100%;
+}
+
+.table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.contracts-table {
+  width: 100%;
+}
+
+.badge.validity {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+
+  &.current {
+    background-color: color-mix(in srgb, var(--color-success) 18%, transparent);
+    color: var(--color-success);
+  }
+
+  &.scheduled {
+    background-color: color-mix(in srgb, var(--color-warning) 18%, transparent);
+    color: var(--color-warning);
+  }
+
+  &.closed {
+    background-color: var(--mat-sys-surface-variant, #e5e7eb);
+    color: var(--mat-sys-on-surface-variant, #4b5563);
+  }
+}
+
+.empty-state {
+  margin: 0;
+  padding: var(--space-lg) 0;
+  color: var(--mat-sys-on-surface-variant);
+  font-style: italic;
+}

@@ -3,6 +3,7 @@ import { Route, Routes } from '@angular/router';
 import { keycloakRoleGuard } from '@core/guards/auth-keycloak-guard';
 import { CLIENT_ID, DEPARTMENT_WRITE_ROLES, EMPLOYEE_WRITE_ROLES } from '@core/security/roles';
 import { hrRoutes } from './hr.routes';
+import { EmployeeDetail } from './pages/employee-detail/employee-detail';
 import { EmployeeEdit } from './pages/employee-edit/employee-edit';
 import { EmployeeList } from './pages/employee-list/employee-list';
 
@@ -89,12 +90,34 @@ describe('hr.routes', () => {
       expect(loaded).toBe(EmployeeList);
     });
 
-    it('should register the list, create and edit children in that order', () => {
+    it('should register the list, create, edit and detail children in that order', () => {
       expect(employeesBranch().children?.map((route) => route.path)).toEqual([
         '',
         'create',
         'edit/:id',
+        ':id',
       ]);
+    });
+
+    it('should declare the detail child after every literal segment, so none is shadowed', () => {
+      const paths = employeesBranch().children?.map((route) => route.path) ?? [];
+
+      expect(paths.indexOf(':id')).toBeGreaterThan(paths.indexOf('create'));
+      expect(paths.indexOf(':id')).toBeGreaterThan(paths.indexOf('edit/:id'));
+    });
+
+    it('should require no roles on the detail child, so any authenticated caller reads it', () => {
+      const detail = routeAt(employeesBranch().children, ':id');
+      expect(detail.data?.['roles']).toBeUndefined();
+      expect(detail.canActivate).toBeUndefined();
+    });
+
+    it('should resolve the lazy import of the detail child to EmployeeDetail', async () => {
+      const detail = routeAt(employeesBranch().children, ':id');
+      expect(typeof detail.loadComponent).toBe('function');
+
+      const loaded = await detail.loadComponent!();
+      expect(loaded).toBe(EmployeeDetail);
     });
 
     it('should carry the employee write roles and clientId on the create and edit children', () => {

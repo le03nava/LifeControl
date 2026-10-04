@@ -1,0 +1,57 @@
+<div class="contract-history">
+  @if (contracts().length > 0) {
+    <div class="table-wrapper">
+      <table mat-table [dataSource]="contracts()" class="contracts-table">
+        <ng-container matColumnDef="positionName">
+          <th mat-header-cell *matHeaderCellDef>Puesto</th>
+          <td mat-cell *matCellDef="let row">{{ row.positionName }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="seniorityLevelName">
+          <th mat-header-cell *matHeaderCellDef>Nivel</th>
+          <td mat-cell *matCellDef="let row">{{ row.seniorityLevelName }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="contractType">
+          <th mat-header-cell *matHeaderCellDef>Tipo</th>
+          <td mat-cell *matCellDef="let row">{{ contractTypeLabel(row.contractType) }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="monthlySalary">
+          <th mat-header-cell *matHeaderCellDef>Salario mensual</th>
+          <td mat-cell *matCellDef="let row">{{ row.monthlySalary | currency: 'MXN' }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="startDate">
+          <th mat-header-cell *matHeaderCellDef>Inicio</th>
+          <td mat-cell *matCellDef="let row">{{ row.startDate }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="endDate">
+          <th mat-header-cell *matHeaderCellDef>Fin</th>
+          <!-- An open-ended contract carries no end date; the em dash says so. -->
+          <td mat-cell *matCellDef="let row">{{ row.endDate ?? '—' }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="validity">
+          <th mat-header-cell *matHeaderCellDef>Vigencia</th>
+          <td mat-cell *matCellDef="let row">
+            <span
+              class="badge validity"
+              [class.current]="isCurrent(row)"
+              [class.scheduled]="isScheduled(row)"
+              [class.closed]="!isCurrent(row) && !isScheduled(row)"
+            >
+              {{ validityLabel(row) }}
+            </span>
+          </td>
+        </ng-container>
+
+        <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+        <tr mat-row *matRowDef="let row; columns: displayedColumns"></tr>
+      </table>
+    </div>
+  } @else {
+    <p class="empty-state">No hay contratos registrados para este empleado</p>
+  }
+</div>
