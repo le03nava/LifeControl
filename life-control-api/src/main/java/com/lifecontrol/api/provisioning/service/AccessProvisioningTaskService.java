@@ -69,16 +69,15 @@ public class AccessProvisioningTaskService {
      * The six legal edges of the machine, and nothing else. Terminal statuses are present with an
      * empty set so "no outgoing edge" is stated rather than implied by absence.
      */
-    private static final Map<AccessProvisioningTaskStatus, Set<AccessProvisioningTaskStatus>> TRANSITIONS =
-            Map.of(
-                    AccessProvisioningTaskStatus.PENDING, Set.of(AccessProvisioningTaskStatus.RUNNING),
-                    AccessProvisioningTaskStatus.RUNNING,
-                            Set.of(AccessProvisioningTaskStatus.APPLIED, AccessProvisioningTaskStatus.FAILED),
-                    AccessProvisioningTaskStatus.FAILED, Set.of(AccessProvisioningTaskStatus.PENDING),
-                    AccessProvisioningTaskStatus.APPROVAL_PENDING,
-                            Set.of(AccessProvisioningTaskStatus.PENDING, AccessProvisioningTaskStatus.REJECTED),
-                    AccessProvisioningTaskStatus.APPLIED, Set.of(),
-                    AccessProvisioningTaskStatus.REJECTED, Set.of());
+    private static final Map<AccessProvisioningTaskStatus, Set<AccessProvisioningTaskStatus>> TRANSITIONS = Map.of(
+            AccessProvisioningTaskStatus.PENDING, Set.of(AccessProvisioningTaskStatus.RUNNING),
+            AccessProvisioningTaskStatus.RUNNING,
+                    Set.of(AccessProvisioningTaskStatus.APPLIED, AccessProvisioningTaskStatus.FAILED),
+            AccessProvisioningTaskStatus.FAILED, Set.of(AccessProvisioningTaskStatus.PENDING),
+            AccessProvisioningTaskStatus.APPROVAL_PENDING,
+                    Set.of(AccessProvisioningTaskStatus.PENDING, AccessProvisioningTaskStatus.REJECTED),
+            AccessProvisioningTaskStatus.APPLIED, Set.of(),
+            AccessProvisioningTaskStatus.REJECTED, Set.of());
 
     /**
      * The statuses a task may be <b>created</b> in: {@code PENDING} when the derived diff is inside

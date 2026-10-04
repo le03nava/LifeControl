@@ -96,7 +96,8 @@ class AccessProvisioningTaskServiceTest {
     }
 
     private void stubSaved() {
-        when(taskRepository.save(any(AccessProvisioningTask.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(taskRepository.save(any(AccessProvisioningTask.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     @Nested
@@ -107,7 +108,8 @@ class AccessProvisioningTaskServiceTest {
         @DisplayName("should create a PENDING task scoped to the company and the employee")
         void create_Pending() {
             when(employeeRepository.findByIdAndCompanyId(employeeId, companyId)).thenReturn(Optional.of(employee));
-            when(taskRepository.existsByEmployeeIdAndStatusIn(employeeId, OPEN_SET)).thenReturn(false);
+            when(taskRepository.existsByEmployeeIdAndStatusIn(employeeId, OPEN_SET))
+                    .thenReturn(false);
             stubSaved();
 
             var result = service.create(companyId, employeeId, ACTIVATE, "requester-1", PENDING);
@@ -129,7 +131,8 @@ class AccessProvisioningTaskServiceTest {
         @DisplayName("should create an APPROVAL_PENDING task when the gate applies")
         void create_ApprovalPending() {
             when(employeeRepository.findByIdAndCompanyId(employeeId, companyId)).thenReturn(Optional.of(employee));
-            when(taskRepository.existsByEmployeeIdAndStatusIn(employeeId, OPEN_SET)).thenReturn(false);
+            when(taskRepository.existsByEmployeeIdAndStatusIn(employeeId, OPEN_SET))
+                    .thenReturn(false);
             stubSaved();
 
             var result = service.create(companyId, employeeId, ACTIVATE, "requester-1", APPROVAL_PENDING);
@@ -142,7 +145,8 @@ class AccessProvisioningTaskServiceTest {
         @DisplayName("should refuse an initial status outside PENDING and APPROVAL_PENDING")
         void create_RefusesIllegalInitialStatus() {
             when(employeeRepository.findByIdAndCompanyId(employeeId, companyId)).thenReturn(Optional.of(employee));
-            when(taskRepository.existsByEmployeeIdAndStatusIn(eq(employeeId), any())).thenReturn(false);
+            when(taskRepository.existsByEmployeeIdAndStatusIn(eq(employeeId), any()))
+                    .thenReturn(false);
 
             for (var illegal : Set.of(RUNNING, APPLIED, FAILED, REJECTED)) {
                 assertThatThrownBy(() -> service.create(companyId, employeeId, ACTIVATE, "requester-1", illegal))
@@ -156,7 +160,8 @@ class AccessProvisioningTaskServiceTest {
         @DisplayName("should refuse a second open task and probe the exact open set")
         void create_RefusesSecondOpenTask() {
             when(employeeRepository.findByIdAndCompanyId(employeeId, companyId)).thenReturn(Optional.of(employee));
-            when(taskRepository.existsByEmployeeIdAndStatusIn(employeeId, OPEN_SET)).thenReturn(true);
+            when(taskRepository.existsByEmployeeIdAndStatusIn(employeeId, OPEN_SET))
+                    .thenReturn(true);
 
             assertThatThrownBy(() -> service.create(companyId, employeeId, ACTIVATE, "requester-1", PENDING))
                     .isInstanceOf(AccessProvisioningTaskAlreadyOpenException.class)
@@ -226,7 +231,8 @@ class AccessProvisioningTaskServiceTest {
         @Test
         @DisplayName("should refuse an unknown or foreign task")
         void claim_RefusesUnknownTask() {
-            when(taskRepository.findByIdAndEmployeeIdForUpdate(taskId, employeeId)).thenReturn(Optional.empty());
+            when(taskRepository.findByIdAndEmployeeIdForUpdate(taskId, employeeId))
+                    .thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> service.claim(employeeId, taskId))
                     .isInstanceOf(AccessProvisioningTaskNotFoundException.class);
@@ -281,7 +287,8 @@ class AccessProvisioningTaskServiceTest {
         @Test
         @DisplayName("should refuse an unknown or foreign task")
         void markApplied_RefusesUnknownTask() {
-            when(taskRepository.findByIdAndEmployeeIdForUpdate(taskId, employeeId)).thenReturn(Optional.empty());
+            when(taskRepository.findByIdAndEmployeeIdForUpdate(taskId, employeeId))
+                    .thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> service.markApplied(employeeId, taskId))
                     .isInstanceOf(AccessProvisioningTaskNotFoundException.class);
@@ -325,7 +332,8 @@ class AccessProvisioningTaskServiceTest {
         @Test
         @DisplayName("should refuse an unknown or foreign task")
         void markFailed_RefusesUnknownTask() {
-            when(taskRepository.findByIdAndEmployeeIdForUpdate(taskId, employeeId)).thenReturn(Optional.empty());
+            when(taskRepository.findByIdAndEmployeeIdForUpdate(taskId, employeeId))
+                    .thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> service.markFailed(employeeId, taskId, "boom"))
                     .isInstanceOf(AccessProvisioningTaskNotFoundException.class);
@@ -369,7 +377,8 @@ class AccessProvisioningTaskServiceTest {
         @Test
         @DisplayName("should refuse an unknown or foreign task")
         void retry_RefusesUnknownTask() {
-            when(taskRepository.findByIdAndEmployeeIdForUpdate(taskId, employeeId)).thenReturn(Optional.empty());
+            when(taskRepository.findByIdAndEmployeeIdForUpdate(taskId, employeeId))
+                    .thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> service.retry(employeeId, taskId))
                     .isInstanceOf(AccessProvisioningTaskNotFoundException.class);
@@ -414,7 +423,8 @@ class AccessProvisioningTaskServiceTest {
         @Test
         @DisplayName("should refuse an unknown or foreign task")
         void approve_RefusesUnknownTask() {
-            when(taskRepository.findByIdAndEmployeeIdForUpdate(taskId, employeeId)).thenReturn(Optional.empty());
+            when(taskRepository.findByIdAndEmployeeIdForUpdate(taskId, employeeId))
+                    .thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> service.approve(employeeId, taskId, "approver-1"))
                     .isInstanceOf(AccessProvisioningTaskNotFoundException.class);
@@ -459,7 +469,8 @@ class AccessProvisioningTaskServiceTest {
         @Test
         @DisplayName("should refuse an unknown or foreign task")
         void reject_RefusesUnknownTask() {
-            when(taskRepository.findByIdAndEmployeeIdForUpdate(taskId, employeeId)).thenReturn(Optional.empty());
+            when(taskRepository.findByIdAndEmployeeIdForUpdate(taskId, employeeId))
+                    .thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> service.reject(employeeId, taskId, "approver-1", "no"))
                     .isInstanceOf(AccessProvisioningTaskNotFoundException.class);
