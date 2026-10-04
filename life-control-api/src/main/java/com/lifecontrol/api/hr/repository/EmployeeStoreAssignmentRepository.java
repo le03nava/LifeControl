@@ -3,6 +3,7 @@ package com.lifecontrol.api.hr.repository;
 import com.lifecontrol.api.hr.model.EmployeeStoreAssignment;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -77,4 +78,47 @@ public interface EmployeeStoreAssignmentRepository extends JpaRepository<Employe
             @Param("employeeId") UUID employeeId,
             @Param("companyStoreId") UUID companyStoreId,
             @Param("date") LocalDate date);
+
+    /**
+     * The employee's assignment history, newest first, with the store <b>and its whole ancestor
+     * chain</b> fetched in the same query.
+     *
+     * <p>The chain is fetched for the caller, not for the query: {@code StoreAssignmentResponse}'
+     * nested {@code derived} value reads every ancestor's id and name (decision T14), so a derived
+     * finder would issue one extra SELECT per row per lazy association. The joins are inner joins
+     * over {@code NOT NULL} foreign keys, so no row can be dropped, and the fetch covers the country
+     * entity as well because the display name of the company-country comes from it.</p>
+     *
+     * <p>The {@code includeDisabled} predicate is a JPQL boolean, the shape
+     * {@code EmployeeRepository.findCompanyEmployees} already uses for the same flag, so the history
+     * can be read either wholly or with the soft-deleted rows hidden. There is deliberately <b>no</b>
+     * caching anywhere on this read (decision T10): the derivation feeds an authorization input, and
+     * a cache that outlives the decision is how {@code hr-org-structure}'s G12 happens. The
+     * {@code ORDER BY} reproduces the contract history's newest-first shape; the {@code a.id DESC}
+     * tie-breaker exists only so repeated reads of rows sharing a {@code validFrom} come back in a
+     * deterministic order, not as a business ordering.</p>
+     */
+    @Query("""
+            SELECT a FROM EmployeeStoreAssignment a
+            JOIN FETCH a.companyStore s
+            JOIN FETCH s.companyZone z
+            JOIN FETCH z.companyRegion r
+            JOIN FETCH r.companyCountry c
+            JOIN FETCH c.country
+            JOIN FETCH c.company
+            WHERE a.employee.id = :employeeId
+              AND (:includeDisabled = true OR a.enabled = true)
+            ORDER BY a.validFrom DESC, a.id DESC
+            """)
+    List<EmployeeStoreAssignment> findEmployeeAssignments(
+            @Param("employeeId") UUID employeeId, @Param("includeDisabled") boolean includeDisabled);
+
+    /**
+     * One assignment of the employee by id, the employee-scoped lookup of the close path.
+     *
+     * <p>Scoped to the employee for the same reason {@code ContractRepository} scopes its own: the
+     * employee is already resolved through a company-scoped query, so a foreign assignment is a 404
+     * here instead of a 200.</p>
+     */
+    Optional<EmployeeStoreAssignment> findByEmployeeIdAndId(UUID employeeId, UUID id);
 }
