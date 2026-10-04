@@ -55,7 +55,8 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
  * {@code company_id} claim is admitted and served), the 400 for a missing required field, and the
  * overlap the service pre-check cannot see ending as the generic 409 (W2a's slice of the refusal
  * matrix; the by-name proof stays W1a's JDBC-level assertion). The list also proves the history's
- * newest-first order, including the id-descending tie-breaker for rows sharing a {@code validFrom}.</p>
+ * newest-first {@code validFrom} order, and asserts the id-descending tie-breaker for rows sharing a
+ * {@code validFrom} (its regression sensitivity is probabilistic, since the id is a random UUID).</p>
  *
  * <p>Cleanup is scoped: every row of {@code employee_store_assignments} (this feature's own table)
  * and the employees of the two companies this suite creates. The store tree and the {@code companies}
@@ -344,13 +345,14 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
         @Test
         @DisplayName("returns the history newest first by validFrom, regardless of creation order")
         void listIsNewestFirstRegardlessOfCreationOrder() throws Exception {
-            // The later-dated row is created first and the earlier-dated one second, on two
-            // different stores so the create path closes no predecessor. Newest first therefore
-            // means the first-created row leads; if the query fell back to insertion order the
-            // sequence would be inverted.
-            postAssignment(employeeId, new StoreAssignmentRequest(storeId, LocalDate.of(2026, 6, 1)), admin())
-                    .andExpect(status().isCreated());
+            // The earlier-dated row is created first and the later-dated one second, on two
+            // different stores so the create path closes no predecessor. Insertion order is
+            // therefore [2026-01-01, 2026-06-01] while the expected order is its reverse,
+            // [2026-06-01, 2026-01-01]: a query that lost its ORDER BY and fell back to that
+            // insertion (heap) order fails this test.
             postAssignment(employeeId, new StoreAssignmentRequest(secondStoreId, LocalDate.of(2026, 1, 1)), admin())
+                    .andExpect(status().isCreated());
+            postAssignment(employeeId, new StoreAssignmentRequest(storeId, LocalDate.of(2026, 6, 1)), admin())
                     .andExpect(status().isCreated());
 
             getAssignments("", admin())
@@ -366,10 +368,11 @@ class EmployeeStoreAssignmentHttpIntegrationTest extends AbstractPostgresIntegra
         @DisplayName("rows sharing a validFrom come back by id descending")
         void sameValidFromRowsComeBackByIdDescending() throws Exception {
             // Two rows on the same validFrom, on different stores. The tie-breaker is the id, which
-            // is a random UUID, so the expected order is computed from the ids the endpoint
-            // returned, never from insertion order. PostgreSQL compares uuid with memcmp over the
-            // 16 bytes; the canonical lowercase string is fixed-width hex, so lexicographic order of
-            // that string equals the byte order (and is NOT Java's signed UUID.compareTo).
+            // is a random UUID, so the expected order is computed from the ids captured out of the
+            // POST 201 bodies, never from the order the GET returns (nor from insertion order).
+            // PostgreSQL compares uuid with memcmp over the 16 bytes; the canonical lowercase string
+            // is fixed-width hex, so lexicographic order of that string equals the byte order (and is
+            // NOT Java's signed UUID.compareTo).
             var firstId = createdAssignmentId(
                     postAssignment(employeeId, new StoreAssignmentRequest(storeId, LocalDate.of(2026, 1, 1)), admin())
                             .andExpect(status().isCreated()));
