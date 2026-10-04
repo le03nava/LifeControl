@@ -1,0 +1,100 @@
+<div class="employee-detail-page">
+  <app-page-header title="Detalle del empleado" [subtitle]="subtitle()">
+    <!-- The two write actions, gated on EMPLOYEE_WRITE_ROLES; the page opens the dialog and reloads. -->
+    @if (canWrite) {
+      <button
+        mat-flat-button
+        color="primary"
+        type="button"
+        [disabled]="!selectedCompanyId()"
+        (click)="onNewContract()"
+      >
+        <mat-icon fontIcon="add" /> Nuevo contrato
+      </button>
+      <!-- Only offered while the employee actually has a current contract (isContractCurrent). -->
+      @if (currentContract()) {
+        <button mat-stroked-button type="button" (click)="onCloseContract()">
+          Cerrar contrato vigente
+        </button>
+      }
+    }
+  </app-page-header>
+
+  <!-- Same company mechanism as the list: seeded from `companyId`, kept in the URL. -->
+  <div class="filters-section">
+    <mat-form-field appearance="outline" class="company-selector" subscriptSizing="dynamic">
+      <mat-label>Empresa</mat-label>
+      <mat-select [value]="selectedCompanyId()" (selectionChange)="onCompanyChange($event.value)">
+        <mat-option value="">— Seleccionar empresa —</mat-option>
+        @for (company of companies(); track company.id) {
+          <mat-option [value]="company.id">{{ company.companyName }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+  </div>
+
+  @if (!selectedCompanyId()) {
+    <p class="empty-prompt">Seleccioná una empresa para ver el empleado</p>
+  } @else if (loading()) {
+    <p class="loading-text">Cargando empleado…</p>
+  } @else if (notFound()) {
+    <div class="not-found-state">
+      <mat-icon fontIcon="search_off" />
+      <p>No se encontró el empleado solicitado.</p>
+      <button mat-stroked-button type="button" (click)="onBackToList()">Volver al registro</button>
+    </div>
+  } @else if (loadError(); as err) {
+    <div class="error-state">
+      <mat-icon fontIcon="error" />
+      <p>{{ err }}</p>
+      <button mat-stroked-button type="button" (click)="reload()">Reintentar</button>
+    </div>
+  } @else if (employee(); as emp) {
+    <mat-card appearance="outlined" class="employee-card">
+      <mat-card-content>
+        <div class="detail-grid">
+          <div class="detail-item">
+            <span class="detail-label">Número</span>
+            <span class="detail-value">{{ emp.employeeNumber }}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Nombre completo</span>
+            <span class="detail-value">{{ fullName(emp) }}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Correo</span>
+            <span class="detail-value">{{ emp.email }}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Estado</span>
+            <span class="badge status">{{ statusLabel() }}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Fecha de ingreso</span>
+            <span class="detail-value">{{ emp.hireDate }}</span>
+          </div>
+          <!-- The position of the current contract: the `D15`/`G15` fact no list response carries. -->
+          <div class="detail-item">
+            <span class="detail-label">Puesto actual</span>
+            <span class="detail-value position-value">{{ currentPositionName() }}</span>
+          </div>
+        </div>
+      </mat-card-content>
+    </mat-card>
+
+    <section class="contracts-section">
+      <h2 class="section-title">Contratos</h2>
+      @if (contractsLoading()) {
+        <p class="loading-text">Cargando contratos…</p>
+      } @else if (contractsError(); as contractsErr) {
+        <div class="error-state">
+          <mat-icon fontIcon="error" />
+          <p>{{ contractsErr }}</p>
+          <button mat-stroked-button type="button" (click)="retryContracts()">Reintentar</button>
+        </div>
+      } @else {
+        <app-contract-history [contracts]="contracts()" />
+      }
+    </section>
+  }
+</div>
