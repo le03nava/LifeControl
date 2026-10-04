@@ -1,0 +1,143 @@
+<h2 mat-dialog-title>
+  {{ data.mode === 'create' ? 'Nuevo contrato' : 'Cerrar contrato vigente' }}
+</h2>
+
+@if (data.mode === 'create') {
+  <form [formGroup]="createForm" (ngSubmit)="onCreate()">
+    <mat-dialog-content class="dialog-content">
+      <p class="dialog-subtitle">
+        {{ data.employee.firstName }} {{ data.employee.paternalLastName }}
+      </p>
+
+      <!-- The effect before saving: creating this contract closes the current one (T13). -->
+      @if (closesCurrentNotice(); as notice) {
+        <p class="close-notice">{{ notice }}</p>
+      }
+
+      <!-- Outside the current window on either side the server decides which row closes: state it, promise no date. -->
+      @if (outsideCurrentNotice(); as outsideNotice) {
+        <p class="close-notice">{{ outsideNotice }}</p>
+      }
+
+      @if (actionError(); as errorMessage) {
+        <app-error-banner [message]="errorMessage" />
+      }
+      @if (catalogueError(); as catalogueMessage) {
+        <app-error-banner [message]="catalogueMessage" />
+      }
+
+      <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+        <mat-label>Puesto</mat-label>
+        <mat-select formControlName="positionId">
+          @for (position of positions(); track position.id) {
+            <mat-option [value]="position.id">{{ position.positionName }}</mat-option>
+          }
+        </mat-select>
+        @if (createForm.controls.positionId.hasError('required')) {
+          <mat-error>El puesto es obligatorio.</mat-error>
+        }
+      </mat-form-field>
+
+      <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+        <mat-label>Nivel</mat-label>
+        <mat-select formControlName="seniorityLevelId">
+          @for (level of seniorityLevels(); track level.id) {
+            <mat-option [value]="level.id">{{ level.levelName }}</mat-option>
+          }
+        </mat-select>
+        @if (createForm.controls.seniorityLevelId.hasError('required')) {
+          <mat-error>El nivel es obligatorio.</mat-error>
+        }
+      </mat-form-field>
+
+      <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+        <mat-label>Tipo de contrato</mat-label>
+        <mat-select formControlName="contractType">
+          @for (type of contractTypes; track type) {
+            <mat-option [value]="type">{{ contractTypeLabel(type) }}</mat-option>
+          }
+        </mat-select>
+        @if (createForm.controls.contractType.hasError('required')) {
+          <mat-error>El tipo de contrato es obligatorio.</mat-error>
+        }
+      </mat-form-field>
+
+      <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+        <mat-label>Salario mensual</mat-label>
+        <input matInput type="number" formControlName="monthlySalary" min="0" step="0.01" />
+        @if (createForm.controls.monthlySalary.hasError('required')) {
+          <mat-error>El salario mensual es obligatorio.</mat-error>
+        } @else if (createForm.controls.monthlySalary.hasError('min')) {
+          <mat-error>El salario no puede ser negativo.</mat-error>
+        }
+      </mat-form-field>
+
+      <!-- The position × level band (T14): shown to inform, never to block. -->
+      @if (bandLabel(); as band) {
+        <p class="band-hint">{{ band }}</p>
+      }
+      @if (salaryOutOfBand()) {
+        <p class="band-warning">
+          El salario está fuera de la banda del puesto y nivel. Podés guardarlo igual.
+        </p>
+      }
+
+      <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+        <mat-label>Fecha de inicio</mat-label>
+        <input matInput type="date" formControlName="startDate" />
+        @if (createForm.controls.startDate.hasError('required')) {
+          <mat-error>La fecha de inicio es obligatoria.</mat-error>
+        }
+      </mat-form-field>
+
+      <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+        <mat-label>Fecha de fin (opcional)</mat-label>
+        <input matInput type="date" formControlName="endDate" />
+        <mat-hint>Dejálas vacía para un contrato sin fecha de fin.</mat-hint>
+      </mat-form-field>
+
+      @if (createForm.hasError('endBeforeStart')) {
+        <p class="form-error">La fecha de fin no puede ser anterior a la fecha de inicio.</p>
+      }
+    </mat-dialog-content>
+
+    <mat-dialog-actions align="end">
+      <button mat-button type="button" [disabled]="saving()" (click)="cancel()">Cancelar</button>
+      <button mat-flat-button color="primary" type="submit" [disabled]="saving()">
+        Guardar contrato
+      </button>
+    </mat-dialog-actions>
+  </form>
+} @else {
+  <form [formGroup]="closeForm" (ngSubmit)="onClose()">
+    <mat-dialog-content class="dialog-content">
+      @if (currentContract(); as contract) {
+        <p class="close-summary">
+          {{ contract.positionName }} · nivel {{ contract.seniorityLevelName }} · inicio
+          {{ contract.startDate }}
+        </p>
+      }
+
+      @if (actionError(); as errorMessage) {
+        <app-error-banner [message]="errorMessage" />
+      }
+
+      <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+        <mat-label>Fecha de fin (opcional)</mat-label>
+        <input matInput type="date" formControlName="endDate" />
+        <mat-hint>Si la dejás vacía, el contrato se cierra hoy.</mat-hint>
+      </mat-form-field>
+
+      @if (closeForm.hasError('endBeforeStart')) {
+        <p class="form-error">La fecha de fin no puede ser anterior al inicio del contrato.</p>
+      }
+    </mat-dialog-content>
+
+    <mat-dialog-actions align="end">
+      <button mat-button type="button" [disabled]="saving()" (click)="cancel()">Cancelar</button>
+      <button mat-flat-button color="primary" type="submit" [disabled]="saving()">
+        Cerrar contrato
+      </button>
+    </mat-dialog-actions>
+  </form>
+}

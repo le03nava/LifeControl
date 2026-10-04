@@ -1,6 +1,23 @@
 <div class="employee-detail-page">
   <app-page-header title="Detalle del empleado" [subtitle]="subtitle()">
-    <!-- W4b adds the "Nuevo contrato" / "Cerrar contrato vigente" actions and the contract dialog here. -->
+    <!-- The two write actions, gated on EMPLOYEE_WRITE_ROLES; the page opens the dialog and reloads. -->
+    @if (canWrite) {
+      <button
+        mat-flat-button
+        color="primary"
+        type="button"
+        [disabled]="!selectedCompanyId()"
+        (click)="onNewContract()"
+      >
+        <mat-icon fontIcon="add" /> Nuevo contrato
+      </button>
+      <!-- Only offered while the employee actually has a current contract (isContractCurrent). -->
+      @if (currentContract()) {
+        <button mat-stroked-button type="button" (click)="onCloseContract()">
+          Cerrar contrato vigente
+        </button>
+      }
+    }
   </app-page-header>
 
   <!-- Same company mechanism as the list: seeded from `companyId`, kept in the URL. -->

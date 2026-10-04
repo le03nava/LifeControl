@@ -1,11 +1,19 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
-import { rxResource, toSignal } from '@angular/core/rxjs-interop';
+import { rxResource, takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatSelectModule } from '@angular/material/select';
+import { MatDialog } from '@angular/material/dialog';
 import { map } from 'rxjs/operators';
 import { PageHeader } from '@shared/ui';
 import { httpErrorMessage, unwrapHttpError } from '@shared/data';
@@ -19,6 +27,12 @@ import {
 } from '../../components/contract-history/contract-history';
 import { Contract } from '../../models/contract.models';
 import { Employee } from '../../models/employee.models';
+import {
+  ContractDialog,
+  ContractDialogData,
+  ContractDialogResult,
+} from '../../components/contract-dialog/contract-dialog';
+import { EMPLOYEE_WRITE_ROLES, hasAnyClientRole } from '@core/security/roles';
 
 /**
  * Read-only detail screen of one employee: `/hr/employees/:id`.
@@ -47,10 +61,12 @@ import { Employee } from '../../models/employee.models';
  * `isContractCurrent` predicate the history's validity chip uses, so the header
  * and the table can never disagree.
  *
- * There is deliberately **no write control and no dialog** in this unit: `W4b`
- * adds "Nuevo contrato" / "Cerrar contrato vigente" and the contract dialog to
- * the page header. The page is where that dialog will be opened and the page is
- * what reloads afterwards, which is why `contract-history` stays presentational.
+ * There are two write controls, both gated on `EMPLOYEE_WRITE_ROLES`: **"Nuevo
+ * contrato"** opens the create mode of {@link ContractDialog}, and **"Cerrar
+ * contrato vigente"** is offered only while the employee actually has a current
+ * contract (`isContractCurrent`) and opens the dialog's close mode. The page does
+ * not write: it opens the dialog (`D71`) and reloads **only** the contracts read on
+ * a real outcome, which is the read the header's "Puesto actual" also derives from.
  */
 @Component({
   selector: 'app-employee-detail',
@@ -74,6 +90,15 @@ export class EmployeeDetail {
   private readonly contractService = inject(ContractService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly dialog = inject(MatDialog);
+  private readonly destroyRef = inject(DestroyRef);
+
+  /**
+   * `lc-employee` and `lc-admin` reach the contract write endpoints; every other
+   * authenticated caller reads the detail but must not render a control the API
+   * would refuse.
+   */
+  readonly canWrite = hasAnyClientRole(EMPLOYEE_WRITE_ROLES);
 
   /** The route's `:id`; the page reads exactly one employee. */
   readonly employeeId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
@@ -211,6 +236,71 @@ export class EmployeeDetail {
   /** Re-runs only the contracts read, the `Contratos` section's own retry. */
   retryContracts(): void {
     this.contractsResource.reload();
+  }
+
+  /**
+   * Opens the create mode of the contract dialog.
+   *
+   * Guarded on the write role and on a loaded employee: a reader must not reach a
+   * writable surface by a second route, and the dialog needs the employee and the
+   * current contracts to resolve the effect-before-saving notice.
+   */
+  onNewContract(): void {
+    const companyId = this.selectedCompanyId();
+    const employee = this.employee();
+    if (!this.canWrite || !companyId || !employee) {
+      return;
+    }
+    this.openContractDialog('create', companyId, employee);
+  }
+
+  /**
+   * Opens the close mode of the contract dialog for the current contract.
+   *
+   * The action is only rendered while `currentContract()` is non-null; this guard
+   * is defence in depth, like the create one above.
+   */
+  onCloseContract(): void {
+    const companyId = this.selectedCompanyId();
+    const employee = this.employee();
+    if (!this.canWrite || !companyId || !employee || !this.currentContract()) {
+      return;
+    }
+    this.openContractDialog('close', companyId, employee);
+  }
+
+  private openContractDialog(
+    mode: 'create' | 'close',
+    companyId: string,
+    employee: Employee,
+  ): void {
+    const data: ContractDialogData = {
+      mode,
+      companyId,
+      employee,
+      contracts: this.contracts(),
+    };
+    this.dialog
+      .open<ContractDialog, ContractDialogData, ContractDialogResult>(ContractDialog, { data })
+      .afterClosed()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((result) => this.onContractDialogClosed(result));
+  }
+
+  /**
+   * Reacts to the dialog's close: a real write reloads the contracts, and nothing
+   * else does.
+   *
+   * `undefined` is treated as no result on purpose: Material can close the ref
+   * itself (Esc or backdrop) and that close carries no result, so it means the same
+   * thing as `null` — no write. The employee read is deliberately **not** reloaded:
+   * the two reads stay independent (`T52`), and the header's "Puesto actual" is
+   * derived from the contracts, which do reload.
+   */
+  private onContractDialogClosed(result: ContractDialogResult | undefined): void {
+    if (result?.outcome === 'created' || result?.outcome === 'closed') {
+      this.contractsResource.reload();
+    }
   }
 
   onBackToList(): void {

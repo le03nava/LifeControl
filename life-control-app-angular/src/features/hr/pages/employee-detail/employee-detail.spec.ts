@@ -4,6 +4,8 @@ import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
 import { of, throwError } from 'rxjs';
+import { MatDialog } from '@angular/material/dialog';
+import Keycloak from 'keycloak-js';
 import { CompanyService } from '@features/companies/companies/data/company.service';
 import { Company, Page } from '@features/companies/companies/models/company.models';
 import { EmployeeDetail } from './employee-detail';
@@ -11,6 +13,15 @@ import { EmployeeService } from '../../data/employee.service';
 import { ContractService } from '../../data/contract.service';
 import { Contract } from '../../models/contract.models';
 import { Employee } from '../../models/employee.models';
+import {
+  ContractDialog,
+  ContractDialogResult,
+} from '../../components/contract-dialog/contract-dialog';
+
+/** The client roles that reach the employee write endpoints (EMPLOYEE_WRITE_ROLES). */
+const WRITE_ROLES = ['lc-admin'];
+/** A caller that can read but must not render a write control. */
+const READ_ROLES: string[] = [];
 
 /** An ISO date `days` away from today, in local time (month/year rollover included). */
 function isoDaysFromToday(days: number): string {
@@ -26,6 +37,7 @@ describe('EmployeeDetail', () => {
   let component: EmployeeDetail;
   let employeeService: { getEmployee: ReturnType<typeof vi.fn> };
   let contractService: { getContracts: ReturnType<typeof vi.fn> };
+  let dialog: { open: ReturnType<typeof vi.fn> };
   let router: Router;
 
   const company: Company = {
@@ -98,6 +110,9 @@ describe('EmployeeDetail', () => {
     employeeError?: HttpErrorResponse;
     contracts?: Contract[];
     contractsError?: HttpErrorResponse;
+    roles?: string[];
+    /** What the contract dialog closes with; `undefined` is a bare dismissal. */
+    dialogResult?: ContractDialogResult | undefined;
   }
 
   function setup(options: SetupOptions = {}): void {
@@ -115,6 +130,11 @@ describe('EmployeeDetail', () => {
           : of(options.contracts ?? [contract()]),
       ),
     };
+    dialog = {
+      open: vi.fn().mockReturnValue({ afterClosed: () => of(options.dialogResult) }),
+    };
+
+    const roles = options.roles ?? WRITE_ROLES;
 
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
@@ -123,6 +143,11 @@ describe('EmployeeDetail', () => {
         provideRouter([]),
         { provide: EmployeeService, useValue: employeeService },
         { provide: ContractService, useValue: contractService },
+        { provide: MatDialog, useValue: dialog },
+        {
+          provide: Keycloak,
+          useValue: { tokenParsed: { resource_access: { 'life-control-client': { roles } } } },
+        },
         {
           provide: CompanyService,
           useValue: { getCompanies: vi.fn().mockReturnValue(of(companiesPage)) },
@@ -379,16 +404,114 @@ describe('EmployeeDetail', () => {
     expect(employeeService.getEmployee).toHaveBeenLastCalledWith('company-2', 'emp-1');
   });
 
-  it('should offer no write control and no dialog: those are W4b', async () => {
-    setup({ id: 'emp-1', companyId: 'company-1' });
+  it('should offer no write control and no dialog to a caller without a write role', async () => {
+    setup({ id: 'emp-1', companyId: 'company-1', roles: READ_ROLES });
     await settle();
 
+    expect(component.canWrite).toBe(false);
     expect(text()).not.toContain('Nuevo contrato');
-    expect(text()).not.toContain('Cerrar contrato');
-    expect(
-      Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('button')).map((button) =>
-        button.textContent?.trim(),
-      ),
-    ).not.toContain('Nuevo contrato');
+    expect(text()).not.toContain('Cerrar contrato vigente');
+
+    component.onNewContract();
+    expect(dialog.open).not.toHaveBeenCalled();
+  });
+
+  it('should render the contract write actions for a write role', async () => {
+    setup({ id: 'emp-1', companyId: 'company-1', roles: WRITE_ROLES });
+    await settle();
+
+    expect(component.canWrite).toBe(true);
+    expect(text()).toContain('Nuevo contrato');
+  });
+
+  it('should open the create dialog with the employee, the contracts and the company', async () => {
+    setup({ id: 'emp-1', companyId: 'company-1', roles: WRITE_ROLES, dialogResult: null });
+    await settle();
+
+    component.onNewContract();
+
+    expect(dialog.open).toHaveBeenCalledTimes(1);
+    const [opened, config] = dialog.open.mock.calls[0] as [unknown, { data: unknown }];
+    expect(opened).toBe(ContractDialog);
+    expect(config.data).toMatchObject({
+      mode: 'create',
+      companyId: 'company-1',
+      employee: expect.objectContaining({ id: 'emp-1' }),
+    });
+  });
+
+  it('should reload the contracts after a created contract', async () => {
+    setup({
+      id: 'emp-1',
+      companyId: 'company-1',
+      roles: WRITE_ROLES,
+      dialogResult: { outcome: 'created', contract: contract({ id: 'contract-new' }) },
+    });
+    await settle();
+    expect(contractService.getContracts).toHaveBeenCalledTimes(1);
+
+    component.onNewContract();
+    await settle();
+
+    expect(contractService.getContracts).toHaveBeenCalledTimes(2);
+    expect(employeeService.getEmployee).toHaveBeenCalledTimes(1);
+  });
+
+  it('should reload the contracts after a closed contract', async () => {
+    setup({
+      id: 'emp-1',
+      companyId: 'company-1',
+      roles: WRITE_ROLES,
+      dialogResult: { outcome: 'closed', contract: contract() },
+    });
+    await settle();
+    expect(contractService.getContracts).toHaveBeenCalledTimes(1);
+
+    component.onCloseContract();
+    await settle();
+
+    expect(contractService.getContracts).toHaveBeenCalledTimes(2);
+  });
+
+  it('should treat an undefined dialog close as no write', async () => {
+    setup({ id: 'emp-1', companyId: 'company-1', roles: WRITE_ROLES, dialogResult: undefined });
+    await settle();
+    expect(contractService.getContracts).toHaveBeenCalledTimes(1);
+
+    component.onNewContract();
+    await settle();
+
+    expect(contractService.getContracts).toHaveBeenCalledTimes(1);
+  });
+
+  it('should reveal "Cerrar contrato vigente" only with a current contract', async () => {
+    setup({
+      id: 'emp-1',
+      companyId: 'company-1',
+      roles: WRITE_ROLES,
+      contracts: [contract({ endDate: isoDaysFromToday(-1) })],
+    });
+    await settle();
+
+    expect(component.currentContract()).toBeNull();
+    expect(text()).not.toContain('Cerrar contrato vigente');
+  });
+
+  it('should open the close dialog in close mode for the current contract', async () => {
+    setup({
+      id: 'emp-1',
+      companyId: 'company-1',
+      roles: WRITE_ROLES,
+      contracts: [contract({ id: 'contract-current' })],
+      dialogResult: null,
+    });
+    await settle();
+
+    expect(text()).toContain('Cerrar contrato vigente');
+    component.onCloseContract();
+
+    expect(dialog.open).toHaveBeenCalledTimes(1);
+    const [, config] = dialog.open.mock.calls[0] as [unknown, { data: unknown }];
+    expect(config.data).toMatchObject({ mode: 'close', companyId: 'company-1' });
   });
 });
