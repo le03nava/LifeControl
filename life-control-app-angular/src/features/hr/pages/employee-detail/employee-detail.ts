@@ -15,23 +15,31 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatSelectModule } from '@angular/material/select';
 import { MatDialog } from '@angular/material/dialog';
 import { map } from 'rxjs/operators';
-import { PageHeader } from '@shared/ui';
+import { ConfirmDialog, ConfirmDialogData, ErrorBanner, PageHeader } from '@shared/ui';
 import { httpErrorMessage, unwrapHttpError } from '@shared/data';
 import { CompanyService } from '@features/companies/companies/data/company.service';
 import { EmployeeService } from '../../data/employee.service';
 import { ContractService } from '../../data/contract.service';
+import { StoreAssignmentService } from '../../data/store-assignment.service';
 import { employeeStatusLabel } from '../../data/employee-status';
 import {
   ContractHistory,
   isContractCurrent,
 } from '../../components/contract-history/contract-history';
+import { StoreAssignmentsSection } from '../../components/store-assignments-section/store-assignments-section';
 import { Contract } from '../../models/contract.models';
+import { StoreAssignment } from '../../models/store-assignment.models';
 import { Employee } from '../../models/employee.models';
 import {
   ContractDialog,
   ContractDialogData,
   ContractDialogResult,
 } from '../../components/contract-dialog/contract-dialog';
+import {
+  StoreAssignmentDialog,
+  StoreAssignmentDialogData,
+  StoreAssignmentDialogResult,
+} from '../../components/store-assignment-dialog/store-assignment-dialog';
 import { EMPLOYEE_WRITE_ROLES, hasAnyClientRole } from '@core/security/roles';
 
 /**
@@ -47,12 +55,12 @@ import { EMPLOYEE_WRITE_ROLES, hasAnyClientRole } from '@core/security/roles';
  * makes a bare deep link (no `companyId`) recoverable instead of a dead end, and
  * no request is issued until a company is selected — the list's own rule.
  *
- * The page owns the two reads (`getEmployee` + `getContracts`) **independently**,
- * so a failure of one degrades only its half of the screen: the employee read
+ * The page owns the three reads (`getEmployee` + `getContracts` + `getAssignments`)
+ * **independently**, so a failure of one degrades only its half of the screen: the employee read
  * keeps the three states — loading, error and **not-found** (a 404 is told apart
  * from every other failure, because the employee may simply not exist in the
- * selected company) — while the contracts section owns its own error and retry.
- * Joining the two reads would let a failed contracts call discard a successfully
+ * selected company) — while the contracts and store-assignment sections own their own error and
+ * retry. Joining the reads would let a failed contracts call discard a successfully
  * read employee, which is the coupling this split removes.
  *
  * The header's **"Puesto actual"** is the `D15`/`G15` fact only this screen can
@@ -61,12 +69,18 @@ import { EMPLOYEE_WRITE_ROLES, hasAnyClientRole } from '@core/security/roles';
  * `isContractCurrent` predicate the history's validity chip uses, so the header
  * and the table can never disagree.
  *
- * There are two write controls, both gated on `EMPLOYEE_WRITE_ROLES`: **"Nuevo
+ * There are two contract write controls, both gated on `EMPLOYEE_WRITE_ROLES`: **"Nuevo
  * contrato"** opens the create mode of {@link ContractDialog}, and **"Cerrar
  * contrato vigente"** is offered only while the employee actually has a current
  * contract (`isContractCurrent`) and opens the dialog's close mode. The page does
  * not write: it opens the dialog (`D71`) and reloads **only** the contracts read on
  * a real outcome, which is the read the header's "Puesto actual" also derives from.
+ *
+ * The store-assignment surface follows the same shape: {@link StoreAssignmentsSection} renders the
+ * history with its derived chain and emits three intents, the page opens {@link StoreAssignmentDialog}
+ * for **Asignar tienda** and the shared `ConfirmDialog` for **Cerrar**, then reloads only the
+ * assignments read. Both write actions gate on the very same `EMPLOYEE_WRITE_ROLES` the endpoints
+ * require (`T17`), so the UI cannot offer a control whose call the API would refuse.
  */
 @Component({
   selector: 'app-employee-detail',
@@ -79,7 +93,9 @@ import { EMPLOYEE_WRITE_ROLES, hasAnyClientRole } from '@core/security/roles';
     MatIconModule,
     MatSelectModule,
     PageHeader,
+    ErrorBanner,
     ContractHistory,
+    StoreAssignmentsSection,
   ],
   templateUrl: './employee-detail.html',
   styleUrl: './employee-detail.scss',
@@ -88,6 +104,7 @@ export class EmployeeDetail {
   private readonly companyService = inject(CompanyService);
   private readonly employeeService = inject(EmployeeService);
   private readonly contractService = inject(ContractService);
+  private readonly storeAssignmentService = inject(StoreAssignmentService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly dialog = inject(MatDialog);
@@ -146,6 +163,26 @@ export class EmployeeDetail {
     stream: ({ params }) => this.contractService.getContracts(params.companyId, params.employeeId),
   });
 
+  /**
+   * The store-assignment read, independent from the other two: a failure here leaves the employee
+   * card and the contracts standing and is shown by the `Tiendas asignadas` section alone.
+   *
+   * The whole history is asked for (`includeDisabled`): a soft-deleted assignment is part of the
+   * record, and the section distinguishes it from a closed one.
+   */
+  readonly assignmentsResource = rxResource({
+    params: () => {
+      const companyId = this.selectedCompanyId();
+      const employeeId = this.employeeId();
+      if (!companyId || !employeeId) {
+        return undefined;
+      }
+      return { companyId, employeeId };
+    },
+    stream: ({ params }) =>
+      this.storeAssignmentService.getAssignments(params.companyId, params.employeeId, true),
+  });
+
   /** The page-level loading gate follows the employee read; contracts load in its own section. */
   readonly loading = this.employeeResource.isLoading;
 
@@ -166,6 +203,21 @@ export class EmployeeDetail {
 
   /** The contracts section's loading flag; drives only that section's copy. */
   readonly contractsLoading = this.contractsResource.isLoading;
+
+  readonly assignments = computed<StoreAssignment[]>(() =>
+    this.assignmentsResource.hasValue() ? (this.assignmentsResource.value() ?? []) : [],
+  );
+
+  /** The assignments section's loading flag; drives only that section's copy. */
+  readonly assignmentsLoading = this.assignmentsResource.isLoading;
+
+  /**
+   * A failed close write, as the service mapped it.
+   *
+   * A failed **assign** never reaches the page: the dialog stays open and reports it in its own
+   * banner, so this is only ever the close route's message.
+   */
+  readonly assignmentActionError = signal<string | null>(null);
 
   /**
    * A 404 is its own state: the employee does not exist in the selected company
@@ -188,6 +240,12 @@ export class EmployeeDetail {
   /** The contracts section's own error copy; `null` while loading, on success or before selection. */
   readonly contractsError = computed(() => {
     const error = this.contractsResource.error();
+    return error ? httpErrorMessage(error) : null;
+  });
+
+  /** The assignments section's own error copy; `null` while loading, on success or before selection. */
+  readonly assignmentsError = computed(() => {
+    const error = this.assignmentsResource.error();
     return error ? httpErrorMessage(error) : null;
   });
 
@@ -236,6 +294,89 @@ export class EmployeeDetail {
   /** Re-runs only the contracts read, the `Contratos` section's own retry. */
   retryContracts(): void {
     this.contractsResource.reload();
+  }
+
+  /** Re-runs only the assignments read, the `Tiendas asignadas` section's own retry. */
+  retryAssignments(): void {
+    this.assignmentsResource.reload();
+  }
+
+  /**
+   * Opens the assign dialog for the selected company and employee (`T16`: the company comes in as an
+   * input, so the dialog only walks the store tree).
+   *
+   * Guarded on the write role like the contract controls, so a reader cannot reach a writable surface
+   * by a second route.
+   */
+  onAssign(): void {
+    const companyId = this.selectedCompanyId();
+    const employeeId = this.employeeId();
+    if (!this.canWrite || !companyId || !employeeId) {
+      return;
+    }
+    const data: StoreAssignmentDialogData = { companyId, employeeId };
+    this.dialog
+      .open<StoreAssignmentDialog, StoreAssignmentDialogData, StoreAssignmentDialogResult>(
+        StoreAssignmentDialog,
+        { data },
+      )
+      .afterClosed()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((result) => {
+        // `undefined` is a bare Material dismissal and means the same as `null`: no write.
+        if (result?.outcome === 'created') {
+          this.assignmentsResource.reload();
+        }
+      });
+  }
+
+  /**
+   * Closes an assignment after the operator confirms it in the shared `ConfirmDialog`, then reloads
+   * the assignments.
+   *
+   * The confirmation lives here, next to the write, exactly as `employee-list` and `department-list`
+   * open it; the section renders the control and emits the row.
+   */
+  onCloseAssignment(assignment: StoreAssignment): void {
+    const companyId = this.selectedCompanyId();
+    const employeeId = this.employeeId();
+    if (!this.canWrite || !companyId || !employeeId) {
+      return;
+    }
+    const data: ConfirmDialogData = {
+      title: 'Cerrar asignación de tienda',
+      message: `¿Confirmás que querés cerrar la asignación a "${assignment.companyStoreName}"? Se conserva en el historial y la tienda deja de contar para el alcance del empleado.`,
+      confirmLabel: 'Cerrar asignación',
+      destructive: true,
+    };
+    this.dialog
+      .open<ConfirmDialog, ConfirmDialogData, boolean>(ConfirmDialog, { data })
+      .afterClosed()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((confirmed) => {
+        if (confirmed) {
+          this.closeAssignment(companyId, employeeId, assignment);
+        }
+      });
+  }
+
+  private closeAssignment(
+    companyId: string,
+    employeeId: string,
+    assignment: StoreAssignment,
+  ): void {
+    this.assignmentActionError.set(null);
+    this.storeAssignmentService
+      .closeAssignment(companyId, employeeId, assignment.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => this.assignmentsResource.reload(),
+        // The service maps the status; its message is the one the operator can act on.
+        error: () =>
+          this.assignmentActionError.set(
+            this.storeAssignmentService.error() ?? 'Error al cerrar la asignación',
+          ),
+      });
   }
 
   /**
