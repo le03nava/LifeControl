@@ -915,7 +915,7 @@ describe('ContractDialog', () => {
       expect(contractService.addContract).toHaveBeenCalledTimes(1);
     });
 
-    it('clears the level and names the failure when the countries level cannot be read', () => {
+    it('names the failure and still submits the otherwise valid contract when the countries level cannot be read', () => {
       setup({ countriesError: new HttpErrorResponse({ status: 500 }) });
       settle();
 
@@ -924,14 +924,23 @@ describe('ContractDialog', () => {
         'No se pudieron cargar los niveles de la tienda',
       );
       expect(text()).toContain('No se pudieron cargar los niveles de la tienda');
-      // The form stays usable: the failure names itself instead of blocking the contract.
-      expect(component.createForm.valid).toBe(false);
+
+      // The failed read is the difference: with the cascade unavailable the complete contract form
+      // is still valid, so the failure names itself instead of blocking the contract-only act (D8).
+      fillCreate();
+      expect(component.createForm.valid).toBe(true);
+      component.onCreate();
+      expect(contractService.addContract).toHaveBeenCalledTimes(1);
     });
 
-    it('clears the level and names the failure when the stores level cannot be read', () => {
+    it('clears the store and leaves the cascade partly walked when the stores level cannot be read', () => {
       setup();
       settle();
+      fillCreate();
       chooseCascade();
+      settle();
+      // A complete cascade, so the form is valid before the stores read fails.
+      expect(component.createForm.valid).toBe(true);
       expect(component.stores()).toEqual([store, otherStore]);
 
       storeService.getStores.mockReturnValue(
@@ -940,9 +949,60 @@ describe('ContractDialog', () => {
       component.createForm.controls.zoneId.setValue('zone-2');
       settle();
 
+      // The failed read is the difference: the store list is empty and the cleared store leaves the
+      // cascade partly walked, which T21 refuses instead of dropping silently.
       expect(component.stores()).toEqual([]);
+      expect(component.createForm.controls.companyStoreId.value).toBe('');
+      expect(component.createForm.hasError('storeRequired')).toBe(true);
+      expect(component.createForm.valid).toBe(false);
       expect(text()).toContain('No se pudieron cargar los niveles de la tienda');
-      expect(component.saving()).toBe(false);
+    });
+
+    it('returns a walked cascade to completely empty through the same reset the level changes run (D8, T21)', () => {
+      setup();
+      settle();
+      fillCreate();
+      chooseCascade();
+      settle();
+
+      expect(component.stores()).toEqual([store, otherStore]);
+      expect(component.createForm.valid).toBe(true);
+
+      const clear = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(
+        '.store-clear',
+      );
+      expect(clear).not.toBeNull();
+      clear?.click();
+      settle();
+
+      expect(component.createForm.controls.companyCountryId.value).toBe('');
+      expect(component.createForm.controls.regionId.value).toBe('');
+      expect(component.createForm.controls.zoneId.value).toBe('');
+      expect(component.createForm.controls.companyStoreId.value).toBe('');
+      // The same reset the level changes run: every dependent list is emptied with the controls.
+      expect(component.regions()).toEqual([]);
+      expect(component.zones()).toEqual([]);
+      expect(component.stores()).toEqual([]);
+      // Fully empty is the legal contract-only act (D8); it is not a partly walked cascade (T21).
+      expect(component.createForm.hasError('storeRequired')).toBe(false);
+      expect(component.createForm.valid).toBe(true);
+      // Clearing is an in-dialog edit, never a submit.
+      expect(contractService.addContract).not.toHaveBeenCalled();
+      expect(dialogRef.close).not.toHaveBeenCalled();
+    });
+
+    it('offers the clear control only while at least one level is set', () => {
+      setup();
+      settle();
+      expect(has('.store-clear')).toBe(false);
+
+      component.createForm.controls.companyCountryId.setValue('company-country-1');
+      settle();
+      expect(has('.store-clear')).toBe(true);
+
+      component.createForm.controls.companyCountryId.setValue('');
+      settle();
+      expect(has('.store-clear')).toBe(false);
     });
   });
 

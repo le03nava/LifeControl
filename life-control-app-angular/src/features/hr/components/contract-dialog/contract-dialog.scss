@@ -60,6 +60,12 @@
   font-size: 0.8125rem;
 }
 
+// The way back to the empty cascade (D8, T21): a compact text action, not a full-width field.
+.store-clear {
+  display: block;
+  margin: 0 0 var(--space-sm, 0.5rem);
+}
+
 // Mirrors of the server's cross-field rules, rendered beside the fields they concern.
 .form-error {
   margin: 0 0 var(--space-sm, 0.5rem);

@@ -112,6 +112,23 @@
           fecha de inicio del contrato. Sin tienda, solo se crea el contrato.
         </p>
 
+        <!--
+          The way back to the legal empty cascade (D8, T21): a Material select is not clearable, so
+          this clears all four levels through the same reset a level change runs. It is shown only
+          while at least one level is set, because an empty cascade has nothing to clear.
+        -->
+        @if (hasStoreCascadeSelection()) {
+          <button
+            mat-button
+            type="button"
+            class="store-clear"
+            [disabled]="saving()"
+            (click)="clearStoreCascade()"
+          >
+            Quitar tienda
+          </button>
+        }
+
         <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
           <mat-label>País</mat-label>
           <mat-select formControlName="companyCountryId">

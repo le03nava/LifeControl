@@ -766,4 +766,30 @@ export class ContractDialog {
     this.createForm.patchValue({ companyStoreId: '' }, { emitEvent: false });
     this.stores.set([]);
   }
+
+  /**
+   * Whether any level of the optional store cascade is set, so the clear control is actionable.
+   *
+   * The resets patch the controls with `emitEvent: false` (so they do not re-enter the cascade), so
+   * this reads the live form value instead of a `valueChanges` signal that a reset would leave stale.
+   */
+  hasStoreCascadeSelection(): boolean {
+    const value = this.createForm.getRawValue();
+    return Boolean(value.companyCountryId || value.regionId || value.zoneId || value.companyStoreId);
+  }
+
+  /**
+   * Returns the optional store cascade to completely empty (`D8`, `T21`).
+   *
+   * A Material select is not clearable, so without this the only way back from a partly walked
+   * cascade to the legal empty one would be to close and reopen the dialog. It clears the country and
+   * then runs {@link resetBelowCountry} — the very reset a country change runs — so region, zone and
+   * store empty through one mechanism, land on the valid empty state (`D8`) and never on a partly
+   * walked one (`T21`). `emitEvent: false` keeps the clear from re-reading the catalogues on its way
+   * to empty, and nothing here submits.
+   */
+  clearStoreCascade(): void {
+    this.createForm.patchValue({ companyCountryId: '' }, { emitEvent: false });
+    this.resetBelowCountry();
+  }
 }
