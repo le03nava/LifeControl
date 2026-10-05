@@ -27,10 +27,12 @@ import {
  * row's status. The chain resolves **without** `T12`'s enabled filter, because the operator must see
  * the tree as it is, including that a disabled store grants nothing.
  *
- * The close action is offered only for a row that can actually be closed: an already-closed row
- * would be a guaranteed 409 and a soft-deleted one is not the API's to close, so neither renders the
- * control. The assign action stays available either way, because a second store is a new assignment
- * (`D1`).
+ * The close action is offered only for a row this surface means to close: an already-closed row
+ * renders no control, because closing it is a guaranteed 409. A **soft-deleted** row renders none
+ * either, and that is a deliberate conservative choice of this screen rather than an API rule —
+ * `EmployeeStoreAssignmentService.closeAssignment` gates on `valid_to != null` alone and never reads
+ * `enabled`, so the endpoint would accept closing a soft-deleted row that is still open. The assign
+ * action stays available either way, because a second store is a new assignment (`D1`).
  */
 @Component({
   selector: 'app-store-assignments-section',
@@ -75,10 +77,13 @@ export class StoreAssignmentsSection {
   readonly chainLabel = derivedChainLabel;
 
   /**
-   * Whether the API would accept closing this row.
+   * Whether this surface offers to close the row.
    *
-   * Only an open row can be closed: closing an already-closed one is a 409 and a soft-deleted one is
-   * not a close at all.
+   * An open row is offered; an already-closed one is not, because closing it is a 409. A
+   * **soft-deleted** row is likewise not offered, but that is this screen's conservative choice and
+   * not a rule of the endpoint: `closeAssignment` gates on `valid_to != null` only and never reads
+   * `enabled`, so it would accept closing a soft-deleted row that is still open. This surface does
+   * not ask it to.
    */
   isClosable(assignment: StoreAssignment): boolean {
     return assignmentStatus(assignment) === 'open';

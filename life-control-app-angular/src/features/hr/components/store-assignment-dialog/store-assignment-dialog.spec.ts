@@ -84,6 +84,15 @@ describe('StoreAssignmentDialog', () => {
     updatedAt: '2026-01-01T00:00:00',
   };
 
+  /** A second zone, belonging to the second region, so a zone reload is a real value change too. */
+  const otherZone: CompanyZone = {
+    ...zone,
+    id: 'zone-2',
+    companyRegionId: 'region-2',
+    zoneCode: 'ZS',
+    zoneName: 'Zona Sur',
+  };
+
   const store: CompanyStore = {
     id: 'store-1',
     companyId,
@@ -120,10 +129,8 @@ describe('StoreAssignmentDialog', () => {
     countries?: CompanyCountry[];
     countriesError?: HttpErrorResponse;
     regions?: CompanyRegion[];
-    regionsError?: HttpErrorResponse;
     zones?: CompanyZone[];
     stores?: CompanyStore[];
-    storesError?: HttpErrorResponse;
     createResult?: StoreAssignment;
     createError?: HttpErrorResponse;
     /** What the service's own error signal already holds when createAssignment fails. */
@@ -148,17 +155,17 @@ describe('StoreAssignmentDialog', () => {
       ),
     };
     regionService = {
-      getRegions: vi.fn(() =>
-        options.regionsError
-          ? throwError(() => options.regionsError)
-          : of(options.regions ?? [region, otherRegion]),
+      getRegions: vi.fn().mockReturnValue(of(options.regions ?? [region, otherRegion])),
+    };
+    zoneService = {
+      // Keyed by region: the second region's list differs, so a reload for it is distinguishable
+      // from the first region's list surviving in place.
+      getZones: vi.fn((_companyId: string, _companyCountryId: string, regionId: string) =>
+        of(options.zones ?? (regionId === 'region-2' ? [otherZone] : [zone])),
       ),
     };
-    zoneService = { getZones: vi.fn().mockReturnValue(of(options.zones ?? [zone])) };
     storeService = {
-      getStores: vi.fn(() =>
-        options.storesError ? throwError(() => options.storesError) : of(options.stores ?? [store]),
-      ),
+      getStores: vi.fn().mockReturnValue(of(options.stores ?? [store])),
     };
 
     const data: StoreAssignmentDialogData = { companyId, employeeId: 'emp-1' };
@@ -266,31 +273,45 @@ describe('StoreAssignmentDialog', () => {
   it('should reset the zone and the store when the region changes', async () => {
     await setup();
     chooseCascade();
+    expect(component.zones()).toEqual([zone]);
 
     component.form.controls.regionId.setValue('region-2');
 
+    // The new region's own zones replace the previous ones, so a zone list that survived in place
+    // cannot satisfy this.
+    expect(component.zones()).toEqual([otherZone]);
     expect(component.stores()).toEqual([]);
     expect(component.form.controls.zoneId.value).toBe('');
     expect(component.form.controls.companyStoreId.value).toBe('');
-    expect(component.zones()).toEqual([zone]);
   });
 
-  it('should name the failure when the stores level cannot be read', async () => {
-    await setup({ storesError: new HttpErrorResponse({ status: 500 }) });
+  it('should clear the level and name the failure when the stores level cannot be read', async () => {
+    await setup();
     component.form.controls.companyCountryId.setValue('company-country-1');
     component.form.controls.regionId.setValue('region-1');
-
     component.form.controls.zoneId.setValue('zone-1');
+    expect(component.stores()).toEqual([store]);
+
+    // The same level now fails, so the previous list has a value it must not survive as.
+    storeService.getStores.mockReturnValue(
+      throwError(() => new HttpErrorResponse({ status: 500 })),
+    );
+    component.form.controls.zoneId.setValue('zone-2');
     settle();
 
     expect(component.stores()).toEqual([]);
     expect(text()).toContain('No se pudieron cargar los niveles de la tienda');
   });
 
-  it('should name the failure when the regions level cannot be read', async () => {
-    await setup({ regionsError: new HttpErrorResponse({ status: 500 }) });
-
+  it('should clear the level and name the failure when the regions level cannot be read', async () => {
+    await setup();
     component.form.controls.companyCountryId.setValue('company-country-1');
+    expect(component.regions()).toEqual([region, otherRegion]);
+
+    regionService.getRegions.mockReturnValue(
+      throwError(() => new HttpErrorResponse({ status: 500 })),
+    );
+    component.form.controls.companyCountryId.setValue('company-country-2');
     settle();
 
     // Every level funnels its own failure into the same notice, and the form stays usable.
@@ -307,6 +328,9 @@ describe('StoreAssignmentDialog', () => {
     expect(text()).toContain('Zona');
     expect(text()).toContain('Tienda');
     expect(text()).toContain('Vigente desde');
+    expect(element().querySelector('input[formcontrolname="validFrom"]')).not.toBeNull();
+    // Required, not merely present: an empty form is already invalid on that control.
+    expect(component.form.controls.validFrom.hasError('required')).toBe(true);
   });
 
   it('should carry no end-date field at all (T13)', async () => {
