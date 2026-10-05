@@ -1,5 +1,6 @@
 package com.lifecontrol.api.profile;
 
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -9,10 +10,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifecontrol.api.exception.GlobalExceptionHandler;
+import com.lifecontrol.api.exception.ResourceNotFoundException;
 import com.lifecontrol.api.profile.dto.ProfileResponse;
 import com.lifecontrol.api.profile.dto.ProfileUpdateRequest;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderConnectionException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderNotFoundException;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -63,7 +66,7 @@ class ProfileControllerTest {
         void shouldReturnProfile() throws Exception {
             var countryId = UUID.randomUUID();
             var response = new ProfileResponse(
-                    USER_ID, USERNAME, EMAIL, FIRST_NAME, LAST_NAME, countryId, null, null, null, null);
+                    USER_ID, USERNAME, EMAIL, FIRST_NAME, LAST_NAME, countryId, null, null, null, null, null);
 
             when(profileService.getProfile()).thenReturn(response);
 
@@ -75,6 +78,59 @@ class ProfileControllerTest {
                     .andExpect(jsonPath("$.firstName").value(FIRST_NAME))
                     .andExpect(jsonPath("$.lastName").value(LAST_NAME))
                     .andExpect(jsonPath("$.companyCountryId").value(countryId.toString()));
+        }
+
+        @Test
+        @DisplayName("should serialize assignedStores as null for an unconstrained caller (D11)")
+        void shouldSerializeNullAssignedStores() throws Exception {
+            var response = new ProfileResponse(
+                    USER_ID, USERNAME, EMAIL, FIRST_NAME, LAST_NAME, null, null, null, null, null, null);
+
+            when(profileService.getProfile()).thenReturn(response);
+
+            mockMvc.perform(get("/api/profile"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.assignedStores").value(nullValue()));
+        }
+
+        @Test
+        @DisplayName("should serialize each assigned store with its derived chain (T25)")
+        void shouldSerializeAssignedStores() throws Exception {
+            var storeId = UUID.randomUUID();
+            var companyId = UUID.randomUUID();
+            var countryId = UUID.randomUUID();
+            var regionId = UUID.randomUUID();
+            var zoneId = UUID.randomUUID();
+            var assignedStore = new ProfileResponse.AssignedStore(
+                    storeId, "Main Store", companyId, "Acme", countryId, "México", regionId, "North", zoneId, "Zone 1");
+            var response = new ProfileResponse(
+                    USER_ID,
+                    USERNAME,
+                    EMAIL,
+                    FIRST_NAME,
+                    LAST_NAME,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    List.of(assignedStore));
+
+            when(profileService.getProfile()).thenReturn(response);
+
+            mockMvc.perform(get("/api/profile"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.assignedStores[0].companyStoreId").value(storeId.toString()))
+                    .andExpect(jsonPath("$.assignedStores[0].companyStoreName").value("Main Store"))
+                    .andExpect(jsonPath("$.assignedStores[0].companyId").value(companyId.toString()))
+                    .andExpect(jsonPath("$.assignedStores[0].companyName").value("Acme"))
+                    .andExpect(jsonPath("$.assignedStores[0].companyCountryId").value(countryId.toString()))
+                    .andExpect(
+                            jsonPath("$.assignedStores[0].companyCountryName").value("México"))
+                    .andExpect(jsonPath("$.assignedStores[0].companyRegionId").value(regionId.toString()))
+                    .andExpect(jsonPath("$.assignedStores[0].companyRegionName").value("North"))
+                    .andExpect(jsonPath("$.assignedStores[0].companyZoneId").value(zoneId.toString()))
+                    .andExpect(jsonPath("$.assignedStores[0].companyZoneName").value("Zone 1"));
         }
 
         @Test
@@ -96,7 +152,7 @@ class ProfileControllerTest {
         void shouldUpdateProfile() throws Exception {
             var countryId = UUID.randomUUID();
             var response = new ProfileResponse(
-                    USER_ID, USERNAME, EMAIL, FIRST_NAME, LAST_NAME, countryId, null, null, null, null);
+                    USER_ID, USERNAME, EMAIL, FIRST_NAME, LAST_NAME, countryId, null, null, null, null, null);
 
             when(profileService.updateProfile(any(ProfileUpdateRequest.class))).thenReturn(response);
 
@@ -169,10 +225,33 @@ class ProfileControllerTest {
         }
 
         @Test
+        @DisplayName("should return 404 when the store is refused by the assignment constraint (T23)")
+        void shouldReturn404WhenStoreIsRefused() throws Exception {
+            var storeId = UUID.randomUUID();
+            when(profileService.updateProfile(any(ProfileUpdateRequest.class)))
+                    .thenThrow(new ResourceNotFoundException(
+                            "No current store assignment for the authenticated employee covers store " + storeId));
+
+            var body = """
+                    {
+                        "companyStoreId": "%s"
+                    }
+                    """.formatted(storeId.toString());
+
+            mockMvc.perform(put("/api/profile")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.message")
+                            .value("No current store assignment for the authenticated employee covers store "
+                                    + storeId));
+        }
+
+        @Test
         @DisplayName("should accept empty object body (no-op update)")
         void shouldAcceptEmptyBody() throws Exception {
-            var response =
-                    new ProfileResponse(USER_ID, USERNAME, EMAIL, FIRST_NAME, LAST_NAME, null, null, null, null, null);
+            var response = new ProfileResponse(
+                    USER_ID, USERNAME, EMAIL, FIRST_NAME, LAST_NAME, null, null, null, null, null, null);
 
             when(profileService.updateProfile(any(ProfileUpdateRequest.class))).thenReturn(response);
 

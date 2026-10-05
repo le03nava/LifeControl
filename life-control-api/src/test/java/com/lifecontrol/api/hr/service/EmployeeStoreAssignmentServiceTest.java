@@ -3,6 +3,7 @@ package com.lifecontrol.api.hr.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 import com.lifecontrol.api.common.auth.CurrentUserContext;
@@ -452,6 +453,82 @@ class EmployeeStoreAssignmentServiceTest {
             assertThat(result.validFrom()).isEqualTo(future);
             assertThat(result.validTo()).isNull();
             assertThat(savedAssignment().getValidFrom()).isEqualTo(future);
+        }
+    }
+
+    @Nested
+    @DisplayName("the self-scoped current-assignments read (T25/D10)")
+    class CurrentAssignmentsTests {
+
+        @Test
+        @DisplayName("delegates to the covering-date finder and fills T14's derived chain, with no scope check")
+        void getCurrentAssignmentsForEmployee_MapsTheCoveringRows() {
+            var id = UUID.randomUUID();
+            var row = assignment(id, testStore, LocalDate.now().minusDays(5), null, true);
+            when(employeeStoreAssignmentRepository.findEnabledAssignmentsCoveringDate(
+                            eq(employeeId), any(LocalDate.class)))
+                    .thenReturn(List.of(row));
+
+            var result = service.getCurrentAssignmentsForEmployee(employeeId);
+
+            assertThat(result).hasSize(1);
+            var response = result.get(0);
+            assertThat(response.id()).isEqualTo(id);
+            assertThat(response.companyStoreId()).isEqualTo(testStore.getId());
+            assertThat(response.companyStoreName()).isEqualTo("Main Store");
+            assertThat(response.validFrom()).isEqualTo(row.getValidFrom());
+            assertThat(response.validTo()).isNull();
+            assertThat(response.enabled()).isTrue();
+            assertThat(response.derived().companyId()).isEqualTo(companyId);
+            assertThat(response.derived().companyName()).isEqualTo("Test Company");
+            assertThat(response.derived().companyCountryId()).isEqualTo(testCompanyCountry.getId());
+            assertThat(response.derived().companyCountryName()).isEqualTo("México");
+            assertThat(response.derived().companyRegionId()).isEqualTo(testRegion.getId());
+            assertThat(response.derived().companyZoneId()).isEqualTo(testZone.getId());
+
+            // The read resolves "today" through the same covering predicate the derivation uses
+            // (T27); it never checks the caller's company scope, because the only caller resolves the
+            // employee from the authenticated principal's own keycloak id.
+            var dateCaptor = ArgumentCaptor.forClass(LocalDate.class);
+            verify(employeeStoreAssignmentRepository)
+                    .findEnabledAssignmentsCoveringDate(eq(employeeId), dateCaptor.capture());
+            assertThat(dateCaptor.getValue()).isEqualTo(LocalDate.now());
+            verify(currentUserContext, never()).verifyCompanyAccess(any());
+        }
+
+        @Test
+        @DisplayName("a covering row whose store is disabled is still in the set (T27, no store-enabled filter)")
+        void getCurrentAssignmentsForEmployee_DisabledStoreRowIsStillReturned() {
+            var disabledStore = CompanyStore.builder()
+                    .id(UUID.randomUUID())
+                    .companyZone(testZone)
+                    .storeName("Disabled Store")
+                    .enabled(false)
+                    .build();
+            var row =
+                    assignment(UUID.randomUUID(), disabledStore, LocalDate.now().minusDays(1), null, true);
+            when(employeeStoreAssignmentRepository.findEnabledAssignmentsCoveringDate(
+                            eq(employeeId), any(LocalDate.class)))
+                    .thenReturn(List.of(row));
+
+            var result = service.getCurrentAssignmentsForEmployee(employeeId);
+
+            // T27: the assigned set is the covering assignment row, not the store's enabled flag; T12
+            // leaves whether a live assignment to a disabled store grants scope to the derivation.
+            assertThat(result).hasSize(1);
+            assertThat(result.get(0).companyStoreId()).isEqualTo(disabledStore.getId());
+        }
+
+        @Test
+        @DisplayName("an employee with no covering rows reads an empty list, not null")
+        void getCurrentAssignmentsForEmployee_NoRows_ReturnsEmptyList() {
+            when(employeeStoreAssignmentRepository.findEnabledAssignmentsCoveringDate(
+                            eq(employeeId), any(LocalDate.class)))
+                    .thenReturn(List.of());
+
+            var result = service.getCurrentAssignmentsForEmployee(employeeId);
+
+            assertThat(result).isNotNull().isEmpty();
         }
     }
 

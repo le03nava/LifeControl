@@ -175,6 +175,29 @@ public class EmployeeStoreAssignmentService {
     }
 
     /**
+     * The assignments covering today for one employee, as the profile path reads them (T25/D10).
+     *
+     * <p>Deliberately <b>scope-free</b>: unlike every other public method here it performs no
+     * {@code verifyCompanyAccess}. Its only caller resolves the employee from the authenticated
+     * principal's own {@code keycloak_user_id} and then asks for that employee's own rows, so this is
+     * a self-scoped read by construction — it can never expose someone else's history, and demanding
+     * a company claim would refuse the very caller the profile screen serves.</p>
+     *
+     * <p>It reuses the derivation's own covering-date finder and T14's mapper, so the preference and
+     * the token can never disagree about which stores are current (T27: the assignment row covering
+     * today, <b>not</b> the store's {@code enabled} flag), and the finder's ordering is preserved as
+     * returned.</p>
+     */
+    @Transactional(readOnly = true)
+    public List<StoreAssignmentResponse> getCurrentAssignmentsForEmployee(UUID employeeId) {
+        return employeeStoreAssignmentRepository
+                .findEnabledAssignmentsCoveringDate(employeeId, LocalDate.now())
+                .stream()
+                .map(this::toResponse)
+                .toList();
+    }
+
+    /**
      * Opens a new store assignment for the employee, closing the previous one for the same store the
      * day before (decision T4).
      *
