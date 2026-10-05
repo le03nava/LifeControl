@@ -1,0 +1,83 @@
+<h2 mat-dialog-title>Asignar tienda</h2>
+
+<form [formGroup]="form" (ngSubmit)="onSubmit()">
+  <mat-dialog-content class="dialog-content">
+    <!-- The company and the employee are the page's, so the dialog only walks their store tree. -->
+    <p class="dialog-subtitle">
+      Elegí la tienda recorriendo país, región y zona. La empresa y el empleado ya están fijados por
+      la pantalla.
+    </p>
+
+    @if (actionError(); as errorMessage) {
+      <app-error-banner [message]="errorMessage" />
+    }
+    @if (catalogueError(); as catalogueMessage) {
+      <app-error-banner [message]="catalogueMessage" />
+    }
+
+    <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+      <mat-label>País</mat-label>
+      <mat-select formControlName="companyCountryId">
+        @for (country of countries(); track country.id) {
+          <mat-option [value]="country.id">{{ country.countryName }}</mat-option>
+        }
+      </mat-select>
+      @if (form.controls.companyCountryId.hasError('required')) {
+        <mat-error>El país es obligatorio.</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+      <mat-label>Región</mat-label>
+      <mat-select formControlName="regionId">
+        @for (region of regions(); track region.id) {
+          <mat-option [value]="region.id">{{ region.regionName }}</mat-option>
+        }
+      </mat-select>
+      @if (form.controls.regionId.hasError('required')) {
+        <mat-error>La región es obligatoria.</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+      <mat-label>Zona</mat-label>
+      <mat-select formControlName="zoneId">
+        @for (zone of zones(); track zone.id) {
+          <mat-option [value]="zone.id">{{ zone.zoneName }}</mat-option>
+        }
+      </mat-select>
+      @if (form.controls.zoneId.hasError('required')) {
+        <mat-error>La zona es obligatoria.</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+      <mat-label>Tienda</mat-label>
+      <mat-select formControlName="companyStoreId">
+        @for (store of stores(); track store.id) {
+          <mat-option [value]="store.id">{{ store.storeName }}</mat-option>
+        }
+      </mat-select>
+      @if (form.controls.companyStoreId.hasError('required')) {
+        <mat-error>La tienda es obligatoria.</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+      <mat-label>Vigente desde</mat-label>
+      <input matInput type="date" formControlName="validFrom" />
+      <!-- T13: the first day covered is the only date this form carries. -->
+      <mat-hint>Primer día cubierto por la asignación. Se puede cerrar después.</mat-hint>
+      @if (form.controls.validFrom.hasError('required')) {
+        <mat-error>La fecha de inicio es obligatoria.</mat-error>
+      }
+    </mat-form-field>
+  </mat-dialog-content>
+
+  <mat-dialog-actions align="end">
+    <button mat-button type="button" [disabled]="saving()" (click)="cancel()">Cancelar</button>
+    <button mat-flat-button color="primary" type="submit" [disabled]="saving()">
+      Asignar tienda
+    </button>
+  </mat-dialog-actions>
+</form>

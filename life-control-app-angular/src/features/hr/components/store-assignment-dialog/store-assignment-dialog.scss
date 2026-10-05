@@ -1,0 +1,16 @@
+// The dialog is self-contained: no shared form-layout partial, because that partial styles
+// a full-page `.form-card` a modal must not inherit. Only the field width and the subtitle
+// are styled here.
+:host {
+  display: block;
+}
+
+.full-width {
+  width: 100%;
+}
+
+.dialog-subtitle {
+  margin: 0 0 var(--space-sm, 0.5rem);
+  color: var(--mat-sys-on-surface-variant, #4b5563);
+  font-size: 0.875rem;
+}

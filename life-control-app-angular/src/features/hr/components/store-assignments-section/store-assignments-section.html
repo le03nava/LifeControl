@@ -1,0 +1,72 @@
+<div class="store-assignments-section">
+  @if (loading()) {
+    <p class="loading-text">Cargando tiendas asignadas…</p>
+  } @else if (error(); as err) {
+    <div class="error-state">
+      <mat-icon fontIcon="error" />
+      <p>{{ err }}</p>
+      <button mat-stroked-button type="button" (click)="retry.emit()">Reintentar</button>
+    </div>
+  } @else {
+    @if (canWrite()) {
+      <div class="actions-row">
+        <button mat-flat-button color="primary" type="button" (click)="onAssign()">
+          <mat-icon fontIcon="add" /> Asignar tienda
+        </button>
+      </div>
+    }
+
+    @if (assignments().length > 0) {
+      <div class="table-wrapper">
+        <table mat-table [dataSource]="assignments()" class="assignments-table">
+          <ng-container matColumnDef="companyStoreName">
+            <th mat-header-cell *matHeaderCellDef>Tienda</th>
+            <td mat-cell *matCellDef="let row">{{ row.companyStoreName }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="validity">
+            <th mat-header-cell *matHeaderCellDef>Vigencia</th>
+            <!-- `validTo` is the last day covered (inclusive) and `null` means open-ended. -->
+            <td mat-cell *matCellDef="let row">{{ rangeLabel(row) }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="scope">
+            <th mat-header-cell *matHeaderCellDef>Alcance derivado</th>
+            <!--
+              T14: the derived company / country / region / zone chain the token will carry, resolved
+              without T12's enabled filter so the operator sees the tree as it is. A level the chain
+              does not resolve stays in place as an em dash.
+            -->
+            <td mat-cell *matCellDef="let row" class="scope-cell">{{ chainLabel(row.derived) }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="status">
+            <th mat-header-cell *matHeaderCellDef>Estado</th>
+            <td mat-cell *matCellDef="let row">
+              <span [class]="'badge status status-' + assignmentStatus(row)">
+                {{ statusLabel(row) }}
+              </span>
+            </td>
+          </ng-container>
+
+          <ng-container matColumnDef="actions">
+            <th mat-header-cell *matHeaderCellDef>Acciones</th>
+            <td mat-cell *matCellDef="let row">
+              <!-- An open, not-soft-deleted row is offered: a closed row would only earn a 409, and
+                   hiding a soft-deleted one is this screen's conservative choice, not an API rule
+                   (the endpoint gates on valid_to alone and never reads enabled). -->
+              @if (canWrite() && isClosable(row)) {
+                <button mat-stroked-button type="button" (click)="onClose(row)">Cerrar</button>
+              }
+            </td>
+          </ng-container>
+
+          <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+          <tr mat-row *matRowDef="let row; columns: displayedColumns"></tr>
+        </table>
+      </div>
+    } @else {
+      <p class="empty-state">No hay tiendas asignadas para este empleado</p>
+    }
+  }
+</div>
