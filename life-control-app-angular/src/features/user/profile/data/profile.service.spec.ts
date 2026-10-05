@@ -19,6 +19,7 @@ describe('ProfileService', () => {
     companyRegionId: null,
     companyZoneId: null,
     companyStoreId: null,
+    assignedStores: null,
   };
 
   beforeEach(() => {
