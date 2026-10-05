@@ -35,21 +35,36 @@ public interface EmployeeStoreAssignmentRepository extends JpaRepository<Employe
     /**
      * The employee's enabled assignments whose exclusive range covers {@code date}, as
      * {@code validFrom <= :date AND (validTo IS NULL OR validTo > :date)} — the input of the
-     * derivation (decision T6).
+     * derivation (decision T6) and of the profile's current-store read (T25/D10).
      *
      * <p>It returns a {@link List} and not an {@code Optional} because one employee may hold several
      * concurrent stores (decision D1), which is the whole point of the derivation: it emits a claim
-     * per assigned store. The {@code JOIN FETCH} loads the store in the same query, because the
-     * caller walks it upward to produce the ancestor chain; a derived finder would issue one extra
-     * SELECT per assignment.</p>
+     * per assigned store. The {@code JOIN FETCH} loads the store <b>and its whole ancestor chain</b>
+     * in the same query, because the caller maps each row through T14's {@code derived} display value,
+     * which reads every ancestor's id and name; a derived finder would issue one extra SELECT per row
+     * per lazy association. The joins are inner joins over {@code NOT NULL} foreign keys, so no row
+     * can be dropped, and the country entity is fetched as well because the display name of the
+     * company-country comes from it — the same fetch graph
+     * {@link #findEmployeeAssignments(UUID, boolean)} uses.</p>
+     *
+     * <p>The {@code ORDER BY} makes the read deterministic: newest first, with {@code a.id DESC} as
+     * the tie-breaker so rows sharing a {@code validFrom} always come back in the same order. It is
+     * <b>not</b> a business ordering — the caller reads a set — it exists so the response does not
+     * depend on the database's arbitrary row order.</p>
      */
     @Query("""
             SELECT a FROM EmployeeStoreAssignment a
-            JOIN FETCH a.companyStore
+            JOIN FETCH a.companyStore s
+            JOIN FETCH s.companyZone z
+            JOIN FETCH z.companyRegion r
+            JOIN FETCH r.companyCountry c
+            JOIN FETCH c.country
+            JOIN FETCH c.company
             WHERE a.employee.id = :employeeId
               AND a.enabled = true
               AND a.validFrom <= :date
               AND (a.validTo IS NULL OR a.validTo > :date)
+            ORDER BY a.validFrom DESC, a.id DESC
             """)
     List<EmployeeStoreAssignment> findEnabledAssignmentsCoveringDate(
             @Param("employeeId") UUID employeeId, @Param("date") LocalDate date);

@@ -29,6 +29,18 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID> {
     Optional<Employee> findByIdAndCompanyId(UUID id, UUID companyId);
 
     /**
+     * The employee row of the account that owns {@code keycloakUserId}, if any.
+     *
+     * <p>This is the <b>self-scoped</b> resolution the profile path needs: the caller can only ever
+     * reach their own employee row, because the value comes from the authenticated principal's own
+     * {@code sub} claim. That is why this finder carries <b>no</b> company scope, unlike every other
+     * method here: the company is not part of the question, and requiring it would make the profile
+     * read fail for a caller whose token carries no company claim. The column is {@code UNIQUE}, so
+     * the result is at most one row.</p>
+     */
+    Optional<Employee> findByKeycloakUserId(String keycloakUserId);
+
+    /**
      * Company-scoped list with optional {@code search}, {@code statusId} and {@code includeDisabled}
      * predicates, ordered deterministically by {@code employeeNumber}.
      *
