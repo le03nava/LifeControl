@@ -21,7 +21,7 @@ import {
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
-import { Observable, catchError, map, of, startWith, switchMap, tap } from 'rxjs';
+import { Observable, catchError, filter, map, of, startWith, switchMap, tap } from 'rxjs';
 import { ErrorBanner } from '@shared/ui';
 import { httpErrorMessage } from '@shared/data';
 import { CompanyCountry } from '@features/companies/countries/models/country.models';
@@ -145,22 +145,23 @@ export function datesInOrder(control: AbstractControl): ValidationErrors | null 
 }
 
 /**
- * Whether the optional store cascade (`D8`, `T21`) is either untouched or closed by a store.
+ * Whether the optional store cascade (`D8`, `T21`) is either untouched or completely walked.
  *
  * The store is **optional**, so an entirely empty cascade is a legal "no store in this act". But a
- * partly walked one — a country, a region or a zone chosen with no store — is a half-typed choice,
- * and dropping it silently is the dead-signal defect this unit refuses (`T21`): the form is invalid
- * and says so instead.
+ * partly walked one — a level chosen with the chain incomplete, whichever end is missing — is a
+ * half-typed choice, and dropping it silently is the dead-signal defect this unit refuses (`T21`):
+ * the form is invalid and says so instead. The check is **symmetric**: the cascade is valid *iff* it
+ * is completely empty **or** all four levels are set, so a store with no ancestors is refused
+ * exactly like an ancestor with no store.
  */
 export function storeCascadeComplete(control: AbstractControl): ValidationErrors | null {
   const country = control.get('companyCountryId')?.value as string | undefined;
   const region = control.get('regionId')?.value as string | undefined;
   const zone = control.get('zoneId')?.value as string | undefined;
   const store = control.get('companyStoreId')?.value as string | undefined;
-  if (store) {
-    return null;
-  }
-  return country || region || zone ? { storeRequired: true } : null;
+  const anyChosen = Boolean(country || region || zone || store);
+  const allChosen = Boolean(country && region && zone && store);
+  return anyChosen && !allChosen ? { storeRequired: true } : null;
 }
 
 /** Everything the dialog renders; it performs the catalog reads itself. */
@@ -674,23 +675,32 @@ export class ContractDialog {
    * Reads the regions of the chosen country.
    *
    * The country control holds the **company-country** join id, which is what the level below is
-   * addressed by. A stale response is dropped by `switchMap`, and a failed read leaves an empty list
-   * and names the failure instead of emptying the form.
+   * addressed by. A failed read leaves an empty list and names the failure instead of emptying the
+   * form. `switchMap` alone drops a stale response when the country changes, but the cascade's
+   * clear resets the chain with `emitEvent: false`, so it never reaches `switchMap` and cannot
+   * cancel a pending read: the guard below drops any response whose country is no longer the one the
+   * request was issued for.
    */
   private loadRegionsOnCountryChange(): void {
     this.createForm.controls.companyCountryId.valueChanges
       .pipe(
         tap(() => this.resetBelowCountry()),
-        switchMap((companyCountryId) =>
-          companyCountryId
+        switchMap((companyCountryId) => {
+          const request$ = companyCountryId
             ? this.regionService.getRegions(this.data.companyId, companyCountryId).pipe(
                 catchError(() => {
                   this.catalogueError.set(STORE_CATALOGUE_ERROR_MESSAGE);
                   return of([] as CompanyRegion[]);
                 }),
               )
-            : of([] as CompanyRegion[]),
+            : of([] as CompanyRegion[]);
+          return request$.pipe(map((regions) => ({ companyCountryId, regions })));
+        }),
+        filter(
+          ({ companyCountryId }) =>
+            this.createForm.controls.companyCountryId.value === companyCountryId,
         ),
+        map(({ regions }) => regions),
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe((regions) => this.regions.set(regions));
@@ -702,15 +712,26 @@ export class ContractDialog {
         tap(() => this.resetBelowRegion()),
         switchMap((regionId) => {
           const companyCountryId = this.createForm.controls.companyCountryId.value;
-          return regionId && companyCountryId
-            ? this.zoneService.getZones(this.data.companyId, companyCountryId, regionId).pipe(
-                catchError(() => {
-                  this.catalogueError.set(STORE_CATALOGUE_ERROR_MESSAGE);
-                  return of([] as CompanyZone[]);
-                }),
-              )
-            : of([] as CompanyZone[]);
+          const request$ =
+            regionId && companyCountryId
+              ? this.zoneService.getZones(this.data.companyId, companyCountryId, regionId).pipe(
+                  catchError(() => {
+                    this.catalogueError.set(STORE_CATALOGUE_ERROR_MESSAGE);
+                    return of([] as CompanyZone[]);
+                  }),
+                )
+              : of([] as CompanyZone[]);
+          return request$.pipe(map((zones) => ({ companyCountryId, regionId, zones })));
         }),
+        // Same guard as the regions read: the clear patches the chain with `emitEvent: false`, so a
+        // pending zones read survives it and must ignore a response whose parent chain no longer
+        // matches the one the request was issued for.
+        filter(
+          ({ companyCountryId, regionId }) =>
+            this.createForm.controls.companyCountryId.value === companyCountryId &&
+            this.createForm.controls.regionId.value === regionId,
+        ),
+        map(({ zones }) => zones),
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe((zones) => this.zones.set(zones));
@@ -723,17 +744,27 @@ export class ContractDialog {
         switchMap((zoneId) => {
           const companyCountryId = this.createForm.controls.companyCountryId.value;
           const regionId = this.createForm.controls.regionId.value;
-          return zoneId && companyCountryId && regionId
-            ? this.storeService
-                .getStores(this.data.companyId, companyCountryId, regionId, zoneId)
-                .pipe(
-                  catchError(() => {
-                    this.catalogueError.set(STORE_CATALOGUE_ERROR_MESSAGE);
-                    return of([] as CompanyStore[]);
-                  }),
-                )
-            : of([] as CompanyStore[]);
+          const request$ =
+            zoneId && companyCountryId && regionId
+              ? this.storeService
+                  .getStores(this.data.companyId, companyCountryId, regionId, zoneId)
+                  .pipe(
+                    catchError(() => {
+                      this.catalogueError.set(STORE_CATALOGUE_ERROR_MESSAGE);
+                      return of([] as CompanyStore[]);
+                    }),
+                  )
+              : of([] as CompanyStore[]);
+          return request$.pipe(map((stores) => ({ companyCountryId, regionId, zoneId, stores })));
         }),
+        // Same guard as the two reads above, against the whole parent chain a store needs.
+        filter(
+          ({ companyCountryId, regionId, zoneId }) =>
+            this.createForm.controls.companyCountryId.value === companyCountryId &&
+            this.createForm.controls.regionId.value === regionId &&
+            this.createForm.controls.zoneId.value === zoneId,
+        ),
+        map(({ stores }) => stores),
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe((stores) => this.stores.set(stores));

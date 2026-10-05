@@ -3,7 +3,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { MAT_DIALOG_DATA, MatDialogRef } from '@angular/material/dialog';
-import { of, throwError } from 'rxjs';
+import { Subject, of, throwError } from 'rxjs';
 import { CompanyCountry } from '@features/companies/countries/models/country.models';
 import { CompanyRegion } from '@features/companies/regions/models/region.models';
 import { CompanyZone } from '@features/companies/zones/models/zone.models';
@@ -885,6 +885,84 @@ describe('ContractDialog', () => {
       );
     });
 
+    it('drops an in-flight regions read when the country is cleared before it resolves (T21)', () => {
+      setup();
+      settle();
+      const pendingRegions = new Subject<CompanyRegion[]>();
+      regionService.getRegions.mockReturnValue(pendingRegions.asObservable());
+
+      component.createForm.controls.companyCountryId.setValue('company-country-1');
+      settle();
+      expect(has('.store-clear')).toBe(true);
+
+      const clear = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(
+        '.store-clear',
+      );
+      clear?.click();
+      settle();
+      expect(component.createForm.controls.companyCountryId.value).toBe('');
+
+      // The read the now-empty parent still owns resolves late; it must not repopulate the level the
+      // clear just emptied, or options would show for a level the form no longer walks.
+      pendingRegions.next([region]);
+      pendingRegions.complete();
+      settle();
+
+      expect(component.regions()).toEqual([]);
+    });
+
+    it('drops an in-flight zones read when its parent chain is cleared before it resolves (T21)', () => {
+      setup();
+      settle();
+      component.createForm.controls.companyCountryId.setValue('company-country-1');
+      settle();
+
+      const pendingZones = new Subject<CompanyZone[]>();
+      zoneService.getZones.mockReturnValue(pendingZones.asObservable());
+      component.createForm.controls.regionId.setValue('region-1');
+      settle();
+
+      const clear = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(
+        '.store-clear',
+      );
+      clear?.click();
+      settle();
+      expect(component.createForm.controls.regionId.value).toBe('');
+
+      pendingZones.next([zone]);
+      pendingZones.complete();
+      settle();
+
+      expect(component.zones()).toEqual([]);
+    });
+
+    it('drops an in-flight stores read when its parent chain is cleared before it resolves (T21)', () => {
+      setup();
+      settle();
+      component.createForm.controls.companyCountryId.setValue('company-country-1');
+      settle();
+      component.createForm.controls.regionId.setValue('region-1');
+      settle();
+
+      const pendingStores = new Subject<CompanyStore[]>();
+      storeService.getStores.mockReturnValue(pendingStores.asObservable());
+      component.createForm.controls.zoneId.setValue('zone-1');
+      settle();
+
+      const clear = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(
+        '.store-clear',
+      );
+      clear?.click();
+      settle();
+      expect(component.createForm.controls.zoneId.value).toBe('');
+
+      pendingStores.next([store]);
+      pendingStores.complete();
+      settle();
+
+      expect(component.stores()).toEqual([]);
+    });
+
     it('refuses a partly walked cascade as a form error (T21)', () => {
       setup();
       settle();
@@ -895,6 +973,24 @@ describe('ContractDialog', () => {
       expect(component.createForm.hasError('storeRequired')).toBe(true);
       expect(component.createForm.valid).toBe(false);
       expect(text()).toContain('Si elegís un nivel de la tienda');
+
+      component.onCreate();
+
+      expect(contractService.addContract).not.toHaveBeenCalled();
+      expect(assignmentService.createAssignment).not.toHaveBeenCalled();
+    });
+
+    it('refuses a store chosen without its ancestors as the same partly walked cascade (T21)', () => {
+      setup();
+      settle();
+      fillCreate();
+      // The other end of the same partial chain: a store with no country/region/zone. The form never
+      // showed a chain for it, so the payload must not carry the store (T21's "never a partial chain").
+      component.createForm.controls.companyStoreId.setValue('store-1');
+      settle();
+
+      expect(component.createForm.hasError('storeRequired')).toBe(true);
+      expect(component.createForm.valid).toBe(false);
 
       component.onCreate();
 
@@ -1004,6 +1100,33 @@ describe('ContractDialog', () => {
       settle();
       expect(has('.store-clear')).toBe(false);
     });
+
+    it('hides the clear control after the emitEvent:false reset empties the cascade', () => {
+      setup();
+      settle();
+      fillCreate();
+      chooseCascade();
+      settle();
+
+      expect(has('.store-clear')).toBe(true);
+
+      const clear = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(
+        '.store-clear',
+      );
+      clear?.click();
+      settle();
+
+      // This is exactly the path a valueChanges-derived signal would miss: the clear patches with
+      // emitEvent:false, so the live form value is empty while the signal would still hold the walk
+      // that was just undone. The control must be gone.
+      expect(component.createForm.getRawValue()).toMatchObject({
+        companyCountryId: '',
+        regionId: '',
+        zoneId: '',
+        companyStoreId: '',
+      });
+      expect(has('.store-clear')).toBe(false);
+    });
   });
 
   describe('the two-call activation act (T18, T20, D8, D9)', () => {
@@ -1020,7 +1143,7 @@ describe('ContractDialog', () => {
         order.push('assignment');
         return of(createdAssignment);
       });
-      component.createForm.controls.companyStoreId.setValue('store-1');
+      chooseCascade();
 
       component.onCreate();
 
@@ -1042,7 +1165,7 @@ describe('ContractDialog', () => {
       contractService.addContract.mockReturnValue(
         of(contract({ id: 'contract-new', startDate: '2026-07-01' })),
       );
-      component.createForm.controls.companyStoreId.setValue('store-1');
+      chooseCascade();
 
       component.onCreate();
 
@@ -1072,7 +1195,7 @@ describe('ContractDialog', () => {
       setup();
       settle();
       fillCreate();
-      component.createForm.controls.companyStoreId.setValue('store-1');
+      chooseCascade();
 
       component.onCreate();
 
@@ -1087,7 +1210,7 @@ describe('ContractDialog', () => {
       setup();
       settle();
       fillCreate();
-      component.createForm.controls.companyStoreId.setValue('store-1');
+      chooseCascade();
       contractService.addContract.mockReturnValue(
         throwError(
           () =>
@@ -1110,7 +1233,7 @@ describe('ContractDialog', () => {
       setup();
       settle();
       fillCreate();
-      component.createForm.controls.companyStoreId.setValue('store-1');
+      chooseCascade();
       assignmentService.createAssignment.mockReturnValue(
         throwError(
           () =>
@@ -1140,7 +1263,7 @@ describe('ContractDialog', () => {
       setup({ assignmentServiceError: 'Ya existe una asignación en esa tienda que se superpone' });
       settle();
       fillCreate();
-      component.createForm.controls.companyStoreId.setValue('store-1');
+      chooseCascade();
       assignmentService.createAssignment.mockReturnValue(
         throwError(() => new HttpErrorResponse({ status: 409 })),
       );
