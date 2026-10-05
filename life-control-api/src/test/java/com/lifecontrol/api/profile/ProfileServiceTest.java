@@ -359,6 +359,44 @@ class ProfileServiceTest {
         }
 
         @Test
+        @DisplayName("accepts an assigned store plus arbitrary ancestor ids, storing the ancestors verbatim (T22)")
+        void updateProfile_assignedStoreAndArbitraryAncestors_areStoredVerbatim() {
+            var assignedStoreId = UUID.randomUUID();
+            when(employeeRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(employeeRow()));
+            when(employeeStoreAssignmentService.getCurrentAssignmentsForEmployee(EMPLOYEE_ID))
+                    .thenReturn(List.of(assignedStoreResponse(assignedStoreId)));
+            var prefs = UserPreferences.builder().keycloakUserId(USER_ID).build();
+            when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
+            when(userPreferencesRepository.save(any(UserPreferences.class))).thenReturn(prefs);
+
+            // T22: only companyStoreId is constrained; the four cascade fields stay free-form, so a
+            // valid store with arbitrary ancestors is accepted exactly as supplied.
+            var request = new ProfileUpdateRequest(
+                    null,
+                    null,
+                    null,
+                    UUID.randomUUID(),
+                    UUID.randomUUID(),
+                    UUID.randomUUID(),
+                    UUID.randomUUID(),
+                    assignedStoreId);
+            var result = profileService.updateProfile(request);
+
+            assertThat(result.companyStoreId()).isEqualTo(assignedStoreId);
+            assertThat(result.companyCountryId()).isEqualTo(request.companyCountryId());
+            assertThat(result.companyId()).isEqualTo(request.companyId());
+            assertThat(result.companyRegionId()).isEqualTo(request.companyRegionId());
+            assertThat(result.companyZoneId()).isEqualTo(request.companyZoneId());
+
+            // Stored verbatim: the four ancestors reach the column untouched (T22).
+            assertThat(prefs.getCompanyStoreId()).isEqualTo(assignedStoreId);
+            assertThat(prefs.getCompanyCountryId()).isEqualTo(request.companyCountryId());
+            assertThat(prefs.getCompanyId()).isEqualTo(request.companyId());
+            assertThat(prefs.getCompanyRegionId()).isEqualTo(request.companyRegionId());
+            assertThat(prefs.getCompanyZoneId()).isEqualTo(request.companyZoneId());
+        }
+
+        @Test
         @DisplayName("accepts any companyStoreId when the caller has no employee row (D11)")
         void updateProfile_noEmployeeRow_acceptsAnyStore() {
             var storeId = UUID.randomUUID();
@@ -494,6 +532,67 @@ class ProfileServiceTest {
             assertThat(assignedStore.companyRegionName()).isEqualTo("North");
             assertThat(assignedStore.companyZoneId()).isEqualTo(zoneId);
             assertThat(assignedStore.companyZoneName()).isEqualTo("Zone 1");
+        }
+
+        @Test
+        @DisplayName("GET with an existing preferences row writes nothing (D10)")
+        void getProfile_existingRow_writesNothing() {
+            var assignedStoreId = UUID.randomUUID();
+            when(employeeRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(employeeRow()));
+            when(employeeStoreAssignmentService.getCurrentAssignmentsForEmployee(EMPLOYEE_ID))
+                    .thenReturn(List.of(assignedStoreResponse(assignedStoreId)));
+            var prefs = UserPreferences.builder()
+                    .keycloakUserId(USER_ID)
+                    .companyStoreId(assignedStoreId)
+                    .build();
+            when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
+
+            var result = profileService.getProfile();
+
+            assertThat(result.companyStoreId()).isEqualTo(assignedStoreId);
+            verify(userPreferencesRepository, never()).save(any(UserPreferences.class));
+        }
+
+        @Test
+        @DisplayName("GET writes nothing even when the stored store resolves to null (D10)")
+        void getProfile_storedStoreResolvedToNull_writesNothing() {
+            var staleStoreId = UUID.randomUUID();
+            when(employeeRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(employeeRow()));
+            when(employeeStoreAssignmentService.getCurrentAssignmentsForEmployee(EMPLOYEE_ID))
+                    .thenReturn(List.of());
+            var prefs = UserPreferences.builder()
+                    .keycloakUserId(USER_ID)
+                    .companyStoreId(staleStoreId)
+                    .build();
+            when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
+
+            var result = profileService.getProfile();
+
+            assertThat(result.companyStoreId()).isNull();
+            // The stale value stays in the column: the read resolves it, it does not repair it.
+            assertThat(prefs.getCompanyStoreId()).isEqualTo(staleStoreId);
+            verify(userPreferencesRepository, never()).save(any(UserPreferences.class));
+        }
+
+        @Test
+        @DisplayName("GET for an employee with a row and zero assignments returns an empty list, not null (D11)")
+        void getProfile_employeeWithRowAndNoAssignments_returnsEmptyAssignedStores() {
+            var staleStoreId = UUID.randomUUID();
+            when(employeeRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(employeeRow()));
+            when(employeeStoreAssignmentService.getCurrentAssignmentsForEmployee(EMPLOYEE_ID))
+                    .thenReturn(List.of());
+            var prefs = UserPreferences.builder()
+                    .keycloakUserId(USER_ID)
+                    .companyStoreId(staleStoreId)
+                    .build();
+            when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
+
+            var result = profileService.getProfile();
+
+            // Constrained to exactly none: distinct from D11's null, which means unconstrained, and
+            // the stored column does not leak into the resolved value.
+            assertThat(result.assignedStores()).isNotNull().isEmpty();
+            assertThat(result.companyStoreId()).isNull();
         }
     }
 }

@@ -185,8 +185,10 @@ public class EmployeeStoreAssignmentService {
      *
      * <p>It reuses the derivation's own covering-date finder and T14's mapper, so the preference and
      * the token can never disagree about which stores are current (T27: the assignment row covering
-     * today, <b>not</b> the store's {@code enabled} flag), and the finder's ordering is preserved as
-     * returned.</p>
+     * today, <b>not</b> the store's {@code enabled} flag). The finder returns the rows in a
+     * deterministic order — newest first, {@code validFrom DESC} with {@code id DESC} as the
+     * tie-breaker — and that order is preserved as returned; it is <b>not</b> a business ordering of
+     * the assigned set.</p>
      */
     @Transactional(readOnly = true)
     public List<StoreAssignmentResponse> getCurrentAssignmentsForEmployee(UUID employeeId) {

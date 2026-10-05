@@ -134,6 +134,21 @@ class ProfileControllerTest {
         }
 
         @Test
+        @DisplayName("should serialize an empty assignedStores as [] (constrained to none, D11)")
+        void shouldSerializeEmptyAssignedStores() throws Exception {
+            var response = new ProfileResponse(
+                    USER_ID, USERNAME, EMAIL, FIRST_NAME, LAST_NAME, null, null, null, null, null, List.of());
+
+            when(profileService.getProfile()).thenReturn(response);
+
+            mockMvc.perform(get("/api/profile"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.assignedStores").isArray())
+                    .andExpect(jsonPath("$.assignedStores").isEmpty())
+                    .andExpect(jsonPath("$.companyStoreId").value(nullValue()));
+        }
+
+        @Test
         @DisplayName("should return 503 when Keycloak is unreachable")
         void shouldReturn503WhenKeycloakUnreachable() throws Exception {
             when(profileService.getProfile())
