@@ -103,6 +103,10 @@
       @if (assignmentActionError(); as assignmentActionErr) {
         <app-error-banner [message]="assignmentActionErr" />
       }
+      <!-- The partial activation outcome (D9): the contract was created and the store was not. -->
+      @if (partialAssignmentError(); as partialErr) {
+        <app-error-banner [message]="partialErr" />
+      }
       <!--
         The section renders its own loading, error/retry and empty states; the page owns the read,
         the dialogs and the reload. Both write actions are gated on EMPLOYEE_WRITE_ROLES (T17).

@@ -99,6 +99,79 @@
       @if (createForm.hasError('endBeforeStart')) {
         <p class="form-error">La fecha de fin no puede ser anterior a la fecha de inicio.</p>
       }
+
+      <!--
+        The optional store picker (D8, T19): the same country → region → zone → store cascade the
+        W3a assign dialog walks, composed here from the four per-level services. It is deliberately
+        not required — an empty picker is today's contract-only act.
+      -->
+      <fieldset class="store-fieldset">
+        <legend class="store-legend">Tienda (opcional)</legend>
+        <p class="store-hint">
+          Si elegís una tienda, este mismo guardado crea también la asignación, vigente desde la
+          fecha de inicio del contrato. Sin tienda, solo se crea el contrato.
+        </p>
+
+        <!--
+          The way back to the legal empty cascade (D8, T21): a Material select is not clearable, so
+          this clears all four levels through the same reset a level change runs. It is shown only
+          while at least one level is set, because an empty cascade has nothing to clear.
+        -->
+        @if (hasStoreCascadeSelection()) {
+          <button
+            mat-button
+            type="button"
+            class="store-clear"
+            [disabled]="saving()"
+            (click)="clearStoreCascade()"
+          >
+            Quitar tienda
+          </button>
+        }
+
+        <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+          <mat-label>País</mat-label>
+          <mat-select formControlName="companyCountryId">
+            @for (country of countries(); track country.id) {
+              <mat-option [value]="country.id">{{ country.countryName }}</mat-option>
+            }
+          </mat-select>
+        </mat-form-field>
+
+        <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+          <mat-label>Región</mat-label>
+          <mat-select formControlName="regionId">
+            @for (region of regions(); track region.id) {
+              <mat-option [value]="region.id">{{ region.regionName }}</mat-option>
+            }
+          </mat-select>
+        </mat-form-field>
+
+        <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+          <mat-label>Zona</mat-label>
+          <mat-select formControlName="zoneId">
+            @for (zone of zones(); track zone.id) {
+              <mat-option [value]="zone.id">{{ zone.zoneName }}</mat-option>
+            }
+          </mat-select>
+        </mat-form-field>
+
+        <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+          <mat-label>Tienda</mat-label>
+          <mat-select formControlName="companyStoreId">
+            @for (store of stores(); track store.id) {
+              <mat-option [value]="store.id">{{ store.storeName }}</mat-option>
+            }
+          </mat-select>
+        </mat-form-field>
+      </fieldset>
+
+      <!-- T21: a partly walked cascade is a form error, never a silent drop. -->
+      @if (createForm.hasError('storeRequired')) {
+        <p class="form-error">
+          Si elegís un nivel de la tienda, tenés que elegir la tienda (o dejar todo vacío).
+        </p>
+      }
     </mat-dialog-content>
 
     <mat-dialog-actions align="end">

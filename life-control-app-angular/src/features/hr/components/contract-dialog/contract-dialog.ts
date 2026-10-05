@@ -21,10 +21,19 @@ import {
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
-import { catchError, map, of, startWith, switchMap } from 'rxjs';
+import { Observable, catchError, filter, map, of, startWith, switchMap, tap } from 'rxjs';
 import { ErrorBanner } from '@shared/ui';
 import { httpErrorMessage } from '@shared/data';
+import { CompanyCountry } from '@features/companies/countries/models/country.models';
+import { CompanyRegion } from '@features/companies/regions/models/region.models';
+import { CompanyZone } from '@features/companies/zones/models/zone.models';
+import { CompanyStore } from '@features/companies/stores/models/store.models';
+import { CompanyCountryService } from '@features/companies/countries/data/company-country.service';
+import { CompanyRegionService } from '@features/companies/regions/data/company-region.service';
+import { CompanyZoneService } from '@features/companies/zones/data/company-zone.service';
+import { CompanyStoreService } from '@features/companies/stores/data/company-store.service';
 import { ContractService } from '../../data/contract.service';
+import { StoreAssignmentService } from '../../data/store-assignment.service';
 import {
   Contract,
   ContractRequest,
@@ -34,6 +43,7 @@ import {
   SeniorityLevel,
   contractTypeLabel,
 } from '../../models/contract.models';
+import { StoreAssignment } from '../../models/store-assignment.models';
 import { Employee } from '../../models/employee.models';
 import { isContractCurrent } from '../contract-history/contract-history';
 
@@ -48,6 +58,16 @@ export const CONTRACT_TYPES: readonly ContractType[] = [
 
 const CATALOGUE_ERROR_MESSAGE =
   'No se pudieron cargar los puestos o los niveles. Cerrá el diálogo y volvé a abrirlo.';
+
+/**
+ * A failed store-cascade read (`T19`).
+ *
+ * It funnels into the very same `catalogueError` signal and banner the position and seniority-level
+ * reads already use, because the dialog has one catalogue failure surface and a second banner would
+ * only say the same thing twice.
+ */
+const STORE_CATALOGUE_ERROR_MESSAGE =
+  'No se pudieron cargar los niveles de la tienda. Cerrá el diálogo y volvé a abrirlo.';
 
 /** `YYYY-MM-DD`, the wire shape of every date this dialog handles. */
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -124,6 +144,26 @@ export function datesInOrder(control: AbstractControl): ValidationErrors | null 
   return endDate < startDate ? { endBeforeStart: true } : null;
 }
 
+/**
+ * Whether the optional store cascade (`D8`, `T21`) is either untouched or completely walked.
+ *
+ * The store is **optional**, so an entirely empty cascade is a legal "no store in this act". But a
+ * partly walked one — a level chosen with the chain incomplete, whichever end is missing — is a
+ * half-typed choice, and dropping it silently is the dead-signal defect this unit refuses (`T21`):
+ * the form is invalid and says so instead. The check is **symmetric**: the cascade is valid *iff* it
+ * is completely empty **or** all four levels are set, so a store with no ancestors is refused
+ * exactly like an ancestor with no store.
+ */
+export function storeCascadeComplete(control: AbstractControl): ValidationErrors | null {
+  const country = control.get('companyCountryId')?.value as string | undefined;
+  const region = control.get('regionId')?.value as string | undefined;
+  const zone = control.get('zoneId')?.value as string | undefined;
+  const store = control.get('companyStoreId')?.value as string | undefined;
+  const anyChosen = Boolean(country || region || zone || store);
+  const allChosen = Boolean(country && region && zone && store);
+  return anyChosen && !allChosen ? { storeRequired: true } : null;
+}
+
 /** Everything the dialog renders; it performs the catalog reads itself. */
 export interface ContractDialogData {
   /** `create` opens a new contract; `close` ends the employee's current one. */
@@ -141,11 +181,37 @@ export interface ContractDialogData {
  * the history on either; `null` means closed without a write (cancel or a bare
  * Material dismissal). A failure keeps the dialog open and is reported in its own
  * banner, so it never reaches the page as a result.
+ *
+ * The `created` arm is **widened** by the activation act (`D8`/`D9`): when no store was chosen it
+ * carries exactly what it always did — the contract and nothing else — while a chosen store adds
+ * **one** of two further facts, never both: the `assignment` that was written, or the
+ * `assignmentError` its failed write produced. The contract is created either way (`D9`), so a
+ * missing assignment is a reported outcome and not a hidden failure. The `outcome` values are
+ * untouched, so every existing consumer keeps reading the same union.
  */
 export type ContractDialogResult =
-  | { readonly outcome: 'created'; readonly contract: Contract }
+  | {
+      readonly outcome: 'created';
+      readonly contract: Contract;
+      /** The assignment the same act created (`D8`); absent when the picker was left empty. */
+      readonly assignment?: StoreAssignment;
+      /** Why the assignment could not be created; the contract still stands (`D9`). */
+      readonly assignmentError?: string;
+    }
   | { readonly outcome: 'closed'; readonly contract: Contract }
   | null;
+
+/**
+ * The two facts one activation act resolves to (`D9`).
+ *
+ * `assignment` and `assignmentError` are mutually exclusive, and `null` in both means the act was
+ * the pre-existing contract-only creation (`D8`): the picker was never walked.
+ */
+interface ActivationOutcome {
+  readonly contract: Contract;
+  readonly assignment: StoreAssignment | null;
+  readonly assignmentError: string | null;
+}
 
 /**
  * Contract write surface of the employee detail page, opened by the page through
@@ -204,6 +270,11 @@ export class ContractDialog {
     inject<MatDialogRef<ContractDialog, ContractDialogResult>>(MatDialogRef);
   private readonly fb = inject(NonNullableFormBuilder);
   private readonly contractService = inject(ContractService);
+  private readonly storeAssignmentService = inject(StoreAssignmentService);
+  private readonly countryService = inject(CompanyCountryService);
+  private readonly regionService = inject(CompanyRegionService);
+  private readonly zoneService = inject(CompanyZoneService);
+  private readonly storeService = inject(CompanyStoreService);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly data = inject<ContractDialogData>(MAT_DIALOG_DATA);
@@ -223,9 +294,14 @@ export class ContractDialog {
   );
 
   /**
-   * The create form. It mirrors the server's required fields and the
-   * `endDate >= startDate` rule; it carries **no** local mirror of `T13`, because the
-   * predecessor the server closes is chosen from rows this form never loads.
+   * The create form. It mirrors the server's required fields, the
+   * `endDate >= startDate` rule and the optional store cascade's own completeness (`T21`); it
+   * carries **no** local mirror of `T13`, because the predecessor the server closes is chosen from
+   * rows this form never loads.
+   *
+   * The four store controls (`T19`) are deliberately **not required**: an empty cascade is the
+   * pre-existing contract-only act (`D8`), and only a partly walked one is refused by
+   * {@link storeCascadeComplete}.
    */
   readonly createForm = this.fb.group(
     {
@@ -235,8 +311,12 @@ export class ContractDialog {
       monthlySalary: this.fb.control<number | null>(null, [Validators.required, Validators.min(0)]),
       startDate: ['', Validators.required],
       endDate: [''],
+      companyCountryId: [''],
+      regionId: [''],
+      zoneId: [''],
+      companyStoreId: [''],
     },
-    { validators: datesInOrder },
+    { validators: [datesInOrder, storeCascadeComplete] },
   );
 
   private readonly positionId = toSignal(this.createForm.controls.positionId.valueChanges, {
@@ -259,6 +339,12 @@ export class ContractDialog {
   readonly seniorityLevels = signal<SeniorityLevel[]>([]);
   /** A failed catalogue read; the form stays usable but names the failure. */
   readonly catalogueError = signal<string | null>(null);
+
+  /** The company's countries; empty until the read resolves. */
+  readonly countries = signal<CompanyCountry[]>([]);
+  readonly regions = signal<CompanyRegion[]>([]);
+  readonly zones = signal<CompanyZone[]>([]);
+  readonly stores = signal<CompanyStore[]>([]);
 
   /** The salary bands of the last chosen position; empty while none is chosen. */
   private readonly bands = signal<PositionSalaryBand[]>([]);
@@ -369,10 +455,32 @@ export class ContractDialog {
     if (this.data.mode === 'create') {
       this.loadCatalogues();
       this.loadBandsOnPositionChange();
+      // The optional store picker (`T19`): countries once, then one level per choice, exactly as
+      // the W3a assign dialog walks the same tree.
+      this.loadCountries();
+      this.loadRegionsOnCountryChange();
+      this.loadZonesOnRegionChange();
+      this.loadStoresOnZoneChange();
     }
   }
 
-  /** Issues the create write with the six fields of `ContractRequest`. */
+  /**
+   * Issues the create write with the six fields of `ContractRequest`, and — when a store was chosen
+   * — the assignment that the same act asserts (`D8`).
+   *
+   * The order is fixed (`T18`): the contract first, the assignment second, never the reverse, so an
+   * assignment can never exist without an employment record behind it. A contract failure keeps the
+   * dialog open with its own banner and **never** reaches the assignment call; an assignment failure
+   * still closes the dialog, carrying the created contract **and** the failure as two separate facts
+   * (`D9`), because no rollback is expressible — assignments have no `PUT`/`DELETE` and a contract has
+   * none either — so the act reports instead of compensating, and the page's `Tiendas asignadas`
+   * section is the retry path.
+   *
+   * The assignment's `validFrom` is the created contract's `startDate`, verbatim (`T20`): one act,
+   * one date, one control. The empty picker resolves to an {@link ActivationOutcome} with no
+   * assignment and no error, which closes the dialog with exactly the result object it always closed
+   * with.
+   */
   onCreate(): void {
     if (this.savingState()) {
       return;
@@ -390,15 +498,27 @@ export class ContractDialog {
       startDate: value.startDate,
       endDate: value.endDate ? value.endDate : null,
     };
+    const companyStoreId = value.companyStoreId;
 
     this.actionError.set(null);
     this.savingState.set(true);
     this.contractService
       .addContract(this.data.companyId, this.data.employee.id, request)
-      .pipe(takeUntilDestroyed(this.destroyRef))
+      .pipe(
+        switchMap((contract) => this.activationOutcome(contract, companyStoreId)),
+        takeUntilDestroyed(this.destroyRef),
+      )
       .subscribe({
-        next: (contract) => {
+        next: ({ contract, assignment, assignmentError }) => {
           this.savingState.set(false);
+          if (assignmentError !== null) {
+            this.dialogRef.close({ outcome: 'created', contract, assignmentError });
+            return;
+          }
+          if (assignment) {
+            this.dialogRef.close({ outcome: 'created', contract, assignment });
+            return;
+          }
           this.dialogRef.close({ outcome: 'created', contract });
         },
         error: (err: HttpErrorResponse) => {
@@ -406,6 +526,38 @@ export class ContractDialog {
           this.actionError.set(this.serverMessage(err));
         },
       });
+  }
+
+  /**
+   * The second half of the act (`T18`): the assignment of a chosen store, or the pre-existing
+   * contract-only outcome when the picker was left empty.
+   *
+   * The assignment's failure is caught **here** and resolved, so it can never travel back up the
+   * chain as the outer error: the contract is already written and the dialog must close declaring it
+   * (`D9`). Only an `addContract` failure reaches the outer `error`.
+   */
+  private activationOutcome(
+    contract: Contract,
+    companyStoreId: string,
+  ): Observable<ActivationOutcome> {
+    if (!companyStoreId) {
+      return of({ contract, assignment: null, assignmentError: null });
+    }
+    return this.storeAssignmentService
+      .createAssignment(this.data.companyId, this.data.employee.id, {
+        companyStoreId,
+        validFrom: contract.startDate,
+      })
+      .pipe(
+        map((assignment): ActivationOutcome => ({ contract, assignment, assignmentError: null })),
+        catchError((err: HttpErrorResponse) =>
+          of<ActivationOutcome>({
+            contract,
+            assignment: null,
+            assignmentError: this.serverMessage(err, this.storeAssignmentService.error()),
+          }),
+        ),
+      );
   }
 
   /**
@@ -494,12 +646,181 @@ export class ContractDialog {
   }
 
   /**
-   * The server's own message when the failure carried the API envelope, and the
-   * shared copy otherwise. The server is the final authority on why it rejected a
-   * write, so its message is surfaced instead of a generic one.
+   * The server's own message when the failure carried the API envelope, the caller's mapped message
+   * when the service already resolved one (the assignment case), and the shared copy otherwise. The
+   * server is the final authority on why it rejected a write, so its message is surfaced instead of a
+   * generic one.
    */
-  private serverMessage(error: HttpErrorResponse): string {
+  private serverMessage(error: HttpErrorResponse, serviceMessage: string | null = null): string {
     const message = (error.error as { message?: unknown } | undefined)?.message;
-    return typeof message === 'string' && message.trim() !== '' ? message : httpErrorMessage(error);
+    if (typeof message === 'string' && message.trim() !== '') {
+      return message;
+    }
+    return serviceMessage ?? httpErrorMessage(error);
+  }
+
+  // --- The optional store cascade (T19) ------------------------------------
+
+  private loadCountries(): void {
+    this.countryService
+      .getCountries(this.data.companyId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (countries) => this.countries.set(countries),
+        error: () => this.catalogueError.set(STORE_CATALOGUE_ERROR_MESSAGE),
+      });
+  }
+
+  /**
+   * Reads the regions of the chosen country.
+   *
+   * The country control holds the **company-country** join id, which is what the level below is
+   * addressed by. A failed read leaves an empty list and names the failure instead of emptying the
+   * form. `switchMap` alone drops a stale response when the country changes, but the cascade's
+   * clear resets the chain with `emitEvent: false`, so it never reaches `switchMap` and cannot
+   * cancel a pending read: the guard below drops any response whose country is no longer the one the
+   * request was issued for.
+   */
+  private loadRegionsOnCountryChange(): void {
+    this.createForm.controls.companyCountryId.valueChanges
+      .pipe(
+        tap(() => this.resetBelowCountry()),
+        switchMap((companyCountryId) => {
+          const request$ = companyCountryId
+            ? this.regionService.getRegions(this.data.companyId, companyCountryId).pipe(
+                catchError(() => {
+                  this.catalogueError.set(STORE_CATALOGUE_ERROR_MESSAGE);
+                  return of([] as CompanyRegion[]);
+                }),
+              )
+            : of([] as CompanyRegion[]);
+          return request$.pipe(map((regions) => ({ companyCountryId, regions })));
+        }),
+        filter(
+          ({ companyCountryId }) =>
+            this.createForm.controls.companyCountryId.value === companyCountryId,
+        ),
+        map(({ regions }) => regions),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((regions) => this.regions.set(regions));
+  }
+
+  private loadZonesOnRegionChange(): void {
+    this.createForm.controls.regionId.valueChanges
+      .pipe(
+        tap(() => this.resetBelowRegion()),
+        switchMap((regionId) => {
+          const companyCountryId = this.createForm.controls.companyCountryId.value;
+          const request$ =
+            regionId && companyCountryId
+              ? this.zoneService.getZones(this.data.companyId, companyCountryId, regionId).pipe(
+                  catchError(() => {
+                    this.catalogueError.set(STORE_CATALOGUE_ERROR_MESSAGE);
+                    return of([] as CompanyZone[]);
+                  }),
+                )
+              : of([] as CompanyZone[]);
+          return request$.pipe(map((zones) => ({ companyCountryId, regionId, zones })));
+        }),
+        // Same guard as the regions read: the clear patches the chain with `emitEvent: false`, so a
+        // pending zones read survives it and must ignore a response whose parent chain no longer
+        // matches the one the request was issued for.
+        filter(
+          ({ companyCountryId, regionId }) =>
+            this.createForm.controls.companyCountryId.value === companyCountryId &&
+            this.createForm.controls.regionId.value === regionId,
+        ),
+        map(({ zones }) => zones),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((zones) => this.zones.set(zones));
+  }
+
+  private loadStoresOnZoneChange(): void {
+    this.createForm.controls.zoneId.valueChanges
+      .pipe(
+        tap(() => this.resetBelowZone()),
+        switchMap((zoneId) => {
+          const companyCountryId = this.createForm.controls.companyCountryId.value;
+          const regionId = this.createForm.controls.regionId.value;
+          const request$ =
+            zoneId && companyCountryId && regionId
+              ? this.storeService
+                  .getStores(this.data.companyId, companyCountryId, regionId, zoneId)
+                  .pipe(
+                    catchError(() => {
+                      this.catalogueError.set(STORE_CATALOGUE_ERROR_MESSAGE);
+                      return of([] as CompanyStore[]);
+                    }),
+                  )
+              : of([] as CompanyStore[]);
+          return request$.pipe(map((stores) => ({ companyCountryId, regionId, zoneId, stores })));
+        }),
+        // Same guard as the two reads above, against the whole parent chain a store needs.
+        filter(
+          ({ companyCountryId, regionId, zoneId }) =>
+            this.createForm.controls.companyCountryId.value === companyCountryId &&
+            this.createForm.controls.regionId.value === regionId &&
+            this.createForm.controls.zoneId.value === zoneId,
+        ),
+        map(({ stores }) => stores),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((stores) => this.stores.set(stores));
+  }
+
+  /**
+   * Clears every level below the country.
+   *
+   * The controls are patched with `emitEvent: false` so the reset does not itself trigger the
+   * cascade: the levels below are cleared here in one place, and the store is cleared with them so a
+   * payload can never mix a store with a parent it does not belong to.
+   */
+  private resetBelowCountry(): void {
+    this.createForm.patchValue(
+      { regionId: '', zoneId: '', companyStoreId: '' },
+      { emitEvent: false },
+    );
+    this.regions.set([]);
+    this.zones.set([]);
+    this.stores.set([]);
+  }
+
+  private resetBelowRegion(): void {
+    this.createForm.patchValue({ zoneId: '', companyStoreId: '' }, { emitEvent: false });
+    this.zones.set([]);
+    this.stores.set([]);
+  }
+
+  private resetBelowZone(): void {
+    this.createForm.patchValue({ companyStoreId: '' }, { emitEvent: false });
+    this.stores.set([]);
+  }
+
+  /**
+   * Whether any level of the optional store cascade is set, so the clear control is actionable.
+   *
+   * The resets patch the controls with `emitEvent: false` (so they do not re-enter the cascade), so
+   * this reads the live form value instead of a `valueChanges` signal that a reset would leave stale.
+   */
+  hasStoreCascadeSelection(): boolean {
+    const value = this.createForm.getRawValue();
+    return Boolean(value.companyCountryId || value.regionId || value.zoneId || value.companyStoreId);
+  }
+
+  /**
+   * Returns the optional store cascade to completely empty (`D8`, `T21`).
+   *
+   * A Material select is not clearable, so without this the only way back from a partly walked
+   * cascade to the legal empty one would be to close and reopen the dialog. It clears the country and
+   * then runs {@link resetBelowCountry} — the very reset a country change runs — so region, zone and
+   * store empty through one mechanism, land on the valid empty state (`D8`) and never on a partly
+   * walked one (`T21`). `emitEvent: false` keeps the clear from re-reading the catalogues on its way
+   * to empty, and nothing here submits.
+   */
+  clearStoreCascade(): void {
+    this.createForm.patchValue({ companyCountryId: '' }, { emitEvent: false });
+    this.resetBelowCountry();
   }
 }

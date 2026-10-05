@@ -555,6 +555,98 @@ describe('EmployeeDetail', () => {
     expect(contractService.getContracts).toHaveBeenCalledTimes(1);
   });
 
+  it('should tell the truth when the contract was created but the store assignment failed (D9)', async () => {
+    setup({
+      id: 'emp-1',
+      companyId: 'company-1',
+      roles: WRITE_ROLES,
+      dialogResult: {
+        outcome: 'created',
+        contract: contract({ id: 'contract-new' }),
+        assignmentError: 'Ya existe una asignación en esa tienda que se superpone',
+      },
+    });
+    await settle();
+    expect(contractService.getContracts).toHaveBeenCalledTimes(1);
+    expect(assignmentService.getAssignments).toHaveBeenCalledTimes(1);
+
+    component.onNewContract();
+    await settle();
+
+    expect(contractService.getContracts).toHaveBeenCalledTimes(2);
+    expect(assignmentService.getAssignments).toHaveBeenCalledTimes(2);
+    expect(text()).toContain('El contrato quedó creado');
+    expect(text()).toContain('Ya existe una asignación en esa tienda que se superpone');
+  });
+
+  it('should reload both sections when the act created the contract and the assignment (D8)', async () => {
+    setup({
+      id: 'emp-1',
+      companyId: 'company-1',
+      roles: WRITE_ROLES,
+      dialogResult: {
+        outcome: 'created',
+        contract: contract({ id: 'contract-new' }),
+        assignment: assignment({ id: 'assignment-new' }),
+      },
+    });
+    await settle();
+    expect(contractService.getContracts).toHaveBeenCalledTimes(1);
+    expect(assignmentService.getAssignments).toHaveBeenCalledTimes(1);
+
+    component.onNewContract();
+    await settle();
+
+    expect(contractService.getContracts).toHaveBeenCalledTimes(2);
+    expect(assignmentService.getAssignments).toHaveBeenCalledTimes(2);
+    expect(text()).not.toContain('El contrato quedó creado');
+  });
+
+  it('should reload only the contracts when the picker was empty and no assignment was in the act (D8)', async () => {
+    setup({
+      id: 'emp-1',
+      companyId: 'company-1',
+      roles: WRITE_ROLES,
+      dialogResult: { outcome: 'created', contract: contract({ id: 'contract-new' }) },
+    });
+    await settle();
+    expect(assignmentService.getAssignments).toHaveBeenCalledTimes(1);
+
+    component.onNewContract();
+    await settle();
+
+    expect(contractService.getContracts).toHaveBeenCalledTimes(2);
+    expect(assignmentService.getAssignments).toHaveBeenCalledTimes(1);
+    expect(text()).not.toContain('El contrato quedó creado');
+  });
+
+  it('should clear the partial message once the W3a retry assigns the store', async () => {
+    setup({
+      id: 'emp-1',
+      companyId: 'company-1',
+      roles: WRITE_ROLES,
+      dialogResult: {
+        outcome: 'created',
+        contract: contract({ id: 'contract-new' }),
+        assignmentError: 'Ya existe una asignación en esa tienda que se superpone',
+      },
+    });
+    await settle();
+    component.onNewContract();
+    await settle();
+    expect(text()).toContain('El contrato quedó creado');
+
+    // The retry path D9 names: the assign dialog of the `Tiendas asignadas` section.
+    assignmentService.getAssignments.mockImplementation(() => of([assignment()]));
+    dialog.open.mockImplementation((opened: unknown) => ({
+      afterClosed: () => of(opened === ConfirmDialog ? false : { outcome: 'created' }),
+    }));
+    component.onAssign();
+    await settle();
+
+    expect(text()).not.toContain('El contrato quedó creado');
+  });
+
   it('should reveal "Cerrar contrato vigente" only with a current contract', async () => {
     setup({
       id: 'emp-1',

@@ -39,6 +39,33 @@
   font-size: 0.8125rem;
 }
 
+// The optional store picker (D8): grouped so the operator reads it as one optional choice, not as
+// four more required fields of the contract.
+.store-fieldset {
+  margin: 0 0 var(--space-sm, 0.5rem);
+  padding: var(--space-sm, 0.5rem) var(--space-md, 1rem) 0;
+  border: 1px solid var(--mat-sys-outline-variant, #e0e0e0);
+  border-radius: var(--radius-md, 0.5rem);
+}
+
+.store-legend {
+  padding: 0 var(--space-xs, 0.25rem);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.store-hint {
+  margin: 0 0 var(--space-sm, 0.5rem);
+  color: var(--mat-sys-on-surface-variant, #4b5563);
+  font-size: 0.8125rem;
+}
+
+// The way back to the empty cascade (D8, T21): a compact text action, not a full-width field.
+.store-clear {
+  display: block;
+  margin: 0 0 var(--space-sm, 0.5rem);
+}
+
 // Mirrors of the server's cross-field rules, rendered beside the fields they concern.
 .form-error {
   margin: 0 0 var(--space-sm, 0.5rem);

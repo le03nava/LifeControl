@@ -73,8 +73,10 @@ import { EMPLOYEE_WRITE_ROLES, hasAnyClientRole } from '@core/security/roles';
  * contrato"** opens the create mode of {@link ContractDialog}, and **"Cerrar
  * contrato vigente"** is offered only while the employee actually has a current
  * contract (`isContractCurrent`) and opens the dialog's close mode. The page does
- * not write: it opens the dialog (`D71`) and reloads **only** the contracts read on
- * a real outcome, which is the read the header's "Puesto actual" also derives from.
+ * not write: it opens the dialog (`D71`) and reloads the contracts read on a real outcome, which is
+ * the read the header's "Puesto actual" also derives from. A **create** act can also carry a store
+ * assignment (`D8`), so it reloads the assignments read too and reports a failed second call as the
+ * partial outcome it is (`D9`) instead of hiding it.
  *
  * The store-assignment surface follows the same shape: {@link StoreAssignmentsSection} renders the
  * history with its derived chain and emits three intents, the page opens {@link StoreAssignmentDialog}
@@ -215,9 +217,21 @@ export class EmployeeDetail {
    * A failed close write, as the service mapped it.
    *
    * A failed **assign** never reaches the page: the dialog stays open and reports it in its own
-   * banner, so this is only ever the close route's message.
+   * banner, so this is only ever the close route's message. A failed assignment inside the contract
+   * activation act is a different fact and gets its own signal below.
    */
   readonly assignmentActionError = signal<string | null>(null);
+
+  /**
+   * The partial outcome of the contract activation act (`D9`): the contract was created and the
+   * store was not assigned.
+   *
+   * Named as two facts, because that is what happened — a banner implying nothing was saved would be
+   * false. The assign dialog of the `Tiendas asignadas` section is the retry path, so the message
+   * points there; it clears once that retry succeeds (`onAssign`) or when a later activation act
+   * starts from a clean slate.
+   */
+  readonly partialAssignmentError = signal<string | null>(null);
 
   /**
    * A 404 is its own state: the employee does not exist in the selected company
@@ -325,6 +339,8 @@ export class EmployeeDetail {
       .subscribe((result) => {
         // `undefined` is a bare Material dismissal and means the same as `null`: no write.
         if (result?.outcome === 'created') {
+          // The retry landed: the partial message of a previous failed activation is stale now.
+          this.partialAssignmentError.set(null);
           this.assignmentsResource.reload();
         }
       });
@@ -429,18 +445,41 @@ export class EmployeeDetail {
   }
 
   /**
-   * Reacts to the dialog's close: a real write reloads the contracts, and nothing
-   * else does.
+   * Reacts to the dialog's close, reading the **two separate facts** a create act can carry (`D9`).
    *
    * `undefined` is treated as no result on purpose: Material can close the ref
    * itself (Esc or backdrop) and that close carries no result, so it means the same
    * thing as `null` — no write. The employee read is deliberately **not** reloaded:
    * the two reads stay independent (`T52`), and the header's "Puesto actual" is
    * derived from the contracts, which do reload.
+   *
+   * A `created` result always reloads the contracts. When the act also wrote an assignment, the
+   * assignments read reloads with it; when the assignment failed, the page reloads that read too — a
+   * write can succeed on the server and still fail on the wire — and tells the truth in
+   * {@link partialAssignmentError} instead of implying that nothing was saved. A contract-only result
+   * (the pre-existing empty-picker act, `D8`) reloads the contracts and nothing else.
    */
   private onContractDialogClosed(result: ContractDialogResult | undefined): void {
-    if (result?.outcome === 'created' || result?.outcome === 'closed') {
+    if (result?.outcome === 'closed') {
       this.contractsResource.reload();
+      return;
+    }
+    if (result?.outcome !== 'created') {
+      return;
+    }
+
+    this.contractsResource.reload();
+    this.partialAssignmentError.set(null);
+    if (result.assignmentError) {
+      this.partialAssignmentError.set(
+        `El contrato quedó creado, pero la tienda no se asignó: ${result.assignmentError}. ` +
+          'Podés asignarla desde «Tiendas asignadas».',
+      );
+      this.assignmentsResource.reload();
+      return;
+    }
+    if (result.assignment) {
+      this.assignmentsResource.reload();
     }
   }
 
