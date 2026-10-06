@@ -30,11 +30,11 @@ import java.util.UUID;
  * <p>{@link #email} is the generated corporate address and is frozen once {@code keycloakUserId} is
  * set (decision T9): changing the address after provisioning would desynchronize the login.</p>
  *
- * <p>{@link #keycloakUserId} is <b>never operator-typable</b> (decision T17): it has a getter and a
- * builder method but <b>no public setter</b>, and the only write path is
- * {@link #linkKeycloakUser(String)}, which exists for the access-provisioning flow — create the
- * Keycloak account, or link the existing one — and is never reached from the employee record path
- * ({@code EmployeeRequest} carries no such field, decision T17).</p>
+ * <p>{@link #keycloakUserId} is <b>never operator-typable</b> (decision T17): it has a getter, a
+ * builder method and the named write path {@link #linkKeycloakUser(String)}, but <b>no public
+ * setter</b>. The builder is used only while the employee record is constructed; the named method
+ * exists for the access-provisioning flow — create the Keycloak account, or link the existing one —
+ * and neither is reachable from a request ({@code EmployeeRequest} carries no such field).</p>
  */
 @Entity
 @Table(name = "employees")
