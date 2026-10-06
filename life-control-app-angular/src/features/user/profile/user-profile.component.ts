@@ -20,7 +20,8 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 
 import { ProfileService } from './data/profile.service';
-import { ProfileResponse, ProfileUpdateRequest } from './data/profile.models';
+import { ProfileResponse, ProfileUpdateRequest, AssignedStore } from './data/profile.models';
+import { derivedChainLabel } from '@features/hr/models/store-assignment.models';
 import { CompanyService } from '@features/companies/companies/data/company.service';
 import { CompanyCountryService } from '@features/companies/countries/data/company-country.service';
 import { CompanyRegionService } from '@features/companies/regions/data/company-region.service';
@@ -74,6 +75,21 @@ export class UserProfileComponent implements OnInit {
 
   /** The full profile loaded from the backend. */
   readonly profile = signal<ProfileResponse | null>(null);
+
+  /**
+   * The caller's assigned stores exactly as the response carries them (`T25`/`T29`): `null` is the
+   * free mode — no employee row, so no restriction — and an array, **possibly empty**, is the
+   * constrained mode. Read from the loaded profile, never inferred from the store catalogue.
+   */
+  readonly assignedStores = computed<AssignedStore[] | null>(
+    () => this.profile()?.assignedStores ?? null,
+  );
+
+  /** Whether the store preference is narrowed to the assigned set (`T26`). */
+  readonly isConstrained = computed(() => this.assignedStores() !== null);
+
+  /** Reused HR label for an assigned store's chain (`T28`) — one formatter, not a copy. */
+  readonly derivedChainLabel = derivedChainLabel;
 
   /** True while the initial profile GET is in flight. */
   readonly loading = signal(true);
@@ -159,8 +175,9 @@ export class UserProfileComponent implements OnInit {
           this.populateForm(profile);
           this.loading.set(false);
 
-          // If editing, load the companies list and cascade
-          if (this.isEditMode()) {
+          // Free mode loads the cascade; constrained mode renders one select over the assigned
+          // set and never walks the four levels (`T29`).
+          if (this.isEditMode() && !this.isConstrained()) {
             this.initializeCascade(profile);
           }
         },
@@ -408,6 +425,44 @@ export class UserProfileComponent implements OnInit {
   /** Called when the user changes the store selector (terminal level, no further cascade). */
   onStoreChange(storeId: string | null): void {
     this.form().patchValue({ companyStoreId: storeId });
+  }
+
+  /**
+   * Called when the user changes the constrained store selector.
+   *
+   * Choosing a store patches the five location fields from that same assigned store's own ids
+   * (`T30`), so the payload can never carry the chain of a store the caller did not choose.
+   *
+   * Choosing `— None —` clears `companyStoreId` **and restores the four ancestors from the loaded
+   * profile** (`D16`, amended `T30`): the sequence *pick a store → pick `— None —`* must post the
+   * tuple the GET returned, not the chain of the store the caller just un-picked. It patches only
+   * the five location controls, so the basic-information fields — which may hold unsaved edits —
+   * are left untouched.
+   */
+  onAssignedStoreChange(companyStoreId: string | null): void {
+    const assigned = this.assignedStores()?.find(
+      (store) => store.companyStoreId === companyStoreId,
+    );
+
+    if (assigned) {
+      this.form().patchValue({
+        companyId: assigned.companyId,
+        companyCountryId: assigned.companyCountryId,
+        companyRegionId: assigned.companyRegionId,
+        companyZoneId: assigned.companyZoneId,
+        companyStoreId: assigned.companyStoreId,
+      });
+      return;
+    }
+
+    const profile = this.profile();
+    this.form().patchValue({
+      companyId: profile?.companyId ?? null,
+      companyCountryId: profile?.companyCountryId ?? null,
+      companyRegionId: profile?.companyRegionId ?? null,
+      companyZoneId: profile?.companyZoneId ?? null,
+      companyStoreId: null,
+    });
   }
 
   // ─── Save / Cancel ────────────────────────────────────────────

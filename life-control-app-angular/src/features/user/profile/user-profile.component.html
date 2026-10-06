@@ -134,113 +134,143 @@
             <!-- Location Preferences -->
             <section class="form-section">
               <h3 class="section-title">Location Preferences</h3>
-              <p class="section-description">
-                Select your location hierarchy. Each selection filters the available options for the
-                next level.
-              </p>
-
-              <!-- Company -->
-              <mat-form-field appearance="outline" class="form-field form-field--full">
-                <mat-label>Company</mat-label>
-                <mat-select
-                  [value]="form().get('companyId')?.value"
-                  (selectionChange)="onCompanyChange($event.value)"
-                >
-                  @if (loadingCompanies()) {
-                    <mat-option disabled>Loading…</mat-option>
-                  } @else {
-                    @for (company of companies(); track company.id) {
-                      <mat-option [value]="company.id">
-                        {{ company.companyName }}
+              @if (isConstrained()) {
+                <p class="section-description">
+                  Your store preference is limited to the stores you are currently assigned to.
+                </p>
+                <!-- Constrained mode (`T26`): one select over the assigned set, no four-level walk. -->
+                <mat-form-field appearance="outline" class="form-field form-field--full">
+                  <mat-label>Store</mat-label>
+                  @if (assignedStores()?.length === 0) {
+                    <!-- Empty set (`D14`): disabled and never invalid (`T31`), carrying the reason. -->
+                    <mat-select [disabled]="true">
+                      <mat-option disabled>
+                        Sin tiendas asignadas, así que no hay preferencia de ubicación para elegir.
                       </mat-option>
-                    }
-                  }
-                </mat-select>
-              </mat-form-field>
-
-              <!-- Country -->
-              <mat-form-field appearance="outline" class="form-field form-field--full">
-                <mat-label>Country</mat-label>
-                <mat-select
-                  [value]="form().get('companyCountryId')?.value"
-                  (selectionChange)="onCountryChange($event.value)"
-                  [disabled]="!form().get('companyId')?.value"
-                >
-                  @if (loadingCountries()) {
-                    <mat-option disabled>Loading…</mat-option>
+                    </mat-select>
                   } @else {
-                    <mat-option [value]="null">— None —</mat-option>
-                    @for (country of companyCountries(); track country.id) {
-                      <mat-option [value]="country.id">
-                        {{ country.countryName }}
-                      </mat-option>
-                    }
+                    <mat-select
+                      [value]="form().get('companyStoreId')?.value"
+                      (selectionChange)="onAssignedStoreChange($event.value)"
+                    >
+                      <mat-option [value]="null">— None —</mat-option>
+                      @for (store of assignedStores(); track store.companyStoreId) {
+                        <mat-option [value]="store.companyStoreId">
+                          {{ store.companyStoreName }} — {{ derivedChainLabel(store) }}
+                        </mat-option>
+                      }
+                    </mat-select>
                   }
-                </mat-select>
-              </mat-form-field>
+                </mat-form-field>
+              } @else {
+                <p class="section-description">
+                  Select your location hierarchy. Each selection filters the available options for
+                  the next level.
+                </p>
 
-              <!-- Region -->
-              <mat-form-field appearance="outline" class="form-field form-field--full">
-                <mat-label>Region</mat-label>
-                <mat-select
-                  [value]="form().get('companyRegionId')?.value"
-                  (selectionChange)="onRegionChange($event.value)"
-                  [disabled]="!form().get('companyCountryId')?.value"
-                >
-                  @if (loadingRegions()) {
-                    <mat-option disabled>Loading…</mat-option>
-                  } @else {
-                    <mat-option [value]="null">— None —</mat-option>
-                    @for (region of regions(); track region.id) {
-                      <mat-option [value]="region.id">
-                        {{ region.regionName }}
-                      </mat-option>
+                <!-- Company -->
+                <mat-form-field appearance="outline" class="form-field form-field--full">
+                  <mat-label>Company</mat-label>
+                  <mat-select
+                    [value]="form().get('companyId')?.value"
+                    (selectionChange)="onCompanyChange($event.value)"
+                  >
+                    @if (loadingCompanies()) {
+                      <mat-option disabled>Loading…</mat-option>
+                    } @else {
+                      @for (company of companies(); track company.id) {
+                        <mat-option [value]="company.id">
+                          {{ company.companyName }}
+                        </mat-option>
+                      }
                     }
-                  }
-                </mat-select>
-              </mat-form-field>
+                  </mat-select>
+                </mat-form-field>
 
-              <!-- Zone -->
-              <mat-form-field appearance="outline" class="form-field form-field--full">
-                <mat-label>Zone</mat-label>
-                <mat-select
-                  [value]="form().get('companyZoneId')?.value"
-                  (selectionChange)="onZoneChange($event.value)"
-                  [disabled]="!form().get('companyRegionId')?.value"
-                >
-                  @if (loadingZones()) {
-                    <mat-option disabled>Loading…</mat-option>
-                  } @else {
-                    <mat-option [value]="null">— None —</mat-option>
-                    @for (zone of zones(); track zone.id) {
-                      <mat-option [value]="zone.id">
-                        {{ zone.zoneName }}
-                      </mat-option>
+                <!-- Country -->
+                <mat-form-field appearance="outline" class="form-field form-field--full">
+                  <mat-label>Country</mat-label>
+                  <mat-select
+                    [value]="form().get('companyCountryId')?.value"
+                    (selectionChange)="onCountryChange($event.value)"
+                    [disabled]="!form().get('companyId')?.value"
+                  >
+                    @if (loadingCountries()) {
+                      <mat-option disabled>Loading…</mat-option>
+                    } @else {
+                      <mat-option [value]="null">— None —</mat-option>
+                      @for (country of companyCountries(); track country.id) {
+                        <mat-option [value]="country.id">
+                          {{ country.countryName }}
+                        </mat-option>
+                      }
                     }
-                  }
-                </mat-select>
-              </mat-form-field>
+                  </mat-select>
+                </mat-form-field>
 
-              <!-- Store -->
-              <mat-form-field appearance="outline" class="form-field form-field--full">
-                <mat-label>Store</mat-label>
-                <mat-select
-                  [value]="form().get('companyStoreId')?.value"
-                  (selectionChange)="onStoreChange($event.value)"
-                  [disabled]="!form().get('companyZoneId')?.value"
-                >
-                  @if (loadingStores()) {
-                    <mat-option disabled>Loading…</mat-option>
-                  } @else {
-                    <mat-option [value]="null">— None —</mat-option>
-                    @for (store of stores(); track store.id) {
-                      <mat-option [value]="store.id">
-                        {{ store.storeName }}
-                      </mat-option>
+                <!-- Region -->
+                <mat-form-field appearance="outline" class="form-field form-field--full">
+                  <mat-label>Region</mat-label>
+                  <mat-select
+                    [value]="form().get('companyRegionId')?.value"
+                    (selectionChange)="onRegionChange($event.value)"
+                    [disabled]="!form().get('companyCountryId')?.value"
+                  >
+                    @if (loadingRegions()) {
+                      <mat-option disabled>Loading…</mat-option>
+                    } @else {
+                      <mat-option [value]="null">— None —</mat-option>
+                      @for (region of regions(); track region.id) {
+                        <mat-option [value]="region.id">
+                          {{ region.regionName }}
+                        </mat-option>
+                      }
                     }
-                  }
-                </mat-select>
-              </mat-form-field>
+                  </mat-select>
+                </mat-form-field>
+
+                <!-- Zone -->
+                <mat-form-field appearance="outline" class="form-field form-field--full">
+                  <mat-label>Zone</mat-label>
+                  <mat-select
+                    [value]="form().get('companyZoneId')?.value"
+                    (selectionChange)="onZoneChange($event.value)"
+                    [disabled]="!form().get('companyRegionId')?.value"
+                  >
+                    @if (loadingZones()) {
+                      <mat-option disabled>Loading…</mat-option>
+                    } @else {
+                      <mat-option [value]="null">— None —</mat-option>
+                      @for (zone of zones(); track zone.id) {
+                        <mat-option [value]="zone.id">
+                          {{ zone.zoneName }}
+                        </mat-option>
+                      }
+                    }
+                  </mat-select>
+                </mat-form-field>
+
+                <!-- Store -->
+                <mat-form-field appearance="outline" class="form-field form-field--full">
+                  <mat-label>Store</mat-label>
+                  <mat-select
+                    [value]="form().get('companyStoreId')?.value"
+                    (selectionChange)="onStoreChange($event.value)"
+                    [disabled]="!form().get('companyZoneId')?.value"
+                  >
+                    @if (loadingStores()) {
+                      <mat-option disabled>Loading…</mat-option>
+                    } @else {
+                      <mat-option [value]="null">— None —</mat-option>
+                      @for (store of stores(); track store.id) {
+                        <mat-option [value]="store.id">
+                          {{ store.storeName }}
+                        </mat-option>
+                      }
+                    }
+                  </mat-select>
+                </mat-form-field>
+              }
             </section>
 
             <!-- Error banner -->

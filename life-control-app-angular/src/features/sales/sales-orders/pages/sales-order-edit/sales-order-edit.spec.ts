@@ -67,6 +67,7 @@ const mockProfile: ProfileResponse = {
   companyRegionId: null,
   companyZoneId: null,
   companyStoreId: 'store-1',
+  assignedStores: null,
 };
 
 function createActivatedRoute(params: { id?: string }) {

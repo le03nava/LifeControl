@@ -1,15 +1,18 @@
 import { TestBed } from '@angular/core/testing';
+import type { ComponentFixture } from '@angular/core/testing';
 import { provideRouter, ActivatedRoute, Router } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
 import { provideLocationMocks } from '@angular/common/testing';
+import { By } from '@angular/platform-browser';
 import { signal } from '@angular/core';
 import { of, throwError } from 'rxjs';
 import Keycloak from 'keycloak-js';
 import { KEYCLOAK_EVENT_SIGNAL, KeycloakEventType } from 'keycloak-angular';
+import { MatSelect } from '@angular/material/select';
 
 import { UserProfileComponent } from './user-profile.component';
 import { ProfileService } from './data/profile.service';
-import { ProfileResponse } from './data/profile.models';
+import { ProfileResponse, AssignedStore } from './data/profile.models';
 import { CompanyService } from '@features/companies/companies/data/company.service';
 import { CompanyCountryService } from '@features/companies/countries/data/company-country.service';
 import { CompanyRegionService } from '@features/companies/regions/data/company-region.service';
@@ -33,6 +36,7 @@ describe('UserProfileComponent', () => {
     companyRegionId: null,
     companyZoneId: null,
     companyStoreId: null,
+    assignedStores: null,
   };
 
   const mockProfileWithLocation: ProfileResponse = {
@@ -42,6 +46,51 @@ describe('UserProfileComponent', () => {
     companyRegionId: 'reg-1',
     companyZoneId: 'zone-1',
     companyStoreId: 'store-1',
+  };
+
+  /**
+   * The two stores a constrained caller is assigned to. Store Two deliberately lives in a different
+   * country/region/zone than the profile's own scaffolding, so a payload that kept the previous
+   * ancestors instead of taking them from the chosen store is observable.
+   */
+  const mockAssignedStores: AssignedStore[] = [
+    {
+      companyStoreId: 'store-1',
+      companyStoreName: 'Store One',
+      companyId: 'comp-1',
+      companyName: 'Company One',
+      companyCountryId: 'cc-1',
+      companyCountryName: 'Mexico',
+      companyRegionId: 'reg-1',
+      companyRegionName: 'Norte',
+      companyZoneId: 'zone-1',
+      companyZoneName: 'Zone One',
+    },
+    {
+      companyStoreId: 'store-2',
+      companyStoreName: 'Store Two',
+      companyId: 'comp-1',
+      companyName: 'Company One',
+      companyCountryId: 'cc-2',
+      companyCountryName: 'United States',
+      companyRegionId: 'reg-2',
+      companyRegionName: 'Sur',
+      companyZoneId: 'zone-2',
+      companyZoneName: 'Zone Two',
+    },
+  ];
+
+  /** A constrained caller (an array, so not `null`): the preference is narrowed to the assigned set. */
+  const mockConstrainedProfile: ProfileResponse = {
+    ...mockProfileWithLocation,
+    assignedStores: mockAssignedStores,
+  };
+
+  /** An employee with **zero** assignments: still constrained, but with nothing to choose (D14). */
+  const mockConstrainedEmptyProfile: ProfileResponse = {
+    ...mockProfile,
+    companyId: 'comp-1',
+    assignedStores: [],
   };
 
   const mockCompanies: Company[] = [
@@ -566,6 +615,291 @@ describe('UserProfileComponent', () => {
       const { component } = setup({ edit: 'true' });
       component.onStoreChange('store-2');
       expect(component.form().get('companyStoreId')?.value).toBe('store-2');
+    });
+  });
+
+  // ─── Constrained location mode (assignedStores) ────────────
+
+  describe('constrained store selection (assignedStores)', () => {
+    /** Whitespace-normalised text, so template indentation never breaks an assertion. */
+    function textContent(element: Element | null): string {
+      return (element?.textContent ?? '').replace(/\s+/g, ' ').trim();
+    }
+
+    /**
+     * The labels of the single constrained store select, read from the Material component. Material
+     * renders the options lazily, so they are read from the select's own option query rather than
+     * from the projected DOM.
+     */
+    function assignedStoreOptionLabels(fixture: ComponentFixture<UserProfileComponent>): string[] {
+      const select = fixture.debugElement.query(By.css('mat-select'))
+        .componentInstance as MatSelect;
+      return select.options.map((option) => option.viewValue.replace(/\s+/g, ' ').trim());
+    }
+
+    /** Opens the constrained store select and clicks the option whose label contains `label`. */
+    function chooseAssignedStore(
+      fixture: ComponentFixture<UserProfileComponent>,
+      label: string,
+    ): void {
+      const select = fixture.debugElement.query(By.css('mat-select'))
+        .componentInstance as MatSelect;
+      select.open();
+      fixture.detectChanges();
+      const options = Array.from(
+        (select.panel.nativeElement as HTMLElement).querySelectorAll('mat-option'),
+      ) as HTMLElement[];
+      const option = options.find((candidate) => textContent(candidate).includes(label));
+      expect(option).toBeTruthy();
+      option?.click();
+      fixture.detectChanges();
+      select.close();
+      fixture.detectChanges();
+    }
+
+    it('renders one store select over the assigned set and never walks the cascade', () => {
+      const {
+        fixture,
+        companyServiceMock,
+        companyCountryServiceMock,
+        companyRegionServiceMock,
+        companyZoneServiceMock,
+        companyStoreServiceMock,
+      } = setup({ edit: 'true' }, mockConstrainedProfile, true);
+
+      // The four ancestor selects are replaced by a single store select (T26).
+      expect(fixture.nativeElement.querySelectorAll('mat-select').length).toBe(1);
+      const labels = Array.from(
+        fixture.nativeElement.querySelectorAll('mat-label') as NodeListOf<Element>,
+      ).map((label) => textContent(label));
+      expect(labels).not.toContain('Company');
+      expect(labels).not.toContain('Country');
+      expect(labels).not.toContain('Region');
+      expect(labels).not.toContain('Zone');
+      expect(labels).toContain('Store');
+
+      // Constrained mode performs no four-level walk (T29).
+      expect(companyServiceMock.getCompanies).not.toHaveBeenCalled();
+      expect(companyCountryServiceMock.getCountries).not.toHaveBeenCalled();
+      expect(companyRegionServiceMock.getRegions).not.toHaveBeenCalled();
+      expect(companyZoneServiceMock.getZones).not.toHaveBeenCalled();
+      expect(companyStoreServiceMock.getStores).not.toHaveBeenCalled();
+    });
+
+    it('labels every option with the store and its derived chain', () => {
+      const { fixture } = setup({ edit: 'true' }, mockConstrainedProfile);
+
+      expect(assignedStoreOptionLabels(fixture)).toEqual([
+        '— None —',
+        'Store One — Company One / Mexico / Norte / Zone One',
+        'Store Two — Company One / United States / Sur / Zone Two',
+      ]);
+    });
+
+    it('posts the chosen store together with its own ancestor chain', () => {
+      const { fixture, component, profileServiceMock } = setup(
+        { edit: 'true' },
+        mockConstrainedProfile,
+      );
+
+      chooseAssignedStore(fixture, 'Store Two');
+
+      expect(component.form().getRawValue()).toMatchObject({
+        companyId: 'comp-1',
+        companyCountryId: 'cc-2',
+        companyRegionId: 'reg-2',
+        companyZoneId: 'zone-2',
+        companyStoreId: 'store-2',
+      });
+
+      component.save();
+      expect(profileServiceMock.updateProfile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          companyId: 'comp-1',
+          companyCountryId: 'cc-2',
+          companyRegionId: 'reg-2',
+          companyZoneId: 'zone-2',
+          companyStoreId: 'store-2',
+        }),
+      );
+    });
+
+    // Fresh-load path: the form already holds the profile's tuple, so D16's "restore" and the old
+    // "leave them alone" reading coincide here. The pick-store→pick-None sequence below is the case
+    // that distinguishes them.
+    it('clears only the store on — None — from a fresh load (both readings coincide)', () => {
+      const { fixture, component, profileServiceMock } = setup(
+        { edit: 'true' },
+        mockConstrainedProfile,
+      );
+
+      chooseAssignedStore(fixture, '— None —');
+
+      expect(component.form().getRawValue()).toMatchObject({
+        companyId: 'comp-1',
+        companyCountryId: 'cc-1',
+        companyRegionId: 'reg-1',
+        companyZoneId: 'zone-1',
+        companyStoreId: null,
+      });
+
+      component.save();
+      expect(profileServiceMock.updateProfile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          companyId: 'comp-1',
+          companyCountryId: 'cc-1',
+          companyRegionId: 'reg-1',
+          companyZoneId: 'zone-1',
+          companyStoreId: null,
+        }),
+      );
+    });
+
+    it('restores the tuple the GET returned after pick store → pick — None — (D16/T30)', () => {
+      const { fixture, component, profileServiceMock } = setup(
+        { edit: 'true' },
+        mockConstrainedProfile,
+      );
+
+      // Store Two carries a different chain (cc-2/reg-2/zone-2) than the profile's own tuple
+      // (cc-1/reg-1/zone-1), so the restore is observable.
+      chooseAssignedStore(fixture, 'Store Two');
+      expect(component.form().getRawValue()).toMatchObject({
+        companyCountryId: 'cc-2',
+        companyRegionId: 'reg-2',
+        companyZoneId: 'zone-2',
+        companyStoreId: 'store-2',
+      });
+
+      // An unsaved basic-information edit must survive the — None — pick untouched.
+      component.form().patchValue({ firstName: 'Edited' });
+
+      chooseAssignedStore(fixture, '— None —');
+
+      expect(component.form().getRawValue()).toMatchObject({
+        firstName: 'Edited',
+        companyId: 'comp-1',
+        companyCountryId: 'cc-1',
+        companyRegionId: 'reg-1',
+        companyZoneId: 'zone-1',
+        companyStoreId: null,
+      });
+
+      component.save();
+      expect(profileServiceMock.updateProfile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          firstName: 'Edited',
+          companyId: 'comp-1',
+          companyCountryId: 'cc-1',
+          companyRegionId: 'reg-1',
+          companyZoneId: 'zone-1',
+          companyStoreId: null,
+        }),
+      );
+    });
+
+    it('renders the empty assigned set as a disabled select explaining the state', () => {
+      const { fixture, component } = setup({ edit: 'true' }, mockConstrainedEmptyProfile);
+
+      expect(fixture.nativeElement.querySelectorAll('mat-select').length).toBe(1);
+
+      const selectElement = fixture.nativeElement.querySelector('.mat-mdc-select') as HTMLElement;
+      expect(selectElement.classList.contains('mat-mdc-select-disabled')).toBe(true);
+
+      expect(assignedStoreOptionLabels(fixture)).toEqual([
+        'Sin tiendas asignadas, así que no hay preferencia de ubicación para elegir.',
+      ]);
+
+      // Disabled, never invalid (T31): nothing blocks a caller with nothing to choose.
+      expect(component.form().invalid).toBe(false);
+    });
+
+    it('saves companyStoreId: null from the empty constrained state', () => {
+      const { component, profileServiceMock } = setup(
+        { edit: 'true' },
+        mockConstrainedEmptyProfile,
+      );
+
+      component.save();
+
+      expect(profileServiceMock.updateProfile).toHaveBeenCalledWith(
+        expect.objectContaining({ companyStoreId: null }),
+      );
+    });
+
+    it('describes the constrained mode with its own sentence (T34)', () => {
+      const { fixture } = setup({ edit: 'true' }, mockConstrainedProfile);
+
+      expect(textContent(fixture.nativeElement.querySelector('.section-description'))).toBe(
+        'Your store preference is limited to the stores you are currently assigned to.',
+      );
+      expect(fixture.nativeElement.textContent).not.toContain(
+        'Each selection filters the available options for the next level.',
+      );
+    });
+
+    it('keeps the four-level cascade untouched in free mode (assignedStores: null)', () => {
+      const {
+        fixture,
+        companyServiceMock,
+        companyCountryServiceMock,
+        companyRegionServiceMock,
+        companyZoneServiceMock,
+        companyStoreServiceMock,
+      } = setup({ edit: 'true' }, mockProfileWithLocation, true);
+
+      expect(fixture.nativeElement.querySelectorAll('mat-select').length).toBe(5);
+
+      expect(companyServiceMock.getCompanies).toHaveBeenCalled();
+      expect(companyCountryServiceMock.getCountries).toHaveBeenCalledWith('comp-1');
+      expect(companyRegionServiceMock.getRegions).toHaveBeenCalledWith('comp-1', 'cc-1');
+      expect(companyZoneServiceMock.getZones).toHaveBeenCalledWith('comp-1', 'cc-1', 'reg-1');
+      expect(companyStoreServiceMock.getStores).toHaveBeenCalledWith(
+        'comp-1',
+        'cc-1',
+        'reg-1',
+        'zone-1',
+      );
+
+      const callOrder = [
+        companyServiceMock.getCompanies.mock.invocationCallOrder[0],
+        companyCountryServiceMock.getCountries.mock.invocationCallOrder[0],
+        companyRegionServiceMock.getRegions.mock.invocationCallOrder[0],
+        companyZoneServiceMock.getZones.mock.invocationCallOrder[0],
+        companyStoreServiceMock.getStores.mock.invocationCallOrder[0],
+      ];
+      expect(callOrder).toEqual([...callOrder].sort((a, b) => a - b));
+    });
+
+    it('keeps the free-mode description byte-for-byte (assignedStores: null)', () => {
+      const { fixture } = setup({ edit: 'true' }, mockProfileWithLocation, true);
+
+      expect(textContent(fixture.nativeElement.querySelector('.section-description'))).toBe(
+        'Select your location hierarchy. Each selection filters the available options for the next level.',
+      );
+      expect(fixture.nativeElement.textContent).not.toContain(
+        'Your store preference is limited to the stores you are currently assigned to.',
+      );
+    });
+
+    it('posts the unchanged location tuple in free mode', () => {
+      const { component, profileServiceMock } = setup(
+        { edit: 'true' },
+        mockProfileWithLocation,
+        true,
+      );
+
+      component.save();
+
+      expect(profileServiceMock.updateProfile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          companyId: 'comp-1',
+          companyCountryId: 'cc-1',
+          companyRegionId: 'reg-1',
+          companyZoneId: 'zone-1',
+          companyStoreId: 'store-1',
+        }),
+      );
     });
   });
 });

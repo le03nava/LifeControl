@@ -137,6 +137,7 @@ describe('ProductEdit', () => {
       companyRegionId: 'region-1',
       companyZoneId: 'zone-1',
       companyStoreId,
+      assignedStores: null,
     };
   }
 
