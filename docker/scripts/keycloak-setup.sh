@@ -47,6 +47,15 @@ APP_CLIENT="$(get_env KEYCLOAK_CLIENT_ID life-control-client)"
 ADMIN_CLIENT="$(get_env KEYCLOAK_ADMIN_CLIENT_ID life-control-admin-client)"
 KC_BASE="http://localhost:$(get_env KC_HTTP_PORT 8080)"
 APP_ORIGIN="$(get_env WEB_APP_URL "http://localhost:$(get_env WEB_APP_PORT 4200)")"
+# Keycloak's own host-reachable public base URL. This is the value written as the
+# realm's frontendUrl (attributes.frontendUrl) below, and it is DELIBERATELY not
+# APP_ORIGIN: frontendUrl fixes the realm issuer that the whole stack validates
+# (KEYCLOAK_ISSUER_URI) and the host of the action-token link, while APP_ORIGIN
+# is where the public client's redirectUris/webOrigins point and where the person
+# lands after the action token is consumed. The fallback port is the one
+# .env.template declares for KEYCLOAK_PORT (measured 2026-10-06: KEYCLOAK_PORT=8181
+# and KEYCLOAK_URL=http://localhost:8181).
+KEYCLOAK_URL="$(get_env KEYCLOAK_URL "http://localhost:$(get_env KEYCLOAK_PORT 8181)")"
 
 print_status() { echo -e "\033[0;34m[INFO]\033[0m $*"; }
 print_success() { echo -e "\033[0;32m[SUCCESS]\033[0m $*"; }
@@ -145,6 +154,31 @@ realm_role_exists() {
 	kcadm_get "roles/$role" -r "$REALM"
 }
 
+# json_array_values <field> <json> -> one array value per line. Used by the
+# additive convergence of the public client's registered origins. The single
+# read is pretty-printed, so newlines are flattened first; the values are
+# selected client-side with POSIX grep/tr because the Keycloak image ships no
+# jq/python/awk (the parsing runs on the host).
+json_array_values() {
+	local field="$1" json="$2"
+	printf '%s' "$json" | tr -d '\n' \
+		| grep -o "\"$field\"[[:space:]]*:[[:space:]]*\[[^]]*\]" \
+		| grep -o '"[^"]*"' | tail -n +2 | tr -d '"'
+}
+
+# build_json_array <values, one per line> -> one compact JSON array argument.
+# Passing the full merged list (rather than kcadm's `+=`, which this version
+# rejects for an array literal) is what makes the preserved set explicit.
+build_json_array() {
+	local values="$1" out="[" sep="" value
+	while IFS= read -r value; do
+		[ -z "$value" ] && continue
+		out="$out$sep\"$value\""
+		sep=","
+	done <<<"$values"
+	printf '%s]' "$out"
+}
+
 if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER"; then
 	print_error "Container $CONTAINER is not running."
 	print_error "Start it first: ./docker/scripts/deploy.sh $ENV up"
@@ -169,6 +203,83 @@ done
 KC_ADMIN_PASS="$(cat "$KC_ADMIN_PASS_FILE")"
 ADM_CLIENT_SECRET="$(cat "$ADM_CLIENT_SECRET_FILE")"
 
+# ---- SMTP relay configuration (the invitation environment) ----
+# The realm's SMTP server is declared by the environment, with the DEV mail
+# container as the default. Outside dev that default must never survive: a
+# staging or prod realm silently relaying every invitation to a local mailbox is
+# a delivery failure no Java test can see. `get_env` returns the default for an
+# absent, commented or empty value, so ONE comparison covers all three ways the
+# dev value arrives by accident. Dev may deliberately point at a real relay;
+# only the non-dev refusal is enforced.
+SMTP_HOST="$(get_env SMTP_HOST mailpit)"
+SMTP_PORT="$(get_env SMTP_PORT 1025)"
+SMTP_FROM="$(get_env SMTP_FROM "no-reply@lifecontrol.local")"
+SMTP_STARTTLS="$(get_env SMTP_STARTTLS false)"
+SMTP_AUTH="$(get_env SMTP_AUTH false)"
+SMTP_USER="$(get_env SMTP_USER "")"
+SMTP_PASSWORD_FILE="$SECRETS_DIR/smtp_password"
+
+DEV_SMTP_HOST="mailpit"
+if [ "$ENV" != "dev" ] && [ "$SMTP_HOST" = "$DEV_SMTP_HOST" ]; then
+	print_error "SMTP_HOST resolves to '$SMTP_HOST', the dev mail container's service name, in the $ENV environment." >&2
+	print_error "That would relay every $ENV email to the development mailbox. Set SMTP_HOST in $ENV_FILE to a real relay." >&2
+	exit 1
+fi
+
+# ---- Keycloak public URL (frontendUrl) fail-closed outside dev ----
+# frontendUrl is Keycloak's own host-reachable public URL (KEYCLOAK_URL), not the
+# app origin. A wrong value silently changes the realm ISSUER — measured
+# 2026-10-06: frontendUrl=http://localhost:4200 made the issuer
+# http://localhost:4200/realms/<realm> while the stack validates
+# http://localhost:8181/realms/<realm>, so every authenticated call answered 401
+# on a valid token. Worse than the SMTP default, so the same fail-closed rule
+# applies: outside dev a value that still resolves to a localhost/dev default
+# must never survive. `get_env` returns the fallback for an absent, commented or
+# empty value, so ONE comparison covers all three ways the dev value arrives by
+# accident. The internal compose service name (`keycloak`) is also refused: it is
+# not host-reachable, which is exactly the wrong address the mechanism avoids.
+frontend_url_is_dev_default() {
+	local url="$1" host
+	host="${url#*://}"
+	host="${host%%/*}"
+	host="${host%%:*}"
+	case "$host" in
+		localhost | 127.0.0.1 | keycloak) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+if [ "$ENV" != "dev" ] && frontend_url_is_dev_default "$KEYCLOAK_URL"; then
+	print_error "KEYCLOAK_URL resolves to '$KEYCLOAK_URL', a localhost/dev default, in the $ENV environment." >&2
+	print_error "frontendUrl is Keycloak's own public URL: it sets the realm issuer the whole stack validates (KEYCLOAK_ISSUER_URI) and the host of the invitation link." >&2
+	print_error "Set KEYCLOAK_URL in $ENV_FILE to a reachable Keycloak base URL." >&2
+	exit 1
+fi
+
+# The SMTP credential is read directly from docker/secrets/smtp_password the way
+# keycloak_admin_password is. It DELIBERATELY has no .template: setup-env.sh
+# materializes every template and validate-env.sh rejects a CHANGEME value, so a
+# template would either ship a placeholder or fail every environment that does
+# not relay mail. Required only when SMTP_AUTH=true.
+SMTP_PASSWORD=""
+if [ "$SMTP_AUTH" = "true" ]; then
+	if [ -z "$SMTP_USER" ]; then
+		print_error "SMTP_AUTH=true requires a non-empty SMTP_USER in $ENV_FILE." >&2
+		exit 1
+	fi
+	if [ ! -s "$SMTP_PASSWORD_FILE" ]; then
+		print_error "SMTP_AUTH=true but the credential file $SMTP_PASSWORD_FILE is missing or empty." >&2
+		print_error "Create it by hand; it has no .template on purpose (see docker/.env.template)." >&2
+		exit 1
+	fi
+	if grep -q "CHANGEME" "$SMTP_PASSWORD_FILE"; then
+		print_error "SMTP_AUTH=true but $SMTP_PASSWORD_FILE still holds the CHANGEME placeholder." >&2
+		exit 1
+	fi
+	SMTP_PASSWORD="$(cat "$SMTP_PASSWORD_FILE")"
+fi
+
+print_status "SMTP relay: $SMTP_HOST:$SMTP_PORT from $SMTP_FROM (starttls=$SMTP_STARTTLS, auth=$SMTP_AUTH)"
+
 print_status "Authenticating kcadm as $KC_ADMIN_USER against $CONTAINER..."
 kcadm config credentials --server "$KC_BASE" --realm master --user "$KC_ADMIN_USER" --password "$KC_ADMIN_PASS" >/dev/null
 
@@ -181,11 +292,163 @@ else
 	print_success "Realm $REALM created"
 fi
 
+# ---- Realm invitation environment: frontendUrl + SMTP server ----
+# frontendUrl is Keycloak's OWN host-reachable public base URL (KEYCLOAK_URL), NOT
+# the app origin. It fixes the realm ISSUER: measured 2026-10-06 on Keycloak
+# 26.2.1, setting frontendUrl=http://localhost:4200 turned the issuer into
+# http://localhost:4200/realms/<realm>, while the stack validates
+# KEYCLOAK_ISSUER_URI=http://localhost:8181/realms/<realm>, so every
+# authenticated call failed with HTTP 401 on a valid token. It is also the base
+# of the action-token link, which must resolve to Keycloak. Leaving it unset is
+# wrong too: the app triggers the email through the Admin API at
+# http://keycloak:8080, so the link would be generated as
+# http://localhost:8080/... — a port nothing serves on the host. The person
+# returns to the app afterwards through the token's redirect_uri claim, which is
+# why execute-actions-email is passed APP_ORIGIN separately.
+#
+# frontendUrl is a realm ATTRIBUTE, not a top-level RealmRepresentation field:
+# measured 2026-10-06, `-s frontendUrl=...` is rejected with
+# `Unrecognized field "frontendUrl"`, while `-s attributes.frontendUrl=...`
+# lands. The action email sent by execute-actions-email points at
+# <frontendUrl>/realms/<realm>/login-actions/action-token?key=...
+#
+# The smtpServer map is written whole (the Admin API replaces it: measured, a
+# write without `password` clears a previously stored one) and read back from the
+# FULL realm representation: `--fields smtpServer` answers `{ }` on this version,
+# so a projection-based read would compare against nothing. The read-back masks
+# `password` as `**********`, so presence is verifiable and the value is not.
+smtp_json="{\"host\":\"$SMTP_HOST\",\"port\":\"$SMTP_PORT\",\"from\":\"$SMTP_FROM\",\"starttls\":\"$SMTP_STARTTLS\",\"auth\":\"$SMTP_AUTH\""
+if [ "$SMTP_AUTH" = "true" ]; then
+	smtp_json="$smtp_json,\"user\":\"$SMTP_USER\",\"password\":\"$SMTP_PASSWORD\""
+fi
+smtp_json="$smtp_json}"
+
+# smtp_fields lists the non-secret fields whose exact value the read-back can and
+# does assert.
+smtp_fields=(host port from starttls auth)
+if [ "$SMTP_AUTH" = "true" ]; then
+	smtp_fields+=(user)
+fi
+
+# realm_converged <realm-json> -> 0 when the current representation already
+# declares this frontendUrl and every expected SMTP field. Keycloak normalises
+# the map to strings, so the comparison is against the values as written.
+realm_converged() {
+	local compact block field expected
+	compact="$(printf '%s' "$1" | tr -d ' \n\t')"
+	if ! printf '%s' "$compact" | grep -qF "\"frontendUrl\":\"$KEYCLOAK_URL\""; then
+		return 1
+	fi
+	block="$(printf '%s' "$compact" | grep -o '"smtpServer":{[^}]*}' | head -1)"
+	if [ -z "$block" ]; then
+		return 1
+	fi
+	for field in "${smtp_fields[@]}"; do
+		case "$field" in
+			host) expected="$SMTP_HOST" ;;
+			port) expected="$SMTP_PORT" ;;
+			from) expected="$SMTP_FROM" ;;
+			starttls) expected="$SMTP_STARTTLS" ;;
+			auth) expected="$SMTP_AUTH" ;;
+			user) expected="$SMTP_USER" ;;
+		esac
+		if ! printf '%s' "$block" | grep -qF "\"$field\":\"$expected\""; then
+			return 1
+		fi
+	done
+	if [ "$SMTP_AUTH" = "true" ]; then
+		printf '%s' "$block" | grep -qF '"password":"' || return 1
+	fi
+	return 0
+}
+
+# Read the realm from the FULL representation (see the --fields note above) and
+# converge only what does not already match, then verify the read-back.
+kcadm_get "realms/$REALM" || {
+	print_error "Could not read realm $REALM to converge its invitation environment." >&2
+	exit 1
+}
+if realm_converged "$KCADM_GET_OUT"; then
+	print_success "Realm $REALM frontendUrl and smtpServer already match the declared configuration"
+else
+	print_status "Converging realm $REALM frontendUrl and smtpServer..."
+	kcadm update "realms/$REALM" \
+		-s "attributes.frontendUrl=$KEYCLOAK_URL" \
+		-s "smtpServer=$smtp_json" >/dev/null
+	kcadm_get "realms/$REALM" || {
+		print_error "Realm $REALM could not be read back after the invitation-environment update." >&2
+		exit 1
+	}
+	if ! realm_converged "$KCADM_GET_OUT"; then
+		print_error "Realm $REALM frontendUrl or smtpServer does not match the declared configuration after the update; refusing to continue on a write nobody verified." >&2
+		exit 1
+	fi
+	print_success "Realm $REALM frontendUrl verified: $KEYCLOAK_URL"
+	print_success "Realm $REALM smtpServer verified: $SMTP_HOST:$SMTP_PORT from $SMTP_FROM (starttls=$SMTP_STARTTLS, auth=$SMTP_AUTH)"
+fi
+
 # ---- Public client (frontend) ----
 if client_exists "$APP_CLIENT"; then
 	resolve_client_id "$APP_CLIENT" || exit 1
 	APP_CID="$CLIENT_ID"
 	print_success "Client $APP_CLIENT already exists ($APP_CID)"
+
+	# ---- Additive convergence of the public client's registered origins ----
+	# Cross-origin login breaks for one origin at a time when a redirect URI is
+	# missing, so this converges ADDITIVELY: every value already registered is
+	# preserved and only an absent app origin is added. It is deliberately not the
+	# fail-closed treatment the tenancy mappers get — a missing mapper is an
+	# authorization hole, a missing redirect URI is a login broken for one origin.
+	#
+	# `kcadm update -s "redirectUris+=[...]"` does NOT work on this version
+	# (measured 2026-10-06: an array literal answers `Cannot parse the JSON
+	# [unknown_error]` / `A redirect URI is not a valid URI`; only a single bare
+	# value appends), so this does read-merge-write, which also makes the preserved
+	# set explicit and verifiable in one read-back.
+	expected_redirect="${APP_ORIGIN}/*"
+	expected_origin="$APP_ORIGIN"
+
+	# client_lists_match <client-json> -> 0 when both lists already hold the app
+	# origin. Reads through the global-free json_array_values helper.
+	client_lists_match() {
+		local json="$1"
+		json_array_values redirectUris "$json" | grep -qxF "$expected_redirect" &&
+			json_array_values webOrigins "$json" | grep -qxF "$expected_origin"
+	}
+
+	kcadm_get "clients/$APP_CID" -r "$REALM" --fields redirectUris,webOrigins || {
+		print_error "Could not read the redirect URIs of client $APP_CLIENT ($APP_CID)." >&2
+		exit 1
+	}
+	if client_lists_match "$KCADM_GET_OUT"; then
+		print_success "Client $APP_CLIENT redirectUris/webOrigins already include $APP_ORIGIN"
+	else
+		print_status "Converging $APP_CLIENT redirectUris/webOrigins to include $APP_ORIGIN..."
+		redirects="$(json_array_values redirectUris "$KCADM_GET_OUT")"
+		origins="$(json_array_values webOrigins "$KCADM_GET_OUT")"
+		if ! printf '%s\n' "$redirects" | grep -qxF "$expected_redirect"; then
+			redirects="${redirects}${redirects:+
+}$expected_redirect"
+		fi
+		if ! printf '%s\n' "$origins" | grep -qxF "$expected_origin"; then
+			origins="${origins}${origins:+
+}$expected_origin"
+		fi
+		redirect_arg="$(build_json_array "$redirects")"
+		origin_arg="$(build_json_array "$origins")"
+		kcadm update "clients/$APP_CID" -r "$REALM" \
+			-s "redirectUris=$redirect_arg" \
+			-s "webOrigins=$origin_arg" >/dev/null
+		kcadm_get "clients/$APP_CID" -r "$REALM" --fields redirectUris,webOrigins || {
+			print_error "Client $APP_CLIENT could not be read back after the redirect-URI update." >&2
+			exit 1
+		}
+		if ! client_lists_match "$KCADM_GET_OUT"; then
+			print_error "Client $APP_CLIENT redirectUris/webOrigins do not contain $APP_ORIGIN after the update; refusing to continue on a write nobody verified." >&2
+			exit 1
+		fi
+		print_success "Client $APP_CLIENT redirectUris/webOrigins include $APP_ORIGIN (existing entries preserved)"
+	fi
 else
 	print_status "Creating public client $APP_CLIENT..."
 	kcadm create clients -r "$REALM" \
