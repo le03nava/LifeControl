@@ -41,6 +41,11 @@ ENV_APP_CLIENT="life-control-client"
 ENV_ADMIN_CLIENT="life-control-admin-client"
 ENV_KC_HTTP_PORT="8181"
 ENV_WEB_APP_URL="http://localhost:4200"
+# frontendUrl is Keycloak's OWN public base (KEYCLOAK_URL), deliberately NOT the
+# app origin. They are different values on purpose (the first fixes the realm
+# issuer and the link host, the second is the client's redirect target), and the
+# tests pin them to different values so a regression that swaps them cannot pass.
+ENV_KEYCLOAK_URL="http://localhost:8181"
 export KCS_SHIM_CONTAINER="$ENV_COMPOSE_NAME-keycloak"
 
 TMP_BASE="$(mktemp -d)"
@@ -182,8 +187,21 @@ write_shim() {
 #   calls.log       every kcadm argv, one line per call (evidence, not assertion).
 #   drift           a claim whose single-mapper JSON is served with
 #                   multivalued=false, modelling an existing but drifted mapper.
+#   realm_frontend_url  the realm's attributes.frontendUrl (empty when unset),
+#                   seeded by the test and rewritten by `update realms/*`.
+#   realm_smtp      the realm's smtpServer map, one `field<TAB>value` per line,
+#                   rewritten whole on `update realms/*` (the live Admin API
+#                   replaces the map, measured 2026-10-06). A `password` entry is
+#                   served back masked as `**********`, exactly as the live read
+#                   does, so a read-back can assert presence but never the value.
+#   client_redirect_uris / client_web_origins
+#                   the public client's registered lists, one value per line,
+#                   seeded by the test and rewritten on `update clients/*`.
 #
 # Injection knob (exported by the test):
+#   KCS_SHIM_REALM_DROP_UPDATE=1  the realm update is logged but NOT applied, so
+#                   the read-back models a write that did not stick.
+#   KCS_SHIM_INJECT_MATCH / KCS_SHIM_INJECT_KIND as before.
 #   KCS_SHIM_INJECT_MATCH  substring of the kcadm argv to disturb ("" = none)
 #   KCS_SHIM_INJECT_KIND   "unanswered" = the Admin API never answered
 #                          "absent"     = the genuine `Resource not found` text
@@ -242,6 +260,51 @@ unanswered() {
 	exit 1
 }
 
+# ---- Realm / client world state (W6b) ----
+# realm_state_json prints the realm read-back the way the live Admin API answers:
+# frontendUrl nested under "attributes" (a top-level frontendUrl is rejected by
+# RealmRepresentation, measured 2026-10-06) and smtpServer as a flat string map
+# with any password masked.
+realm_state_json() {
+	local realm="$1" fe="" entries="" k v
+	if [ -s "$STATE/realm_frontend_url" ]; then
+		fe="$(cat "$STATE/realm_frontend_url")"
+	fi
+	if [ -s "$STATE/realm_smtp" ]; then
+		while IFS=$'\t' read -r k v; do
+			[ -z "$k" ] && continue
+			if [ "$k" = "password" ]; then
+				v="**********"
+			fi
+			entries="${entries:+$entries, }\"$k\" : \"$v\""
+		done <"$STATE/realm_smtp"
+	fi
+	printf '{ "realm" : "%s", "enabled" : true' "$realm"
+	if [ -n "$fe" ]; then
+		printf ', "attributes" : { "frontendUrl" : "%s" }' "$fe"
+	fi
+	printf ', "smtpServer" : { %s } }' "$entries"
+}
+
+# emit_array <state-file> <field> -> a pretty-printed JSON array member.
+emit_array() {
+	local file="$1" field="$2" out="" v
+	if [ -s "$file" ]; then
+		while IFS= read -r v; do
+			[ -z "$v" ] && continue
+			out="${out:+$out, }\"$v\""
+		done <"$file"
+	fi
+	printf '  "%s" : [ %s ]' "$field" "$out"
+}
+
+# json_array_to_lines <json-array> -> one element per line, quotes stripped.
+# The trailing newline matters: `read` drops a final line that has none, which
+# would silently lose the last registered origin.
+json_array_to_lines() {
+	printf '%s\n' "$1" | sed 's/^\[//; s/\]$//' | tr ',' '\n' | tr -d '"'
+}
+
 case "$SUB" in
 	config)
 		# keycloak-setup.sh:173 — kcadm stores credentials inside the container.
@@ -285,8 +348,46 @@ case "$SUB" in
 		exit 0
 		;;
 	update)
-		# Recorded so the test can prove there is no repair of a drifted mapper.
+		# Recorded so the test can prove there is no repair of a drifted mapper,
+		# and so a realm/client convergence can be observed by resource.
 		printf '%s\n' "$argv" >>"$STATE/updates.log"
+		res="${1:-}"
+		case "$res" in
+			realms/*)
+				# KCS_SHIM_REALM_DROP_UPDATE models an update that returns 0 and
+				# does not stick, which is the failure the read-back must catch.
+				if [ "${KCS_SHIM_REALM_DROP_UPDATE:-0}" != "1" ]; then
+					for a in "$@"; do
+						case "$a" in
+							attributes.frontendUrl=*)
+								printf '%s' "${a#attributes.frontendUrl=}" >"$STATE/realm_frontend_url"
+								;;
+							smtpServer=*)
+								inner="$(printf '%s' "${a#smtpServer=}" | sed 's/^[{]//; s/[}]$//')"
+								: >"$STATE/realm_smtp.next"
+								printf '%s\n' "$inner" | tr ',' '\n' >"$STATE/realm_smtp.pairs"
+								while IFS= read -r pair; do
+									[ -z "$pair" ] && continue
+									pair="${pair//\"/}"
+									k="${pair%%:*}"
+									v="${pair#*:}"
+									[ -n "$k" ] && printf '%s\t%s\n' "$k" "$v" >>"$STATE/realm_smtp.next"
+								done <"$STATE/realm_smtp.pairs"
+								mv "$STATE/realm_smtp.next" "$STATE/realm_smtp"
+								;;
+						esac
+					done
+				fi
+				;;
+			clients/*)
+				for a in "$@"; do
+					case "$a" in
+						redirectUris=*) json_array_to_lines "${a#redirectUris=}" >"$STATE/client_redirect_uris" ;;
+						webOrigins=*) json_array_to_lines "${a#webOrigins=}" >"$STATE/client_web_origins" ;;
+					esac
+				done
+				;;
+		esac
 		exit 0
 		;;
 	get)
@@ -298,9 +399,10 @@ case "$SUB" in
 		output=""
 		case "$res" in
 			realms/*)
-				# keycloak-setup.sh:176
+				# keycloak-setup.sh:176 — the full representation the realm
+				# convergence reads back (frontendUrl + smtpServer).
 				present=1
-				output="{\"realm\":\"${res#realms/}\",\"enabled\":true}"
+				output="$(realm_state_json "${res#realms/}")"
 				;;
 			clients)
 				# keycloak-setup.sh:97 and :111 — client lookup by clientId, CSV id.
@@ -408,6 +510,17 @@ $config_json
 				present=1
 				output="{\"name\":\"${res##*/}\"}"
 				;;
+			clients/*)
+				# The public client's own representation: redirectUris and
+				# webOrigins, served from the world state so a convergence write is
+				# observable on the read-back. Listed after the more specific
+				# /protocol-mappers and /roles patterns so they keep winning.
+				present=1
+				output="{
+$(emit_array "$STATE/client_redirect_uris" redirectUris),
+$(emit_array "$STATE/client_web_origins" webOrigins)
+}"
+				;;
 			users/profile)
 				# keycloak-setup.sh:251 and :262, CSV. The four cases keep the
 				# realm at ADMIN_EDIT, so the update and its read-back are not
@@ -479,7 +592,27 @@ build_layout() {
 		printf 'KEYCLOAK_ADMIN_CLIENT_ID=%s\n' "$ENV_ADMIN_CLIENT"
 		printf 'KC_HTTP_PORT=%s\n' "$ENV_KC_HTTP_PORT"
 		printf 'WEB_APP_URL=%s\n' "$ENV_WEB_APP_URL"
-	} >"$root/docker/.env.dev"
+		# frontendUrl is Keycloak's own public base (KEYCLOAK_URL), NOT the app
+		# origin; a non-dev case may point it at a localhost default to pin the
+		# refusal. WEB_APP_URL stays the app origin for redirectUris/webOrigins.
+		# LAYOUT_OMIT_KEYCLOAK_URL models an env file that declares neither
+		# KEYCLOAK_URL nor KEYCLOAK_PORT, so the script must fall back.
+		if [ "${LAYOUT_OMIT_KEYCLOAK_URL:-0}" != "1" ]; then
+			printf 'KEYCLOAK_URL=%s\n' "${LAYOUT_KEYCLOAK_URL:-$ENV_KEYCLOAK_URL}"
+		fi
+		# SMTP_HOST is left absent in dev (get_env falls back to mailpit). A
+		# non-dev case must declare a real relay, so the SMTP refusal cannot
+		# pre-empt the frontendUrl refusal the case is actually testing.
+		if [ -n "${LAYOUT_SMTP_HOST:-}" ]; then
+			printf 'SMTP_HOST=%s\n' "$LAYOUT_SMTP_HOST"
+		fi
+		# SMTP_AUTH only matters to the W6b cases; the credential itself is
+		# deliberately never materialized here (its absence is what case 8 pins).
+		if [ "${LAYOUT_SMTP_AUTH:-false}" = "true" ]; then
+			printf 'SMTP_AUTH=true\n'
+			printf 'SMTP_USER=ops@example.com\n'
+		fi
+	} >"$root/docker/.env.${LAYOUT_ENV:-dev}"
 
 	# Non-empty and free of the CHANGEME placeholder (keycloak-setup.sh:158-167).
 	printf '%s\n' 'offline-test-admin-password' >"$root/docker/secrets/keycloak_admin_password"
@@ -508,18 +641,60 @@ build_layout() {
 	: >"$state/updates.log"
 	printf '%s' "$drift" >"$state/drift"
 
+	# W6b world state: realm frontendUrl/smtpServer and the public client's
+	# registered lists. Defaults are the already-converged values, so the plain
+	# cases see an idempotent world; a case narrows them to model a first-run or
+	# a partially registered client.
+	: >"$state/realm_frontend_url"
+	: >"$state/realm_smtp"
+	printf '%s\n' "${LAYOUT_CLIENT_REDIRECTS:-${ENV_WEB_APP_URL}/*}" >"$state/client_redirect_uris"
+	printf '%s\n' "${LAYOUT_CLIENT_WEB_ORIGINS:-$ENV_WEB_APP_URL}" >"$state/client_web_origins"
+
 	write_shim "$root/bin/docker"
 	chmod +x "$root/bin/docker"
 	return 0
 }
 
-# run_setup <root> — runs the copied script with the shim first on PATH. Sets
-# SETUP_RC and SETUP_OUT (stdout + stderr together, because the script reports
-# refusals through print_error on stderr).
-run_setup() {
-	local root="$1"
-	SETUP_OUT="$(PATH="$root/bin:$PATH" bash "$root/docker/scripts/keycloak-setup.sh" dev 2>&1)"
+# run_setup_env <root> <env> — runs the copied script with the shim first on
+# PATH. Sets SETUP_RC and SETUP_OUT (stdout + stderr together, because the script
+# reports refusals through print_error on stderr).
+run_setup_env() {
+	local root="$1" env="${2:-dev}"
+	SETUP_OUT="$(PATH="$root/bin:$PATH" bash "$root/docker/scripts/keycloak-setup.sh" "$env" 2>&1)"
 	SETUP_RC=$?
+}
+
+run_setup() {
+	run_setup_env "$1" dev
+}
+
+# assert_line_count <name> <expected> <file> — same observation as assert_creates
+# but named for the update logs the W6b cases count.
+assert_line_count() {
+	local name="$1" expected="$2" file="$3" actual
+	actual="$(count_lines "$file")"
+	if [ "$actual" = "$expected" ]; then
+		pass "$name ($actual)"
+	else
+		fail "$name (expected $expected, got $actual)"
+		if [ -s "$file" ]; then
+			sed 's/^/        /' "$file"
+		fi
+	fi
+}
+
+# assert_file_line <name> <line> <file> — passes only when the file holds <line>
+# exactly, so a value that is merely a prefix of another fails.
+assert_file_line() {
+	local name="$1" line="$2" file="$3"
+	if [ -f "$file" ] && grep -qxF -- "$line" "$file"; then
+		pass "$name"
+	else
+		fail "$name (missing exact line in $file: $line)"
+		if [ -f "$file" ]; then
+			sed 's/^/        /' "$file"
+		fi
+	fi
 }
 
 # ------------------------------------------
@@ -622,6 +797,238 @@ if build_layout "$root" "$state" all "company_region_id"; then
 	assert_not_contains "case 4 (R3-MAPPER-DRIFT): never reports success" \
 		"Keycloak setup complete" "$SETUP_OUT"
 fi
+
+# ------------------------------------------
+# W6b — the invitation environment. Cases 5-10 pin the realm frontendUrl/SMTP
+# convergence, the conditional SMTP credential, the non-dev refusal and the
+# additive client redirect-URI convergence. Layout knobs are reset per case so
+# state cannot leak between them.
+# ------------------------------------------
+LAYOUT_ENV=dev
+LAYOUT_SMTP_AUTH=false
+LAYOUT_SMTP_HOST=""
+LAYOUT_KEYCLOAK_URL=""
+LAYOUT_CLIENT_REDIRECTS=""
+LAYOUT_CLIENT_WEB_ORIGINS=""
+
+# ------------------------------------------
+# Case 5 (a) — a realm with no frontendUrl and an empty smtpServer gets both
+# written and read back verified (rc 0), and the world state proves it stuck.
+# ------------------------------------------
+root="$(new_root)"
+state="$root/state"
+if build_layout "$root" "$state" all ""; then
+	export KCS_SHIM_STATE_DIR="$state"
+	export KCS_SHIM_INJECT_MATCH=""
+	export KCS_SHIM_INJECT_KIND=""
+	unset KCS_SHIM_REALM_DROP_UPDATE
+	run_setup "$root"
+	assert_rc "case 5 (a): an unconverged realm converges and exits 0" 0 "$SETUP_RC" "$SETUP_OUT"
+	assert_contains "case 5 (a): frontendUrl written and verified" "frontendUrl verified: $ENV_KEYCLOAK_URL" "$SETUP_OUT"
+	assert_contains "case 5 (a): smtpServer written and verified" "smtpServer verified: mailpit:1025" "$SETUP_OUT"
+	assert_file_line "case 5 (a): realm state holds Keycloak's public base, not the app origin" "$ENV_KEYCLOAK_URL" "$state/realm_frontend_url"
+	assert_not_contains "case 5 (a): the app origin is NOT the frontendUrl" "frontendUrl verified: $ENV_WEB_APP_URL" "$SETUP_OUT"
+	assert_file_line "case 5 (a): realm state holds the SMTP host" "$(printf 'host\tmailpit')" "$state/realm_smtp"
+	assert_line_count "case 5 (a): exactly one realm update is attempted" 1 "$state/updates.log"
+fi
+
+# ------------------------------------------
+# Case 6 (b) — the realm update returns success but does not stick. The
+# read-back must abort, naming the failed convergence, and never print success.
+# Inverse of case 5.
+# ------------------------------------------
+root="$(new_root)"
+state="$root/state"
+LAYOUT_ENV=dev
+LAYOUT_SMTP_AUTH=false
+LAYOUT_CLIENT_REDIRECTS=""
+LAYOUT_CLIENT_WEB_ORIGINS=""
+if build_layout "$root" "$state" all ""; then
+	export KCS_SHIM_STATE_DIR="$state"
+	export KCS_SHIM_INJECT_MATCH=""
+	export KCS_SHIM_INJECT_KIND=""
+	export KCS_SHIM_REALM_DROP_UPDATE=1
+	run_setup "$root"
+	assert_rc "case 6 (b): an update that does not stick aborts with 1" 1 "$SETUP_RC" "$SETUP_OUT"
+	assert_contains "case 6 (b): names the failed convergence" "does not match the declared configuration" "$SETUP_OUT"
+	assert_not_contains "case 6 (b): never reports success" "Keycloak setup complete" "$SETUP_OUT"
+	unset KCS_SHIM_REALM_DROP_UPDATE
+fi
+
+# ------------------------------------------
+# Case 7 (c) — an existing client whose redirectUris lack the app origin gains
+# it, while an unrelated pre-existing origin (redirect URI AND web origin) is
+# preserved. Additive convergence, not replace.
+# ------------------------------------------
+root="$(new_root)"
+state="$root/state"
+LAYOUT_ENV=dev
+LAYOUT_SMTP_AUTH=false
+LAYOUT_CLIENT_REDIRECTS="http://legacy.example/*"
+LAYOUT_CLIENT_WEB_ORIGINS="http://legacy.example"
+if build_layout "$root" "$state" all ""; then
+	export KCS_SHIM_STATE_DIR="$state"
+	export KCS_SHIM_INJECT_MATCH=""
+	export KCS_SHIM_INJECT_KIND=""
+	unset KCS_SHIM_REALM_DROP_UPDATE
+	run_setup "$root"
+	assert_rc "case 7 (c): a client missing the app origin converges and exits 0" 0 "$SETUP_RC" "$SETUP_OUT"
+	assert_contains "case 7 (c): reports the app origin present" "include $ENV_WEB_APP_URL" "$SETUP_OUT"
+	assert_contains "case 7 (c): a client update was attempted" "clients/" "$(cat "$state/updates.log")"
+	assert_file_line "case 7 (c): the app redirect URI was added" "${ENV_WEB_APP_URL}/*" "$state/client_redirect_uris"
+	assert_file_line "case 7 (c): an unrelated pre-existing redirect URI is preserved" "http://legacy.example/*" "$state/client_redirect_uris"
+	assert_file_line "case 7 (c): the app web origin was added" "$ENV_WEB_APP_URL" "$state/client_web_origins"
+	assert_file_line "case 7 (c): an unrelated pre-existing web origin is preserved" "http://legacy.example" "$state/client_web_origins"
+fi
+
+# ------------------------------------------
+# Case 8 (d) — SMTP_AUTH=true with no materialized smtp_password secret. The
+# script must abort before any Keycloak write (no realm update, no create).
+# ------------------------------------------
+root="$(new_root)"
+state="$root/state"
+LAYOUT_ENV=dev
+LAYOUT_SMTP_AUTH=true
+LAYOUT_CLIENT_REDIRECTS=""
+LAYOUT_CLIENT_WEB_ORIGINS=""
+if build_layout "$root" "$state" all ""; then
+	export KCS_SHIM_STATE_DIR="$state"
+	export KCS_SHIM_INJECT_MATCH=""
+	export KCS_SHIM_INJECT_KIND=""
+	unset KCS_SHIM_REALM_DROP_UPDATE
+	run_setup "$root"
+	assert_rc "case 8 (d): SMTP_AUTH=true without the secret aborts with 1" 1 "$SETUP_RC" "$SETUP_OUT"
+	assert_contains "case 8 (d): names the missing credential" "smtp_password" "$SETUP_OUT"
+	assert_contains "case 8 (d): names the switch that requires it" "SMTP_AUTH=true" "$SETUP_OUT"
+	assert_file_has_no_match "case 8 (d): no realm write before the refusal" "realms/" "$state/updates.log"
+	assert_creates "case 8 (d): no create before the refusal" 0 "$state/creates.log"
+fi
+
+# ------------------------------------------
+# Case 9 (e) — a non-dev environment whose SMTP_HOST resolves to the dev mail
+# container's service name (the resolved default). It must refuse, naming the
+# variable and the reason, before any Keycloak write.
+# ------------------------------------------
+root="$(new_root)"
+state="$root/state"
+LAYOUT_ENV=staging
+LAYOUT_SMTP_AUTH=false
+LAYOUT_CLIENT_REDIRECTS=""
+LAYOUT_CLIENT_WEB_ORIGINS=""
+if build_layout "$root" "$state" all ""; then
+	export KCS_SHIM_STATE_DIR="$state"
+	export KCS_SHIM_INJECT_MATCH=""
+	export KCS_SHIM_INJECT_KIND=""
+	unset KCS_SHIM_REALM_DROP_UPDATE
+	run_setup_env "$root" staging
+	assert_rc "case 9 (e): a non-dev env resolving to the dev mail host aborts with 1" 1 "$SETUP_RC" "$SETUP_OUT"
+	assert_contains "case 9 (e): names SMTP_HOST" "SMTP_HOST" "$SETUP_OUT"
+	assert_contains "case 9 (e): names the dev mail container" "mailpit" "$SETUP_OUT"
+	assert_file_has_no_match "case 9 (e): no realm write before the refusal" "realms/" "$state/updates.log"
+	assert_creates "case 9 (e): no create before the refusal" 0 "$state/creates.log"
+fi
+
+# ------------------------------------------
+# Case 10 (c-inverse) — an already-registered app origin is left alone: no
+# client update is attempted. Without it, case 7 would be satisfied by rewriting
+# the client unconditionally.
+# ------------------------------------------
+root="$(new_root)"
+state="$root/state"
+LAYOUT_ENV=dev
+LAYOUT_SMTP_AUTH=false
+LAYOUT_CLIENT_REDIRECTS=""
+LAYOUT_CLIENT_WEB_ORIGINS=""
+if build_layout "$root" "$state" all ""; then
+	export KCS_SHIM_STATE_DIR="$state"
+	export KCS_SHIM_INJECT_MATCH=""
+	export KCS_SHIM_INJECT_KIND=""
+	unset KCS_SHIM_REALM_DROP_UPDATE
+	run_setup "$root"
+	assert_rc "case 10 (c-inverse): an already-registered origin exits 0" 0 "$SETUP_RC" "$SETUP_OUT"
+	assert_file_has_no_match "case 10 (c-inverse): no client update when already present" "clients/" "$state/updates.log"
+	assert_contains "case 10 (c-inverse): reports the client already converged" "already include" "$SETUP_OUT"
+fi
+
+# ------------------------------------------
+# Case 11 (f) — a non-dev environment whose KEYCLOAK_URL still resolves to a
+# localhost/dev default. frontendUrl is Keycloak's public base and it silently
+# sets the realm issuer, so a localhost value must never survive outside dev: it
+# must refuse, naming the variable and the reason, before any Keycloak write.
+# SMTP_HOST is a real relay here, so the SMTP refusal cannot be what stops the
+# run — the frontendUrl refusal is the only one in play.
+# ------------------------------------------
+root="$(new_root)"
+state="$root/state"
+LAYOUT_ENV=staging
+LAYOUT_SMTP_AUTH=false
+LAYOUT_SMTP_HOST="smtp.example.com"
+LAYOUT_KEYCLOAK_URL="http://localhost:8181"
+LAYOUT_CLIENT_REDIRECTS=""
+LAYOUT_CLIENT_WEB_ORIGINS=""
+if build_layout "$root" "$state" all ""; then
+	export KCS_SHIM_STATE_DIR="$state"
+	export KCS_SHIM_INJECT_MATCH=""
+	export KCS_SHIM_INJECT_KIND=""
+	unset KCS_SHIM_REALM_DROP_UPDATE
+	run_setup_env "$root" staging
+	assert_rc "case 11 (f): a non-dev env resolving to a localhost frontendUrl aborts with 1" 1 "$SETUP_RC" "$SETUP_OUT"
+	assert_contains "case 11 (f): names the variable" "KEYCLOAK_URL" "$SETUP_OUT"
+	assert_contains "case 11 (f): names the frontendUrl reason" "localhost/dev default" "$SETUP_OUT"
+	assert_not_contains "case 11 (f): does not refuse the SMTP relay" "SMTP_HOST resolves to" "$SETUP_OUT"
+	assert_file_has_no_match "case 11 (f): no realm write before the refusal" "realms/" "$state/updates.log"
+	assert_creates "case 11 (f): no create before the refusal" 0 "$state/creates.log"
+fi
+
+# ------------------------------------------
+# Case 12 (f-inverse) — the positive control for case 11: a non-dev environment
+# with a real relay AND a real Keycloak public URL runs to completion. Without
+# it, case 11 would be satisfied by aborting on every non-dev run.
+# ------------------------------------------
+root="$(new_root)"
+state="$root/state"
+LAYOUT_ENV=staging
+LAYOUT_SMTP_AUTH=false
+LAYOUT_SMTP_HOST="smtp.example.com"
+LAYOUT_KEYCLOAK_URL="https://auth.example.com"
+LAYOUT_CLIENT_REDIRECTS=""
+LAYOUT_CLIENT_WEB_ORIGINS=""
+if build_layout "$root" "$state" all ""; then
+	export KCS_SHIM_STATE_DIR="$state"
+	export KCS_SHIM_INJECT_MATCH=""
+	export KCS_SHIM_INJECT_KIND=""
+	unset KCS_SHIM_REALM_DROP_UPDATE
+	run_setup_env "$root" staging
+	assert_rc "case 12 (f-inverse): a non-dev env with a real frontendUrl exits 0" 0 "$SETUP_RC" "$SETUP_OUT"
+	assert_contains "case 12 (f-inverse): frontendUrl written and verified" "frontendUrl verified: https://auth.example.com" "$SETUP_OUT"
+	assert_file_line "case 12 (f-inverse): realm state holds the public Keycloak URL" "https://auth.example.com" "$state/realm_frontend_url"
+fi
+
+# ------------------------------------------
+# Case 13 (g) — KEYCLOAK_URL is absent from the environment file, so the script
+# must fall back to the KEYCLOAK_PORT default measured against .env.template
+# (KEYCLOAK_PORT=8181 and KEYCLOAK_URL=http://localhost:8181). Pins the fallback
+# so it cannot silently drift away from the issuer the stack validates.
+# ------------------------------------------
+root="$(new_root)"
+state="$root/state"
+LAYOUT_ENV=dev
+LAYOUT_SMTP_AUTH=false
+LAYOUT_SMTP_HOST=""
+LAYOUT_KEYCLOAK_URL=""
+LAYOUT_OMIT_KEYCLOAK_URL=1
+LAYOUT_CLIENT_REDIRECTS=""
+LAYOUT_CLIENT_WEB_ORIGINS=""
+if build_layout "$root" "$state" all ""; then
+	export KCS_SHIM_STATE_DIR="$state"
+	export KCS_SHIM_INJECT_MATCH=""
+	export KCS_SHIM_INJECT_KIND=""
+	unset KCS_SHIM_REALM_DROP_UPDATE
+	run_setup "$root"
+	assert_rc "case 13 (g): an absent KEYCLOAK_URL uses the measured fallback and exits 0" 0 "$SETUP_RC" "$SETUP_OUT"
+	assert_contains "case 13 (g): falls back to http://localhost:8181" "frontendUrl verified: http://localhost:8181" "$SETUP_OUT"
+fi
+unset LAYOUT_OMIT_KEYCLOAK_URL
 
 # ------------------------------------------
 # Summary

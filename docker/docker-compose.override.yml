@@ -39,3 +39,21 @@ services:
   # ============================================
   web-app:
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-life-control-app-angular
+
+  # ============================================
+  # Development Mailpit - invitation email sink
+  # ============================================
+  # Dev-only: it lives in this override (dev), never in the base compose or in
+  # docker-compose.prod.yml. Keycloak relays the realm's action emails here
+  # (SMTP_HOST=mailpit, see .env.template). The UI/API is published on
+  # MAILPIT_PORT; the SMTP port (1025) is deliberately NOT published to the
+  # host because only the compose network needs it. No explicit healthcheck:
+  # the image ships HEALTHCHECK /mailpit readyz.
+  mailpit:
+    image: ${MAILPIT_IMAGE:-axllent/mailpit:v1.31.4}
+    container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-mailpit
+    ports:
+      - "${MAILPIT_PORT:-8025}:8025"
+    networks:
+      - default
+    restart: unless-stopped
