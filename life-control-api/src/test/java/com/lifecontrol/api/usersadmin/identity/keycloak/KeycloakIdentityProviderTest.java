@@ -346,6 +346,7 @@ class KeycloakIdentityProviderTest {
                             3600,
                             List.of("UPDATE_PASSWORD")))
                     .isInstanceOf(IdentityProviderNotFoundException.class)
+                    .hasCauseInstanceOf(NotFoundException.class)
                     .hasMessageContaining("User not found");
         }
 
@@ -363,6 +364,7 @@ class KeycloakIdentityProviderTest {
                             3600,
                             List.of("UPDATE_PASSWORD")))
                     .isInstanceOf(IdentityProviderConnectionException.class)
+                    .hasCauseInstanceOf(ProcessingException.class)
                     .hasMessageContaining("Failed to send actions email");
         }
     }
