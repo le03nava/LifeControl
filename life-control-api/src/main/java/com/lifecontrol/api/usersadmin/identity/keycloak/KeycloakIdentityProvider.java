@@ -442,6 +442,19 @@ public class KeycloakIdentityProvider implements IdentityProvider {
         }
     }
 
+    @Override
+    public List<UserSearchDto> findUsersByEmail(String email) {
+        try {
+            return keycloak.realm(realm()).users().searchByEmail(email, Boolean.TRUE).stream()
+                    .map(this::toUserSearchDto)
+                    .toList();
+        } catch (NotFoundException e) {
+            throw new IdentityProviderNotFoundException("Failed to find users by email: " + email, e);
+        } catch (ProcessingException e) {
+            throw new IdentityProviderConnectionException("Failed to find users by email: " + email, e);
+        }
+    }
+
     // ---------------------------------------------------------------
     // Groups
     // ---------------------------------------------------------------

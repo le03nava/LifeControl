@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderConflictException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderConnectionException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderNotFoundException;
+import com.lifecontrol.api.usersadmin.identity.UserSearchDto;
 import jakarta.ws.rs.ClientErrorException;
 import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.ProcessingException;
@@ -366,6 +367,67 @@ class KeycloakIdentityProviderTest {
                     .isInstanceOf(IdentityProviderConnectionException.class)
                     .hasCauseInstanceOf(ProcessingException.class)
                     .hasMessageContaining("Failed to send actions email");
+        }
+    }
+
+    @Nested
+    @DisplayName("findUsersByEmail")
+    class FindUsersByEmailTests {
+
+        private static final String EMAIL = "jane.doe@acme.com";
+
+        private UserSearchDto searchDto(String id, String email) {
+            return new UserSearchDto(id, email, email, Boolean.TRUE);
+        }
+
+        @Test
+        @DisplayName("should pass the exact-match flag and project the returned users")
+        void shouldPassExactMatchFlagAndProject() {
+            when(realmResource.users()).thenReturn(usersResource);
+            var rep = new UserRepresentation();
+            rep.setId("kc-1");
+            rep.setUsername(EMAIL);
+            rep.setEmail(EMAIL);
+            rep.setEnabled(true);
+            when(usersResource.searchByEmail(EMAIL, Boolean.TRUE)).thenReturn(List.of(rep));
+
+            var result = provider.findUsersByEmail(EMAIL);
+
+            assertThat(result).containsExactly(new UserSearchDto("kc-1", EMAIL, EMAIL, Boolean.TRUE));
+            verify(usersResource).searchByEmail(EMAIL, Boolean.TRUE);
+        }
+
+        @Test
+        @DisplayName("should return an empty list when no account matches the address")
+        void shouldReturnEmptyList() {
+            when(realmResource.users()).thenReturn(usersResource);
+            when(usersResource.searchByEmail(EMAIL, Boolean.TRUE)).thenReturn(List.of());
+
+            assertThat(provider.findUsersByEmail(EMAIL)).isEmpty();
+        }
+
+        @Test
+        @DisplayName("should map NotFoundException to IdentityProviderNotFoundException")
+        void shouldMapNotFoundException() {
+            when(realmResource.users()).thenReturn(usersResource);
+            when(usersResource.searchByEmail(any(), any())).thenThrow(new NotFoundException("Realm not found"));
+
+            assertThatThrownBy(() -> provider.findUsersByEmail(EMAIL))
+                    .isInstanceOf(IdentityProviderNotFoundException.class)
+                    .hasCauseInstanceOf(NotFoundException.class)
+                    .hasMessageContaining("Failed to find users by email");
+        }
+
+        @Test
+        @DisplayName("should map ProcessingException to IdentityProviderConnectionException")
+        void shouldMapProcessingException() {
+            when(realmResource.users()).thenReturn(usersResource);
+            when(usersResource.searchByEmail(any(), any())).thenThrow(new ProcessingException("Connection refused"));
+
+            assertThatThrownBy(() -> provider.findUsersByEmail(EMAIL))
+                    .isInstanceOf(IdentityProviderConnectionException.class)
+                    .hasCauseInstanceOf(ProcessingException.class)
+                    .hasMessageContaining("Failed to find users by email");
         }
     }
 }
