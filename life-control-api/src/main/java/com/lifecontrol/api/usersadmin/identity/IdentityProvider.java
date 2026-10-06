@@ -100,6 +100,21 @@ public interface IdentityProvider {
 
     PageResponse<UserSearchDto> searchUsers(String query, int page, int size);
 
+    /**
+     * Finds users whose email <b>exactly</b> matches the given address.
+     *
+     * <p>This is a narrow, exact finder, deliberately different from
+     * {@link #searchUsers(String, int, int)}, which is Keycloak's substring search. The
+     * access-provisioning link decision (record T5/T27) compares the frozen
+     * {@code employees.email} against the accounts an address already owns, and a substring match
+     * would make that comparison meaningless.</p>
+     *
+     * @param email the exact email address to look up
+     * @return the matching accounts as {@link UserSearchDto}s; empty when none match. The list the
+     *     identity provider returned, with no link decision applied here
+     */
+    List<UserSearchDto> findUsersByEmail(String email);
+
     // --- Groups ---
 
     boolean companyGroupExists(String groupName);

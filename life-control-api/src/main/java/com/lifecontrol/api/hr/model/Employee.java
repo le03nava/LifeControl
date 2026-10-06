@@ -30,10 +30,11 @@ import java.util.UUID;
  * <p>{@link #email} is the generated corporate address and is frozen once {@code keycloakUserId} is
  * set (decision T9): changing the address after provisioning would desynchronize the login.</p>
  *
- * <p>{@link #keycloakUserId} is <b>never operator-typable</b> (decision T17). It has a getter and a
- * builder method but deliberately <b>no public setter</b>, and it is written only by the
- * access-provisioning flow — create the Keycloak account, or link the existing one — never by the
- * employee record path.</p>
+ * <p>{@link #keycloakUserId} is <b>never operator-typable</b> (decision T17): it has a getter, a
+ * builder method and the named write path {@link #linkKeycloakUser(String)}, but <b>no public
+ * setter</b>. The builder is used only while the employee record is constructed; the named method
+ * exists for the access-provisioning flow — create the Keycloak account, or link the existing one —
+ * and neither is reachable from a request ({@code EmployeeRequest} carries no such field).</p>
  */
 @Entity
 @Table(name = "employees")
@@ -157,6 +158,21 @@ public class Employee extends Auditable {
      */
     public String getKeycloakUserId() {
         return keycloakUserId;
+    }
+
+    /**
+     * Links the resolved identity-provider account to this employee.
+     *
+     * <p>This is the write path of the access-provisioning flow (records T17/T31): the field has no
+     * public setter and no request DTO exposes it, so an operator still cannot type it. It is named
+     * for the fact rather than for the field so it does not read as a generic setter and cannot be
+     * mistaken for an edit of the employee record.</p>
+     *
+     * @param keycloakUserId the identity-provider {@code sub} to link; never null at the call site,
+     *     because the caller either created the account or resolved an existing one
+     */
+    public void linkKeycloakUser(String keycloakUserId) {
+        this.keycloakUserId = keycloakUserId;
     }
 
     public Long getVersion() {
