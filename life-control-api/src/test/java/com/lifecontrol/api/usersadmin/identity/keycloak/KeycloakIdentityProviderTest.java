@@ -293,4 +293,77 @@ class KeycloakIdentityProviderTest {
                     .hasMessageContaining("Failed to update user");
         }
     }
+
+    @Nested
+    @DisplayName("sendActionsEmail")
+    class SendActionsEmailTests {
+
+        private UserResource userResource;
+
+        @BeforeEach
+        void setUp() {
+            userResource = mock(UserResource.class);
+            when(realmResource.users()).thenReturn(usersResource);
+            when(usersResource.get(USER_ID)).thenReturn(userResource);
+        }
+
+        @Test
+        @DisplayName(
+                "should call the four-argument executeActionsEmail in clientId, redirectUri, lifespan, actions order")
+        void shouldSendActionsEmailWithExplicitParameters() {
+            var clientId = "life-control-client";
+            var redirectUri = "https://app.lifecontrol.example/activate";
+            var lifespan = 3600;
+            var actions = List.of("UPDATE_PASSWORD", "VERIFY_EMAIL");
+
+            provider.sendActionsEmail(USER_ID, clientId, redirectUri, lifespan, actions);
+
+            verify(userResource).toRepresentation();
+            verify(userResource).executeActionsEmail(clientId, redirectUri, lifespan, actions);
+        }
+
+        @Test
+        @DisplayName("should forward a null lifespan so Keycloak applies its own default")
+        void shouldForwardNullLifespan() {
+            var clientId = "life-control-client";
+            var redirectUri = "https://app.lifecontrol.example/activate";
+            var actions = List.of("UPDATE_PASSWORD");
+
+            provider.sendActionsEmail(USER_ID, clientId, redirectUri, null, actions);
+
+            verify(userResource).executeActionsEmail(clientId, redirectUri, null, actions);
+        }
+
+        @Test
+        @DisplayName("should map NotFoundException to IdentityProviderNotFoundException")
+        void shouldMapNotFoundException() {
+            doThrow(new NotFoundException("User not found")).when(userResource).toRepresentation();
+
+            assertThatThrownBy(() -> provider.sendActionsEmail(
+                            USER_ID,
+                            "life-control-client",
+                            "https://app.lifecontrol.example/activate",
+                            3600,
+                            List.of("UPDATE_PASSWORD")))
+                    .isInstanceOf(IdentityProviderNotFoundException.class)
+                    .hasMessageContaining("User not found");
+        }
+
+        @Test
+        @DisplayName("should map ProcessingException to IdentityProviderConnectionException")
+        void shouldMapProcessingException() {
+            doThrow(new ProcessingException("Connection refused"))
+                    .when(userResource)
+                    .executeActionsEmail(any(), any(), any(), any());
+
+            assertThatThrownBy(() -> provider.sendActionsEmail(
+                            USER_ID,
+                            "life-control-client",
+                            "https://app.lifecontrol.example/activate",
+                            3600,
+                            List.of("UPDATE_PASSWORD")))
+                    .isInstanceOf(IdentityProviderConnectionException.class)
+                    .hasMessageContaining("Failed to send actions email");
+        }
+    }
 }

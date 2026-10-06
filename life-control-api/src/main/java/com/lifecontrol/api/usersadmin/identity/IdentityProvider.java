@@ -82,6 +82,20 @@ public interface IdentityProvider {
 
     void deleteUserAttribute(String userId, String key);
 
+    // --- Actions Email ---
+
+    /**
+     * Sends the identity provider's own execute-actions email to a user.
+     *
+     * @param userId      the identity provider user ID
+     * @param clientId    the client ID the actions link is scoped to
+     * @param redirectUri the URI the flow redirects back to once completed
+     * @param lifespan    how long the email link stays valid in seconds;
+     *                    a null value means Keycloak's own default (12 hours)
+     * @param actions     the required actions the user must complete
+     */
+    void sendActionsEmail(String userId, String clientId, String redirectUri, Integer lifespan, List<String> actions);
+
     // --- User Search ---
 
     PageResponse<UserSearchDto> searchUsers(String query, int page, int size);

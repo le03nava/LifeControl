@@ -405,6 +405,24 @@ public class KeycloakIdentityProvider implements IdentityProvider {
     }
 
     // ---------------------------------------------------------------
+    // Actions Email
+    // ---------------------------------------------------------------
+
+    @Override
+    public void sendActionsEmail(
+            String userId, String clientId, String redirectUri, Integer lifespan, List<String> actions) {
+        try {
+            var user = keycloak.realm(realm()).users().get(userId);
+            user.toRepresentation(); // verify exists
+            user.executeActionsEmail(clientId, redirectUri, lifespan, actions);
+        } catch (NotFoundException e) {
+            throw new IdentityProviderNotFoundException("User not found: " + userId, e);
+        } catch (ProcessingException e) {
+            throw new IdentityProviderConnectionException("Failed to send actions email to user: " + userId, e);
+        }
+    }
+
+    // ---------------------------------------------------------------
     // User Search
     // ---------------------------------------------------------------
 
