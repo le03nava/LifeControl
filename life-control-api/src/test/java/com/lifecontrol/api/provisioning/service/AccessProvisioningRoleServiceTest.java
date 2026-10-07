@@ -455,6 +455,22 @@ class AccessProvisioningRoleServiceTest {
         }
 
         @Test
+        @DisplayName("an IdentityProviderConnectionException from a removal propagates unchanged")
+        void identityProviderFailureFromRemovalPropagates() {
+            stubContracts(contract(position));
+            stubTemplate();
+            stubCurrentRoles("lc-sales");
+            var boom = new IdentityProviderConnectionException("keycloak is unreachable");
+            doThrow(boom)
+                    .when(identityProvider)
+                    .removeRoleFromUser(KC_USER_ID, "lc-sales", RoleScope.CLIENT, CLIENT_ID);
+
+            assertThatThrownBy(() -> service.convergeRoles(employee)).isSameAs(boom);
+
+            verify(identityProvider, never()).assignRoleToUser(any(), any(), any(), any());
+        }
+
+        @Test
         @DisplayName("null role names read from the identity provider are dropped")
         void nullCurrentRoleNamesAreDropped() {
             stubContracts(contract(position));
