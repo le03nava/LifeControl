@@ -40,6 +40,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -325,6 +326,19 @@ class AccessProvisioningMembershipServiceTest {
             service.convergeMembership(linkedEmployee());
 
             assertOnlyCompanyWritten();
+        }
+
+        @Test
+        @DisplayName("the finder is queried with the same today the derivation is driven with")
+        void finderIsQueriedWithTheSameTodayTheDerivationUses() {
+            var store = store(zone(region(companyCountry(company))));
+            stubAssignments(assignment(store, today().minusDays(30), null, true));
+
+            service.convergeMembership(linkedEmployee());
+
+            var dateCaptor = ArgumentCaptor.forClass(LocalDate.class);
+            verify(assignmentRepository).findEnabledAssignmentsCoveringDate(eq(employeeId), dateCaptor.capture());
+            assertThat(dateCaptor.getValue()).isEqualTo(today());
         }
 
         @Test
