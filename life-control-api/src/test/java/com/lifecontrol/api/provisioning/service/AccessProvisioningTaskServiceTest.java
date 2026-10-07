@@ -27,6 +27,7 @@ import com.lifecontrol.api.provisioning.exception.InvalidTaskStatusTransitionExc
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTask;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTaskStatus;
 import com.lifecontrol.api.provisioning.repository.AccessProvisioningTaskRepository;
+import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -124,6 +125,9 @@ class AccessProvisioningTaskServiceTest {
             assertThat(result.getDecidedBy()).isNull();
             assertThat(result.getDecidedAt()).isNull();
             assertThat(result.getAppliedAt()).isNull();
+            assertThat(result.getNextAttemptAt())
+                    .as("a created PENDING task is due immediately")
+                    .isNull();
             verify(currentUserContext).verifyCompanyAccess(companyId);
         }
 
@@ -139,6 +143,9 @@ class AccessProvisioningTaskServiceTest {
 
             assertThat(result.getStatus()).isEqualTo(APPROVAL_PENDING);
             assertThat(result.getAttempts()).isZero();
+            assertThat(result.getNextAttemptAt())
+                    .as("a gated task carries no deadline either")
+                    .isNull();
         }
 
         @Test
@@ -250,6 +257,23 @@ class AccessProvisioningTaskServiceTest {
 
             assertThat(service.claim(employeeId, taskId).getAttempts()).isEqualTo(1);
         }
+
+        @Test
+        @DisplayName("should clear the retry deadline when claiming a waiting task")
+        void claim_ClearsTheRetryDeadline() {
+            var task = taskInStatus(PENDING);
+            task.setNextAttemptAt(LocalDateTime.now().plusMinutes(5));
+            stubLoadedForUpdate(task);
+            stubSaved();
+
+            var result = service.claim(employeeId, taskId);
+
+            assertThat(result.getStatus()).isEqualTo(RUNNING);
+            assertThat(result.getNextAttemptAt())
+                    .as("a RUNNING task carries no deadline (record T42)")
+                    .isNull();
+            verifyLockedLoad();
+        }
     }
 
     @Nested
@@ -308,12 +332,64 @@ class AccessProvisioningTaskServiceTest {
             stubLoadedForUpdate(task);
             stubSaved();
 
-            var result = service.markFailed(employeeId, taskId, "keycloak timeout");
+            var result = service.markFailed(employeeId, taskId, "keycloak timeout", null);
 
             assertThat(result.getStatus()).isEqualTo(FAILED);
             assertThat(result.getLastError()).isEqualTo("keycloak timeout");
             assertThat(result.getAppliedAt()).isNull();
+            assertThat(result.getNextAttemptAt()).isNull();
             verifyLockedLoad();
+        }
+
+        @Test
+        @DisplayName("should reschedule atomically: FAILED -> PENDING with the deadline and the reason kept")
+        void markFailed_ReschedulesWithTheDeadline() {
+            var task = taskInStatus(RUNNING);
+            stubLoadedForUpdate(task);
+            stubSaved();
+            var deadline = LocalDateTime.of(2026, 1, 1, 12, 5, 0);
+
+            var result = service.markFailed(employeeId, taskId, "keycloak timeout", deadline);
+
+            assertThat(result.getStatus())
+                    .as("the FAILED -> PENDING edge ran in the same call")
+                    .isEqualTo(PENDING);
+            assertThat(result.getLastError())
+                    .as("the reason stays visible while the task waits (record T10)")
+                    .isEqualTo("keycloak timeout");
+            assertThat(result.getNextAttemptAt()).isEqualTo(deadline);
+            verifyLockedLoad();
+        }
+
+        @Test
+        @DisplayName("should leave the task FAILED with no deadline when the ceiling is reached")
+        void markFailed_AtTheCeilingStaysFailed() {
+            var task = taskInStatus(RUNNING);
+            stubLoadedForUpdate(task);
+            stubSaved();
+
+            var result = service.markFailed(employeeId, taskId, "ceiling reached", null);
+
+            assertThat(result.getStatus()).isEqualTo(FAILED);
+            assertThat(result.getLastError()).isEqualTo("ceiling reached");
+            assertThat(result.getNextAttemptAt()).isNull();
+            verifyLockedLoad();
+        }
+
+        @Test
+        @DisplayName("should clear any deadline when the ceiling is reached")
+        void markFailed_AtTheCeilingClearsAStaleDeadline() {
+            var task = taskInStatus(RUNNING);
+            task.setNextAttemptAt(LocalDateTime.now());
+            stubLoadedForUpdate(task);
+            stubSaved();
+
+            var result = service.markFailed(employeeId, taskId, "ceiling reached", null);
+
+            assertThat(result.getStatus()).isEqualTo(FAILED);
+            assertThat(result.getNextAttemptAt())
+                    .as("a terminal FAILED row never carries a pending deadline")
+                    .isNull();
         }
 
         @Test
@@ -322,7 +398,7 @@ class AccessProvisioningTaskServiceTest {
             var task = taskInStatus(APPLIED);
             stubLoadedForUpdate(task);
 
-            assertThatThrownBy(() -> service.markFailed(employeeId, taskId, "boom"))
+            assertThatThrownBy(() -> service.markFailed(employeeId, taskId, "boom", null))
                     .isInstanceOf(InvalidTaskStatusTransitionException.class);
             assertThat(task.getStatus()).isEqualTo(APPLIED);
             verifyLockedLoad();
@@ -335,7 +411,7 @@ class AccessProvisioningTaskServiceTest {
             when(taskRepository.findByIdAndEmployeeIdForUpdate(taskId, employeeId))
                     .thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> service.markFailed(employeeId, taskId, "boom"))
+            assertThatThrownBy(() -> service.markFailed(employeeId, taskId, "boom", null))
                     .isInstanceOf(AccessProvisioningTaskNotFoundException.class);
             verifyLockedLoad();
             verify(taskRepository, never()).save(any());
@@ -358,6 +434,26 @@ class AccessProvisioningTaskServiceTest {
 
             assertThat(result.getStatus()).isEqualTo(PENDING);
             assertThat(result.getLastError()).isNull();
+            assertThat(result.getNextAttemptAt()).isNull();
+            verifyLockedLoad();
+        }
+
+        @Test
+        @DisplayName("should clear the deadline so the operator's retry is due immediately")
+        void retry_ClearsTheRetryDeadline() {
+            var task = taskInStatus(FAILED);
+            task.setLastError("previous failure");
+            task.setNextAttemptAt(LocalDateTime.now().plusMinutes(5));
+            stubLoadedForUpdate(task);
+            stubSaved();
+
+            var result = service.retry(employeeId, taskId);
+
+            assertThat(result.getStatus()).isEqualTo(PENDING);
+            assertThat(result.getLastError()).isNull();
+            assertThat(result.getNextAttemptAt())
+                    .as("the manual retry is immediate, never backoff-delayed (record T46)")
+                    .isNull();
             verifyLockedLoad();
         }
 
@@ -404,6 +500,9 @@ class AccessProvisioningTaskServiceTest {
             assertThat(result.getDecidedBy()).isEqualTo("approver-1");
             assertThat(result.getDecidedAt()).isNotNull();
             assertThat(result.getLastError()).isNull();
+            assertThat(result.getNextAttemptAt())
+                    .as("approval releases the task to the queue due immediately")
+                    .isNull();
             verifyLockedLoad();
         }
 

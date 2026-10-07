@@ -160,7 +160,8 @@ public class AccessProvisioningTaskService {
     }
 
     /**
-     * Claims a {@code PENDING} task for a worker: {@code PENDING → RUNNING} and {@code attempts += 1}.
+     * Claims a {@code PENDING} task for a worker: {@code PENDING → RUNNING}, {@code attempts += 1}
+     * and the retry deadline cleared ({@code next_attempt_at = null}, record T42).
      *
      * <p>The row is read under a pessimistic write lock
      * ({@link AccessProvisioningTaskRepository#findByIdAndEmployeeIdForUpdate}) before the transition
@@ -176,6 +177,7 @@ public class AccessProvisioningTaskService {
         var task = loadForUpdate(taskId, employeeId);
         guardTransition(task, AccessProvisioningTaskStatus.RUNNING);
         task.setAttempts((task.getAttempts() == null ? 0 : task.getAttempts()) + 1);
+        task.setNextAttemptAt(null);
         return taskRepository.save(task);
     }
 
@@ -195,23 +197,50 @@ public class AccessProvisioningTaskService {
     }
 
     /**
-     * Records a visible failure: {@code RUNNING → FAILED} and {@code lastError = reason}.
+     * Records a visible failure (<b>and</b> the automatic reschedule when a deadline is given):
+     * {@code RUNNING → FAILED}, {@code lastError = reason} and, only when
+     * {@code nextAttemptAt != null}, the guarded {@code FAILED → PENDING} in the same transaction with
+     * {@code next_attempt_at} set to that deadline.
+     *
+     * <p>Both edges go through the same guard; neither is an unguarded status write. The reschedule
+     * keeps {@code last_error}, so the reason stays visible while the task waits (record T10), and a
+     * {@code null} deadline means the retry ceiling was reached (record T43): the task stays
+     * {@code FAILED} and its deadline is cleared.</p>
+     *
+     * <p>The deadline is a {@link LocalDateTime} — the column's own type, the same one
+     * {@code requestedAt} and {@code appliedAt} use — and it is a parameter, never computed here: the
+     * backoff policy is W4a's {@code common.worker.WorkerRetryPolicy}, and the state machine stays a
+     * guard over an explicit transition map with no scheduling policy and no clock of its own (record
+     * T46). The caller composes the value from its own clock and the policy's {@code Duration}, for
+     * example {@code LocalDateTime.now().plus(policy.backoffFor(attempts))}. Spanning both edges in
+     * one transaction is what removes the window a separate {@code markFailed} + automatic
+     * {@code retry} pair would leave — a process that died between them would strand a below-ceiling
+     * task in {@code FAILED}, out of the automatic queue.</p>
      *
      * @throws AccessProvisioningTaskNotFoundException when the task is unknown or belongs to another
      *     employee
      * @throws InvalidTaskStatusTransitionException when the task is not {@code RUNNING}
      */
     @Transactional
-    public AccessProvisioningTask markFailed(UUID employeeId, UUID taskId, String reason) {
+    public AccessProvisioningTask markFailed(UUID employeeId, UUID taskId, String reason, LocalDateTime nextAttemptAt) {
         var task = loadForUpdate(taskId, employeeId);
         guardTransition(task, AccessProvisioningTaskStatus.FAILED);
         task.setLastError(reason);
+        if (nextAttemptAt == null) {
+            task.setNextAttemptAt(null);
+        } else {
+            guardTransition(task, AccessProvisioningTaskStatus.PENDING);
+            task.setNextAttemptAt(nextAttemptAt);
+        }
         return taskRepository.save(task);
     }
 
     /**
-     * Returns a failed task to the queue: {@code FAILED → PENDING} and {@code lastError = null}, so
-     * the next attempt starts clean.
+     * Returns a failed task to the queue <b>due immediately</b>: {@code FAILED → PENDING},
+     * {@code lastError = null} so the next attempt starts clean, and {@code next_attempt_at = null}
+     * so the operator's manual retry is never backoff-delayed (record T46). This is the
+     * <b>operator's</b> path, distinct from the worker's automatic reschedule, which is
+     * {@link #markFailed(UUID, UUID, String, LocalDateTime)}.
      *
      * @throws AccessProvisioningTaskNotFoundException when the task is unknown or belongs to another
      *     employee
@@ -222,6 +251,7 @@ public class AccessProvisioningTaskService {
         var task = loadForUpdate(taskId, employeeId);
         guardTransition(task, AccessProvisioningTaskStatus.PENDING);
         task.setLastError(null);
+        task.setNextAttemptAt(null);
         return taskRepository.save(task);
     }
 

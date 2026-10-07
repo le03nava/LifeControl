@@ -16,6 +16,7 @@ import com.lifecontrol.api.provisioning.repository.AccessProvisioningTaskReposit
 import com.lifecontrol.api.status.repository.StatusRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -27,6 +28,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -120,10 +122,10 @@ class AccessProvisioningSchemaMigrationIntegrationTest extends AbstractPostgresI
     }
 
     @Test
-    @DisplayName("applies every migration through V23 and leaves no pending migration")
-    void flywayHeadIsV23() {
+    @DisplayName("applies every migration through V24 and leaves no pending migration")
+    void flywayHeadIsV24() {
         assertThat(flyway.info().current()).isNotNull();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("23");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("24");
         assertThat(flyway.info().pending()).isEmpty();
     }
 
@@ -150,6 +152,7 @@ class AccessProvisioningSchemaMigrationIntegrationTest extends AbstractPostgresI
                         new ColumnType("decided_by", "character varying"),
                         new ColumnType("decided_at", "timestamp without time zone"),
                         new ColumnType("applied_at", "timestamp without time zone"),
+                        new ColumnType("next_attempt_at", "timestamp without time zone"),
                         new ColumnType("enabled", "boolean"),
                         new ColumnType("created_at", "timestamp without time zone"),
                         new ColumnType("updated_at", "timestamp without time zone"));
@@ -217,6 +220,67 @@ class AccessProvisioningSchemaMigrationIntegrationTest extends AbstractPostgresI
     }
 
     @Test
+    @DisplayName("idx_access_provisioning_tasks_due is partial on the single PENDING status")
+    void dueIndexIsPartialOnPending() {
+        var indexDefinition = jdbcTemplate.queryForObject("""
+                SELECT indexdef FROM pg_indexes
+                WHERE schemaname = 'public' AND indexname = 'idx_access_provisioning_tasks_due'
+                """, String.class);
+
+        assertThat(indexDefinition)
+                .as("the due index keys on the deadline and carries a WHERE predicate")
+                .contains("next_attempt_at")
+                .containsIgnoringCase("WHERE");
+
+        // The predicate and the Java enum must agree in both directions, and the quoted form is what
+        // keeps "PENDING" from being satisfied by "APPROVAL_PENDING" (the W1a lesson): the worker's
+        // queue is PENDING only, so any other status appearing here would widen the candidate set.
+        for (var status : AccessProvisioningTaskStatus.values()) {
+            var quoted = "'" + status.name() + "'";
+            if (status == AccessProvisioningTaskStatus.PENDING) {
+                assertThat(indexDefinition)
+                        .as("%s is the only status the due index admits", quoted)
+                        .contains(quoted);
+            } else {
+                assertThat(indexDefinition)
+                        .as("%s must not appear in the due index predicate", quoted)
+                        .doesNotContain(quoted);
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("findDueTaskIds returns only due PENDING tasks, FIFO, bounded by the page size")
+    void dueCandidatesArePendingDueOrderedAndBounded() {
+        var now = LocalDateTime.of(2026, 1, 1, 12, 0, 0);
+
+        // One employee per task: the partial unique index admits at most one open task each.
+        var oldestDue = insertTaskWithDeadline(insertEmployee(), "PENDING", LocalDateTime.of(1900, 1, 1, 0, 0), null);
+        var pastDue = insertTaskWithDeadline(insertEmployee(), "PENDING", now.minusMinutes(20), now.minusSeconds(1));
+        var dueNow = insertTaskWithDeadline(insertEmployee(), "PENDING", now.minusMinutes(10), now);
+        var notYetDue = insertTaskWithDeadline(insertEmployee(), "PENDING", now.minusMinutes(5), now.plusSeconds(1));
+        var running = insertTaskWithDeadline(insertEmployee(), "RUNNING", now.minusMinutes(4), null);
+        var failed = insertTaskWithDeadline(insertEmployee(), "FAILED", now.minusMinutes(3), now.minusSeconds(1));
+        var gated = insertTaskWithDeadline(insertEmployee(), "APPROVAL_PENDING", now.minusMinutes(2), null);
+
+        var mine = List.of(oldestDue, pastDue, dueNow);
+
+        var dueIds = taskRepository.findDueTaskIds(now, PageRequest.of(0, 100));
+        assertThat(dueIds)
+                .as("a future deadline, a FAILED task and every non-PENDING status are not candidates")
+                .doesNotContain(notYetDue, running, failed, gated);
+        assertThat(dueIds.stream().filter(mine::contains).toList())
+                .as("the due PENDING tasks come back oldest-requested-first")
+                .containsExactlyElementsOf(mine);
+
+        // The page size is the bound: the oldest due row (year 1900, globally the earliest) is all a
+        // one-row page can return, and it is not the "no bound at all" list the previous call got.
+        assertThat(taskRepository.findDueTaskIds(now, PageRequest.of(0, 1)))
+                .as("the caller-supplied page size bounds the candidate batch")
+                .containsExactly(oldestDue);
+    }
+
+    @Test
     @DisplayName("pins the nullability, the VARCHAR lengths and the defaults of both provisioning tables")
     void provisioningColumnsCarryTheirNullabilityLengthsAndDefaults() {
         // ddl-auto=validate proves names and types only: a nullable requested_at or a VARCHAR(500)
@@ -238,6 +302,7 @@ class AccessProvisioningSchemaMigrationIntegrationTest extends AbstractPostgresI
                         new ColumnDetail("decided_by", "YES", 36, null),
                         new ColumnDetail("decided_at", "YES", null, null),
                         new ColumnDetail("applied_at", "YES", null, null),
+                        new ColumnDetail("next_attempt_at", "YES", null, null),
                         new ColumnDetail("enabled", "NO", null, "true"),
                         new ColumnDetail("created_at", "NO", null, "CURRENT_TIMESTAMP"),
                         new ColumnDetail("updated_at", "NO", null, "CURRENT_TIMESTAMP"));
@@ -257,11 +322,12 @@ class AccessProvisioningSchemaMigrationIntegrationTest extends AbstractPostgresI
         // The sizes are the half that catches an index nobody intended; contains() is the half that
         // catches a dropped one.
         assertThat(indexNames("access_provisioning_tasks"))
-                .as("the three declared indexes plus the primary key")
-                .hasSize(4)
+                .as("the four declared indexes plus the primary key")
+                .hasSize(5)
                 .contains(
                         "idx_access_provisioning_tasks_employee_id",
                         "idx_access_provisioning_tasks_status",
+                        "idx_access_provisioning_tasks_due",
                         "uq_access_provisioning_tasks_open");
 
         assertThat(indexNames("access_provisioning_applied_roles"))
@@ -494,6 +560,22 @@ class AccessProvisioningSchemaMigrationIntegrationTest extends AbstractPostgresI
                 INSERT INTO access_provisioning_tasks (id, employee_id, kind, status, requested_by)
                 VALUES (?, ?, ?, ?, 'kc-sub-requester')
                 """, id, employeeId, kind, status);
+        return id;
+    }
+
+    /**
+     * Raw insert with an explicit {@code requested_at} and {@code next_attempt_at}, so the due
+     * candidate query is tested against controlled ordering and deadline values rather than against
+     * the column defaults. A {@code null} deadline is the never-failed case the query reads as due.
+     */
+    private UUID insertTaskWithDeadline(
+            UUID employeeId, String status, LocalDateTime requestedAt, LocalDateTime nextAttemptAt) {
+        var id = UUID.randomUUID();
+        jdbcTemplate.update("""
+                INSERT INTO access_provisioning_tasks
+                    (id, employee_id, kind, status, requested_by, requested_at, next_attempt_at)
+                VALUES (?, ?, 'ACTIVATE', ?, 'kc-sub-requester', ?, ?)
+                """, id, employeeId, status, requestedAt, nextAttemptAt);
         return id;
     }
 

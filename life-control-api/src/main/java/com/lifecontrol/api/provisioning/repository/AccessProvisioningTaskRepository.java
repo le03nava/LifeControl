@@ -3,10 +3,12 @@ package com.lifecontrol.api.provisioning.repository;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTask;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTaskStatus;
 import jakarta.persistence.LockModeType;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -69,4 +71,28 @@ public interface AccessProvisioningTaskRepository extends JpaRepository<AccessPr
     @Query("SELECT t FROM AccessProvisioningTask t WHERE t.id = :id AND t.employee.id = :employeeId")
     Optional<AccessProvisioningTask> findByIdAndEmployeeIdForUpdate(
             @Param("id") UUID id, @Param("employeeId") UUID employeeId);
+
+    /**
+     * The due candidates of the worker's queue, as <b>task ids</b> and never as entities.
+     *
+     * <p>The projection is the id on purpose: the claim re-loads each row under its pessimistic
+     * write lock ({@link #findByIdAndEmployeeIdForUpdate(UUID, UUID)}), so returning entities here
+     * would let a caller act on a snapshot read before the lock (record T17/T18).</p>
+     *
+     * <p>A row is a candidate when it is {@code PENDING} — the only status the worker claims — and
+     * it is <b>due</b>: either it never failed ({@code next_attempt_at IS NULL}) or it failed and its
+     * backoff has elapsed ({@code next_attempt_at <= now}). {@code now} is a parameter rather than
+     * {@code CURRENT_TIMESTAMP} so the caller's clock is the one the deadline was written with, and
+     * the queue is FIFO through {@code ORDER BY requestedAt ASC}. The {@link Pageable} is what bounds
+     * a batch; the query is deliberately <b>global</b> — it crosses companies — because the worker is
+     * a platform process with no current user (record T47) and the employee's company is read inside
+     * the transaction.</p>
+     */
+    @Query("""
+            SELECT t.id FROM AccessProvisioningTask t
+            WHERE t.status = com.lifecontrol.api.provisioning.model.AccessProvisioningTaskStatus.PENDING
+              AND (t.nextAttemptAt IS NULL OR t.nextAttemptAt <= :now)
+            ORDER BY t.requestedAt ASC
+            """)
+    List<UUID> findDueTaskIds(@Param("now") LocalDateTime now, Pageable pageable);
 }

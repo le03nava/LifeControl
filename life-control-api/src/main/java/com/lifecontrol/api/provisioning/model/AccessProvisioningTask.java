@@ -83,6 +83,18 @@ public class AccessProvisioningTask extends Auditable {
     @Column(name = "applied_at")
     private LocalDateTime appliedAt;
 
+    /**
+     * The retry deadline (record T42), mapped to {@code next_attempt_at}.
+     *
+     * <p>The invariant is that this column is written only on the {@code FAILED → PENDING} edge and
+     * cleared by the claim: a {@code RUNNING} row carries no deadline, and a set value means
+     * "{@code PENDING} and waiting until then". {@code null} therefore reads as <b>due
+     * immediately</b> — the state a task is created in and the state the operator's manual retry
+     * leaves it in (record T46).</p>
+     */
+    @Column(name = "next_attempt_at")
+    private LocalDateTime nextAttemptAt;
+
     @Column(name = "enabled", nullable = false)
     private Boolean enabled = true;
 
@@ -159,6 +171,10 @@ public class AccessProvisioningTask extends Auditable {
         return appliedAt;
     }
 
+    public LocalDateTime getNextAttemptAt() {
+        return nextAttemptAt;
+    }
+
     public Boolean getEnabled() {
         return enabled;
     }
@@ -206,6 +222,10 @@ public class AccessProvisioningTask extends Auditable {
 
     public void setAppliedAt(LocalDateTime appliedAt) {
         this.appliedAt = appliedAt;
+    }
+
+    public void setNextAttemptAt(LocalDateTime nextAttemptAt) {
+        this.nextAttemptAt = nextAttemptAt;
     }
 
     public void setEnabled(Boolean enabled) {
@@ -280,6 +300,11 @@ public class AccessProvisioningTask extends Auditable {
 
         public Builder appliedAt(LocalDateTime appliedAt) {
             task.appliedAt = appliedAt;
+            return this;
+        }
+
+        public Builder nextAttemptAt(LocalDateTime nextAttemptAt) {
+            task.nextAttemptAt = nextAttemptAt;
             return this;
         }
 
