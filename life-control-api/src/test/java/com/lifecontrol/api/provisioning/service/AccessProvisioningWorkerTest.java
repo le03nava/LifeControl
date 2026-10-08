@@ -1,11 +1,14 @@
 package com.lifecontrol.api.provisioning.service;
 
 import static com.lifecontrol.api.provisioning.model.AccessProvisioningTaskKind.ACTIVATE;
+import static com.lifecontrol.api.provisioning.model.AccessProvisioningTaskKind.RECONCILE;
+import static com.lifecontrol.api.provisioning.model.AccessProvisioningTaskStatus.PENDING;
 import static com.lifecontrol.api.provisioning.model.AccessProvisioningTaskStatus.RUNNING;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -15,13 +18,18 @@ import com.lifecontrol.api.common.worker.WorkerRetryPolicy;
 import com.lifecontrol.api.common.worker.WorkerTick;
 import com.lifecontrol.api.config.provisioning.ProvisioningWorkerProperties;
 import com.lifecontrol.api.hr.model.Employee;
+import com.lifecontrol.api.hr.repository.EmployeeRepository;
+import com.lifecontrol.api.provisioning.exception.AccountLinkRefusedException;
 import com.lifecontrol.api.provisioning.exception.InvalidTaskStatusTransitionException;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTask;
+import com.lifecontrol.api.provisioning.model.AccessProvisioningTaskKind;
 import com.lifecontrol.api.provisioning.repository.AccessProvisioningTaskRepository;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.UUID;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,12 +44,14 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 
 /**
- * Focused unit tests for {@link AccessProvisioningWorker}'s rescue pass.
+ * Focused unit tests for {@link AccessProvisioningWorker}: the staleness rescue and the claim loop of
+ * the full pass.
  *
- * <p>The repository and the state machine are Mockito mocks — the pass's contract is which ids it
- * hands to the guard, with which deadline, and what it does when the guard refuses one — but the
- * {@link WorkerTick} is <b>real</b>, so the containment claim ("one bad row cannot abort the batch")
- * is exercised by the same loop production uses rather than asserted about a mock.</p>
+ * <p>The repository, the state machine, the handler and the employee repository are Mockito mocks —
+ * the pass's contract is which ids it hands to the guard, with which deadline, which employee and kind
+ * it dispatches, and what it does when one row is refused — but the {@link WorkerTick} is <b>real</b>,
+ * so the containment claim ("one bad row cannot abort the batch") is exercised by the same loop
+ * production uses rather than asserted about a mock.</p>
  *
  * <p>The real-PostgreSQL proof that the staleness bound actually selects the rows this unit intends
  * is a separate suite
@@ -64,18 +74,29 @@ class AccessProvisioningWorkerTest {
     @Mock
     private AccessProvisioningTaskService taskService;
 
+    @Mock
+    private AccessProvisioningWorkerHandler handler;
+
+    @Mock
+    private EmployeeRepository employeeRepository;
+
+    private WorkerRetryPolicy retryPolicy;
+
     private AccessProvisioningWorker worker;
 
     @BeforeEach
     void setUp() {
         var properties = new ProvisioningWorkerProperties(
                 false, 60, MAX_ATTEMPTS, BATCH_SIZE, BASE_DELAY_SECONDS, MAX_DELAY_SECONDS, STALENESS_SECONDS);
+        retryPolicy = new WorkerRetryPolicy(
+                MAX_ATTEMPTS, Duration.ofSeconds(BASE_DELAY_SECONDS), Duration.ofSeconds(MAX_DELAY_SECONDS));
         worker = new AccessProvisioningWorker(
                 taskRepository,
                 taskService,
+                employeeRepository,
+                handler,
                 new WorkerTick(BATCH_SIZE),
-                new WorkerRetryPolicy(
-                        MAX_ATTEMPTS, Duration.ofSeconds(BASE_DELAY_SECONDS), Duration.ofSeconds(MAX_DELAY_SECONDS)),
+                retryPolicy,
                 properties);
     }
 
@@ -84,6 +105,27 @@ class AccessProvisioningWorkerTest {
                 .id(taskId)
                 .employee(Employee.builder().id(employeeId).build())
                 .kind(ACTIVATE)
+                .status(RUNNING)
+                .attempts(attempts)
+                .build();
+    }
+
+    private AccessProvisioningTask pendingTask(UUID taskId, UUID employeeId, AccessProvisioningTaskKind kind) {
+        return AccessProvisioningTask.builder()
+                .id(taskId)
+                .employee(Employee.builder().id(employeeId).build())
+                .kind(kind)
+                .status(PENDING)
+                .attempts(0)
+                .build();
+    }
+
+    private AccessProvisioningTask claimedTask(
+            UUID taskId, UUID employeeId, AccessProvisioningTaskKind kind, int attempts) {
+        return AccessProvisioningTask.builder()
+                .id(taskId)
+                .employee(Employee.builder().id(employeeId).build())
+                .kind(kind)
                 .status(RUNNING)
                 .attempts(attempts)
                 .build();
@@ -248,6 +290,243 @@ class AccessProvisioningWorkerTest {
             assertThat(report)
                     .as("the refused row is contained and counted, and the pass keeps going")
                     .isEqualTo(new WorkerTick.TickReport(3, 1));
+        }
+    }
+
+    @Nested
+    @DisplayName("the pass (runPass)")
+    class ThePass {
+
+        @Test
+        @DisplayName("runs the rescue before it queries or claims any due row")
+        void rescueRunsBeforeTheDueQuery() {
+            var taskId = UUID.randomUUID();
+            var employeeId = UUID.randomUUID();
+            var employee = Employee.builder().id(employeeId).build();
+            when(taskRepository.findDueTaskIds(any(), any())).thenReturn(List.of(taskId));
+            when(taskRepository.findById(taskId)).thenReturn(Optional.of(pendingTask(taskId, employeeId, ACTIVATE)));
+            when(taskService.claim(employeeId, taskId)).thenReturn(claimedTask(taskId, employeeId, ACTIVATE, 1));
+            when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+            when(handler.apply(employee, ACTIVATE)).thenReturn(Set.of());
+
+            worker.runPass();
+
+            var inOrder = inOrder(taskRepository, taskService);
+            inOrder.verify(taskRepository).findStaleRunningTaskIds(any(), any());
+            inOrder.verify(taskRepository).findDueTaskIds(any(), any());
+            inOrder.verify(taskService).claim(employeeId, taskId);
+        }
+
+        @Test
+        @DisplayName("reads the due clock once and bounds the query by batchSize")
+        void boundsTheDueQueryByTheBatchSize() {
+            var before = LocalDateTime.now();
+            when(taskRepository.findDueTaskIds(any(), any())).thenReturn(List.of());
+
+            worker.runPass();
+
+            var nowCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
+            var pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+            verify(taskRepository).findDueTaskIds(nowCaptor.capture(), pageableCaptor.capture());
+            assertThat(nowCaptor.getValue())
+                    .as("the due clock is the pass's own LocalDateTime, taken once")
+                    .isBetween(before, LocalDateTime.now());
+            assertThat(pageableCaptor.getValue())
+                    .as("the query is bounded by the configured batch size")
+                    .isEqualTo(PageRequest.of(0, BATCH_SIZE));
+        }
+
+        @Test
+        @DisplayName("claims with (employeeId, taskId), dispatches the claimed kind and stores exactly the touched set")
+        void dispatchesTheClaimedKindAndStoresTheTouchedSet() {
+            var taskId = UUID.randomUUID();
+            var employeeId = UUID.randomUUID();
+            var employee = Employee.builder().id(employeeId).build();
+            var touched = new TreeSet<>(Set.of("ROLE_A", "ROLE_B"));
+            when(taskRepository.findDueTaskIds(any(), any())).thenReturn(List.of(taskId));
+            // The unlocked read carries a stale kind on purpose: the dispatch must take the kind from
+            // the claimed row, never from this snapshot (record T51 carries no authority).
+            when(taskRepository.findById(taskId)).thenReturn(Optional.of(pendingTask(taskId, employeeId, RECONCILE)));
+            when(taskService.claim(employeeId, taskId)).thenReturn(claimedTask(taskId, employeeId, ACTIVATE, 2));
+            when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+            when(handler.apply(employee, ACTIVATE)).thenReturn(touched);
+
+            var report = worker.runPass();
+
+            var inOrder = inOrder(taskService, handler);
+            inOrder.verify(taskService).claim(employeeId, taskId);
+            // ACTIVATE is the claimed row's kind even though the unlocked row said RECONCILE.
+            inOrder.verify(handler).apply(employee, ACTIVATE);
+
+            ArgumentCaptor<Set<String>> touchedCaptor = ArgumentCaptor.captor();
+            verify(taskService).markApplied(eq(employeeId), eq(taskId), touchedCaptor.capture());
+            assertThat(touchedCaptor.getValue())
+                    .as("markApplied receives exactly the set the handler returned")
+                    .isSameAs(touched);
+            assertThat(report).as("one claimed row, no failure").isEqualTo(new WorkerTick.TickReport(1, 0));
+        }
+
+        @Test
+        @DisplayName("fails a claimed row with the exception's reason and a deadline from the claimed attempts")
+        void handlerFailureFailsWithBackoffFromClaimedAttempts() {
+            var taskId = UUID.randomUUID();
+            var employeeId = UUID.randomUUID();
+            var employee = Employee.builder().id(employeeId).build();
+            when(taskRepository.findDueTaskIds(any(), any())).thenReturn(List.of(taskId));
+            when(taskRepository.findById(taskId)).thenReturn(Optional.of(pendingTask(taskId, employeeId, ACTIVATE)));
+            // attempts = 2 is the claimed, incremented count, not the unlocked row's 0.
+            when(taskService.claim(employeeId, taskId)).thenReturn(claimedTask(taskId, employeeId, ACTIVATE, 2));
+            when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+            when(handler.apply(employee, ACTIVATE))
+                    .thenThrow(new AccountLinkRefusedException("account link refused for an ambiguous email"));
+
+            var before = LocalDateTime.now().plus(retryPolicy.backoffFor(2));
+            var report = worker.runPass();
+            var after = LocalDateTime.now().plus(retryPolicy.backoffFor(2));
+
+            var reasonCaptor = ArgumentCaptor.forClass(String.class);
+            var deadlineCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
+            verify(taskService)
+                    .markFailed(eq(employeeId), eq(taskId), reasonCaptor.capture(), deadlineCaptor.capture());
+            assertThat(reasonCaptor.getValue())
+                    .as("the reason is the exception's message")
+                    .contains("account link refused for an ambiguous email");
+            assertThat(deadlineCaptor.getValue())
+                    .as("now + backoffFor(2), composed from the claimed row's attempts")
+                    .isBetween(before, after);
+            verify(taskService, never()).markApplied(any(), any(), any());
+            assertThat(report)
+                    .as("the failure is contained, so the tick reports no throw")
+                    .isEqualTo(new WorkerTick.TickReport(1, 0));
+        }
+
+        @Test
+        @DisplayName("falls back to the exception's class name when its message is blank")
+        void blankMessageFallsBackToTheClassName() {
+            var taskId = UUID.randomUUID();
+            var employeeId = UUID.randomUUID();
+            var employee = Employee.builder().id(employeeId).build();
+            when(taskRepository.findDueTaskIds(any(), any())).thenReturn(List.of(taskId));
+            when(taskRepository.findById(taskId)).thenReturn(Optional.of(pendingTask(taskId, employeeId, ACTIVATE)));
+            when(taskService.claim(employeeId, taskId)).thenReturn(claimedTask(taskId, employeeId, ACTIVATE, 1));
+            when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+            when(handler.apply(employee, ACTIVATE)).thenThrow(new IllegalStateException("   "));
+
+            worker.runPass();
+
+            var reasonCaptor = ArgumentCaptor.forClass(String.class);
+            verify(taskService).markFailed(eq(employeeId), eq(taskId), reasonCaptor.capture(), any());
+            assertThat(reasonCaptor.getValue())
+                    .as("a blank message has nothing to persist, so the class name is the reason")
+                    .isEqualTo(IllegalStateException.class.getName());
+        }
+
+        @Test
+        @DisplayName("gives a claimed row at the ceiling a null deadline so it stays FAILED")
+        void atTheCeilingGetsANullDeadline() {
+            var taskId = UUID.randomUUID();
+            var employeeId = UUID.randomUUID();
+            var employee = Employee.builder().id(employeeId).build();
+            when(taskRepository.findDueTaskIds(any(), any())).thenReturn(List.of(taskId));
+            when(taskRepository.findById(taskId)).thenReturn(Optional.of(pendingTask(taskId, employeeId, ACTIVATE)));
+            when(taskService.claim(employeeId, taskId))
+                    .thenReturn(claimedTask(taskId, employeeId, ACTIVATE, MAX_ATTEMPTS));
+            when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+            when(handler.apply(employee, ACTIVATE)).thenThrow(new IllegalStateException("still failing"));
+
+            worker.runPass();
+
+            verify(taskService).markFailed(eq(employeeId), eq(taskId), any(), isNull());
+            verify(taskService, never()).markApplied(any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("skips a due row that vanished between the query and the claim")
+        void skipsAVanishedDueRow() {
+            var vanished = UUID.randomUUID();
+            when(taskRepository.findDueTaskIds(any(), any())).thenReturn(List.of(vanished));
+            when(taskRepository.findById(vanished)).thenReturn(Optional.empty());
+
+            var report = worker.runPass();
+
+            verify(taskService, never()).claim(any(), any());
+            verify(handler, never()).apply(any(), any());
+            verify(taskService, never()).markFailed(any(), any(), any(), any());
+            assertThat(report)
+                    .as("the vanished row is attempted but neither claimed nor failed")
+                    .isEqualTo(new WorkerTick.TickReport(1, 0));
+        }
+
+        @Test
+        @DisplayName("contains a claim refused by the guard and still processes the next due row")
+        void aRefusedClaimDoesNotAbortTheNextRow() {
+            var first = UUID.randomUUID();
+            var refused = UUID.randomUUID();
+            var last = UUID.randomUUID();
+            var employeeId = UUID.randomUUID();
+            var employee = Employee.builder().id(employeeId).build();
+            when(taskRepository.findDueTaskIds(any(), any())).thenReturn(List.of(first, refused, last));
+            when(taskRepository.findById(any()))
+                    .thenAnswer(
+                            invocation -> Optional.of(pendingTask(invocation.getArgument(0), employeeId, ACTIVATE)));
+            when(taskService.claim(employeeId, first)).thenReturn(claimedTask(first, employeeId, ACTIVATE, 1));
+            when(taskService.claim(employeeId, refused))
+                    .thenThrow(new InvalidTaskStatusTransitionException("APPLIED", "RUNNING"));
+            when(taskService.claim(employeeId, last)).thenReturn(claimedTask(last, employeeId, ACTIVATE, 1));
+            when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+            when(handler.apply(employee, ACTIVATE)).thenReturn(Set.of());
+
+            var report = worker.runPass();
+
+            verify(handler, times(2)).apply(employee, ACTIVATE);
+            verify(taskService, never()).markFailed(any(), any(), any(), any());
+            assertThat(report)
+                    .as("the refused claim is contained; the first and last rows still ran")
+                    .isEqualTo(new WorkerTick.TickReport(3, 1));
+        }
+
+        @Test
+        @DisplayName("a missing employee still ends in markFailed rather than leaving the row RUNNING")
+        void aMissingEmployeeIsStillFailed() {
+            var taskId = UUID.randomUUID();
+            var employeeId = UUID.randomUUID();
+            when(taskRepository.findDueTaskIds(any(), any())).thenReturn(List.of(taskId));
+            when(taskRepository.findById(taskId)).thenReturn(Optional.of(pendingTask(taskId, employeeId, ACTIVATE)));
+            when(taskService.claim(employeeId, taskId)).thenReturn(claimedTask(taskId, employeeId, ACTIVATE, 1));
+            when(employeeRepository.findById(employeeId)).thenReturn(Optional.empty());
+
+            worker.runPass();
+
+            verify(handler, never()).apply(any(), any());
+            var reasonCaptor = ArgumentCaptor.forClass(String.class);
+            verify(taskService).markFailed(eq(employeeId), eq(taskId), reasonCaptor.capture(), any());
+            assertThat(reasonCaptor.getValue())
+                    .as("the reason names the employee that could not be loaded")
+                    .contains(employeeId.toString());
+            verify(taskService, never()).markApplied(any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("bounds an over-long failure message so the recovery write cannot overflow last_error")
+        void boundsAnOverLongFailureMessage() {
+            var taskId = UUID.randomUUID();
+            var employeeId = UUID.randomUUID();
+            var employee = Employee.builder().id(employeeId).build();
+            var longMessage = "x".repeat(600);
+            when(taskRepository.findDueTaskIds(any(), any())).thenReturn(List.of(taskId));
+            when(taskRepository.findById(taskId)).thenReturn(Optional.of(pendingTask(taskId, employeeId, ACTIVATE)));
+            when(taskService.claim(employeeId, taskId)).thenReturn(claimedTask(taskId, employeeId, ACTIVATE, 1));
+            when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+            when(handler.apply(employee, ACTIVATE)).thenThrow(new IllegalStateException(longMessage));
+
+            worker.runPass();
+
+            var reasonCaptor = ArgumentCaptor.forClass(String.class);
+            verify(taskService).markFailed(eq(employeeId), eq(taskId), reasonCaptor.capture(), any());
+            assertThat(reasonCaptor.getValue())
+                    .as("last_error is VARCHAR(500): the reason is truncated, not passed through")
+                    .hasSize(AccessProvisioningWorker.LAST_ERROR_MAX_LENGTH);
+            assertThat(longMessage).startsWith(reasonCaptor.getValue());
         }
     }
 }
