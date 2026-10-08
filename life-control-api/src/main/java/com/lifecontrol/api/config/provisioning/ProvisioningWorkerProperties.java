@@ -16,13 +16,13 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * is the fail-safe direction for a worker that mutates another system: forgetting to set the flag
  * stops the work instead of starting it.</p>
  *
- * <p>Consumed by this unit: {@code maxAttempts}, {@code baseDelaySeconds} and {@code maxDelaySeconds},
- * which {@link ProvisioningWorkerConfig} turns into the {@code WorkerRetryPolicy} bean, plus
- * {@code batchSize} and {@code stalenessThresholdSeconds}, consumed here by that holder's
- * {@code WorkerTick} bean and by {@link com.lifecontrol.api.provisioning.service.AccessProvisioningWorker}'s
- * rescue pass. The remaining values — {@code enabled} and {@code intervalSeconds} — are <b>bound but
- * not consumed</b>: record T52 places their consumer with the scheduler in the next unit, and this
- * unit does not claim every value has a consumer on the day it lands.</p>
+ * <p><b>Every value has a consumer.</b> {@code maxAttempts}, {@code baseDelaySeconds} and
+ * {@code maxDelaySeconds} are turned into the {@code WorkerRetryPolicy} bean; {@code batchSize} bounds
+ * the {@code WorkerTick} bean and {@code stalenessThresholdSeconds} is read by
+ * {@link com.lifecontrol.api.provisioning.service.AccessProvisioningWorker}'s rescue pass, all three
+ * through {@link ProvisioningWorkerConfig}. {@code enabled} and {@code intervalSeconds} are consumed by
+ * {@link ProvisioningWorkerSchedulerConfig}: the first is its {@code @ConditionalOnProperty}, the
+ * second its scheduled pass's {@code fixedDelay}. No value is bound without a reader.</p>
  *
  * <p>Supplied by {@code application.properties} as
  * {@code app.provisioning.worker.enabled=${WORKER_ENABLED:false}} and the {@code WORKER_*} siblings.</p>
