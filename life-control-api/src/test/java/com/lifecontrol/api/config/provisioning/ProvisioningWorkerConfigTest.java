@@ -3,6 +3,7 @@ package com.lifecontrol.api.config.provisioning;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.lifecontrol.api.common.worker.WorkerRetryPolicy;
+import com.lifecontrol.api.common.worker.WorkerTick;
 import java.time.Duration;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -85,13 +86,19 @@ class ProvisioningWorkerConfigTest {
                 .withPropertyValues(
                         "app.provisioning.worker.max-attempts=7",
                         "app.provisioning.worker.base-delay-seconds=15",
-                        "app.provisioning.worker.max-delay-seconds=120");
+                        "app.provisioning.worker.max-delay-seconds=120",
+                        // The holder's WorkerTick bean reads this value, so the slice must bind every
+                        // property that holder's beans read, or the bean cannot be instantiated.
+                        "app.provisioning.worker.batch-size=20");
 
         @Test
         @DisplayName("binds the properties and produces a policy that follows the bound values")
         void bindsPropertiesAndProducesPolicy() {
             runner.run(context -> {
                 assertThat(context).hasSingleBean(ProvisioningWorkerProperties.class);
+                // WorkerTick exposes no getter for its limit, so this proves the bean was constructed
+                // from a bound (non-null) batch-size, not the numeric value it was built with.
+                assertThat(context).hasSingleBean(WorkerTick.class);
 
                 var policy = context.getBeanProvider(WorkerRetryPolicy.class).getIfAvailable();
 

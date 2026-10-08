@@ -43,6 +43,10 @@ import org.springframework.stereotype.Repository;
  *       two callers cannot read the same row and both move it. It is the serialization point of the
  *       state machine; W4 owns proving its atomicity against the database, and this repository owns
  *       making the guarded methods the only doors into a status.</li>
+ *   <li>{@link #findStaleRunningTaskIds} — the rescue pass's candidates: {@code RUNNING} rows whose
+ *       {@code updated_at} is older than the staleness bound, as ids so the rescue resolves each
+ *       employee through the unlocked read and the guarded, locked re-load remains the authority
+ *       (record T51, record T53).</li>
  * </ul>
  */
 @Repository
@@ -95,4 +99,41 @@ public interface AccessProvisioningTaskRepository extends JpaRepository<AccessPr
             ORDER BY t.requestedAt ASC
             """)
     List<UUID> findDueTaskIds(@Param("now") LocalDateTime now, Pageable pageable);
+
+    /**
+     * The stranded candidates of the worker's rescue pass, as <b>task ids</b> and never as entities.
+     *
+     * <p>The projection is the id on purpose, mirroring {@link #findDueTaskIds}: the rescue re-loads
+     * each row through the inherited unlocked {@code findById} only to learn which employee owns it,
+     * and that unlocked read <b>carries no authority</b> — the guarded, locked re-load inside
+     * {@code AccessProvisioningTaskService#markFailed} is what decides, so a row that moved on between
+     * this read and the rescue is refused rather than overwritten (record T51). Returning entities
+     * here would hand the caller a snapshot taken before any lock, which is exactly what the ids-only
+     * projection refuses.</p>
+     *
+     * <p>A row is stranded when it is still {@code RUNNING} — the status a claim writes, which only a
+     * completed run or this rescue leaves — and its {@code updated_at} is older than
+     * {@code staleBefore} (record T53). The clock is
+     * {@link com.lifecontrol.api.common.model.Auditable#getUpdatedAt()}, and this is the <b>one</b>
+     * place record T42's refusal of {@code updated_at} does not apply: T42 refused it for a
+     * <em>deadline</em>, because any write to the row would move a due time, while for a
+     * <em>staleness bound</em> a moving {@code updated_at} errs in the <b>safe</b> direction — a row
+     * whose run is still writing keeps looking alive, so a live run is not stolen merely because the
+     * clock advanced. {@code staleBefore} is a parameter rather than {@code CURRENT_TIMESTAMP} so the
+     * pass's single clock read — the same value the rescue deadline is composed from — is the one the
+     * bound was derived from, matching {@link #findDueTaskIds}.</p>
+     *
+     * <p>The order is oldest first through {@code ORDER BY updatedAt ASC}: staleness is the selection
+     * axis, so the row that has been stranded longest is rescued first. The {@link Pageable} bounds the
+     * batch — the same bound {@code WorkerTick} then re-applies — and the query is deliberately
+     * <b>global</b> (it crosses companies) because the worker is a platform process with no current
+     * user (record T47); the employee's company arrives inside the rescue's own transaction.</p>
+     */
+    @Query("""
+            SELECT t.id FROM AccessProvisioningTask t
+            WHERE t.status = com.lifecontrol.api.provisioning.model.AccessProvisioningTaskStatus.RUNNING
+              AND t.updatedAt < :staleBefore
+            ORDER BY t.updatedAt ASC
+            """)
+    List<UUID> findStaleRunningTaskIds(@Param("staleBefore") LocalDateTime staleBefore, Pageable pageable);
 }
