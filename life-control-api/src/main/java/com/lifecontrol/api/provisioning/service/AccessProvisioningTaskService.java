@@ -6,13 +6,17 @@ import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.provisioning.exception.AccessProvisioningTaskAlreadyOpenException;
 import com.lifecontrol.api.provisioning.exception.AccessProvisioningTaskNotFoundException;
 import com.lifecontrol.api.provisioning.exception.InvalidTaskStatusTransitionException;
+import com.lifecontrol.api.provisioning.model.AccessProvisioningAppliedRole;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTask;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTaskKind;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTaskStatus;
+import com.lifecontrol.api.provisioning.repository.AccessProvisioningAppliedRoleRepository;
 import com.lifecontrol.api.provisioning.repository.AccessProvisioningTaskRepository;
 import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.Set;
+import java.util.SortedSet;
+import java.util.TreeSet;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -99,14 +103,17 @@ public class AccessProvisioningTaskService {
             AccessProvisioningTaskStatus.FAILED);
 
     private final AccessProvisioningTaskRepository taskRepository;
+    private final AccessProvisioningAppliedRoleRepository appliedRoleRepository;
     private final EmployeeRepository employeeRepository;
     private final CurrentUserContext currentUserContext;
 
     public AccessProvisioningTaskService(
             AccessProvisioningTaskRepository taskRepository,
+            AccessProvisioningAppliedRoleRepository appliedRoleRepository,
             EmployeeRepository employeeRepository,
             CurrentUserContext currentUserContext) {
         this.taskRepository = taskRepository;
+        this.appliedRoleRepository = appliedRoleRepository;
         this.employeeRepository = employeeRepository;
         this.currentUserContext = currentUserContext;
     }
@@ -182,18 +189,80 @@ public class AccessProvisioningTaskService {
     }
 
     /**
-     * Marks a {@code RUNNING} task converged: {@code RUNNING → APPLIED}, {@code appliedAt = now}.
+     * Marks a {@code RUNNING} task converged — {@code RUNNING → APPLIED}, {@code appliedAt = now} —
+     * and writes the <b>applied snapshot</b> in the same transaction: one
+     * {@code access_provisioning_applied_roles} row per role the run touched.
      *
+     * <p><b>Why the snapshot rides this signature instead of a second call.</b> The snapshot means
+     * "what the run touched" — {@code granted ∪ removed} (record T35), never a final state — and it
+     * is written <b>inside</b> the {@code APPLIED} transaction (record T60). A separate
+     * {@code recordAppliedRoles} call would be a second transaction, and a process dying between the
+     * two would leave {@code APPLIED} with no record of what it applied — the record's own class of
+     * defect, the one {@link #markFailed(UUID, UUID, String, LocalDateTime)} was corrected for. That
+     * is also why the one-argument form is <b>replaced</b> and not overloaded: two ways to reach one
+     * edge is what record T17 forbids, and the replaced form had no production caller.</p>
+     *
+     * <p><b>The parameter type is {@code Set}, and the invariant is structural.</b> The table's
+     * {@code UNIQUE (task_id, role_name)} means one row per role; a {@code Set} makes a duplicate
+     * impossible before any guard could be written, whereas a {@code List} would need a
+     * de-duplication step that is easy to forget. The caller passes {@code granted ∪ removed}, which
+     * {@link com.lifecontrol.api.provisioning.dto.RoleConvergenceResult} already normalizes to an
+     * unmodifiable {@code TreeSet}, but this method does not lean on that: it copies the names into
+     * its own {@link TreeSet} so the written order is ascending <b>by construction here</b> and never
+     * depends on the caller's iteration order. That matters because a {@code HashSet} from any future
+     * caller would write the batch in an arbitrary order, and the read side
+     * ({@code findByTaskIdOrderByCreatedAtAsc}) orders by {@code created_at}, which is identical for
+     * every row of one batch — so the write order is the only order a reader could ever see.</p>
+     *
+     * <p><b>The clock is read once.</b> {@code appliedAt} and every row's {@code createdAt} are the
+     * same value, so the task's edge and its snapshot cannot disagree about when the run landed. The
+     * entity's {@code @PrePersist} only fills {@code created_at} when it is null, so the explicit
+     * value wins and the shared instant is what is persisted.</p>
+     *
+     * <p><b>The empty snapshot is deliberate, not an error.</b> A run that touched nothing — a person
+     * already converged — is a legitimate {@code APPLIED} with zero rows (record T35); the method
+     * skips the write entirely rather than issuing an empty batch. The dangerous reading is the
+     * opposite one: a {@code Terminated} employee requires nothing, so a "final state" snapshot would
+     * write zero rows for a run that removed everything, which is exactly why the caller passes what
+     * was <b>touched</b>.</p>
+     *
+     * <p><b>Refusals.</b> A blank or {@code null} role name is refused with
+     * {@link IllegalArgumentException} before the task is even read: the column is {@code NOT NULL}
+     * but PostgreSQL accepts the empty string, so a blank name would otherwise be stored silently as a
+     * role the task never applied. The column's 100-character width is deliberately <b>not</b>
+     * duplicated here — the database is the authority on its own type, and a second literal in Java
+     * would be one more copy to drift. A longer name is passed through untruncated and the column
+     * refuses it, rolling the whole transaction back; silently truncating to a valid-but-wrong role
+     * name would record a grant that never happened.</p>
+     *
+     * @param appliedRoleNames the roles the run touched ({@code granted ∪ removed}); an empty set is
+     *     valid and writes no rows
+     * @return the task, moved to {@code APPLIED} with {@code appliedAt} stamped
+     * @throws IllegalArgumentException when the set is {@code null} or any name is {@code null} or blank
      * @throws AccessProvisioningTaskNotFoundException when the task is unknown or belongs to another
      *     employee
      * @throws InvalidTaskStatusTransitionException when the task is not {@code RUNNING}
      */
     @Transactional
-    public AccessProvisioningTask markApplied(UUID employeeId, UUID taskId) {
+    public AccessProvisioningTask markApplied(UUID employeeId, UUID taskId, Set<String> appliedRoleNames) {
+        var roleNames = requireUsableRoleNames(appliedRoleNames);
         var task = loadForUpdate(taskId, employeeId);
         guardTransition(task, AccessProvisioningTaskStatus.APPLIED);
-        task.setAppliedAt(LocalDateTime.now());
-        return taskRepository.save(task);
+
+        var appliedAt = LocalDateTime.now();
+        task.setAppliedAt(appliedAt);
+        var saved = taskRepository.save(task);
+
+        if (!roleNames.isEmpty()) {
+            appliedRoleRepository.saveAll(roleNames.stream()
+                    .map(roleName -> AccessProvisioningAppliedRole.builder()
+                            .task(saved)
+                            .roleName(roleName)
+                            .createdAt(appliedAt)
+                            .build())
+                    .toList());
+        }
+        return saved;
     }
 
     /**
@@ -336,5 +405,29 @@ public class AccessProvisioningTaskService {
         return taskRepository
                 .findByIdAndEmployeeIdForUpdate(taskId, employeeId)
                 .orElseThrow(() -> new AccessProvisioningTaskNotFoundException(taskId));
+    }
+
+    /**
+     * The applied-snapshot names as a sorted, duplicate-free set, refusing anything that could not be
+     * read back as a role. The {@link TreeSet} is built here rather than trusted from the caller, so
+     * the persisted order is ascending regardless of the input's iteration order; a {@code null} set
+     * is refused rather than read as empty, because "touched nothing" must be an explicit
+     * {@code Set.of()} and a {@code null} is a caller bug that would otherwise erase the snapshot.
+     */
+    private static SortedSet<String> requireUsableRoleNames(Set<String> appliedRoleNames) {
+        if (appliedRoleNames == null) {
+            throw new IllegalArgumentException(
+                    "Refusing to record the applied snapshot: the role-name set is null; pass an empty"
+                            + " set when the run touched no role");
+        }
+        var names = new TreeSet<String>();
+        for (var roleName : appliedRoleNames) {
+            if (roleName == null || roleName.isBlank()) {
+                throw new IllegalArgumentException(
+                        "Refusing to record a blank role name in the applied snapshot: " + roleName);
+            }
+            names.add(roleName);
+        }
+        return names;
     }
 }
