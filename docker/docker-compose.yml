@@ -380,6 +380,19 @@ services:
       - KEYCLOAK_URI=${KEYCLOAK_INTERNAL_URI:-http://keycloak:8080/realms/life-control-realm}
       - KEYCLOAK_ISSUER_URI=${KEYCLOAK_ISSUER_URI:-http://localhost:8181/realms/life-control-realm}
       - WEB_APP_URL=${WEB_APP_URL:-http://localhost:4200}
+      # Access-provisioning worker: OFF in every environment by default. It mutates another
+      # system with nobody watching, so switching it on is an explicit per-environment
+      # operator decision made here, without rebuilding an image.
+      - WORKER_ENABLED=${WORKER_ENABLED:-false}
+      - WORKER_INTERVAL_SECONDS=${WORKER_INTERVAL_SECONDS:-60}
+      - WORKER_MAX_ATTEMPTS=${WORKER_MAX_ATTEMPTS:-5}
+      - WORKER_BATCH_SIZE=${WORKER_BATCH_SIZE:-20}
+      - WORKER_BASE_DELAY_SECONDS=${WORKER_BASE_DELAY_SECONDS:-30}
+      - WORKER_MAX_DELAY_SECONDS=${WORKER_MAX_DELAY_SECONDS:-3600}
+      # How long a claimed RUNNING row may stay claimed before another tick treats it as
+      # abandoned; it must stay above the worst real tick, or the worker could steal its own
+      # live row and execute it twice.
+      - WORKER_STALENESS_THRESHOLD_SECONDS=${WORKER_STALENESS_THRESHOLD_SECONDS:-900}
       - REDIS_HOST=${REDIS_HOST:-redis}
       - REDIS_PORT=${REDIS_INTERNAL_PORT:-6379}
     volumes:
