@@ -24,10 +24,14 @@ import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.provisioning.exception.AccessProvisioningTaskAlreadyOpenException;
 import com.lifecontrol.api.provisioning.exception.AccessProvisioningTaskNotFoundException;
 import com.lifecontrol.api.provisioning.exception.InvalidTaskStatusTransitionException;
+import com.lifecontrol.api.provisioning.model.AccessProvisioningAppliedRole;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTask;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTaskStatus;
+import com.lifecontrol.api.provisioning.repository.AccessProvisioningAppliedRoleRepository;
 import com.lifecontrol.api.provisioning.repository.AccessProvisioningTaskRepository;
 import java.time.LocalDateTime;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -36,9 +40,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.access.AccessDeniedException;
 
 /**
@@ -54,6 +60,9 @@ class AccessProvisioningTaskServiceTest {
 
     @Mock
     private AccessProvisioningTaskRepository taskRepository;
+
+    @Mock
+    private AccessProvisioningAppliedRoleRepository appliedRoleRepository;
 
     @Mock
     private EmployeeRepository employeeRepository;
@@ -281,18 +290,107 @@ class AccessProvisioningTaskServiceTest {
     class MarkAppliedTests {
 
         @Test
-        @DisplayName("should move RUNNING to APPLIED and stamp appliedAt")
+        @DisplayName("should move RUNNING to APPLIED, stamp appliedAt and persist one sorted row per role")
+        @SuppressWarnings("unchecked")
         void markApplied_FromRunning() {
             var task = taskInStatus(RUNNING);
             stubLoadedForUpdate(task);
             stubSaved();
 
-            var result = service.markApplied(employeeId, taskId);
+            var result = service.markApplied(employeeId, taskId, Set.of("lc-sales", "lc-admin-viewer"));
 
             assertThat(result.getStatus()).isEqualTo(APPLIED);
             assertThat(result.getAppliedAt()).isNotNull();
             assertThat(result.getLastError()).isNull();
             verifyLockedLoad();
+
+            var captor = ArgumentCaptor.forClass(List.class);
+            verify(appliedRoleRepository).saveAll(captor.capture());
+            List<AccessProvisioningAppliedRole> rows = captor.getValue();
+            assertThat(rows)
+                    .as("one row per touched role, in ascending name order regardless of the input's iteration order")
+                    .extracting(AccessProvisioningAppliedRole::getRoleName)
+                    .containsExactly("lc-admin-viewer", "lc-sales");
+            assertThat(rows)
+                    .as("every row's createdAt is the single clock read that stamped appliedAt")
+                    .extracting(AccessProvisioningAppliedRole::getCreatedAt)
+                    .containsOnly(result.getAppliedAt());
+            assertThat(rows)
+                    .as("every row points back at the task the edge moved")
+                    .extracting(row -> row.getTask().getId())
+                    .containsOnly(taskId);
+        }
+
+        @Test
+        @DisplayName("should apply with zero snapshot rows when the run touched nothing")
+        void markApplied_EmptySnapshotStillApplies() {
+            var task = taskInStatus(RUNNING);
+            stubLoadedForUpdate(task);
+            stubSaved();
+
+            var result = service.markApplied(employeeId, taskId, Set.of());
+
+            assertThat(result.getStatus())
+                    .as("a run that touched nothing is a legitimate APPLIED, not an error (record T35)")
+                    .isEqualTo(APPLIED);
+            assertThat(result.getAppliedAt()).isNotNull();
+            verify(appliedRoleRepository, never()).saveAll(any());
+        }
+
+        @Test
+        @DisplayName("should refuse a blank role name before reading the task")
+        void markApplied_RefusesBlankRoleName() {
+            assertThatThrownBy(() -> service.markApplied(employeeId, taskId, Set.of("  ")))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("blank");
+
+            verify(taskRepository, never()).findByIdAndEmployeeIdForUpdate(any(), any());
+            verify(appliedRoleRepository, never()).saveAll(any());
+        }
+
+        @Test
+        @DisplayName("should refuse a null role name rather than let it reach the column")
+        void markApplied_RefusesNullRoleName() {
+            var names = new HashSet<String>();
+            names.add(null);
+
+            assertThatThrownBy(() -> service.markApplied(employeeId, taskId, names))
+                    .isInstanceOf(IllegalArgumentException.class);
+            verify(taskRepository, never()).findByIdAndEmployeeIdForUpdate(any(), any());
+            verify(appliedRoleRepository, never()).saveAll(any());
+        }
+
+        @Test
+        @DisplayName("should refuse a null snapshot set rather than read it as empty")
+        void markApplied_RefusesNullSnapshotSet() {
+            assertThatThrownBy(() -> service.markApplied(employeeId, taskId, null))
+                    .isInstanceOf(IllegalArgumentException.class);
+            verify(taskRepository, never()).findByIdAndEmployeeIdForUpdate(any(), any());
+            verify(appliedRoleRepository, never()).saveAll(any());
+        }
+
+        @Test
+        @DisplayName("should not truncate a role name longer than the column's 100 characters")
+        @SuppressWarnings("unchecked")
+        void markApplied_DoesNotTruncateAnOverlongRoleName() {
+            var task = taskInStatus(RUNNING);
+            stubLoadedForUpdate(task);
+            stubSaved();
+            var overlong = "r".repeat(101);
+            when(appliedRoleRepository.saveAll(any()))
+                    .thenThrow(new DataIntegrityViolationException("value too long for type character varying(100)"));
+
+            assertThatThrownBy(() -> service.markApplied(employeeId, taskId, Set.of(overlong)))
+                    .as("the column width refuses the name and the refusal is not swallowed")
+                    .isInstanceOf(DataIntegrityViolationException.class);
+
+            var captor = ArgumentCaptor.forClass(List.class);
+            verify(appliedRoleRepository).saveAll(captor.capture());
+            List<AccessProvisioningAppliedRole> rows = captor.getValue();
+            assertThat(rows)
+                    .extracting(AccessProvisioningAppliedRole::getRoleName)
+                    .as("the full name reaches the database, never a silently truncated prefix")
+                    .containsExactly(overlong);
         }
 
         @Test
@@ -301,11 +399,12 @@ class AccessProvisioningTaskServiceTest {
             var task = taskInStatus(PENDING);
             stubLoadedForUpdate(task);
 
-            assertThatThrownBy(() -> service.markApplied(employeeId, taskId))
+            assertThatThrownBy(() -> service.markApplied(employeeId, taskId, Set.of("lc-sales")))
                     .isInstanceOf(InvalidTaskStatusTransitionException.class);
             assertThat(task.getStatus()).isEqualTo(PENDING);
             verifyLockedLoad();
             verify(taskRepository, never()).save(any());
+            verify(appliedRoleRepository, never()).saveAll(any());
         }
 
         @Test
@@ -314,10 +413,10 @@ class AccessProvisioningTaskServiceTest {
             when(taskRepository.findByIdAndEmployeeIdForUpdate(taskId, employeeId))
                     .thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> service.markApplied(employeeId, taskId))
+            assertThatThrownBy(() -> service.markApplied(employeeId, taskId, Set.of("lc-sales")))
                     .isInstanceOf(AccessProvisioningTaskNotFoundException.class);
             verifyLockedLoad();
-            verify(taskRepository, never()).save(any());
+            verify(appliedRoleRepository, never()).saveAll(any());
         }
     }
 
