@@ -441,20 +441,39 @@ class AccessProvisioningWorkerTest {
         }
 
         @Test
-        @DisplayName("skips a due row that vanished between the query and the claim")
+        @DisplayName("skips a vanished due row and still claims, dispatches and applies the real one beside it")
         void skipsAVanishedDueRow() {
             var vanished = UUID.randomUUID();
-            when(taskRepository.findDueTaskIds(any(), any())).thenReturn(List.of(vanished));
+            var claimable = UUID.randomUUID();
+            var employeeId = UUID.randomUUID();
+            var employee = Employee.builder().id(employeeId).build();
+            var touched = Set.of("ROLE_A");
+            when(taskRepository.findDueTaskIds(any(), any())).thenReturn(List.of(vanished, claimable));
             when(taskRepository.findById(vanished)).thenReturn(Optional.empty());
+            when(taskRepository.findById(claimable))
+                    .thenReturn(Optional.of(pendingTask(claimable, employeeId, ACTIVATE)));
+            when(taskService.claim(employeeId, claimable)).thenReturn(claimedTask(claimable, employeeId, ACTIVATE, 1));
+            when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+            when(handler.apply(employee, ACTIVATE)).thenReturn(touched);
 
             var report = worker.runPass();
 
-            verify(taskService, never()).claim(any(), any());
-            verify(handler, never()).apply(any(), any());
-            verify(taskService, never()).markFailed(any(), any(), any(), any());
+            // The vanished row is skipped: it is not this pass's row to claim, dispatch or fail.
+            verify(taskService, never()).claim(any(), eq(vanished));
+            verify(taskService, never()).markApplied(any(), eq(vanished), any());
+            verify(taskService, never()).markFailed(any(), eq(vanished), any(), any());
+            // The positive half in the same batch: the real row is claimed, dispatched and applied, so
+            // this method cannot pass for a pass body that does nothing.
+            verify(taskService).claim(employeeId, claimable);
+            verify(handler).apply(employee, ACTIVATE);
+            ArgumentCaptor<Set<String>> touchedCaptor = ArgumentCaptor.captor();
+            verify(taskService).markApplied(eq(employeeId), eq(claimable), touchedCaptor.capture());
+            assertThat(touchedCaptor.getValue())
+                    .as("the real row is dispatched end to end in the same batch")
+                    .isEqualTo(touched);
             assertThat(report)
-                    .as("the vanished row is attempted but neither claimed nor failed")
-                    .isEqualTo(new WorkerTick.TickReport(1, 0));
+                    .as("both rows are attempted: the vanished one is skipped, the real one is applied")
+                    .isEqualTo(new WorkerTick.TickReport(2, 0));
         }
 
         @Test

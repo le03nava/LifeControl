@@ -70,16 +70,27 @@ import org.springframework.stereotype.Service;
  * also composes every failure deadline, keeping "is this due?" and "when is the next attempt?" on
  * one clock.</p>
  *
- * <p><b>A claimed row must never be left {@code RUNNING}.</b> From the moment
- * {@link AccessProvisioningTaskService#claim} succeeds the row has no path back except the ones the
- * state machine guards, so every failure between the claim and the outcome — a handler refusal, an
- * exception out of a capability, a missing employee — ends in
- * {@link AccessProvisioningTaskService#markFailed} with a visible reason and the policy's deadline,
- * composed from the <b>claimed</b> row's incremented attempts. The reason is bounded to
+ * <p><b>A failure the recovery can see does not leave a claimed row {@code RUNNING}.</b> From the
+ * moment {@link AccessProvisioningTaskService#claim} succeeds the row has no path back except the
+ * ones the state machine guards, so every failure between the claim and the outcome that the
+ * recovery block observes — a handler refusal, an exception out of a capability, a missing employee
+ * — ends in {@link AccessProvisioningTaskService#markFailed} with a visible reason and the policy's
+ * deadline, composed from the <b>claimed</b> row's incremented attempts. The reason is bounded to
  * {@link #LAST_ERROR_MAX_LENGTH} characters on purpose: a reason longer than
  * {@code last_error VARCHAR(500)} would make the recovery write itself fail and strand the row
  * {@code RUNNING}, which is the exact hole this class exists to close, so a truncated message is
  * strictly better than a failed transition here.</p>
+ *
+ * <p><b>Two escapes are left to the rescue on purpose, and widening the catch is refused.</b> The
+ * recovery catches {@link RuntimeException} only — {@link WorkerTick}'s own containment does the
+ * same — so an {@link Error} thrown after the claim escapes the pass; and the recovery block itself
+ * can throw before {@code markFailed} runs, either out of {@code deadlineFor} (its
+ * {@code Duration.multipliedBy} overflows into an {@link ArithmeticException} on a pathological
+ * {@code max-delay-seconds}/attempts binding) or out of {@code markFailed} when the row has moved
+ * on. In both cases the claimed row stays {@code RUNNING} until the staleness rescue collects it, a
+ * window bounded by {@code interval-seconds} plus {@code staleness-threshold-seconds}. Both are
+ * deliberate: catching {@link Throwable} would swallow genuine JVM failures, and the rescue — which
+ * leads this same pass for exactly this reason — already bounds the consequence.</p>
  *
  * <p><b>A claim the guard refuses is not this pass's row to fail.</b> The refusal is thrown by
  * {@code claim} <b>before</b> the recovery block, so it propagates into {@link WorkerTick}'s
@@ -167,8 +178,8 @@ public class AccessProvisioningWorker {
     }
 
     /**
-     * Claims and dispatches one due row, and guarantees that a claimed row never stays
-     * {@code RUNNING}.
+     * Claims and dispatches one due row, and ends every failure it can see in
+     * {@code markFailed} rather than leaving the row {@code RUNNING}.
      *
      * <p><b>The unlocked read only routes.</b> {@code findById} tells this method which employee owns
      * the task and nothing more; a row that vanished between the query and this read is skipped
@@ -182,11 +193,13 @@ public class AccessProvisioningWorker {
      * throws out of here and is contained by {@link WorkerTick}: the row was never ours, so this method
      * must not fail it.</p>
      *
-     * <p><b>Every failure after the claim is recorded.</b> From the moment the claim succeeds the row
-     * is {@code RUNNING}, and the only status with a legal exit is the one {@code markFailed} performs.
-     * A handler refusal, an exception out of a capability, or a missing employee therefore ends in
-     * {@code markFailed} with the exception's reason and the policy's deadline — never in a silent
-     * return that would strand the row and block the employee's provisioning (records T10/T53).</p>
+     * <p><b>Every failure the recovery can see is recorded.</b> From the moment the claim succeeds
+     * the row is {@code RUNNING}, and the only status with a legal exit is the one {@code markFailed}
+     * performs. A handler refusal, an exception out of a capability, or a missing employee therefore
+     * ends in {@code markFailed} with the exception's reason and the policy's deadline — never in a
+     * silent return that would strand the row and block the employee's provisioning (records
+     * T10/T53). What the {@code catch} cannot see — an {@link Error}, or a throw out of the recovery
+     * block itself — is left to the staleness rescue on purpose, as the class javadoc records.</p>
      */
     private void process(UUID taskId, LocalDateTime now) {
         var resolved = taskRepository.findById(taskId).orElse(null);
