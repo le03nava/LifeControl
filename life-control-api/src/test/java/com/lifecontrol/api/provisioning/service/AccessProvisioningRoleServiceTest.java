@@ -485,4 +485,54 @@ class AccessProvisioningRoleServiceTest {
             verify(identityProvider, never()).removeRoleFromUser(any(), any(), any(), any());
         }
     }
+
+    @Nested
+    @DisplayName("requiredRoles (read-only accessor)")
+    class RequiredRolesAccessorTests {
+
+        @Test
+        @DisplayName("exposes the same derivation the write path uses, with no identity-provider call")
+        void exposesTheDerivationWithoutWriting() {
+            stubContracts(contract(position));
+            stubTemplate(
+                    role("lc-sales", true),
+                    role("lc-company", true),
+                    role("lc-admin", true),
+                    role("lc-company-country", false));
+
+            var required = service.requiredRoles(employee);
+
+            assertThat(required).containsExactly("lc-company", "lc-sales");
+            verifyNoInteractions(identityProvider);
+        }
+
+        @Test
+        @DisplayName("does not require a linked account: an unlinked employee still gets the required set")
+        void doesNotRequireALinkedAccount() {
+            stubContracts(contract(position));
+            stubTemplate(role("lc-sales", true));
+            var unlinked = Employee.builder()
+                    .id(employeeId)
+                    .company(company)
+                    .email("jane.doe@acme.com")
+                    .build();
+
+            var required = service.requiredRoles(unlinked);
+
+            assertThat(required).containsExactly("lc-sales");
+            verifyNoInteractions(identityProvider);
+        }
+
+        @Test
+        @DisplayName("a Terminated employee requires nothing and no template is read")
+        void terminatedEmployeeRequiresNothing() {
+            stubContracts(contract(position));
+
+            var required = service.requiredRoles(terminatedEmployee());
+
+            assertThat(required).isEmpty();
+            verifyNoInteractions(identityProvider);
+            verifyNoInteractions(positionRoleRepository);
+        }
+    }
 }

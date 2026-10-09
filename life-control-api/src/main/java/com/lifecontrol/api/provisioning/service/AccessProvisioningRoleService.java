@@ -90,11 +90,11 @@ public class AccessProvisioningRoleService {
      *   <li><b>Live current roles.</b> {@code getUserRoles(userId, clientId)} through the two-arg
      *       overload, which the adapter already scopes to the application client; the service does not
      *       re-implement scope filtering.</li>
-     *   <li><b>Diff.</b> {@code granted = required − current} and
-     *       {@code removed = (current ∩ GrantablePositionRoles.names()) − required}: a held role
-     *       outside the grantable universe (including {@code lc-admin}) is never touched (record
-     *       T34). {@code lc-admin} is unreachable because it is absent from
-     *       {@link GrantablePositionRoles}.</li>
+     *   <li><b>Diff.</b> The shared {@link RoleDiffRule} rule — {@code granted = required − current}
+     *       and {@code removed = (current ∩ GrantablePositionRoles.names()) − required} — so the write
+     *       path and this unit's Access read can render one rule, not two (records T34/T35): a held
+     *       role outside the grantable universe (including {@code lc-admin}) is never touched.
+     *       {@code lc-admin} is unreachable because it is absent from {@link GrantablePositionRoles}.</li>
      *   <li><b>Apply.</b> Removals first, then grants, each set in ascending name order.</li>
      * </ol>
      *
@@ -119,12 +119,8 @@ public class AccessProvisioningRoleService {
         var clientId = applicationClientProperties.clientId();
         var current = currentRoles(userId, clientId);
 
-        var granted = new TreeSet<>(required);
-        granted.removeAll(current);
-
-        var removed = new TreeSet<>(current);
-        removed.retainAll(GrantablePositionRoles.names());
-        removed.removeAll(required);
+        var granted = RoleDiffRule.additions(required, current);
+        var removed = RoleDiffRule.removals(current, required);
 
         // Removals first, then grants: a transient loss of privilege is fail-closed, a transient
         // excess is not.
@@ -134,7 +130,30 @@ public class AccessProvisioningRoleService {
         return new RoleConvergenceResult(required, granted, removed);
     }
 
-    private Set<String> requiredRoles(Employee employee) {
+    /**
+     * The required set of the employee's current contract, <b>read-only</b>: the same derivation
+     * {@link #convergeRoles(Employee)} applies, exposed so the Access section can render
+     * required-versus-current without re-deriving it and without converging anything (unit W5a,
+     * record W5a's "exposing the required-set derivation W2b keeps private").
+     *
+     * <p>It shares this exact method with the write path, so the two can never drift: there is one
+     * derivation, not a read copy. It touches <b>no</b> identity-provider call and writes nothing —
+     * it only reads the contract finder and, when a covering contract exists, the position's enabled
+     * template rows, filtered through {@link GrantablePositionRoles#includes} and short-circuited to
+     * empty for a {@code Terminated} employee (records T28/T29). It deliberately does <b>not</b>
+     * require a linked account: the required set is a fact of the employment, and an employee whose
+     * account is not linked still needs to see what would be granted once it is.</p>
+     *
+     * <p>{@code readOnly = true} documents that this path never writes; when it is called from
+     * {@link #convergeRoles(Employee)} the self-invocation joins the write path's transaction and the
+     * annotation is deliberately inert, which is why the shared method is safe in both directions.</p>
+     *
+     * @throws AmbiguousCurrentContractException when more than one enabled contract covers today
+     * @throws PositionOutsideEmployeeCompanyException when the position does not resolve to the
+     *     employee's company
+     */
+    @Transactional(readOnly = true)
+    public Set<String> requiredRoles(Employee employee) {
         var contracts = contractRepository.findEnabledContractCoveringDate(employee.getId(), LocalDate.now());
         if (contracts.size() > 1) {
             throw new AmbiguousCurrentContractException("Ambiguous current contract for employee " + employee.getId()

@@ -469,4 +469,78 @@ class AccessProvisioningMembershipServiceTest {
             verify(identityProvider, never()).deleteUserAttribute(any(), any());
         }
     }
+
+    @Nested
+    @DisplayName("deriveMembership (read-only accessor)")
+    class DeriveMembershipTests {
+
+        @Test
+        @DisplayName("returns the same derivation the write path uses and writes nothing")
+        void returnsTheDerivationWithoutWriting() {
+            var companyCountry = companyCountry(company);
+            var region = region(companyCountry);
+            var zone = zone(region);
+            var store = store(zone);
+            stubAssignments(assignment(store, today().minusDays(30), null, true));
+
+            var scope = service.deriveMembership(linkedEmployee());
+
+            assertThat(scope.companyIds()).containsExactly(companyId);
+            assertThat(scope.companyCountryIds()).containsExactly(companyCountry.getId());
+            assertThat(scope.companyRegionIds()).containsExactly(region.getId());
+            assertThat(scope.companyZoneIds()).containsExactly(zone.getId());
+            assertThat(scope.companyStoreIds()).containsExactly(store.getId());
+            verifyNoInteractions(identityProvider);
+        }
+
+        @Test
+        @DisplayName("returns five empty sets for a Terminated employee and writes nothing")
+        void terminatedEmployeeHoldsAnEmptyScope() {
+            var scope = service.deriveMembership(terminatedEmployee());
+
+            assertThat(scope.companyIds()).isEmpty();
+            assertThat(scope.companyCountryIds()).isEmpty();
+            assertThat(scope.companyRegionIds()).isEmpty();
+            assertThat(scope.companyZoneIds()).isEmpty();
+            assertThat(scope.companyStoreIds()).isEmpty();
+            verifyNoInteractions(identityProvider);
+            verifyNoInteractions(assignmentRepository);
+        }
+
+        @Test
+        @DisplayName("refuses when the account is not linked and touches nothing")
+        void refusesWhenTheAccountIsNotLinked() {
+            var unlinked = Employee.builder()
+                    .id(employeeId)
+                    .company(company)
+                    .email("jane.doe@acme.com")
+                    .status(activeStatus())
+                    .build();
+
+            assertThatThrownBy(() -> service.deriveMembership(unlinked))
+                    .isInstanceOf(AccountNotLinkedException.class)
+                    .hasMessageContaining(employeeId.toString());
+
+            verifyNoInteractions(identityProvider, assignmentRepository);
+        }
+
+        @Test
+        @DisplayName("fails closed on more than one company_id and writes nothing")
+        void failsClosedOnMoreThanOneCompanyId() {
+            var twoCompanies = new EmployeeStoreScope(
+                    Set.of(companyId, UUID.randomUUID()), Set.of(), Set.of(), Set.of(), Set.of());
+
+            try (var derivation = mockStatic(StoreScopeDerivation.class)) {
+                derivation
+                        .when(() -> StoreScopeDerivation.derive(any(), any(), any()))
+                        .thenReturn(twoCompanies);
+
+                assertThatThrownBy(() -> service.deriveMembership(linkedEmployee()))
+                        .isInstanceOf(CompanyScopeInvariantException.class)
+                        .hasMessageContaining(employeeId.toString());
+
+                verifyNoInteractions(identityProvider);
+            }
+        }
+    }
 }
