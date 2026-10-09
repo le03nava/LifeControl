@@ -4,7 +4,7 @@ import com.lifecontrol.api.exception.ConflictException;
 
 /**
  * 409 category for a status write the access-provisioning state machine refuses: a pair that is not
- * one of the six legal edges of {@code AccessProvisioningTaskService}'s transition map, a
+ * one of the legal edges of {@code AccessProvisioningTaskService}'s transition map, a
  * self-transition, or an exit from a terminal status.
  *
  * <p>It is a thin semantic alias of {@link ConflictException}, exactly like
