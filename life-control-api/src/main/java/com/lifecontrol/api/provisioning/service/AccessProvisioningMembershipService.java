@@ -100,16 +100,64 @@ public class AccessProvisioningMembershipService {
      */
     @Transactional
     public EmployeeStoreScope convergeMembership(Employee employee) {
+        var userId = requireLinkedAccount(employee);
+
+        var scope = derivedScope(employee);
+
+        for (var level : ScopeLevel.companyTo(ScopeLevel.STORE)) {
+            converge(userId, level, idsAt(scope, level));
+        }
+
+        return scope;
+    }
+
+    /**
+     * The scope the employee's account <b>would</b> publish, <b>read-only</b>: the same derivation
+     * {@link #convergeMembership(Employee)} writes, exposed so the Access section can render the five
+     * claim values without converging anything (unit W5a).
+     *
+     * <p>It shares {@link #derivedScope(Employee)} with the write path, so the two can never drift:
+     * there is one derivation, not a read copy. It touches <b>no</b> identity-provider call and writes
+     * nothing, and it applies the same rules as the write path: it refuses by name when the account is
+     * not linked ({@link AccountNotLinkedException}, the same refusal the write makes), returns five
+     * empty sets for a {@code Terminated} employee (T6/T39), and fails closed when the derivation
+     * yields anything other than exactly one {@code company_id} (T1/T39).</p>
+     *
+     * <p>{@code readOnly = true} documents that this path never writes. The lazy {@code employee.company}
+     * association is read inside this transaction, exactly as the write path reads it.</p>
+     *
+     * @param employee the employee whose membership is derived; its company supplies the company-level
+     *     fact
+     * @return the derived scope, or five empty sets for a {@code Terminated} employee
+     * @throws AccountNotLinkedException when the employee has no linked Keycloak account
+     * @throws CompanyScopeInvariantException when the derivation yields anything other than exactly
+     *     one {@code company_id}
+     */
+    @Transactional(readOnly = true)
+    public EmployeeStoreScope deriveMembership(Employee employee) {
+        requireLinkedAccount(employee);
+        return derivedScope(employee);
+    }
+
+    private String requireLinkedAccount(Employee employee) {
         var userId = employee.getKeycloakUserId();
         if (userId == null || userId.isBlank()) {
             throw new AccountNotLinkedException("Account not linked: employee " + employee.getId()
                     + " has no keycloakUserId, so its membership attributes have nowhere to go");
         }
+        return userId;
+    }
 
+    /**
+     * The single derivation both {@link #convergeMembership(Employee)} and
+     * {@link #deriveMembership(Employee)} share. It never writes: it returns five empty sets for a
+     * {@code Terminated} employee <b>before</b> reading the assignments (the write path's
+     * {@code converge} then deletes all five keys because every set is empty), and otherwise derives
+     * the scope from today's covering assignments and fails closed when the result is not exactly one
+     * company id.
+     */
+    private EmployeeStoreScope derivedScope(Employee employee) {
         if (EmployeeStatuses.isTerminated(employee)) {
-            for (var level : ScopeLevel.companyTo(ScopeLevel.STORE)) {
-                identityProvider.deleteUserAttribute(userId, level.claim());
-            }
             return EMPTY_SCOPE;
         }
 
@@ -123,10 +171,6 @@ public class AccessProvisioningMembershipService {
             throw new CompanyScopeInvariantException("Membership projection refused for employee " + employee.getId()
                     + ": the derivation produced " + scope.companyIds().size()
                     + " company ids and exactly one is required; nothing was written");
-        }
-
-        for (var level : ScopeLevel.companyTo(ScopeLevel.STORE)) {
-            converge(userId, level, idsAt(scope, level));
         }
 
         return scope;

@@ -62,7 +62,7 @@ import org.springframework.transaction.annotation.Transactional;
  * reached through another employee and a miss is an
  * {@link AccessProvisioningTaskNotFoundException} (404). The plain
  * {@link AccessProvisioningTaskRepository#findByIdAndEmployeeId} is deliberately not used here: it
- * serves W5's read paths. Creation is company-scoped first:
+ * is reserved for this unit's Access read path. Creation is company-scoped first:
  * {@link CurrentUserContext#verifyCompanyAccess(UUID)} runs before the employee is resolved, the
  * {@code ContractService.resolveCompany} convention.</p>
  */
@@ -95,8 +95,12 @@ public class AccessProvisioningTaskService {
      * The open set the partial unique index {@code uq_access_provisioning_tasks_open} declares,
      * verbatim: a second open task for the same employee is refused. The index remains the real race
      * guard; this set is the pre-check.
+     *
+     * <p>Package-private rather than private so this unit's Access read path (W5a) can show the newest
+     * task in an open status: reusing this set keeps one definition of "open" instead of a second
+     * literal that would drift from the index's predicate.</p>
      */
-    private static final Set<AccessProvisioningTaskStatus> OPEN_STATUSES = Set.of(
+    static final Set<AccessProvisioningTaskStatus> OPEN_STATUSES = Set.of(
             AccessProvisioningTaskStatus.PENDING,
             AccessProvisioningTaskStatus.APPROVAL_PENDING,
             AccessProvisioningTaskStatus.RUNNING,
