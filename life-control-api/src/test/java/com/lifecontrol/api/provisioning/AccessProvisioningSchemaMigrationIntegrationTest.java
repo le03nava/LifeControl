@@ -8,10 +8,13 @@ import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.hr.model.Employee;
 import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningAppliedRole;
+import com.lifecontrol.api.provisioning.model.AccessProvisioningReviewedRole;
+import com.lifecontrol.api.provisioning.model.AccessProvisioningRoleDirection;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTask;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTaskKind;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTaskStatus;
 import com.lifecontrol.api.provisioning.repository.AccessProvisioningAppliedRoleRepository;
+import com.lifecontrol.api.provisioning.repository.AccessProvisioningReviewedRoleRepository;
 import com.lifecontrol.api.provisioning.repository.AccessProvisioningTaskRepository;
 import com.lifecontrol.api.status.repository.StatusRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
@@ -22,6 +25,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -34,9 +38,10 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Persistence-level verification of {@code V22__employee_access_provisioning.sql} against real
- * PostgreSQL with Flyway enabled and {@code ddl-auto=validate}, so a green run proves the access
- * provisioning schema landed exactly as the migration declares it.
+ * Persistence-level verification of {@code V22__employee_access_provisioning.sql} and
+ * {@code V25__employee_access_provisioning_reviewed_roles.sql} against real PostgreSQL with Flyway
+ * enabled and {@code ddl-auto=validate}, so a green run proves the access provisioning schema landed
+ * exactly as the migrations declare it.
  *
  * <p>The service layer cannot prove these guarantees: they are enforced by the database itself. This
  * suite pins the schema's <b>first partial UNIQUE index</b> ({@code uq_access_provisioning_tasks_open}),
@@ -45,13 +50,19 @@ import org.springframework.transaction.support.TransactionTemplate;
  * plain {@code UNIQUE (employee_id)} would pass the first half and fail the second, so the two halves
  * together are what pin the {@code WHERE} predicate.</p>
  *
- * <p>Cleanup is deliberately narrow: {@code access_provisioning_applied_roles} first, then
- * {@code access_provisioning_tasks} (the child references the parent), then the {@code employees}
- * rows — each scoped to the company this suite creates, so no other suite's fixtures are removed even
- * though the tables are shared for the life of the JVM. {@code companies}, {@code statuses} and
- * {@code status_types} are shared fixtures other suites depend on and are never touched. That is what
- * makes the suite order-independent inside the shared PostgreSQL container, and it keeps this suite
- * from deleting the {@code access_provisioning_*} rows a later work unit's fixtures will hold.</p>
+ * <p>Cleanup is deliberately narrow: {@code access_provisioning_reviewed_roles} and
+ * {@code access_provisioning_applied_roles} first, then {@code access_provisioning_tasks} (the
+ * children reference the parent), then the {@code employees} rows — each scoped to the company this
+ * suite creates, so no other suite's fixtures are removed even though the tables are shared for the
+ * life of the JVM. {@code companies}, {@code statuses} and {@code status_types} are shared fixtures
+ * other suites depend on and are never touched. That is what makes the suite order-independent inside
+ * the shared PostgreSQL container, and it keeps this suite from deleting the
+ * {@code access_provisioning_*} rows a later work unit's fixtures will hold.</p>
+ *
+ * <p>The same scoped deletes run <b>before and after</b> every method. The exit pass is not
+ * decoration: in a filtered run this class executes before the HR schema suites, and those delete
+ * {@code employees} unconditionally, so a task left behind here would make their own cleanup fail on
+ * {@code access_provisioning_tasks_employee_id_fkey} and report a defect that is not theirs.</p>
  */
 @SpringBootTest
 @DisplayName("Employee Access Provisioning Schema Integration Tests")
@@ -91,6 +102,9 @@ class AccessProvisioningSchemaMigrationIntegrationTest extends AbstractPostgresI
     private AccessProvisioningAppliedRoleRepository appliedRoleRepository;
 
     @Autowired
+    private AccessProvisioningReviewedRoleRepository reviewedRoleRepository;
+
+    @Autowired
     private PlatformTransactionManager transactionManager;
 
     // One test method per test instance (JUnit's default lifecycle), so this counter restarts at 0
@@ -99,9 +113,31 @@ class AccessProvisioningSchemaMigrationIntegrationTest extends AbstractPostgresI
 
     @BeforeEach
     void resetProvisioningTables() {
-        // Leaf-first: applied_roles references access_provisioning_tasks, which references employees.
-        // Every delete is scoped to the company this suite creates, so a fixture another suite — or a
-        // later work unit — left in these shared tables is never removed.
+        deleteProvisioningRows();
+    }
+
+    /**
+     * Removes this suite's own rows on the way out too, so the class leaves the shared tables exactly
+     * as it found them no matter which method ran last.
+     */
+    @AfterEach
+    void leaveNoProvisioningRowsBehind() {
+        deleteProvisioningRows();
+    }
+
+    /**
+     * Leaf-first — the two child tables reference {@code access_provisioning_tasks}, which references
+     * {@code employees} — and scoped to the company this suite creates, so a fixture another suite or
+     * a later work unit left in these shared tables is never removed.
+     */
+    private void deleteProvisioningRows() {
+        jdbcTemplate.update("""
+                DELETE FROM access_provisioning_reviewed_roles WHERE task_id IN
+                    (SELECT t.id FROM access_provisioning_tasks t
+                     JOIN employees e ON e.id = t.employee_id
+                     JOIN companies c ON c.id = e.company_id
+                     WHERE c.company_key = ?)
+                """, COMPANY_KEY);
         jdbcTemplate.update("""
                 DELETE FROM access_provisioning_applied_roles WHERE task_id IN
                     (SELECT t.id FROM access_provisioning_tasks t
@@ -122,10 +158,10 @@ class AccessProvisioningSchemaMigrationIntegrationTest extends AbstractPostgresI
     }
 
     @Test
-    @DisplayName("applies every migration through V24 and leaves no pending migration")
-    void flywayHeadIsV24() {
+    @DisplayName("applies every migration through V25 and leaves no pending migration")
+    void flywayHeadIsV25() {
         assertThat(flyway.info().current()).isNotNull();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("24");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("25");
         assertThat(flyway.info().pending()).isEmpty();
     }
 
@@ -184,6 +220,36 @@ class AccessProvisioningSchemaMigrationIntegrationTest extends AbstractPostgresI
                 """, String.class);
         assertThat(constraintType)
                 .as("uq_access_provisioning_applied_roles is a UNIQUE constraint")
+                .isEqualTo("u");
+    }
+
+    @Test
+    @DisplayName("creates access_provisioning_reviewed_roles with its exact column set and named UNIQUE")
+    void accessProvisioningReviewedRolesTableHasItsColumnsAndNamedUnique() {
+        var columns = jdbcTemplate.query(
+                """
+                SELECT column_name, data_type FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'access_provisioning_reviewed_roles'
+                """, (rs, rowNum) -> new ColumnType(rs.getString("column_name"), rs.getString("data_type")));
+
+        assertThat(columns)
+                .as("access_provisioning_reviewed_roles columns and their data types, with no updated_at")
+                .containsExactlyInAnyOrder(
+                        new ColumnType("id", "uuid"),
+                        new ColumnType("task_id", "uuid"),
+                        new ColumnType("role_name", "character varying"),
+                        new ColumnType("direction", "character varying"),
+                        new ColumnType("created_at", "timestamp without time zone"));
+
+        var constraintType = jdbcTemplate.queryForObject("""
+                SELECT c.contype::text FROM pg_constraint c
+                JOIN pg_class t ON t.oid = c.conrelid
+                JOIN pg_namespace n ON n.oid = t.relnamespace
+                WHERE n.nspname = 'public' AND t.relname = 'access_provisioning_reviewed_roles'
+                  AND c.conname = 'uq_access_provisioning_reviewed_roles'
+                """, String.class);
+        assertThat(constraintType)
+                .as("uq_access_provisioning_reviewed_roles is a UNIQUE constraint")
                 .isEqualTo("u");
     }
 
@@ -317,6 +383,19 @@ class AccessProvisioningSchemaMigrationIntegrationTest extends AbstractPostgresI
     }
 
     @Test
+    @DisplayName("pins the nullability, the VARCHAR lengths and the defaults of access_provisioning_reviewed_roles")
+    void reviewedRolesColumnsCarryTheirNullabilityLengthsAndDefaults() {
+        assertThat(columnDetails("access_provisioning_reviewed_roles"))
+                .as("access_provisioning_reviewed_roles nullability, length and default per column")
+                .containsExactlyInAnyOrder(
+                        new ColumnDetail("id", "NO", null, "gen_random_uuid()"),
+                        new ColumnDetail("task_id", "NO", null, null),
+                        new ColumnDetail("role_name", "NO", 100, null),
+                        new ColumnDetail("direction", "NO", 10, null),
+                        new ColumnDetail("created_at", "NO", null, "CURRENT_TIMESTAMP"));
+    }
+
+    @Test
     @DisplayName("creates every index the migration declares, and no more than it declares")
     void theMigrationIndexesExist() {
         // The sizes are the half that catches an index nobody intended; contains() is the half that
@@ -334,6 +413,11 @@ class AccessProvisioningSchemaMigrationIntegrationTest extends AbstractPostgresI
                 .as("the declared index, the named UNIQUE's index and the primary key")
                 .hasSize(3)
                 .contains("idx_access_provisioning_applied_roles_task_id", "uq_access_provisioning_applied_roles");
+
+        assertThat(indexNames("access_provisioning_reviewed_roles"))
+                .as("the declared index, the named UNIQUE's index and the primary key")
+                .hasSize(3)
+                .contains("idx_access_provisioning_reviewed_roles_task_id", "uq_access_provisioning_reviewed_roles");
     }
 
     @Test
@@ -398,6 +482,25 @@ class AccessProvisioningSchemaMigrationIntegrationTest extends AbstractPostgresI
     }
 
     @Test
+    @DisplayName("uq_access_provisioning_reviewed_roles refuses a duplicate role for one task, whatever its direction")
+    void duplicateReviewedRoleForOneTaskIsRefused() {
+        var employeeId = insertEmployee();
+        var taskId = insertTask(employeeId, "ACTIVATE", "APPROVAL_PENDING");
+        insertReviewedRole(taskId, "lc-sales", "GRANT");
+
+        // The second row carries the opposite direction on purpose: the uniqueness is on
+        // (task_id, role_name), so a role cannot be frozen twice for one task even when the diff is
+        // spelled GRANT then REVOKE. A constraint widened to include direction would pass the
+        // catalogue check and fail here.
+        assertViolatesConstraint("uq_access_provisioning_reviewed_roles", """
+                INSERT INTO access_provisioning_reviewed_roles (id, task_id, role_name, direction)
+                VALUES (?, ?, 'lc-sales', 'REVOKE')
+                """, UUID.randomUUID(), taskId);
+
+        assertThat(countReviewedRoles(taskId)).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("the employee_id foreign key really points at employees: an unknown uuid is refused")
     void unknownEmployeeIdIsRefusedByTheForeignKey() {
         assertViolatesConstraint(
@@ -418,7 +521,7 @@ class AccessProvisioningSchemaMigrationIntegrationTest extends AbstractPostgresI
     }
 
     @Test
-    @DisplayName("round-trips a task and its applied role through the repositories, storing both enums as strings")
+    @DisplayName("round-trips a task with its applied and reviewed roles, storing every enum as a string")
     void roundTripsThroughTheRepositories() {
         var companyId = accessCompanyId();
         var statusId = activeEmployeeStatusId();
@@ -492,12 +595,45 @@ class AccessProvisioningSchemaMigrationIntegrationTest extends AbstractPostgresI
                 .as("the child's @PrePersist filled created_at")
                 .isNotNull();
 
+        // The frozen reviewed set of the same task, through the repository that owns it. The
+        // direction comes back as the enum, and the role-name ordering is what makes the set a stable
+        // value instead of the order the gate happened to write it in.
+        reviewedRoleRepository.saveAndFlush(AccessProvisioningReviewedRole.builder()
+                .task(saved)
+                .roleName("lc-employee-access")
+                .direction(AccessProvisioningRoleDirection.GRANT)
+                .build());
+        reviewedRoleRepository.saveAndFlush(AccessProvisioningReviewedRole.builder()
+                .task(saved)
+                .roleName("lc-obsolete")
+                .direction(AccessProvisioningRoleDirection.REVOKE)
+                .build());
+
+        var reviewedRoles = reviewedRoleRepository.findByTaskIdOrderByRoleNameAsc(saved.getId());
+        assertThat(reviewedRoles)
+                .extracting(AccessProvisioningReviewedRole::getRoleName)
+                .containsExactly("lc-employee-access", "lc-obsolete");
+        assertThat(reviewedRoles)
+                .extracting(AccessProvisioningReviewedRole::getDirection)
+                .containsExactly(AccessProvisioningRoleDirection.GRANT, AccessProvisioningRoleDirection.REVOKE);
+        assertThat(reviewedRoles.get(0).getCreatedAt())
+                .as("the row's @PrePersist filled created_at")
+                .isNotNull();
+
         // The enum is stored as its name and not as its ordinal: the raw read is what pins
         // @Enumerated(EnumType.STRING) against a column that has no CHECK to fall back on.
         var raw = jdbcTemplate.queryForMap(
                 "SELECT kind, status FROM access_provisioning_tasks WHERE id = ?", saved.getId());
         assertThat(raw.get("kind")).isEqualTo("ACTIVATE");
         assertThat(raw.get("status")).isEqualTo("APPROVAL_PENDING");
+
+        // `direction` is the column this migration adds, so the same raw read is where its string
+        // mapping becomes visible: the column carries no CHECK to fall back on (the V22 stance).
+        var rawDirection = jdbcTemplate.queryForMap(
+                "SELECT direction FROM access_provisioning_reviewed_roles WHERE task_id = ? AND role_name = ?",
+                saved.getId(),
+                "lc-obsolete");
+        assertThat(rawDirection.get("direction")).isEqualTo("REVOKE");
     }
 
     /**
@@ -598,6 +734,21 @@ class AccessProvisioningSchemaMigrationIntegrationTest extends AbstractPostgresI
     private int countAppliedRoles(UUID taskId) {
         return jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM access_provisioning_applied_roles WHERE task_id = ?", Integer.class, taskId);
+    }
+
+    private UUID insertReviewedRole(UUID taskId, String roleName, String direction) {
+        var id = UUID.randomUUID();
+        jdbcTemplate.update("""
+                INSERT INTO access_provisioning_reviewed_roles (id, task_id, role_name, direction)
+                VALUES (?, ?, ?, ?)
+                """, id, taskId, roleName, direction);
+        return id;
+    }
+
+    /** Scoped count: the reviewed roles of one task, never the whole table. */
+    private int countReviewedRoles(UUID taskId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM access_provisioning_reviewed_roles WHERE task_id = ?", Integer.class, taskId);
     }
 
     /**

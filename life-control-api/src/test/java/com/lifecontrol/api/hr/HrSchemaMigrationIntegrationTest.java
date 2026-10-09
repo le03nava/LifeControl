@@ -60,10 +60,10 @@ class HrSchemaMigrationIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     @Test
-    @DisplayName("applies every migration through V24 and leaves no pending migration")
-    void flywayHeadIsV24() {
+    @DisplayName("applies every migration through V25 and leaves no pending migration")
+    void flywayHeadIsV25() {
         assertThat(flyway.info().current()).isNotNull();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("24");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("25");
         assertThat(flyway.info().pending()).isEmpty();
     }
 
