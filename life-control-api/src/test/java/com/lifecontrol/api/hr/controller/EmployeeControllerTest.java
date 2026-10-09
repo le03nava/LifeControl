@@ -87,7 +87,8 @@ class EmployeeControllerTest {
                 true,
                 0L,
                 LocalDateTime.now(),
-                LocalDateTime.now());
+                LocalDateTime.now(),
+                null);
     }
 
     private EmployeeRequest buildRequest() {
@@ -105,6 +106,34 @@ class EmployeeControllerTest {
                 null);
     }
 
+    /**
+     * The detail payload with the one provisioning field it carries: the access state. Built from
+     * the default response so only that field varies.
+     */
+    private EmployeeResponse withAccessState(String accessState) {
+        return new EmployeeResponse(
+                testResponse.id(),
+                testResponse.companyId(),
+                testResponse.employeeNumber(),
+                testResponse.firstName(),
+                testResponse.paternalLastName(),
+                testResponse.maternalLastName(),
+                testResponse.email(),
+                testResponse.phoneNumber(),
+                testResponse.birthDate(),
+                testResponse.hireDate(),
+                testResponse.terminationDate(),
+                testResponse.addressId(),
+                testResponse.statusId(),
+                testResponse.statusName(),
+                testResponse.keycloakUserId(),
+                testResponse.enabled(),
+                testResponse.version(),
+                testResponse.createdAt(),
+                testResponse.updatedAt(),
+                accessState);
+    }
+
     @Nested
     @DisplayName("GET /api/companies/{companyId}/employees")
     class GetAllEmployeesTests {
@@ -120,6 +149,7 @@ class EmployeeControllerTest {
                     .andExpect(jsonPath("$[0].employeeNumber").value("EMP-001"))
                     .andExpect(jsonPath("$[0].email").value("juan.perez@example.com"))
                     .andExpect(jsonPath("$[0].statusName").value("Active"))
+                    .andExpect(jsonPath("$[0].accessState").value(nullValue()))
                     .andExpect(jsonPath("$[0].enabled").value(true));
             verify(employeeService).getAllEmployees(companyId, null, null, false);
         }
@@ -151,6 +181,17 @@ class EmployeeControllerTest {
             mockMvc.perform(get("/api/companies/{companyId}/employees/{id}", companyId, employeeId))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.employeeNumber").value("EMP-001"));
+        }
+
+        @Test
+        @DisplayName("should carry the access state field on the detail payload")
+        void getEmployeeById_CarriesAccessState() throws Exception {
+            when(employeeService.getEmployeeById(companyId, employeeId)).thenReturn(withAccessState("FAILED"));
+
+            mockMvc.perform(get("/api/companies/{companyId}/employees/{id}", companyId, employeeId))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.employeeNumber").value("EMP-001"))
+                    .andExpect(jsonPath("$.accessState").value("FAILED"));
         }
 
         @Test
@@ -443,7 +484,8 @@ class EmployeeControllerTest {
                             false,
                             disabled.version(),
                             disabled.createdAt(),
-                            disabled.updatedAt()));
+                            disabled.updatedAt(),
+                            disabled.accessState()));
 
             mockMvc.perform(patch("/api/companies/{companyId}/employees/{id}/enable", companyId, employeeId)
                             .contentType(MediaType.APPLICATION_JSON)

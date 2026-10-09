@@ -86,4 +86,15 @@ public final class Roles {
      *  must not be delegable by a position template; the company scope is still verified through the
      *  {@code company_id} claim. Client role of {@code life-control-client}. */
     public static final String EMPLOYEE = "lc-employee";
+
+    /** Identity-provisioning read role: gates {@code GET
+     *  /api/companies/{companyId}/employees/{employeeId}/access}, the Access section's own read
+     *  (linked account, required-versus-current roles and their diff, open task with its
+     *  {@code attempts} against the ceiling, and the derived claim values). It is deliberately
+     *  <b>distinct</b> from {@link #EMPLOYEE}: provisioning an identity and editing the HR record are
+     *  different powers, and identity provisioning gets its own role for that reason
+     *  ({@code hr-org-structure} D7). There is <b>no read-only pair</b> for now — the screen shows role
+     *  names, not PII, so {@code lc-admin} and this role are the only read gate
+     *  ({@code employee-access-provisioning} O5). Client role of {@code life-control-client}. */
+    public static final String EMPLOYEE_ACCESS = "lc-employee-access";
 }
