@@ -426,6 +426,7 @@ class AccessProvisioningGateServiceTest {
     @Test
     @DisplayName("approve checks the company first and delegates with the JWT subject as the actor")
     void approveChecksCompanyFirstAndDelegatesWithTheUserId() {
+        stubEmployee(linked);
         when(currentUserContext.getUserId()).thenReturn(ACTOR_SUB);
 
         service.approve(companyId, employeeId, taskId);
@@ -456,8 +457,24 @@ class AccessProvisioningGateServiceTest {
     }
 
     @Test
+    @DisplayName("approve refuses an employee outside the claimed company before the decision is attempted")
+    void approveRefusesForeignEmployeeBeforeTheTaskService() {
+        when(employeeRepository.findByIdAndCompanyId(employeeId, companyId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.approve(companyId, employeeId, taskId))
+                .isInstanceOf(EmployeeNotFoundException.class);
+
+        var inOrder = inOrder(currentUserContext, employeeRepository);
+        inOrder.verify(currentUserContext).verifyCompanyAccess(companyId);
+        inOrder.verify(employeeRepository).findByIdAndCompanyId(employeeId, companyId);
+        verifyNoInteractions(taskService);
+        verify(currentUserContext, never()).getUserId();
+    }
+
+    @Test
     @DisplayName("reject checks the company first and delegates with the JWT subject and the reason")
     void rejectChecksCompanyFirstAndDelegatesWithTheUserIdAndReason() {
+        stubEmployee(linked);
         when(currentUserContext.getUserId()).thenReturn(ACTOR_SUB);
 
         service.reject(companyId, employeeId, taskId, "outside the allowlist");
@@ -485,6 +502,21 @@ class AccessProvisioningGateServiceTest {
                 .isInstanceOf(AccessDeniedException.class);
 
         verify(currentUserContext).verifyCompanyAccess(companyId);
+        verifyNoInteractions(taskService);
+        verify(currentUserContext, never()).getUserId();
+    }
+
+    @Test
+    @DisplayName("reject refuses an employee outside the claimed company before the decision is attempted")
+    void rejectRefusesForeignEmployeeBeforeTheTaskService() {
+        when(employeeRepository.findByIdAndCompanyId(employeeId, companyId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.reject(companyId, employeeId, taskId, "outside the allowlist"))
+                .isInstanceOf(EmployeeNotFoundException.class);
+
+        var inOrder = inOrder(currentUserContext, employeeRepository);
+        inOrder.verify(currentUserContext).verifyCompanyAccess(companyId);
+        inOrder.verify(employeeRepository).findByIdAndCompanyId(employeeId, companyId);
         verifyNoInteractions(taskService);
         verify(currentUserContext, never()).getUserId();
     }

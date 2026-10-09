@@ -203,14 +203,18 @@ public class AccessProvisioningGateService {
      *
      * <p>The company check lives here and is deliberately <b>not</b> pushed into the task service:
      * the worker calls the same decision methods and has no current user, so the scope check belongs
-     * to the request-path component that owns a {@link CurrentUserContext}.</p>
+     * to the request-path component that owns a {@link CurrentUserContext}. Proving the employee
+     * belongs to that company is part of the same scope check and happens here too, before the
+     * decision is delegated.</p>
      *
      * @throws org.springframework.security.access.AccessDeniedException when the current user cannot
      *     access the company
+     * @throws EmployeeNotFoundException when the employee does not belong to the company
      */
     @Transactional
     public void approve(UUID companyId, UUID employeeId, UUID taskId) {
         currentUserContext.verifyCompanyAccess(companyId);
+        requireEmployeeInCompany(companyId, employeeId);
         taskService.approve(employeeId, taskId, currentUserContext.getUserId());
     }
 
@@ -225,17 +229,45 @@ public class AccessProvisioningGateService {
      * those two persisted actors, so both sides must use the same basis.</p>
      *
      * <p>The company check lives here and is deliberately <b>not</b> pushed into the task service:
-     * the worker calls the same decision methods and has no current user.</p>
+     * the worker calls the same decision methods and has no current user. Proving the employee
+     * belongs to that company is part of the same scope check and happens here too, before the
+     * decision is delegated.</p>
      *
      * @param reason the rejection reason, persisted in {@code last_error}; the task service refuses a
      *     {@code null} or blank value with {@link IllegalArgumentException}
      * @throws org.springframework.security.access.AccessDeniedException when the current user cannot
      *     access the company
+     * @throws EmployeeNotFoundException when the employee does not belong to the company
      */
     @Transactional
     public void reject(UUID companyId, UUID employeeId, UUID taskId, String reason) {
         currentUserContext.verifyCompanyAccess(companyId);
+        requireEmployeeInCompany(companyId, employeeId);
         taskService.reject(employeeId, taskId, currentUserContext.getUserId(), reason);
+    }
+
+    /**
+     * Proves the employee belongs to the company the caller claims, <b>before</b> the decision is
+     * delegated to the task service.
+     *
+     * <p>The decision path scopes only the <b>task</b> to the employee
+     * ({@code findByIdAndEmployeeIdForUpdate(taskId, employeeId)}) and never receives the company,
+     * so without this check the caller's company would be compared against the path variable and
+     * nothing else: an actor with access to any company could approve or reject a foreign employee's
+     * task by sending their own {@code companyId} together with the victim's
+     * {@code employeeId}/{@code taskId}, and the controller would only reload the mismatched pair
+     * <b>after</b> the decision had already committed. Loading the employee through the
+     * company-scoped {@code findByIdAndCompanyId} — the same scope the read path
+     * ({@link AccessProvisioningQueryService#getAccessOverview(UUID, UUID)}) and
+     * {@link #request(UUID, UUID, AccessProvisioningTaskKind, String)} apply — turns that mismatched
+     * pair into a 404 before any decision is attempted.</p>
+     *
+     * @throws EmployeeNotFoundException when the employee is unknown or does not belong to the company
+     */
+    private void requireEmployeeInCompany(UUID companyId, UUID employeeId) {
+        employeeRepository
+                .findByIdAndCompanyId(employeeId, companyId)
+                .orElseThrow(() -> new EmployeeNotFoundException(employeeId));
     }
 
     /**

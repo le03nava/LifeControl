@@ -178,6 +178,21 @@ class AccessProvisioningControllerTest {
     }
 
     @Test
+    @DisplayName("should return 404 through the global handler when the employee is outside the claimed company")
+    void approveRefusesForeignEmployeeWith404() throws Exception {
+        doThrow(new EmployeeNotFoundException(employeeId))
+                .when(accessProvisioningGateService)
+                .approve(companyId, employeeId, taskId);
+
+        mockMvc.perform(post(APPROVE_URL, companyId, employeeId, taskId))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("Employee not found with id: " + employeeId));
+
+        verify(accessProvisioningGateService).approve(companyId, employeeId, taskId);
+        verify(accessProvisioningQueryService, never()).getAccessOverview(any(), any());
+    }
+
+    @Test
     @DisplayName("should reject with a reason and answer 200 with the reloaded overview")
     void rejectWithAReasonReturnsTheOverview() throws Exception {
         when(accessProvisioningQueryService.getAccessOverview(companyId, employeeId))
