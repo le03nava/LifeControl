@@ -111,7 +111,8 @@ class EmployeeControllerSecurityTest {
                 true,
                 0L,
                 LocalDateTime.now(),
-                LocalDateTime.now());
+                LocalDateTime.now(),
+                null);
     }
 
     // ─── Reads: any authenticated user ────────────────────────────

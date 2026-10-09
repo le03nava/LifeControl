@@ -14,6 +14,7 @@ import com.lifecontrol.api.hr.exception.EmployeeEmailFrozenException;
 import com.lifecontrol.api.hr.exception.EmployeeNotFoundException;
 import com.lifecontrol.api.hr.model.Employee;
 import com.lifecontrol.api.hr.repository.EmployeeRepository;
+import com.lifecontrol.api.provisioning.service.AccessProvisioningQueryService;
 import com.lifecontrol.api.status.exception.StatusNotFoundException;
 import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.status.repository.StatusRepository;
@@ -78,18 +79,21 @@ public class EmployeeService {
     private final StatusRepository statusRepository;
     private final AddressRepository addressRepository;
     private final CurrentUserContext currentUserContext;
+    private final AccessProvisioningQueryService accessProvisioningQueryService;
 
     public EmployeeService(
             EmployeeRepository employeeRepository,
             CompanyRepository companyRepository,
             StatusRepository statusRepository,
             AddressRepository addressRepository,
-            CurrentUserContext currentUserContext) {
+            CurrentUserContext currentUserContext,
+            AccessProvisioningQueryService accessProvisioningQueryService) {
         this.employeeRepository = employeeRepository;
         this.companyRepository = companyRepository;
         this.statusRepository = statusRepository;
         this.addressRepository = addressRepository;
         this.currentUserContext = currentUserContext;
+        this.accessProvisioningQueryService = accessProvisioningQueryService;
     }
 
     /**
@@ -123,7 +127,7 @@ public class EmployeeService {
         resolveCompany(companyId);
         return employeeRepository
                 .findByIdAndCompanyId(id, companyId)
-                .map(this::toResponse)
+                .map(employee -> toResponse(employee, accessProvisioningQueryService.accessState(employee.getId())))
                 .orElseThrow(() -> new EmployeeNotFoundException(id));
     }
 
@@ -430,6 +434,19 @@ public class EmployeeService {
     }
 
     private EmployeeResponse toResponse(Employee employee) {
+        return toResponse(employee, null);
+    }
+
+    /**
+     * Builds the read model with the access state the <b>detail</b> path resolves.
+     *
+     * <p>The state is a parameter instead of a read performed here because
+     * {@link #toResponse(Employee)} is the single builder of {@link EmployeeResponse} and is also
+     * called by the company-scoped list and the three write paths; resolving the state inside it
+     * would run one provisioning query per row on the list (record G3). The list and the write paths
+     * therefore keep delegating to {@link #toResponse(Employee)} and emit {@code null}.</p>
+     */
+    private EmployeeResponse toResponse(Employee employee, String accessState) {
         return new EmployeeResponse(
                 employee.getId(),
                 employee.getCompany().getId(),
@@ -449,6 +466,7 @@ public class EmployeeService {
                 employee.getEnabled(),
                 employee.getVersion(),
                 employee.getCreatedAt(),
-                employee.getUpdatedAt());
+                employee.getUpdatedAt(),
+                accessState);
     }
 }

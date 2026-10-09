@@ -19,6 +19,7 @@ import com.lifecontrol.api.hr.exception.EmployeeEmailFrozenException;
 import com.lifecontrol.api.hr.exception.EmployeeNotFoundException;
 import com.lifecontrol.api.hr.model.Employee;
 import com.lifecontrol.api.hr.repository.EmployeeRepository;
+import com.lifecontrol.api.provisioning.service.AccessProvisioningQueryService;
 import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.status.model.StatusType;
 import com.lifecontrol.api.status.repository.StatusRepository;
@@ -55,6 +56,9 @@ class EmployeeServiceTest {
 
     @Mock
     private CurrentUserContext currentUserContext;
+
+    @Mock
+    private AccessProvisioningQueryService accessProvisioningQueryService;
 
     @InjectMocks
     private EmployeeService employeeService;
@@ -755,6 +759,32 @@ class EmployeeServiceTest {
 
             assertThat(result.employeeNumber()).isEqualTo("EMP-001");
             assertThat(result.companyId()).isEqualTo(companyId);
+        }
+
+        @Test
+        @DisplayName("getEmployeeById carries the access state the detail path resolves")
+        void getEmployeeById_CarriesAccessState() {
+            companyExists();
+            when(employeeRepository.findByIdAndCompanyId(employeeId, companyId)).thenReturn(Optional.of(testEmployee));
+            when(accessProvisioningQueryService.accessState(employeeId)).thenReturn("PENDING");
+
+            var result = employeeService.getEmployeeById(companyId, employeeId);
+
+            assertThat(result.accessState()).isEqualTo("PENDING");
+        }
+
+        @Test
+        @DisplayName("getAllEmployees never resolves the access state and emits null")
+        void getAllEmployees_DoesNotResolveAccessState() {
+            companyExists();
+            when(employeeRepository.findCompanyEmployees(companyId, null, null, false))
+                    .thenReturn(List.of(testEmployee));
+
+            var result = employeeService.getAllEmployees(companyId, null, null, false);
+
+            assertThat(result).hasSize(1);
+            assertThat(result.get(0).accessState()).isNull();
+            verifyNoInteractions(accessProvisioningQueryService);
         }
 
         @Test
