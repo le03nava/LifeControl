@@ -339,6 +339,27 @@ class AccessProvisioningGateServiceTest {
         verify(reviewedRoleRepository, never()).saveAll(any());
     }
 
+    /**
+     * Proves the identity the comparison uses is the <b>diff</b>, not the two raw role sets: both raw
+     * inputs moved ({@code lc-department} and {@code lc-position} now sit on both sides) while the
+     * additions stayed exactly {@code {lc-company}} and the removals exactly {@code {lc-sales}}, so
+     * the untouched task is left alone. A comparison over the raw inputs would re-gate it here.
+     */
+    @Test
+    @DisplayName("a changed raw set that leaves the diff identical does not re-gate: the identity is the diff")
+    void changedRawSetsWithUnchangedDiffLeaveTheTaskAlone() {
+        stubFrozenRows(frozenRow("lc-company", GRANT), frozenRow("lc-sales", REVOKE));
+        stubRequiredFor(linked, "lc-department", "lc-company", "lc-position");
+        stubCurrentRoles("lc-department", "lc-sales", "lc-position");
+
+        var changed = service.reenterGateIfReviewedSetChanged(linked, taskId);
+
+        assertThat(changed).isFalse();
+        verify(taskService, never()).returnToGate(any(), any(), any());
+        verify(reviewedRoleRepository, never()).deleteAllByTaskId(any());
+        verify(reviewedRoleRepository, never()).saveAll(any());
+    }
+
     @Test
     @DisplayName("no frozen rows short-circuits before any identity-provider read")
     void noFrozenRowsShortCircuitsBeforeTheIdentityProvider() {
