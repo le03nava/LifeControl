@@ -44,9 +44,12 @@ import org.springframework.transaction.annotation.Transactional;
  * untouched. The reviewed rows are written in the same transaction as the task, so the frozen set
  * and the task row can never disagree about what the diff was.</p>
  *
- * <p><b>No production caller yet.</b> The producer that finally calls this gate — a contract
- * activation, a store-assignment change, a termination — lands in a later unit; until then this
- * service is reached by its tests. This unit exposes <b>only</b> the request path.</p>
+ * <p><b>The request path has no production caller yet.</b> The producer that finally calls
+ * {@link #request(UUID, UUID, AccessProvisioningTaskKind, String)} — a contract activation, a
+ * store-assignment change, a termination — lands in a later unit; until then that method is reached
+ * by its tests. The decision methods {@link #approve(UUID, UUID, UUID)} and
+ * {@link #reject(UUID, UUID, UUID, String)} <b>do</b> have a caller: the controller's approve and
+ * reject endpoints.</p>
  */
 @Service
 public class AccessProvisioningGateService {
@@ -136,6 +139,53 @@ public class AccessProvisioningGateService {
             freezeReviewedRoles(task, additions, removals);
         }
         return task;
+    }
+
+    /**
+     * Approves a gated task for the current user: the company access check is the first statement,
+     * then the decision is delegated to
+     * {@link AccessProvisioningTaskService#approve(UUID, UUID, String)}.
+     *
+     * <p>The actor is {@link CurrentUserContext#getUserId()} — the JWT {@code sub} claim — and
+     * <b>never</b> {@link CurrentUserContext#getUsername()}: the persisted
+     * {@code requested_by}/{@code decided_by} columns are {@code VARCHAR(36)} and rule O3 compares
+     * those two persisted actors, so both sides must use the same basis.</p>
+     *
+     * <p>The company check lives here and is deliberately <b>not</b> pushed into the task service:
+     * the worker calls the same decision methods and has no current user, so the scope check belongs
+     * to the request-path component that owns a {@link CurrentUserContext}.</p>
+     *
+     * @throws org.springframework.security.access.AccessDeniedException when the current user cannot
+     *     access the company
+     */
+    @Transactional
+    public void approve(UUID companyId, UUID employeeId, UUID taskId) {
+        currentUserContext.verifyCompanyAccess(companyId);
+        taskService.approve(employeeId, taskId, currentUserContext.getUserId());
+    }
+
+    /**
+     * Rejects a gated task for the current user: the company access check is the first statement, then
+     * the decision is delegated to
+     * {@link AccessProvisioningTaskService#reject(UUID, UUID, String, String)} with the reason.
+     *
+     * <p>The actor is {@link CurrentUserContext#getUserId()} — the JWT {@code sub} claim — and
+     * <b>never</b> {@link CurrentUserContext#getUsername()}: the persisted
+     * {@code requested_by}/{@code decided_by} columns are {@code VARCHAR(36)} and rule O3 compares
+     * those two persisted actors, so both sides must use the same basis.</p>
+     *
+     * <p>The company check lives here and is deliberately <b>not</b> pushed into the task service:
+     * the worker calls the same decision methods and has no current user.</p>
+     *
+     * @param reason the rejection reason, persisted in {@code last_error}; the task service refuses a
+     *     {@code null} or blank value with {@link IllegalArgumentException}
+     * @throws org.springframework.security.access.AccessDeniedException when the current user cannot
+     *     access the company
+     */
+    @Transactional
+    public void reject(UUID companyId, UUID employeeId, UUID taskId, String reason) {
+        currentUserContext.verifyCompanyAccess(companyId);
+        taskService.reject(employeeId, taskId, currentUserContext.getUserId(), reason);
     }
 
     /**

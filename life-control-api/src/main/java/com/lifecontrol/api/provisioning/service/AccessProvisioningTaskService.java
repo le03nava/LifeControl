@@ -6,6 +6,7 @@ import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.provisioning.exception.AccessProvisioningTaskAlreadyOpenException;
 import com.lifecontrol.api.provisioning.exception.AccessProvisioningTaskNotFoundException;
 import com.lifecontrol.api.provisioning.exception.InvalidTaskStatusTransitionException;
+import com.lifecontrol.api.provisioning.exception.SelfApprovalRefusedException;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningAppliedRole;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTask;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTaskKind;
@@ -333,6 +334,22 @@ public class AccessProvisioningTaskService {
      * and {@code decidedAt} recorded. Approval never applies anything (record T18); the diff is
      * re-derived when the worker applies it (record T11).
      *
+     * <p><b>Rule O3 is enforced here and only here:</b> the actor who requested the task cannot be
+     * the one who approves it, so the decision is refused with
+     * {@link SelfApprovalRefusedException} (409) <b>before</b> the transition guard and before any
+     * field is written. A self-<i>rejection</i> is deliberately allowed — it grants nothing — which
+     * is why {@link #reject(UUID, UUID, String, String)} carries no such comparison.</p>
+     *
+     * <p>A {@code null} or blank {@code decidedBy} is refused with {@link IllegalArgumentException}
+     * before O3 is evaluated: {@code requested_by} is {@code NOT NULL}, so a "no actor" decision can
+     * never be legitimate, and the equality check would be the wrong place to discover it — as
+     * {@code Objects.equals(null, requestedBy)} it is silently {@code false} and O3 is
+     * <b>bypassed</b>, and as this class's direct comparison it is an NPE before the rule can run.
+     * The check is a guard detail, not a new product rule.</p>
+     *
+     * @throws IllegalArgumentException when {@code decidedBy} is {@code null} or blank
+     * @throws SelfApprovalRefusedException when {@code decidedBy} equals the task's
+     *     {@code requested_by}
      * @throws AccessProvisioningTaskNotFoundException when the task is unknown or belongs to another
      *     employee
      * @throws InvalidTaskStatusTransitionException when the task is not {@code APPROVAL_PENDING}
@@ -340,6 +357,10 @@ public class AccessProvisioningTaskService {
     @Transactional
     public AccessProvisioningTask approve(UUID employeeId, UUID taskId, String decidedBy) {
         var task = loadForUpdate(taskId, employeeId);
+        requireDecidingActor(decidedBy);
+        if (decidedBy.equals(task.getRequestedBy())) {
+            throw new SelfApprovalRefusedException(decidedBy);
+        }
         guardTransition(task, AccessProvisioningTaskStatus.PENDING);
         task.setDecidedBy(decidedBy);
         task.setDecidedAt(LocalDateTime.now());
@@ -351,6 +372,18 @@ public class AccessProvisioningTaskService {
      * {@code decidedAt} recorded, and the {@code reason} persisted in {@code last_error} — the
      * table's only free-text column, which is left visible on the terminal row (record T19).
      *
+     * <p><b>A requester may reject their own request.</b> Rule O3 is approve-only: a self-rejection
+     * grants nothing, it withdraws the requester's own request, so there is no comparison against
+     * {@code requested_by} here.</p>
+     *
+     * <p>Two inputs are refused with {@link IllegalArgumentException} <b>before</b> any state is
+     * written: a {@code null} or blank {@code decidedBy} (a decision needs the deciding actor), and a
+     * {@code null} or blank {@code reason}. The reason is required because the API surface declares
+     * one and it is what the row persists in {@code last_error}; the column accepts the empty string,
+     * so a blank would otherwise store a rejection nobody can explain.</p>
+     *
+     * @throws IllegalArgumentException when {@code decidedBy} or {@code reason} is {@code null} or
+     *     blank
      * @throws AccessProvisioningTaskNotFoundException when the task is unknown or belongs to another
      *     employee
      * @throws InvalidTaskStatusTransitionException when the task is not {@code APPROVAL_PENDING}
@@ -358,11 +391,27 @@ public class AccessProvisioningTaskService {
     @Transactional
     public AccessProvisioningTask reject(UUID employeeId, UUID taskId, String decidedBy, String reason) {
         var task = loadForUpdate(taskId, employeeId);
+        requireDecidingActor(decidedBy);
+        if (reason == null || reason.isBlank()) {
+            throw new IllegalArgumentException(
+                    "A rejection requires a reason: a refusal of an access request must record why it was refused");
+        }
         guardTransition(task, AccessProvisioningTaskStatus.REJECTED);
         task.setDecidedBy(decidedBy);
         task.setDecidedAt(LocalDateTime.now());
         task.setLastError(reason);
         return taskRepository.save(task);
+    }
+
+    /**
+     * Refuses a decision that carries no deciding actor. The persisted {@code decided_by} column is
+     * {@code VARCHAR(36)} and O3 compares two persisted actors, so an absent actor is a caller bug
+     * that would both bypass the rule and write a decision with no author.
+     */
+    private static void requireDecidingActor(String decidedBy) {
+        if (decidedBy == null || decidedBy.isBlank()) {
+            throw new IllegalArgumentException("A decision requires the deciding actor: decidedBy is null or blank");
+        }
     }
 
     /**
