@@ -8,8 +8,10 @@ import static com.lifecontrol.api.provisioning.model.AccessProvisioningTaskStatu
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -58,6 +60,7 @@ class AccessProvisioningGateServiceTest {
     private static final String CLIENT_ID = "life-control-client";
     private static final String KC_USER_ID = "kc-user-1";
     private static final String REQUESTED_BY = "requester-1";
+    private static final String ACTOR_SUB = "d4a1f0c2-0000-0000-0000-000000000001";
 
     @Mock
     private CurrentUserContext currentUserContext;
@@ -286,5 +289,105 @@ class AccessProvisioningGateServiceTest {
         verify(currentUserContext).verifyCompanyAccess(companyId);
         verifyNoInteractions(
                 employeeRepository, roleService, identityProvider, approvalPolicy, taskService, reviewedRoleRepository);
+    }
+
+    // --- decision methods ---
+
+    @Test
+    @DisplayName("approve checks the company first and delegates with the JWT subject as the actor")
+    void approveChecksCompanyFirstAndDelegatesWithTheUserId() {
+        stubEmployee(linked);
+        when(currentUserContext.getUserId()).thenReturn(ACTOR_SUB);
+
+        service.approve(companyId, employeeId, taskId);
+
+        var inOrder = inOrder(currentUserContext, taskService);
+        inOrder.verify(currentUserContext).verifyCompanyAccess(companyId);
+        inOrder.verify(taskService).approve(employeeId, taskId, ACTOR_SUB);
+
+        var actorCaptor = ArgumentCaptor.forClass(String.class);
+        verify(taskService).approve(eq(employeeId), eq(taskId), actorCaptor.capture());
+        assertThat(actorCaptor.getValue())
+                .as("the persisted decided_by is the JWT sub, the same basis requested_by uses")
+                .isEqualTo(ACTOR_SUB);
+        verify(currentUserContext, never()).getUsername();
+    }
+
+    @Test
+    @DisplayName("approve refuses a denied caller before it reaches the task service")
+    void approveRefusesDeniedCallerBeforeTheTaskService() {
+        doThrow(new AccessDeniedException("denied")).when(currentUserContext).verifyCompanyAccess(companyId);
+
+        assertThatThrownBy(() -> service.approve(companyId, employeeId, taskId))
+                .isInstanceOf(AccessDeniedException.class);
+
+        verify(currentUserContext).verifyCompanyAccess(companyId);
+        verifyNoInteractions(taskService);
+        verify(currentUserContext, never()).getUserId();
+    }
+
+    @Test
+    @DisplayName("approve refuses an employee outside the claimed company before the decision is attempted")
+    void approveRefusesForeignEmployeeBeforeTheTaskService() {
+        when(employeeRepository.findByIdAndCompanyId(employeeId, companyId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.approve(companyId, employeeId, taskId))
+                .isInstanceOf(EmployeeNotFoundException.class);
+
+        var inOrder = inOrder(currentUserContext, employeeRepository);
+        inOrder.verify(currentUserContext).verifyCompanyAccess(companyId);
+        inOrder.verify(employeeRepository).findByIdAndCompanyId(employeeId, companyId);
+        verifyNoInteractions(taskService);
+        verify(currentUserContext, never()).getUserId();
+    }
+
+    @Test
+    @DisplayName("reject checks the company first and delegates with the JWT subject and the reason")
+    void rejectChecksCompanyFirstAndDelegatesWithTheUserIdAndReason() {
+        stubEmployee(linked);
+        when(currentUserContext.getUserId()).thenReturn(ACTOR_SUB);
+
+        service.reject(companyId, employeeId, taskId, "outside the allowlist");
+
+        var inOrder = inOrder(currentUserContext, taskService);
+        inOrder.verify(currentUserContext).verifyCompanyAccess(companyId);
+        inOrder.verify(taskService).reject(employeeId, taskId, ACTOR_SUB, "outside the allowlist");
+
+        var actorCaptor = ArgumentCaptor.forClass(String.class);
+        var reasonCaptor = ArgumentCaptor.forClass(String.class);
+        verify(taskService).reject(eq(employeeId), eq(taskId), actorCaptor.capture(), reasonCaptor.capture());
+        assertThat(actorCaptor.getValue())
+                .as("the persisted decided_by is the JWT sub, the same basis requested_by uses")
+                .isEqualTo(ACTOR_SUB);
+        assertThat(reasonCaptor.getValue()).isEqualTo("outside the allowlist");
+        verify(currentUserContext, never()).getUsername();
+    }
+
+    @Test
+    @DisplayName("reject refuses a denied caller before it reaches the task service")
+    void rejectRefusesDeniedCallerBeforeTheTaskService() {
+        doThrow(new AccessDeniedException("denied")).when(currentUserContext).verifyCompanyAccess(companyId);
+
+        assertThatThrownBy(() -> service.reject(companyId, employeeId, taskId, "no"))
+                .isInstanceOf(AccessDeniedException.class);
+
+        verify(currentUserContext).verifyCompanyAccess(companyId);
+        verifyNoInteractions(taskService);
+        verify(currentUserContext, never()).getUserId();
+    }
+
+    @Test
+    @DisplayName("reject refuses an employee outside the claimed company before the decision is attempted")
+    void rejectRefusesForeignEmployeeBeforeTheTaskService() {
+        when(employeeRepository.findByIdAndCompanyId(employeeId, companyId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.reject(companyId, employeeId, taskId, "outside the allowlist"))
+                .isInstanceOf(EmployeeNotFoundException.class);
+
+        var inOrder = inOrder(currentUserContext, employeeRepository);
+        inOrder.verify(currentUserContext).verifyCompanyAccess(companyId);
+        inOrder.verify(employeeRepository).findByIdAndCompanyId(employeeId, companyId);
+        verifyNoInteractions(taskService);
+        verify(currentUserContext, never()).getUserId();
     }
 }

@@ -24,6 +24,7 @@ import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.provisioning.exception.AccessProvisioningTaskAlreadyOpenException;
 import com.lifecontrol.api.provisioning.exception.AccessProvisioningTaskNotFoundException;
 import com.lifecontrol.api.provisioning.exception.InvalidTaskStatusTransitionException;
+import com.lifecontrol.api.provisioning.exception.SelfApprovalRefusedException;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningAppliedRole;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTask;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTaskStatus;
@@ -606,6 +607,71 @@ class AccessProvisioningTaskServiceTest {
         }
 
         @Test
+        @DisplayName("should record the decision when the approver is not the requester")
+        void approve_ByADifferentActorRecordsTheDecision() {
+            var task = taskInStatus(APPROVAL_PENDING);
+            task.setRequestedBy("requester-1");
+            stubLoadedForUpdate(task);
+            stubSaved();
+
+            var result = service.approve(employeeId, taskId, "approver-2");
+
+            assertThat(result.getStatus()).isEqualTo(PENDING);
+            assertThat(result.getDecidedBy()).isEqualTo("approver-2");
+            assertThat(result.getDecidedAt()).isNotNull();
+            verify(taskRepository).save(task);
+        }
+
+        @Test
+        @DisplayName("should refuse a self-approval (O3) and leave the entity untouched")
+        void approve_RefusesSelfApproval() {
+            var task = taskInStatus(APPROVAL_PENDING);
+            task.setRequestedBy("requester-1");
+            stubLoadedForUpdate(task);
+
+            assertThatThrownBy(() -> service.approve(employeeId, taskId, "requester-1"))
+                    .isInstanceOf(SelfApprovalRefusedException.class)
+                    .hasMessageContaining("cannot approve")
+                    .hasMessageContaining("requester-1");
+
+            assertThat(task.getStatus())
+                    .as("a refused self-approval does not move the task")
+                    .isEqualTo(APPROVAL_PENDING);
+            assertThat(task.getDecidedBy()).isNull();
+            assertThat(task.getDecidedAt()).isNull();
+            assertThat(task.getLastError()).isNull();
+            verify(taskRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("should refuse a null deciding actor instead of silently bypassing O3")
+        void approve_RefusesNullActor() {
+            var task = taskInStatus(APPROVAL_PENDING);
+            task.setRequestedBy("requester-1");
+            stubLoadedForUpdate(task);
+
+            assertThatThrownBy(() -> service.approve(employeeId, taskId, null))
+                    .isInstanceOf(IllegalArgumentException.class);
+
+            assertThat(task.getStatus()).isEqualTo(APPROVAL_PENDING);
+            verify(taskRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("should refuse a blank deciding actor")
+        void approve_RefusesBlankActor() {
+            var task = taskInStatus(APPROVAL_PENDING);
+            task.setRequestedBy("requester-1");
+            stubLoadedForUpdate(task);
+
+            assertThatThrownBy(() -> service.approve(employeeId, taskId, "   "))
+                    .isInstanceOf(IllegalArgumentException.class);
+
+            assertThat(task.getStatus()).isEqualTo(APPROVAL_PENDING);
+            verify(taskRepository, never()).save(any());
+        }
+
+        @Test
         @DisplayName("should refuse approving a task that is not APPROVAL_PENDING")
         void approve_RefusesFromPending() {
             var task = taskInStatus(PENDING);
@@ -649,6 +715,102 @@ class AccessProvisioningTaskServiceTest {
             assertThat(result.getDecidedAt()).isNotNull();
             assertThat(result.getLastError()).isEqualTo("role outside the allowlist");
             verifyLockedLoad();
+        }
+
+        @Test
+        @DisplayName("should allow the requester to reject their own request")
+        void reject_AllowsTheRequesterToRejectTheirOwnRequest() {
+            var task = taskInStatus(APPROVAL_PENDING);
+            task.setRequestedBy("requester-1");
+            stubLoadedForUpdate(task);
+            stubSaved();
+
+            var result = service.reject(employeeId, taskId, "requester-1", "changed my mind");
+
+            assertThat(result.getStatus())
+                    .as("a self-rejection grants nothing, so O3 does not apply and a decision is still recorded")
+                    .isEqualTo(REJECTED);
+            assertThat(result.getDecidedBy()).isEqualTo("requester-1");
+            assertThat(result.getDecidedAt()).isNotNull();
+            assertThat(result.getLastError()).isEqualTo("changed my mind");
+            verifyLockedLoad();
+        }
+
+        @Test
+        @DisplayName("should store the reason on a rejection by a different actor")
+        void reject_ByAnotherActorStoresTheReason() {
+            var task = taskInStatus(APPROVAL_PENDING);
+            task.setRequestedBy("requester-1");
+            stubLoadedForUpdate(task);
+            stubSaved();
+
+            var result = service.reject(employeeId, taskId, "approver-2", "outside the allowlist");
+
+            assertThat(result.getStatus()).isEqualTo(REJECTED);
+            assertThat(result.getDecidedBy()).isEqualTo("approver-2");
+            assertThat(result.getDecidedAt()).isNotNull();
+            assertThat(result.getLastError()).isEqualTo("outside the allowlist");
+        }
+
+        @Test
+        @DisplayName("should refuse a null deciding actor")
+        void reject_RefusesNullActor() {
+            var task = taskInStatus(APPROVAL_PENDING);
+            task.setRequestedBy("requester-1");
+            stubLoadedForUpdate(task);
+
+            assertThatThrownBy(() -> service.reject(employeeId, taskId, null, "no"))
+                    .isInstanceOf(IllegalArgumentException.class);
+
+            assertThat(task.getStatus()).isEqualTo(APPROVAL_PENDING);
+            verify(taskRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("should refuse a blank deciding actor")
+        void reject_RefusesBlankActor() {
+            var task = taskInStatus(APPROVAL_PENDING);
+            task.setRequestedBy("requester-1");
+            stubLoadedForUpdate(task);
+
+            assertThatThrownBy(() -> service.reject(employeeId, taskId, "   ", "no"))
+                    .isInstanceOf(IllegalArgumentException.class);
+
+            assertThat(task.getStatus()).isEqualTo(APPROVAL_PENDING);
+            verify(taskRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("should refuse a null reason before writing any state")
+        void reject_RefusesNullReason() {
+            var task = taskInStatus(APPROVAL_PENDING);
+            task.setRequestedBy("requester-1");
+            stubLoadedForUpdate(task);
+
+            assertThatThrownBy(() -> service.reject(employeeId, taskId, "approver-2", null))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("reason");
+
+            assertThat(task.getStatus()).isEqualTo(APPROVAL_PENDING);
+            assertThat(task.getDecidedBy()).isNull();
+            verify(taskRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("should refuse a blank reason before writing any state")
+        void reject_RefusesBlankReason() {
+            var task = taskInStatus(APPROVAL_PENDING);
+            task.setRequestedBy("requester-1");
+            stubLoadedForUpdate(task);
+
+            assertThatThrownBy(() -> service.reject(employeeId, taskId, "approver-2", "   "))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("reason");
+
+            assertThat(task.getStatus()).isEqualTo(APPROVAL_PENDING);
+            assertThat(task.getDecidedBy()).isNull();
+            assertThat(task.getLastError()).isNull();
+            verify(taskRepository, never()).save(any());
         }
 
         @Test
