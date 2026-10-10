@@ -25,12 +25,12 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * The state machine of {@code access_provisioning_tasks} and the service that owns its guard.
  *
- * <p>There is exactly one explicit transition map ({@link #TRANSITIONS}) holding the six legal
+ * <p>There is exactly one explicit transition map ({@link #TRANSITIONS}) holding the seven legal
  * edges: {@code PENDING → RUNNING}, {@code RUNNING → APPLIED}, {@code RUNNING → FAILED},
- * {@code FAILED → PENDING}, {@code APPROVAL_PENDING → PENDING} and {@code APPROVAL_PENDING →
- * REJECTED}. {@code APPLIED} and {@code REJECTED} are terminal, self-transitions are illegal, and
- * no other edge exists. Every one of them is applied here and every illegal pair is refused with
- * {@link InvalidTaskStatusTransitionException}.</p>
+ * {@code RUNNING → APPROVAL_PENDING}, {@code FAILED → PENDING}, {@code APPROVAL_PENDING → PENDING}
+ * and {@code APPROVAL_PENDING → REJECTED}. {@code APPLIED} and {@code REJECTED} are terminal,
+ * self-transitions are illegal, and no other edge exists. Every one of them is applied here and every
+ * illegal pair is refused with {@link InvalidTaskStatusTransitionException}.</p>
  *
  * <p>{@link #guardTransition(AccessProvisioningTask, AccessProvisioningTaskStatus)} is the
  * <b>only</b> code path in this class, and the only one this unit exposes to W4/W5, that assigns
@@ -71,13 +71,16 @@ import org.springframework.transaction.annotation.Transactional;
 public class AccessProvisioningTaskService {
 
     /**
-     * The six legal edges of the machine, and nothing else. Terminal statuses are present with an
+     * The seven legal edges of the machine, and nothing else. Terminal statuses are present with an
      * empty set so "no outgoing edge" is stated rather than implied by absence.
      */
     private static final Map<AccessProvisioningTaskStatus, Set<AccessProvisioningTaskStatus>> TRANSITIONS = Map.of(
             AccessProvisioningTaskStatus.PENDING, Set.of(AccessProvisioningTaskStatus.RUNNING),
             AccessProvisioningTaskStatus.RUNNING,
-                    Set.of(AccessProvisioningTaskStatus.APPLIED, AccessProvisioningTaskStatus.FAILED),
+                    Set.of(
+                            AccessProvisioningTaskStatus.APPLIED,
+                            AccessProvisioningTaskStatus.FAILED,
+                            AccessProvisioningTaskStatus.APPROVAL_PENDING),
             AccessProvisioningTaskStatus.FAILED, Set.of(AccessProvisioningTaskStatus.PENDING),
             AccessProvisioningTaskStatus.APPROVAL_PENDING,
                     Set.of(AccessProvisioningTaskStatus.PENDING, AccessProvisioningTaskStatus.REJECTED),
@@ -400,6 +403,36 @@ public class AccessProvisioningTaskService {
         task.setDecidedBy(decidedBy);
         task.setDecidedAt(LocalDateTime.now());
         task.setLastError(reason);
+        return taskRepository.save(task);
+    }
+
+    /**
+     * Returns a claimed task to the gate, replacing its approval with the fresh snapshot it will be
+     * reviewed against: {@code RUNNING → APPROVAL_PENDING}, with the {@code reason} persisted in
+     * {@code last_error} and {@code decidedBy}/{@code decidedAt} <b>cleared</b>.
+     *
+     * <p><b>Why the decision is cleared.</b> This edge is reached when the worker re-derives a gated
+     * task's reviewed diff and finds the truth has moved since the approval (record T71/T72), so the
+     * previous approval was given against a set that no longer exists; keeping its {@code decidedBy}
+     * and {@code decidedAt} would make the row claim a human approved a diff nobody saw. The reason
+     * is the visible trace of that superseded approval, and the gate service replaces the frozen
+     * reviewed rows in the same transaction.</p>
+     *
+     * <p><b>This method writes no role rows.</b> The frozen set belongs to
+     * {@code AccessProvisioningGateService}, which is the only writer; a status mover that also wrote
+     * roles would be a second door into the same state.</p>
+     *
+     * @throws AccessProvisioningTaskNotFoundException when the task is unknown or belongs to another
+     *     employee
+     * @throws InvalidTaskStatusTransitionException when the task is not {@code RUNNING}
+     */
+    @Transactional
+    public AccessProvisioningTask returnToGate(UUID employeeId, UUID taskId, String reason) {
+        var task = loadForUpdate(taskId, employeeId);
+        guardTransition(task, AccessProvisioningTaskStatus.APPROVAL_PENDING);
+        task.setLastError(reason);
+        task.setDecidedBy(null);
+        task.setDecidedAt(null);
         return taskRepository.save(task);
     }
 

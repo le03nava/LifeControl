@@ -2,6 +2,7 @@ package com.lifecontrol.api.provisioning.service;
 
 import static com.lifecontrol.api.provisioning.model.AccessProvisioningTaskKind.ACTIVATE;
 import static com.lifecontrol.api.provisioning.model.AccessProvisioningTaskKind.RECONCILE;
+import static com.lifecontrol.api.provisioning.model.AccessProvisioningTaskStatus.APPROVAL_PENDING;
 import static com.lifecontrol.api.provisioning.model.AccessProvisioningTaskStatus.PENDING;
 import static com.lifecontrol.api.provisioning.model.AccessProvisioningTaskStatus.RUNNING;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -78,6 +79,9 @@ class AccessProvisioningWorkerTest {
     private AccessProvisioningWorkerHandler handler;
 
     @Mock
+    private AccessProvisioningGateService gateService;
+
+    @Mock
     private EmployeeRepository employeeRepository;
 
     private WorkerRetryPolicy retryPolicy;
@@ -95,6 +99,7 @@ class AccessProvisioningWorkerTest {
                 taskService,
                 employeeRepository,
                 handler,
+                gateService,
                 new WorkerTick(BATCH_SIZE),
                 retryPolicy,
                 properties);
@@ -364,6 +369,56 @@ class AccessProvisioningWorkerTest {
                     .as("markApplied receives exactly the set the handler returned")
                     .isSameAs(touched);
             assertThat(report).as("one claimed row, no failure").isEqualTo(new WorkerTick.TickReport(1, 0));
+        }
+
+        @Test
+        @DisplayName("checks the re-gate after the claim and before the apply")
+        void checksTheReGateAfterTheClaimAndBeforeTheApply() {
+            var taskId = UUID.randomUUID();
+            var employeeId = UUID.randomUUID();
+            var employee = Employee.builder().id(employeeId).build();
+            when(taskRepository.findDueTaskIds(any(), any())).thenReturn(List.of(taskId));
+            when(taskRepository.findById(taskId)).thenReturn(Optional.of(pendingTask(taskId, employeeId, ACTIVATE)));
+            when(taskService.claim(employeeId, taskId)).thenReturn(claimedTask(taskId, employeeId, ACTIVATE, 1));
+            when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+            when(handler.apply(employee, ACTIVATE)).thenReturn(Set.of());
+
+            worker.runPass();
+
+            var inOrder = inOrder(taskService, gateService, handler);
+            inOrder.verify(taskService).claim(employeeId, taskId);
+            inOrder.verify(gateService).reenterGateIfReviewedSetChanged(employee, taskId);
+            inOrder.verify(handler).apply(employee, ACTIVATE);
+        }
+
+        @Test
+        @DisplayName("a re-gated task is left APPROVAL_PENDING: nothing is applied and nothing is failed")
+        void reGatedTaskNeverAppliesAndIsNeverFailed() {
+            var taskId = UUID.randomUUID();
+            var employeeId = UUID.randomUUID();
+            var employee = Employee.builder().id(employeeId).build();
+            var claimed = claimedTask(taskId, employeeId, ACTIVATE, 1);
+            when(taskRepository.findDueTaskIds(any(), any())).thenReturn(List.of(taskId));
+            when(taskRepository.findById(taskId)).thenReturn(Optional.of(pendingTask(taskId, employeeId, ACTIVATE)));
+            when(taskService.claim(employeeId, taskId)).thenReturn(claimed);
+            when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+            // The real gate service returns the task to the gate: the worker must then stop.
+            when(gateService.reenterGateIfReviewedSetChanged(employee, taskId)).thenAnswer(invocation -> {
+                claimed.setStatus(APPROVAL_PENDING);
+                return true;
+            });
+
+            var report = worker.runPass();
+
+            assertThat(claimed.getStatus())
+                    .as("the task is left at the gate, never applied and never failed")
+                    .isEqualTo(APPROVAL_PENDING);
+            verify(handler, never()).apply(any(), any());
+            verify(taskService, never()).markApplied(any(), any(), any());
+            verify(taskService, never()).markFailed(any(), any(), any(), any());
+            assertThat(report)
+                    .as("the early return is not a failure and not a throw")
+                    .isEqualTo(new WorkerTick.TickReport(1, 0));
         }
 
         @Test

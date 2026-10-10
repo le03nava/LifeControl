@@ -15,11 +15,13 @@ import org.springframework.stereotype.Service;
  * The access-provisioning worker: the ordered pass that rescues rows stranded in {@code RUNNING} and
  * then claims and applies the due ones through the existing guarded edges.
  *
- * <p><b>The defect this repairs, measured.</b> The state machine maps {@code RUNNING} to exactly
- * {@code {APPLIED, FAILED}} and {@code FAILED} to {@code {PENDING}}, while the automatic queue selects
- * only {@code PENDING} and the operator's {@code retry} <b>is</b> the {@code FAILED → PENDING} edge
- * and refuses {@code RUNNING}. A process that died after claiming a task therefore leaves a row with
- * <b>no legal exit at all</b>, and because {@code RUNNING} sits inside
+ * <p><b>The defect this repairs, measured.</b> The state machine's recovery-relevant exits from
+ * {@code RUNNING} are {@code APPLIED} and {@code FAILED} (the third target, {@code APPROVAL_PENDING},
+ * is reached only by this worker's re-derivation check below, never by a recovery), while the
+ * automatic queue selects only {@code PENDING} and the operator's {@code retry} <b>is</b> the
+ * {@code FAILED → PENDING} edge and refuses {@code RUNNING}. A process that died after claiming a
+ * task therefore leaves a row the queue and the operator's retry cannot move, and because
+ * {@code RUNNING} sits inside
  * {@code AccessProvisioningTaskService.OPEN_STATUSES} and inside the partial unique index
  * {@code uq_access_provisioning_tasks_open}'s predicate, {@code create} refuses a second intent for
  * that employee and they can never be provisioned again until someone edits the database (record
@@ -107,6 +109,7 @@ public class AccessProvisioningWorker {
     private final AccessProvisioningTaskService taskService;
     private final EmployeeRepository employeeRepository;
     private final AccessProvisioningWorkerHandler handler;
+    private final AccessProvisioningGateService gateService;
     private final WorkerTick tick;
     private final WorkerRetryPolicy retryPolicy;
     private final ProvisioningWorkerProperties properties;
@@ -116,6 +119,7 @@ public class AccessProvisioningWorker {
             AccessProvisioningTaskService taskService,
             EmployeeRepository employeeRepository,
             AccessProvisioningWorkerHandler handler,
+            AccessProvisioningGateService gateService,
             WorkerTick tick,
             WorkerRetryPolicy retryPolicy,
             ProvisioningWorkerProperties properties) {
@@ -123,6 +127,7 @@ public class AccessProvisioningWorker {
         this.taskService = taskService;
         this.employeeRepository = employeeRepository;
         this.handler = handler;
+        this.gateService = gateService;
         this.tick = tick;
         this.retryPolicy = retryPolicy;
         this.properties = properties;
@@ -193,13 +198,23 @@ public class AccessProvisioningWorker {
      * throws out of here and is contained by {@link WorkerTick}: the row was never ours, so this method
      * must not fail it.</p>
      *
-     * <p><b>Every failure the recovery can see is recorded.</b> From the moment the claim succeeds
-     * the row is {@code RUNNING}, and the only status with a legal exit is the one {@code markFailed}
-     * performs. A handler refusal, an exception out of a capability, or a missing employee therefore
-     * ends in {@code markFailed} with the exception's reason and the policy's deadline — never in a
-     * silent return that would strand the row and block the employee's provisioning (records
-     * T10/T53). What the {@code catch} cannot see — an {@link Error}, or a throw out of the recovery
-     * block itself — is left to the staleness rescue on purpose, as the class javadoc records.</p>
+     * <p><b>The re-gate check runs before the apply.</b> Once the employee is loaded and still
+     * <b>before</b> {@link AccessProvisioningWorkerHandler#apply} runs, the task's frozen reviewed
+     * set is re-derived by
+     * {@link AccessProvisioningGateService#reenterGateIfReviewedSetChanged(com.lifecontrol.api.hr.model.Employee, java.util.UUID)}
+     * and, when the truth moved since the approval, the task is returned to the gate and this method
+     * returns immediately: nothing is applied against a stale snapshot. That early return is not a
+     * failure — it neither calls {@code markApplied} nor {@code markFailed} — because the gate service
+     * already moved the task and replaced the frozen rows in its own transaction.</p>
+     *
+     * <p><b>Every other failure the recovery can see is recorded.</b> From the moment the claim
+     * succeeds the row is {@code RUNNING}, and the only status with a legal exit is the one
+     * {@code markFailed} performs. A handler refusal, an exception out of a capability, or a missing
+     * employee therefore ends in {@code markFailed} with the exception's reason and the policy's
+     * deadline — never in a silent return that would strand the row and block the employee's
+     * provisioning (records T10/T53). What the {@code catch} cannot see — an {@link Error}, or a throw
+     * out of the recovery block itself — is left to the staleness rescue on purpose, as the class
+     * javadoc records.</p>
      */
     private void process(UUID taskId, LocalDateTime now) {
         var resolved = taskRepository.findById(taskId).orElse(null);
@@ -212,6 +227,10 @@ public class AccessProvisioningWorker {
             var employee = employeeRepository.findById(employeeId).orElse(null);
             if (employee == null) {
                 throw new EmployeeNotFoundException(employeeId);
+            }
+            if (gateService.reenterGateIfReviewedSetChanged(employee, taskId)) {
+                // The task is back at the gate: nothing may be applied and this is not a failure.
+                return;
             }
             var touched = handler.apply(employee, claimed.getKind());
             taskService.markApplied(employeeId, taskId, touched);

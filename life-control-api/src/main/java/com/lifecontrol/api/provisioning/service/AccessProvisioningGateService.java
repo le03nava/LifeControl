@@ -3,6 +3,7 @@ package com.lifecontrol.api.provisioning.service;
 import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.config.security.ApplicationClientProperties;
 import com.lifecontrol.api.hr.exception.EmployeeNotFoundException;
+import com.lifecontrol.api.hr.model.Employee;
 import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningReviewedRole;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningRoleDirection;
@@ -13,8 +14,11 @@ import com.lifecontrol.api.provisioning.repository.AccessProvisioningReviewedRol
 import com.lifecontrol.api.usersadmin.identity.IdentityProvider;
 import com.lifecontrol.api.usersadmin.identity.RoleDto;
 import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -22,9 +26,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * The <b>request path</b> of the employee-access gate (unit W5b): derive the employee's role diff,
- * decide the task's initial status with {@link AccessProvisioningApprovalPolicy}, create the task,
- * and — only when the gate applies — freeze the reviewed diff in the same transaction.
+ * The <b>request path</b> of the employee-access gate (unit W5b) and its <b>re-gate check</b>:
+ * derive the employee's role diff, decide the task's initial status with
+ * {@link AccessProvisioningApprovalPolicy}, create the task, and — only when the gate applies —
+ * freeze the reviewed diff in the same transaction; then, on every claim a gated task gets,
+ * re-derive that diff and return the task to the gate when it moved.
  *
  * <p><b>The reviewed set is the diff, with direction, and not the two raw role sets</b> (decision
  * T71): one {@code access_provisioning_reviewed_roles} row per touched role, {@link
@@ -44,6 +50,12 @@ import org.springframework.transaction.annotation.Transactional;
  * untouched. The reviewed rows are written in the same transaction as the task, so the frozen set
  * and the task row can never disagree about what the diff was.</p>
  *
+ * <p><b>A gated task's frozen diff can move before it is applied.</b> The truth between approval and
+ * apply is re-derived on every claim by
+ * {@link #reenterGateIfReviewedSetChanged(Employee, UUID)}; when it differs from the frozen set the
+ * task is returned to the gate and the frozen rows are replaced, so nothing is ever applied against
+ * a superseded snapshot.</p>
+ *
  * <p><b>The request path has no production caller yet.</b> The producer that finally calls
  * {@link #request(UUID, UUID, AccessProvisioningTaskKind, String)} — a contract activation, a
  * store-assignment change, a termination — lands in a later unit; until then that method is reached
@@ -53,6 +65,14 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class AccessProvisioningGateService {
+
+    /**
+     * The visible trace of a superseded approval: the single sentence written to {@code last_error}
+     * when the re-gate check finds the reviewed diff has moved since it was approved.
+     */
+    static final String REVIEWED_SET_CHANGED_REASON =
+            "The reviewed role diff changed after it was approved, so the task went back to the gate"
+                    + " and nothing was applied against the stale snapshot.";
 
     private final CurrentUserContext currentUserContext;
     private final EmployeeRepository employeeRepository;
@@ -119,26 +139,56 @@ public class AccessProvisioningGateService {
                 .findByIdAndCompanyId(employeeId, companyId)
                 .orElseThrow(() -> new EmployeeNotFoundException(employeeId));
 
-        var required = roleService.requiredRoles(employee);
+        var diff = deriveReviewedDiff(employee);
 
-        var keycloakUserId = employee.getKeycloakUserId();
-        var linked = keycloakUserId != null && !keycloakUserId.isBlank();
-
-        var current = linked ? currentRoles(keycloakUserId) : Set.<String>of();
-
-        var additions = RoleDiffRule.additions(required, current);
-        var removals = RoleDiffRule.removals(current, required);
-
-        var touched = new TreeSet<>(additions);
-        touched.addAll(removals);
+        var touched = new TreeSet<>(diff.additions());
+        touched.addAll(diff.removals());
 
         var status = approvalPolicy.initialStatusFor(touched);
         var task = taskService.create(companyId, employeeId, kind, requestedBy, status);
 
         if (status == AccessProvisioningTaskStatus.APPROVAL_PENDING) {
-            freezeReviewedRoles(task, additions, removals);
+            writeReviewedRoles(task, diff.additions(), diff.removals());
         }
         return task;
+    }
+
+    /**
+     * Re-derives a gated task's reviewed diff and returns the task to the gate when it no longer
+     * matches the frozen one.
+     *
+     * <p><b>The rule.</b> A gated task's reviewed diff is frozen at approval; between the approval
+     * and the apply the truth can move. This check runs on <b>every claim</b> the task gets, so a
+     * changed set is never applied: the task goes back to the gate (status {@code APPROVAL_PENDING},
+     * {@code decidedBy}/{@code decidedAt} cleared, a named reason in {@code last_error}) with the
+     * frozen set replaced by the re-derived one, all in one transaction. Because it runs on every
+     * claim, the same holds for a task that was {@code FAILED} for another reason and then retried.</p>
+     *
+     * <p><b>An untouched task pays nothing.</b> No frozen rows means the task was never gated (an
+     * auto-apply task), so the method returns {@code false} immediately and never reads the identity
+     * provider; only a gated task's diff is re-derived. When the two are equal there is no state
+     * change at all.</p>
+     *
+     * @param employee the employee the task belongs to, as loaded by the caller
+     * @param taskId the task the worker is about to apply
+     * @return {@code true} when the reviewed diff moved and the task was returned to the gate;
+     *     {@code false} when nothing changed or the task carries no frozen set
+     */
+    @Transactional
+    public boolean reenterGateIfReviewedSetChanged(Employee employee, UUID taskId) {
+        var frozen = reviewedRoleRepository.findByTaskIdOrderByRoleNameAsc(taskId);
+        if (frozen.isEmpty()) {
+            return false;
+        }
+
+        var diff = deriveReviewedDiff(employee);
+        if (frozenDirections(frozen).equals(reviewedDirections(diff))) {
+            return false;
+        }
+
+        var task = taskService.returnToGate(employee.getId(), taskId, REVIEWED_SET_CHANGED_REASON);
+        writeReviewedRoles(task, diff.additions(), diff.removals());
+        return true;
     }
 
     /**
@@ -221,9 +271,56 @@ public class AccessProvisioningGateService {
     }
 
     /**
-     * Freezes one row per touched role, each carrying its direction, in the task's own transaction.
+     * The reviewed diff re-derived exactly as {@link #request} derives it: the required set from the
+     * role service, the current set read live under the linked guard, and the shared
+     * {@link RoleDiffRule} arithmetic. Both paths share this composition so the frozen set and the
+     * re-derived set can only ever disagree because the truth moved, never because the arithmetic
+     * differed.
      */
-    private void freezeReviewedRoles(AccessProvisioningTask task, Set<String> additions, Set<String> removals) {
+    private ReviewedDiff deriveReviewedDiff(Employee employee) {
+        var required = roleService.requiredRoles(employee);
+
+        var keycloakUserId = employee.getKeycloakUserId();
+        var linked = keycloakUserId != null && !keycloakUserId.isBlank();
+
+        var current = linked ? currentRoles(keycloakUserId) : Set.<String>of();
+
+        return new ReviewedDiff(RoleDiffRule.additions(required, current), RoleDiffRule.removals(current, required));
+    }
+
+    /**
+     * The frozen reviewed set as the value the comparison uses: role name to direction.
+     */
+    private static Map<String, AccessProvisioningRoleDirection> frozenDirections(
+            List<AccessProvisioningReviewedRole> frozen) {
+        return frozen.stream()
+                .collect(Collectors.toMap(
+                        AccessProvisioningReviewedRole::getRoleName, AccessProvisioningReviewedRole::getDirection));
+    }
+
+    /**
+     * The re-derived diff as the same value shape the frozen set uses, so the two are compared by
+     * role name and direction rather than by iteration order.
+     */
+    private static Map<String, AccessProvisioningRoleDirection> reviewedDirections(ReviewedDiff diff) {
+        var directions = new TreeMap<String, AccessProvisioningRoleDirection>();
+        diff.additions().forEach(roleName -> directions.put(roleName, AccessProvisioningRoleDirection.GRANT));
+        diff.removals().forEach(roleName -> directions.put(roleName, AccessProvisioningRoleDirection.REVOKE));
+        return directions;
+    }
+
+    /**
+     * The <b>only</b> writer of the frozen reviewed set: replaces a task's rows with the diff given,
+     * {@link AccessProvisioningRoleDirection#GRANT} for an addition and
+     * {@link AccessProvisioningRoleDirection#REVOKE} for a removal.
+     *
+     * <p>The rows are deleted <b>whole</b> before the replacement is written, so the two paths that
+     * write them — the gated {@link #request} and the re-gate check — cannot leave a partial set. On
+     * {@code request} the task is new and the delete finds nothing; on a re-gate it clears the frozen
+     * set the comparison just read.</p>
+     */
+    private void writeReviewedRoles(AccessProvisioningTask task, Set<String> additions, Set<String> removals) {
+        reviewedRoleRepository.deleteAllByTaskId(task.getId());
         var rows = new ArrayList<AccessProvisioningReviewedRole>(additions.size() + removals.size());
         additions.forEach(roleName -> rows.add(reviewedRole(task, roleName, AccessProvisioningRoleDirection.GRANT)));
         removals.forEach(roleName -> rows.add(reviewedRole(task, roleName, AccessProvisioningRoleDirection.REVOKE)));
@@ -240,6 +337,9 @@ public class AccessProvisioningGateService {
                 .direction(direction)
                 .build();
     }
+
+    /** The two directions of one re-derived reviewed diff. */
+    private record ReviewedDiff(Set<String> additions, Set<String> removals) {}
 
     /**
      * The account's live client roles, normalized to a sorted set with {@code null} entries dropped —

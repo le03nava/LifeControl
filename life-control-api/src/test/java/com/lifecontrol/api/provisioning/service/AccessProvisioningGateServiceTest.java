@@ -8,6 +8,7 @@ import static com.lifecontrol.api.provisioning.model.AccessProvisioningTaskStatu
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
@@ -23,6 +24,7 @@ import com.lifecontrol.api.hr.exception.EmployeeNotFoundException;
 import com.lifecontrol.api.hr.model.Employee;
 import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningReviewedRole;
+import com.lifecontrol.api.provisioning.model.AccessProvisioningRoleDirection;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTask;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTaskStatus;
 import com.lifecontrol.api.provisioning.repository.AccessProvisioningReviewedRoleRepository;
@@ -171,6 +173,35 @@ class AccessProvisioningGateServiceTest {
         return ArgumentCaptor.forClass(List.class);
     }
 
+    private AccessProvisioningReviewedRole frozenRow(String roleName, AccessProvisioningRoleDirection direction) {
+        return AccessProvisioningReviewedRole.builder()
+                .task(AccessProvisioningTask.builder()
+                        .id(taskId)
+                        .employee(linked)
+                        .kind(ACTIVATE)
+                        .status(APPROVAL_PENDING)
+                        .build())
+                .roleName(roleName)
+                .direction(direction)
+                .build();
+    }
+
+    private void stubFrozenRows(AccessProvisioningReviewedRole... rows) {
+        when(reviewedRoleRepository.findByTaskIdOrderByRoleNameAsc(taskId)).thenReturn(List.of(rows));
+    }
+
+    private AccessProvisioningTask stubReturnToGate() {
+        var task = AccessProvisioningTask.builder()
+                .id(taskId)
+                .employee(linked)
+                .kind(ACTIVATE)
+                .status(APPROVAL_PENDING)
+                .build();
+        when(taskService.returnToGate(employeeId, taskId, AccessProvisioningGateService.REVIEWED_SET_CHANGED_REASON))
+                .thenReturn(task);
+        return task;
+    }
+
     // --- tests ---
 
     @Test
@@ -289,6 +320,105 @@ class AccessProvisioningGateServiceTest {
         verify(currentUserContext).verifyCompanyAccess(companyId);
         verifyNoInteractions(
                 employeeRepository, roleService, identityProvider, approvalPolicy, taskService, reviewedRoleRepository);
+    }
+
+    // --- the re-gate check ---
+
+    @Test
+    @DisplayName("a frozen set equal to the live diff leaves the task alone and writes nothing")
+    void unchangedReviewedSetLeavesTheTaskAlone() {
+        stubFrozenRows(frozenRow("lc-company", GRANT), frozenRow("lc-sales", REVOKE));
+        stubRequiredFor(linked, "lc-company");
+        stubCurrentRoles("lc-sales");
+
+        var changed = service.reenterGateIfReviewedSetChanged(linked, taskId);
+
+        assertThat(changed).isFalse();
+        verify(taskService, never()).returnToGate(any(), any(), any());
+        verify(reviewedRoleRepository, never()).deleteAllByTaskId(any());
+        verify(reviewedRoleRepository, never()).saveAll(any());
+    }
+
+    /**
+     * Proves the identity the comparison uses is the <b>diff</b>, not the two raw role sets: both raw
+     * inputs moved ({@code lc-department} and {@code lc-position} now sit on both sides) while the
+     * additions stayed exactly {@code {lc-company}} and the removals exactly {@code {lc-sales}}, so
+     * the untouched task is left alone. A comparison over the raw inputs would re-gate it here.
+     */
+    @Test
+    @DisplayName("a changed raw set that leaves the diff identical does not re-gate: the identity is the diff")
+    void changedRawSetsWithUnchangedDiffLeaveTheTaskAlone() {
+        stubFrozenRows(frozenRow("lc-company", GRANT), frozenRow("lc-sales", REVOKE));
+        stubRequiredFor(linked, "lc-department", "lc-company", "lc-position");
+        stubCurrentRoles("lc-department", "lc-sales", "lc-position");
+
+        var changed = service.reenterGateIfReviewedSetChanged(linked, taskId);
+
+        assertThat(changed).isFalse();
+        verify(taskService, never()).returnToGate(any(), any(), any());
+        verify(reviewedRoleRepository, never()).deleteAllByTaskId(any());
+        verify(reviewedRoleRepository, never()).saveAll(any());
+    }
+
+    @Test
+    @DisplayName("no frozen rows short-circuits before any identity-provider read")
+    void noFrozenRowsShortCircuitsBeforeTheIdentityProvider() {
+        stubFrozenRows();
+
+        var changed = service.reenterGateIfReviewedSetChanged(linked, taskId);
+
+        assertThat(changed).isFalse();
+        verifyNoInteractions(identityProvider);
+        verifyNoInteractions(roleService);
+        verify(taskService, never()).returnToGate(any(), any(), any());
+        verify(reviewedRoleRepository, never()).deleteAllByTaskId(any());
+        verify(reviewedRoleRepository, never()).saveAll(any());
+    }
+
+    @Test
+    @DisplayName("a diff that gained a role returns to the gate and replaces the frozen rows")
+    void changedReviewedSetReturnsToGateAndReplacesTheRowsForAGrant() {
+        stubFrozenRows(frozenRow("lc-sales", REVOKE));
+        stubRequiredFor(linked, "lc-company");
+        stubCurrentRoles("lc-sales");
+        var replaced = stubReturnToGate();
+
+        var changed = service.reenterGateIfReviewedSetChanged(linked, taskId);
+
+        assertThat(changed).isTrue();
+        verify(taskService).returnToGate(employeeId, taskId, AccessProvisioningGateService.REVIEWED_SET_CHANGED_REASON);
+        verify(reviewedRoleRepository).deleteAllByTaskId(taskId);
+        var captor = reviewedRowsCaptor();
+        verify(reviewedRoleRepository).saveAll(captor.capture());
+        assertThat(captor.getValue())
+                .as("the frozen set is replaced by the re-derived diff, with direction")
+                .extracting(AccessProvisioningReviewedRole::getRoleName, AccessProvisioningReviewedRole::getDirection)
+                .containsExactlyInAnyOrder(tuple("lc-company", GRANT), tuple("lc-sales", REVOKE));
+        assertThat(captor.getValue())
+                .as("the replacement rows hang off the task returnToGate returned")
+                .extracting(row -> row.getTask().getId())
+                .containsOnly(replaced.getId());
+    }
+
+    @Test
+    @DisplayName("a diff that lost a role round-trips as a REVOKE-only replacement")
+    void changedReviewedSetReturnsToGateAndReplacesTheRowsForARevoke() {
+        stubFrozenRows(frozenRow("lc-sales", GRANT));
+        stubRequiredFor(linked);
+        stubCurrentRoles("lc-sales");
+        stubReturnToGate();
+
+        var changed = service.reenterGateIfReviewedSetChanged(linked, taskId);
+
+        assertThat(changed).isTrue();
+        verify(taskService).returnToGate(employeeId, taskId, AccessProvisioningGateService.REVIEWED_SET_CHANGED_REASON);
+        verify(reviewedRoleRepository).deleteAllByTaskId(taskId);
+        var captor = reviewedRowsCaptor();
+        verify(reviewedRoleRepository).saveAll(captor.capture());
+        assertThat(captor.getValue())
+                .as("a role that moved out of the required set becomes a REVOKE")
+                .extracting(AccessProvisioningReviewedRole::getRoleName, AccessProvisioningReviewedRole::getDirection)
+                .containsExactly(tuple("lc-sales", REVOKE));
     }
 
     // --- decision methods ---

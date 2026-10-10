@@ -15,6 +15,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.lifecontrol.api.common.auth.CurrentUserContext;
@@ -49,7 +50,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.access.AccessDeniedException;
 
 /**
- * Focused unit tests for {@link AccessProvisioningTaskService}: the six legal transitions with their
+ * Focused unit tests for {@link AccessProvisioningTaskService}: the seven legal transitions with their
  * exact field movements, and the refusal of every illegal pair of the 6 × 6 matrix.
  */
 @ExtendWith(MockitoExtension.class)
@@ -840,17 +841,96 @@ class AccessProvisioningTaskServiceTest {
     }
 
     @Nested
+    @DisplayName("returnToGate")
+    class ReturnToGateTests {
+
+        @Test
+        @DisplayName("should move RUNNING to APPROVAL_PENDING, store the reason and clear the stale decision")
+        void returnToGate_FromRunning() {
+            var task = taskInStatus(RUNNING);
+            task.setDecidedBy("approver-1");
+            task.setDecidedAt(LocalDateTime.of(2026, 1, 1, 12, 0));
+            stubLoadedForUpdate(task);
+            stubSaved();
+
+            var result = service.returnToGate(employeeId, taskId, "the reviewed diff changed");
+
+            assertThat(result.getStatus()).isEqualTo(APPROVAL_PENDING);
+            assertThat(result.getLastError()).isEqualTo("the reviewed diff changed");
+            assertThat(result.getDecidedBy())
+                    .as("a superseded approval must not survive the new snapshot")
+                    .isNull();
+            assertThat(result.getDecidedAt()).isNull();
+            verifyLockedLoad();
+            verify(taskRepository).save(task);
+        }
+
+        @Test
+        @DisplayName("should write no role rows of any kind: the frozen set belongs to the gate service")
+        void returnToGate_WritesNoRoleRows() {
+            var task = taskInStatus(RUNNING);
+            stubLoadedForUpdate(task);
+            stubSaved();
+
+            service.returnToGate(employeeId, taskId, "the reviewed diff changed");
+
+            verifyNoInteractions(appliedRoleRepository, employeeRepository, currentUserContext);
+        }
+
+        @Test
+        @DisplayName("should refuse a task that is not RUNNING")
+        void returnToGate_RefusesFromPending() {
+            var task = taskInStatus(PENDING);
+            stubLoadedForUpdate(task);
+
+            assertThatThrownBy(() -> service.returnToGate(employeeId, taskId, "reason"))
+                    .isInstanceOf(InvalidTaskStatusTransitionException.class)
+                    .hasMessageContaining("PENDING");
+            assertThat(task.getStatus()).isEqualTo(PENDING);
+            verifyLockedLoad();
+            verify(taskRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("should refuse a self-transition from APPROVAL_PENDING")
+        void returnToGate_RefusesFromApprovalPending() {
+            var task = taskInStatus(APPROVAL_PENDING);
+            stubLoadedForUpdate(task);
+
+            assertThatThrownBy(() -> service.returnToGate(employeeId, taskId, "reason"))
+                    .isInstanceOf(InvalidTaskStatusTransitionException.class);
+            assertThat(task.getStatus()).isEqualTo(APPROVAL_PENDING);
+            verifyLockedLoad();
+            verify(taskRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("should refuse an unknown or foreign task")
+        void returnToGate_RefusesUnknownTask() {
+            when(taskRepository.findByIdAndEmployeeIdForUpdate(taskId, employeeId))
+                    .thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.returnToGate(employeeId, taskId, "reason"))
+                    .isInstanceOf(AccessProvisioningTaskNotFoundException.class);
+            verifyLockedLoad();
+            verify(taskRepository, never()).save(any());
+        }
+    }
+
+    @Nested
     @DisplayName("transition map")
     class TransitionMatrixTests {
 
         @Test
-        @DisplayName("should accept exactly the six legal edges")
+        @DisplayName("should accept exactly the seven legal edges")
         void acceptsLegalEdges() {
             assertThatCode(() -> AccessProvisioningTaskService.requireTransition(PENDING, RUNNING))
                     .doesNotThrowAnyException();
             assertThatCode(() -> AccessProvisioningTaskService.requireTransition(RUNNING, APPLIED))
                     .doesNotThrowAnyException();
             assertThatCode(() -> AccessProvisioningTaskService.requireTransition(RUNNING, FAILED))
+                    .doesNotThrowAnyException();
+            assertThatCode(() -> AccessProvisioningTaskService.requireTransition(RUNNING, APPROVAL_PENDING))
                     .doesNotThrowAnyException();
             assertThatCode(() -> AccessProvisioningTaskService.requireTransition(FAILED, PENDING))
                     .doesNotThrowAnyException();
@@ -861,7 +941,7 @@ class AccessProvisioningTaskServiceTest {
         }
 
         @Test
-        @DisplayName("should refuse every pair that is not one of the six legal edges")
+        @DisplayName("should refuse every pair that is not one of the seven legal edges")
         void refusesEveryIllegalPair() {
             var refused = 0;
             for (var from : AccessProvisioningTaskStatus.values()) {
@@ -875,7 +955,9 @@ class AccessProvisioningTaskServiceTest {
                     refused++;
                 }
             }
-            assertThat(refused).isEqualTo(30);
+            assertThat(refused)
+                    .as("36 pairs minus the seven legal edges leaves twenty-nine refused pairs")
+                    .isEqualTo(29);
         }
 
         @Test
@@ -896,6 +978,7 @@ class AccessProvisioningTaskServiceTest {
             return (from == PENDING && to == RUNNING)
                     || (from == RUNNING && to == APPLIED)
                     || (from == RUNNING && to == FAILED)
+                    || (from == RUNNING && to == APPROVAL_PENDING)
                     || (from == FAILED && to == PENDING)
                     || (from == APPROVAL_PENDING && to == PENDING)
                     || (from == APPROVAL_PENDING && to == REJECTED);
