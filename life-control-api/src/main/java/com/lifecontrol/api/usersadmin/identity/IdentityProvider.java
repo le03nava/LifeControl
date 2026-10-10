@@ -38,6 +38,25 @@ public interface IdentityProvider {
      */
     void updateUser(String userId, UserRepresentation user);
 
+    /**
+     * Disables a user's account so it can no longer authenticate.
+     *
+     * <p>This is the capability revocation ({@code DEACTIVATE}, decision O4 in
+     * {@code odd/tasks/employee-access-provisioning.md}) needs to turn an account off, and it is
+     * gap G19 of that record: before it, the port could only create, delete or replace the whole
+     * representation. It is deliberately <b>not</b> {@link #updateUser(String, UserRepresentation)}:
+     * that method forwards the caller's entire representation (record T77), so any field the
+     * caller does not carry is silently lost. This method performs a read-modify-write instead,
+     * flipping only {@code enabled} and leaving every other field of the account intact.</p>
+     *
+     * <p>The write is unconditional and idempotent by value: an account that is already disabled is
+     * still updated with {@code enabled = false}, and no extra state is kept to decide whether to
+     * skip it.</p>
+     *
+     * @param userId the identity provider user ID
+     */
+    void disableUser(String userId);
+
     // --- Realm Role CRUD ---
 
     List<RoleDto> listRealmRoles();

@@ -371,6 +371,80 @@ class KeycloakIdentityProviderTest {
     }
 
     @Nested
+    @DisplayName("disableUser")
+    class DisableUserTests {
+
+        private UserResource userResource;
+
+        @BeforeEach
+        void setUp() {
+            userResource = mock(UserResource.class);
+            when(realmResource.users()).thenReturn(usersResource);
+            when(usersResource.get(USER_ID)).thenReturn(userResource);
+        }
+
+        @Test
+        @DisplayName("should read the current representation, flip enabled to false and preserve every other field")
+        void shouldReadModifyWriteAndPreserveOtherFields() {
+            var current = new UserRepresentation();
+            current.setId(USER_ID);
+            current.setUsername("jdoe");
+            current.setEmail("jdoe@example.com");
+            current.setFirstName("John");
+            current.setLastName("Doe");
+            current.setEnabled(true);
+            current.setAttributes(Map.of("company_id", List.of("uuid-123")));
+            when(userResource.toRepresentation()).thenReturn(current);
+
+            provider.disableUser(USER_ID);
+
+            var captor = ArgumentCaptor.forClass(UserRepresentation.class);
+            verify(userResource).update(captor.capture());
+            var updated = captor.getValue();
+            assertThat(updated.isEnabled()).isFalse();
+            assertThat(updated.getEmail()).isEqualTo("jdoe@example.com");
+            assertThat(updated.getAttributes()).containsEntry("company_id", List.of("uuid-123"));
+        }
+
+        @Test
+        @DisplayName("should map NotFoundException to IdentityProviderNotFoundException")
+        void shouldMapNotFoundException() {
+            when(userResource.toRepresentation()).thenThrow(new NotFoundException("User not found"));
+
+            assertThatThrownBy(() -> provider.disableUser(USER_ID))
+                    .isInstanceOf(IdentityProviderNotFoundException.class)
+                    .hasCauseInstanceOf(NotFoundException.class)
+                    .hasMessageContaining("User not found");
+        }
+
+        @Test
+        @DisplayName("should map ProcessingException to IdentityProviderConnectionException")
+        void shouldMapProcessingException() {
+            when(userResource.toRepresentation()).thenThrow(new ProcessingException("Connection refused"));
+
+            assertThatThrownBy(() -> provider.disableUser(USER_ID))
+                    .isInstanceOf(IdentityProviderConnectionException.class)
+                    .hasCauseInstanceOf(ProcessingException.class)
+                    .hasMessageContaining("Failed to disable user");
+        }
+
+        @Test
+        @DisplayName("should still update unconditionally when the account is already disabled")
+        void shouldUpdateUnconditionallyWhenAlreadyDisabled() {
+            var current = new UserRepresentation();
+            current.setId(USER_ID);
+            current.setEnabled(false);
+            when(userResource.toRepresentation()).thenReturn(current);
+
+            provider.disableUser(USER_ID);
+
+            var captor = ArgumentCaptor.forClass(UserRepresentation.class);
+            verify(userResource).update(captor.capture());
+            assertThat(captor.getValue().isEnabled()).isFalse();
+        }
+    }
+
+    @Nested
     @DisplayName("findUsersByEmail")
     class FindUsersByEmailTests {
 

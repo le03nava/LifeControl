@@ -93,6 +93,20 @@ public class KeycloakIdentityProvider implements IdentityProvider {
         }
     }
 
+    @Override
+    public void disableUser(String userId) {
+        try {
+            var user = keycloak.realm(realm()).users().get(userId);
+            var userRep = user.toRepresentation();
+            userRep.setEnabled(false);
+            user.update(userRep);
+        } catch (NotFoundException e) {
+            throw new IdentityProviderNotFoundException("User not found: " + userId, e);
+        } catch (ProcessingException e) {
+            throw new IdentityProviderConnectionException("Failed to disable user: " + userId, e);
+        }
+    }
+
     // ---------------------------------------------------------------
     // Realm Role CRUD
     // ---------------------------------------------------------------
