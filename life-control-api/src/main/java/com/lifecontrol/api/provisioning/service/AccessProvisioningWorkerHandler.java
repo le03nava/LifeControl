@@ -2,7 +2,6 @@ package com.lifecontrol.api.provisioning.service;
 
 import com.lifecontrol.api.hr.model.Employee;
 import com.lifecontrol.api.provisioning.dto.RoleConvergenceResult;
-import com.lifecontrol.api.provisioning.exception.AccountDeactivationNotSupportedException;
 import com.lifecontrol.api.provisioning.exception.AccountLinkRefusedException;
 import com.lifecontrol.api.provisioning.exception.AccountNotLinkedException;
 import com.lifecontrol.api.provisioning.exception.AmbiguousCurrentContractException;
@@ -37,14 +36,16 @@ import org.springframework.stereotype.Service;
  * T35/T44/T59). {@code RECONCILE} converges the two projections a drift would move and deliberately
  * does <b>not</b> touch the account lifecycle: reactivating on a reconcile would re-send an invitation
  * nobody asked for, and the kind's own contract is to re-derive the desired state, not to re-onboard.
- * Nothing is invented beyond those two measured orders.</p>
+ * Nothing is invented beyond those three measured orders.</p>
  *
- * <p><b>{@code DEACTIVATE} fails closed.</b> The capability to disable an account does not exist in
- * {@code IdentityProvider} (record G19), and the alternative the tree allows — removing the roles and
- * the {@code company_*} claims while the account stays enabled — is a silent half-revocation (record
- * O4). This handler therefore throws {@link AccountDeactivationNotSupportedException} <b>before</b>
- * calling anything, so no write happens on the way to the refusal and the task ends {@code FAILED}
- * with a reason the operator can read and retry once the capability lands (records T10/T59).</p>
+ * <p><b>{@code DEACTIVATE} disables the account first, then converges.</b> The order is not a
+ * preference: a disabled account cannot authenticate, so "disabled with roles still present" is inert,
+ * while the reverse — removing the roles and the {@code company_*} claims while the account stays
+ * enabled — is the silent half-revocation record O4 refuses. Every failure after the disable leaves
+ * the task {@code FAILED} and retriable with the partial state on the safe side (records T78/G37).
+ * The capability itself is {@link AccessProvisioningAccountService#deactivate(Employee)}; the removal
+ * half is the existing convergence, because a {@code Terminated} employee requires no roles and
+ * derives the empty scope.</p>
  *
  * <p><b>Nothing is swallowed.</b> A refusal or failure from any capability propagates unchanged and
  * the steps after it do not run; the caller turns that into the task's {@code last_error} and the
@@ -93,15 +94,13 @@ public class AccessProvisioningWorkerHandler {
      * @param employee the employee the task belongs to
      * @param kind the task's immutable kind (record T3)
      * @return the roles the run touched ({@code granted ∪ removed}); empty when nothing changed
-     * @throws AccountDeactivationNotSupportedException for {@code DEACTIVATE}, always: the capability
-     *     to disable an account does not exist (record G19) and a partial revocation is refused
      * @throws InvitationNotDeliverableException for {@code ACTIVATE} when the company has no usable
      *     email domain (record T33); declared here because it surfaces from
      *     {@link AccessProvisioningAccountService#activate(Employee)} before its first write
      * @throws AccountLinkRefusedException for {@code ACTIVATE} when an existing account cannot be
      *     linked under the exactly-one-exact-match rule (records T5/T27)
-     * @throws AccountNotLinkedException for {@code ACTIVATE} and {@code RECONCILE} when the employee
-     *     has no linked Keycloak account
+     * @throws AccountNotLinkedException for {@code ACTIVATE}, {@code RECONCILE} and
+     *     {@code DEACTIVATE} when the employee has no linked Keycloak account
      * @throws AmbiguousCurrentContractException when more than one enabled contract covers today
      * @throws PositionOutsideEmployeeCompanyException when the position does not resolve to the
      *     employee's company
@@ -117,17 +116,21 @@ public class AccessProvisioningWorkerHandler {
                 yield converge(employee);
             }
             case RECONCILE -> converge(employee);
-            // Not an approximation of a revocation: the account-disable capability does not exist
-            // (record G19) and the half that does is refused (record T59). Thrown before any call so
-            // no write happens on the way to the failure.
-            case DEACTIVATE -> throw new AccountDeactivationNotSupportedException();
+            // Disable first, then converge: a disabled account cannot authenticate, so "disabled with
+            // roles still present" is inert, while the reverse is the half-revocation record O4
+            // refuses (record T78). A failure after the disable leaves the task FAILED and retriable
+            // with the partial state on the safe side.
+            case DEACTIVATE -> {
+                accountService.deactivate(employee);
+                yield converge(employee);
+            }
         };
     }
 
     /**
      * Converges the two projections a drift moves — roles first, then membership — and returns the
-     * roles the run touched. It is shared by {@code ACTIVATE} and {@code RECONCILE} because both
-     * converge the same two projections; only the account lifecycle differs between them.
+     * roles the run touched. It is shared by all three kinds because they converge the same two
+     * projections; only the account lifecycle differs between them.
      */
     private Set<String> converge(Employee employee) {
         var roles = roleService.convergeRoles(employee);

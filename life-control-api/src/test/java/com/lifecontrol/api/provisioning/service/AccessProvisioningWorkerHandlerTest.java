@@ -5,8 +5,9 @@ import static com.lifecontrol.api.provisioning.model.AccessProvisioningTaskKind.
 import static com.lifecontrol.api.provisioning.model.AccessProvisioningTaskKind.RECONCILE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -14,7 +15,6 @@ import com.lifecontrol.api.hr.model.Employee;
 import com.lifecontrol.api.hr.service.EmployeeStoreScope;
 import com.lifecontrol.api.provisioning.dto.AccountProvisioningResult;
 import com.lifecontrol.api.provisioning.dto.RoleConvergenceResult;
-import com.lifecontrol.api.provisioning.exception.AccountDeactivationNotSupportedException;
 import com.lifecontrol.api.provisioning.exception.AccountNotLinkedException;
 import com.lifecontrol.api.provisioning.exception.CompanyScopeInvariantException;
 import com.lifecontrol.api.provisioning.exception.InvitationNotDeliverableException;
@@ -32,8 +32,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 /**
  * Focused unit tests for {@link AccessProvisioningWorkerHandler}: the per-kind dispatch with its call
- * order (records T44/T59), the touched-set contract of the snapshot (record T35), the fail-closed
- * {@code DEACTIVATE} refusal (records G19/T59) and the no-swallow rule (records T10/T13).
+ * order (records T44/T59/T78), the touched-set contract of the snapshot (record T35) and the
+ * no-swallow rule (records T10/T13).
  *
  * <p>The three capabilities are mocked — the composition of the real services is record G23's
  * limitation, declared rather than proven here — so every assertion is about <b>what this handler
@@ -184,29 +184,26 @@ class AccessProvisioningWorkerHandlerTest {
     }
 
     @Nested
-    @DisplayName("DEACTIVATE fails closed (records G19/T59)")
+    @DisplayName("DEACTIVATE (records T78/O4)")
     class Deactivate {
 
         @Test
-        @DisplayName("refuses by name before calling anything: no write happens on the way to the throw")
-        void refusesBeforeAnyWrite() {
-            assertThatThrownBy(() -> handler.apply(employee, DEACTIVATE))
-                    .isInstanceOf(AccountDeactivationNotSupportedException.class);
+        @DisplayName("disables the account first, then converges, and returns granted ∪ removed")
+        void disablesTheAccountThenConverges() {
+            stubRoles(NO_ROLES, NO_ROLES, Set.of("lc-a", "lc-b"));
+            stubMembership();
 
-            verifyNoInteractions(accountService, roleService, membershipService);
-        }
+            var touched = handler.apply(employee, DEACTIVATE);
 
-        @Test
-        @DisplayName("the refusal names the missing capability within the last_error bound")
-        void refusalMessageNamesTheMissingCapabilityAndFitsTheColumn() {
-            var thrown = catchThrowable(() -> handler.apply(employee, DEACTIVATE));
-
-            assertThat(thrown).isInstanceOf(AccountDeactivationNotSupportedException.class);
-            assertThat(thrown.getMessage())
-                    .contains("DEACTIVATE")
-                    .contains("disable an account")
-                    .contains("G19")
-                    .hasSizeLessThanOrEqualTo(500);
+            // Disable-first is the direction that cannot widen access: a disabled account cannot
+            // authenticate, so "disabled with roles still present" is inert, while the reverse is the
+            // half-revocation the landed refusal named (record T78).
+            var inOrder = inOrder(accountService, roleService, membershipService);
+            inOrder.verify(accountService).deactivate(employee);
+            inOrder.verify(roleService).convergeRoles(employee);
+            inOrder.verify(membershipService).convergeMembership(employee);
+            verify(accountService, never()).activate(employee);
+            assertThat(touched).containsExactlyInAnyOrder("lc-a", "lc-b");
         }
     }
 
