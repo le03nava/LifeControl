@@ -11,6 +11,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import com.lifecontrol.api.company.model.Company;
@@ -19,6 +20,7 @@ import com.lifecontrol.api.config.security.ApplicationClientProperties;
 import com.lifecontrol.api.hr.model.Employee;
 import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.provisioning.exception.AccountLinkRefusedException;
+import com.lifecontrol.api.provisioning.exception.AccountNotLinkedException;
 import com.lifecontrol.api.provisioning.exception.InvitationNotDeliverableException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProvider;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderConflictException;
@@ -282,6 +284,35 @@ class AccessProvisioningAccountServiceTest {
 
             verifyNoInteractions(identityProvider);
             verify(employeeRepository, never()).save(any(Employee.class));
+        }
+    }
+
+    @Nested
+    @DisplayName("deactivate")
+    class DeactivateTests {
+
+        @Test
+        @DisplayName("should disable the linked account with the port's narrow capability and call nothing else")
+        void disablesTheLinkedAccount() {
+            employee.linkKeycloakUser("kc-existing");
+
+            service.deactivate(employee);
+
+            verify(identityProvider).disableUser("kc-existing");
+            // T77/T6: not the whole-representation update and not deleteUser (the sub stays stable).
+            verify(identityProvider, never()).updateUser(any(), any());
+            verify(identityProvider, never()).deleteUser(any());
+            verifyNoMoreInteractions(identityProvider);
+        }
+
+        @Test
+        @DisplayName("should refuse by name before any identity-provider call when no account is linked")
+        void refusesWhenNoAccountIsLinked() {
+            assertThatThrownBy(() -> service.deactivate(employee))
+                    .isInstanceOf(AccountNotLinkedException.class)
+                    .hasMessageContaining("no keycloakUserId");
+
+            verifyNoInteractions(identityProvider);
         }
     }
 }

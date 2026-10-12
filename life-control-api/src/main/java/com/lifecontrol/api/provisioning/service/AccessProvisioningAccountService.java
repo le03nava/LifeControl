@@ -6,6 +6,7 @@ import com.lifecontrol.api.hr.model.Employee;
 import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.provisioning.dto.AccountProvisioningResult;
 import com.lifecontrol.api.provisioning.exception.AccountLinkRefusedException;
+import com.lifecontrol.api.provisioning.exception.AccountNotLinkedException;
 import com.lifecontrol.api.provisioning.exception.InvitationNotDeliverableException;
 import com.lifecontrol.api.provisioning.model.AccountProvisioningOutcome;
 import com.lifecontrol.api.usersadmin.identity.IdentityProvider;
@@ -18,7 +19,10 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * The <b>account lifecycle</b> of the access-provisioning projection (unit W2a): ensure the Keycloak
  * account of an employee exists — create it, or link an existing one under the strict rule of
- * records T5/T27 — and send the invitation.
+ * records T5/T27 — send the invitation, and disable the account on revocation. The last one is the
+ * capability gap G19 owed (records T77/T78): a single read-modify-write of the {@code enabled} flag,
+ * never {@code updateUser}'s whole-representation write and never {@code deleteUser} (record T6 keeps
+ * the {@code sub} stable).
  *
  * <p>It is a capability with no endpoint, no scheduler, no migration and no task write: its caller is
  * the access-provisioning worker (W4). It deliberately does <b>not</b> call
@@ -126,6 +130,39 @@ public class AccessProvisioningAccountService {
                 invitationProperties.lifespanSeconds(),
                 REQUIRED_ACTIONS);
         return result;
+    }
+
+    /**
+     * Disables the employee's Keycloak account, so it can no longer authenticate — the account half of
+     * a {@code DEACTIVATE} revocation (records O4/T77/T78).
+     *
+     * <p>It calls exactly one port method, {@link IdentityProvider#disableUser(String)}, and nothing
+     * else: not {@code deleteUser} (record T6 keeps the {@code sub} stable so the person's
+     * {@code activity_logs} are not orphaned and a rehire re-links the same account), not
+     * {@code updateUser} (its whole-representation write can clobber fields nobody meant to touch —
+     * record T77/G19), and no re-enable. The roles and the five {@code company_*} claims are removed by
+     * the caller's own convergence, which is why this method does not touch them: one instruction, one
+     * port call.</p>
+     *
+     * <p>It deliberately does <b>not</b> call {@code verifyCompanyAccess}: the worker has no current
+     * user, exactly as this class' other capabilities declare (the precedent W1b set).</p>
+     *
+     * <p>The return type is {@code void} on purpose: the account half of a revocation has no outcome to
+     * report. It either disabled the account or the port threw, so a result enum would carry exactly
+     * one reachable value.</p>
+     *
+     * @param employee the employee whose account is disabled; it must already be linked
+     * @throws AccountNotLinkedException when the employee has no linked Keycloak account, the same
+     *     refusal W2b and W3 make and for the same reason: the write has nowhere to go
+     */
+    @Transactional
+    public void deactivate(Employee employee) {
+        var userId = employee.getKeycloakUserId();
+        if (userId == null || userId.isBlank()) {
+            throw new AccountNotLinkedException("Account not linked: employee " + employee.getId()
+                    + " has no keycloakUserId, so its account cannot be disabled");
+        }
+        identityProvider.disableUser(userId);
     }
 
     private AccountProvisioningResult createOrLink(String email) {
