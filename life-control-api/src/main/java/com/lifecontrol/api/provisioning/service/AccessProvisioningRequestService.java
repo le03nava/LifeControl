@@ -162,17 +162,19 @@ public class AccessProvisioningRequestService {
      * emailed link — the link expires, so the screen needs a way to send another one.
      *
      * <p><b>It creates no task and moves no state</b>: the operation is a send, not a convergence, and
-     * it writes nothing this application stores. Both refusals come from the capability it delegates
-     * to — no linked account
-     * ({@link com.lifecontrol.api.provisioning.exception.AccountNotLinkedException}) and no deliverable
-     * company address
-     * ({@link com.lifecontrol.api.provisioning.exception.InvitationNotDeliverableException}) — and both
-     * answer <b>409</b> because both extend the conflict category (record T86), so the operator sees
-     * which one applies instead of a 500.</p>
+     * it writes nothing this application stores. <b>A terminated employee is refused first</b>, by
+     * the same guard {@link #apply(UUID, UUID)} applies: a fresh activation link is a way back in.
+     * The two remaining refusals come from the capability it delegates to — no linked account
+     * ({@link com.lifecontrol.api.provisioning.exception.AccountNotLinkedException}) and no
+     * deliverable company address
+     * ({@link com.lifecontrol.api.provisioning.exception.InvitationNotDeliverableException}) — and all
+     * three answer <b>409</b> because all three extend the conflict category (record T86), so the
+     * operator sees which one applies instead of a 500.</p>
      *
      * @throws org.springframework.security.access.AccessDeniedException when the current user cannot
      *     access the company
      * @throws EmployeeNotFoundException when the employee does not belong to the company
+     * @throws TerminatedEmployeeRefusedException when the employee's status is {@code Terminated}
      * @throws com.lifecontrol.api.provisioning.exception.AccountNotLinkedException when nothing is
      *     linked to send to
      * @throws com.lifecontrol.api.provisioning.exception.InvitationNotDeliverableException when the
@@ -183,6 +185,9 @@ public class AccessProvisioningRequestService {
         currentUserContext.verifyCompanyAccess(companyId);
         var employee = requireEmployeeInCompany(companyId, employeeId);
 
+        if (EmployeeStatuses.isTerminated(employee)) {
+            throw new TerminatedEmployeeRefusedException(employeeId);
+        }
         accountService.resendInvitation(employee);
     }
 

@@ -448,6 +448,18 @@ class AccessProvisioningRequestServiceTest {
         }
 
         @Test
+        @DisplayName("refuses a Terminated employee before delegating the send")
+        void terminatedEmployeeIsRefusedByName() {
+            employeeInCompany(terminated);
+
+            assertThatThrownBy(() -> service.resend(companyId, employeeId))
+                    .isInstanceOf(TerminatedEmployeeRefusedException.class)
+                    .hasMessageContaining("Terminated");
+
+            verifyNoInteractions(accountService);
+        }
+
+        @Test
         @DisplayName("delegates the send to the account service, with the employee it loaded")
         void delegatesToTheAccountService() {
             employeeInCompany(active);
