@@ -19,6 +19,7 @@ import com.lifecontrol.api.hr.repository.ContractRepository;
 import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.hr.repository.PositionRepository;
 import com.lifecontrol.api.hr.repository.SeniorityLevelRepository;
+import com.lifecontrol.api.provisioning.service.AccessProvisioningProducer;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -89,6 +90,7 @@ public class ContractService {
     private final PositionRepository positionRepository;
     private final SeniorityLevelRepository seniorityLevelRepository;
     private final CurrentUserContext currentUserContext;
+    private final AccessProvisioningProducer accessProvisioningProducer;
 
     public ContractService(
             ContractRepository contractRepository,
@@ -96,13 +98,15 @@ public class ContractService {
             CompanyRepository companyRepository,
             PositionRepository positionRepository,
             SeniorityLevelRepository seniorityLevelRepository,
-            CurrentUserContext currentUserContext) {
+            CurrentUserContext currentUserContext,
+            AccessProvisioningProducer accessProvisioningProducer) {
         this.contractRepository = contractRepository;
         this.employeeRepository = employeeRepository;
         this.companyRepository = companyRepository;
         this.positionRepository = positionRepository;
         this.seniorityLevelRepository = seniorityLevelRepository;
         this.currentUserContext = currentUserContext;
+        this.accessProvisioningProducer = accessProvisioningProducer;
     }
 
     /**
@@ -192,6 +196,11 @@ public class ContractService {
                 companyId,
                 employeeId,
                 saved.getStartDate());
+
+        // The intent rides the same transaction as the fact (record T88): the producer owns no
+        // boundary of its own, so the task commits or rolls back with this contract row. It is called
+        // after the save because a contract that never landed must enqueue nothing.
+        accessProvisioningProducer.onContractActivated(companyId, employee);
 
         return toResponse(saved);
     }

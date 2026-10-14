@@ -14,6 +14,7 @@ import com.lifecontrol.api.hr.exception.EmployeeEmailFrozenException;
 import com.lifecontrol.api.hr.exception.EmployeeNotFoundException;
 import com.lifecontrol.api.hr.model.Employee;
 import com.lifecontrol.api.hr.repository.EmployeeRepository;
+import com.lifecontrol.api.provisioning.service.AccessProvisioningProducer;
 import com.lifecontrol.api.provisioning.service.AccessProvisioningQueryService;
 import com.lifecontrol.api.status.exception.StatusNotFoundException;
 import com.lifecontrol.api.status.model.Status;
@@ -80,6 +81,7 @@ public class EmployeeService {
     private final AddressRepository addressRepository;
     private final CurrentUserContext currentUserContext;
     private final AccessProvisioningQueryService accessProvisioningQueryService;
+    private final AccessProvisioningProducer accessProvisioningProducer;
 
     public EmployeeService(
             EmployeeRepository employeeRepository,
@@ -87,13 +89,15 @@ public class EmployeeService {
             StatusRepository statusRepository,
             AddressRepository addressRepository,
             CurrentUserContext currentUserContext,
-            AccessProvisioningQueryService accessProvisioningQueryService) {
+            AccessProvisioningQueryService accessProvisioningQueryService,
+            AccessProvisioningProducer accessProvisioningProducer) {
         this.employeeRepository = employeeRepository;
         this.companyRepository = companyRepository;
         this.statusRepository = statusRepository;
         this.addressRepository = addressRepository;
         this.currentUserContext = currentUserContext;
         this.accessProvisioningQueryService = accessProvisioningQueryService;
+        this.accessProvisioningProducer = accessProvisioningProducer;
     }
 
     /**
@@ -235,11 +239,18 @@ public class EmployeeService {
         employee.setHireDate(request.hireDate());
         employee.setTerminationDate(request.terminationDate());
         employee.setAddress(resolveAddress(request.addressId()));
+        // Read before the mutation: the termination intent is produced on the transition into a
+        // terminated status, not on every write of an employee who is already terminated (record T88).
+        var wasTerminated = EmployeeStatuses.isTerminated(employee);
         employee.setStatus(status);
 
         var updated = employeeRepository.save(employee);
         logger.info(
                 "Employee updated: id={}, companyId={}, employeeNumber={}", id, companyId, updated.getEmployeeNumber());
+
+        if (!wasTerminated && EmployeeStatuses.isTerminated(updated)) {
+            accessProvisioningProducer.onEmploymentTerminated(companyId, updated);
+        }
 
         return toResponse(updated);
     }
