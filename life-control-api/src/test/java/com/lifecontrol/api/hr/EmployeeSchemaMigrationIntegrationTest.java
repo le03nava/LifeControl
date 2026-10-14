@@ -79,6 +79,9 @@ class EmployeeSchemaMigrationIntegrationTest extends AbstractPostgresIntegration
         // Unconditional: removes every row of employees, not a scoped subset. Both suites that
         // write this table do the same, so the shared container is cleaned without cross-test
         // interference. status_types, statuses and companies are shared and are never touched here.
+        // The access-provisioning rows that reference an employee are deleted first, because W5c's
+        // producer writes them for the facts these suites assert (record T90).
+        deleteAllAccessProvisioningRows(jdbcTemplate);
         jdbcTemplate.update("DELETE FROM employees");
     }
 

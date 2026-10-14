@@ -26,6 +26,7 @@ import com.lifecontrol.api.hr.repository.ContractRepository;
 import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.hr.repository.PositionRepository;
 import com.lifecontrol.api.hr.repository.SeniorityLevelRepository;
+import com.lifecontrol.api.provisioning.service.AccessProvisioningProducer;
 import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.status.model.StatusType;
 import java.math.BigDecimal;
@@ -65,6 +66,9 @@ class ContractServiceTest {
 
     @Mock
     private CurrentUserContext currentUserContext;
+
+    @Mock
+    private AccessProvisioningProducer accessProvisioningProducer;
 
     @InjectMocks
     private ContractService contractService;
@@ -679,6 +683,49 @@ class ContractServiceTest {
 
             assertThat(result).hasSize(2);
             assertThat(result).extracting(r -> r.enabled()).containsExactly(true, false);
+        }
+    }
+
+    @Nested
+    @DisplayName("the access intent a contract start implies (W5c, S3)")
+    class AccessIntentTests {
+
+        @Test
+        @DisplayName("is produced after the contract is saved, in the same transaction")
+        void create_ProducesTheAccessIntentAfterTheSave() {
+            employeeExists();
+            positionExists();
+            seniorityLevelExists();
+            noPredecessor();
+            contractSaveReturnsArgument();
+
+            contractService.createContract(companyId, employeeId, request(START, null));
+
+            var order = inOrder(contractRepository, accessProvisioningProducer);
+            order.verify(contractRepository).save(any(Contract.class));
+            order.verify(accessProvisioningProducer).onContractActivated(companyId, testEmployee);
+        }
+
+        @Test
+        @DisplayName("is not produced when the contract is refused before the save")
+        void create_RefusedContractProducesNothing() {
+            companyExists();
+            when(employeeRepository.findByIdAndCompanyId(employeeId, companyId))
+                    .thenReturn(Optional.of(Employee.builder()
+                            .id(employeeId)
+                            .company(testCompany)
+                            .employeeNumber("EMP-001")
+                            .firstName("Juan")
+                            .paternalLastName("Pérez")
+                            .email("juan.perez@example.com")
+                            .status(terminatedStatus)
+                            .enabled(true)
+                            .build()));
+
+            assertThatThrownBy(() -> contractService.createContract(companyId, employeeId, request(START, null)))
+                    .isInstanceOf(ConflictException.class);
+
+            verifyNoInteractions(accessProvisioningProducer);
         }
     }
 }

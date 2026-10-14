@@ -122,6 +122,9 @@ class ContractCrudIntegrationTest extends AbstractPostgresIntegrationTest {
         jdbcTemplate.update("DELETE FROM positions");
         jdbcTemplate.update("DELETE FROM departments");
         jdbcTemplate.update("DELETE FROM seniority_levels");
+        // W5c's producer writes an access_provisioning_tasks row when a contract starts, and that
+        // table references employees: the rows that reference them are deleted first (record T90).
+        deleteAllAccessProvisioningRows(jdbcTemplate);
         jdbcTemplate.update("DELETE FROM employees");
 
         companyId = companyId(COMPANY_KEY, COMPANY_RFC, "Contract CRUD Test Company");

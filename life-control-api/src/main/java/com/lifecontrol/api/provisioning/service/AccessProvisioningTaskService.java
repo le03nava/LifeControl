@@ -25,10 +25,11 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * The state machine of {@code access_provisioning_tasks} and the service that owns its guard.
  *
- * <p>There is exactly one explicit transition map ({@link #TRANSITIONS}) holding the seven legal
+ * <p>There is exactly one explicit transition map ({@link #TRANSITIONS}) holding the eleven legal
  * edges: {@code PENDING → RUNNING}, {@code RUNNING → APPLIED}, {@code RUNNING → FAILED},
- * {@code RUNNING → APPROVAL_PENDING}, {@code FAILED → PENDING}, {@code APPROVAL_PENDING → PENDING}
- * and {@code APPROVAL_PENDING → REJECTED}. {@code APPLIED} and {@code REJECTED} are terminal,
+ * {@code RUNNING → APPROVAL_PENDING}, {@code FAILED → PENDING}, {@code APPROVAL_PENDING → PENDING},
+ * {@code APPROVAL_PENDING → REJECTED} and the four supersede edges into {@code SUPERSEDED}.
+ * {@code APPLIED}, {@code REJECTED} and {@code SUPERSEDED} are terminal,
  * self-transitions are illegal, and no other edge exists. Every one of them is applied here and every
  * illegal pair is refused with {@link InvalidTaskStatusTransitionException}.</p>
  *
@@ -47,7 +48,7 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>The table carries <b>no {@code version} column and the entity has no {@code @Version}</b>
  * (record T2), so a pessimistic write lock is the only serialization this design has. <b>Every</b>
  * status-moving operation ({@code claim}, {@code markApplied}, {@code markFailed}, {@code retry},
- * {@code approve}, {@code reject}) loads its task through
+ * {@code approve}, {@code reject}, {@code supersede}) loads its task through
  * {@code findByIdAndEmployeeIdForUpdate}, not only the claim: two callers that read the same
  * {@code APPROVAL_PENDING} row and both pass the guard would otherwise let the second {@code save}
  * silently overwrite the first decision, and the row <b>is</b> the audit (record T2/T9), so a lost
@@ -75,17 +76,24 @@ public class AccessProvisioningTaskService {
      * empty set so "no outgoing edge" is stated rather than implied by absence.
      */
     private static final Map<AccessProvisioningTaskStatus, Set<AccessProvisioningTaskStatus>> TRANSITIONS = Map.of(
-            AccessProvisioningTaskStatus.PENDING, Set.of(AccessProvisioningTaskStatus.RUNNING),
+            AccessProvisioningTaskStatus.PENDING,
+                    Set.of(AccessProvisioningTaskStatus.RUNNING, AccessProvisioningTaskStatus.SUPERSEDED),
             AccessProvisioningTaskStatus.RUNNING,
                     Set.of(
                             AccessProvisioningTaskStatus.APPLIED,
                             AccessProvisioningTaskStatus.FAILED,
-                            AccessProvisioningTaskStatus.APPROVAL_PENDING),
-            AccessProvisioningTaskStatus.FAILED, Set.of(AccessProvisioningTaskStatus.PENDING),
+                            AccessProvisioningTaskStatus.APPROVAL_PENDING,
+                            AccessProvisioningTaskStatus.SUPERSEDED),
+            AccessProvisioningTaskStatus.FAILED,
+                    Set.of(AccessProvisioningTaskStatus.PENDING, AccessProvisioningTaskStatus.SUPERSEDED),
             AccessProvisioningTaskStatus.APPROVAL_PENDING,
-                    Set.of(AccessProvisioningTaskStatus.PENDING, AccessProvisioningTaskStatus.REJECTED),
+                    Set.of(
+                            AccessProvisioningTaskStatus.PENDING,
+                            AccessProvisioningTaskStatus.REJECTED,
+                            AccessProvisioningTaskStatus.SUPERSEDED),
             AccessProvisioningTaskStatus.APPLIED, Set.of(),
-            AccessProvisioningTaskStatus.REJECTED, Set.of());
+            AccessProvisioningTaskStatus.REJECTED, Set.of(),
+            AccessProvisioningTaskStatus.SUPERSEDED, Set.of());
 
     /**
      * The statuses a task may be <b>created</b> in: {@code PENDING} when the derived diff is inside
@@ -407,6 +415,36 @@ public class AccessProvisioningTaskService {
     }
 
     /**
+     * Supersedes an open task a newer fact has replaced: any open status → {@code SUPERSEDED}, recording
+     * {@code decidedBy}/{@code decidedAt} and the {@code reason} in {@code last_error}, the same columns
+     * {@link #reject(UUID, UUID, String, String)} writes. It exists because the table admits one open task
+     * per employee ({@code uq_access_provisioning_tasks_open}, V22): without it a termination arriving
+     * while an {@code ACTIVATE} is open could neither enqueue the revocation nor close the stale intent
+     * (records R3-001/R4-001). It flushes rather than deferring to the commit because Hibernate orders a
+     * flush's inserts before its updates, so the caller's insert would meet the index with the stale row
+     * still open. Flushing makes the order explicit instead of resting on the auto-flush Hibernate happens
+     * to perform before the caller's existence query; the sequence is proven against real PostgreSQL by
+     * {@code AccessProvisioningProducerTransactionIntegrationTest}.
+     *
+     * @throws IllegalArgumentException when {@code decidedBy} or {@code reason} is {@code null} or blank
+     * @throws InvalidTaskStatusTransitionException when the task is already terminal
+     */
+    @Transactional
+    public AccessProvisioningTask supersede(UUID employeeId, UUID taskId, String decidedBy, String reason) {
+        var task = loadForUpdate(taskId, employeeId);
+        requireDecidingActor(decidedBy);
+        if (reason == null || reason.isBlank()) {
+            throw new IllegalArgumentException(
+                    "A supersession requires a reason: the row must record which fact replaced this intent");
+        }
+        guardTransition(task, AccessProvisioningTaskStatus.SUPERSEDED);
+        task.setDecidedBy(decidedBy);
+        task.setDecidedAt(LocalDateTime.now());
+        task.setLastError(reason);
+        return taskRepository.saveAndFlush(task);
+    }
+
+    /**
      * Returns a claimed task to the gate, replacing its approval with the fresh snapshot it will be
      * reviewed against: {@code RUNNING → APPROVAL_PENDING}, with the {@code reason} persisted in
      * {@code last_error} and {@code decidedBy}/{@code decidedAt} <b>cleared</b>.
@@ -468,7 +506,7 @@ public class AccessProvisioningTaskService {
      * and surface as a {@link NullPointerException}.</p>
      *
      * <p>Package-private and side-effect free so the exhaustive matrix test can assert every one of
-     * the 6 × 6 status pairs without mutating an entity. It never assigns a status, which is what
+     * the 7 × 7 status pairs without mutating an entity. It never assigns a status, which is what
      * keeps {@link #guardTransition} the only writer.</p>
      */
     static void requireTransition(AccessProvisioningTaskStatus from, AccessProvisioningTaskStatus target) {

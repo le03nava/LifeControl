@@ -1,5 +1,6 @@
 package com.lifecontrol.api.support;
 
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -38,5 +39,27 @@ public abstract class AbstractPostgresIntegrationTest {
         registry.add("spring.datasource.driver-class-name", () -> "org.postgresql.Driver");
         registry.add("spring.flyway.enabled", () -> true);
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "validate");
+    }
+
+    /**
+     * Deletes every access-provisioning row, leaf-first, for the suites whose own cleanup is an
+     * <b>unscoped</b> {@code DELETE FROM employees}.
+     *
+     * <p>Added with unit W5c&#39;s producer (record T90): {@code ContractService.createContract} and
+     * {@code EmployeeService.updateEmployee} now write an {@code access_provisioning_tasks} row for an
+     * organisational fact, and that table carries a foreign key to {@code employees}. A suite that wipes
+     * the employee table without deleting the rows that reference those employees therefore fails on the
+     * constraint — and it fails for every other suite's leftover rows too, not only its own, which is why
+     * the two rows that are not referenced by an employee at all are deleted in the same call.</p>
+     *
+     * <p>The order is the one the {@code provisioning} suites already use: applied roles and reviewed
+     * roles reference a task, and a task references an employee. It is deliberately <b>not</b> wired into
+     * this class' lifecycle: a suite that cleans a scoped subset of its own must keep cleaning that
+     * subset, and only a suite already deleting every employee is entitled to delete every intent.</p>
+     */
+    protected static void deleteAllAccessProvisioningRows(JdbcTemplate jdbcTemplate) {
+        jdbcTemplate.update("DELETE FROM access_provisioning_applied_roles");
+        jdbcTemplate.update("DELETE FROM access_provisioning_reviewed_roles");
+        jdbcTemplate.update("DELETE FROM access_provisioning_tasks");
     }
 }

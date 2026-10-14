@@ -73,6 +73,7 @@ class EmployeeContractSchemaMigrationIntegrationTest extends AbstractPostgresInt
         jdbcTemplate.update("DELETE FROM positions");
         jdbcTemplate.update("DELETE FROM departments");
         jdbcTemplate.update("DELETE FROM seniority_levels");
+        deleteAllAccessProvisioningRows(jdbcTemplate);
         jdbcTemplate.update("DELETE FROM employees");
     }
 

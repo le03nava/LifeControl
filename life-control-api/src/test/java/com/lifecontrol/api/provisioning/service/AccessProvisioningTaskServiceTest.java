@@ -7,6 +7,7 @@ import static com.lifecontrol.api.provisioning.model.AccessProvisioningTaskStatu
 import static com.lifecontrol.api.provisioning.model.AccessProvisioningTaskStatus.PENDING;
 import static com.lifecontrol.api.provisioning.model.AccessProvisioningTaskStatus.REJECTED;
 import static com.lifecontrol.api.provisioning.model.AccessProvisioningTaskStatus.RUNNING;
+import static com.lifecontrol.api.provisioning.model.AccessProvisioningTaskStatus.SUPERSEDED;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -109,6 +110,11 @@ class AccessProvisioningTaskServiceTest {
 
     private void stubSaved() {
         when(taskRepository.save(any(AccessProvisioningTask.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+    }
+
+    private void stubSavedAndFlushed() {
+        when(taskRepository.saveAndFlush(any(AccessProvisioningTask.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
     }
 
@@ -841,6 +847,56 @@ class AccessProvisioningTaskServiceTest {
     }
 
     @Nested
+    @DisplayName("supersede")
+    class SupersedeTests {
+
+        @Test
+        @DisplayName("should move an open task to SUPERSEDED, record the decision and keep the reason")
+        void supersede_FromOpenStatus() {
+            var task = taskInStatus(PENDING);
+            stubLoadedForUpdate(task);
+            stubSavedAndFlushed();
+
+            var result = service.supersede(employeeId, taskId, "producer", "newer fact: Terminated");
+
+            assertThat(result.getStatus()).isEqualTo(SUPERSEDED);
+            assertThat(result.getDecidedBy()).isEqualTo("producer");
+            assertThat(result.getDecidedAt()).isNotNull();
+            assertThat(result.getLastError()).isEqualTo("newer fact: Terminated");
+            verifyLockedLoad();
+            verify(taskRepository).saveAndFlush(task);
+        }
+
+        @Test
+        @DisplayName("should refuse a terminal task, because there is no open slot to release")
+        void supersede_RefusesTerminalTask() {
+            var task = taskInStatus(APPLIED);
+            stubLoadedForUpdate(task);
+
+            assertThatThrownBy(() -> service.supersede(employeeId, taskId, "producer", "no"))
+                    .isInstanceOf(InvalidTaskStatusTransitionException.class);
+
+            assertThat(task.getStatus()).isEqualTo(APPLIED);
+            verify(taskRepository, never()).saveAndFlush(any());
+        }
+
+        @Test
+        @DisplayName("should refuse a null actor or a blank reason before any state is written")
+        void supersede_RefusesMissingActorOrReason() {
+            var task = taskInStatus(PENDING);
+            stubLoadedForUpdate(task);
+
+            assertThatThrownBy(() -> service.supersede(employeeId, taskId, null, "no"))
+                    .isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> service.supersede(employeeId, taskId, "producer", "   "))
+                    .isInstanceOf(IllegalArgumentException.class);
+
+            assertThat(task.getStatus()).isEqualTo(PENDING);
+            verify(taskRepository, never()).saveAndFlush(any());
+        }
+    }
+
+    @Nested
     @DisplayName("returnToGate")
     class ReturnToGateTests {
 
@@ -922,7 +978,7 @@ class AccessProvisioningTaskServiceTest {
     class TransitionMatrixTests {
 
         @Test
-        @DisplayName("should accept exactly the seven legal edges")
+        @DisplayName("should accept exactly the eleven legal edges")
         void acceptsLegalEdges() {
             assertThatCode(() -> AccessProvisioningTaskService.requireTransition(PENDING, RUNNING))
                     .doesNotThrowAnyException();
@@ -938,10 +994,18 @@ class AccessProvisioningTaskServiceTest {
                     .doesNotThrowAnyException();
             assertThatCode(() -> AccessProvisioningTaskService.requireTransition(APPROVAL_PENDING, REJECTED))
                     .doesNotThrowAnyException();
+            assertThatCode(() -> AccessProvisioningTaskService.requireTransition(PENDING, SUPERSEDED))
+                    .doesNotThrowAnyException();
+            assertThatCode(() -> AccessProvisioningTaskService.requireTransition(RUNNING, SUPERSEDED))
+                    .doesNotThrowAnyException();
+            assertThatCode(() -> AccessProvisioningTaskService.requireTransition(FAILED, SUPERSEDED))
+                    .doesNotThrowAnyException();
+            assertThatCode(() -> AccessProvisioningTaskService.requireTransition(APPROVAL_PENDING, SUPERSEDED))
+                    .doesNotThrowAnyException();
         }
 
         @Test
-        @DisplayName("should refuse every pair that is not one of the seven legal edges")
+        @DisplayName("should refuse every pair that is not one of the eleven legal edges")
         void refusesEveryIllegalPair() {
             var refused = 0;
             for (var from : AccessProvisioningTaskStatus.values()) {
@@ -956,8 +1020,8 @@ class AccessProvisioningTaskServiceTest {
                 }
             }
             assertThat(refused)
-                    .as("36 pairs minus the seven legal edges leaves twenty-nine refused pairs")
-                    .isEqualTo(29);
+                    .as("49 pairs minus the eleven legal edges leaves thirty-eight refused pairs")
+                    .isEqualTo(38);
         }
 
         @Test
@@ -981,7 +1045,11 @@ class AccessProvisioningTaskServiceTest {
                     || (from == RUNNING && to == APPROVAL_PENDING)
                     || (from == FAILED && to == PENDING)
                     || (from == APPROVAL_PENDING && to == PENDING)
-                    || (from == APPROVAL_PENDING && to == REJECTED);
+                    || (from == APPROVAL_PENDING && to == REJECTED)
+                    || (from == PENDING && to == SUPERSEDED)
+                    || (from == RUNNING && to == SUPERSEDED)
+                    || (from == FAILED && to == SUPERSEDED)
+                    || (from == APPROVAL_PENDING && to == SUPERSEDED);
         }
     }
 }
