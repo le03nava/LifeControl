@@ -20,6 +20,7 @@ import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -143,6 +144,22 @@ class AccessProvisioningProducerTransactionIntegrationTest extends AbstractPostg
 
     @BeforeEach
     void resetProvisioningTables() {
+        deleteFixtures();
+        seedActiveEmployee();
+    }
+
+    /**
+     * Leaves nothing behind, and that is not tidiness: {@code access_provisioning_tasks.employee_id}
+     * references {@code employees}, so while a task row outlives this class every {@code hr} suite whose
+     * own cleanup is an unscoped {@code DELETE FROM employees} fails on that foreign key. Measured rather
+     * than assumed — the unit's first full-suite gate surfaced it, and **T90** records it.
+     */
+    @AfterEach
+    void leaveNoFixtureBehind() {
+        deleteFixtures();
+    }
+
+    private void deleteFixtures() {
         // Leaf-first and scoped to this suite's own company key, so a fixture another suite left in
         // these shared tables is never removed.
         jdbcTemplate.update("""
@@ -163,8 +180,6 @@ class AccessProvisioningProducerTransactionIntegrationTest extends AbstractPostg
                     (SELECT id FROM companies WHERE company_key = ?)
                 """, COMPANY_KEY);
         jdbcTemplate.update("DELETE FROM companies WHERE company_key = ?", COMPANY_KEY);
-
-        seedActiveEmployee();
     }
 
     private void seedActiveEmployee() {
