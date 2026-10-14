@@ -3,7 +3,10 @@ package com.lifecontrol.api.provisioning.service;
 import static com.lifecontrol.api.provisioning.model.AccessProvisioningTaskKind.ACTIVATE;
 import static com.lifecontrol.api.provisioning.model.AccessProvisioningTaskKind.DEACTIVATE;
 import static com.lifecontrol.api.provisioning.model.AccessProvisioningTaskKind.RECONCILE;
+import static com.lifecontrol.api.provisioning.model.AccessProvisioningTaskStatus.PENDING;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -13,7 +16,10 @@ import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.hr.model.Employee;
 import com.lifecontrol.api.provisioning.exception.AmbiguousCurrentContractException;
+import com.lifecontrol.api.provisioning.model.AccessProvisioningTask;
+import com.lifecontrol.api.provisioning.model.AccessProvisioningTaskKind;
 import com.lifecontrol.api.provisioning.repository.AccessProvisioningTaskRepository;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -34,9 +40,11 @@ import org.mockito.quality.Strictness;
  * {@code RECONCILE} for a linked employee and {@code ACTIVATE} for an unlinked one (record T88),
  * because {@code ACTIVATE} would re-send an invitation nobody asked for and {@code RECONCILE} refuses
  * outright on an unlinked account; that the actor is the JWT {@code sub} claim (record T83); and that
- * an employee who already has an open task is <b>not</b> enqueued twice — the producer asks before it
- * calls the gate, so the surrounding transaction is never marked rollback-only by a refusal it means
- * to swallow. The transaction itself is proven against real PostgreSQL by
+ * an employee who already has an open task of the <b>same</b> kind is not enqueued twice — the
+ * producer asks before it calls the gate, so the surrounding transaction is never marked
+ * rollback-only by a refusal it means to swallow — while an open task of a <b>different</b> kind is
+ * superseded and the new fact is enqueued, because that task does not represent it (records R3-001
+ * and R4-001 of this unit's own review). The transaction itself is proven against real PostgreSQL by
  * {@code AccessProvisioningProducerTransactionIntegrationTest}.</p>
  */
 @ExtendWith(MockitoExtension.class)
@@ -45,6 +53,7 @@ import org.mockito.quality.Strictness;
 class AccessProvisioningProducerTest {
 
     private static final String ACTOR_SUB = "d4a1f0c2-0000-0000-0000-000000000001";
+    private static final UUID OPEN_TASK_ID = UUID.fromString("d4a1f0c2-0000-0000-0000-0000000000ff");
 
     @Mock
     private CurrentUserContext currentUserContext;
@@ -54,6 +63,9 @@ class AccessProvisioningProducerTest {
 
     @Mock
     private AccessProvisioningTaskRepository taskRepository;
+
+    @Mock
+    private AccessProvisioningTaskService taskService;
 
     @InjectMocks
     private AccessProvisioningProducer producer;
@@ -164,10 +176,11 @@ class AccessProvisioningProducerTest {
     class AlreadyOpen {
 
         @Test
-        @DisplayName("is not enqueued twice: the queued task already represents the fact")
+        @DisplayName("the same kind is not enqueued twice: the queued task already represents the fact")
         void thePromiseIsNotDuplicated() {
-            when(taskRepository.existsByEmployeeIdAndStatusIn(employeeId, AccessProvisioningTaskService.OPEN_STATUSES))
-                    .thenReturn(true);
+            when(taskRepository.findFirstByEmployeeIdAndStatusInOrderByRequestedAtDesc(
+                            employeeId, AccessProvisioningTaskService.OPEN_STATUSES))
+                    .thenReturn(Optional.of(openTask(DEACTIVATE)));
 
             producer.onEmploymentTerminated(companyId, unlinked);
 
@@ -175,15 +188,42 @@ class AccessProvisioningProducerTest {
         }
 
         @Test
-        @DisplayName("is asked about through the landed open set, so 'open' has one definition")
+        @DisplayName("is read through the landed open set, so 'open' has one definition")
         void theOpenSetIsTheLandedOne() {
-            when(taskRepository.existsByEmployeeIdAndStatusIn(employeeId, AccessProvisioningTaskService.OPEN_STATUSES))
-                    .thenReturn(true);
+            when(taskRepository.findFirstByEmployeeIdAndStatusInOrderByRequestedAtDesc(
+                            employeeId, AccessProvisioningTaskService.OPEN_STATUSES))
+                    .thenReturn(Optional.of(openTask(DEACTIVATE)));
 
             producer.onContractActivated(companyId, unlinked);
 
             verify(taskRepository)
-                    .existsByEmployeeIdAndStatusIn(employeeId, AccessProvisioningTaskService.OPEN_STATUSES);
+                    .findFirstByEmployeeIdAndStatusInOrderByRequestedAtDesc(
+                            employeeId, AccessProvisioningTaskService.OPEN_STATUSES);
+        }
+
+        @Test
+        @DisplayName("a different kind supersedes it instead of dropping the new fact")
+        void aDifferentKindIsNotSwallowed() {
+            when(taskRepository.existsByEmployeeIdAndStatusIn(employeeId, AccessProvisioningTaskService.OPEN_STATUSES))
+                    .thenReturn(true);
+            when(taskRepository.findFirstByEmployeeIdAndStatusInOrderByRequestedAtDesc(
+                            employeeId, AccessProvisioningTaskService.OPEN_STATUSES))
+                    .thenReturn(Optional.of(openTask(ACTIVATE)));
+
+            producer.onEmploymentTerminated(companyId, unlinked);
+
+            verify(taskService).supersede(eq(employeeId), eq(OPEN_TASK_ID), eq(ACTOR_SUB), anyString());
+            verify(gateService).request(companyId, employeeId, DEACTIVATE, ACTOR_SUB);
+        }
+
+        private AccessProvisioningTask openTask(AccessProvisioningTaskKind kind) {
+            return AccessProvisioningTask.builder()
+                    .id(OPEN_TASK_ID)
+                    .employee(unlinked)
+                    .kind(kind)
+                    .status(PENDING)
+                    .attempts(0)
+                    .build();
         }
     }
 

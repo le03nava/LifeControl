@@ -14,6 +14,7 @@ import com.lifecontrol.api.provisioning.model.AccessProvisioningTaskStatus;
 import com.lifecontrol.api.provisioning.repository.AccessProvisioningTaskRepository;
 import com.lifecontrol.api.provisioning.service.AccessProvisioningGateService;
 import com.lifecontrol.api.provisioning.service.AccessProvisioningProducer;
+import com.lifecontrol.api.provisioning.service.AccessProvisioningTaskService;
 import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.status.repository.StatusRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
@@ -94,6 +95,9 @@ class AccessProvisioningProducerTransactionIntegrationTest extends AbstractPostg
 
     @Autowired
     private NaiveFactWriter naiveFactWriter;
+
+    @Autowired
+    private AccessProvisioningTaskService taskService;
 
     @Autowired
     private PlatformTransactionManager transactionManager;
@@ -212,11 +216,11 @@ class AccessProvisioningProducerTransactionIntegrationTest extends AbstractPostg
                 .orElseThrow(() -> new IllegalStateException("seed status is missing: " + name));
     }
 
-    private void openTaskExists() {
+    private void openTaskExists(AccessProvisioningTaskKind kind) {
         var employee = employeeRepository.findById(employeeId).orElseThrow();
         taskRepository.save(AccessProvisioningTask.builder()
                 .employee(employee)
-                .kind(AccessProvisioningTaskKind.DEACTIVATE)
+                .kind(kind)
                 .status(AccessProvisioningTaskStatus.PENDING)
                 .requestedBy(ACTOR_SUB)
                 .requestedAt(LocalDateTime.now())
@@ -227,7 +231,7 @@ class AccessProvisioningProducerTransactionIntegrationTest extends AbstractPostg
     @Test
     @DisplayName("the fact commits when the employee already has an open task, and no second task is written")
     void theFactCommitsAndThePromiseIsNotDuplicated() {
-        openTaskExists();
+        openTaskExists(AccessProvisioningTaskKind.DEACTIVATE);
 
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
             var employee = employeeRepository.findById(employeeId).orElseThrow();
@@ -253,9 +257,48 @@ class AccessProvisioningProducerTransactionIntegrationTest extends AbstractPostg
 
     @Test
     @WithMockUser(roles = "lc-admin")
+    @DisplayName("superseding the open task and creating the new one in one transaction releases the slot")
+    void supersedeThenCreateReleasesTheSlot() {
+        openTaskExists(AccessProvisioningTaskKind.ACTIVATE);
+        var staleId = taskRepository
+                .findByEmployeeIdOrderByRequestedAtDesc(employeeId)
+                .get(0)
+                .getId();
+
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            taskService.supersede(employeeId, staleId, ACTOR_SUB, "Superseded by a newer fact");
+            taskService.create(
+                    companyId,
+                    employeeId,
+                    AccessProvisioningTaskKind.DEACTIVATE,
+                    ACTOR_SUB,
+                    AccessProvisioningTaskStatus.PENDING);
+        });
+
+        var tasks = taskRepository.findByEmployeeIdOrderByRequestedAtDesc(employeeId);
+        assertThat(tasks)
+                .as("the stale ACTIVATE is closed and the DEACTIVATE that describes the truth is queued")
+                .hasSize(2);
+        assertThat(tasks)
+                .filteredOn(task -> task.getKind() == AccessProvisioningTaskKind.ACTIVATE)
+                .singleElement()
+                .satisfies(task -> {
+                    assertThat(task.getStatus()).isEqualTo(AccessProvisioningTaskStatus.SUPERSEDED);
+                    assertThat(task.getDecidedBy()).isEqualTo(ACTOR_SUB);
+                    assertThat(task.getLastError()).contains("Superseded by a newer fact");
+                });
+        assertThat(tasks)
+                .filteredOn(task -> task.getKind() == AccessProvisioningTaskKind.DEACTIVATE)
+                .singleElement()
+                .extracting(AccessProvisioningTask::getStatus)
+                .isEqualTo(AccessProvisioningTaskStatus.PENDING);
+    }
+
+    @Test
+    @WithMockUser(roles = "lc-admin")
     @DisplayName("the rejected shape cannot save the fact: the surrounding transaction comes back rollback-only")
     void theNaiveShapeCannotSwallowTheRefusal() {
-        openTaskExists();
+        openTaskExists(AccessProvisioningTaskKind.DEACTIVATE);
 
         assertThatThrownBy(() -> naiveFactWriter.writeFactAndSwallow(companyId, employeeId))
                 .as("the boundary that threw marked the joined transaction rollback-only, so the fact dies at commit")

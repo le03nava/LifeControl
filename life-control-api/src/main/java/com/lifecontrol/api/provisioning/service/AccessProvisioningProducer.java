@@ -26,8 +26,10 @@ import org.springframework.stereotype.Service;
  * <p><b>It asks before it enqueues, instead of catching the refusal.</b> The partial unique index
  * {@code uq_access_provisioning_tasks_open} allows at most one open task per employee, so a second
  * intent is refused with {@link com.lifecontrol.api.provisioning.exception.AccessProvisioningTaskAlreadyOpenException}
- * and the fact must still commit — the queued task already represents it. The obvious shape would be
- * to call the gate and catch that refusal, and it is <b>wrong</b>: a {@link RuntimeException} that
+ * and the fact must still commit — an open task of the same kind already represents it, while one of
+ * a <b>different</b> kind does not and is superseded first
+ * ({@link AccessProvisioningTaskService#supersede}). The obvious shape would be to call the gate and
+ * catch that refusal, and it is <b>wrong</b>: a {@link RuntimeException} that
  * crosses a participating {@code @Transactional} boundary marks the surrounding transaction
  * rollback-only (Spring's documented behaviour for propagations that join an existing transaction), so
  * the catch would leave the fact to die at commit with an {@code UnexpectedRollbackException} — a
@@ -46,7 +48,8 @@ import org.springframework.stereotype.Service;
  * ({@code AccountNotLinkedException}), so a wrong choice is not a cosmetic difference. The termination
  * is always {@code DEACTIVATE} (rule O4).</p>
  *
- * <p><b>Only the already-open case is tolerated.</b> Every other refusal and failure propagates and
+ * <p><b>Only the already-open case is tolerated</b> — suppressed for the same kind, superseded for a
+ * different one. Every other refusal and failure propagates and
  * the fact rolls back with it — including the live identity-provider read the gate performs to derive
  * the diff, which is the coupling declared as <b>G40</b>. Swallowing those would write an intent
  * against a diff nobody derived, which is the un-reviewed apply T67 exists to forbid.</p>
@@ -64,14 +67,17 @@ public class AccessProvisioningProducer {
     private final CurrentUserContext currentUserContext;
     private final AccessProvisioningGateService gateService;
     private final AccessProvisioningTaskRepository taskRepository;
+    private final AccessProvisioningTaskService taskService;
 
     public AccessProvisioningProducer(
             CurrentUserContext currentUserContext,
             AccessProvisioningGateService gateService,
-            AccessProvisioningTaskRepository taskRepository) {
+            AccessProvisioningTaskRepository taskRepository,
+            AccessProvisioningTaskService taskService) {
         this.currentUserContext = currentUserContext;
         this.gateService = gateService;
         this.taskRepository = taskRepository;
+        this.taskService = taskService;
     }
 
     /**
@@ -105,15 +111,23 @@ public class AccessProvisioningProducer {
     }
 
     private void enqueue(UUID companyId, Employee employee, AccessProvisioningTaskKind kind) {
-        if (taskRepository.existsByEmployeeIdAndStatusIn(
-                employee.getId(), AccessProvisioningTaskService.OPEN_STATUSES)) {
+        var open = taskRepository.findFirstByEmployeeIdAndStatusInOrderByRequestedAtDesc(
+                employee.getId(), AccessProvisioningTaskService.OPEN_STATUSES);
+        if (open.isPresent() && open.get().getKind() == kind) {
             logger.info(
-                    "Access provisioning intent not enqueued: employee={} already has an open task, which already"
-                            + " represents this fact (kind not enqueued={})",
+                    "Access provisioning intent not enqueued: employee={} already has an open task of kind={}, which"
+                            + " already represents this fact",
                     employee.getId(),
                     kind);
             return;
         }
+
+        open.ifPresent(task -> taskService.supersede(
+                employee.getId(),
+                task.getId(),
+                currentUserContext.getUserId(),
+                "Superseded by a newer fact: the open " + task.getKind()
+                        + " task no longer represents the employee's truth, and a " + kind + " intent does"));
 
         gateService.request(companyId, employee.getId(), kind, currentUserContext.getUserId());
     }
