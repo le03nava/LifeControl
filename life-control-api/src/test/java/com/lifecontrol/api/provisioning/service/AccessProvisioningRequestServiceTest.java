@@ -2,6 +2,7 @@ package com.lifecontrol.api.provisioning.service;
 
 import static com.lifecontrol.api.provisioning.model.AccessProvisioningTaskKind.ACTIVATE;
 import static com.lifecontrol.api.provisioning.model.AccessProvisioningTaskKind.DEACTIVATE;
+import static com.lifecontrol.api.provisioning.model.AccessProvisioningTaskStatus.FAILED;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -17,10 +18,16 @@ import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.hr.exception.EmployeeNotFoundException;
 import com.lifecontrol.api.hr.model.Employee;
 import com.lifecontrol.api.hr.repository.EmployeeRepository;
+import com.lifecontrol.api.provisioning.exception.AccountNotLinkedException;
+import com.lifecontrol.api.provisioning.exception.InvalidTaskStatusTransitionException;
 import com.lifecontrol.api.provisioning.exception.InvitationNotDeliverableException;
+import com.lifecontrol.api.provisioning.exception.NoOpenAccessProvisioningTaskException;
 import com.lifecontrol.api.provisioning.exception.TerminatedEmployeeRefusedException;
+import com.lifecontrol.api.provisioning.model.AccessProvisioningTask;
+import com.lifecontrol.api.provisioning.repository.AccessProvisioningTaskRepository;
 import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.status.model.StatusType;
+import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -67,11 +74,18 @@ class AccessProvisioningRequestServiceTest {
     @Mock
     private AccessProvisioningGateService gateService;
 
+    @Mock
+    private AccessProvisioningTaskService taskService;
+
+    @Mock
+    private AccessProvisioningTaskRepository taskRepository;
+
     @InjectMocks
     private AccessProvisioningRequestService service;
 
     private UUID companyId;
     private UUID employeeId;
+    private UUID taskId;
     private Employee active;
     private Employee terminated;
 
@@ -79,6 +93,7 @@ class AccessProvisioningRequestServiceTest {
     void setUp() {
         companyId = UUID.randomUUID();
         employeeId = UUID.randomUUID();
+        taskId = UUID.randomUUID();
 
         var company = Company.builder()
                 .id(companyId)
@@ -121,6 +136,27 @@ class AccessProvisioningRequestServiceTest {
 
     private void employeeInCompany(Employee employee) {
         when(employeeRepository.findByIdAndCompanyId(employeeId, companyId)).thenReturn(Optional.of(employee));
+    }
+
+    /**
+     * An open task of the fixture employee. The status is set explicitly rather than through the state
+     * machine: these tests are about which row the surface resolves and what it delegates, not about
+     * the transitions, which are {@link AccessProvisioningTaskServiceTest}'s subject.
+     */
+    private AccessProvisioningTask openTask(UUID id) {
+        return task(id);
+    }
+
+    private AccessProvisioningTask task(UUID id) {
+        return AccessProvisioningTask.builder()
+                .id(id)
+                .employee(active)
+                .kind(ACTIVATE)
+                .status(FAILED)
+                .attempts(1)
+                .requestedBy(ACTOR_SUB)
+                .requestedAt(LocalDateTime.now())
+                .build();
     }
 
     @Nested
@@ -297,5 +333,163 @@ class AccessProvisioningRequestServiceTest {
         assertThatThrownBy(() -> service.apply(companyId, employeeId)).isInstanceOf(EmployeeNotFoundException.class);
         assertThatThrownBy(() -> service.deactivate(companyId, employeeId))
                 .isInstanceOf(EmployeeNotFoundException.class);
+    }
+
+    @Nested
+    @DisplayName("retry")
+    class Retry {
+
+        @Test
+        @DisplayName("checks the company access first, before any load")
+        void companyCheckIsTheFirstStatement() {
+            doThrow(new AccessDeniedException("denied"))
+                    .when(currentUserContext)
+                    .verifyCompanyAccess(companyId);
+
+            assertThatThrownBy(() -> service.retry(companyId, employeeId)).isInstanceOf(AccessDeniedException.class);
+
+            verify(currentUserContext).verifyCompanyAccess(companyId);
+            verifyNoInteractions(employeeRepository, taskRepository, taskService);
+        }
+
+        @Test
+        @DisplayName("refuses an employee outside the claimed company before looking for a task")
+        void foreignEmployeeIsRefused() {
+            when(employeeRepository.findByIdAndCompanyId(employeeId, companyId)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.retry(companyId, employeeId))
+                    .isInstanceOf(EmployeeNotFoundException.class);
+
+            verifyNoInteractions(taskRepository, taskService);
+        }
+
+        @Test
+        @DisplayName("refuses with a named 404 when there is no open task to retry")
+        void noOpenTaskIsANotFound() {
+            employeeInCompany(active);
+
+            assertThatThrownBy(() -> service.retry(companyId, employeeId))
+                    .isInstanceOf(NoOpenAccessProvisioningTaskException.class)
+                    .hasMessageContaining(employeeId.toString());
+
+            verifyNoInteractions(taskService);
+        }
+
+        @Test
+        @DisplayName("resolves the row through the landed open set, so 'open' has one definition")
+        void theOpenSetIsTheLandedOne() {
+            employeeInCompany(active);
+            when(taskRepository.findFirstByEmployeeIdAndStatusInOrderByRequestedAtDesc(
+                            employeeId, AccessProvisioningTaskService.OPEN_STATUSES))
+                    .thenReturn(Optional.of(openTask(taskId)));
+
+            service.retry(companyId, employeeId);
+
+            verify(taskRepository)
+                    .findFirstByEmployeeIdAndStatusInOrderByRequestedAtDesc(
+                            employeeId, AccessProvisioningTaskService.OPEN_STATUSES);
+        }
+
+        @Test
+        @DisplayName("delegates the move to the state machine, which owns whether it is legal")
+        void delegatesToTheMachine() {
+            employeeInCompany(active);
+            when(taskRepository.findFirstByEmployeeIdAndStatusInOrderByRequestedAtDesc(
+                            employeeId, AccessProvisioningTaskService.OPEN_STATUSES))
+                    .thenReturn(Optional.of(openTask(taskId)));
+
+            service.retry(companyId, employeeId);
+
+            verify(taskService).retry(employeeId, taskId);
+        }
+
+        @Test
+        @DisplayName("propagates the machine's refusal instead of re-stating the rule")
+        void theMachinesRefusalPropagates() {
+            employeeInCompany(active);
+            when(taskRepository.findFirstByEmployeeIdAndStatusInOrderByRequestedAtDesc(
+                            employeeId, AccessProvisioningTaskService.OPEN_STATUSES))
+                    .thenReturn(Optional.of(openTask(taskId)));
+            doThrow(new InvalidTaskStatusTransitionException("PENDING", "PENDING"))
+                    .when(taskService)
+                    .retry(employeeId, taskId);
+
+            assertThatThrownBy(() -> service.retry(companyId, employeeId))
+                    .isInstanceOf(InvalidTaskStatusTransitionException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("resend")
+    class Resend {
+
+        @Test
+        @DisplayName("checks the company access first, before any load")
+        void companyCheckIsTheFirstStatement() {
+            doThrow(new AccessDeniedException("denied"))
+                    .when(currentUserContext)
+                    .verifyCompanyAccess(companyId);
+
+            assertThatThrownBy(() -> service.resend(companyId, employeeId)).isInstanceOf(AccessDeniedException.class);
+
+            verify(currentUserContext).verifyCompanyAccess(companyId);
+            verifyNoInteractions(employeeRepository, taskRepository, taskService, accountService);
+        }
+
+        @Test
+        @DisplayName("refuses an employee outside the claimed company")
+        void foreignEmployeeIsRefused() {
+            when(employeeRepository.findByIdAndCompanyId(employeeId, companyId)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.resend(companyId, employeeId))
+                    .isInstanceOf(EmployeeNotFoundException.class);
+
+            verifyNoInteractions(accountService);
+        }
+
+        @Test
+        @DisplayName("delegates the send to the account service, with the employee it loaded")
+        void delegatesToTheAccountService() {
+            employeeInCompany(active);
+
+            service.resend(companyId, employeeId);
+
+            verify(accountService).resendInvitation(active);
+        }
+
+        @Test
+        @DisplayName("propagates the not-linked refusal by name")
+        void theNotLinkedRefusalPropagates() {
+            employeeInCompany(active);
+            doThrow(new AccountNotLinkedException("Account not linked: employee " + employeeId))
+                    .when(accountService)
+                    .resendInvitation(active);
+
+            assertThatThrownBy(() -> service.resend(companyId, employeeId))
+                    .isInstanceOf(AccountNotLinkedException.class)
+                    .hasMessageContaining("Account not linked");
+        }
+
+        @Test
+        @DisplayName("propagates the not-deliverable refusal by name")
+        void theNotDeliverableRefusalPropagates() {
+            employeeInCompany(active);
+            doThrow(new InvitationNotDeliverableException("Invitation not deliverable: no email domain configured"))
+                    .when(accountService)
+                    .resendInvitation(active);
+
+            assertThatThrownBy(() -> service.resend(companyId, employeeId))
+                    .isInstanceOf(InvitationNotDeliverableException.class);
+        }
+
+        @Test
+        @DisplayName("creates no task and touches no queue: a resent link grants nothing")
+        void noTaskIsCreated() {
+            employeeInCompany(active);
+
+            service.resend(companyId, employeeId);
+
+            verifyNoInteractions(gateService, taskService, taskRepository);
+        }
     }
 }

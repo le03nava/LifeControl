@@ -5,8 +5,10 @@ import com.lifecontrol.api.hr.exception.EmployeeNotFoundException;
 import com.lifecontrol.api.hr.model.Employee;
 import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.hr.service.EmployeeStatuses;
+import com.lifecontrol.api.provisioning.exception.NoOpenAccessProvisioningTaskException;
 import com.lifecontrol.api.provisioning.exception.TerminatedEmployeeRefusedException;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTaskKind;
+import com.lifecontrol.api.provisioning.repository.AccessProvisioningTaskRepository;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -53,16 +55,22 @@ public class AccessProvisioningRequestService {
     private final EmployeeRepository employeeRepository;
     private final AccessProvisioningAccountService accountService;
     private final AccessProvisioningGateService gateService;
+    private final AccessProvisioningTaskService taskService;
+    private final AccessProvisioningTaskRepository taskRepository;
 
     public AccessProvisioningRequestService(
             CurrentUserContext currentUserContext,
             EmployeeRepository employeeRepository,
             AccessProvisioningAccountService accountService,
-            AccessProvisioningGateService gateService) {
+            AccessProvisioningGateService gateService,
+            AccessProvisioningTaskService taskService,
+            AccessProvisioningTaskRepository taskRepository) {
         this.currentUserContext = currentUserContext;
         this.employeeRepository = employeeRepository;
         this.accountService = accountService;
         this.gateService = gateService;
+        this.taskService = taskService;
+        this.taskRepository = taskRepository;
     }
 
     /**
@@ -112,6 +120,70 @@ public class AccessProvisioningRequestService {
 
         gateService.request(
                 companyId, employeeId, AccessProvisioningTaskKind.DEACTIVATE, currentUserContext.getUserId());
+    }
+
+    /**
+     * Returns the employee's failed access request to the queue, due immediately (record T87).
+     *
+     * <p><b>The route carries no {@code taskId}, and that is the surface's own shape</b>: the row is
+     * resolved from the employee against the open set the creation path already owns
+     * ({@link AccessProvisioningTaskService#OPEN_STATUSES}), so "open" has one definition instead of
+     * a second literal that would drift from the partial index's predicate. No open task is a named
+     * 404 ({@link NoOpenAccessProvisioningTaskException}); an open task whose status cannot be retried
+     * is the state machine's own refusal, raised under its pessimistic lock and propagated unchanged,
+     * so this class never re-states {@code FAILED → PENDING}.</p>
+     *
+     * <p>A retry is deliberately <b>not</b> gated: the task already passed the gate (or never needed
+     * it), and re-queueing an intent that exists cannot widen what it will apply — the diff is
+     * re-derived at apply time (records T11/T67).</p>
+     *
+     * @throws org.springframework.security.access.AccessDeniedException when the current user cannot
+     *     access the company
+     * @throws EmployeeNotFoundException when the employee does not belong to the company
+     * @throws NoOpenAccessProvisioningTaskException when the employee has no open task
+     * @throws com.lifecontrol.api.provisioning.exception.InvalidTaskStatusTransitionException when the
+     *     open task is not {@code FAILED}
+     */
+    @Transactional
+    public void retry(UUID companyId, UUID employeeId) {
+        currentUserContext.verifyCompanyAccess(companyId);
+        requireEmployeeInCompany(companyId, employeeId);
+
+        var open = taskRepository
+                .findFirstByEmployeeIdAndStatusInOrderByRequestedAtDesc(
+                        employeeId, AccessProvisioningTaskService.OPEN_STATUSES)
+                .orElseThrow(() -> new NoOpenAccessProvisioningTaskException(employeeId));
+
+        taskService.retry(employeeId, open.getId());
+    }
+
+    /**
+     * Re-sends the activation invitation (record T69): the consequence O1 accepted when it chose the
+     * emailed link — the link expires, so the screen needs a way to send another one.
+     *
+     * <p><b>It creates no task and moves no state</b>: the operation is a send, not a convergence, and
+     * it writes nothing this application stores. Both refusals come from the capability it delegates
+     * to — no linked account
+     * ({@link com.lifecontrol.api.provisioning.exception.AccountNotLinkedException}) and no deliverable
+     * company address
+     * ({@link com.lifecontrol.api.provisioning.exception.InvitationNotDeliverableException}) — and both
+     * answer <b>409</b> because both extend the conflict category (record T86), so the operator sees
+     * which one applies instead of a 500.</p>
+     *
+     * @throws org.springframework.security.access.AccessDeniedException when the current user cannot
+     *     access the company
+     * @throws EmployeeNotFoundException when the employee does not belong to the company
+     * @throws com.lifecontrol.api.provisioning.exception.AccountNotLinkedException when nothing is
+     *     linked to send to
+     * @throws com.lifecontrol.api.provisioning.exception.InvitationNotDeliverableException when the
+     *     company has no usable email domain
+     */
+    @Transactional
+    public void resend(UUID companyId, UUID employeeId) {
+        currentUserContext.verifyCompanyAccess(companyId);
+        var employee = requireEmployeeInCompany(companyId, employeeId);
+
+        accountService.resendInvitation(employee);
     }
 
     /**
