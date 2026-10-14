@@ -114,6 +114,46 @@ public class AccessProvisioningController {
         return ResponseEntity.ok(accessProvisioningQueryService.getAccessOverview(companyId, employeeId));
     }
 
+    @PostMapping("/retry")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + EMPLOYEE_ACCESS + "')")
+    @Operation(
+            summary = "Retry an employee's failed access request",
+            description = "Returns the employee's failed access-provisioning task to the queue, due "
+                    + "immediately, and returns the reloaded access overview.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Access overview after the retry"),
+        @ApiResponse(responseCode = "403", description = "Insufficient role"),
+        @ApiResponse(responseCode = "404", description = "Employee, company or open task not found"),
+        @ApiResponse(responseCode = "409", description = "The employee's open task is not failed")
+    })
+    public ResponseEntity<AccessProvisioningOverview> retry(
+            @PathVariable UUID companyId, @PathVariable UUID employeeId) {
+        accessProvisioningRequestService.retry(companyId, employeeId);
+        return ResponseEntity.ok(accessProvisioningQueryService.getAccessOverview(companyId, employeeId));
+    }
+
+    @PostMapping("/resend")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + EMPLOYEE_ACCESS + "')")
+    @Operation(
+            summary = "Re-send an employee's activation invitation",
+            description = "Sends the account invitation again through the identity provider's "
+                    + "execute-actions flow, and returns the reloaded access overview. An employee "
+                    + "with no linked account, and a company without a usable email domain, are both "
+                    + "refused by name.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Access overview after the resend"),
+        @ApiResponse(responseCode = "403", description = "Insufficient role"),
+        @ApiResponse(responseCode = "404", description = "Employee or company not found"),
+        @ApiResponse(
+                responseCode = "409",
+                description = "No account is linked, or the company has no deliverable email domain")
+    })
+    public ResponseEntity<AccessProvisioningOverview> resend(
+            @PathVariable UUID companyId, @PathVariable UUID employeeId) {
+        accessProvisioningRequestService.resend(companyId, employeeId);
+        return ResponseEntity.ok(accessProvisioningQueryService.getAccessOverview(companyId, employeeId));
+    }
+
     @PostMapping("/requests/{taskId}/approve")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + EMPLOYEE_ACCESS + "')")
     @Operation(

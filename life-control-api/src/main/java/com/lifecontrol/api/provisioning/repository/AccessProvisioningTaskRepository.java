@@ -59,6 +59,21 @@ public interface AccessProvisioningTaskRepository extends JpaRepository<AccessPr
     boolean existsByEmployeeIdAndStatusIn(UUID employeeId, Collection<AccessProvisioningTaskStatus> statuses);
 
     /**
+     * The employee's newest <b>open</b> task, for the operator's retry (unit W5c, slice S2, record
+     * T87). The retry route carries no {@code taskId}, so the row is resolved from the employee
+     * against the open set the creation path already owns
+     * ({@code AccessProvisioningTaskService.OPEN_STATUSES}) — one definition of "open" rather than a
+     * second literal that would drift from the partial index's predicate.
+     *
+     * <p>{@code findFirst...OrderByRequestedAtDesc} is a tie-breaker and not a rule: the partial
+     * unique index {@code uq_access_provisioning_tasks_open} allows at most one open task per
+     * employee. Whether the retry is <b>legal</b> is still the state machine's answer, taken under
+     * its own pessimistic lock, so this finder never decides that {@code FAILED → PENDING} applies.</p>
+     */
+    Optional<AccessProvisioningTask> findFirstByEmployeeIdAndStatusInOrderByRequestedAtDesc(
+            UUID employeeId, Collection<AccessProvisioningTaskStatus> statuses);
+
+    /**
      * Pessimistic write lock on the task, scoped to its employee, mirroring
      * {@code PurchaseOrderRepository#findByIdForUpdate}. Every status-moving operation takes this
      * lock before it reads the status and validates the transition ({@code claim},

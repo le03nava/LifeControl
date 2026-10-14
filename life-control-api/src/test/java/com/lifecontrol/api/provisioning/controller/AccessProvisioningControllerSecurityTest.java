@@ -71,6 +71,8 @@ class AccessProvisioningControllerSecurityTest {
     private static final String BASE_URL = "/api/companies/{companyId}/employees/{employeeId}/access";
     private static final String APPLY_URL = BASE_URL + "/apply";
     private static final String DEACTIVATE_URL = BASE_URL + "/deactivate";
+    private static final String RETRY_URL = BASE_URL + "/retry";
+    private static final String RESEND_URL = BASE_URL + "/resend";
     private static final String APPROVE_URL = BASE_URL + "/requests/{taskId}/approve";
     private static final String REJECT_URL = BASE_URL + "/requests/{taskId}/reject";
 
@@ -299,6 +301,92 @@ class AccessProvisioningControllerSecurityTest {
             mockMvc.perform(post(DEACTIVATE_URL, companyId, employeeId)).andExpect(status().isOk());
 
             verify(accessProvisioningRequestService).deactivate(companyId, employeeId);
+        }
+    }
+
+    @Nested
+    @DisplayName("POST " + RETRY_URL)
+    class RetryRequest {
+
+        @Test
+        @DisplayName("returns 401 for an unauthenticated request")
+        void unauthenticatedGetsUnauthorized() throws Exception {
+            mockMvc.perform(post(RETRY_URL, companyId, employeeId)).andExpect(status().isUnauthorized());
+        }
+
+        @Test
+        @WithMockUser
+        @DisplayName("returns 403 for a user with no roles")
+        void noRolesGetsForbidden() throws Exception {
+            mockMvc.perform(post(RETRY_URL, companyId, employeeId)).andExpect(status().isForbidden());
+        }
+
+        @Test
+        @WithMockUser(roles = {"other-role"})
+        @DisplayName("returns 403 for an unrelated role")
+        void unrelatedRoleGetsForbidden() throws Exception {
+            mockMvc.perform(post(RETRY_URL, companyId, employeeId)).andExpect(status().isForbidden());
+        }
+
+        @Test
+        @WithMockUser(roles = {"lc-admin"})
+        @DisplayName("returns 200 for lc-admin alone and reaches the controller")
+        void adminCanRetry() throws Exception {
+            mockMvc.perform(post(RETRY_URL, companyId, employeeId)).andExpect(status().isOk());
+
+            verify(accessProvisioningRequestService).retry(companyId, employeeId);
+        }
+
+        @Test
+        @WithMockUser(roles = {"lc-employee-access"})
+        @DisplayName("returns 200 for lc-employee-access alone and reaches the controller")
+        void employeeAccessRoleCanRetry() throws Exception {
+            mockMvc.perform(post(RETRY_URL, companyId, employeeId)).andExpect(status().isOk());
+
+            verify(accessProvisioningRequestService).retry(companyId, employeeId);
+        }
+    }
+
+    @Nested
+    @DisplayName("POST " + RESEND_URL)
+    class ResendRequest {
+
+        @Test
+        @DisplayName("returns 401 for an unauthenticated request")
+        void unauthenticatedGetsUnauthorized() throws Exception {
+            mockMvc.perform(post(RESEND_URL, companyId, employeeId)).andExpect(status().isUnauthorized());
+        }
+
+        @Test
+        @WithMockUser
+        @DisplayName("returns 403 for a user with no roles")
+        void noRolesGetsForbidden() throws Exception {
+            mockMvc.perform(post(RESEND_URL, companyId, employeeId)).andExpect(status().isForbidden());
+        }
+
+        @Test
+        @WithMockUser(roles = {"other-role"})
+        @DisplayName("returns 403 for an unrelated role")
+        void unrelatedRoleGetsForbidden() throws Exception {
+            mockMvc.perform(post(RESEND_URL, companyId, employeeId)).andExpect(status().isForbidden());
+        }
+
+        @Test
+        @WithMockUser(roles = {"lc-admin"})
+        @DisplayName("returns 200 for lc-admin alone and reaches the controller")
+        void adminCanResend() throws Exception {
+            mockMvc.perform(post(RESEND_URL, companyId, employeeId)).andExpect(status().isOk());
+
+            verify(accessProvisioningRequestService).resend(companyId, employeeId);
+        }
+
+        @Test
+        @WithMockUser(roles = {"lc-employee-access"})
+        @DisplayName("returns 200 for lc-employee-access alone and reaches the controller")
+        void employeeAccessRoleCanResend() throws Exception {
+            mockMvc.perform(post(RESEND_URL, companyId, employeeId)).andExpect(status().isOk());
+
+            verify(accessProvisioningRequestService).resend(companyId, employeeId);
         }
     }
 
