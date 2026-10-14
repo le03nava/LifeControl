@@ -64,9 +64,7 @@ class ProfileControllerTest {
         @Test
         @DisplayName("should return 200 with full profile")
         void shouldReturnProfile() throws Exception {
-            var countryId = UUID.randomUUID();
-            var response = new ProfileResponse(
-                    USER_ID, USERNAME, EMAIL, FIRST_NAME, LAST_NAME, countryId, null, null, null, null, null);
+            var response = new ProfileResponse(USER_ID, USERNAME, EMAIL, FIRST_NAME, LAST_NAME, null, null);
 
             when(profileService.getProfile()).thenReturn(response);
 
@@ -76,15 +74,31 @@ class ProfileControllerTest {
                     .andExpect(jsonPath("$.username").value(USERNAME))
                     .andExpect(jsonPath("$.email").value(EMAIL))
                     .andExpect(jsonPath("$.firstName").value(FIRST_NAME))
-                    .andExpect(jsonPath("$.lastName").value(LAST_NAME))
-                    .andExpect(jsonPath("$.companyCountryId").value(countryId.toString()));
+                    .andExpect(jsonPath("$.lastName").value(LAST_NAME));
+            // T14: the four tenancy ancestors are not part of this payload; their absence is pinned by
+            // `shouldNotSerializeTheFourTenancyAncestors` so this test stays the plain happy path.
+        }
+
+        @Test
+        @DisplayName("should not serialize the four tenancy ancestors (W3/T14)")
+        void shouldNotSerializeTheFourTenancyAncestors() throws Exception {
+            var response = new ProfileResponse(USER_ID, USERNAME, EMAIL, FIRST_NAME, LAST_NAME, null, null);
+
+            when(profileService.getProfile()).thenReturn(response);
+
+            mockMvc.perform(get("/api/profile"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.companyId").doesNotExist())
+                    .andExpect(jsonPath("$.companyCountryId").doesNotExist())
+                    .andExpect(jsonPath("$.companyRegionId").doesNotExist())
+                    .andExpect(jsonPath("$.companyZoneId").doesNotExist())
+                    .andExpect(jsonPath("$.companyStoreId").value(nullValue()));
         }
 
         @Test
         @DisplayName("should serialize assignedStores as null for an unconstrained caller (D11)")
         void shouldSerializeNullAssignedStores() throws Exception {
-            var response = new ProfileResponse(
-                    USER_ID, USERNAME, EMAIL, FIRST_NAME, LAST_NAME, null, null, null, null, null, null);
+            var response = new ProfileResponse(USER_ID, USERNAME, EMAIL, FIRST_NAME, LAST_NAME, null, null);
 
             when(profileService.getProfile()).thenReturn(response);
 
@@ -103,18 +117,8 @@ class ProfileControllerTest {
             var zoneId = UUID.randomUUID();
             var assignedStore = new ProfileResponse.AssignedStore(
                     storeId, "Main Store", companyId, "Acme", countryId, "México", regionId, "North", zoneId, "Zone 1");
-            var response = new ProfileResponse(
-                    USER_ID,
-                    USERNAME,
-                    EMAIL,
-                    FIRST_NAME,
-                    LAST_NAME,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    List.of(assignedStore));
+            var response =
+                    new ProfileResponse(USER_ID, USERNAME, EMAIL, FIRST_NAME, LAST_NAME, null, List.of(assignedStore));
 
             when(profileService.getProfile()).thenReturn(response);
 
@@ -136,8 +140,7 @@ class ProfileControllerTest {
         @Test
         @DisplayName("should serialize an empty assignedStores as [] (constrained to none, D11)")
         void shouldSerializeEmptyAssignedStores() throws Exception {
-            var response = new ProfileResponse(
-                    USER_ID, USERNAME, EMAIL, FIRST_NAME, LAST_NAME, null, null, null, null, null, List.of());
+            var response = new ProfileResponse(USER_ID, USERNAME, EMAIL, FIRST_NAME, LAST_NAME, null, List.of());
 
             when(profileService.getProfile()).thenReturn(response);
 
@@ -165,9 +168,7 @@ class ProfileControllerTest {
         @Test
         @DisplayName("should return 200 with updated profile")
         void shouldUpdateProfile() throws Exception {
-            var countryId = UUID.randomUUID();
-            var response = new ProfileResponse(
-                    USER_ID, USERNAME, EMAIL, FIRST_NAME, LAST_NAME, countryId, null, null, null, null, null);
+            var response = new ProfileResponse(USER_ID, USERNAME, EMAIL, FIRST_NAME, LAST_NAME, null, null);
 
             when(profileService.updateProfile(any(ProfileUpdateRequest.class))).thenReturn(response);
 
@@ -175,17 +176,49 @@ class ProfileControllerTest {
                     {
                         "firstName": "John",
                         "lastName": "Doe",
-                        "email": "jdoe@example.com",
-                        "companyCountryId": "%s"
+                        "email": "jdoe@example.com"
                     }
-                    """.formatted(countryId.toString());
+                    """;
 
             mockMvc.perform(put("/api/profile")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(body))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.firstName").value(FIRST_NAME))
-                    .andExpect(jsonPath("$.companyCountryId").value(countryId.toString()));
+                    // T14: the response reports the store preference and no tenancy ancestor; the
+                    // absence is pinned by `shouldNotEchoTheFourTenancyAncestors`.
+                    .andExpect(jsonPath("$.companyStoreId").value(nullValue()));
+        }
+
+        @Test
+        @DisplayName(
+                "should not echo the four tenancy ancestors, and accepts a body that still carries them (W3/T14/G13)")
+        void shouldNotEchoTheFourTenancyAncestors() throws Exception {
+            var response = new ProfileResponse(USER_ID, USERNAME, EMAIL, FIRST_NAME, LAST_NAME, null, null);
+
+            when(profileService.updateProfile(any(ProfileUpdateRequest.class))).thenReturn(response);
+
+            // The four are unknown request properties after T14: Jackson's default is to ignore them,
+            // which is G13 — declared, not fixed — so the request must still be accepted.
+            var body = """
+                    {
+                        "firstName": "John",
+                        "companyId": "%s",
+                        "companyCountryId": "%s",
+                        "companyRegionId": "%s",
+                        "companyZoneId": "%s"
+                    }
+                    """.formatted(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+
+            mockMvc.perform(put("/api/profile")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.firstName").value(FIRST_NAME))
+                    .andExpect(jsonPath("$.companyId").doesNotExist())
+                    .andExpect(jsonPath("$.companyCountryId").doesNotExist())
+                    .andExpect(jsonPath("$.companyRegionId").doesNotExist())
+                    .andExpect(jsonPath("$.companyZoneId").doesNotExist());
         }
 
         @Test
@@ -265,8 +298,7 @@ class ProfileControllerTest {
         @Test
         @DisplayName("should accept empty object body (no-op update)")
         void shouldAcceptEmptyBody() throws Exception {
-            var response = new ProfileResponse(
-                    USER_ID, USERNAME, EMAIL, FIRST_NAME, LAST_NAME, null, null, null, null, null, null);
+            var response = new ProfileResponse(USER_ID, USERNAME, EMAIL, FIRST_NAME, LAST_NAME, null, null);
 
             when(profileService.updateProfile(any(ProfileUpdateRequest.class))).thenReturn(response);
 
