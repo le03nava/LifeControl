@@ -199,7 +199,18 @@ public class AccessProvisioningAccountService {
         return matches.getFirst().id();
     }
 
-    private void requireDeliverableCompanyEmailDomain(Employee employee) {
+    /**
+     * Refuses when the employee's company carries no usable {@code email_domain} (record T33), so no
+     * account is created for a person with no way in.
+     *
+     * <p><b>Package-private rather than private on purpose</b> (record T85): this is the single
+     * definition of "deliverable address" in the module, and the explicit request surface
+     * ({@link AccessProvisioningRequestService#apply(java.util.UUID, java.util.UUID)}) has to refuse
+     * with the same rule <b>before</b> it creates a task — the operator sees which path applies
+     * instead of discovering it from a bounce (record T68). A second copy of the predicate is the
+     * defect class G30 records: one rule, two implementations, one of them stale.</p>
+     */
+    void requireDeliverableCompanyEmailDomain(Employee employee) {
         var company = employee.getCompany();
         var domain = company != null ? company.getEmailDomain() : null;
         if (domain == null || domain.isBlank()) {
