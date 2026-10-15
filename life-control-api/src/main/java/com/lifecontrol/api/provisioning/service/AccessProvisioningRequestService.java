@@ -7,6 +7,7 @@ import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.hr.service.EmployeeStatuses;
 import com.lifecontrol.api.provisioning.exception.NoOpenAccessProvisioningTaskException;
 import com.lifecontrol.api.provisioning.exception.TerminatedEmployeeRefusedException;
+import com.lifecontrol.api.provisioning.exception.TerminatedEmployeeRequiredException;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTaskKind;
 import com.lifecontrol.api.provisioning.repository.AccessProvisioningTaskRepository;
 import java.util.UUID;
@@ -37,11 +38,13 @@ import org.springframework.transaction.annotation.Transactional;
  * definition of that rule — so a company whose generated addresses cannot receive mail sees which path
  * applies instead of discovering it from a bounce. Both happen <b>before</b> any task row exists.</p>
  *
- * <p><b>{@code deactivate} carries neither check, and that is deliberate.</b> Revoking a person who is
- * already revoked is what the intent is for, so it does not consult the status; and a revocation sends
- * no invitation, so it does not consult the email domain at all. It re-derives the diff like every
- * request does, and a {@code Terminated} employee's required set is empty — which is exactly the
- * convergence O4 asks for.</p>
+ * <p><b>{@code deactivate} carries exactly one check, and it is the inverse of {@code apply}'s.</b>
+ * Revocation requires a {@code Terminated} employee (record T101): the intent removes the template's
+ * roles and the five claims, while the required set is derived from the current contract — so for an
+ * employee who is not revoked the next fact of that same employee would grant back exactly what the
+ * revocation removed, and the intent would undo itself. What it still does not do is consult the email
+ * domain: a revocation sends no invitation, and a {@code Terminated} employee's required set is empty,
+ * which is exactly the convergence O4 asks for.</p>
  *
  * <p><b>The company check is the first statement of both methods</b>, and the employee is loaded
  * through the company-scoped {@code findByIdAndCompanyId}, so a foreign or unknown employee is an
@@ -105,18 +108,34 @@ public class AccessProvisioningRequestService {
      * Requests the revocation of an employee's access: a {@code DEACTIVATE} task that disables the
      * account and then converges the roles and the claim attributes against the current truth.
      *
+     * <p><b>It requires a {@code Terminated} employee</b> (record T101). A revocation removes the
+     * template's roles and the five claims, while the required set is derived from the current contract
+     * — so for an employee who is not revoked the next fact of that same employee would grant back
+     * exactly what the revocation removed, and the intent would undo itself. The refusal is a named
+     * {@link TerminatedEmployeeRequiredException} — 409 through the conflict category, record T86 — and
+     * it happens <b>before</b> any task row exists, the same shape {@link #apply(UUID, UUID)} applies in
+     * the opposite direction (record T84).</p>
+     *
+     * <p>It still does <b>not</b> consult the email domain: a revocation sends no invitation, so the
+     * deliverability rule has nothing to decide here.</p>
+     *
      * @param companyId the company the caller claims and the employee must belong to
      * @param employeeId the employee to revoke
      * @throws org.springframework.security.access.AccessDeniedException when the current user cannot
      *     access the company
      * @throws EmployeeNotFoundException when the employee does not belong to the company
+     * @throws TerminatedEmployeeRequiredException when the employee is not {@code Terminated}
      * @throws com.lifecontrol.api.provisioning.exception.AccessProvisioningTaskAlreadyOpenException
      *     when the employee already has an open task
      */
     @Transactional
     public void deactivate(UUID companyId, UUID employeeId) {
         currentUserContext.verifyCompanyAccess(companyId);
-        requireEmployeeInCompany(companyId, employeeId);
+        var employee = requireEmployeeInCompany(companyId, employeeId);
+
+        if (!EmployeeStatuses.isTerminated(employee)) {
+            throw new TerminatedEmployeeRequiredException(employeeId);
+        }
 
         gateService.request(
                 companyId, employeeId, AccessProvisioningTaskKind.DEACTIVATE, currentUserContext.getUserId());

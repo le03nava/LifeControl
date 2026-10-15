@@ -23,6 +23,7 @@ import com.lifecontrol.api.provisioning.exception.InvitationNotDeliverableExcept
 import com.lifecontrol.api.provisioning.exception.NoOpenAccessProvisioningTaskException;
 import com.lifecontrol.api.provisioning.exception.SelfApprovalRefusedException;
 import com.lifecontrol.api.provisioning.exception.TerminatedEmployeeRefusedException;
+import com.lifecontrol.api.provisioning.exception.TerminatedEmployeeRequiredException;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTaskKind;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTaskStatus;
 import com.lifecontrol.api.provisioning.service.AccessProvisioningGateService;
@@ -242,6 +243,20 @@ class AccessProvisioningControllerTest {
         mockMvc.perform(post(DEACTIVATE_URL, companyId, employeeId))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.message").value("Employee not found with id: " + employeeId));
+
+        verify(accessProvisioningQueryService, never()).getAccessOverview(any(), any());
+    }
+
+    @Test
+    @DisplayName("should answer 409 carrying the message when the employee is not Terminated")
+    void deactivateOnANonTerminatedEmployeeIsRefusedWith409() throws Exception {
+        doThrow(new TerminatedEmployeeRequiredException(employeeId))
+                .when(accessProvisioningRequestService)
+                .deactivate(companyId, employeeId);
+
+        mockMvc.perform(post(DEACTIVATE_URL, companyId, employeeId))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value(containsString("Terminated")));
 
         verify(accessProvisioningQueryService, never()).getAccessOverview(any(), any());
     }

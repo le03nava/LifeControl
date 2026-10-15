@@ -23,6 +23,7 @@ import com.lifecontrol.api.provisioning.exception.InvalidTaskStatusTransitionExc
 import com.lifecontrol.api.provisioning.exception.InvitationNotDeliverableException;
 import com.lifecontrol.api.provisioning.exception.NoOpenAccessProvisioningTaskException;
 import com.lifecontrol.api.provisioning.exception.TerminatedEmployeeRefusedException;
+import com.lifecontrol.api.provisioning.exception.TerminatedEmployeeRequiredException;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTask;
 import com.lifecontrol.api.provisioning.repository.AccessProvisioningTaskRepository;
 import com.lifecontrol.api.status.model.Status;
@@ -283,12 +284,24 @@ class AccessProvisioningRequestServiceTest {
         @Test
         @DisplayName("requests a DEACTIVATE task recorded with the JWT sub claim")
         void requestsDeactivateWithTheSubjectClaim() {
-            employeeInCompany(active);
+            employeeInCompany(terminated);
 
             service.deactivate(companyId, employeeId);
 
             verify(gateService).request(companyId, employeeId, DEACTIVATE, ACTOR_SUB);
             verify(currentUserContext, never()).getUsername();
+        }
+
+        @Test
+        @DisplayName("refuses an employee who is not Terminated with a named conflict, before any task exists")
+        void refusesAnEmployeeWhoIsNotTerminated() {
+            employeeInCompany(active);
+
+            assertThatThrownBy(() -> service.deactivate(companyId, employeeId))
+                    .isInstanceOf(TerminatedEmployeeRequiredException.class)
+                    .hasMessageContaining(employeeId.toString());
+
+            verifyNoInteractions(gateService, taskService, accountService);
         }
 
         @Test
@@ -304,7 +317,7 @@ class AccessProvisioningRequestServiceTest {
         @Test
         @DisplayName("never asks whether the address is deliverable: a revocation sends no invitation")
         void theDomainRuleIsNotConsulted() {
-            employeeInCompany(active);
+            employeeInCompany(terminated);
 
             service.deactivate(companyId, employeeId);
 
@@ -315,7 +328,10 @@ class AccessProvisioningRequestServiceTest {
     @Test
     @DisplayName("both intents scope the employee to the claimed company, never load it unscoped")
     void bothIntentsLoadTheEmployeeThroughTheCompany() {
-        employeeInCompany(active);
+        // Two consecutive loads, one per intent: apply is refused for a Terminated employee (T84) and
+        // the revocation requires one (T101), so each intent needs its own status.
+        when(employeeRepository.findByIdAndCompanyId(employeeId, companyId))
+                .thenReturn(Optional.of(active), Optional.of(terminated));
 
         service.apply(companyId, employeeId);
         service.deactivate(companyId, employeeId);
