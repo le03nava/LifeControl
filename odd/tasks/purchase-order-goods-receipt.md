@@ -4,7 +4,12 @@
 **Status**: **All slices are merged into `main`** — W1 #117 (`e846155`) and #118 (`56f76ac`); W2 #119
 (`62184b4`), #120 (`55cfab3`) and #121 (`cd60b2f`); W2d1 #125 (`b3b58f5`); W2d2 #126 (`c9630ec`); W2d3
 #128 (`1b00cc33e`) — verified at `bcb8d10` on 2026-09-24. **The only work left is W3**, deferred by the
-user, plus the Keycloak protocol mappers the store-claim path needs. The narrative below is kept as the
+user, plus the Keycloak protocol mappers the store-claim path needs. **Repair, 2026-10-15: that clause
+is no longer current — both halves have landed elsewhere and no work remains in this record.** The
+deferred sales rework moved to its own record and is **merged** there as `sales-location-aware-stock`
+(PRs #173–#176, merge `b355d7e`, 2026-09-25), and the tenancy protocol mappers the store-claim path
+needs landed as `company-scope-local-fallback`'s W0 in `docker/scripts/keycloak-setup.sh` (PR #222,
+merge `3f56a0dd`, 2026-10-02). The narrative below is kept as the
 record of what was true when it was written.
 > **W3 has its own record.** The deferred sales rework is planned in
 > [`odd/tasks/sales-location-aware-stock.md`](sales-location-aware-stock.md), created 2026-09-24. This
@@ -820,3 +825,9 @@ vacía (listado).
 - **Migration plan**: additive migrations only, no backfill (D6).
 - **Rollback plan (W1a)**: revert the work-unit commit (`git revert <sha>`). Because V9 only adds a **nullable** column plus an index, and nothing else in the codebase reads `product_variant_id`, a revert is data-safe: no backfill exists to lose and no read path depends on the column. Flyway does not roll back, so the column and index physically remain after the revert — harmless, and they are dropped by a forward migration if W1a is abandoned instead of fixed. The one behavioural piece a revert restores is the removed manual detail-status endpoint; no client consumes it, and the API answers 500 for that unmapped path today, so a reverted environment must not be relied on for that route until follow-up 4 is fixed.
 - **Gaps**: no `CONTRIBUTING.md`/`SECURITY.md`/`docs/**`; no coverage threshold for the API; no rollback plan for W2-A yet.
+
+## Evidence log
+
+| Date | Evidence |
+| --- | --- |
+| 2026-10-15 | **Header repair: the `The only work left is W3, deferred by the user, plus the Keycloak protocol mappers the store-claim path needs` clause was superseded.** The clause was accurate on the day it was written (2026-09-24) and nothing revisited it: the sales rework it deferred was carved out into its own record, and the mappers were delivered by another record. **Verified rather than asserted, on `main @ 8822ed4`**: the deferred sales rework is planned and merged in `odd/tasks/sales-location-aware-stock.md` (PRs #173–#176, whose merge commits `5995771`, `583426c`, `0dcef7a` and `b355d7e` are all reachable from `main`), and the five `company_*` claims with their multivalued `oidc-usermodel-attribute-mapper` in the public client are declared by `docker/scripts/keycloak-setup.sh` (nine occurrences of the claim names, the mapper loop at `:566-597`), delivered as `company-scope-local-fallback`'s W0 (PR #222, merge `3f56a0dd`). **No work remains in this record.** The repair is recorded here because `.agents/skills/project-conventions/references/feature-records.md` states that repairing a stale header without recording the repair repeats the repair next cycle. **The frozen narrative is left as written** (rule 4 of that reference): the paragraphs under the header keep the phrasing of their day, including their delivery-state sentences. No source line was written |
