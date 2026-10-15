@@ -75,6 +75,29 @@ export interface PositionMock {
   updatedAt: string;
 }
 
+/** One salary band as `GET …/positions/{positionId}/salary-bands` returns it. */
+export interface PositionSalaryBandMock {
+  id: string;
+  positionId: string;
+  seniorityLevelId: string;
+  minimumSalary: number;
+  maximumSalary: number;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** One row of the **global** seniority-level catalog (`/api/seniority-levels`). */
+export interface SeniorityLevelMock {
+  id: string;
+  levelCode: string;
+  levelName: string;
+  rank: number;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface PurchaseOrderDetailMock {
   id: string;
   purchaseOrderId: string;
@@ -347,6 +370,45 @@ const SAMPLE_POSITIONS: PositionMock[] = [
   },
 ];
 
+/**
+ * Global seniority-level catalog the salary-band editor joins its rows from, and
+ * the bands it starts from. The read returns disabled rows too (D13), so a
+ * `enabled: false` band below is a level the last save cleared and kept.
+ */
+const SAMPLE_SENIORITY_LEVELS: SeniorityLevelMock[] = [
+  {
+    id: 'seniority-level-1',
+    levelCode: 'JR',
+    levelName: 'Junior',
+    rank: 1,
+    enabled: true,
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+  },
+  {
+    id: 'seniority-level-2',
+    levelCode: 'SSR',
+    levelName: 'Semi senior',
+    rank: 2,
+    enabled: true,
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+  },
+];
+
+const SAMPLE_SALARY_BANDS: PositionSalaryBandMock[] = [
+  {
+    id: 'salary-band-1',
+    positionId: 'position-1',
+    seniorityLevelId: 'seniority-level-1',
+    minimumSalary: 1000,
+    maximumSalary: 1500,
+    enabled: true,
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+  },
+];
+
 /** Store chain the purchase orders and the inventory endpoints hang from. */
 const STORE_CHAIN = {
   companyId: 'company-1',
@@ -540,6 +602,10 @@ export interface ApiMockOptions {
   departments?: DepartmentMock[];
   /** Company-scoped position catalogue; both filters are server-side. */
   positions?: PositionMock[];
+  /** A position's salary bands; both reads and the full-set save are stateful. */
+  salaryBands?: PositionSalaryBandMock[];
+  /** The global seniority-level catalogue the band editor joins its rows from. */
+  seniorityLevels?: SeniorityLevelMock[];
 }
 
 /**
@@ -574,6 +640,19 @@ export async function installApiMock(page: Page, options: ApiMockOptions = {}): 
   const positions: PositionMock[] = options.positions
     ? [...options.positions]
     : [...SAMPLE_POSITIONS];
+  const seniorityLevels: SeniorityLevelMock[] = options.seniorityLevels
+    ? [...options.seniorityLevels]
+    : [...SAMPLE_SENIORITY_LEVELS];
+  const salaryBands: PositionSalaryBandMock[] = options.salaryBands
+    ? [...options.salaryBands]
+    : [...SAMPLE_SALARY_BANDS];
+  /** The band editor's rows are ordered by the level's rank, as the API orders them. */
+  const rankOf = (levelId: string): number =>
+    seniorityLevels.find((level) => level.id === levelId)?.rank ?? 0;
+  const bandsOf = (positionId: string): PositionSalaryBandMock[] =>
+    salaryBands
+      .filter((band) => band.positionId === positionId)
+      .sort((a, b) => rankOf(a.seniorityLevelId) - rankOf(b.seniorityLevelId));
   // Per-test state: the base slots derive from the requested week, so what a booking
   // changes is the extra `booked` count and the appointments it appends. Both live
   // here so the week re-read after a booking renders the new numbers.
@@ -961,6 +1040,82 @@ export async function installApiMock(page: Page, options: ApiMockOptions = {}): 
       };
       await fulfillJson(route, positions[index], cors);
       return;
+    }
+
+    // Position policy (W3): the global level catalogue the band editor joins its
+    // rows from, and the position's bands with the API's full-set save.
+    if (path === '/api/seniority-levels' && method === 'GET') {
+      const url = new URL(request.url());
+      const includeDisabled = url.searchParams.get('includeDisabled') === 'true';
+      await fulfillJson(
+        route,
+        seniorityLevels
+          .filter((level) => includeDisabled || level.enabled)
+          .sort((a, b) => a.rank - b.rank),
+        cors,
+      );
+      return;
+    }
+
+    const salaryBandsMatch = /^\/api\/companies\/([^/]+)\/positions\/([^/]+)\/salary-bands$/.exec(
+      path,
+    );
+    if (salaryBandsMatch) {
+      const companyId = salaryBandsMatch[1];
+      const positionId = salaryBandsMatch[2];
+      if (!positions.some((p) => p.id === positionId && p.companyId === companyId)) {
+        await fulfillJson(route, { status: 404, message: 'Puesto no encontrado' }, cors, 404);
+        return;
+      }
+
+      if (method === 'GET') {
+        await fulfillJson(route, bandsOf(positionId), cors);
+        return;
+      }
+
+      if (method === 'PUT') {
+        // Full-set semantics (T10/D13): a submitted key is upserted in place, a
+        // stored key the request omits is disabled and **kept**, and the response
+        // is the stored set after the save — which is what the editor re-seeds from.
+        const body = JSON.parse(request.postData() ?? '{}') as {
+          bands?: { seniorityLevelId: string; minimumSalary: number; maximumSalary: number }[];
+        };
+        const submitted = body.bands ?? [];
+        const now = new Date().toISOString();
+
+        for (const stored of salaryBands.filter((band) => band.positionId === positionId)) {
+          if (!submitted.some((item) => item.seniorityLevelId === stored.seniorityLevelId)) {
+            stored.enabled = false;
+            stored.updatedAt = now;
+          }
+        }
+        for (const item of submitted) {
+          const stored = salaryBands.find(
+            (band) =>
+              band.positionId === positionId && band.seniorityLevelId === item.seniorityLevelId,
+          );
+          if (stored) {
+            stored.minimumSalary = item.minimumSalary;
+            stored.maximumSalary = item.maximumSalary;
+            stored.enabled = true;
+            stored.updatedAt = now;
+          } else {
+            salaryBands.push({
+              id: `e2e-salary-band-${nextId++}`,
+              positionId,
+              seniorityLevelId: item.seniorityLevelId,
+              minimumSalary: item.minimumSalary,
+              maximumSalary: item.maximumSalary,
+              enabled: true,
+              createdAt: now,
+              updatedAt: now,
+            });
+          }
+        }
+
+        await fulfillJson(route, bandsOf(positionId), cors);
+        return;
+      }
     }
 
     if (path === '/api/scheduling/activities' && method === 'GET') {

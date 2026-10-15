@@ -47,6 +47,21 @@ app.describe('Navigation and role-based menus', () => {
       await expect(page.getByRole('heading', { name: 'Puestos' })).toBeVisible();
     });
 
+    app('reaches the position settings screen from the row action (W3)', async ({ page }) => {
+      await page.goto('/hr/positions?companyId=company-1');
+
+      const row = page.getByRole('row', { name: /OPR/ });
+      await expect(row).toBeVisible();
+
+      // D16's rule applied to a row action: the control renders **and** what it
+      // opens renders, so the action is never a control with no destination.
+      await row.getByRole('button', { name: 'Configuración' }).click();
+
+      await expect(page).toHaveURL(/\/hr\/positions\/position-1\/settings/);
+      await expect(page.getByRole('heading', { name: 'Configuración del puesto' })).toBeVisible();
+      await expect(page.getByText('JR — Junior')).toBeVisible();
+    });
+
     app('loads the companies dashboard and the companies list', async ({ page }) => {
       await page.goto('/companies');
       await expect(page.getByRole('heading', { name: 'Companies Administration' })).toBeVisible();
