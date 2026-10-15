@@ -20,6 +20,10 @@
     <app-error-banner class="error-state" [message]="actionErrorMsg" />
   }
 
+  @if (catalogueError(); as catalogueErrorMsg) {
+    <app-error-banner class="error-state" [message]="catalogueErrorMsg" />
+  }
+
   <div class="filters-section">
     <mat-form-field appearance="outline" class="company-selector" subscriptSizing="dynamic">
       <mat-label>Empresa</mat-label>

@@ -88,6 +88,8 @@ describe('PositionEdit', () => {
     loadError?: boolean;
     submitError?: HttpErrorResponse;
     siblings?: Position[];
+    departmentsError?: boolean;
+    siblingsError?: boolean;
   }
 
   function setup(options: SetupOptions = {}): void {
@@ -103,14 +105,26 @@ describe('PositionEdit', () => {
         }
         return of(position());
       }),
-      getPositions: vi.fn(() => of(options.siblings ?? [position(), position({ id: 'pos-2', positionCode: 'SUP', positionName: 'Supervisor' })])),
+      getPositions: vi.fn(() => {
+        if (options.siblingsError) {
+          return throwError(() => new HttpErrorResponse({ status: 500 }));
+        }
+        return of(
+          options.siblings ?? [
+            position(),
+            position({ id: 'pos-2', positionCode: 'SUP', positionName: 'Supervisor' }),
+          ],
+        );
+      }),
       addPosition: vi.fn(() => of(position())),
       updatePosition: vi.fn(() => of(position())),
     };
 
     departmentService = {
       getDepartments: vi.fn(() =>
-        of([department(), department({ id: 'dep-2', departmentName: 'Finanzas' })]),
+        options.departmentsError
+          ? throwError(() => new HttpErrorResponse({ status: 500 }))
+          : of([department(), department({ id: 'dep-2', departmentName: 'Finanzas' })]),
       ),
     };
 
@@ -344,6 +358,25 @@ describe('PositionEdit', () => {
     // Both belong to one company; keeping either one would submit a cross-company link.
     expect(component.formGroup.controls.departmentId.value).toBe('');
     expect(component.formGroup.controls.reportsToPositionId.value).toBeNull();
+  });
+
+  it('should name a failed catalogue read instead of rendering an empty select', async () => {
+    setup({ queryCompanyId: 'company-1', departmentsError: true });
+    await settle();
+
+    // The form stays usable; the failure is named rather than read as
+    // "this company has no departments".
+    expect(component.catalogueError()).toBe('No se pudieron cargar los departamentos de la empresa');
+    expect(text()).toContain('No se pudieron cargar los departamentos de la empresa');
+    expect(text()).toContain('Nuevo Puesto');
+  });
+
+  it('should name a failed reports-to catalogue too', async () => {
+    setup({ queryCompanyId: 'company-1', siblingsError: true });
+    await settle();
+
+    expect(component.catalogueError()).toBe('No se pudieron cargar los puestos de la empresa');
+    expect(component.reportsToOptions()).toEqual([]);
   });
 
   it('should return to the list on cancel', async () => {

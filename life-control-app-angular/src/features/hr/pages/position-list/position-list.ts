@@ -113,6 +113,15 @@ export class PositionList {
   /** A failed disable / re-enable, surfaced instead of swallowed. */
   readonly actionError = signal<string | null>(null);
 
+  /**
+   * A failed **catalogue** read, kept apart from the list's own load error.
+   *
+   * The positions still render, but an empty department column would read as
+   * "this company has no departments" instead of "that read failed" — which is
+   * why this is named instead of degraded silently.
+   */
+  readonly catalogueError = signal<string | null>(null);
+
   readonly displayedColumns = [
     'positionCode',
     'positionName',
@@ -162,9 +171,12 @@ export class PositionList {
   readonly departmentsResource = rxResource({
     params: () => this.selectedCompanyId() ?? undefined,
     stream: ({ params: companyId }) =>
-      this.departmentService
-        .getDepartments(companyId)
-        .pipe(catchError(() => of([] as Department[]))),
+      this.departmentService.getDepartments(companyId).pipe(
+        catchError(() => {
+          this.catalogueError.set('No se pudieron cargar los departamentos de la empresa');
+          return of([] as Department[]);
+        }),
+      ),
     defaultValue: [] as Department[],
   });
 
@@ -207,6 +219,8 @@ export class PositionList {
     this.includeDisabled.set(false);
     this.selectedDepartmentId.set('');
     this.actionError.set(null);
+    // The catalogue failure names a company, so it is reset when that changes.
+    this.catalogueError.set(null);
     void this.router.navigate([], {
       relativeTo: this.route,
       queryParams: { companyId: next },

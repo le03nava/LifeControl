@@ -16,6 +16,10 @@
       <app-error-banner class="error-state" [message]="submitErrorMsg" />
     }
 
+    @if (catalogueError(); as catalogueErrorMsg) {
+      <app-error-banner class="error-state" [message]="catalogueErrorMsg" />
+    }
+
     <form [formGroup]="formGroup" (ngSubmit)="onSubmit()">
       <mat-form-field appearance="outline" class="selector-field">
         <mat-label>Empresa</mat-label>
