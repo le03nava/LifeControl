@@ -20,6 +20,8 @@ import {
   isSalaryOutsideBand,
 } from './contract-dialog';
 import { ContractService } from '../../data/contract.service';
+import { PositionService } from '../../data/position.service';
+import { SeniorityLevelService } from '../../data/seniority-level.service';
 import { StoreAssignmentService } from '../../data/store-assignment.service';
 import { Contract } from '../../models/contract.models';
 import { Position, PositionSalaryBand } from '../../models/position.models';
@@ -110,12 +112,13 @@ describe('ContractDialog', () => {
   let component: ContractDialog;
   let dialogRef: { close: ReturnType<typeof vi.fn> };
   let contractService: {
-    getPositions: ReturnType<typeof vi.fn>;
-    getSeniorityLevels: ReturnType<typeof vi.fn>;
     getSalaryBands: ReturnType<typeof vi.fn>;
     addContract: ReturnType<typeof vi.fn>;
     closeContract: ReturnType<typeof vi.fn>;
   };
+  /** The catalogue reads the dialog now uses instead of ContractService's copies. */
+  let positionService: { getPositions: ReturnType<typeof vi.fn> };
+  let seniorityLevelService: { getSeniorityLevels: ReturnType<typeof vi.fn> };
   let assignmentService: {
     createAssignment: ReturnType<typeof vi.fn>;
     error: ReturnType<typeof vi.fn>;
@@ -318,13 +321,17 @@ describe('ContractDialog', () => {
   function setup(options: SetupOptions = {}): void {
     dialogRef = { close: vi.fn() };
     contractService = {
-      getPositions: vi.fn().mockReturnValue(of(options.positions ?? [position])),
-      getSeniorityLevels: vi.fn().mockReturnValue(of(options.levels ?? [level])),
       getSalaryBands: vi.fn(() =>
         options.bandsError ? throwError(() => options.bandsError) : of(options.bands ?? [band()]),
       ),
       addContract: vi.fn().mockReturnValue(of(contract({ id: 'contract-new' }))),
       closeContract: vi.fn().mockReturnValue(of(contract({ endDate: '2026-06-30' }))),
+    };
+    positionService = {
+      getPositions: vi.fn().mockReturnValue(of(options.positions ?? [position])),
+    };
+    seniorityLevelService = {
+      getSeniorityLevels: vi.fn().mockReturnValue(of(options.levels ?? [level])),
     };
     assignmentService = {
       createAssignment: vi.fn().mockReturnValue(of(createdAssignment)),
@@ -370,6 +377,8 @@ describe('ContractDialog', () => {
         { provide: MatDialogRef, useValue: dialogRef },
         { provide: MAT_DIALOG_DATA, useValue: data },
         { provide: ContractService, useValue: contractService },
+        { provide: PositionService, useValue: positionService },
+        { provide: SeniorityLevelService, useValue: seniorityLevelService },
         { provide: StoreAssignmentService, useValue: assignmentService },
         { provide: CompanyCountryService, useValue: countryService },
         { provide: CompanyRegionService, useValue: regionService },
@@ -433,8 +442,8 @@ describe('ContractDialog', () => {
     setup();
     settle();
 
-    expect(contractService.getPositions).toHaveBeenCalledWith('company-1');
-    expect(contractService.getSeniorityLevels).toHaveBeenCalled();
+    expect(positionService.getPositions).toHaveBeenCalledWith('company-1');
+    expect(seniorityLevelService.getSeniorityLevels).toHaveBeenCalled();
   });
 
   it('should submit the exact create payload shape', () => {

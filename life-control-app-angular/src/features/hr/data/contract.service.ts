@@ -4,8 +4,7 @@ import { Observable, throwError } from 'rxjs';
 import { catchError, finalize, tap } from 'rxjs/operators';
 import { ConfigService } from '@app/services/config.service';
 import { CloseContractRequest, Contract, ContractRequest } from '../models/contract.models';
-import { Position, PositionSalaryBand } from '../models/position.models';
-import { SeniorityLevel } from '../models/seniority-level.models';
+import { PositionSalaryBand } from '../models/position.models';
 
 /**
  * HTTP access to an employee's contract history and the catalogs the contract
@@ -18,23 +17,24 @@ import { SeniorityLevel } from '../models/seniority-level.models';
  * clears `_error` on entry, so a failed write followed by a successful one does
  * not leave a stale banner.
  *
- * The three catalog reads are **pure reads**: they reserve nothing and mutate no
- * signal, so a failed catalog load is the dialog's to show and never the history
- * list's error banner. This is the `EmployeeService.suggestEmail` idiom.
+ * The remaining catalog read here is a **pure read**: it reserves nothing and
+ * mutates no signal, so a failed catalog load is the dialog's to show and never
+ * the history list's error banner. This is the `EmployeeService.suggestEmail`
+ * idiom.
  *
  * There is no contract `PUT`: a salary change or a promotion is a new contract,
  * and the record defines no contract `DELETE`.
  *
- * ## The catalog endpoints this service reads already exist and merged
+ * ## The catalogue reads have one owner each
  *
- * `GET …/positions`, `GET /api/seniority-levels` and
- * `GET …/positions/{positionId}/salary-bands` are `hr-org-structure`'s backend
- * and are already in `main`; this unit only adds the frontend lookups the
- * contract dialog needs. The **Positions CRUD frontend catalog** (the screen,
- * not the endpoint) arrives with `hr-org-structure` **W2b** and may reuse or
- * absorb this lookup when it lands. This unit writes **no line** of that
- * record's surface: `position.service.ts`, its models and its pages are W2b's,
- * and nothing here anticipates them beyond the read contract above.
+ * The position and seniority-level lookups this service used to carry were
+ * absorbed by their catalog services in `hr-org-structure`'s **W2b**:
+ * `PositionService.getPositions` and `SeniorityLevelService.getSeniorityLevels`
+ * are the single readers of those endpoints now, and the dialog injects them
+ * directly. A second reader of the same URL was the kind of split that rots, and
+ * the record had invited exactly this absorption when the lookups were added
+ * here. The salary-band read stays on this service until the band editor
+ * (**W3**) owns that resource.
  */
 @Injectable({
   providedIn: 'root',
@@ -119,33 +119,11 @@ export class ContractService {
   }
 
   /**
-   * Company-scoped position lookup for the contract dialog.
-   *
-   * A pure read: no signal is touched. The endpoint is `hr-org-structure`'s and
-   * already merged; the Positions CRUD frontend catalog (W2b of that record) may
-   * reuse or absorb this lookup, but this unit writes no line of its surface.
-   */
-  getPositions(companyId: string): Observable<Position[]> {
-    return this.http.get<Position[]>(
-      `${this.configService.apiUrl}/companies/${companyId}/positions`,
-    );
-  }
-
-  /**
-   * Global seniority-level lookup for the contract dialog.
-   *
-   * A pure read, and deliberately **not** company-scoped: seniority levels are
-   * global reference data, so the path carries no `companyId`.
-   */
-  getSeniorityLevels(): Observable<SeniorityLevel[]> {
-    return this.http.get<SeniorityLevel[]>(`${this.configService.apiUrl}/seniority-levels`);
-  }
-
-  /**
-   * Salary bands of one position, read by the contract dialog to warn — never
-   * block (T14) — when the typed salary falls outside the band.
-   *
-   * A pure read.
+   * The two catalogue lookups this service used to carry were **absorbed by the
+   * catalog services** in the W2b slice: `PositionService.getPositions` and
+   * `SeniorityLevelService.getSeniorityLevels` are the single readers of those
+   * endpoints now, and the contract dialog injects them directly. What remains
+   * here is the salary-band read, until the band editor (W3) owns it.
    */
   getSalaryBands(companyId: string, positionId: string): Observable<PositionSalaryBand[]> {
     return this.http.get<PositionSalaryBand[]>(

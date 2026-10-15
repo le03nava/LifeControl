@@ -4,8 +4,7 @@ import { firstValueFrom } from 'rxjs';
 import { ContractService } from './contract.service';
 import { ConfigService } from '@app/services/config.service';
 import { Contract, ContractRequest } from '../models/contract.models';
-import { Position, PositionSalaryBand } from '../models/position.models';
-import { SeniorityLevel } from '../models/seniority-level.models';
+import { PositionSalaryBand } from '../models/position.models';
 
 describe('ContractService', () => {
   let service: ContractService;
@@ -52,30 +51,6 @@ describe('ContractService', () => {
     monthlySalary: 25000,
     startDate: '2026-01-01',
     endDate: null,
-  };
-
-  const mockPosition: Position = {
-    id: 'position-1',
-    companyId,
-    departmentId: 'department-1',
-    positionCode: 'ANA-01',
-    positionName: 'Analista',
-    description: null,
-    reportsToPositionId: null,
-    displayOrder: 1,
-    enabled: true,
-    createdAt: '2026-01-01T00:00:00',
-    updatedAt: '2026-01-01T00:00:00',
-  };
-
-  const mockSeniorityLevel: SeniorityLevel = {
-    id: 'level-2',
-    levelCode: 'SR2',
-    levelName: 'Semi senior',
-    rank: 2,
-    enabled: true,
-    createdAt: '2026-01-01T00:00:00',
-    updatedAt: '2026-01-01T00:00:00',
   };
 
   const mockSalaryBand: PositionSalaryBand = {
@@ -242,38 +217,6 @@ describe('ContractService', () => {
   });
 
   describe('catalog lookups', () => {
-    it('getPositions should GET the company positions and mutate no state', async () => {
-      await seedContracts();
-
-      const promise = firstValueFrom(service.getPositions(companyId));
-
-      const req = httpMock.expectOne(
-        (r) => r.url === `${baseUrl}/companies/${companyId}/positions` && r.method === 'GET',
-      );
-      expect(req.request.method).toBe('GET');
-      req.flush([mockPosition]);
-
-      await expect(promise).resolves.toEqual([mockPosition]);
-      expect(service.contracts()).toEqual(mockContracts);
-      expect(service.loading()).toBe(false);
-      expect(service.error()).toBeNull();
-    });
-
-    it('getSeniorityLevels should GET the global endpoint with no companyId', async () => {
-      const promise = firstValueFrom(service.getSeniorityLevels());
-
-      const req = httpMock.expectOne(
-        (r) => r.url === `${baseUrl}/seniority-levels` && r.method === 'GET',
-      );
-      expect(req.request.method).toBe('GET');
-      // Global reference data: the path carries no company segment at all.
-      expect(req.request.url).not.toContain('companies');
-      expect(req.request.url).not.toContain(companyId);
-      req.flush([mockSeniorityLevel]);
-
-      await expect(promise).resolves.toEqual([mockSeniorityLevel]);
-    });
-
     it('getSalaryBands should GET the position salary bands and mutate no state', async () => {
       const promise = firstValueFrom(service.getSalaryBands(companyId, 'position-1'));
 
