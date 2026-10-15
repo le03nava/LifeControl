@@ -31,20 +31,15 @@ describe('UserProfileComponent', () => {
     email: 'john@example.com',
     firstName: 'John',
     lastName: 'Doe',
-    companyCountryId: null,
-    companyId: null,
-    companyRegionId: null,
-    companyZoneId: null,
     companyStoreId: null,
     assignedStores: null,
   };
 
+  // T14: the four tenancy ancestors left the wire, so this fixture no longer carries them. The chain a
+  // caller needs in order to preselect a cascade is resolved from `companyStoreId` through the flat
+  // store read (T20), which is what the cascade specs now assert against.
   const mockProfileWithLocation: ProfileResponse = {
     ...mockProfile,
-    companyId: 'comp-1',
-    companyCountryId: 'cc-1',
-    companyRegionId: 'reg-1',
-    companyZoneId: 'zone-1',
     companyStoreId: 'store-1',
   };
 
@@ -89,7 +84,6 @@ describe('UserProfileComponent', () => {
   /** An employee with **zero** assignments: still constrained, but with nothing to choose (D14). */
   const mockConstrainedEmptyProfile: ProfileResponse = {
     ...mockProfile,
-    companyId: 'comp-1',
     assignedStores: [],
   };
 
@@ -245,6 +239,8 @@ describe('UserProfileComponent', () => {
     // Mock CompanyStoreService
     const companyStoreServiceMock = {
       getStores: vi.fn().mockReturnValue(of(hasLocationServices ? mockStores : [])),
+      // The flat, id-addressed read the free-mode preselect now seeds from (W3/T20).
+      getStoreById: vi.fn().mockReturnValue(of(mockStores[0])),
     };
 
     TestBed.configureTestingModule({
@@ -431,12 +427,17 @@ describe('UserProfileComponent', () => {
       expect(companyCountryServiceMock.getCountries).toHaveBeenCalledWith('comp-1');
     });
 
-    it('should pre-populate form with location fields', () => {
-      const { component } = setup({ edit: 'true' }, mockProfileWithLocation, true);
+    it('should pre-populate the store and walk the cascade from the flat read (W3/T14/T20)', () => {
+      const { component, companyStoreServiceMock } = setup(
+        { edit: 'true' },
+        mockProfileWithLocation,
+        true,
+      );
       const formValues = component.form().getRawValue();
-      expect(formValues.companyId).toBe('comp-1');
-      expect(formValues.companyCountryId).toBe('cc-1');
-      expect(formValues.companyRegionId).toBe('reg-1');
+      // T14 removed the four ancestors from the wire, so the form holds the store preference and the
+      // chain is resolved from it through the flat read (T20) — which is what the assertion below pins.
+      expect(formValues.companyStoreId).toBe('store-1');
+      expect(companyStoreServiceMock.getStoreById).toHaveBeenCalledWith('store-1');
     });
   });
 
@@ -447,6 +448,33 @@ describe('UserProfileComponent', () => {
       const { component, profileServiceMock } = setup({ edit: 'true' });
       component.save();
       expect(profileServiceMock.updateProfile).toHaveBeenCalled();
+    });
+
+    it('posts no tenancy ancestor and only the store the caller touched (W3/T14/T15/T16)', () => {
+      // T14: the four ancestors are not writable any more, so the payload must not carry a single one
+      // of them. T15/T16: the store is the only location value posted, and only because it was touched.
+      const { component, profileServiceMock } = setup({ edit: 'true' }, mockProfileWithLocation);
+      component.onStoreChange('store-2');
+      component.save();
+
+      expect(profileServiceMock.updateProfile).toHaveBeenCalledWith({
+        firstName: 'John',
+        lastName: 'Doe',
+        email: 'john@example.com',
+        companyStoreId: 'store-2',
+      });
+    });
+
+    it('omits companyStoreId when the caller never touched it, so a stored preference survives (W3/T16)', () => {
+      // T16: the response no longer carries the ancestors, so a free-mode load cannot rebuild the
+      // cascade; an untouched control must therefore be omitted instead of posting null, which would
+      // silently clear the preference the row still holds.
+      const { component, profileServiceMock } = setup({ edit: 'true' }, mockProfileWithLocation);
+      component.save();
+
+      const payload = profileServiceMock.updateProfile.mock.calls[0][0];
+      expect(payload).not.toHaveProperty('companyStoreId');
+      expect(payload).not.toHaveProperty('companyId');
     });
 
     it('should navigate to /profile after successful save', () => {
@@ -696,7 +724,7 @@ describe('UserProfileComponent', () => {
       ]);
     });
 
-    it('posts the chosen store together with its own ancestor chain', () => {
+    it('posts only the chosen store, and no tenancy ancestor (W3/T15)', () => {
       const { fixture, component, profileServiceMock } = setup(
         { edit: 'true' },
         mockConstrainedProfile,
@@ -704,30 +732,21 @@ describe('UserProfileComponent', () => {
 
       chooseAssignedStore(fixture, 'Store Two');
 
-      expect(component.form().getRawValue()).toMatchObject({
-        companyId: 'comp-1',
-        companyCountryId: 'cc-2',
-        companyRegionId: 'reg-2',
-        companyZoneId: 'zone-2',
-        companyStoreId: 'store-2',
-      });
+      // T15: the four ancestor controls are navigator state, never a payload, so the handler patches the
+      // store alone and the request carries exactly what the API accepts.
+      expect(component.form().getRawValue()).toMatchObject({ companyStoreId: 'store-2' });
 
       component.save();
-      expect(profileServiceMock.updateProfile).toHaveBeenCalledWith(
-        expect.objectContaining({
-          companyId: 'comp-1',
-          companyCountryId: 'cc-2',
-          companyRegionId: 'reg-2',
-          companyZoneId: 'zone-2',
-          companyStoreId: 'store-2',
-        }),
-      );
+      expect(profileServiceMock.updateProfile).toHaveBeenCalledWith({
+        firstName: 'John',
+        lastName: 'Doe',
+        email: 'john@example.com',
+        companyStoreId: 'store-2',
+      });
     });
 
-    // Fresh-load path: the form already holds the profile's tuple, so D16's "restore" and the old
-    // "leave them alone" reading coincide here. The pick-store→pick-None sequence below is the case
-    // that distinguishes them.
-    it('clears only the store on — None — from a fresh load (both readings coincide)', () => {
+    // T16: a touched store posts its value — including an explicit null — and nothing else travels.
+    it('clears the store on — None — and posts it alone (W3/T16)', () => {
       const { fixture, component, profileServiceMock } = setup(
         { edit: 'true' },
         mockConstrainedProfile,
@@ -735,67 +754,46 @@ describe('UserProfileComponent', () => {
 
       chooseAssignedStore(fixture, '— None —');
 
-      expect(component.form().getRawValue()).toMatchObject({
-        companyId: 'comp-1',
-        companyCountryId: 'cc-1',
-        companyRegionId: 'reg-1',
-        companyZoneId: 'zone-1',
-        companyStoreId: null,
-      });
+      expect(component.form().getRawValue()).toMatchObject({ companyStoreId: null });
 
       component.save();
-      expect(profileServiceMock.updateProfile).toHaveBeenCalledWith(
-        expect.objectContaining({
-          companyId: 'comp-1',
-          companyCountryId: 'cc-1',
-          companyRegionId: 'reg-1',
-          companyZoneId: 'zone-1',
-          companyStoreId: null,
-        }),
-      );
+      expect(profileServiceMock.updateProfile).toHaveBeenCalledWith({
+        firstName: 'John',
+        lastName: 'Doe',
+        email: 'john@example.com',
+        companyStoreId: null,
+      });
     });
 
-    it('restores the tuple the GET returned after pick store → pick — None — (D16/T30)', () => {
+    it('posts null after pick store → pick — None —, and never a restored tuple (W3/T16 supersedes D16)', () => {
       const { fixture, component, profileServiceMock } = setup(
         { edit: 'true' },
         mockConstrainedProfile,
       );
 
-      // Store Two carries a different chain (cc-2/reg-2/zone-2) than the profile's own tuple
-      // (cc-1/reg-1/zone-1), so the restore is observable.
       chooseAssignedStore(fixture, 'Store Two');
-      expect(component.form().getRawValue()).toMatchObject({
-        companyCountryId: 'cc-2',
-        companyRegionId: 'reg-2',
-        companyZoneId: 'zone-2',
-        companyStoreId: 'store-2',
-      });
+      expect(component.form().getRawValue()).toMatchObject({ companyStoreId: 'store-2' });
 
       // An unsaved basic-information edit must survive the — None — pick untouched.
       component.form().patchValue({ firstName: 'Edited' });
 
       chooseAssignedStore(fixture, '— None —');
 
+      // D16 said this sequence posts back the tuple the GET returned. T14 removed those four fields from
+      // the request, so what the sequence posts is the store's own absence — and the basic-information
+      // edit still travels.
       expect(component.form().getRawValue()).toMatchObject({
         firstName: 'Edited',
-        companyId: 'comp-1',
-        companyCountryId: 'cc-1',
-        companyRegionId: 'reg-1',
-        companyZoneId: 'zone-1',
         companyStoreId: null,
       });
 
       component.save();
-      expect(profileServiceMock.updateProfile).toHaveBeenCalledWith(
-        expect.objectContaining({
-          firstName: 'Edited',
-          companyId: 'comp-1',
-          companyCountryId: 'cc-1',
-          companyRegionId: 'reg-1',
-          companyZoneId: 'zone-1',
-          companyStoreId: null,
-        }),
-      );
+      expect(profileServiceMock.updateProfile).toHaveBeenCalledWith({
+        firstName: 'Edited',
+        lastName: 'Doe',
+        email: 'john@example.com',
+        companyStoreId: null,
+      });
     });
 
     it('renders the empty assigned set as a disabled select explaining the state', () => {
@@ -814,7 +812,7 @@ describe('UserProfileComponent', () => {
       expect(component.form().invalid).toBe(false);
     });
 
-    it('saves companyStoreId: null from the empty constrained state', () => {
+    it('omits the store when the empty constrained set left nothing to touch (W3/T16 supersedes D14)', () => {
       const { component, profileServiceMock } = setup(
         { edit: 'true' },
         mockConstrainedEmptyProfile,
@@ -822,9 +820,12 @@ describe('UserProfileComponent', () => {
 
       component.save();
 
-      expect(profileServiceMock.updateProfile).toHaveBeenCalledWith(
-        expect.objectContaining({ companyStoreId: null }),
-      );
+      // D14 said this state posts `companyStoreId: null`. T16's touched rule omits the key instead: the
+      // select is disabled, so the caller made no choice to send. The stored column is left alone, which
+      // D10 already tolerates — a read never writes, and a preference that no longer resolves is already
+      // reported as null by the read itself.
+      const payload = profileServiceMock.updateProfile.mock.calls[0][0];
+      expect(payload).not.toHaveProperty('companyStoreId');
     });
 
     it('describes the constrained mode with its own sentence (T34)', () => {
@@ -860,6 +861,8 @@ describe('UserProfileComponent', () => {
         'reg-1',
         'zone-1',
       );
+      // T20: the walk is seeded from the store id, not from four ancestors the profile no longer carries.
+      expect(companyStoreServiceMock.getStoreById).toHaveBeenCalledWith('store-1');
 
       const callOrder = [
         companyServiceMock.getCompanies.mock.invocationCallOrder[0],
@@ -882,7 +885,7 @@ describe('UserProfileComponent', () => {
       );
     });
 
-    it('posts the unchanged location tuple in free mode', () => {
+    it('posts nothing location-shaped in free mode when the store was untouched (W3/T16)', () => {
       const { component, profileServiceMock } = setup(
         { edit: 'true' },
         mockProfileWithLocation,
@@ -891,15 +894,11 @@ describe('UserProfileComponent', () => {
 
       component.save();
 
-      expect(profileServiceMock.updateProfile).toHaveBeenCalledWith(
-        expect.objectContaining({
-          companyId: 'comp-1',
-          companyCountryId: 'cc-1',
-          companyRegionId: 'reg-1',
-          companyZoneId: 'zone-1',
-          companyStoreId: 'store-1',
-        }),
-      );
+      expect(profileServiceMock.updateProfile).toHaveBeenCalledWith({
+        firstName: 'John',
+        lastName: 'Doe',
+        email: 'john@example.com',
+      });
     });
   });
 });

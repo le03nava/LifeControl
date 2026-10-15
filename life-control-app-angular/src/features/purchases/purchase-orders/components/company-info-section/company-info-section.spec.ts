@@ -141,10 +141,9 @@ const mockProfile = {
   email: 'jperez@test.com',
   firstName: 'Juan',
   lastName: 'Pérez',
-  companyId: 'comp-1',
-  companyCountryId: 'cc-1',
-  companyRegionId: 'reg-1',
-  companyZoneId: 'zone-1',
+  // T14 of `company-scope-local-fallback`: the four tenancy ancestors left the wire, so the profile
+  // carries the store preference and nothing else. The chain is resolved from it through the flat store
+  // read (T20), which is what `companyStoreServiceMock.getStoreById` below answers with.
   companyStoreId: 'store-1',
 };
 
@@ -187,6 +186,7 @@ describe('CompanyInfoSection', () => {
   };
   let companyStoreServiceMock: {
     getStores: ReturnType<typeof vi.fn>;
+    getStoreById: ReturnType<typeof vi.fn>;
   };
   let profileServiceMock: {
     getProfile: ReturnType<typeof vi.fn>;
@@ -230,6 +230,8 @@ describe('CompanyInfoSection', () => {
     };
     companyStoreServiceMock = {
       getStores: vi.fn().mockReturnValue(of(mockStores)),
+      // The flat, id-addressed read the cascade now seeds from (W3/T20).
+      getStoreById: vi.fn().mockReturnValue(of(mockStores[0])),
     };
     profileServiceMock = {
       getProfile: vi.fn().mockReturnValue(of(mockProfile)),
