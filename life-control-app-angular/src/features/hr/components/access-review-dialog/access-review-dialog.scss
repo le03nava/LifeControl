@@ -1,0 +1,54 @@
+// The dialog is self-contained, like the sibling contract dialog: no shared form-layout partial,
+// because that partial styles a full-page `.form-card` a modal must not inherit.
+:host {
+  display: block;
+}
+
+.full-width {
+  width: 100%;
+}
+
+.dialog-subtitle {
+  margin: 0 0 var(--space-sm, 0.5rem);
+  color: var(--mat-sys-on-surface-variant, #4b5563);
+  font-size: 0.875rem;
+}
+
+.reviewer-row {
+  display: flex;
+  gap: var(--space-sm, 0.5rem);
+  align-items: baseline;
+  margin: 0 0 var(--space-md, 1rem);
+}
+
+.frozen-diff {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs, 0.25rem);
+  margin: 0 0 var(--space-md, 1rem);
+  padding: var(--space-sm, 0.5rem) var(--space-md, 1rem);
+  background-color: var(--mat-sys-surface-container-low, #f7f7f7);
+  border: 1px solid var(--mat-sys-outline-variant, #e0e0e0);
+  border-radius: var(--radius-md, 0.5rem);
+  font-size: 0.875rem;
+}
+
+.frozen-note {
+  margin: 0;
+  color: var(--mat-sys-on-surface-variant, #4b5563);
+  font-size: 0.8125rem;
+}
+
+.field-label {
+  font-weight: 500;
+}
+
+// O3's explanation, shown when `Aprobar` is hidden. Informational, not an error.
+.self-approval-note {
+  margin: 0;
+  padding: var(--space-sm, 0.5rem) var(--space-md, 1rem);
+  color: var(--mat-sys-on-surface-variant, #4b5563);
+  background-color: var(--mat-sys-surface-container-low, #f7f7f7);
+  border-radius: var(--radius-md, 0.5rem);
+  font-size: 0.8125rem;
+}
