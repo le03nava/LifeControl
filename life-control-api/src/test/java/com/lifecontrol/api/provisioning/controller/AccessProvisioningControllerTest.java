@@ -18,11 +18,16 @@ import com.lifecontrol.api.provisioning.dto.AccessProvisioningClaims;
 import com.lifecontrol.api.provisioning.dto.AccessProvisioningOverview;
 import com.lifecontrol.api.provisioning.dto.AccessProvisioningRoleDiff;
 import com.lifecontrol.api.provisioning.dto.AccessProvisioningTaskView;
+import com.lifecontrol.api.provisioning.exception.AccountNotLinkedException;
+import com.lifecontrol.api.provisioning.exception.InvitationNotDeliverableException;
+import com.lifecontrol.api.provisioning.exception.NoOpenAccessProvisioningTaskException;
 import com.lifecontrol.api.provisioning.exception.SelfApprovalRefusedException;
+import com.lifecontrol.api.provisioning.exception.TerminatedEmployeeRefusedException;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTaskKind;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTaskStatus;
 import com.lifecontrol.api.provisioning.service.AccessProvisioningGateService;
 import com.lifecontrol.api.provisioning.service.AccessProvisioningQueryService;
+import com.lifecontrol.api.provisioning.service.AccessProvisioningRequestService;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
@@ -50,6 +55,10 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 class AccessProvisioningControllerTest {
 
     private static final String BASE_URL = "/api/companies/{companyId}/employees/{employeeId}/access";
+    private static final String APPLY_URL = BASE_URL + "/apply";
+    private static final String DEACTIVATE_URL = BASE_URL + "/deactivate";
+    private static final String RETRY_URL = BASE_URL + "/retry";
+    private static final String RESEND_URL = BASE_URL + "/resend";
     private static final String APPROVE_URL = BASE_URL + "/requests/{taskId}/approve";
     private static final String REJECT_URL = BASE_URL + "/requests/{taskId}/reject";
 
@@ -60,6 +69,9 @@ class AccessProvisioningControllerTest {
 
     @Mock
     private AccessProvisioningGateService accessProvisioningGateService;
+
+    @Mock
+    private AccessProvisioningRequestService accessProvisioningRequestService;
 
     @InjectMocks
     private AccessProvisioningController controller;
@@ -86,6 +98,7 @@ class AccessProvisioningControllerTest {
                 "keycloak is unreachable",
                 null,
                 "operator",
+                "Ada Lovelace",
                 LocalDateTime.now(),
                 null,
                 null,
@@ -100,6 +113,7 @@ class AccessProvisioningControllerTest {
                 Set.of("lc-company", "lc-sales"),
                 Set.of("lc-sales"),
                 new AccessProvisioningRoleDiff(Set.of("lc-company"), Set.of()),
+                new AccessProvisioningRoleDiff(Set.of("lc-company"), Set.of("lc-receiving")),
                 openTask,
                 List.of(openTask),
                 claims);
@@ -120,6 +134,10 @@ class AccessProvisioningControllerTest {
                 .andExpect(jsonPath("$.currentRoles[0]").value("lc-sales"))
                 .andExpect(jsonPath("$.roleDiff.added[0]").value("lc-company"))
                 .andExpect(jsonPath("$.roleDiff.removed").isEmpty())
+                .andExpect(jsonPath("$.frozenRoleDiff.added[0]").value("lc-company"))
+                .andExpect(jsonPath("$.frozenRoleDiff.removed[0]").value("lc-receiving"))
+                .andExpect(jsonPath("$.openTask.requestedBy").value("operator"))
+                .andExpect(jsonPath("$.openTask.requestedByName").value("Ada Lovelace"))
                 .andExpect(jsonPath("$.openTask.kind").value("ACTIVATE"))
                 .andExpect(jsonPath("$.openTask.status").value("FAILED"))
                 .andExpect(jsonPath("$.openTask.attempts").value(1))
@@ -152,6 +170,152 @@ class AccessProvisioningControllerTest {
         mockMvc.perform(get(BASE_URL, companyId, employeeId))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.message").value("Employee not found with id: " + employeeId));
+    }
+
+    @Test
+    @DisplayName("should apply, capture the path variables and answer 200 with the reloaded overview")
+    void applyReturnsTheOverview() throws Exception {
+        when(accessProvisioningQueryService.getAccessOverview(companyId, employeeId))
+                .thenReturn(overview());
+
+        mockMvc.perform(post(APPLY_URL, companyId, employeeId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accountLinked").value(true))
+                .andExpect(jsonPath("$.openTask.status").value("FAILED"));
+
+        verify(accessProvisioningRequestService).apply(companyId, employeeId);
+        verify(accessProvisioningQueryService).getAccessOverview(companyId, employeeId);
+    }
+
+    @Test
+    @DisplayName("should answer 409 carrying the message when the employee is Terminated")
+    void applyOnATerminatedEmployeeIsRefusedWith409() throws Exception {
+        doThrow(new TerminatedEmployeeRefusedException(employeeId))
+                .when(accessProvisioningRequestService)
+                .apply(companyId, employeeId);
+
+        mockMvc.perform(post(APPLY_URL, companyId, employeeId))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value(containsString("Terminated")));
+
+        verify(accessProvisioningQueryService, never()).getAccessOverview(any(), any());
+    }
+
+    @Test
+    @DisplayName("should answer 409 carrying the message when the invitation is not deliverable")
+    void applyWithoutADeliverableDomainIsRefusedWith409() throws Exception {
+        doThrow(new InvitationNotDeliverableException(
+                        "Invitation not deliverable: no email domain configured for the company of employee "
+                                + employeeId))
+                .when(accessProvisioningRequestService)
+                .apply(companyId, employeeId);
+
+        mockMvc.perform(post(APPLY_URL, companyId, employeeId))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value(containsString("not deliverable")));
+
+        verify(accessProvisioningQueryService, never()).getAccessOverview(any(), any());
+    }
+
+    @Test
+    @DisplayName("should deactivate, capture the path variables and answer 200 with the reloaded overview")
+    void deactivateReturnsTheOverview() throws Exception {
+        when(accessProvisioningQueryService.getAccessOverview(companyId, employeeId))
+                .thenReturn(overview());
+
+        mockMvc.perform(post(DEACTIVATE_URL, companyId, employeeId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accountLinked").value(true))
+                .andExpect(jsonPath("$.openTask.status").value("FAILED"));
+
+        verify(accessProvisioningRequestService).deactivate(companyId, employeeId);
+        verify(accessProvisioningQueryService).getAccessOverview(companyId, employeeId);
+    }
+
+    @Test
+    @DisplayName("should return 404 through the global handler when the employee is outside the claimed company")
+    void deactivateRefusesForeignEmployeeWith404() throws Exception {
+        doThrow(new EmployeeNotFoundException(employeeId))
+                .when(accessProvisioningRequestService)
+                .deactivate(companyId, employeeId);
+
+        mockMvc.perform(post(DEACTIVATE_URL, companyId, employeeId))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("Employee not found with id: " + employeeId));
+
+        verify(accessProvisioningQueryService, never()).getAccessOverview(any(), any());
+    }
+
+    @Test
+    @DisplayName("should retry, capture the path variables and answer 200 with the reloaded overview")
+    void retryReturnsTheOverview() throws Exception {
+        when(accessProvisioningQueryService.getAccessOverview(companyId, employeeId))
+                .thenReturn(overview());
+
+        mockMvc.perform(post(RETRY_URL, companyId, employeeId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accountLinked").value(true));
+
+        verify(accessProvisioningRequestService).retry(companyId, employeeId);
+        verify(accessProvisioningQueryService).getAccessOverview(companyId, employeeId);
+    }
+
+    @Test
+    @DisplayName("should answer 404 carrying the message when there is no open task to retry")
+    void retryWithoutAnOpenTaskIsANotFound() throws Exception {
+        doThrow(new NoOpenAccessProvisioningTaskException(employeeId))
+                .when(accessProvisioningRequestService)
+                .retry(companyId, employeeId);
+
+        mockMvc.perform(post(RETRY_URL, companyId, employeeId))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value(containsString("No open access provisioning task")));
+
+        verify(accessProvisioningQueryService, never()).getAccessOverview(any(), any());
+    }
+
+    @Test
+    @DisplayName("should resend, capture the path variables and answer 200 with the reloaded overview")
+    void resendReturnsTheOverview() throws Exception {
+        when(accessProvisioningQueryService.getAccessOverview(companyId, employeeId))
+                .thenReturn(overview());
+
+        mockMvc.perform(post(RESEND_URL, companyId, employeeId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accountLinked").value(true));
+
+        verify(accessProvisioningRequestService).resend(companyId, employeeId);
+        verify(accessProvisioningQueryService).getAccessOverview(companyId, employeeId);
+    }
+
+    @Test
+    @DisplayName("should answer 409 carrying the message when no account is linked to resend to")
+    void resendWithoutALinkedAccountIsRefusedWith409() throws Exception {
+        doThrow(new AccountNotLinkedException("Account not linked: employee " + employeeId))
+                .when(accessProvisioningRequestService)
+                .resend(companyId, employeeId);
+
+        mockMvc.perform(post(RESEND_URL, companyId, employeeId))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value(containsString("Account not linked")));
+
+        verify(accessProvisioningQueryService, never()).getAccessOverview(any(), any());
+    }
+
+    @Test
+    @DisplayName("should answer 409 carrying the message when the invitation is not deliverable")
+    void resendWithoutADeliverableDomainIsRefusedWith409() throws Exception {
+        doThrow(new InvitationNotDeliverableException(
+                        "Invitation not deliverable: no email domain configured for the company of employee "
+                                + employeeId))
+                .when(accessProvisioningRequestService)
+                .resend(companyId, employeeId);
+
+        mockMvc.perform(post(RESEND_URL, companyId, employeeId))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value(containsString("not deliverable")));
+
+        verify(accessProvisioningQueryService, never()).getAccessOverview(any(), any());
     }
 
     @Test

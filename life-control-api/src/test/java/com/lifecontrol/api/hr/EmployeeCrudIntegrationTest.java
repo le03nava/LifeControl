@@ -66,6 +66,10 @@ class EmployeeCrudIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        // W5c's producer writes an access_provisioning_tasks row when a contract starts or an
+        // employment ends, and that table references employees: the rows that reference them are
+        // deleted first (record T90).
+        deleteAllAccessProvisioningRows(jdbcTemplate);
         jdbcTemplate.update("DELETE FROM employees");
         companyId = employeeCompanyId();
         activeStatusId = employeeStatusId("Active");

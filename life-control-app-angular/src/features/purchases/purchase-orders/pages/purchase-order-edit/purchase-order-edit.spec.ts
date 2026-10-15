@@ -180,6 +180,18 @@ describe('PurchaseOrderEdit', () => {
       provide: CompanyStoreService,
       useValue: {
         getStores: vi.fn().mockReturnValue(of([])),
+        // The flat, id-addressed read the cascade seeds from (W3/T20).
+        getStoreById: vi.fn().mockReturnValue(
+          of({
+            id: 'store-1',
+            companyId: 'comp-1',
+            companyCountryId: 'cc-1',
+            regionId: 'reg-1',
+            zoneId: 'zone-1',
+            storeName: 'Tienda Uno',
+            enabled: true,
+          }),
+        ),
       },
     },
     {
@@ -847,6 +859,18 @@ describe('PurchaseOrderEdit', () => {
                 .mockReturnValue(
                   of([{ id: 'store-7', storeName: 'Tienda Centro', enabled: true }]),
                 ),
+              // T20: the chain is resolved from the store id, so the fixture carries it.
+              getStoreById: vi.fn().mockReturnValue(
+                of({
+                  id: 'store-7',
+                  companyId: 'comp-1',
+                  companyCountryId: 'cc-1',
+                  regionId: 'reg-1',
+                  zoneId: 'zone-1',
+                  storeName: 'Tienda Centro',
+                  enabled: true,
+                }),
+              ),
             },
           },
           {
@@ -859,10 +883,7 @@ describe('PurchaseOrderEdit', () => {
                   email: 'test@example.com',
                   firstName: 'Test',
                   lastName: 'User',
-                  companyId: 'comp-1',
-                  companyCountryId: 'cc-1',
-                  companyRegionId: 'reg-1',
-                  companyZoneId: 'zone-1',
+                  // T14: the four tenancy ancestors left the wire; the chain comes from the flat read.
                   companyStoreId: 'store-7',
                 }),
               ),

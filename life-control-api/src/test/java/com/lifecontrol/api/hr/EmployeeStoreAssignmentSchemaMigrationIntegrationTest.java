@@ -96,7 +96,9 @@ class EmployeeStoreAssignmentSchemaMigrationIntegrationTest extends AbstractPost
         // assignments before employees keeps the foreign key satisfiable. Every row of these two
         // tables is deleted, not a scoped subset, so every method starts from a wholly owned state.
         // The store tree, companies, statuses and status_types are shared fixtures and are never
-        // touched here.
+        // touched here. The access-provisioning rows go first for the same reason as the assignments:
+        // W5c's producer writes them for the facts these suites assert (record T90).
+        deleteAllAccessProvisioningRows(jdbcTemplate);
         jdbcTemplate.update("DELETE FROM employee_store_assignments");
         jdbcTemplate.update("DELETE FROM employees");
     }

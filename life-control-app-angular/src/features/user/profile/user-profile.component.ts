@@ -91,6 +91,24 @@ export class UserProfileComponent implements OnInit {
   /** Reused HR label for an assigned store's chain (`T28`) — one formatter, not a copy. */
   readonly derivedChainLabel = derivedChainLabel;
 
+  /**
+   * The location line of the view mode (`T17` of `company-scope-local-fallback`).
+   *
+   * It used to enumerate the hierarchy from the deepest non-null ancestor — a single word derived from
+   * the four scalars the response no longer carries. It reports the preference instead: in the
+   * constrained mode the assigned store's own chain through `T28`'s single formatter, and in the free
+   * mode the store's presence, because the chain cannot be rebuilt without the read `G12` declares out
+   * of scope. `null` hides the row, exactly as an absent preference did before.
+   */
+  readonly locationLabel = computed<string | null>(() => {
+    const storeId = this.profile()?.companyStoreId;
+    if (!storeId) {
+      return null;
+    }
+    const assigned = this.assignedStores()?.find((store) => store.companyStoreId === storeId);
+    return assigned ? derivedChainLabel(assigned) : 'Store assigned';
+  });
+
   /** True while the initial profile GET is in flight. */
   readonly loading = signal(true);
 
@@ -102,6 +120,16 @@ export class UserProfileComponent implements OnInit {
 
   /** Set to true briefly after a successful save. */
   readonly saveSuccess = signal(false);
+
+  /**
+   * Whether the caller touched the store control during this edit session (`T16`).
+   *
+   * With the four tenancy ancestors gone (T14) a free-mode load cannot reconstruct the cascade, so the
+   * store control starts empty even when the row holds a preference. Posting that emptiness would be
+   * an invisible clear, so the payload **omits** `companyStoreId` unless the caller changed it —
+   * including an explicit `— None —`, which still posts `null` because it *was* a deliberate choice.
+   */
+  readonly storeTouched = signal(false);
 
   // ─── Cascading location lists ─────────────────────────────────
 
@@ -178,7 +206,7 @@ export class UserProfileComponent implements OnInit {
           // Free mode loads the cascade; constrained mode renders one select over the assigned
           // set and never walks the four levels (`T29`).
           if (this.isEditMode() && !this.isConstrained()) {
-            this.initializeCascade(profile);
+            this.initializeCascade();
           }
         },
         error: () => {
@@ -197,10 +225,8 @@ export class UserProfileComponent implements OnInit {
       firstName: profile.firstName ?? '',
       lastName: profile.lastName ?? '',
       email: profile.email ?? '',
-      companyId: profile.companyId ?? null,
-      companyCountryId: profile.companyCountryId ?? null,
-      companyRegionId: profile.companyRegionId ?? null,
-      companyZoneId: profile.companyZoneId ?? null,
+      // T14: the four tenancy ancestors are not on the wire any more, so there is nothing to patch into
+      // the cascade. `companyStoreId` stays because it is the preference the screen reports and writes.
       companyStoreId: profile.companyStoreId ?? null,
     });
   }
@@ -208,11 +234,15 @@ export class UserProfileComponent implements OnInit {
   // ─── Cascading initialization ────────────────────────────────
 
   /**
-   * Load the full location cascade chain based on existing profile values.
-   * This is called once on init to pre-populate all location selects.
+   * Loads the companies list so the caller can start walking the cascade, and preselects it from the
+   * stored store preference.
+   *
+   * <p>The preselect used to read the profile's four tenancy ancestors, which `T14` removed from the
+   * wire. It now resolves them from the store id through the flat store read (`T20`): the chain has
+   * exactly one source that the caller cannot forge — the store row the server resolves and authorizes
+   * — and this is the read that replaced the ancestors `G12` had declared out of scope.</p>
    */
-  private initializeCascade(profile: ProfileResponse): void {
-    // Load companies
+  private initializeCascade(): void {
     this.loadingCompanies.set(true);
     this.companyService
       .getCompanies(0, 1000)
@@ -221,18 +251,34 @@ export class UserProfileComponent implements OnInit {
         next: (page) => {
           this.companies.set(page.content);
           this.loadingCompanies.set(false);
-
-          // If a company is already selected, load its countries
-          if (profile.companyId) {
-            this.loadCountries(
-              profile.companyId,
-              profile.companyCountryId ?? undefined,
-              profile.companyRegionId ?? undefined,
-              profile.companyZoneId ?? undefined,
-            );
-          }
+          this.preselectFromStoredStore();
         },
         error: () => this.loadingCompanies.set(false),
+      });
+  }
+
+  /**
+   * Preselects the cascade from the stored store preference, one flat read and no second guess.
+   *
+   * <p>Best-effort by design: a store the caller can no longer read (or a preference pointing nowhere)
+   * leaves the cascade empty and the caller walks it. Nothing here writes, so the stored preference is
+   * never touched by a load that failed to display it — the rule `T16` applies to the payload.</p>
+   */
+  private preselectFromStoredStore(): void {
+    const storeId = this.profile()?.companyStoreId;
+    if (!storeId) {
+      return;
+    }
+    this.companyStoreService
+      .getStoreById(storeId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (store) => {
+          this.form().patchValue({ companyStoreId: store.id });
+          this.loadCountries(store.companyId, store.companyCountryId, store.regionId, store.zoneId);
+        },
+        // The cascade stays empty; the free-mode navigator is still walkable from the companies list.
+        error: () => undefined,
       });
   }
 
@@ -424,45 +470,23 @@ export class UserProfileComponent implements OnInit {
 
   /** Called when the user changes the store selector (terminal level, no further cascade). */
   onStoreChange(storeId: string | null): void {
+    this.storeTouched.set(true);
     this.form().patchValue({ companyStoreId: storeId });
   }
 
   /**
    * Called when the user changes the constrained store selector.
    *
-   * Choosing a store patches the five location fields from that same assigned store's own ids
-   * (`T30`), so the payload can never carry the chain of a store the caller did not choose.
-   *
-   * Choosing `— None —` clears `companyStoreId` **and restores the four ancestors from the loaded
-   * profile** (`D16`, amended `T30`): the sequence *pick a store → pick `— None —`* must post the
-   * tuple the GET returned, not the chain of the store the caller just un-picked. It patches only
-   * the five location controls, so the basic-information fields — which may hold unsaved edits —
-   * are left untouched.
+   * <p>Choosing a store patches `companyStoreId` and nothing else (`T15` of
+   * `company-scope-local-fallback`): the five-field patch existed so the payload would carry the chain
+   * of the store the caller chose, and `T14` removed the four fields that patch promised. The `— None —`
+   * branch is the same statement now — it clears the store and marks the control touched, so the payload
+   * posts `null` deliberately instead of restoring a tuple the response no longer carries (`D16`'s rule
+   * is superseded; the server leaves an omitted key alone).</p>
    */
   onAssignedStoreChange(companyStoreId: string | null): void {
-    const assigned = this.assignedStores()?.find(
-      (store) => store.companyStoreId === companyStoreId,
-    );
-
-    if (assigned) {
-      this.form().patchValue({
-        companyId: assigned.companyId,
-        companyCountryId: assigned.companyCountryId,
-        companyRegionId: assigned.companyRegionId,
-        companyZoneId: assigned.companyZoneId,
-        companyStoreId: assigned.companyStoreId,
-      });
-      return;
-    }
-
-    const profile = this.profile();
-    this.form().patchValue({
-      companyId: profile?.companyId ?? null,
-      companyCountryId: profile?.companyCountryId ?? null,
-      companyRegionId: profile?.companyRegionId ?? null,
-      companyZoneId: profile?.companyZoneId ?? null,
-      companyStoreId: null,
-    });
+    this.storeTouched.set(true);
+    this.form().patchValue({ companyStoreId });
   }
 
   // ─── Save / Cancel ────────────────────────────────────────────
@@ -481,17 +505,17 @@ export class UserProfileComponent implements OnInit {
 
     const raw = this.form().getRawValue();
 
-    // Build the update payload — only include non-null basic info
+    // Build the update payload — only include non-null basic info, and the store preference only when
+    // the caller touched it (T16): an omitted key leaves the stored value alone, which is what keeps a
+    // free-mode load from clearing a preference it can no longer display.
     const data: ProfileUpdateRequest = {
       firstName: raw.firstName || undefined,
       lastName: raw.lastName || undefined,
       email: raw.email || undefined,
-      // Location fields: explicitly null when no selection, undefined when unchanged
-      companyId: raw.companyId ?? null,
-      companyCountryId: raw.companyCountryId ?? null,
-      companyRegionId: raw.companyRegionId ?? null,
-      companyZoneId: raw.companyZoneId ?? null,
-      companyStoreId: raw.companyStoreId ?? null,
+      // T16: an untouched store leaves the KEY out instead of carrying `undefined`. The two are not the
+      // same thing — `JSON.stringify` drops the undefined one, but the object the caller and the tests see
+      // still has it, and a later spread would resurrect the value the server was never meant to receive.
+      ...(this.storeTouched() ? { companyStoreId: raw.companyStoreId ?? null } : {}),
     };
 
     this.profileService

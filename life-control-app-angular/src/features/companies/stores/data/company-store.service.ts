@@ -52,6 +52,24 @@ export class CompanyStoreService {
       );
   }
 
+  /**
+   * Flat, id-addressed lookup of one store.
+   *
+   * The nested reads need the whole company → country → region → zone path, and the callers that hold
+   * only a store id — the profile's free-mode cascade, the purchase-order cascade and the sales-order
+   * create screen — resolve the chain from here instead (W3/`T20` of `company-scope-local-fallback`).
+   * The response carries the four ancestors, which is exactly what a cascade needs in order to seed
+   * itself.
+   */
+  getStoreById(storeId: string): Observable<CompanyStore> {
+    return this.http.get<CompanyStore>(`${this.configService.apiUrl}/stores/${storeId}`).pipe(
+      catchError((err) => {
+        this._error.set('Error al cargar la tienda');
+        return throwError(() => err);
+      }),
+    );
+  }
+
   getStore(
     companyId: string,
     companyCountryId: string,

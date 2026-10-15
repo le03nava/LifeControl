@@ -1,0 +1,167 @@
+<div class="access-section">
+  @if (loading()) {
+    <p class="loading-text">Cargando el acceso…</p>
+  } @else if (error(); as err) {
+    <div class="error-state">
+      <mat-icon fontIcon="error" />
+      <p>{{ err }}</p>
+      <button mat-stroked-button type="button" (click)="retry.emit()">Reintentar</button>
+    </div>
+  } @else if (overview(); as view) {
+    <div class="account-state">
+      <span class="field-label">Cuenta</span>
+      @if (view.accountLinked) {
+        <span class="account-linked">Cuenta vinculada</span>
+        @if (view.keycloakUserId; as userId) {
+          <code class="account-id">{{ userId }}</code>
+        }
+      } @else {
+        <span class="account-unlinked">Cuenta no vinculada</span>
+      }
+    </div>
+
+    @if (canWrite()) {
+      <div class="actions-row">
+        <!--
+          T68/T84/T85: apply and resend are refused by name (409) when the employee is Terminated or
+          the company has no deliverable email domain, so both controls are hidden and the reason is
+          stated where the operator would have looked for them. Deactivate is not refused, so it
+          stays.
+        -->
+        @if (accessBlockedReason(); as blocked) {
+          <p class="action-blocked">{{ blocked }}</p>
+        }
+        <!--
+          apply and deactivate are hidden while a task is open: both answer 409 with an open
+          request, so offering them would offer a call the API refuses.
+        -->
+        @if (!view.openTask) {
+          @if (!accessBlockedReason()) {
+            <button mat-flat-button color="primary" type="button" (click)="onApply()">
+              Solicitar acceso
+            </button>
+          }
+          <button mat-stroked-button type="button" (click)="onDeactivate()">Deshabilitar</button>
+        }
+        <!-- retry exists only for a FAILED task; any other status answers 409. -->
+        @if (view.openTask?.status === 'FAILED') {
+          <button mat-stroked-button type="button" (click)="onRetryRequest()">
+            Reintentar solicitud
+          </button>
+        }
+        <!-- resend needs a linked account and a deliverable, non-terminated employee; otherwise 409. -->
+        @if (view.accountLinked && !accessBlockedReason()) {
+          <button mat-stroked-button type="button" (click)="onResend()">
+            Reenviar invitación
+          </button>
+        }
+      </div>
+    }
+
+    <div class="roles-block">
+      <h3 class="block-title">Roles</h3>
+      <div class="role-columns">
+        <div class="role-column">
+          <span class="field-label">Requeridos</span>
+          <span class="role-values">{{ roleList(view.requiredRoles) }}</span>
+        </div>
+        <div class="role-column">
+          <span class="field-label">Actuales</span>
+          <span class="role-values">{{ roleList(view.currentRoles) }}</span>
+        </div>
+      </div>
+      <!--
+        The live diff: recomputed by the API on every read (record T7). It is a different fact from
+        the frozen set below, and both are rendered.
+      -->
+      <div class="live-diff">
+        <span class="field-label">Diferencia en vivo</span>
+        <span class="diff-added">Agregar: {{ roleList(view.roleDiff.added) }}</span>
+        <span class="diff-removed">Quitar: {{ roleList(view.roleDiff.removed) }}</span>
+      </div>
+    </div>
+
+    <!--
+      T92: the set the open task froze for review, and what the reviewer decides on. It is `null`
+      when no task froze anything (an auto-applied task), and that is said in words — an empty set
+      would be indistinguishable from it.
+    -->
+    <div class="frozen-diff">
+      <h3 class="block-title">Conjunto congelado para la revisión</h3>
+      @if (view.frozenRoleDiff; as frozen) {
+        <p class="frozen-note">
+          Es el conjunto que decide el revisor; la diferencia en vivo de arriba puede haber cambiado.
+        </p>
+        <span class="diff-added">Agregar: {{ roleList(frozen.added) }}</span>
+        <span class="diff-removed">Quitar: {{ roleList(frozen.removed) }}</span>
+      } @else {
+        <p class="frozen-note">Sin conjunto congelado: la solicitud no pasó por una revisión.</p>
+      }
+    </div>
+
+    <div class="claims-block">
+      <h3 class="block-title">Atributos del token</h3>
+      @for (claim of claimFields; track claim.claim) {
+        <div class="claim-row">
+          <span class="claim-name">{{ claim.claim }}</span>
+          <span class="claim-values">{{ claimValuesOf(view.claims, claim.field) }}</span>
+        </div>
+      }
+    </div>
+
+    <div class="open-task">
+      <h3 class="block-title">Solicitud abierta</h3>
+      @if (view.openTask; as task) {
+        <div class="task-facts">
+          <span class="field-label">Estado</span>
+          <span class="task-status">{{ statusLabel(task.status) }}</span>
+          <span class="field-label">Tipo</span>
+          <span class="task-kind">{{ kindLabel(task.kind) }}</span>
+          <!-- T43: the attempts are rendered against the ceiling, never alone. -->
+          <span class="field-label">Intentos</span>
+          <span class="task-attempts">{{ task.attempts }} / {{ task.maxAttempts }}</span>
+        </div>
+        @if (task.lastError; as reason) {
+          <p class="task-reason">{{ reason }}</p>
+        }
+        @if (task.nextAttemptAt; as next) {
+          <p class="task-next">Próximo intento: {{ next }}</p>
+        }
+        <!--
+          T95/O3: the decision is offered only for an APPROVAL_PENDING task, and never for the
+          caller's own request — the API refuses self-approval, so the UI must not offer it.
+        -->
+        @if (isAwaitingDecision(task)) {
+          @if (isSelfRequested(task)) {
+            <p class="decision-note">No podés decidir tu propia solicitud: la regla exige otra persona.</p>
+          } @else if (canWrite()) {
+            <button mat-flat-button color="primary" type="button" (click)="onDecide(task)">
+              Revisar solicitud
+            </button>
+          }
+        }
+      } @else {
+        <p class="empty-state">No hay una solicitud abierta</p>
+      }
+    </div>
+
+    <div class="history-block">
+      <h3 class="block-title">Historial</h3>
+      @if (view.history.length > 0) {
+        <ul class="history-list">
+          @for (task of view.history; track task.id) {
+            <li class="history-row">
+              <span class="history-kind">{{ kindLabel(task.kind) }}</span>
+              <span class="history-status">{{ statusLabel(task.status) }}</span>
+              <span class="history-date">{{ task.requestedAt }}</span>
+            </li>
+          }
+        </ul>
+      } @else {
+        <p class="empty-state">Sin historial de acceso</p>
+      }
+    </div>
+  } @else {
+    <p class="empty-state">No hay información de acceso para este empleado</p>
+  }
+</div>

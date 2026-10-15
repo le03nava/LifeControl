@@ -15,21 +15,34 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatSelectModule } from '@angular/material/select';
 import { MatDialog } from '@angular/material/dialog';
 import { map } from 'rxjs/operators';
+import { Observable } from 'rxjs';
 import { ConfirmDialog, ConfirmDialogData, ErrorBanner, PageHeader } from '@shared/ui';
 import { httpErrorMessage, unwrapHttpError } from '@shared/data';
 import { CompanyService } from '@features/companies/companies/data/company.service';
+import { CurrentUser } from '@core/security/current-user';
 import { EmployeeService } from '../../data/employee.service';
 import { ContractService } from '../../data/contract.service';
 import { StoreAssignmentService } from '../../data/store-assignment.service';
+import { AccessProvisioningService } from '../../data/access-provisioning.service';
 import { employeeStatusLabel } from '../../data/employee-status';
 import {
   ContractHistory,
   isContractCurrent,
 } from '../../components/contract-history/contract-history';
 import { StoreAssignmentsSection } from '../../components/store-assignments-section/store-assignments-section';
+import { AccessSection } from '../../components/access-section/access-section';
 import { Contract } from '../../models/contract.models';
 import { StoreAssignment } from '../../models/store-assignment.models';
 import { Employee } from '../../models/employee.models';
+import {
+  AccessProvisioningOverview,
+  AccessProvisioningTaskView,
+} from '../../models/access-provisioning.models';
+import {
+  AccessReviewDialog,
+  AccessReviewDialogData,
+  AccessReviewDialogResult,
+} from '../../components/access-review-dialog/access-review-dialog';
 import {
   ContractDialog,
   ContractDialogData,
@@ -40,7 +53,7 @@ import {
   StoreAssignmentDialogData,
   StoreAssignmentDialogResult,
 } from '../../components/store-assignment-dialog/store-assignment-dialog';
-import { EMPLOYEE_WRITE_ROLES, hasAnyClientRole } from '@core/security/roles';
+import { ACCESS_READ_ROLES, EMPLOYEE_WRITE_ROLES, hasAnyClientRole } from '@core/security/roles';
 
 /**
  * Read-only detail screen of one employee: `/hr/employees/:id`.
@@ -83,6 +96,16 @@ import { EMPLOYEE_WRITE_ROLES, hasAnyClientRole } from '@core/security/roles';
  * for **Asignar tienda** and the shared `ConfirmDialog` for **Cerrar**, then reloads only the
  * assignments read. Both write actions gate on the very same `EMPLOYEE_WRITE_ROLES` the endpoints
  * require (`T17`), so the UI cannot offer a control whose call the API would refuse.
+ *
+ * The **Acceso** section (W5d-C) is the fourth read and it follows the same independence: it is
+ * keyed on the selected company and the route id and gated on `ACCESS_READ_ROLES`, so a caller
+ * without `lc-admin`/`lc-employee-access` renders no section and issues no request (record T96). It
+ * renders through {@link AccessSection} and the page owns its five intents: `apply`, `deactivate`
+ * (confirmed through the shared `ConfirmDialog`), `retry` and `resend` call the service, and
+ * `decisionRequested` opens the shared {@link AccessReviewDialog}. Every write **adopts the overview
+ * the endpoint answers with** as the new state instead of triggering a second `GET` (record T75) —
+ * see {@link runAccessWrite} — and a failure is reported with the server's own message, because the
+ * refusals here are named 409s the operator must read.
  */
 @Component({
   selector: 'app-employee-detail',
@@ -98,6 +121,7 @@ import { EMPLOYEE_WRITE_ROLES, hasAnyClientRole } from '@core/security/roles';
     ErrorBanner,
     ContractHistory,
     StoreAssignmentsSection,
+    AccessSection,
   ],
   templateUrl: './employee-detail.html',
   styleUrl: './employee-detail.scss',
@@ -107,6 +131,8 @@ export class EmployeeDetail {
   private readonly employeeService = inject(EmployeeService);
   private readonly contractService = inject(ContractService);
   private readonly storeAssignmentService = inject(StoreAssignmentService);
+  private readonly accessService = inject(AccessProvisioningService);
+  private readonly currentUser = inject(CurrentUser);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly dialog = inject(MatDialog);
@@ -118,6 +144,18 @@ export class EmployeeDetail {
    * would refuse.
    */
   readonly canWrite = hasAnyClientRole(EMPLOYEE_WRITE_ROLES);
+
+  /**
+   * The Access read/write gate: `lc-admin` and `lc-employee-access` (record T96). A caller without
+   * either renders no Access section and issues no request for it, because every access endpoint
+   * carries that very `@PreAuthorize` and would answer 403.
+   */
+  readonly canReadAccess = hasAnyClientRole(ACCESS_READ_ROLES);
+
+  /** The caller's own `sub`, so `approve` can be hidden on their own request (O3). */
+  get currentUserId(): string | null {
+    return this.currentUser.sub;
+  }
 
   /** The route's `:id`; the page reads exactly one employee. */
   readonly employeeId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
@@ -185,6 +223,27 @@ export class EmployeeDetail {
       this.storeAssignmentService.getAssignments(params.companyId, params.employeeId, true),
   });
 
+  /**
+   * The access-provisioning read, independent from the other three so a failure degrades only the
+   * Access section. It is keyed on the selected company and the route id, and it is **gated on the
+   * role** (`ACCESS_READ_ROLES`): a caller without `lc-admin`/`lc-employee-access` produces no
+   * params, so no request is ever issued for a section it cannot see (record T96).
+   */
+  readonly accessResource = rxResource({
+    params: () => {
+      if (!this.canReadAccess) {
+        return undefined;
+      }
+      const companyId = this.selectedCompanyId();
+      const employeeId = this.employeeId();
+      if (!companyId || !employeeId) {
+        return undefined;
+      }
+      return { companyId, employeeId };
+    },
+    stream: ({ params }) => this.accessService.getOverview(params.companyId, params.employeeId),
+  });
+
   /** The page-level loading gate follows the employee read; contracts load in its own section. */
   readonly loading = this.employeeResource.isLoading;
 
@@ -212,6 +271,44 @@ export class EmployeeDetail {
 
   /** The assignments section's loading flag; drives only that section's copy. */
   readonly assignmentsLoading = this.assignmentsResource.isLoading;
+
+  /** The access overview, or `null` while loading and on any failure. */
+  readonly access = computed<AccessProvisioningOverview | null>(() =>
+    this.accessResource.hasValue() ? (this.accessResource.value() ?? null) : null,
+  );
+
+  /**
+   * The employee's status name, as the employee read carries it, or `null` before it resolves.
+   *
+   * The Access section needs it to hide `apply`/`resend` for a `Terminated` employee (record T84);
+   * the access overview carries no status, so the page — which already reads the employee — supplies
+   * it. This is the employee read, not a second call.
+   */
+  readonly employeeStatusName = computed<string | null>(() => this.employee()?.statusName ?? null);
+
+  /**
+   * The selected company's `emailDomain`, as the companies read the page already performs carries
+   * it, or `undefined` while that company is not resolved yet.
+   *
+   * The Access section needs it to hide `apply`/`resend` when the company has no deliverable domain
+   * (record T68/T85); the access overview carries no domain, so the page supplies the fact from its
+   * own `getCompanies` read. `undefined` (unresolved) must not fire the gate, while `null`/blank is
+   * a missing domain and does.
+   */
+  readonly selectedCompanyEmailDomain = computed<string | null | undefined>(() => {
+    const companyId = this.selectedCompanyId();
+    if (!companyId) {
+      return undefined;
+    }
+    const company = this.companies().find((candidate) => candidate.id === companyId);
+    return company ? (company.emailDomain ?? null) : undefined;
+  });
+
+  /** The Access section's own loading flag. */
+  readonly accessLoading = this.accessResource.isLoading;
+
+  /** A failed access write, as the page resolved it; `null` when the last write succeeded. */
+  readonly accessActionError = signal<string | null>(null);
 
   /**
    * A failed close write, as the service mapped it.
@@ -261,6 +358,20 @@ export class EmployeeDetail {
   readonly assignmentsError = computed(() => {
     const error = this.assignmentsResource.error();
     return error ? httpErrorMessage(error) : null;
+  });
+
+  /**
+   * The Access section's own error copy; `null` while loading, on success or before selection.
+   *
+   * The API's envelope message wins when it carries one; the shared taxonomy is the fallback. Every
+   * access failure the operator can act on is a named refusal, so a generic copy would hide it.
+   */
+  readonly accessError = computed(() => {
+    const error = this.accessResource.error();
+    if (!error) {
+      return null;
+    }
+    return this.serverEnvelope(error) ?? httpErrorMessage(error);
   });
 
   /** The header's current contract, resolved with the history's own predicate. */
@@ -313,6 +424,147 @@ export class EmployeeDetail {
   /** Re-runs only the assignments read, the `Tiendas asignadas` section's own retry. */
   retryAssignments(): void {
     this.assignmentsResource.reload();
+  }
+
+  /** Re-runs only the access read, the `Acceso` section's own retry. */
+  onAccessRetry(): void {
+    this.accessResource.reload();
+  }
+
+  /** Asks the API for the employee's access; the page owns the call (record T95). */
+  onAccessApply(): void {
+    const context = this.accessContext();
+    if (!context) {
+      return;
+    }
+    this.runAccessWrite(() => this.accessService.apply(context.companyId, context.employeeId));
+  }
+
+  /** Revokes the employee's access; the page owns the call and the confirmation. */
+  onAccessDeactivate(): void {
+    const context = this.accessContext();
+    if (!context) {
+      return;
+    }
+    const data: ConfirmDialogData = {
+      title: 'Deshabilitar el acceso',
+      message:
+        '¿Confirmás que querés deshabilitar el acceso de este empleado? Se le revocan los roles y los atributos de alcance, y la cuenta se deshabilita.',
+      confirmLabel: 'Deshabilitar acceso',
+      destructive: true,
+    };
+    this.dialog
+      .open<ConfirmDialog, ConfirmDialogData, boolean>(ConfirmDialog, { data })
+      .afterClosed()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((confirmed) => {
+        if (confirmed) {
+          this.runAccessWrite(() =>
+            this.accessService.deactivate(context.companyId, context.employeeId),
+          );
+        }
+      });
+  }
+
+  /** Returns the failed open task to the queue. */
+  onAccessRetryRequest(): void {
+    const context = this.accessContext();
+    if (!context) {
+      return;
+    }
+    this.runAccessWrite(() => this.accessService.retry(context.companyId, context.employeeId));
+  }
+
+  /** Re-sends the activation invitation. */
+  onAccessResend(): void {
+    const context = this.accessContext();
+    if (!context) {
+      return;
+    }
+    this.runAccessWrite(() => this.accessService.resend(context.companyId, context.employeeId));
+  }
+
+  /**
+   * Opens the shared review dialog for a gated task (record T95).
+   *
+   * The dialog collects the decision and performs no call; the page calls `approve`/`reject` and
+   * adopts the response it answers with.
+   */
+  onAccessDecision(task: AccessProvisioningTaskView): void {
+    const context = this.accessContext();
+    const overview = this.access();
+    const employee = this.employee();
+    if (!context || !overview || !employee) {
+      return;
+    }
+    const data: AccessReviewDialogData = {
+      overview,
+      currentUserId: this.currentUserId,
+      employeeNumber: employee.employeeNumber,
+      employeeName: this.fullName(employee),
+    };
+    this.dialog
+      .open<AccessReviewDialog, AccessReviewDialogData, AccessReviewDialogResult>(AccessReviewDialog, {
+        data,
+      })
+      .afterClosed()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((result) => {
+        // `undefined` is a bare Material dismissal and means the same as `null`: no write.
+        if (!result) {
+          return;
+        }
+        if (result.decision === 'approve') {
+          this.runAccessWrite(() =>
+            this.accessService.approve(context.companyId, context.employeeId, task.id),
+          );
+          return;
+        }
+        this.runAccessWrite(() =>
+          this.accessService.reject(context.companyId, context.employeeId, task.id, {
+            reason: result.reason,
+          }),
+        );
+      });
+  }
+
+  /** Guards every access intent on the read/write role and on a selected company + employee. */
+  private accessContext(): { companyId: string; employeeId: string } | null {
+    const companyId = this.selectedCompanyId();
+    const employeeId = this.employeeId();
+    if (!this.canReadAccess || !companyId || !employeeId) {
+      return null;
+    }
+    return { companyId, employeeId };
+  }
+
+  /**
+   * Runs one access write and adopts its answer as the new overview state.
+   *
+   * The endpoints answer the reloaded overview (record T75), so the response **is** the new state:
+   * the resource is fed it directly instead of triggering a second `GET`. A failure is surfaced with
+   * the server's own message when it carries one, because the named refusals here (a blank reason, a
+   * self-approval, an open request) are exactly what the operator has to read.
+   */
+  private runAccessWrite(request: () => Observable<AccessProvisioningOverview>): void {
+    this.accessActionError.set(null);
+    request()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (overview) => this.accessResource.set(overview),
+        error: (error: unknown) =>
+          this.accessActionError.set(
+            this.serverEnvelope(error) ??
+              this.accessService.error() ??
+              httpErrorMessage(error),
+          ),
+      });
+  }
+
+  /** The API envelope's own `message`, or `null` when the failure carried none. */
+  private serverEnvelope(error: unknown): string | null {
+    const message = (unwrapHttpError(error)?.error as { message?: unknown } | undefined)?.message;
+    return typeof message === 'string' && message.trim() !== '' ? message : null;
   }
 
   /**

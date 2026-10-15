@@ -121,5 +121,40 @@
         (closeRequested)="onCloseAssignment($event)"
       />
     </section>
+
+    <!--
+      The Access section is gated on ACCESS_READ_ROLES (record T96): a caller without
+      lc-admin/lc-employee-access sees no section and issues no request, because the endpoint would
+      answer 403. Like the other sections, it degrades on its own — a failed read leaves the rest of
+      the page standing.
+    -->
+    @if (canReadAccess) {
+      <section class="access-section">
+        <h2 class="section-title">Acceso</h2>
+        <!-- A failed access write: the section renders the read's own error, the page the write's. -->
+        @if (accessActionError(); as accessActionErr) {
+          <app-error-banner [message]="accessActionErr" />
+        }
+        <!--
+          The section renders the account state, the frozen set and the controls; the page owns the
+          read, the writes and the shared review dialog (record T95).
+        -->
+        <app-access-section
+          [overview]="access()"
+          [loading]="accessLoading()"
+          [error]="accessError()"
+          [canWrite]="canReadAccess"
+          [currentUserId]="currentUserId"
+          [employeeStatusName]="employeeStatusName()"
+          [companyEmailDomain]="selectedCompanyEmailDomain()"
+          (retry)="onAccessRetry()"
+          (apply)="onAccessApply()"
+          (deactivate)="onAccessDeactivate()"
+          (retryRequest)="onAccessRetryRequest()"
+          (resend)="onAccessResend()"
+          (decisionRequested)="onAccessDecision($event)"
+        />
+      </section>
+    }
   }
 </div>

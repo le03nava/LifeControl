@@ -127,6 +127,49 @@ class CompanyStoreServiceTest {
                 .collect(java.util.stream.Collectors.joining("\n"));
     }
 
+    @Nested
+    @DisplayName("getStoreById (flat, id-addressed lookup — W3/T20)")
+    class FlatLookupTests {
+
+        @Test
+        @DisplayName("resolves the chain from the store's own associations and authorizes it")
+        void resolvesTheChainFromTheStoreItselfAndAuthorizesIt() {
+            when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(testStore));
+
+            var result = companyStoreService.getStoreById(storeId);
+
+            assertThat(result.id()).isEqualTo(storeId);
+            assertThat(result.companyId()).isEqualTo(companyId);
+            assertThat(result.companyCountryId()).isEqualTo(companyCountryId);
+            assertThat(result.regionId()).isEqualTo(regionId);
+            assertThat(result.zoneId()).isEqualTo(zoneId);
+            assertThat(result.storeName()).isEqualTo("Tienda Principal");
+            verify(currentUserContext).verifyCompanyStoreAccess(companyId, companyCountryId, regionId, zoneId, storeId);
+        }
+
+        @Test
+        @DisplayName("reports an unreachable store as not found and logs the denial")
+        void reportsADenialAsNotFoundAndLogsIt() {
+            when(companyStoreRepository.findById(storeId)).thenReturn(Optional.of(testStore));
+            doThrow(new AccessDeniedException("not yours"))
+                    .when(currentUserContext)
+                    .verifyCompanyStoreAccess(any(), any(), any(), any(), any());
+
+            assertThatThrownBy(() -> companyStoreService.getStoreById(storeId))
+                    .isInstanceOf(CompanyStoreNotFoundException.class);
+            assertThat(capturedLogs()).contains(storeId.toString());
+        }
+
+        @Test
+        @DisplayName("throws not found for an id that does not exist")
+        void unknownIdIsNotFound() {
+            when(companyStoreRepository.findById(storeId)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> companyStoreService.getStoreById(storeId))
+                    .isInstanceOf(CompanyStoreNotFoundException.class);
+        }
+    }
+
     @BeforeEach
     void setUp() {
         companyId = UUID.randomUUID();

@@ -38,6 +38,11 @@ import java.util.UUID;
  * @param lastError the visible reason the task is not applied: a failure (T10) or a rejection (T19)
  * @param nextAttemptAt the backoff deadline while the task waits; {@code null} means due immediately
  * @param requestedBy who asked for the task
+ * @param requestedByName the requester's <b>display name</b> as the identity provider answers it, or
+ *     {@code null} when it cannot be resolved — the operator no longer exists in the realm, the actor
+ *     is blank, or the provider carries no name for them (record T93, gap G42). The id stays on this
+ *     view on purpose: {@code approve}/{@code reject} compare the actor (record T73), so the wire
+ *     carries both the identity the decision is bound to and the name a person reads
  * @param requestedAt when it was asked for
  * @param decidedBy who approved or refused it; {@code null} until a gate decides
  * @param decidedAt when the gate decided; {@code null} until then
@@ -52,6 +57,7 @@ public record AccessProvisioningTaskView(
         String lastError,
         LocalDateTime nextAttemptAt,
         String requestedBy,
+        String requestedByName,
         LocalDateTime requestedAt,
         String decidedBy,
         LocalDateTime decidedAt,

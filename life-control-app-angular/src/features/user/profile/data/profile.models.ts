@@ -10,10 +10,16 @@ export interface ProfileResponse {
   email: string;
   firstName: string;
   lastName: string;
-  companyCountryId: string | null;
-  companyId: string | null;
-  companyRegionId: string | null;
-  companyZoneId: string | null;
+  /**
+   * The resolved store preference (decision D10), or `null` when there is none.
+   *
+   * The four tenancy ancestors (`companyId`, `companyCountryId`, `companyRegionId`, `companyZoneId`)
+   * are **deliberately absent** since 2026-10-14 (W3 of `company-scope-local-fallback`, its T14): the
+   * profile screen was their only writer and it no longer writes them, so echoing them back would
+   * return a value nothing asserts. The chain a caller needs in order to label the store travels
+   * inside {@link AssignedStore} for the constrained mode; the free mode reports the preference's
+   * presence instead of the hierarchy (T17/G12).
+   */
   companyStoreId: string | null;
   /**
    * The caller's store assignments in force today, or `null` when the caller has **no employee
@@ -42,15 +48,16 @@ export interface AssignedStore extends StoreAssignmentDerivedScope {
 /**
  * Payload for PUT /api/profile
  * All fields are optional — only provided fields are updated.
- * Location fields can be set to null to clear the preference.
+ *
+ * `companyStoreId` is the only location field: the four tenancy ancestors are **not writable** since
+ * 2026-10-14 (W3 of `company-scope-local-fallback`, its T14). Omitting the key leaves the stored
+ * preference alone; sending `null` clears it. That distinction is what makes the caller's own
+ * untouched control harmless (T16) — a free-mode load can no longer reconstruct the cascade, so it
+ * must not post `null` by accident.
  */
 export interface ProfileUpdateRequest {
   firstName?: string;
   lastName?: string;
   email?: string;
-  companyCountryId?: string | null;
-  companyId?: string | null;
-  companyRegionId?: string | null;
-  companyZoneId?: string | null;
   companyStoreId?: string | null;
 }

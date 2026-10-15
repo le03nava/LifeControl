@@ -31,6 +31,7 @@ export const LC_DEPARTMENT = 'lc-department';
 export const LC_POSITION = 'lc-position';
 export const LC_SENIORITY_LEVEL = 'lc-seniority-level';
 export const LC_EMPLOYEE = 'lc-employee';
+export const LC_EMPLOYEE_ACCESS = 'lc-employee-access';
 
 /** Const array mirroring `Roles.java`. */
 export const CLIENT_ROLES = [
@@ -53,6 +54,7 @@ export const CLIENT_ROLES = [
   LC_POSITION,
   LC_SENIORITY_LEVEL,
   LC_EMPLOYEE,
+  LC_EMPLOYEE_ACCESS,
 ] as const;
 
 /**
@@ -115,6 +117,19 @@ export const SCHEDULING_READ_ROLES = [LC_ADMIN, LC_SCHEDULING, LC_SCHEDULING_REA
  * write nor a read role stays gated too.
  */
 export const SCHEDULING_WRITE_ROLES = [LC_ADMIN, LC_SCHEDULING];
+
+/**
+ * Roles allowed to read an employee's access overview and to see the company's
+ * pending access decisions.
+ *
+ * Mirrors the `@PreAuthorize` set of every endpoint in
+ * `AccessProvisioningController` and `AccessProvisioningQueueController`, which
+ * gate on `hasAnyRole('lc-admin','lc-employee-access')`. No role is deliberately
+ * absent: this is the full set, and there is deliberately no read-only pair
+ * (record O5). It is also the same pair the section's write controls are gated
+ * on, because those endpoints carry the same gate.
+ */
+export const ACCESS_READ_ROLES = [LC_ADMIN, LC_EMPLOYEE_ACCESS];
 
 /**
  * Roles allowed to create, edit, disable or re-enable a department.

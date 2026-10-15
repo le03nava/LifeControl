@@ -35,23 +35,11 @@
               <span class="info-value">{{ profile()?.username || 'Not available' }}</span>
             </div>
 
-            @if (profile()?.companyId) {
+            @if (locationLabel(); as location) {
               <div class="info-row">
                 <mat-icon>business</mat-icon>
                 <span class="info-label">Location</span>
-                <span class="info-value">
-                  @if (profile()?.companyStoreId) {
-                    Store assigned
-                  } @else if (profile()?.companyZoneId) {
-                    Zone assigned
-                  } @else if (profile()?.companyRegionId) {
-                    Region assigned
-                  } @else if (profile()?.companyCountryId) {
-                    Country assigned
-                  } @else if (profile()?.companyId) {
-                    Company assigned
-                  }
-                </span>
+                <span class="info-value">{{ location }}</span>
               </div>
             }
           </div>

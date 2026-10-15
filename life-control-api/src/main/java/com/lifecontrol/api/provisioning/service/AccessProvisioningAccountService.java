@@ -165,6 +165,49 @@ public class AccessProvisioningAccountService {
         identityProvider.disableUser(userId);
     }
 
+    /**
+     * Re-sends the invitation for an employee whose account is already linked (record T69): the
+     * consequence O1 accepted when it chose the emailed activation link — the link expires, so the
+     * screen needs a way to send another one.
+     *
+     * <p><b>It re-uses the same frozen flow the activation path uses</b>: {@link #REQUIRED_ACTIONS} in
+     * that order, the client from {@link ApplicationClientProperties} and the redirect and lifespan
+     * from {@link InvitationProperties} (records T21/T30). A resend that invented its own actions or
+     * its own lifespan would be a second invitation rule, which is the defect class this record keeps
+     * recording.</p>
+     *
+     * <p><b>Two refusals, and the order is declared rather than accidental.</b> An employee with no
+     * linked account is refused first with {@link AccountNotLinkedException}: "is there anything to
+     * send to" is the more specific defect, and the message names it. Then the deliverable-domain
+     * check of record T33, taken from this class' own
+     * {@link #requireDeliverableCompanyEmailDomain(Employee)}, so an undeliverable address is refused
+     * <b>before</b> the only Keycloak call the method makes. Both answer 409 on the wire (record T86).</p>
+     *
+     * <p>It writes <b>no</b> local row and creates nothing: it is a send, not a convergence. The
+     * account, its roles and its claim attributes are left exactly as they were — a resent link grants
+     * nothing that was not already granted.</p>
+     *
+     * @param employee the employee whose invitation is re-sent; its account must already be linked
+     * @throws AccountNotLinkedException when the employee has no {@code keycloakUserId}
+     * @throws InvitationNotDeliverableException when the company has no usable {@code email_domain}
+     */
+    @Transactional
+    public void resendInvitation(Employee employee) {
+        var userId = employee.getKeycloakUserId();
+        if (userId == null || userId.isBlank()) {
+            throw new AccountNotLinkedException("Account not linked: employee " + employee.getId()
+                    + " has no keycloakUserId, so no invitation can be re-sent");
+        }
+        requireDeliverableCompanyEmailDomain(employee);
+
+        identityProvider.sendActionsEmail(
+                userId,
+                applicationClientProperties.clientId(),
+                invitationProperties.redirectUri(),
+                invitationProperties.lifespanSeconds(),
+                REQUIRED_ACTIONS);
+    }
+
     private AccountProvisioningResult createOrLink(String email) {
         try {
             var created = identityProvider.createUser(accountFor(email));
@@ -199,7 +242,18 @@ public class AccessProvisioningAccountService {
         return matches.getFirst().id();
     }
 
-    private void requireDeliverableCompanyEmailDomain(Employee employee) {
+    /**
+     * Refuses when the employee's company carries no usable {@code email_domain} (record T33), so no
+     * account is created for a person with no way in.
+     *
+     * <p><b>Package-private rather than private on purpose</b> (record T85): this is the single
+     * definition of "deliverable address" in the module, and the explicit request surface
+     * ({@link AccessProvisioningRequestService#apply(java.util.UUID, java.util.UUID)}) has to refuse
+     * with the same rule <b>before</b> it creates a task — the operator sees which path applies
+     * instead of discovering it from a bounce (record T68). A second copy of the predicate is the
+     * defect class G30 records: one rule, two implementations, one of them stale.</p>
+     */
+    void requireDeliverableCompanyEmailDomain(Employee employee) {
         var company = employee.getCompany();
         var domain = company != null ? company.getEmailDomain() : null;
         if (domain == null || domain.isBlank()) {

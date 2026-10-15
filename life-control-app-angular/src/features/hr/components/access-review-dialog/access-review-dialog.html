@@ -1,0 +1,58 @@
+<h2 mat-dialog-title>Revisar solicitud de acceso</h2>
+
+<mat-dialog-content class="dialog-content">
+  <p class="dialog-subtitle">
+    {{ data.employeeNumber }} · {{ data.employeeName }}
+  </p>
+
+  <div class="reviewer-row">
+    <span class="field-label">Solicitante</span>
+    <span class="reviewer-name">{{ requesterName() }}</span>
+  </div>
+
+  @if (frozen(); as set) {
+    <div class="frozen-diff">
+      <span class="field-label">Conjunto congelado para la revisión</span>
+      <p class="frozen-note">
+        Es el conjunto que decide el revisor; la diferencia en vivo puede haber cambiado.
+      </p>
+      <span class="diff-added">Agregar: {{ roleList(set.added) }}</span>
+      <span class="diff-removed">Quitar: {{ roleList(set.removed) }}</span>
+    </div>
+  } @else {
+    <!--
+      T92/G35: a task that froze no roles is said in words. An empty set would be
+      indistinguishable from a set with no entries, and the reviewer must know which one it is.
+    -->
+    <div class="frozen-diff">
+      <span class="field-label">Conjunto congelado para la revisión</span>
+      <p class="frozen-note">Sin conjunto congelado: la solicitud no pasó por una revisión.</p>
+    </div>
+  }
+
+  <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+    <mat-label>Motivo del rechazo</mat-label>
+    <textarea matInput [formControl]="reason" rows="3"></textarea>
+    <mat-hint>Obligatorio para rechazar.</mat-hint>
+  </mat-form-field>
+
+  <!--
+    O3: self-approval is refused by the API with a 409, so the control is not rendered at all for
+    the requester — and the dialog says why, so the operator is not left guessing about the gap.
+  -->
+  @if (isOwnRequest()) {
+    <p class="self-approval-note">
+      No podés aprobar tu propia solicitud: la regla exige otra persona.
+    </p>
+  }
+</mat-dialog-content>
+
+<mat-dialog-actions align="end">
+  <button mat-button type="button" (click)="cancel()">Cancelar</button>
+  <button mat-stroked-button type="button" [disabled]="!canReject()" (click)="reject()">
+    Rechazar
+  </button>
+  @if (!isOwnRequest()) {
+    <button mat-flat-button color="primary" type="button" (click)="approve()">Aprobar</button>
+  }
+</mat-dialog-actions>

@@ -1,0 +1,73 @@
+:host {
+  display: block;
+  width: 100%;
+}
+
+.access-requests-list {
+  width: 100%;
+}
+
+.table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.requests-table {
+  width: 100%;
+}
+
+.employee-number {
+  margin-right: var(--space-sm);
+  color: var(--mat-sys-on-surface-variant);
+  font-family: monospace;
+  font-size: 0.8rem;
+}
+
+.employee-name {
+  font-weight: 500;
+}
+
+.employee-id {
+  display: block;
+  color: var(--mat-sys-on-surface-variant);
+  font-family: monospace;
+  font-size: 0.75rem;
+}
+
+.loading-text,
+.empty-state {
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.loading-text {
+  font-style: italic;
+}
+
+.empty-state {
+  font-style: italic;
+  text-align: center;
+  padding: var(--space-2xl) var(--space-xl);
+}
+
+.error-state {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-lg);
+  border: 1px solid var(--mat-sys-error);
+  border-radius: var(--radius-lg);
+  background-color: color-mix(in srgb, var(--mat-sys-error) 8%, transparent);
+  color: var(--mat-sys-error);
+  font-size: 1rem;
+
+  mat-icon {
+    font-size: 24px;
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+  }
+
+  p {
+    margin: 0;
+  }
+}

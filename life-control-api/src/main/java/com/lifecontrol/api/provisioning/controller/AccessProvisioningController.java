@@ -7,6 +7,7 @@ import com.lifecontrol.api.provisioning.dto.AccessProvisioningOverview;
 import com.lifecontrol.api.provisioning.dto.AccessProvisioningRejectionRequest;
 import com.lifecontrol.api.provisioning.service.AccessProvisioningGateService;
 import com.lifecontrol.api.provisioning.service.AccessProvisioningQueryService;
+import com.lifecontrol.api.provisioning.service.AccessProvisioningRequestService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -44,12 +45,15 @@ public class AccessProvisioningController {
 
     private final AccessProvisioningQueryService accessProvisioningQueryService;
     private final AccessProvisioningGateService accessProvisioningGateService;
+    private final AccessProvisioningRequestService accessProvisioningRequestService;
 
     public AccessProvisioningController(
             AccessProvisioningQueryService accessProvisioningQueryService,
-            AccessProvisioningGateService accessProvisioningGateService) {
+            AccessProvisioningGateService accessProvisioningGateService,
+            AccessProvisioningRequestService accessProvisioningRequestService) {
         this.accessProvisioningQueryService = accessProvisioningQueryService;
         this.accessProvisioningGateService = accessProvisioningGateService;
+        this.accessProvisioningRequestService = accessProvisioningRequestService;
     }
 
     @GetMapping
@@ -66,6 +70,87 @@ public class AccessProvisioningController {
     })
     public ResponseEntity<AccessProvisioningOverview> getAccessOverview(
             @PathVariable UUID companyId, @PathVariable UUID employeeId) {
+        return ResponseEntity.ok(accessProvisioningQueryService.getAccessOverview(companyId, employeeId));
+    }
+
+    @PostMapping("/apply")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + EMPLOYEE_ACCESS + "')")
+    @Operation(
+            summary = "Request the access projection for an employee",
+            description = "Creates the ACTIVATE task that converges the employee's account, roles and "
+                    + "claim attributes, and returns the reloaded access overview. A company without a "
+                    + "usable email domain, and a Terminated employee, are both refused by name before "
+                    + "any task is written.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Access overview after the request"),
+        @ApiResponse(responseCode = "403", description = "Insufficient role"),
+        @ApiResponse(responseCode = "404", description = "Employee or company not found"),
+        @ApiResponse(
+                responseCode = "409",
+                description = "The employee is Terminated, the company has no deliverable email domain, "
+                        + "or an open access request already exists")
+    })
+    public ResponseEntity<AccessProvisioningOverview> apply(
+            @PathVariable UUID companyId, @PathVariable UUID employeeId) {
+        accessProvisioningRequestService.apply(companyId, employeeId);
+        return ResponseEntity.ok(accessProvisioningQueryService.getAccessOverview(companyId, employeeId));
+    }
+
+    @PostMapping("/deactivate")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + EMPLOYEE_ACCESS + "')")
+    @Operation(
+            summary = "Request the revocation of an employee's access",
+            description = "Creates the DEACTIVATE task that disables the account and removes the roles "
+                    + "and claim attributes the projection owns, and returns the reloaded access overview.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Access overview after the request"),
+        @ApiResponse(responseCode = "403", description = "Insufficient role"),
+        @ApiResponse(responseCode = "404", description = "Employee or company not found"),
+        @ApiResponse(responseCode = "409", description = "The employee already has an open access request")
+    })
+    public ResponseEntity<AccessProvisioningOverview> deactivate(
+            @PathVariable UUID companyId, @PathVariable UUID employeeId) {
+        accessProvisioningRequestService.deactivate(companyId, employeeId);
+        return ResponseEntity.ok(accessProvisioningQueryService.getAccessOverview(companyId, employeeId));
+    }
+
+    @PostMapping("/retry")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + EMPLOYEE_ACCESS + "')")
+    @Operation(
+            summary = "Retry an employee's failed access request",
+            description = "Returns the employee's failed access-provisioning task to the queue, due "
+                    + "immediately, and returns the reloaded access overview.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Access overview after the retry"),
+        @ApiResponse(responseCode = "403", description = "Insufficient role"),
+        @ApiResponse(responseCode = "404", description = "Employee, company or open task not found"),
+        @ApiResponse(responseCode = "409", description = "The employee's open task is not failed")
+    })
+    public ResponseEntity<AccessProvisioningOverview> retry(
+            @PathVariable UUID companyId, @PathVariable UUID employeeId) {
+        accessProvisioningRequestService.retry(companyId, employeeId);
+        return ResponseEntity.ok(accessProvisioningQueryService.getAccessOverview(companyId, employeeId));
+    }
+
+    @PostMapping("/resend")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + EMPLOYEE_ACCESS + "')")
+    @Operation(
+            summary = "Re-send an employee's activation invitation",
+            description = "Sends the account invitation again through the identity provider's "
+                    + "execute-actions flow, and returns the reloaded access overview. An employee "
+                    + "with no linked account, and a company without a usable email domain, are both "
+                    + "refused by name.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Access overview after the resend"),
+        @ApiResponse(responseCode = "403", description = "Insufficient role"),
+        @ApiResponse(responseCode = "404", description = "Employee or company not found"),
+        @ApiResponse(
+                responseCode = "409",
+                description = "No account is linked, or the company has no deliverable email domain")
+    })
+    public ResponseEntity<AccessProvisioningOverview> resend(
+            @PathVariable UUID companyId, @PathVariable UUID employeeId) {
+        accessProvisioningRequestService.resend(companyId, employeeId);
         return ResponseEntity.ok(accessProvisioningQueryService.getAccessOverview(companyId, employeeId));
     }
 

@@ -1,0 +1,164 @@
+:host {
+  display: block;
+  width: 100%;
+}
+
+.access-section {
+  width: 100%;
+}
+
+.actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  justify-content: flex-end;
+  margin-bottom: var(--space-md);
+}
+
+/* T68/T84/T85: the reason a gated control is absent, where the control would have been. */
+.action-blocked {
+  flex-basis: 100%;
+  margin: 0 0 var(--space-xs);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.block-title {
+  margin: var(--space-lg) 0 var(--space-sm);
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.field-label {
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.account-state,
+.role-column,
+.live-diff,
+.frozen-diff,
+.claim-row,
+.task-facts,
+.history-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-sm);
+}
+
+.account-state {
+  margin-bottom: var(--space-sm);
+}
+
+.account-id {
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  background-color: var(--mat-sys-surface-variant, #e5e7eb);
+  font-size: 0.8rem;
+}
+
+.role-columns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-lg);
+}
+
+.role-values {
+  font-family: monospace;
+}
+
+.live-diff,
+.frozen-diff {
+  margin-top: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+}
+
+.live-diff {
+  background-color: var(--mat-sys-surface-variant, #e5e7eb);
+}
+
+/* T92: the frozen set is a fact of its own, and its own surface. */
+.frozen-diff {
+  border: 1px dashed var(--mat-sys-outline, #9ca3af);
+}
+
+.frozen-note,
+.task-reason,
+.task-next,
+.decision-note,
+.empty-state,
+.loading-text {
+  margin: var(--space-xs) 0 0;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.task-reason {
+  color: var(--mat-sys-error);
+}
+
+.decision-note {
+  font-style: italic;
+}
+
+.diff-added {
+  color: var(--color-success);
+}
+
+.diff-removed {
+  color: var(--mat-sys-error);
+}
+
+.claim-row {
+  padding: 2px 0;
+}
+
+.claim-name {
+  min-width: 12rem;
+  font-family: monospace;
+  font-size: 0.8rem;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.claim-values {
+  font-family: monospace;
+  font-size: 0.8rem;
+}
+
+.history-list {
+  margin: 0;
+  padding-left: var(--space-lg);
+}
+
+.history-row {
+  gap: var(--space-md);
+}
+
+.empty-state {
+  font-style: italic;
+}
+
+.error-state {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-lg);
+  border-radius: var(--radius-lg);
+  font-size: 1rem;
+  border: 1px solid var(--mat-sys-error);
+  background-color: color-mix(in srgb, var(--mat-sys-error) 8%, transparent);
+  color: var(--mat-sys-error);
+
+  mat-icon {
+    font-size: 24px;
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+  }
+
+  p {
+    margin: 0;
+  }
+}

@@ -9,8 +9,8 @@ package com.lifecontrol.api.provisioning.model;
  * <p>The states are the contract between the worker (W4), the approval gate (W5) and the UI
  * (record T2). The database treats {@code PENDING}, {@code APPROVAL_PENDING}, {@code RUNNING} and
  * {@code FAILED} as <b>open</b>: the partial unique index
- * {@code uq_access_provisioning_tasks_open} admits at most one of them per employee. {@code APPLIED}
- * and {@code REJECTED} are terminal and release that slot.</p>
+ * {@code uq_access_provisioning_tasks_open} admits at most one of them per employee. {@code APPLIED},
+ * {@code REJECTED} and {@code SUPERSEDED} are terminal and release that slot.</p>
  *
  * <p>These are <b>values only</b>. There is deliberately no transition logic here — no
  * {@code canTransitionTo}, no map — because the state machine and its guard belong to one service,
@@ -30,5 +30,11 @@ public enum AccessProvisioningTaskStatus {
     /** Visible failure with its reason in {@code last_error}; retried with backoff (record T10). */
     FAILED,
     /** Refused by the gate; the terminal refusal. */
-    REJECTED
+    REJECTED,
+    /**
+     * Replaced by a newer fact before it could converge (this unit's own review, records R3-001 and
+     * R4-001): the intent it carried no longer describes the employee's truth, so the slot it held is
+     * released for the intent that does. Terminal, and the only status no {@code kind} derives.
+     */
+    SUPERSEDED
 }
