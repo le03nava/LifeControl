@@ -68,6 +68,18 @@ describe('hr.routes', () => {
     }
   });
 
+  it('should register the seniority-levels read child with no roles and a lazy component', () => {
+    const parent = routeAt(hrRoutes, '');
+    const levels = routeAt(parent.children, 'seniority-levels');
+    const read = routeAt(levels.children, '');
+
+    // Global catalog, reached from Puestos and deliberately absent from the
+    // menu (D5); its reads are `isAuthenticated()` on the API.
+    expect(levels.data?.['roles']).toBeUndefined();
+    expect(read.data?.['roles']).toBeUndefined();
+    expect(typeof read.loadComponent).toBe('function');
+  });
+
   it('should carry the department write roles and clientId on the create and edit children', () => {
     const { create, edit } = hrBranch();
 

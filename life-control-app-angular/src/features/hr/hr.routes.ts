@@ -85,6 +85,23 @@ export const hrRoutes: Routes = [
         ],
       },
       {
+        // The global seniority-level catalog is a **secondary screen reached
+        // from Puestos** (D5), not a fourth HR child: this repository's global
+        // catalogs carry no menu entry at all. This slice registers the read
+        // child; the `create` / `edit/:id` children arrive with the slice that
+        // ships the form they load.
+        path: 'seniority-levels',
+        children: [
+          {
+            path: '',
+            loadComponent: () =>
+              import('./pages/seniority-level-list/seniority-level-list').then(
+                (m) => m.SeniorityLevelList,
+              ),
+          },
+        ],
+      },
+      {
         path: 'employees',
         children: [
           {
