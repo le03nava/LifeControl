@@ -4,7 +4,6 @@ import { Observable, throwError } from 'rxjs';
 import { catchError, finalize, tap } from 'rxjs/operators';
 import { ConfigService } from '@app/services/config.service';
 import { CloseContractRequest, Contract, ContractRequest } from '../models/contract.models';
-import { PositionSalaryBand } from '../models/position.models';
 
 /**
  * HTTP access to an employee's contract history and the catalogs the contract
@@ -33,8 +32,8 @@ import { PositionSalaryBand } from '../models/position.models';
  * are the single readers of those endpoints now, and the dialog injects them
  * directly. A second reader of the same URL was the kind of split that rots, and
  * the record had invited exactly this absorption when the lookups were added
- * here. The salary-band read stays on this service until the band editor
- * (**W3**) owns that resource.
+ * here. The salary-band read followed the same path in **W3**, when the band
+ * editor became the screen that owns that resource.
  */
 @Injectable({
   providedIn: 'root',
@@ -116,19 +115,6 @@ export class ContractService {
         }),
         finalize(() => this._loading.set(false)),
       );
-  }
-
-  /**
-   * The two catalogue lookups this service used to carry were **absorbed by the
-   * catalog services** in the W2b slice: `PositionService.getPositions` and
-   * `SeniorityLevelService.getSeniorityLevels` are the single readers of those
-   * endpoints now, and the contract dialog injects them directly. What remains
-   * here is the salary-band read, until the band editor (W3) owns it.
-   */
-  getSalaryBands(companyId: string, positionId: string): Observable<PositionSalaryBand[]> {
-    return this.http.get<PositionSalaryBand[]>(
-      `${this.configService.apiUrl}/companies/${companyId}/positions/${positionId}/salary-bands`,
-    );
   }
 
   clearError(): void {

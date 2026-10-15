@@ -3,7 +3,12 @@ import { HttpClient } from '@angular/common/http';
 import { Observable, throwError } from 'rxjs';
 import { catchError, finalize, tap } from 'rxjs/operators';
 import { ConfigService } from '@app/services/config.service';
-import { Position, PositionRequest } from '../models/position.models';
+import {
+  Position,
+  PositionRequest,
+  PositionSalaryBand,
+  PositionSalaryBandsRequest,
+} from '../models/position.models';
 
 /**
  * HTTP access to the company-scoped position catalog.
@@ -161,6 +166,42 @@ export class PositionService {
         }),
         finalize(() => this._loading.set(false)),
       );
+  }
+
+  /**
+   * The position's **complete** stored band set, disabled rows included.
+   *
+   * This is the editor's source of truth (D13): "no band configured for this
+   * level" is a stored row with `enabled = false`, not a missing row, so the
+   * screen edits the rows it is handed instead of rebuilding the set from the
+   * global catalog — a screen that did the latter would resurrect an omitted
+   * level on the very next save.
+   *
+   * It deliberately mutates no service state (the list signal is the list page's)
+   * and sets no shared error, because the settings screen owns its own banner.
+   */
+  getSalaryBands(companyId: string, positionId: string): Observable<PositionSalaryBand[]> {
+    return this.http.get<PositionSalaryBand[]>(this.salaryBandsUrl(companyId, positionId));
+  }
+
+  /**
+   * Replaces the position's complete band set (T10/D13) and returns the stored
+   * set **after** the save, which is what the editor re-seeds its rows from: the
+   * response is the authority on which levels ended up enabled.
+   */
+  saveSalaryBands(
+    companyId: string,
+    positionId: string,
+    request: PositionSalaryBandsRequest,
+  ): Observable<PositionSalaryBand[]> {
+    return this.http.put<PositionSalaryBand[]>(
+      this.salaryBandsUrl(companyId, positionId),
+      request,
+    );
+  }
+
+  private salaryBandsUrl(companyId: string, positionId: string): string {
+    return `${this.positionsUrl(companyId)}/${positionId}/salary-bands`;
   }
 
   clearError(): void {

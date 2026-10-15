@@ -112,12 +112,14 @@ describe('ContractDialog', () => {
   let component: ContractDialog;
   let dialogRef: { close: ReturnType<typeof vi.fn> };
   let contractService: {
-    getSalaryBands: ReturnType<typeof vi.fn>;
     addContract: ReturnType<typeof vi.fn>;
     closeContract: ReturnType<typeof vi.fn>;
   };
   /** The catalogue reads the dialog now uses instead of ContractService's copies. */
-  let positionService: { getPositions: ReturnType<typeof vi.fn> };
+  let positionService: {
+    getPositions: ReturnType<typeof vi.fn>;
+    getSalaryBands: ReturnType<typeof vi.fn>;
+  };
   let seniorityLevelService: { getSeniorityLevels: ReturnType<typeof vi.fn> };
   let assignmentService: {
     createAssignment: ReturnType<typeof vi.fn>;
@@ -321,14 +323,16 @@ describe('ContractDialog', () => {
   function setup(options: SetupOptions = {}): void {
     dialogRef = { close: vi.fn() };
     contractService = {
-      getSalaryBands: vi.fn(() =>
-        options.bandsError ? throwError(() => options.bandsError) : of(options.bands ?? [band()]),
-      ),
       addContract: vi.fn().mockReturnValue(of(contract({ id: 'contract-new' }))),
       closeContract: vi.fn().mockReturnValue(of(contract({ endDate: '2026-06-30' }))),
     };
     positionService = {
       getPositions: vi.fn().mockReturnValue(of(options.positions ?? [position])),
+      // The salary-band read followed the position/seniority lookups into the
+      // catalog service in W3: the band editor is now that resource's owner.
+      getSalaryBands: vi.fn(() =>
+        options.bandsError ? throwError(() => options.bandsError) : of(options.bands ?? [band()]),
+      ),
     };
     seniorityLevelService = {
       getSeniorityLevels: vi.fn().mockReturnValue(of(options.levels ?? [level])),
@@ -659,7 +663,7 @@ describe('ContractDialog', () => {
       component.createForm.patchValue({ positionId: 'pos-1' });
       settle();
 
-      expect(contractService.getSalaryBands).toHaveBeenCalledWith('company-1', 'pos-1');
+      expect(positionService.getSalaryBands).toHaveBeenCalledWith('company-1', 'pos-1');
     });
 
     it('shows the band next to the salary field for the chosen pair', () => {

@@ -4,7 +4,7 @@ import { HttpClientTestingModule, HttpTestingController } from '@angular/common/
 import { firstValueFrom } from 'rxjs';
 import { PositionService } from './position.service';
 import { ConfigService } from '@app/services/config.service';
-import { Position, PositionRequest } from '../models/position.models';
+import { Position, PositionRequest, PositionSalaryBand } from '../models/position.models';
 
 describe('PositionService', () => {
   let service: PositionService;
@@ -310,6 +310,92 @@ describe('PositionService', () => {
 
       await expect(promise).rejects.toBeTruthy();
       expect(service.error()).toBe('Error al reactivar el puesto');
+    });
+  });
+
+  describe('salary bands', () => {
+    const bandsUrl = `${positionsUrl}/pos-1/salary-bands`;
+
+    const mockBands: PositionSalaryBand[] = [
+      {
+        id: 'band-1',
+        positionId: 'pos-1',
+        seniorityLevelId: 'lvl-1',
+        minimumSalary: 1000,
+        maximumSalary: 1500,
+        enabled: true,
+        createdAt: '2026-01-01T00:00:00',
+        updatedAt: '2026-01-01T00:00:00',
+      },
+      {
+        id: 'band-2',
+        positionId: 'pos-1',
+        seniorityLevelId: 'lvl-2',
+        minimumSalary: 2000,
+        maximumSalary: 2500,
+        enabled: false,
+        createdAt: '2026-01-01T00:00:00',
+        updatedAt: '2026-01-01T00:00:00',
+      },
+    ];
+
+    it('getSalaryBands should GET the position bands without params and mutate no state', async () => {
+      const promise = firstValueFrom(service.getSalaryBands(companyId, 'pos-1'));
+
+      const req = httpMock.expectOne((r) => r.url === bandsUrl && r.method === 'GET');
+      // The read takes no `includeDisabled`: disabled rows are part of the answer
+      // by contract (D13), because the editor must edit them instead of
+      // rebuilding the set from the catalog.
+      expect(req.request.params.keys()).toEqual([]);
+      req.flush(mockBands);
+
+      const bands = await promise;
+      expect(bands).toEqual(mockBands);
+      // It is not the list page's read: neither the collection nor the shared
+      // error signal belongs to the settings screen.
+      expect(service.positions()).toEqual([]);
+      expect(service.error()).toBeNull();
+    });
+
+    it('getSalaryBands should re-throw a failed read instead of naming it in the shared signal', async () => {
+      const promise = firstValueFrom(service.getSalaryBands(companyId, 'pos-1'));
+      httpMock
+        .expectOne((r) => r.url === bandsUrl)
+        .flush({ status: 500 }, { status: 500, statusText: 'Server Error' });
+
+      await expect(promise).rejects.toBeTruthy();
+      expect(service.error()).toBeNull();
+    });
+
+    it('saveSalaryBands should PUT the exact full set and return the stored rows', async () => {
+      const request = {
+        bands: [{ seniorityLevelId: 'lvl-1', minimumSalary: 1000, maximumSalary: 1500 }],
+      };
+      const promise = firstValueFrom(service.saveSalaryBands(companyId, 'pos-1', request));
+
+      const req = httpMock.expectOne((r) => r.url === bandsUrl && r.method === 'PUT');
+      // The whole set travels: an omitted level is what the API disables, so the
+      // client must not send an `enabled` field or a partial patch.
+      expect(req.request.body).toEqual(request);
+      expect(Object.keys(req.request.body.bands[0])).toEqual([
+        'seniorityLevelId',
+        'minimumSalary',
+        'maximumSalary',
+      ]);
+      req.flush(mockBands);
+
+      expect(await promise).toEqual(mockBands);
+      expect(service.positions()).toEqual([]);
+    });
+
+    it('saveSalaryBands should carry an empty list as the way to clear the set', async () => {
+      const promise = firstValueFrom(service.saveSalaryBands(companyId, 'pos-1', { bands: [] }));
+
+      const req = httpMock.expectOne((r) => r.url === bandsUrl && r.method === 'PUT');
+      expect(req.request.body).toEqual({ bands: [] });
+      req.flush([]);
+
+      expect(await promise).toEqual([]);
     });
   });
 
