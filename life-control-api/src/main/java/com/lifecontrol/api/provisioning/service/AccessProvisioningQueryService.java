@@ -9,6 +9,7 @@ import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.hr.service.EmployeeStoreScope;
 import com.lifecontrol.api.provisioning.dto.AccessProvisioningClaims;
 import com.lifecontrol.api.provisioning.dto.AccessProvisioningOverview;
+import com.lifecontrol.api.provisioning.dto.AccessProvisioningQueueEntry;
 import com.lifecontrol.api.provisioning.dto.AccessProvisioningRoleDiff;
 import com.lifecontrol.api.provisioning.dto.AccessProvisioningTaskView;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningReviewedRole;
@@ -62,6 +63,11 @@ import org.springframework.transaction.annotation.Transactional;
  *       a human decides against the set they were shown and not against a diff that moved after the
  *       request. No open task — or an open task that froze nothing — answers {@code null} instead of an
  *       empty set, because "there is nothing to review" and "nothing is frozen" are different facts.</li>
+ *   <li><b>The company's decision queue is a company-scoped read with no employee in its path</b>
+ *       (record T94): it verifies the company first, asks for {@code APPROVAL_PENDING} only, and resolves
+ *       the requester's name through the same per-actor memo the overview uses, so a queue of rows that
+ *       share one actor costs one identity-provider read. The scope itself lives in the repository query,
+ *       because the tasks table has no {@code company_id} to filter on.</li>
  *   <li><b>The requester's name is resolved through the port, once per distinct actor</b> (record T93):
  *       the rows carry the actor's id and the section has to say who asked, so the name is looked up
  *       for the rendered tasks and memoized, never once per row. An actor the provider no longer knows
@@ -188,6 +194,40 @@ public class AccessProvisioningQueryService {
                 openTask,
                 history,
                 claims);
+    }
+
+    /**
+     * The company's <b>decision queue</b> (unit W5d, slice B, record T94): the tasks of this company's
+     * employees waiting for a human, oldest request first, each with the employee it belongs to.
+     *
+     * <p>The composition is deliberately thin and the rules live where they belong. The <b>company check
+     * is the first statement</b>, before any load, exactly as the overview's is — which is what makes this
+     * a company-scoped read rather than a cross-company one. The <b>set</b> is
+     * {@code APPROVAL_PENDING} and nothing else: a queue is the set a human has to decide, while
+     * {@code PENDING}, {@code RUNNING} and {@code FAILED} tasks are the worker's and the operator's own
+     * business, which the Access section already serves per employee with {@code retry} and
+     * {@code resend} (gap G42). The <b>scope enters through the employee</b>, because
+     * {@code access_provisioning_tasks} carries no {@code company_id} — that is the repository query's
+     * own job, and this method cannot express it any other way.</p>
+     *
+     * <p>The requester's name is resolved through the same memo the overview uses, so a queue of rows
+     * that share one actor costs one identity-provider read rather than one per row (record T93).</p>
+     *
+     * @param companyId the company whose employees' waiting tasks are listed
+     * @return the queue, oldest request first
+     * @throws org.springframework.security.access.AccessDeniedException when the current user cannot
+     *     access the company
+     */
+    @Transactional(readOnly = true)
+    public List<AccessProvisioningQueueEntry> getDecisionQueue(UUID companyId) {
+        currentUserContext.verifyCompanyAccess(companyId);
+
+        var resolvedNames = new HashMap<String, String>();
+        return taskRepository
+                .findByEmployeeCompanyIdAndStatus(companyId, AccessProvisioningTaskStatus.APPROVAL_PENDING)
+                .stream()
+                .map(task -> toQueueEntry(task, resolvedNames))
+                .toList();
     }
 
     /**
@@ -323,6 +363,31 @@ public class AccessProvisioningQueryService {
             }
         }
         return new AccessProvisioningRoleDiff(granted, revoked);
+    }
+
+    /**
+     * One queue row: the waiting task plus the employee it belongs to (record T94).
+     *
+     * <p>The employee is read without a null branch, and that is a statement rather than an oversight:
+     * {@code access_provisioning_tasks.employee_id} is {@code NOT NULL} with a foreign key and the
+     * repository's query joins it, so a task without an employee cannot be selected. Inventing a branch
+     * that emitted a row with a null employee id would be the silent half-row this record keeps
+     * refusing; a broken invariant is meant to be loud.</p>
+     */
+    private AccessProvisioningQueueEntry toQueueEntry(AccessProvisioningTask task, Map<String, String> resolvedNames) {
+        var employee = task.getEmployee();
+        return new AccessProvisioningQueueEntry(
+                task.getId(),
+                task.getKind(),
+                task.getStatus(),
+                task.getRequestedBy(),
+                requestedByNameOf(task.getRequestedBy(), resolvedNames),
+                task.getRequestedAt(),
+                employee.getId(),
+                employee.getEmployeeNumber(),
+                employee.getFirstName(),
+                employee.getPaternalLastName(),
+                employee.getMaternalLastName());
     }
 
     /**

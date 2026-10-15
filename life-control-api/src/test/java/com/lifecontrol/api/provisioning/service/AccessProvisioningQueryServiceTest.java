@@ -3,6 +3,7 @@ package com.lifecontrol.api.provisioning.service;
 import static com.lifecontrol.api.provisioning.model.AccessProvisioningRoleDirection.GRANT;
 import static com.lifecontrol.api.provisioning.model.AccessProvisioningRoleDirection.REVOKE;
 import static com.lifecontrol.api.provisioning.model.AccessProvisioningTaskKind.ACTIVATE;
+import static com.lifecontrol.api.provisioning.model.AccessProvisioningTaskStatus.APPROVAL_PENDING;
 import static com.lifecontrol.api.provisioning.model.AccessProvisioningTaskStatus.FAILED;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -23,6 +24,7 @@ import com.lifecontrol.api.hr.model.Employee;
 import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.hr.service.EmployeeStoreScope;
 import com.lifecontrol.api.provisioning.dto.AccessProvisioningClaims;
+import com.lifecontrol.api.provisioning.dto.AccessProvisioningQueueEntry;
 import com.lifecontrol.api.provisioning.dto.AccessProvisioningTaskView;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningReviewedRole;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningRoleDirection;
@@ -125,6 +127,10 @@ class AccessProvisioningQueryServiceTest {
         linked = Employee.builder()
                 .id(employeeId)
                 .company(company)
+                .employeeNumber("EMP-001")
+                .firstName("Ada")
+                .paternalLastName("Lovelace")
+                .maternalLastName("Byron")
                 .email("jane.doe@acme.com")
                 .keycloakUserId(KC_USER_ID)
                 .status(activeStatus())
@@ -220,6 +226,11 @@ class AccessProvisioningQueryServiceTest {
     private void stubReviewed(UUID frozenTaskId, AccessProvisioningReviewedRole... rows) {
         when(reviewedRoleRepository.findByTaskIdOrderByRoleNameAsc(frozenTaskId))
                 .thenReturn(List.of(rows));
+    }
+
+    private void stubQueue(AccessProvisioningTask... tasks) {
+        when(taskRepository.findByEmployeeCompanyIdAndStatus(companyId, APPROVAL_PENDING))
+                .thenReturn(List.of(tasks));
     }
 
     private void stubDisplayName(String userId, String displayName) {
@@ -585,5 +596,67 @@ class AccessProvisioningQueryServiceTest {
 
         assertThatThrownBy(() -> service.getAccessOverview(companyId, employeeId))
                 .isInstanceOf(IdentityProviderConnectionException.class);
+    }
+
+    // --- the company's decision queue (unit W5d, slice B, record T94) ---
+
+    @Test
+    @DisplayName("the queue verifies the company before it reads anything")
+    void decisionQueueVerifiesTheCompanyFirst() {
+        doThrow(new AccessDeniedException("denied")).when(currentUserContext).verifyCompanyAccess(companyId);
+
+        assertThatThrownBy(() -> service.getDecisionQueue(companyId)).isInstanceOf(AccessDeniedException.class);
+
+        verifyNoInteractions(taskRepository);
+    }
+
+    @Test
+    @DisplayName("the queue asks for that company's tasks in the status that defines it")
+    void decisionQueueAsksForTheCompanyApprovalPendingTasks() {
+        service.getDecisionQueue(companyId);
+
+        verify(taskRepository).findByEmployeeCompanyIdAndStatus(companyId, APPROVAL_PENDING);
+    }
+
+    @Test
+    @DisplayName("a queue row carries the task, the employee it belongs to and the requester's name")
+    void decisionQueueMapsTheTaskAndTheEmployeeReference() {
+        stubQueue(taskWithRequester(taskId, "actor-1", APPROVAL_PENDING));
+        stubDisplayName("actor-1", "Ada Lovelace");
+
+        var queue = service.getDecisionQueue(companyId);
+
+        assertThat(queue).hasSize(1);
+        var entry = queue.getFirst();
+        assertThat(entry.taskId()).isEqualTo(taskId);
+        assertThat(entry.kind()).isEqualTo(ACTIVATE);
+        assertThat(entry.status()).isEqualTo(APPROVAL_PENDING);
+        assertThat(entry.requestedBy()).isEqualTo("actor-1");
+        assertThat(entry.requestedByName()).isEqualTo("Ada Lovelace");
+        assertThat(entry.requestedAt()).isEqualTo(LocalDateTime.of(2026, 10, 8, 9, 0));
+        assertThat(entry.employeeId()).isEqualTo(employeeId);
+        assertThat(entry.employeeNumber()).isEqualTo("EMP-001");
+        assertThat(entry.employeeFirstName()).isEqualTo("Ada");
+        assertThat(entry.employeePaternalLastName()).isEqualTo("Lovelace");
+        assertThat(entry.employeeMaternalLastName()).isEqualTo("Byron");
+    }
+
+    @Test
+    @DisplayName("the queue resolves one name per distinct actor across its rows")
+    void decisionQueueResolvesNamesOncePerDistinctActor() {
+        stubQueue(
+                taskWithRequester(UUID.randomUUID(), "actor-1", APPROVAL_PENDING),
+                taskWithRequester(UUID.randomUUID(), "actor-1", APPROVAL_PENDING),
+                taskWithRequester(UUID.randomUUID(), "actor-2", APPROVAL_PENDING));
+        stubDisplayName("actor-1", "Ada Lovelace");
+        stubDisplayName("actor-2", "Grace Hopper");
+
+        var queue = service.getDecisionQueue(companyId);
+
+        assertThat(queue)
+                .extracting(AccessProvisioningQueueEntry::requestedByName)
+                .containsExactly("Ada Lovelace", "Ada Lovelace", "Grace Hopper");
+        verify(identityProvider, times(1)).findUserDisplayName("actor-1");
+        verify(identityProvider, times(1)).findUserDisplayName("actor-2");
     }
 }

@@ -151,4 +151,45 @@ public interface AccessProvisioningTaskRepository extends JpaRepository<AccessPr
             ORDER BY t.updatedAt ASC
             """)
     List<UUID> findStaleRunningTaskIds(@Param("staleBefore") LocalDateTime staleBefore, Pageable pageable);
+
+    /**
+     * The company's <b>decision queue</b>: the tasks of that company's employees waiting for a human,
+     * as entities because the row a person reads carries the employee it belongs to (unit W5d, slice B,
+     * record T94).
+     *
+     * <p>The scope enters through the employee, and it has to: {@code access_provisioning_tasks} carries
+     * no {@code company_id} (V22) — {@code employee_id} is its only organisational link — so a
+     * company-scoped read is a join and not a filter. The {@code JOIN FETCH} is what makes the row
+     * renderable in one read: the queue entry shows the employee's number and name, and a lazy
+     * {@code employee} per row would be the N+1 the fetch removes. The join is inner and correct here
+     * because {@code employee_id} is {@code NOT NULL} with a foreign key, so no task can be orphaned
+     * out of its company's queue.</p>
+     *
+     * <p>The status is a <b>parameter</b> rather than a literal: the surface that consumes this read
+     * decides which set is the decision queue ({@code APPROVAL_PENDING}), and a second caller with a
+     * different set does not need a second query to drift from this one. The order is the queue's own —
+     * oldest request first, tie-broken by id so the order is deterministic — which is the opposite of
+     * {@link #findByEmployeeIdOrderByRequestedAtDesc}: a history is read newest-first, while a queue is
+     * <b>served</b> oldest-first.</p>
+     *
+     * <p>Entities, unlike {@link #findDueTaskIds}' and {@link #findStaleRunningTaskIds}' ids-only
+     * projections, and the difference is the hazard each one avoids: those two deliberately refuse to
+     * hand out a snapshot taken before a lock because their caller is about to <b>write</b> under one,
+     * while this read is a pure, transactional read of rows a human is only being shown. Nothing here
+     * hands authority to the caller — the decision itself goes through
+     * {@code AccessProvisioningGateService}, which re-loads and scopes what it decides.</p>
+     *
+     * @param companyId the company whose employees' tasks are listed
+     * @param status the status that defines the queue the caller is asking for
+     * @return the matching rows, oldest request first
+     */
+    @Query("""
+            SELECT t FROM AccessProvisioningTask t
+            JOIN FETCH t.employee e
+            WHERE e.company.id = :companyId
+              AND t.status = :status
+            ORDER BY t.requestedAt ASC, t.id ASC
+            """)
+    List<AccessProvisioningTask> findByEmployeeCompanyIdAndStatus(
+            @Param("companyId") UUID companyId, @Param("status") AccessProvisioningTaskStatus status);
 }
