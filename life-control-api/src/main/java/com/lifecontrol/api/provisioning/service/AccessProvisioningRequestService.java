@@ -30,13 +30,13 @@ import org.springframework.transaction.annotation.Transactional;
  * {@code VARCHAR(36)} and rule O3 compares it against the deciding actor, so both sides have to use
  * the same basis or the comparison silently never matches.</p>
  *
- * <p><b>Two refusals precede the task, and their order is the rule.</b> An employee whose employment
+ * <p><b>One refusal precedes the task, and it is the rule.</b> An employee whose employment
  * status is {@code Terminated} is refused first (record T84): the {@code ACTIVATE} kind's account
  * half would create or link the account and send the invitation, which is the opposite of what a
- * revocation is for. Then the deliverable-domain refusal of record T68, taken from
- * {@link AccessProvisioningAccountService#requireDeliverableCompanyEmailDomain(Employee)} — the single
- * definition of that rule — so a company whose generated addresses cannot receive mail sees which path
- * applies instead of discovering it from a bounce. Both happen <b>before</b> any task row exists.</p>
+ * revocation is for, and it happens <b>before</b> any task row exists. The deliverable-domain
+ * refusal of record T68 is <b>deleted</b> (records T102/T104): the invitation goes to the address the
+ * account carries, so the field the company declares was never the fact that decided
+ * deliverability.</p>
  *
  * <p><b>{@code deactivate} carries exactly one check, and it is the inverse of {@code apply}'s.</b>
  * Revocation requires a {@code Terminated} employee (record T101): the intent removes the template's
@@ -86,8 +86,6 @@ public class AccessProvisioningRequestService {
      *     access the company
      * @throws EmployeeNotFoundException when the employee does not belong to the company
      * @throws TerminatedEmployeeRefusedException when the employee's status is {@code Terminated}
-     * @throws com.lifecontrol.api.provisioning.exception.InvitationNotDeliverableException when the
-     *     company has no usable email domain
      * @throws com.lifecontrol.api.provisioning.exception.AccessProvisioningTaskAlreadyOpenException
      *     when the employee already has an open task
      */
@@ -99,8 +97,6 @@ public class AccessProvisioningRequestService {
         if (EmployeeStatuses.isTerminated(employee)) {
             throw new TerminatedEmployeeRefusedException(employeeId);
         }
-        accountService.requireDeliverableCompanyEmailDomain(employee);
-
         gateService.request(companyId, employeeId, AccessProvisioningTaskKind.ACTIVATE, currentUserContext.getUserId());
     }
 
@@ -183,12 +179,10 @@ public class AccessProvisioningRequestService {
      * <p><b>It creates no task and moves no state</b>: the operation is a send, not a convergence, and
      * it writes nothing this application stores. <b>A terminated employee is refused first</b>, by
      * the same guard {@link #apply(UUID, UUID)} applies: a fresh activation link is a way back in.
-     * The two remaining refusals come from the capability it delegates to — no linked account
-     * ({@link com.lifecontrol.api.provisioning.exception.AccountNotLinkedException}) and no
-     * deliverable company address
-     * ({@link com.lifecontrol.api.provisioning.exception.InvitationNotDeliverableException}) — and all
-     * three answer <b>409</b> because all three extend the conflict category (record T86), so the
-     * operator sees which one applies instead of a 500.</p>
+     * The remaining refusal comes from the capability it delegates to — no linked account
+     * ({@link com.lifecontrol.api.provisioning.exception.AccountNotLinkedException}) — and it answers
+     * <b>409</b> because it extends the conflict category (record T86), so the operator sees which one
+     * applies instead of a 500.</p>
      *
      * @throws org.springframework.security.access.AccessDeniedException when the current user cannot
      *     access the company
@@ -196,8 +190,6 @@ public class AccessProvisioningRequestService {
      * @throws TerminatedEmployeeRefusedException when the employee's status is {@code Terminated}
      * @throws com.lifecontrol.api.provisioning.exception.AccountNotLinkedException when nothing is
      *     linked to send to
-     * @throws com.lifecontrol.api.provisioning.exception.InvitationNotDeliverableException when the
-     *     company has no usable email domain
      */
     @Transactional
     public void resend(UUID companyId, UUID employeeId) {

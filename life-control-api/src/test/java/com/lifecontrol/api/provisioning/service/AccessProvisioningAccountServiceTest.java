@@ -21,7 +21,6 @@ import com.lifecontrol.api.hr.model.Employee;
 import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.provisioning.exception.AccountLinkRefusedException;
 import com.lifecontrol.api.provisioning.exception.AccountNotLinkedException;
-import com.lifecontrol.api.provisioning.exception.InvitationNotDeliverableException;
 import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.usersadmin.identity.IdentityProvider;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderConflictException;
@@ -261,30 +260,33 @@ class AccessProvisioningAccountServiceTest {
         }
 
         @Test
-        @DisplayName("should refuse before any Keycloak call when the company has no email domain")
-        void refusesWhenNoEmailDomain() {
-            var noDomain = employeeWithDomain(null);
+        @DisplayName("should still invite a company with no email domain, to the address the account already has")
+        void invitesWithoutADeclaredCompanyDomain() {
+            stubSave();
+            when(identityProvider.createUser(any(UserRepresentation.class))).thenReturn("kc-new");
 
-            assertThatThrownBy(() -> service.activate(noDomain))
-                    .isInstanceOf(InvitationNotDeliverableException.class)
-                    .hasMessageContaining("email domain")
-                    .hasMessageContaining("no email domain configured");
+            var result = service.activate(employeeWithDomain(null));
 
-            verifyNoInteractions(identityProvider);
-            verify(employeeRepository, never()).save(any(Employee.class));
+            assertThat(result.outcome()).isEqualTo(CREATED);
+            verify(identityProvider)
+                    .sendActionsEmail("kc-new", CLIENT_ID, REDIRECT_URI, LIFESPAN_SECONDS, REQUIRED_ACTIONS);
+            var created = captureCreatedUser();
+            assertThat(created.getEmail()).isEqualTo(EMAIL);
+            assertThat(created.getCredentials()).isNullOrEmpty();
         }
 
         @Test
-        @DisplayName("should refuse before any Keycloak call when the email domain is blank")
-        void refusesWhenBlankEmailDomain() {
-            var blankDomain = employeeWithDomain("   ");
+        @DisplayName("should still invite a company whose email domain is blank")
+        void invitesWhenTheCompanyDomainIsBlank() {
+            stubSave();
+            when(identityProvider.createUser(any(UserRepresentation.class))).thenReturn("kc-new");
 
-            assertThatThrownBy(() -> service.activate(blankDomain))
-                    .isInstanceOf(InvitationNotDeliverableException.class)
-                    .hasMessageContaining("no email domain configured");
+            var result = service.activate(employeeWithDomain("   "));
 
-            verifyNoInteractions(identityProvider);
-            verify(employeeRepository, never()).save(any(Employee.class));
+            assertThat(result.outcome()).isEqualTo(CREATED);
+            verify(identityProvider)
+                    .sendActionsEmail("kc-new", CLIENT_ID, REDIRECT_URI, LIFESPAN_SECONDS, REQUIRED_ACTIONS);
+            assertThat(captureCreatedUser().getEmail()).isEqualTo(EMAIL);
         }
     }
 
@@ -387,21 +389,32 @@ class AccessProvisioningAccountServiceTest {
         }
 
         @Test
-        @DisplayName("refuses by name when the company has no usable email domain")
-        void refusesWhenTheDomainIsMissing() {
+        @DisplayName("sends the invitation for a company with no usable email domain too")
+        void sendsWhenTheDomainIsMissing() {
             employee = employeeWithDomain(null);
             employee.linkKeycloakUser("kc-existing");
 
-            assertThatThrownBy(() -> service.resendInvitation(employee))
-                    .isInstanceOf(InvitationNotDeliverableException.class)
-                    .hasMessageContaining("not deliverable");
+            service.resendInvitation(employee);
 
-            verifyNoInteractions(identityProvider);
+            verify(identityProvider)
+                    .sendActionsEmail("kc-existing", CLIENT_ID, REDIRECT_URI, LIFESPAN_SECONDS, REQUIRED_ACTIONS);
         }
 
         @Test
-        @DisplayName("the not-linked refusal comes first when both refusals would apply")
-        void theLinkedRefusalPrecedesTheDomainRefusal() {
+        @DisplayName("sends the invitation for a blank company domain too")
+        void sendsWhenTheCompanyDomainIsBlank() {
+            employee = employeeWithDomain("   ");
+            employee.linkKeycloakUser("kc-existing");
+
+            service.resendInvitation(employee);
+
+            verify(identityProvider)
+                    .sendActionsEmail("kc-existing", CLIENT_ID, REDIRECT_URI, LIFESPAN_SECONDS, REQUIRED_ACTIONS);
+        }
+
+        @Test
+        @DisplayName("refuses by name when no account is linked, whether or not the company declares a domain")
+        void theLinkedRefusalIsTheOnlyOneLeft() {
             employee = employeeWithDomain(null);
 
             assertThatThrownBy(() -> service.resendInvitation(employee))
