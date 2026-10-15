@@ -19,6 +19,7 @@ import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -90,12 +91,25 @@ class AccessProvisioningDecisionQueueIntegrationTest extends AbstractPostgresInt
     void resetQueueFixtures() {
         deleteScopedRows(COMPANY_KEY);
         deleteScopedRows(OTHER_COMPANY_KEY);
-        when(identityProvider.findUserDisplayName(anyString())).thenReturn(Optional.of("Ada Lovelace"));
+    }
+
+    /**
+     * Leaves no row of this suite behind on the way out: {@code access_provisioning_tasks.employee_id}
+     * references {@code employees}, so a task of this suite outliving the class breaks every later suite
+     * whose own cleanup is an unscoped {@code DELETE FROM employees} on that foreign key (T90).
+     */
+    @AfterEach
+    void leaveNoQueueFixtureBehind() {
+        deleteScopedRows(COMPANY_KEY);
+        deleteScopedRows(OTHER_COMPANY_KEY);
     }
 
     @Test
     @DisplayName("the queue is that company's APPROVAL_PENDING tasks, oldest request first, with the employee")
     void queueIsTheCompanyApprovalPendingTasksOldestFirst() {
+        // Stubbed here rather than in @BeforeEach: the empty-queue case asserts the port is never
+        // touched, and a suite-level stub is the interaction that assertion cannot tell apart.
+        when(identityProvider.findUserDisplayName(anyString())).thenReturn(Optional.of("Ada Lovelace"));
         var companyId = companyId(COMPANY_KEY, "Access Provisioning Queue Test Company", COMPANY_RFC);
         var otherCompanyId = companyId(OTHER_COMPANY_KEY, "Other Access Provisioning Test Company", OTHER_COMPANY_RFC);
 
