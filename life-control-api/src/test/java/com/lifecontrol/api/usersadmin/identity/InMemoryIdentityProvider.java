@@ -98,6 +98,15 @@ public class InMemoryIdentityProvider implements IdentityProvider {
         requireAccount(userId).attributes.put(key, new ArrayList<>(values));
     }
 
+    @Override
+    public Optional<String> findUserDisplayName(String userId) {
+        var account = accounts.get(userId);
+        if (account == null || account.username == null || account.username.isBlank()) {
+            return Optional.empty();
+        }
+        return Optional.of(account.username);
+    }
+
     private Account requireAccount(String userId) {
         var account = accounts.get(userId);
         if (account == null) {
