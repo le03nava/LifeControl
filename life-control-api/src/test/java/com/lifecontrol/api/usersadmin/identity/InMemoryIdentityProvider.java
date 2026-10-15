@@ -149,7 +149,7 @@ public class InMemoryIdentityProvider implements IdentityProvider {
 
     @Override
     public void enableUser(String userId) {
-        throw unsupported("enableUser");
+        requireAccount(userId).enabled = true;
     }
 
     // --- Realm Role CRUD ---

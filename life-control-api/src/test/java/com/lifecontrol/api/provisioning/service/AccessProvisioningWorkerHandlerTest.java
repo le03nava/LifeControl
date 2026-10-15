@@ -113,19 +113,23 @@ class AccessProvisioningWorkerHandlerTest {
     class Reconcile {
 
         @Test
-        @DisplayName("converges roles then membership and never calls the account lifecycle")
-        void convergesTheTwoProjectionsWithoutTouchingTheAccountLifecycle() {
+        @DisplayName("converges roles, membership and the account state, and never invites nor disables")
+        void convergesTheThreeProjectionsWithoutInvitingOrDisabling() {
             stubRoles(Set.of("lc-a"), Set.of("lc-a"), NO_ROLES);
             stubMembership();
 
             handler.apply(employee, RECONCILE);
 
-            var inOrder = inOrder(roleService, membershipService);
+            // The account step is last: the door opens after what is behind it is in place (record
+            // T99), which is the mirror of T78's disable-first rule for the other direction.
+            var inOrder = inOrder(roleService, membershipService, accountService);
             inOrder.verify(roleService).convergeRoles(employee);
             inOrder.verify(membershipService).convergeMembership(employee);
-            // A reconcile re-derives the desired state; re-inviting on it would send an invitation
-            // nobody asked for.
-            verifyNoInteractions(accountService);
+            inOrder.verify(accountService).ensureAccountEnabled(employee);
+            // A reconcile re-derives the desired state; re-inviting or revoking on it would be a
+            // different fact, not a convergence (T99/G36).
+            verify(accountService, never()).activate(employee);
+            verify(accountService, never()).deactivate(employee);
         }
     }
 

@@ -33,10 +33,13 @@ import org.springframework.stereotype.Service;
  * lifecycle <b>first</b>, because roles and membership attributes have nowhere to go until the
  * account exists: {@code convergeRoles} and {@code convergeMembership} both refuse with
  * {@link AccountNotLinkedException} for an employee with no {@code keycloakUserId} (records
- * T35/T44/T59). {@code RECONCILE} converges the two projections a drift would move and deliberately
- * does <b>not</b> touch the account lifecycle: reactivating on a reconcile would re-send an invitation
+ * T35/T44/T59). {@code RECONCILE} converges the projections a drift moves and deliberately does
+ * <b>not</b> invite and does <b>not</b> disable: re-inviting on a reconcile would send an invitation
  * nobody asked for, and the kind's own contract is to re-derive the desired state, not to re-onboard.
- * Nothing is invented beyond those three measured orders.</p>
+ * What it <b>does</b> converge is the account's {@code enabled} flag (record T99): a rehired employee
+ * stays linked, so their contract start is a {@code RECONCILE}, and without that direction the account
+ * would stay disabled with roles and claims restored on it. Nothing is invented beyond those measured
+ * orders.</p>
  *
  * <p><b>{@code DEACTIVATE} disables the account first, then converges.</b> The order is not a
  * preference: a disabled account cannot authenticate, so "disabled with roles still present" is inert,
@@ -128,13 +131,22 @@ public class AccessProvisioningWorkerHandler {
     }
 
     /**
-     * Converges the two projections a drift moves — roles first, then membership — and returns the
-     * roles the run touched. It is shared by all three kinds because they converge the same two
-     * projections; only the account lifecycle differs between them.
+     * Converges the three projections a drift moves — roles, then membership, then the account's
+     * {@code enabled} state — and returns the roles the run touched. It is shared by all three kinds,
+     * because the three converge the same projections; only the <b>disable</b> direction differs, and it
+     * belongs to the {@code DEACTIVATE} arm.
+     *
+     * <p><b>Why the account step is last.</b> The step that opens the door runs after the steps that
+     * decide what is behind it: when the role or the membership convergence fails, the account is left
+     * disabled and the task {@code FAILED} and retriable, which is the fail-safe side of the pair. That
+     * is the mirror of record T78's disable-first rule for the other direction, and the reason a revoked
+     * employee is a no-op there instead of a second write of the same fact
+     * ({@link AccessProvisioningAccountService#ensureAccountEnabled(Employee)}).</p>
      */
     private Set<String> converge(Employee employee) {
         var roles = roleService.convergeRoles(employee);
         membershipService.convergeMembership(employee);
+        accountService.ensureAccountEnabled(employee);
         return touched(roles);
     }
 
