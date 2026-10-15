@@ -171,8 +171,11 @@ New files live under the existing products feature layout, mirroring `suppliers/
 
 ### Out of scope
 
-- The Keycloak protocol mappers for the claim chain (D3) — declared follow-up, blocking for any real
-  environment.
+- The Keycloak protocol mappers for the claim chain (D3) — **closed on 2026-10-02** by
+  `company-scope-local-fallback`'s W0 (PR **#222**, `3f56a0dd`): `docker/scripts/keycloak-setup.sh`
+  provisions the five claim mappers and `unmanagedAttributePolicy=ADMIN_EDIT`, both pinned by
+  `KeycloakClaimMapperCoverageTest`. Outside this record's scope now is only the per-environment run,
+  plus the per-user attributes the access projection writes.
 - `JD-A-003` (duplicate gates count soft-deleted rows, so re-creating a barcode returns a 409 with no
   identifier to act on) — it changes the 409 contract and the UI does not need it. Declared follow-up.
 - `JD-A-002` (409 instead of the documented 404 for an unknown `productVariantId` on the inline
@@ -386,9 +389,12 @@ against the linear branch, the same technique the S1 delivery used.
 4. **The 409 has no identifier.** Duplicate `barCode` or duplicate `(productId, variantName)` both
    return a generic conflict, and `JD-A-003` means a soft-deleted row can trigger it. The form must
    tell the user which field collided, or the message is unusable.
-5. **The claim chain is unprovisioned.** Without the Keycloak mappers (D3), store-scoped reads return
-   an empty page and writes return 403 in any real environment. This is a declared precondition, not a
-   defect this feature introduces.
+5. **The claim chain was unprovisioned when this was written, and it closed on 2026-10-02.** Without
+   the Keycloak mappers (D3), store-scoped reads returned an empty page and writes returned 403 in any
+   real environment; `company-scope-local-fallback`'s W0 (PR **#222**, `3f56a0dd`) now provisions them,
+   and the per-user attributes arrive with the access projection when a contract is activated. What
+   survives is the shape of the requirement, not its open state: a caller whose account carries none of
+   the claims is still denied. This is a declared precondition, not a defect this feature introduces.
 6. **Admin has no store preference.** The stock editor needs an explicit selector or it is unusable for
    the one role that is exempt from the guard.
 
@@ -411,6 +417,7 @@ against the linear branch, the same technique the S1 delivery used.
 | 2026-09-22 | S2 backend IT (T13) | `96e03de` | Focused `./gradlew test --tests '…ProductVariantStoreStockWriteIntegrationTest'` → BUILD SUCCESSFUL, XML reports **5 tests / 0 failures / 0 errors / 0 skipped**. No `@Nested`, so the outer report carries the real count and the vacuous-green trap does not apply. |
 | 2026-09-22 | **S2 gate (T14)** | `96e03de` (tip) | Backend: `./gradlew spotlessCheck spotbugsMain cleanTest test --no-daemon` → BUILD SUCCESSFUL in 1m 36s, **621 suites / 2054 tests / 0 failures / 0 errors / 0 skipped** (baseline 620/2049 → +1 suite, +5 tests: exactly the new IT class, no collateral). Frontend: `npm run lint` clean, `npm run build` complete, `npm run test:coverage:check` → **122 files / 2258 tests / 0 failures** (baseline 120/2215) and coverage **93.01/75.37/87.84/93.01** against thresholds 80/60/75/80 (S1 baseline 92.87/75.13/87.56/92.87). |
 | 2026-09-22 | S2 T15 sales entry point | `e66feb1` | `npm run lint` clean; `npm run build` complete with no warnings; `npm run test:coverage:check` → **123 files / 2279 tests / 0 failures**, coverage 93.06/75.38/87.85/93.06, all above thresholds. The route control and the menu gating are covered by the existing derived specs plus one path-pinned assertion and four new menu cases. |
+| 2026-10-15 | record repair | — | **The D3 protocol mappers were listed as an open follow-up in three places (`:174`, `:389`, `:471`) and all three are repaired in place.** They closed on 2026-10-02 with `company-scope-local-fallback`'s W0 (PR **#222**, `3f56a0dd`): the five mappers and `unmanagedAttributePolicy=ADMIN_EDIT` are in `docker/scripts/keycloak-setup.sh`, pinned by `KeycloakClaimMapperCoverageTest`. What stays outside this record is the per-environment run. **No source line changed.** |
 
 ### Controls proven by mutation, not by assertion
 
@@ -468,7 +475,7 @@ introduced.
 
 | Item | Why deferred |
 |---|---|
-| Keycloak protocol mappers for `company_id` → `company_store_id` (D3) | Non-code precondition, separate component (`docker/`), blocking for any real environment; already a precondition of `lc-receiving` and `lc-sales`. |
+| Keycloak protocol mappers for `company_id` → `company_store_id` (D3) | **Closed on 2026-10-02** by `company-scope-local-fallback`'s W0 (PR **#222**, `3f56a0dd`): the five mappers and `unmanagedAttributePolicy=ADMIN_EDIT` are in `docker/scripts/keycloak-setup.sh`, pinned by `KeycloakClaimMapperCoverageTest`, with the per-user attributes written by `AccessProvisioningMembershipService`. What stays outside is the per-environment run, not an unbuilt artifact. |
 | Read authorization on `GET /api/products` and `GET /api/products/{id}` | Both stay authenticated-only. `GET /{id}` is consumed by these variant screens, which are reachable by `lc-sales`, so narrowing the read is a contract change, not a one-line guard. The review's consumer map is the input for that decision. |
 | The discoverable `lc-sales` entry point (D5) | Lands in S2 with the per-store stock editor. |
 | `JD-A-003` — duplicate gates count soft-deleted rows | Changes the 409 contract; the UI does not require it. |

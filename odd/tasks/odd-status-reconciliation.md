@@ -99,9 +99,14 @@ third were deliberately left alone (D1).
   its `**Status**: ` prefix and those two clauses. This record's first estimate ("~4 000 characters")
   was wrong; `len()` on line 4 gives 5 770, and the correction above reflects the measured value.
 - **D5 — the deferred and blocked items stay.** W3 (location-aware sales), D13b (the Angular conflict
-  UX), T14 (the variant matrix, blocked on the unapproved `B1`) and the `lc-receiving` Keycloak
-  protocol mappers are **real pending work**. Marking a feature "merged" must not erase what is
-  genuinely left; finding those is the whole point of the exercise.
+  UX) and T14 (the variant matrix, blocked on the unapproved `B1`) are **real pending work**. Marking a
+  feature "merged" must not erase what is genuinely left; finding those is the whole point of the
+  exercise. **Corrected 2026-10-15, the decision untouched and one of its examples served**: this row
+  also listed the `lc-receiving` Keycloak protocol mappers, and that item closed on 2026-10-02 —
+  `company-scope-local-fallback`'s W0 (PR **#222**, `3f56a0dd`) provisions the five claim mappers and
+  `unmanagedAttributePolicy=ADMIN_EDIT`, pinned by `KeycloakClaimMapperCoverageTest`. The decision
+  stands, because what it asks for is the habit of keeping the genuinely unfinished visible, not a
+  frozen list.
 - **D6 — the two stale checkboxes are corrected at the source, not merely described.** `T5` of
   `project-conventions-skill.md` and `T7` of `store-claim-hardening.md` are the only unchecked boxes in
   all 23 records, and both are work that already landed. Leaving them unchecked while the status line
@@ -362,6 +367,7 @@ to a commit hash instead of a running total.
 | 2026-09-24 | **W3 close** | `5ff16b1` | The D4 estimate corrected from ~4 000 to the measured 5 770 characters; the table tally corrected from `STALE_MERGED` 12 to **11**; the measured workload filled in against the forecast; **D7 recorded** together with the three headers it amends. |
 | 2026-09-24 | **W4 findings round** | `25b2bb4` | Independent read-only `gentle-ai-verify` over `bcb8d10..5ff16b1`, instructed to be adversarial on the numbers. **Upheld**: all 23 table rows (every PR state, merge commit and date re-derived from a 155-PR pull; every cited hash re-checked with `merge-base --is-ancestor`); the tally (`STALE_MERGED` 11 + `CONTRADICTED` 2 + `IMPLIES_UNLANDED` 1 + `NO_STATUS` 4 + `ACCURATE` 5 = 23); no new false claim in any corrected header; the five untouched records really are accurate and really are unmodified; **D4's byte-identity claim reproduced exactly** (5 770 → 5 691, equal); and the two-checkbox claim verified in both directions (exactly T5 and T7 before, zero live unchecked boxes after). **Findings F1–F5, all closed above**: F1 was a real error in this record's own headline. **F6 is the parent's own, found while closing F1–F5**: the workload claim was an unmeasured estimate and false (see `## Findings`). |
 | 2026-09-24 | **delivery** | `c19a5d37d` | PR **#162** merged into `main` as a real two-parent merge commit (`bcb8d10` + `d8b203d`), and the four workflows on `main` went green (Docker Build Integrity, API CI, Angular CI, Gateway CI). Three of this slice's own headers had already been amended by **D7** so they would not rot; this record's status line was the exception, and it rotted exactly as predicted — it still read "`in progress` ... committed on `docs/odd-status-reconciliation`" after the branch it named had been merged and deleted. Corrected in this follow-up commit, per **D2**: durable state plus evidence, no live PR-open claim. |
+| 2026-10-15 | record repair | — | **D5's example was served and the decision was not rewritten.** The row named the `lc-receiving` Keycloak protocol mappers as real pending work; they closed on 2026-10-02 with `company-scope-local-fallback`'s W0 (PR **#222**, `3f56a0dd`). The rule D5 states — marking a feature merged must not erase what is genuinely left — is untouched. |
 
 ## Follow-ups
 

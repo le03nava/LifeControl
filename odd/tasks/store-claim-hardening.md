@@ -69,9 +69,14 @@ real `lc-sales` persona end to end.
 The token must carry the claim path `company_id` → `company_country_id` → `company_region_id` →
 `company_zone_id` → `company_store_id`, or every store-scoped endpoint answers 403 (writes) or an
 empty page (reads). This is already recorded as a non-code precondition for `lc-receiving` in
-`odd/tasks/purchase-order-goods-receipt.md` (~line 671). Verified: `docker/scripts/keycloak-setup.sh`
-creates the clients and the `lc-*` roles but **no protocol mapper** for those claims, so the claim
-path is a manual Keycloak configuration today. It is now a precondition for the sales persona too.
+`odd/tasks/purchase-order-goods-receipt.md` (~line 671). **Corrected 2026-10-15**: the script does
+provision those mappers now — `company-scope-local-fallback`'s W0 (PR **#222**, `3f56a0dd`, merged
+2026-10-02) added the five `oidc-usermodel-attribute-mapper`s and set
+`unmanagedAttributePolicy=ADMIN_EDIT`, both pinned by `KeycloakClaimMapperCoverageTest`, while the
+per-user attributes are written by `AccessProvisioningMembershipService` when the contract is
+activated. What remains a precondition is therefore not a missing artifact but two operational facts:
+the mapper has to be provisioned in each environment's realm, and the caller's account has to carry
+the attributes. It is now a precondition for the sales persona too.
 
 ## Declared behavior change
 
@@ -204,3 +209,4 @@ no derived ids.
 | 2026-09-21 | T8–T10 (the `lc-sales` gap) | `Roles.SALES` registered at `ScopeLevel.STORE`; 2 new `CurrentUserContextTest` cases; helper de-muled. Full gate → **BUILD SUCCESSFUL**, 614 classes / 2022 tests / 0 failures / 0 errors / 0 skipped. Diff: 10 files, +501/−73. |
 | 2026-09-21 | Independent security review (read-only `gentle-ai-verify`) | Found the fourth surface (`listVariants?storeId=`) and the wrong non-goal rationale; confirmed the guard ordering on the three fixed paths and that registering `SALES` widens no endpoint's declared role set. |
 | 2026-09-21 | T11–T13 (fourth surface + stale javadoc) | Full gate re-run **by the parent, not the writer** (`./gradlew spotlessCheck spotbugsMain cleanTest test --no-daemon`) → **BUILD SUCCESSFUL in 1m 13s**, 614 suites / 2025 tests / 0 failures / 0 errors / 0 skipped. Diff: 11 files, +584/−88. |
+| 2026-10-15 | record repair (no code) | **The "Non-code precondition" section claimed `keycloak-setup.sh` provisions no protocol mapper; repaired in place.** `company-scope-local-fallback`'s W0 (PR **#222**, `3f56a0dd`, 2026-10-02) provisions the five claim mappers and `unmanagedAttributePolicy=ADMIN_EDIT`, pinned by `KeycloakClaimMapperCoverageTest`, and the per-user attributes are written by `AccessProvisioningMembershipService`. What remains a precondition is operational: each environment's realm has to be provisioned and the caller's account has to carry the attributes. |
