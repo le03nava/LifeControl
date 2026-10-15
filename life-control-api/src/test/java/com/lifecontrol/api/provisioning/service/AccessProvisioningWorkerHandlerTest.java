@@ -17,7 +17,6 @@ import com.lifecontrol.api.provisioning.dto.AccountProvisioningResult;
 import com.lifecontrol.api.provisioning.dto.RoleConvergenceResult;
 import com.lifecontrol.api.provisioning.exception.AccountNotLinkedException;
 import com.lifecontrol.api.provisioning.exception.CompanyScopeInvariantException;
-import com.lifecontrol.api.provisioning.exception.InvitationNotDeliverableException;
 import com.lifecontrol.api.provisioning.model.AccountProvisioningOutcome;
 import java.util.Set;
 import java.util.UUID;
@@ -216,9 +215,9 @@ class AccessProvisioningWorkerHandlerTest {
     class Propagation {
 
         @Test
-        @DisplayName("the ACTIVATE refusal of record T33 propagates unchanged and nothing later runs")
-        void activateRefusalPropagates() {
-            var refusal = new InvitationNotDeliverableException("Invitation not deliverable: no email domain");
+        @DisplayName("an ACTIVATE failure propagates unchanged and nothing later runs")
+        void activateFailurePropagates() {
+            var refusal = new CompanyScopeInvariantException("Account convergence refused");
             when(accountService.activate(employee)).thenThrow(refusal);
 
             assertThatThrownBy(() -> handler.apply(employee, ACTIVATE)).isSameAs(refusal);

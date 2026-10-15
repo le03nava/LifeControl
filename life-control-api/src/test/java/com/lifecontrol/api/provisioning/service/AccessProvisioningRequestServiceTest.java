@@ -7,7 +7,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -20,7 +19,6 @@ import com.lifecontrol.api.hr.model.Employee;
 import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.provisioning.exception.AccountNotLinkedException;
 import com.lifecontrol.api.provisioning.exception.InvalidTaskStatusTransitionException;
-import com.lifecontrol.api.provisioning.exception.InvitationNotDeliverableException;
 import com.lifecontrol.api.provisioning.exception.NoOpenAccessProvisioningTaskException;
 import com.lifecontrol.api.provisioning.exception.TerminatedEmployeeRefusedException;
 import com.lifecontrol.api.provisioning.exception.TerminatedEmployeeRequiredException;
@@ -36,7 +34,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -212,32 +209,26 @@ class AccessProvisioningRequestServiceTest {
         }
 
         @Test
-        @DisplayName("refuses when the company has no deliverable email domain, before any task exists")
-        void undeliverableDomainIsRefusedBeforeTheRequest() {
-            employeeInCompany(active);
-            doThrow(new InvitationNotDeliverableException(
-                            "Invitation not deliverable: no email domain configured for the company of employee "
-                                    + employeeId))
-                    .when(accountService)
-                    .requireDeliverableCompanyEmailDomain(active);
-
-            assertThatThrownBy(() -> service.apply(companyId, employeeId))
-                    .isInstanceOf(InvitationNotDeliverableException.class)
-                    .hasMessageContaining("not deliverable");
-
-            verifyNoInteractions(gateService);
-        }
-
-        @Test
-        @DisplayName("checks the domain before requesting the task, not after")
-        void theDomainRulePrecedesTheRequest() {
-            employeeInCompany(active);
+        @DisplayName("requests the ACTIVATE task for a company with no declared email domain")
+        void domainlessCompanyStillRequestsTheTask() {
+            var domainless = Employee.builder()
+                    .id(employeeId)
+                    .company(Company.builder()
+                            .id(companyId)
+                            .companyKey("acme")
+                            .companyName("Acme")
+                            .rfc("ACM010101ABC")
+                            .emailDomain(null)
+                            .build())
+                    .email("juan.perez@acme.com")
+                    .status(status("Active"))
+                    .enabled(true)
+                    .build();
+            employeeInCompany(domainless);
 
             service.apply(companyId, employeeId);
 
-            InOrder order = inOrder(accountService, gateService);
-            order.verify(accountService).requireDeliverableCompanyEmailDomain(active);
-            order.verify(gateService).request(companyId, employeeId, ACTIVATE, ACTOR_SUB);
+            verify(gateService).request(companyId, employeeId, ACTIVATE, ACTOR_SUB);
         }
 
         @Test
@@ -496,18 +487,6 @@ class AccessProvisioningRequestServiceTest {
             assertThatThrownBy(() -> service.resend(companyId, employeeId))
                     .isInstanceOf(AccountNotLinkedException.class)
                     .hasMessageContaining("Account not linked");
-        }
-
-        @Test
-        @DisplayName("propagates the not-deliverable refusal by name")
-        void theNotDeliverableRefusalPropagates() {
-            employeeInCompany(active);
-            doThrow(new InvitationNotDeliverableException("Invitation not deliverable: no email domain configured"))
-                    .when(accountService)
-                    .resendInvitation(active);
-
-            assertThatThrownBy(() -> service.resend(companyId, employeeId))
-                    .isInstanceOf(InvitationNotDeliverableException.class);
         }
 
         @Test

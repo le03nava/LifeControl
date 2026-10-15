@@ -6,7 +6,6 @@ import com.lifecontrol.api.provisioning.exception.AccountLinkRefusedException;
 import com.lifecontrol.api.provisioning.exception.AccountNotLinkedException;
 import com.lifecontrol.api.provisioning.exception.AmbiguousCurrentContractException;
 import com.lifecontrol.api.provisioning.exception.CompanyScopeInvariantException;
-import com.lifecontrol.api.provisioning.exception.InvitationNotDeliverableException;
 import com.lifecontrol.api.provisioning.exception.PositionOutsideEmployeeCompanyException;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTaskKind;
 import java.util.Collections;
@@ -97,9 +96,6 @@ public class AccessProvisioningWorkerHandler {
      * @param employee the employee the task belongs to
      * @param kind the task's immutable kind (record T3)
      * @return the roles the run touched ({@code granted ∪ removed}); empty when nothing changed
-     * @throws InvitationNotDeliverableException for {@code ACTIVATE} when the company has no usable
-     *     email domain (record T33); declared here because it surfaces from
-     *     {@link AccessProvisioningAccountService#activate(Employee)} before its first write
      * @throws AccountLinkRefusedException for {@code ACTIVATE} when an existing account cannot be
      *     linked under the exactly-one-exact-match rule (records T5/T27)
      * @throws AccountNotLinkedException for {@code ACTIVATE}, {@code RECONCILE} and

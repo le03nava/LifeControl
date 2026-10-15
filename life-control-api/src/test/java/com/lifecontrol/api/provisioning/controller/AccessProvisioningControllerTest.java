@@ -19,7 +19,6 @@ import com.lifecontrol.api.provisioning.dto.AccessProvisioningOverview;
 import com.lifecontrol.api.provisioning.dto.AccessProvisioningRoleDiff;
 import com.lifecontrol.api.provisioning.dto.AccessProvisioningTaskView;
 import com.lifecontrol.api.provisioning.exception.AccountNotLinkedException;
-import com.lifecontrol.api.provisioning.exception.InvitationNotDeliverableException;
 import com.lifecontrol.api.provisioning.exception.NoOpenAccessProvisioningTaskException;
 import com.lifecontrol.api.provisioning.exception.SelfApprovalRefusedException;
 import com.lifecontrol.api.provisioning.exception.TerminatedEmployeeRefusedException;
@@ -203,22 +202,6 @@ class AccessProvisioningControllerTest {
     }
 
     @Test
-    @DisplayName("should answer 409 carrying the message when the invitation is not deliverable")
-    void applyWithoutADeliverableDomainIsRefusedWith409() throws Exception {
-        doThrow(new InvitationNotDeliverableException(
-                        "Invitation not deliverable: no email domain configured for the company of employee "
-                                + employeeId))
-                .when(accessProvisioningRequestService)
-                .apply(companyId, employeeId);
-
-        mockMvc.perform(post(APPLY_URL, companyId, employeeId))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.message").value(containsString("not deliverable")));
-
-        verify(accessProvisioningQueryService, never()).getAccessOverview(any(), any());
-    }
-
-    @Test
     @DisplayName("should deactivate, capture the path variables and answer 200 with the reloaded overview")
     void deactivateReturnsTheOverview() throws Exception {
         when(accessProvisioningQueryService.getAccessOverview(companyId, employeeId))
@@ -313,22 +296,6 @@ class AccessProvisioningControllerTest {
         mockMvc.perform(post(RESEND_URL, companyId, employeeId))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message").value(containsString("Account not linked")));
-
-        verify(accessProvisioningQueryService, never()).getAccessOverview(any(), any());
-    }
-
-    @Test
-    @DisplayName("should answer 409 carrying the message when the invitation is not deliverable")
-    void resendWithoutADeliverableDomainIsRefusedWith409() throws Exception {
-        doThrow(new InvitationNotDeliverableException(
-                        "Invitation not deliverable: no email domain configured for the company of employee "
-                                + employeeId))
-                .when(accessProvisioningRequestService)
-                .resend(companyId, employeeId);
-
-        mockMvc.perform(post(RESEND_URL, companyId, employeeId))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.message").value(containsString("not deliverable")));
 
         verify(accessProvisioningQueryService, never()).getAccessOverview(any(), any());
     }

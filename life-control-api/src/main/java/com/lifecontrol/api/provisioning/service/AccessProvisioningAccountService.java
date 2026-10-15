@@ -8,7 +8,6 @@ import com.lifecontrol.api.hr.service.EmployeeStatuses;
 import com.lifecontrol.api.provisioning.dto.AccountProvisioningResult;
 import com.lifecontrol.api.provisioning.exception.AccountLinkRefusedException;
 import com.lifecontrol.api.provisioning.exception.AccountNotLinkedException;
-import com.lifecontrol.api.provisioning.exception.InvitationNotDeliverableException;
 import com.lifecontrol.api.provisioning.model.AccountProvisioningOutcome;
 import com.lifecontrol.api.usersadmin.identity.IdentityProvider;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderConflictException;
@@ -104,25 +103,21 @@ public class AccessProvisioningAccountService {
      * Ensures the account and then sends the invitation through the identity provider's own
      * execute-actions flow.
      *
-     * <p>The refusal of record T33 comes <b>first</b>: when the employee's company has no usable
-     * {@code email_domain} (null or blank) this throws {@link InvitationNotDeliverableException}
-     * <b>before</b> anything is created in Keycloak, so the failure cannot leave an account for a
-     * person with no way in. The message names the reason and is usable as a task's
-     * {@code last_error}.</p>
+     * <p><b>The invitation goes to the address the account carries, and the company's declared domain
+     * is not consulted</b> (records T102/T104): a company that cleared its {@code email_domain} after
+     * its employees existed still has people whose frozen address can receive mail, and the refusal
+     * this method used to raise fired for exactly that case.</p>
      *
      * <p>The identity provider call carries the flow's parameters explicitly (record T21):
      * {@code clientId} from {@link ApplicationClientProperties}, and the redirect and lifespan from
      * {@link InvitationProperties}. The actions are exactly {@link #REQUIRED_ACTIONS}, in that
      * order.</p>
      *
-     * @throws InvitationNotDeliverableException when the company has no usable email domain
      * @throws AccountLinkRefusedException when the address is taken but the link rule is not
      *     satisfied
      */
     @Transactional
     public AccountProvisioningResult activate(Employee employee) {
-        requireDeliverableCompanyEmailDomain(employee);
-
         var result = ensureAccount(employee);
         identityProvider.sendActionsEmail(
                 result.keycloakUserId(),
@@ -209,12 +204,11 @@ public class AccessProvisioningAccountService {
      * its own lifespan would be a second invitation rule, which is the defect class this record keeps
      * recording.</p>
      *
-     * <p><b>Two refusals, and the order is declared rather than accidental.</b> An employee with no
+     * <p><b>One refusal, and the order is declared rather than accidental.</b> An employee with no
      * linked account is refused first with {@link AccountNotLinkedException}: "is there anything to
-     * send to" is the more specific defect, and the message names it. Then the deliverable-domain
-     * check of record T33, taken from this class' own
-     * {@link #requireDeliverableCompanyEmailDomain(Employee)}, so an undeliverable address is refused
-     * <b>before</b> the only Keycloak call the method makes. Both answer 409 on the wire (record T86).</p>
+     * send to" is the more specific defect, and the message names it. The company's declared domain is
+     * not consulted at all (records T102/T104) — the send goes to the address the account carries —
+     * and that refusal answers 409 on the wire (record T86).</p>
      *
      * <p>It writes <b>no</b> local row and creates nothing: it is a send, not a convergence. The
      * account, its roles and its claim attributes are left exactly as they were — a resent link grants
@@ -222,7 +216,6 @@ public class AccessProvisioningAccountService {
      *
      * @param employee the employee whose invitation is re-sent; its account must already be linked
      * @throws AccountNotLinkedException when the employee has no {@code keycloakUserId}
-     * @throws InvitationNotDeliverableException when the company has no usable {@code email_domain}
      */
     @Transactional
     public void resendInvitation(Employee employee) {
@@ -231,7 +224,6 @@ public class AccessProvisioningAccountService {
             throw new AccountNotLinkedException("Account not linked: employee " + employee.getId()
                     + " has no keycloakUserId, so no invitation can be re-sent");
         }
-        requireDeliverableCompanyEmailDomain(employee);
 
         identityProvider.sendActionsEmail(
                 userId,
@@ -273,25 +265,5 @@ public class AccessProvisioningAccountService {
                     + " required, but " + matches.size() + " matched");
         }
         return matches.getFirst().id();
-    }
-
-    /**
-     * Refuses when the employee's company carries no usable {@code email_domain} (record T33), so no
-     * account is created for a person with no way in.
-     *
-     * <p><b>Package-private rather than private on purpose</b> (record T85): this is the single
-     * definition of "deliverable address" in the module, and the explicit request surface
-     * ({@link AccessProvisioningRequestService#apply(java.util.UUID, java.util.UUID)}) has to refuse
-     * with the same rule <b>before</b> it creates a task — the operator sees which path applies
-     * instead of discovering it from a bounce (record T68). A second copy of the predicate is the
-     * defect class G30 records: one rule, two implementations, one of them stale.</p>
-     */
-    void requireDeliverableCompanyEmailDomain(Employee employee) {
-        var company = employee.getCompany();
-        var domain = company != null ? company.getEmailDomain() : null;
-        if (domain == null || domain.isBlank()) {
-            throw new InvitationNotDeliverableException("Invitation not deliverable: no email domain configured"
-                    + " for the company of employee " + employee.getId());
-        }
     }
 }
