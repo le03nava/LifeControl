@@ -33,6 +33,8 @@ import { CompanyRegionService } from '@features/companies/regions/data/company-r
 import { CompanyZoneService } from '@features/companies/zones/data/company-zone.service';
 import { CompanyStoreService } from '@features/companies/stores/data/company-store.service';
 import { ContractService } from '../../data/contract.service';
+import { PositionService } from '../../data/position.service';
+import { SeniorityLevelService } from '../../data/seniority-level.service';
 import { StoreAssignmentService } from '../../data/store-assignment.service';
 import {
   Contract,
@@ -269,6 +271,8 @@ export class ContractDialog {
     inject<MatDialogRef<ContractDialog, ContractDialogResult>>(MatDialogRef);
   private readonly fb = inject(NonNullableFormBuilder);
   private readonly contractService = inject(ContractService);
+  private readonly positionService = inject(PositionService);
+  private readonly seniorityLevelService = inject(SeniorityLevelService);
   private readonly storeAssignmentService = inject(StoreAssignmentService);
   private readonly countryService = inject(CompanyCountryService);
   private readonly regionService = inject(CompanyRegionService);
@@ -602,14 +606,14 @@ export class ContractDialog {
   }
 
   private loadCatalogues(): void {
-    this.contractService
+    this.positionService
       .getPositions(this.data.companyId)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (positions) => this.positions.set(positions),
         error: () => this.catalogueError.set(CATALOGUE_ERROR_MESSAGE),
       });
-    this.contractService
+    this.seniorityLevelService
       .getSeniorityLevels()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
