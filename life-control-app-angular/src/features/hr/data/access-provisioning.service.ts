@@ -1,7 +1,7 @@
 import { inject, Injectable, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, throwError } from 'rxjs';
-import { catchError, finalize, tap } from 'rxjs/operators';
+import { catchError, finalize } from 'rxjs/operators';
 import { ConfigService } from '@app/services/config.service';
 import {
   AccessProvisioningOverview,
@@ -73,10 +73,11 @@ const REJECT_FALLBACK = 'Error al rechazar la solicitud';
 /**
  * HTTP access to an employee's access-provisioning state and to the company's decision queue.
  *
- * Mirrors `ContractService`'s shape: the seven employee-scoped routes all answer the same
- * `AccessProvisioningOverview`, so they share one `overview` signal (the read that feeds the section
- * and the six writes that reload it). Every one of them clears `_error` on entry, so a failed write
- * followed by a successful one does not leave a stale banner.
+ * The seven employee-scoped routes all answer the same `AccessProvisioningOverview`, and this service
+ * keeps **no** overview state of its own: the caller renders its own employee-scoped resource and
+ * adopts a write's answer with `set(...)` (record T75), so a shared, employee-blind cache could only
+ * ever hand one employee's state to another. It keeps only the call's *outcome*: `loading`, and the
+ * shared `error` message both pages read as their last fallback, cleared on entry to every call.
  *
  * `getDecisionQueue` is a **pure read**, the `ContractService.getPositions` idiom: it reserves
  * nothing and mutates no signal, so the company-wide list cannot clobber the employee the section is
@@ -96,12 +97,9 @@ const REJECT_FALLBACK = 'Error al rechazar la solicitud';
 export class AccessProvisioningService {
   private readonly configService = inject(ConfigService);
   private readonly http = inject(HttpClient);
-  private readonly _overview = signal<AccessProvisioningOverview | null>(null);
   private readonly _loading = signal(false);
   private readonly _error = signal<string | null>(null);
 
-  /** Overview read or reloaded by the last employee-scoped call; the section renders from it. */
-  readonly overview = this._overview.asReadonly();
   readonly loading = this._loading.asReadonly();
   readonly error = this._error.asReadonly();
 
@@ -117,7 +115,6 @@ export class AccessProvisioningService {
     this._loading.set(true);
     this._error.set(null);
     return this.http.get<AccessProvisioningOverview>(this.accessUrl(companyId, employeeId)).pipe(
-      tap((overview) => this._overview.set(overview)),
       catchError((err) => {
         this._error.set(statusMessage(LOAD_OVERVIEW_ERRORS, err.status, LOAD_OVERVIEW_FALLBACK));
         return throwError(() => err);
@@ -215,7 +212,7 @@ export class AccessProvisioningService {
     this._error.set(null);
   }
 
-  /** The shared shape of the six writes: clear, run, store the reloaded overview, map the failure. */
+  /** The shared shape of the six writes: clear the outcome, run the request, map the failure. */
   private reload(
     request: Observable<AccessProvisioningOverview>,
     messages: ReadonlyMap<number, string>,
@@ -224,7 +221,6 @@ export class AccessProvisioningService {
     this._loading.set(true);
     this._error.set(null);
     return request.pipe(
-      tap((overview) => this._overview.set(overview)),
       catchError((err) => {
         this._error.set(statusMessage(messages, err.status, fallback));
         return throwError(() => err);

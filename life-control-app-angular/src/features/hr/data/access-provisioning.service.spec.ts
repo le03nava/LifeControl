@@ -89,7 +89,7 @@ describe('AccessProvisioningService', () => {
   });
 
   describe('getOverview', () => {
-    it('should GET the employee access path and expose the overview on the signal', async () => {
+    it('should GET the employee access path and emit the overview', async () => {
       const promise = firstValueFrom(service.getOverview(companyId, employeeId));
 
       const req = httpMock.expectOne((r) => r.url === accessUrl && r.method === 'GET');
@@ -97,7 +97,6 @@ describe('AccessProvisioningService', () => {
       req.flush(mockOverview);
 
       await expect(promise).resolves.toEqual(mockOverview);
-      expect(service.overview()).toEqual(mockOverview);
     });
 
     it('should set loading true during the fetch and false after', async () => {
@@ -156,8 +155,7 @@ describe('AccessProvisioningService', () => {
       expect(req.request.body).toBeNull();
       req.flush(mockOverview);
 
-      await promise;
-      expect(service.overview()).toEqual(mockOverview);
+      await expect(promise).resolves.toEqual(mockOverview);
     });
 
     it('should map a 409 to the open-request-or-not-deliverable message', async () => {
@@ -183,8 +181,7 @@ describe('AccessProvisioningService', () => {
       expect(req.request.body).toBeNull();
       req.flush(mockOverview);
 
-      await promise;
-      expect(service.overview()).toEqual(mockOverview);
+      await expect(promise).resolves.toEqual(mockOverview);
     });
 
     it('should map a 409 to the open-request message', async () => {
@@ -206,8 +203,7 @@ describe('AccessProvisioningService', () => {
       expect(req.request.body).toBeNull();
       req.flush(mockOverview);
 
-      await promise;
-      expect(service.overview()).toEqual(mockOverview);
+      await expect(promise).resolves.toEqual(mockOverview);
     });
 
     it('should map a 409 to the not-failed message', async () => {
@@ -229,8 +225,7 @@ describe('AccessProvisioningService', () => {
       expect(req.request.body).toBeNull();
       req.flush(mockOverview);
 
-      await promise;
-      expect(service.overview()).toEqual(mockOverview);
+      await expect(promise).resolves.toEqual(mockOverview);
     });
 
     it('should map a 409 to the no-account-or-no-domain message', async () => {
@@ -256,8 +251,7 @@ describe('AccessProvisioningService', () => {
       expect(req.request.body).toBeNull();
       req.flush(mockOverview);
 
-      await promise;
-      expect(service.overview()).toEqual(mockOverview);
+      await expect(promise).resolves.toEqual(mockOverview);
     });
 
     it('should map a 409 to the self-approval-or-not-awaiting message', async () => {
@@ -286,8 +280,7 @@ describe('AccessProvisioningService', () => {
       expect(req.request.body).toEqual({ reason: 'No corresponde' });
       req.flush(mockOverview);
 
-      await promise;
-      expect(service.overview()).toEqual(mockOverview);
+      await expect(promise).resolves.toEqual(mockOverview);
     });
 
     it('should map a 400 to the missing-actor-or-reason message', async () => {
@@ -326,12 +319,11 @@ describe('AccessProvisioningService', () => {
       await expect(promise).resolves.toEqual([queueEntry]);
     });
 
-    it('should be a pure read that leaves the overview signal untouched', async () => {
+    it('should be a pure read that leaves the service state untouched', async () => {
       const promise = firstValueFrom(service.getDecisionQueue(companyId));
       httpMock.expectOne((r) => r.url === queueUrl && r.method === 'GET').flush([queueEntry]);
       await promise;
 
-      expect(service.overview()).toBeNull();
       expect(service.loading()).toBe(false);
       expect(service.error()).toBeNull();
     });
