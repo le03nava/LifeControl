@@ -147,6 +147,11 @@ public class InMemoryIdentityProvider implements IdentityProvider {
         requireAccount(userId).enabled = false;
     }
 
+    @Override
+    public void enableUser(String userId) {
+        requireAccount(userId).enabled = true;
+    }
+
     // --- Realm Role CRUD ---
 
     @Override

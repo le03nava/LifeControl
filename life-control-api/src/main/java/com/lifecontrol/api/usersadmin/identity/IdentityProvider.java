@@ -57,6 +57,25 @@ public interface IdentityProvider {
      */
     void disableUser(String userId);
 
+    /**
+     * Enables a user's account, so a person whose previous employment disabled it can authenticate
+     * again.
+     *
+     * <p>This is the capability the rehire path owes ({@code G36}, records T99/T100 of
+     * {@code odd/tasks/employee-access-provisioning.md}): {@link #disableUser(String)} is deliberately
+     * never a delete, so the account (and its audit trail) survives a termination, and this is what
+     * turns it back on when the person is employed again. Like its sibling it is a read-modify-write
+     * and deliberately <b>not</b> {@link #updateUser(String, UserRepresentation)}: that method forwards
+     * the caller's entire representation, so any field the caller does not carry is silently lost.</p>
+     *
+     * <p>The write is unconditional and idempotent by value: an account that is already enabled is
+     * still updated with {@code enabled = true}, and no extra state is kept to decide whether to skip
+     * it.</p>
+     *
+     * @param userId the identity provider user ID
+     */
+    void enableUser(String userId);
+
     // --- Realm Role CRUD ---
 
     List<RoleDto> listRealmRoles();

@@ -12,7 +12,11 @@ import com.lifecontrol.api.common.security.ScopeLevel;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.config.invitation.InvitationProperties;
 import com.lifecontrol.api.config.security.ApplicationClientProperties;
+import com.lifecontrol.api.hr.model.Contract;
+import com.lifecontrol.api.hr.model.Department;
 import com.lifecontrol.api.hr.model.Employee;
+import com.lifecontrol.api.hr.model.Position;
+import com.lifecontrol.api.hr.model.PositionRole;
 import com.lifecontrol.api.hr.repository.ContractRepository;
 import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.hr.repository.EmployeeStoreAssignmentRepository;
@@ -132,6 +136,34 @@ class AccessProvisioningWorkerDeactivateCompositionTest {
                 .thenReturn(List.of());
     }
 
+    /** An active employee's status: not {@code Terminated}, so the required set derives from the contract. */
+    private Status active() {
+        return Status.builder().statusName("Active").enabled(true).build();
+    }
+
+    /** The position of the employee's own company, resolved through its department (record T29). */
+    private Position position() {
+        var department = Department.builder()
+                .id(UUID.randomUUID())
+                .company(company)
+                .departmentName("Operations")
+                .build();
+        return Position.builder()
+                .id(UUID.randomUUID())
+                .department(department)
+                .positionName("Cashier")
+                .build();
+    }
+
+    /** The repository returns one covering contract for that position. */
+    private void stubCoveringContract(Position position) {
+        when(contractRepository.findEnabledContractCoveringDate(eq(employeeId), any(LocalDate.class)))
+                .thenReturn(List.of(Contract.builder()
+                        .position(position)
+                        .startDate(LocalDate.now().minusMonths(1))
+                        .build()));
+    }
+
     @Nested
     @DisplayName("DEACTIVATE")
     class Deactivate {
@@ -194,7 +226,7 @@ class AccessProvisioningWorkerDeactivateCompositionTest {
     class Reconcile {
 
         @Test
-        @DisplayName("converges roles and membership but never touches the account lifecycle")
+        @DisplayName("converges the projections and the account state but never sends an invitation")
         void doesNotReinviteOnAReconcile() {
             var userId = identityProvider.createAccount(EMAIL, EMAIL);
             var employee = employee(null, userId);
@@ -204,8 +236,36 @@ class AccessProvisioningWorkerDeactivateCompositionTest {
             var touched = handler.apply(employee, RECONCILE);
 
             assertThat(identityProvider.actionsEmailRecipients()).isEmpty();
+            assertThat(identityProvider.isEnabled(userId)).isTrue();
             assertThat(identityProvider.attributes(userId)).containsKey(COMPANY_CLAIM);
             assertThat(touched).isEmpty();
+        }
+
+        @Test
+        @DisplayName("re-enables the disabled account of a rehire, which is the automatic path that never activates")
+        void reEnablesTheDisabledAccountOfARehire() {
+            // The rehire path, measured rather than assumed (records T99/G36): the revocation never
+            // deleted the account, so the person is still linked and their new contract start derives
+            // a RECONCILE — the one kind that used to leave the account disabled with roles on it.
+            var userId = identityProvider.createAccount(EMAIL, EMAIL);
+            identityProvider.disableUser(userId);
+            var employee = employee(active(), userId);
+            var position = position();
+            stubCoveringContract(position);
+            when(positionRoleRepository.findByPositionIdOrderByRoleNameAsc(position.getId()))
+                    .thenReturn(List.of(PositionRole.builder()
+                            .position(position)
+                            .roleName("lc-sales")
+                            .enabled(true)
+                            .build()));
+            stubNoAssignments();
+
+            var touched = handler.apply(employee, RECONCILE);
+
+            assertThat(identityProvider.isEnabled(userId)).isTrue();
+            assertThat(identityProvider.roleNames(userId, CLIENT_ID)).containsExactly("lc-sales");
+            assertThat(identityProvider.actionsEmailRecipients()).isEmpty();
+            assertThat(touched).containsExactly("lc-sales");
         }
     }
 }
