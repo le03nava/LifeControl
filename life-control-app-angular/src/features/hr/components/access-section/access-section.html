@@ -23,13 +23,24 @@
     @if (canWrite()) {
       <div class="actions-row">
         <!--
+          T68/T84/T85: apply and resend are refused by name (409) when the employee is Terminated or
+          the company has no deliverable email domain, so both controls are hidden and the reason is
+          stated where the operator would have looked for them. Deactivate is not refused, so it
+          stays.
+        -->
+        @if (accessBlockedReason(); as blocked) {
+          <p class="action-blocked">{{ blocked }}</p>
+        }
+        <!--
           apply and deactivate are hidden while a task is open: both answer 409 with an open
           request, so offering them would offer a call the API refuses.
         -->
         @if (!view.openTask) {
-          <button mat-flat-button color="primary" type="button" (click)="onApply()">
-            Solicitar acceso
-          </button>
+          @if (!accessBlockedReason()) {
+            <button mat-flat-button color="primary" type="button" (click)="onApply()">
+              Solicitar acceso
+            </button>
+          }
           <button mat-stroked-button type="button" (click)="onDeactivate()">Deshabilitar</button>
         }
         <!-- retry exists only for a FAILED task; any other status answers 409. -->
@@ -38,8 +49,8 @@
             Reintentar solicitud
           </button>
         }
-        <!-- resend needs a linked account; without one the API answers 409. -->
-        @if (view.accountLinked) {
+        <!-- resend needs a linked account and a deliverable, non-terminated employee; otherwise 409. -->
+        @if (view.accountLinked && !accessBlockedReason()) {
           <button mat-stroked-button type="button" (click)="onResend()">
             Reenviar invitación
           </button>

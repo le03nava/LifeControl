@@ -54,6 +54,8 @@ describe('AccessSection', () => {
     error?: string | null;
     canWrite?: boolean;
     currentUserId?: string | null;
+    employeeStatusName?: string | null;
+    companyEmailDomain?: string | null;
   }
 
   /**
@@ -72,6 +74,8 @@ describe('AccessSection', () => {
     fixture.componentRef.setInput('error', options.error ?? null);
     fixture.componentRef.setInput('canWrite', options.canWrite ?? false);
     fixture.componentRef.setInput('currentUserId', options.currentUserId ?? null);
+    fixture.componentRef.setInput('employeeStatusName', options.employeeStatusName ?? null);
+    fixture.componentRef.setInput('companyEmailDomain', options.companyEmailDomain);
     fixture.detectChanges();
     await fixture.whenStable();
     fixture.detectChanges();
@@ -271,6 +275,115 @@ describe('AccessSection', () => {
 
     expect(button('Solicitar acceso')).toBeDefined();
     expect(button('Deshabilitar')).toBeDefined();
+    expect(button('Reenviar invitación')).toBeDefined();
+  });
+
+  it('should hide apply and resend and state the reason when the employee is terminated (T84)', async () => {
+    await setup({
+      overview: overview(),
+      canWrite: true,
+      employeeStatusName: 'Terminated',
+      companyEmailDomain: 'acme.example',
+    });
+
+    // Absent, not disabled, and the operator is told which path applies.
+    expect(button('Solicitar acceso')).toBeUndefined();
+    expect(button('Reenviar invitación')).toBeUndefined();
+    // Deactivate is not refused for a terminated employee, so it stays.
+    expect(button('Deshabilitar')).toBeDefined();
+    expect(text()).toContain('dado de baja');
+  });
+
+  it('should hide apply and resend and state the reason when the company has no email domain (T68/T85)', async () => {
+    await setup({
+      overview: overview(),
+      canWrite: true,
+      employeeStatusName: 'Active',
+      companyEmailDomain: null,
+    });
+
+    expect(button('Solicitar acceso')).toBeUndefined();
+    expect(button('Reenviar invitación')).toBeUndefined();
+    expect(button('Deshabilitar')).toBeDefined();
+    expect(text()).toContain('dominio de correo');
+    expect(text()).not.toContain('dado de baja');
+  });
+
+  it('should treat a blank email domain as no domain', async () => {
+    await setup({
+      overview: overview(),
+      canWrite: true,
+      employeeStatusName: 'Active',
+      companyEmailDomain: '   ',
+    });
+
+    expect(button('Solicitar acceso')).toBeUndefined();
+    expect(text()).toContain('dominio de correo');
+  });
+
+  it('should offer apply and resend in the ordinary case: not terminated and a company domain', async () => {
+    await setup({
+      overview: overview(),
+      canWrite: true,
+      employeeStatusName: 'Active',
+      companyEmailDomain: 'acme.example',
+    });
+
+    expect(button('Solicitar acceso')).toBeDefined();
+    expect(button('Reenviar invitación')).toBeDefined();
+    expect(text()).not.toContain('dado de baja');
+    expect(text()).not.toContain('dominio de correo');
+  });
+
+  it('should gate on termination independently of a present company domain', async () => {
+    await setup({
+      overview: overview(),
+      canWrite: true,
+      employeeStatusName: 'Terminated',
+      companyEmailDomain: 'acme.example',
+    });
+
+    expect(button('Solicitar acceso')).toBeUndefined();
+    expect(text()).toContain('dado de baja');
+    expect(text()).not.toContain('dominio de correo');
+  });
+
+  it('should gate on the missing domain independently of a non-terminated employee', async () => {
+    await setup({
+      overview: overview(),
+      canWrite: true,
+      employeeStatusName: 'Active',
+      companyEmailDomain: null,
+    });
+
+    expect(button('Solicitar acceso')).toBeUndefined();
+    expect(text()).toContain('dominio de correo');
+    expect(text()).not.toContain('dado de baja');
+  });
+
+  it('should match the Terminated name case-insensitively, as the server does', async () => {
+    await setup({
+      overview: overview(),
+      canWrite: true,
+      employeeStatusName: 'terminated',
+      companyEmailDomain: 'acme.example',
+    });
+
+    expect(button('Solicitar acceso')).toBeUndefined();
+    expect(text()).toContain('dado de baja');
+  });
+
+  it('should not fire the domain gate while the company is not resolved yet', async () => {
+    // `undefined` is "unknown", not "missing": the companies read is independent and may still be
+    // in flight, and hiding a valid control on missing data would be its own defect.
+    await setup({
+      overview: overview(),
+      canWrite: true,
+      employeeStatusName: 'Active',
+      companyEmailDomain: undefined,
+    });
+
+    expect(button('Solicitar acceso')).toBeDefined();
     expect(button('Reenviar invitación')).toBeDefined();
   });
 

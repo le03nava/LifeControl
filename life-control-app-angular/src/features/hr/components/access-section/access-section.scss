@@ -15,6 +15,13 @@
   margin-bottom: var(--space-md);
 }
 
+/* T68/T84/T85: the reason a gated control is absent, where the control would have been. */
+.action-blocked {
+  flex-basis: 100%;
+  margin: 0 0 var(--space-xs);
+  color: var(--mat-sys-on-surface-variant);
+}
+
 .block-title {
   margin: var(--space-lg) 0 var(--space-sm);
   font-size: 1rem;

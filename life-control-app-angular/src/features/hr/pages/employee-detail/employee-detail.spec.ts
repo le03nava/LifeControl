@@ -1,5 +1,6 @@
 /// <reference types="vitest/globals" />
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
@@ -19,6 +20,16 @@ import {
 } from '../../components/contract-dialog/contract-dialog';
 import { StoreAssignmentService } from '../../data/store-assignment.service';
 import { StoreAssignment } from '../../models/store-assignment.models';
+import { AccessProvisioningService } from '../../data/access-provisioning.service';
+import {
+  AccessProvisioningOverview,
+  AccessProvisioningTaskView,
+} from '../../models/access-provisioning.models';
+import {
+  AccessReviewDialog,
+  AccessReviewDialogResult,
+} from '../../components/access-review-dialog/access-review-dialog';
+import { AccessSection } from '../../components/access-section/access-section';
 import {
   StoreAssignmentDialog,
   StoreAssignmentDialogResult,
@@ -30,6 +41,10 @@ import { ConfirmDialog } from '@shared/ui';
 const WRITE_ROLES = ['lc-admin'];
 /** A caller that can read but must not render a write control. */
 const READ_ROLES: string[] = [];
+/** The read pair the access endpoints require (ACCESS_READ_ROLES). */
+const ACCESS_ROLES = ['lc-employee-access'];
+/** The caller's own `sub`, compared against a task's `requestedBy` for the self-approval rule (O3). */
+const CALLER_SUB = 'caller-sub';
 
 /** An ISO date `days` away from today, in local time (month/year rollover included). */
 function isoDaysFromToday(days: number): string {
@@ -50,6 +65,16 @@ describe('EmployeeDetail', () => {
     closeAssignment: ReturnType<typeof vi.fn>;
     error: ReturnType<typeof vi.fn>;
   };
+  let accessService: {
+    getOverview: ReturnType<typeof vi.fn>;
+    apply: ReturnType<typeof vi.fn>;
+    deactivate: ReturnType<typeof vi.fn>;
+    retry: ReturnType<typeof vi.fn>;
+    resend: ReturnType<typeof vi.fn>;
+    approve: ReturnType<typeof vi.fn>;
+    reject: ReturnType<typeof vi.fn>;
+    error: ReturnType<typeof vi.fn>;
+  };
   let dialog: { open: ReturnType<typeof vi.fn> };
   let router: Router;
 
@@ -61,6 +86,7 @@ describe('EmployeeDetail', () => {
     razonSocial: 'Acme Corp SA',
     rfc: 'ACM200101010',
     email: 'contacto@acme.example',
+    emailDomain: 'acme.example',
     phone: '+525512345678',
     enabled: true,
     createdAt: '2026-01-01',
@@ -136,6 +162,46 @@ describe('EmployeeDetail', () => {
     ...overrides,
   });
 
+  const accessTask = (
+    overrides: Partial<AccessProvisioningTaskView> = {},
+  ): AccessProvisioningTaskView => ({
+    id: 'task-1',
+    kind: 'ACTIVATE',
+    status: 'APPROVAL_PENDING',
+    attempts: 0,
+    maxAttempts: 3,
+    lastError: null,
+    nextAttemptAt: null,
+    requestedBy: 'requester-sub',
+    requestedByName: 'Marta Revisora',
+    requestedAt: '2026-10-14T10:00:00',
+    decidedBy: null,
+    decidedAt: null,
+    enabled: true,
+    ...overrides,
+  });
+
+  const accessOverview = (
+    overrides: Partial<AccessProvisioningOverview> = {},
+  ): AccessProvisioningOverview => ({
+    keycloakUserId: null,
+    accountLinked: true,
+    requiredRoles: ['lc-employee'],
+    currentRoles: ['lc-employee'],
+    roleDiff: { added: [], removed: [] },
+    frozenRoleDiff: null,
+    openTask: null,
+    history: [],
+    claims: {
+      companyId: ['company-1'],
+      companyCountryId: [],
+      companyRegionId: [],
+      companyZoneId: [],
+      companyStoreId: [],
+    },
+    ...overrides,
+  });
+
   interface SetupOptions {
     id?: string | null;
     companyId?: string | null;
@@ -156,6 +222,23 @@ describe('EmployeeDetail', () => {
     assignmentDialogResult?: StoreAssignmentDialogResult;
     /** What the shared ConfirmDialog closes with. */
     dialogConfirmed?: boolean;
+    /** The employee's access overview, or the error its read fails with. */
+    accessOverview?: AccessProvisioningOverview;
+    accessError?: HttpErrorResponse;
+    /** What every access write resolves with, or rejects with. */
+    accessWriteOverview?: AccessProvisioningOverview;
+    accessWriteError?: HttpErrorResponse;
+    /** What the access service's own error signal holds after a failed write. */
+    accessServiceError?: string | null;
+    /** What the review dialog closes with; `undefined` is a bare dismissal. */
+    accessDialogResult?: AccessReviewDialogResult;
+    /** The caller's own `sub`; `null` models a token that carries none. */
+    sub?: string | null;
+    /**
+     * Overrides merged onto the single company the companies read returns. Used to model a company
+     * with no deliverable `emailDomain` (T68/T85); the default carries one.
+     */
+    company?: Partial<Company>;
   }
 
   function setup(options: SetupOptions = {}): void {
@@ -186,17 +269,39 @@ describe('EmployeeDetail', () => {
       ),
       error: vi.fn(() => options.assignmentWriteError ?? null),
     };
+    const writeResult = () =>
+      options.accessWriteError
+        ? throwError(() => options.accessWriteError)
+        : of(options.accessWriteOverview ?? accessOverview());
+    accessService = {
+      getOverview: vi.fn(() =>
+        options.accessError
+          ? throwError(() => options.accessError)
+          : of(options.accessOverview ?? accessOverview()),
+      ),
+      apply: vi.fn(writeResult),
+      deactivate: vi.fn(writeResult),
+      retry: vi.fn(writeResult),
+      resend: vi.fn(writeResult),
+      approve: vi.fn(writeResult),
+      reject: vi.fn(writeResult),
+      error: vi.fn(() => options.accessServiceError ?? null),
+    };
     dialog = {
-      // Two dialogs share `MatDialog` on this page: the contract/assignment editor and the shared
-      // ConfirmDialog. Answer each with what the caller expects to read.
+      // Three dialogs share `MatDialog` on this page: the contract/assignment editor, the shared
+      // ConfirmDialog and the access review dialog. Answer each with what the caller expects.
       open: vi.fn((component: unknown) => ({
         afterClosed: () => {
           if (component === ConfirmDialog) {
             return of(options.dialogConfirmed ?? false);
           }
-          return component === StoreAssignmentDialog
-            ? of(options.assignmentDialogResult)
-            : of(options.dialogResult);
+          if (component === StoreAssignmentDialog) {
+            return of(options.assignmentDialogResult);
+          }
+          if (component === AccessReviewDialog) {
+            return of(options.accessDialogResult);
+          }
+          return of(options.dialogResult);
         },
       })),
     };
@@ -211,14 +316,26 @@ describe('EmployeeDetail', () => {
         { provide: EmployeeService, useValue: employeeService },
         { provide: ContractService, useValue: contractService },
         { provide: StoreAssignmentService, useValue: assignmentService },
+        { provide: AccessProvisioningService, useValue: accessService },
         { provide: MatDialog, useValue: dialog },
         {
           provide: Keycloak,
-          useValue: { tokenParsed: { resource_access: { 'life-control-client': { roles } } } },
+          useValue: {
+            tokenParsed: {
+              sub: options.sub === undefined ? CALLER_SUB : options.sub,
+              resource_access: { 'life-control-client': { roles } },
+            },
+          },
         },
         {
           provide: CompanyService,
-          useValue: { getCompanies: vi.fn().mockReturnValue(of(companiesPage)) },
+          useValue: {
+            getCompanies: vi
+              .fn()
+              .mockReturnValue(
+                of({ ...companiesPage, content: [{ ...company, ...options.company }] }),
+              ),
+          },
         },
         {
           provide: ActivatedRoute,
@@ -252,6 +369,16 @@ describe('EmployeeDetail', () => {
     return (fixture.nativeElement as HTMLElement).textContent ?? '';
   }
 
+  function has(selector: string): boolean {
+    return (fixture.nativeElement as HTMLElement).querySelector(selector) !== null;
+  }
+
+  function button(label: string): HTMLButtonElement | undefined {
+    return Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('button')).find(
+      (candidate) => candidate.textContent?.trim() === label,
+    );
+  }
+
   /** The header's current-position cell (the `D15`/`G15` fact only the detail shows). */
   function positionValue(): string {
     return (
@@ -281,6 +408,7 @@ describe('EmployeeDetail', () => {
     expect(employeeService.getEmployee).not.toHaveBeenCalled();
     expect(contractService.getContracts).not.toHaveBeenCalled();
     expect(assignmentService.getAssignments).not.toHaveBeenCalled();
+    expect(accessService.getOverview).not.toHaveBeenCalled();
     expect(text()).toContain('Seleccioná una empresa');
   });
 
@@ -865,6 +993,347 @@ describe('EmployeeDetail', () => {
 
       expect(text()).toContain('La asignación ya está cerrada');
       expect(assignmentService.getAssignments).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('access provisioning', () => {
+    it('should not read the overview nor render the section for a caller without ACCESS_READ_ROLES (T96)', async () => {
+      setup({ id: 'emp-1', companyId: 'company-1', roles: ['lc-employee'] });
+      await settle();
+
+      expect(accessService.getOverview).not.toHaveBeenCalled();
+      expect(has('app-access-section')).toBe(false);
+      // The rest of the page is untouched by the gate.
+      expect(text()).toContain('Ana Gómez Ruiz');
+    });
+
+    it('should read the overview and render the section for ACCESS_READ_ROLES', async () => {
+      setup({ id: 'emp-1', companyId: 'company-1', roles: ACCESS_ROLES });
+      await settle();
+
+      expect(accessService.getOverview).toHaveBeenCalledWith('company-1', 'emp-1');
+      expect(has('app-access-section')).toBe(true);
+      expect(text()).toContain('Cuenta vinculada');
+    });
+
+    it('should keep the other sections standing and show the access error with its retry when only the access read fails', async () => {
+      setup({
+        id: 'emp-1',
+        companyId: 'company-1',
+        accessError: new HttpErrorResponse({ status: 500 }),
+      });
+      await settle();
+
+      expect(text()).toContain('Ana Gómez Ruiz');
+      expect(text()).toContain('Analista Senior');
+      expect(text()).toContain('Tienda Centro');
+      expect(text()).toContain('Ocurrió un error en el servidor');
+      expect(retryButton()).not.toBeNull();
+    });
+
+    it('should retry only the access read from the section error', async () => {
+      setup({
+        id: 'emp-1',
+        companyId: 'company-1',
+        accessError: new HttpErrorResponse({ status: 500 }),
+      });
+      await settle();
+
+      expect(employeeService.getEmployee).toHaveBeenCalledTimes(1);
+      expect(contractService.getContracts).toHaveBeenCalledTimes(1);
+      expect(assignmentService.getAssignments).toHaveBeenCalledTimes(1);
+      expect(accessService.getOverview).toHaveBeenCalledTimes(1);
+
+      accessService.getOverview.mockImplementation(() => of(accessOverview()));
+      retryButton()?.click();
+      await settle();
+
+      expect(employeeService.getEmployee).toHaveBeenCalledTimes(1);
+      expect(contractService.getContracts).toHaveBeenCalledTimes(1);
+      expect(assignmentService.getAssignments).toHaveBeenCalledTimes(1);
+      expect(accessService.getOverview).toHaveBeenCalledTimes(2);
+      expect(text()).toContain('Cuenta vinculada');
+    });
+
+    it('should call apply and adopt the answered overview without a second read', async () => {
+      setup({
+        id: 'emp-1',
+        companyId: 'company-1',
+        accessWriteOverview: accessOverview({ requiredRoles: ['lc-employee', 'lc-salary'] }),
+      });
+      await settle();
+
+      button('Solicitar acceso')?.click();
+      await settle();
+
+      expect(accessService.apply).toHaveBeenCalledWith('company-1', 'emp-1');
+      expect(accessService.getOverview).toHaveBeenCalledTimes(1);
+      expect(text()).toContain('lc-salary');
+    });
+
+    it('should confirm the revocation before revoking anything (destructive)', async () => {
+      setup({ id: 'emp-1', companyId: 'company-1', dialogConfirmed: false });
+      await settle();
+
+      button('Deshabilitar')?.click();
+      await settle();
+
+      expect(dialog.open).toHaveBeenCalledWith(
+        ConfirmDialog,
+        expect.objectContaining({
+          data: expect.objectContaining({ destructive: true }),
+        }),
+      );
+      expect(accessService.deactivate).not.toHaveBeenCalled();
+    });
+
+    it('should revoke only after the confirmation', async () => {
+      setup({ id: 'emp-1', companyId: 'company-1', dialogConfirmed: true });
+      await settle();
+
+      button('Deshabilitar')?.click();
+      await settle();
+
+      expect(accessService.deactivate).toHaveBeenCalledWith('company-1', 'emp-1');
+    });
+
+    it('should retry a failed open task', async () => {
+      setup({
+        id: 'emp-1',
+        companyId: 'company-1',
+        accessOverview: accessOverview({ openTask: accessTask({ status: 'FAILED' }) }),
+      });
+      await settle();
+
+      button('Reintentar solicitud')?.click();
+      await settle();
+
+      expect(accessService.retry).toHaveBeenCalledWith('company-1', 'emp-1');
+    });
+
+    it('should re-send the invitation for a linked account', async () => {
+      setup({ id: 'emp-1', companyId: 'company-1' });
+      await settle();
+
+      button('Reenviar invitación')?.click();
+      await settle();
+
+      expect(accessService.resend).toHaveBeenCalledWith('company-1', 'emp-1');
+    });
+
+    it('should pass the employee’s status and the selected company’s domain to the section', async () => {
+      setup({
+        id: 'emp-1',
+        companyId: 'company-1',
+        roles: ACCESS_ROLES,
+        employee: { statusName: 'Active' },
+        company: { emailDomain: 'acme.example' },
+      });
+      await settle();
+
+      const section = fixture.debugElement.query(By.directive(AccessSection))
+        .componentInstance as AccessSection;
+      expect(section.employeeStatusName()).toBe('Active');
+      expect(section.companyEmailDomain()).toBe('acme.example');
+    });
+
+    it('should hide apply for a terminated employee and state the reason (T84)', async () => {
+      setup({
+        id: 'emp-1',
+        companyId: 'company-1',
+        roles: ACCESS_ROLES,
+        employee: { statusName: 'Terminated' },
+      });
+      await settle();
+
+      expect(button('Solicitar acceso')).toBeUndefined();
+      expect(button('Reenviar invitación')).toBeUndefined();
+      expect(text()).toContain('dado de baja');
+    });
+
+    it('should hide apply and resend when the company has no email domain, and state the reason (T68/T85)', async () => {
+      setup({
+        id: 'emp-1',
+        companyId: 'company-1',
+        roles: ACCESS_ROLES,
+        company: { emailDomain: null as unknown as string },
+      });
+      await settle();
+
+      expect(button('Solicitar acceso')).toBeUndefined();
+      expect(button('Reenviar invitación')).toBeUndefined();
+      expect(button('Deshabilitar')).toBeDefined();
+      expect(text()).toContain('dominio de correo');
+    });
+
+    it('should offer apply and resend when the employee is active and the company has a domain', async () => {
+      setup({ id: 'emp-1', companyId: 'company-1', roles: ACCESS_ROLES });
+      await settle();
+
+      expect(button('Solicitar acceso')).toBeDefined();
+      expect(button('Reenviar invitación')).toBeDefined();
+    });
+
+    it('should hide the decision control on the caller’s own request (O3/T95)', async () => {
+      setup({
+        id: 'emp-1',
+        companyId: 'company-1',
+        sub: CALLER_SUB,
+        accessOverview: accessOverview({
+          openTask: accessTask({ status: 'APPROVAL_PENDING', requestedBy: CALLER_SUB }),
+        }),
+      });
+      await settle();
+
+      expect(button('Revisar solicitud')).toBeUndefined();
+    });
+
+    it('should offer the review control for somebody else’s pending request', async () => {
+      setup({
+        id: 'emp-1',
+        companyId: 'company-1',
+        sub: CALLER_SUB,
+        accessOverview: accessOverview({
+          openTask: accessTask({ id: 'task-9', status: 'APPROVAL_PENDING', requestedBy: 'requester-sub' }),
+        }),
+      });
+      await settle();
+
+      expect(button('Revisar solicitud')).toBeDefined();
+    });
+
+    it('should open the review dialog with the overview, the caller sub and the employee identity (T95)', async () => {
+      setup({
+        id: 'emp-1',
+        companyId: 'company-1',
+        sub: CALLER_SUB,
+        accessDialogResult: { decision: 'approve' },
+        accessOverview: accessOverview({
+          openTask: accessTask({ id: 'task-9', status: 'APPROVAL_PENDING', requestedBy: 'requester-sub' }),
+        }),
+      });
+      await settle();
+
+      button('Revisar solicitud')?.click();
+      await settle();
+
+      const [opened, config] = dialog.open.mock.calls.at(-1) as [unknown, { data: unknown }];
+      expect(opened).toBe(AccessReviewDialog);
+      expect(config.data).toMatchObject({
+        currentUserId: CALLER_SUB,
+        employeeNumber: 'EMP-001',
+        employeeName: 'Ana Gómez Ruiz',
+        overview: expect.objectContaining({
+          openTask: expect.objectContaining({ id: 'task-9' }),
+        }),
+      });
+    });
+
+    it('should approve and adopt the answered overview on an approve result', async () => {
+      setup({
+        id: 'emp-1',
+        companyId: 'company-1',
+        sub: CALLER_SUB,
+        accessDialogResult: { decision: 'approve' },
+        accessWriteOverview: accessOverview({ requiredRoles: ['lc-employee', 'lc-salary'] }),
+        accessOverview: accessOverview({
+          openTask: accessTask({ id: 'task-9', status: 'APPROVAL_PENDING', requestedBy: 'requester-sub' }),
+        }),
+      });
+      await settle();
+
+      button('Revisar solicitud')?.click();
+      await settle();
+
+      expect(accessService.approve).toHaveBeenCalledWith('company-1', 'emp-1', 'task-9');
+      expect(accessService.reject).not.toHaveBeenCalled();
+      // The answered overview is the new state, so no second read is issued.
+      expect(accessService.getOverview).toHaveBeenCalledTimes(1);
+      expect(text()).toContain('lc-salary');
+    });
+
+    it('should reject with the reason on a reject result', async () => {
+      setup({
+        id: 'emp-1',
+        companyId: 'company-1',
+        sub: CALLER_SUB,
+        accessDialogResult: { decision: 'reject', reason: 'El puesto no corresponde' },
+        accessOverview: accessOverview({
+          openTask: accessTask({ id: 'task-9', status: 'APPROVAL_PENDING', requestedBy: 'requester-sub' }),
+        }),
+      });
+      await settle();
+
+      button('Revisar solicitud')?.click();
+      await settle();
+
+      expect(accessService.reject).toHaveBeenCalledWith('company-1', 'emp-1', 'task-9', {
+        reason: 'El puesto no corresponde',
+      });
+      expect(accessService.approve).not.toHaveBeenCalled();
+    });
+
+    it('should treat a bare review dismissal as no write', async () => {
+      setup({
+        id: 'emp-1',
+        companyId: 'company-1',
+        sub: CALLER_SUB,
+        accessDialogResult: undefined,
+        accessOverview: accessOverview({
+          openTask: accessTask({ id: 'task-9', status: 'APPROVAL_PENDING', requestedBy: 'requester-sub' }),
+        }),
+      });
+      await settle();
+
+      button('Revisar solicitud')?.click();
+      await settle();
+
+      expect(accessService.approve).not.toHaveBeenCalled();
+      expect(accessService.reject).not.toHaveBeenCalled();
+    });
+
+    it('should surface the server’s named 409 message on a failed decision, not the generic copy', async () => {
+      setup({
+        id: 'emp-1',
+        companyId: 'company-1',
+        sub: CALLER_SUB,
+        accessDialogResult: { decision: 'approve' },
+        accessWriteError: new HttpErrorResponse({
+          status: 409,
+          error: { message: 'No podés aprobar tu propia solicitud' },
+        }),
+        accessOverview: accessOverview({
+          openTask: accessTask({ id: 'task-9', status: 'APPROVAL_PENDING', requestedBy: 'requester-sub' }),
+        }),
+      });
+      await settle();
+
+      button('Revisar solicitud')?.click();
+      await settle();
+
+      expect(text()).toContain('No podés aprobar tu propia solicitud');
+      expect(text()).not.toContain('El dato cambió mientras lo editabas');
+    });
+
+    it('should fall back to the access service message when the failure carries no envelope', async () => {
+      setup({
+        id: 'emp-1',
+        companyId: 'company-1',
+        accessDialogResult: { decision: 'approve' },
+        accessWriteError: new HttpErrorResponse({ status: 409 }),
+        accessServiceError: 'No podés aprobar tu propia solicitud o la solicitud no espera aprobación',
+        accessOverview: accessOverview({
+          openTask: accessTask({ id: 'task-9', status: 'APPROVAL_PENDING', requestedBy: 'requester-sub' }),
+        }),
+      });
+      await settle();
+
+      button('Revisar solicitud')?.click();
+      await settle();
+
+      expect(text()).toContain(
+        'No podés aprobar tu propia solicitud o la solicitud no espera aprobación',
+      );
     });
   });
 });
