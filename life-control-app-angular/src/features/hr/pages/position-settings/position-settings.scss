@@ -1,0 +1,92 @@
+// position-settings.scss — the position policy screen (record T9)
+//
+// The card, its heading and the actions bar come from the shared form layout the
+// sibling screens use; the band grid is this screen's own shape.
+
+@use '../../../../shared/styles/form-layout' as *;
+
+:host {
+  display: block;
+  width: 100%;
+}
+
+// The shared layout turns `form` into a field grid because it is built for field
+// pairs; this screen submits a table, which needs the full width and its own
+// columns.
+.form-card form {
+  display: block;
+}
+
+.section-subtitle {
+  margin: 0 0 var(--space-md);
+  color: var(--color-gray-700);
+  text-align: center;
+}
+
+.settings-section {
+  margin-bottom: var(--space-lg);
+
+  h3 {
+    margin: 0 0 var(--space-xs);
+    color: var(--color-gray-700);
+  }
+}
+
+.section-hint {
+  margin: 0 0 var(--space-md);
+  font-size: 0.875rem;
+  color: var(--color-gray-500, #6b7280);
+}
+
+.bands-table {
+  width: 100%;
+  border-collapse: collapse;
+
+  th {
+    text-align: left;
+    padding-bottom: var(--space-sm);
+    font-weight: 500;
+  }
+
+  td {
+    padding-block: var(--space-xs);
+    vertical-align: top;
+  }
+}
+
+.level-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-right: var(--space-md);
+}
+
+.level-state {
+  font-size: 0.75rem;
+  color: var(--color-gray-500, #6b7280);
+}
+
+.amount-field {
+  width: 160px;
+}
+
+.row-error-cell {
+  padding-left: var(--space-sm);
+}
+
+.row-error {
+  font-size: 0.75rem;
+  color: var(--color-error, #b3261e);
+}
+
+.loading-state,
+.empty-state {
+  margin: 0;
+  color: var(--color-gray-500, #6b7280);
+  text-align: center;
+}
+
+.error-state {
+  display: block;
+  margin-bottom: var(--space-md);
+}

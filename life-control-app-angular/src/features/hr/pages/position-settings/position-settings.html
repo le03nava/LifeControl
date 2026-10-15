@@ -1,0 +1,94 @@
+<div class="position-settings-page">
+  <div class="form-card">
+    <h2>Configuración del puesto</h2>
+
+    @if (position(); as configured) {
+      <p class="section-subtitle">{{ configured.positionCode }} — {{ configured.positionName }}</p>
+    }
+
+    @if (loadError(); as loadErrorMsg) {
+      <app-error-banner class="error-state" [message]="loadErrorMsg" />
+    }
+
+    @if (submitError(); as submitErrorMsg) {
+      <app-error-banner class="error-state" [message]="submitErrorMsg" />
+    }
+
+    @if (loading()) {
+      <p class="loading-state">Cargando la configuración del puesto…</p>
+    } @else if (rows().length > 0) {
+      <form [formGroup]="formGroup" (ngSubmit)="onSave()">
+        <section class="settings-section">
+          <h3>Tabuladores</h3>
+          <p class="section-hint">
+            Una fila por nivel de antigüedad. Dejá el mínimo y el máximo vacíos para que el nivel no
+            tenga tabulador; un nivel que ya lo tenía y se guarda vacío queda deshabilitado y conserva
+            su fila.
+          </p>
+
+          <table class="bands-table">
+            <thead>
+              <tr>
+                <th scope="col">Nivel</th>
+                <th scope="col">Mínimo</th>
+                <th scope="col">Máximo</th>
+              </tr>
+            </thead>
+            <tbody formArrayName="bands">
+              @for (row of rows(); track row.seniorityLevelId; let i = $index) {
+                <tr [formGroupName]="i">
+                  <td class="level-cell">
+                    <span class="level-label">{{ row.levelLabel }}</span>
+                    @if (row.stored && !row.stored.enabled) {
+                      <span class="level-state">Sin tabulador</span>
+                    }
+                  </td>
+                  <td>
+                    <mat-form-field appearance="outline" class="amount-field">
+                      <input
+                        matInput
+                        type="number"
+                        min="0"
+                        formControlName="minimumSalary"
+                        [readonly]="!canWrite"
+                        [placeholder]="storedPlaceholder(row, 'minimumSalary')"
+                      />
+                    </mat-form-field>
+                  </td>
+                  <td>
+                    <mat-form-field appearance="outline" class="amount-field">
+                      <input
+                        matInput
+                        type="number"
+                        min="0"
+                        formControlName="maximumSalary"
+                        [readonly]="!canWrite"
+                        [placeholder]="storedPlaceholder(row, 'maximumSalary')"
+                      />
+                    </mat-form-field>
+                  </td>
+                  <td class="row-error-cell">
+                    @if (rowError(i); as rowErrorMessage) {
+                      <span class="row-error">{{ rowErrorMessage }}</span>
+                    }
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </section>
+
+        <div class="form-actions">
+          <button mat-button type="button" (click)="onBack()">Volver</button>
+          @if (canWrite) {
+            <button mat-flat-button color="primary" type="submit" [disabled]="saving()">
+              Guardar
+            </button>
+          }
+        </div>
+      </form>
+    } @else if (!loadError()) {
+      <p class="empty-state">El puesto no tiene niveles de antigüedad para configurar.</p>
+    }
+  </div>
+</div>

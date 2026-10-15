@@ -12,6 +12,7 @@ import { hrRoutes } from './hr.routes';
 import { EmployeeDetail } from './pages/employee-detail/employee-detail';
 import { EmployeeEdit } from './pages/employee-edit/employee-edit';
 import { EmployeeList } from './pages/employee-list/employee-list';
+import { PositionSettings } from './pages/position-settings/position-settings';
 
 /**
  * Pins the guard split T22 establishes by walking the **real** `hrRoutes` tree:
@@ -84,6 +85,42 @@ describe('hr.routes', () => {
     expect(levels.data?.['roles']).toBeUndefined();
     expect(read.data?.['roles']).toBeUndefined();
     expect(typeof read.loadComponent).toBe('function');
+  });
+
+  it('should register the position settings child as a read route with no roles and a lazy component', () => {
+    const parent = routeAt(hrRoutes, '');
+    const positions = routeAt(parent.children, 'positions');
+    const settings = routeAt(positions.children, ':id/settings');
+
+    // The settings screen is a **read route** (T22): the API's GET is
+    // `isAuthenticated()`, so the guard must admit any authenticated caller, and
+    // the screen is what gates its own save on `canWrite`.
+    expect(settings.data?.['roles']).toBeUndefined();
+    expect(settings.canActivate).toBeUndefined();
+    expect(typeof settings.loadComponent).toBe('function');
+  });
+
+  it('should resolve the lazy import of the position settings child to PositionSettings', async () => {
+    const parent = routeAt(hrRoutes, '');
+    const positions = routeAt(parent.children, 'positions');
+    const settings = routeAt(positions.children, ':id/settings');
+
+    const loaded = await settings.loadComponent!();
+    expect(loaded).toBe(PositionSettings);
+  });
+
+  it('should declare the position settings child after every literal segment, so none is shadowed', () => {
+    const parent = routeAt(hrRoutes, '');
+    const positions = routeAt(parent.children, 'positions');
+
+    // `edit/:id` is literal-first and `:id/settings` is two segments long: the
+    // order is what keeps `/positions/edit/9` from being read as an id.
+    expect(positions.children?.map((route) => route.path)).toEqual([
+      '',
+      'create',
+      'edit/:id',
+      ':id/settings',
+    ]);
   });
 
   it('should carry the seniority-level write roles and clientId on its write children', () => {

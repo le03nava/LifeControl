@@ -88,6 +88,18 @@ export const hrRoutes: Routes = [
             loadComponent: () =>
               import('./pages/position-edit/position-edit').then((m) => m.PositionEdit),
           },
+          {
+            // The position's policy screen (W3, T9). It is a **read route** like
+            // its siblings: the API's GET is `isAuthenticated()` (T22), so it
+            // carries no `roles` here and the screen itself gates its save on
+            // `canWrite`. Its entry point is the per-row `Configuración` action
+            // of the list, which D16 ties to this destination.
+            path: ':id/settings',
+            loadComponent: () =>
+              import('./pages/position-settings/position-settings').then(
+                (m) => m.PositionSettings,
+              ),
+          },
         ],
       },
       {
