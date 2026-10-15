@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifecontrol.api.exception.GlobalExceptionHandler;
+import com.lifecontrol.api.hr.dto.PositionGrantableRolesResponse;
 import com.lifecontrol.api.hr.dto.PositionRoleRequest;
 import com.lifecontrol.api.hr.dto.PositionRoleResponse;
 import com.lifecontrol.api.hr.dto.PositionRolesRequest;
@@ -102,6 +103,33 @@ class PositionRoleControllerTest {
                     .thenThrow(new PositionNotFoundException(positionId));
 
             mockMvc.perform(get(path(), companyId, positionId)).andExpect(status().isNotFound());
+        }
+    }
+
+    @Nested
+    @DisplayName("GET /api/companies/{companyId}/positions/{positionId}/roles/grantable")
+    class GetGrantableRolesTests {
+
+        @Test
+        @DisplayName("should return 200 with the allowlist the save validates against")
+        void getGrantableRoles_Returns200() throws Exception {
+            when(positionRoleService.getGrantableRoles(companyId, positionId))
+                    .thenReturn(new PositionGrantableRolesResponse(List.of("lc-company", "lc-sales")));
+
+            mockMvc.perform(get(path() + "/grantable", companyId, positionId))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.roles[0]").value("lc-company"))
+                    .andExpect(jsonPath("$.roles[1]").value("lc-sales"));
+            verify(positionRoleService).getGrantableRoles(companyId, positionId);
+        }
+
+        @Test
+        @DisplayName("should return 404 when the position belongs to another company")
+        void getGrantableRoles_NotFound_Returns404() throws Exception {
+            when(positionRoleService.getGrantableRoles(companyId, positionId))
+                    .thenThrow(new PositionNotFoundException(positionId));
+
+            mockMvc.perform(get(path() + "/grantable", companyId, positionId)).andExpect(status().isNotFound());
         }
     }
 

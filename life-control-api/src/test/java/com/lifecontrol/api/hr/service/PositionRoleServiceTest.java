@@ -249,6 +249,55 @@ class PositionRoleServiceTest {
     }
 
     @Nested
+    @DisplayName("getGrantableRoles")
+    class GetGrantableRolesTests {
+
+        @Test
+        @DisplayName("verifies company access, then the company, then the position — in that order")
+        void getGrantableRoles_VerifiesCompanyAccessFirst() {
+            companyExists();
+            positionExists();
+
+            positionRoleService.getGrantableRoles(companyId, positionId);
+
+            InOrder inOrder = inOrder(currentUserContext, companyRepository, positionRepository);
+            inOrder.verify(currentUserContext).verifyCompanyAccess(companyId);
+            inOrder.verify(companyRepository).findById(companyId);
+            inOrder.verify(positionRepository).findByDepartmentCompanyIdAndId(companyId, positionId);
+        }
+
+        @Test
+        @DisplayName("returns the frozen allowlist sorted, with lc-admin absent")
+        void getGrantableRoles_ReturnsFrozenAllowlistSorted() {
+            companyExists();
+            positionExists();
+
+            var result = positionRoleService.getGrantableRoles(companyId, positionId);
+
+            // The same set the save validates against, in a stable order: the screen's
+            // checkboxes cannot offer what `replaceRoles` would refuse (D7/D14/D19).
+            assertThat(result.roles()).hasSize(15).isSorted();
+            assertThat(result.roles())
+                    .containsExactlyElementsOf(
+                            GrantablePositionRoles.names().stream().sorted().toList());
+            assertThat(result.roles()).doesNotContain("lc-admin");
+        }
+
+        @Test
+        @DisplayName("throws PositionNotFoundException for a position of another company")
+        void getGrantableRoles_OtherCompanyPosition_IsNotFound() {
+            companyExists();
+            when(positionRepository.findByDepartmentCompanyIdAndId(companyId, positionId))
+                    .thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> positionRoleService.getGrantableRoles(companyId, positionId))
+                    .isInstanceOf(PositionNotFoundException.class)
+                    .hasMessageContaining("Position not found with id");
+            verifyNoInteractions(roleRepository);
+        }
+    }
+
+    @Nested
     @DisplayName("replaceRoles")
     class ReplaceRolesTests {
 
