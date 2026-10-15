@@ -1,7 +1,13 @@
 /// <reference types="vitest/globals" />
 import { Route, Routes } from '@angular/router';
 import { keycloakRoleGuard } from '@core/guards/auth-keycloak-guard';
-import { CLIENT_ID, DEPARTMENT_WRITE_ROLES, EMPLOYEE_WRITE_ROLES, POSITION_WRITE_ROLES } from '@core/security/roles';
+import {
+  CLIENT_ID,
+  DEPARTMENT_WRITE_ROLES,
+  EMPLOYEE_WRITE_ROLES,
+  POSITION_WRITE_ROLES,
+  SENIORITY_LEVEL_WRITE_ROLES,
+} from '@core/security/roles';
 import { hrRoutes } from './hr.routes';
 import { EmployeeDetail } from './pages/employee-detail/employee-detail';
 import { EmployeeEdit } from './pages/employee-edit/employee-edit';
@@ -78,6 +84,20 @@ describe('hr.routes', () => {
     expect(levels.data?.['roles']).toBeUndefined();
     expect(read.data?.['roles']).toBeUndefined();
     expect(typeof read.loadComponent).toBe('function');
+  });
+
+  it('should carry the seniority-level write roles and clientId on its write children', () => {
+    const parent = routeAt(hrRoutes, '');
+    const levels = routeAt(parent.children, 'seniority-levels');
+
+    for (const path of ['create', 'edit/:id']) {
+      const child = routeAt(levels.children, path);
+      // Mirrors SeniorityLevelController's `hasAnyRole('lc-admin','lc-seniority-level')`.
+      expect(child.data?.['roles']).toEqual(SENIORITY_LEVEL_WRITE_ROLES);
+      expect(child.data?.['clientId']).toBe(CLIENT_ID);
+      expect(child.canActivate).toContain(keycloakRoleGuard);
+      expect(typeof child.loadComponent).toBe('function');
+    }
   });
 
   it('should carry the department write roles and clientId on the create and edit children', () => {
