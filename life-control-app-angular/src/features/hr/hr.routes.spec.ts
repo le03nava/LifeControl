@@ -1,7 +1,7 @@
 /// <reference types="vitest/globals" />
 import { Route, Routes } from '@angular/router';
 import { keycloakRoleGuard } from '@core/guards/auth-keycloak-guard';
-import { CLIENT_ID, DEPARTMENT_WRITE_ROLES, EMPLOYEE_WRITE_ROLES } from '@core/security/roles';
+import { CLIENT_ID, DEPARTMENT_WRITE_ROLES, EMPLOYEE_WRITE_ROLES, POSITION_WRITE_ROLES } from '@core/security/roles';
 import { hrRoutes } from './hr.routes';
 import { EmployeeDetail } from './pages/employee-detail/employee-detail';
 import { EmployeeEdit } from './pages/employee-edit/employee-edit';
@@ -46,11 +46,26 @@ describe('hr.routes', () => {
     const read = routeAt(positions.children, '');
 
     // Reads are `isAuthenticated()` on the API, which the guard expresses as an
-    // absent `roles` list; the write children arrive with the slice that ships
-    // the form they load.
+    // absent `roles` list.
     expect(positions.data?.['roles']).toBeUndefined();
     expect(read.data?.['roles']).toBeUndefined();
     expect(typeof read.loadComponent).toBe('function');
+  });
+
+  it('should carry the position write roles and clientId on the positions write children', () => {
+    const parent = routeAt(hrRoutes, '');
+    const positions = routeAt(parent.children, 'positions');
+
+    for (const path of ['create', 'edit/:id']) {
+      const child = routeAt(positions.children, path);
+      // Mirrors PositionController's `hasAnyRole('lc-admin','lc-position')` pair;
+      // the department write set is a different catalog and must not appear here.
+      expect(child.data?.['roles']).toEqual(POSITION_WRITE_ROLES);
+      expect(child.data?.['roles']).not.toEqual(DEPARTMENT_WRITE_ROLES);
+      expect(child.data?.['clientId']).toBe(CLIENT_ID);
+      expect(child.canActivate).toContain(keycloakRoleGuard);
+      expect(typeof child.loadComponent).toBe('function');
+    }
   });
 
   it('should carry the department write roles and clientId on the create and edit children', () => {

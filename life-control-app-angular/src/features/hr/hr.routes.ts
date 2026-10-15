@@ -1,6 +1,6 @@
 import { Routes } from '@angular/router';
 import { keycloakRoleGuard } from '@core/guards/auth-keycloak-guard';
-import { CLIENT_ID, DEPARTMENT_WRITE_ROLES, EMPLOYEE_WRITE_ROLES } from '@core/security/roles';
+import { CLIENT_ID, DEPARTMENT_WRITE_ROLES, EMPLOYEE_WRITE_ROLES, POSITION_WRITE_ROLES } from '@core/security/roles';
 
 /**
  * Feature routes for `/hr`.
@@ -20,9 +20,9 @@ import { CLIENT_ID, DEPARTMENT_WRITE_ROLES, EMPLOYEE_WRITE_ROLES } from '@core/s
  * children (`create` and `edit/:id`, which load `EmployeeEdit`). The employees
  * write children are gated exactly like their department siblings, and the list
  * page's "Nuevo empleado" / "Editar" links now point at registered routes. The
- * `positions` catalog (`9-2`) arrives with its own slices: this one registers
- * its read child, and the `create` / `edit/:id` children arrive with the slice
- * that ships the form they load, so no rendered control leads nowhere.
+ * `positions` catalog arrives with its own slices: this one registers its read
+ * child and the `create` / `edit/:id` children that load `PositionEdit`, so the
+ * list's write controls all have a destination behind them.
  *
  * The employees **detail** child (`:id`, which loads `EmployeeDetail`) is a read:
  * it carries **no `roles`**, exactly like the list child, because the employee
@@ -67,6 +67,20 @@ export const hrRoutes: Routes = [
             path: '',
             loadComponent: () =>
               import('./pages/position-list/position-list').then((m) => m.PositionList),
+          },
+          {
+            path: 'create',
+            canActivate: [keycloakRoleGuard],
+            data: { roles: POSITION_WRITE_ROLES, clientId: CLIENT_ID },
+            loadComponent: () =>
+              import('./pages/position-edit/position-edit').then((m) => m.PositionEdit),
+          },
+          {
+            path: 'edit/:id',
+            canActivate: [keycloakRoleGuard],
+            data: { roles: POSITION_WRITE_ROLES, clientId: CLIENT_ID },
+            loadComponent: () =>
+              import('./pages/position-edit/position-edit').then((m) => m.PositionEdit),
           },
         ],
       },

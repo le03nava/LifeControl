@@ -1,3 +1,5 @@
+import { FormControl } from '@angular/forms';
+
 /**
  * Wire models of the company-scoped position catalog.
  *
@@ -63,4 +65,23 @@ export interface PositionSalaryBand {
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * Typed control map for the position edit form's self-contained `FormGroup`.
+ *
+ * `departmentId` is required because a position always belongs to exactly one
+ * department (T11). `reportsToPositionId` is nullable — "no direct manager" is
+ * a legal state, and the API models it as an absent value (T5). `displayOrder`
+ * is nullable for the same reason `DepartmentControl.displayOrder` is: an empty
+ * input must not become `NaN`.
+ */
+export interface PositionControl {
+  departmentId: FormControl<string>;
+  positionCode: FormControl<string>;
+  positionName: FormControl<string>;
+  description: FormControl<string>;
+  reportsToPositionId: FormControl<string | null>;
+  displayOrder: FormControl<number | null>;
+  enabled: FormControl<boolean>;
 }

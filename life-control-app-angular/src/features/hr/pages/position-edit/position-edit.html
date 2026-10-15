@@ -1,0 +1,122 @@
+<div class="position-edit-page">
+  <div class="form-card">
+    <h2>
+      @if (isEditMode()) {
+        Editar Puesto
+      } @else {
+        Nuevo Puesto
+      }
+    </h2>
+
+    @if (loadError(); as loadErrorMsg) {
+      <app-error-banner class="error-state" [message]="loadErrorMsg" />
+    }
+
+    @if (submitError(); as submitErrorMsg) {
+      <app-error-banner class="error-state" [message]="submitErrorMsg" />
+    }
+
+    <form [formGroup]="formGroup" (ngSubmit)="onSubmit()">
+      <mat-form-field appearance="outline" class="selector-field">
+        <mat-label>Empresa</mat-label>
+        <mat-select
+          [value]="selectedCompanyId()"
+          [disabled]="isEditMode()"
+          (selectionChange)="onCompanyChange($event.value)"
+        >
+          <mat-option value="">— Seleccionar empresa —</mat-option>
+          @for (company of companies(); track company.id) {
+            <mat-option [value]="company.id">{{ company.companyName }}</mat-option>
+          }
+        </mat-select>
+      </mat-form-field>
+
+      <mat-form-field appearance="outline" class="selector-field">
+        <mat-label>Departamento</mat-label>
+        <mat-select formControlName="departmentId" [disabled]="!selectedCompanyId()">
+          <mat-option value="">— Seleccionar departamento —</mat-option>
+          @for (department of departments(); track department.id) {
+            <mat-option [value]="department.id">{{ department.departmentName }}</mat-option>
+          }
+        </mat-select>
+        @if (getErrorMessage(formGroup.controls.departmentId); as msg) {
+          <mat-error>{{ msg }}</mat-error>
+        }
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Código de Puesto</mat-label>
+        <input
+          matInput
+          type="text"
+          formControlName="positionCode"
+          placeholder="Ingrese el código (máx. 10 caracteres)"
+        />
+        @if (getErrorMessage(formGroup.controls.positionCode); as msg) {
+          <mat-error>{{ msg }}</mat-error>
+        }
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Nombre de Puesto</mat-label>
+        <input
+          matInput
+          type="text"
+          formControlName="positionName"
+          placeholder="Ingrese el nombre del puesto"
+        />
+        @if (getErrorMessage(formGroup.controls.positionName); as msg) {
+          <mat-error>{{ msg }}</mat-error>
+        }
+      </mat-form-field>
+
+      <mat-form-field appearance="outline" class="selector-field">
+        <mat-label>Reporta a</mat-label>
+        <mat-select formControlName="reportsToPositionId" [disabled]="!selectedCompanyId()">
+          <mat-option [value]="null">— Sin jefe directo —</mat-option>
+          @for (position of reportsToOptions(); track position.id) {
+            <mat-option [value]="position.id">
+              {{ position.positionCode }} — {{ position.positionName }}
+            </mat-option>
+          }
+        </mat-select>
+      </mat-form-field>
+
+      <mat-form-field appearance="outline" class="full-width">
+        <mat-label>Descripción</mat-label>
+        <textarea
+          matInput
+          rows="3"
+          formControlName="description"
+          placeholder="Descripción opcional (máx. 500 caracteres)"
+        ></textarea>
+        @if (getErrorMessage(formGroup.controls.description); as msg) {
+          <mat-error>{{ msg }}</mat-error>
+        }
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Orden</mat-label>
+        <input matInput type="number" min="1" formControlName="displayOrder" />
+        @if (getErrorMessage(formGroup.controls.displayOrder); as msg) {
+          <mat-error>{{ msg }}</mat-error>
+        }
+      </mat-form-field>
+
+      <div class="toggle-container">
+        <mat-slide-toggle formControlName="enabled">Activo</mat-slide-toggle>
+      </div>
+
+      <div class="form-actions">
+        <button mat-button type="button" (click)="onCancel()">Cancelar</button>
+        <button mat-flat-button color="primary" type="submit" [disabled]="loading()">
+          @if (isEditMode()) {
+            Actualizar
+          } @else {
+            Guardar
+          }
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
