@@ -1,7 +1,7 @@
 # ODD feature: store-areas-backend
 
 **Repository**: LifeControl — module `life-control-api/`
-**Status**: merged
+**Status**: merged — PR #98 (`feat/store-areas-backend` @ merge commit `9135fa9`), 2026-09-17. No work left.
 **Created**: 2026-02-XX
 
 ## Objective
@@ -159,6 +159,13 @@ smaller review is preferred, the natural split is controller + security test vs.
 - `spotlessApply` (palantirJavaFormat 2.98.0) was run over the new sources before verification.
 - Native review preflight was not applicable: `gentle-ai review mode status` reports
   receipt-driven development **off** (global and clone-local unset).
+- 2026-10-15: the header above carried a bare `**Status**: merged`, with its evidence living only in
+  this file's own Delivery table. It now names the pull request, the merge commit and the date, per the
+  invariant in `.agents/skills/project-conventions/references/feature-records.md`. **Nothing about the
+  work changed and no claim in this record was rewritten**: `9135fa9` was re-read rather than
+  remembered — it is `Merge pull request #98 from le03nava/feat/store-areas-backend`, its parents are
+  `89d9479` and `ced2564`, and it is an ancestor of `main`; PR #98 is `MERGED` with `mergedAt`
+  2026-09-17T06:06:02Z. The header was the only thing edited.
 
 ## Next step
 
