@@ -4,10 +4,12 @@
 integrating three chained slices into the tracker first: **W1b-1** (`2edd7ee`, PR #218), **W1b-2**
 (`2093fd8`, PR #219) and **W2a** (`374e24d`, PR #220), on top of **W1a** — `V19` plus the three
 catalogs, tasks 1–5, commits `34bc26c` through `1fc98e2`. Post-merge CI on `main` was green in all
-four workflows, and `main^{tree}` is byte-identical to the tracker tree that passed CI. **What remains
-is `W3` below** — `W2b` merged into `main` as `cfab8b5` through the chained pull requests `#310` → `#318`
-(its work units and their results are in the evidence log) — and the **G1 residual** this merge knowingly
-accepted has had
+four workflows, and `main^{tree}` is byte-identical to the tracker tree that passed CI. **Nothing remains
+in this record's own scope beyond its deferred items** (G2 currency, G3 dated salary-band history, G4 the
+full org chart): `W2b` merged into `main` as `cfab8b5` through the chained pull requests `#310` → `#318`,
+and **`W3` was delivered on 2026-10-15 as the chained pull requests `#320` → `#321`** — merged as `3c8ec24`
+and `0b64fc7`, with this record's own PR **#322** merged as `afe912d` — and the **G1 residual** this merge
+knowingly accepted has had
 its premise met: the protocol mapper it waited for is `company-scope-local-fallback`'s **W0**, merged
 as PR #222 on 2026-10-02 and verified against a live realm by that record.
 **Created**: 2026-09-30 · **Risk**: **medium–high** — five new tables plus a role template, the
