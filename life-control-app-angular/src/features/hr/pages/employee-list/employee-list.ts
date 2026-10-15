@@ -19,17 +19,32 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatTableModule } from '@angular/material/table';
+import { MatTabsModule } from '@angular/material/tabs';
+import { NgTemplateOutlet } from '@angular/common';
 import { map } from 'rxjs/operators';
 import { catchError, of } from 'rxjs';
 import { ConfirmDialog, ErrorBanner, PageHeader } from '@shared/ui';
 import { NotificationService } from '@shared/data/notification';
-import { httpErrorMessage } from '@shared/data';
-import { hasAnyClientRole, EMPLOYEE_WRITE_ROLES } from '@core/security/roles';
+import { httpErrorMessage, unwrapHttpError } from '@shared/data';
+import { hasAnyClientRole, ACCESS_READ_ROLES, EMPLOYEE_WRITE_ROLES } from '@core/security/roles';
+import { CurrentUser } from '@core/security/current-user';
 import { CompanyService } from '@features/companies/companies/data/company.service';
 import { EmployeeService } from '../../data/employee.service';
 import { EmployeeStatusService } from '../../data/employee-status.service';
+import { AccessProvisioningService } from '../../data/access-provisioning.service';
 import { employeeStatusLabel } from '../../data/employee-status';
 import { Employee } from '../../models/employee.models';
+import {
+  AccessProvisioningOverview,
+  AccessProvisioningQueueEntry,
+} from '../../models/access-provisioning.models';
+import { AccessRequestsList } from '../../components/access-requests-list/access-requests-list';
+import { composeEmployeeFullName } from '../../components/access-requests-list/employee-name';
+import {
+  AccessReviewDialog,
+  AccessReviewDialogData,
+  AccessReviewDialogResult,
+} from '../../components/access-review-dialog/access-review-dialog';
 
 /** The search input debounce window, matching the app's list pattern. */
 const SEARCH_DEBOUNCE_MS = 300;
@@ -76,12 +91,21 @@ interface StatusOption {
  * There is deliberately no position column (`G15`): `EmployeeResponse` carries
  * no position and the contracts are only reachable per employee, so the column
  * would cost an N+1.
+ *
+ * The pending decisions live in a **`Solicitudes` tab** beside the list (record T96). The tab is a
+ * `mat-tab-group` rendered **only** for a caller holding `ACCESS_READ_ROLES`: for anyone else the
+ * screen is exactly the list it was, with no tab, no queue request and no layout change, because the
+ * queue endpoint carries that role's `@PreAuthorize` and would answer 403. The company selector
+ * keeps driving **both** tabs — the queue is per company, like the list — and the decision flow
+ * belongs to the page: a row's `reviewRequested` reads that employee's overview and opens the shared
+ * `AccessReviewDialog` (record T95), then the page calls the service and reloads the queue.
  */
 @Component({
   selector: 'app-employee-list',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
+    NgTemplateOutlet,
     MatButtonModule,
     MatCardModule,
     MatFormFieldModule,
@@ -90,8 +114,10 @@ interface StatusOption {
     MatSelectModule,
     MatSlideToggleModule,
     MatTableModule,
+    MatTabsModule,
     PageHeader,
     ErrorBanner,
+    AccessRequestsList,
   ],
   templateUrl: './employee-list.html',
   styleUrl: './employee-list.scss',
@@ -100,6 +126,8 @@ export class EmployeeList {
   private readonly companyService = inject(CompanyService);
   private readonly employeeService = inject(EmployeeService);
   private readonly statusService = inject(EmployeeStatusService);
+  private readonly accessService = inject(AccessProvisioningService);
+  private readonly currentUser = inject(CurrentUser);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly dialog = inject(MatDialog);
@@ -112,6 +140,66 @@ export class EmployeeList {
    * would refuse.
    */
   readonly canWrite = hasAnyClientRole(EMPLOYEE_WRITE_ROLES);
+
+  /**
+   * The Access read gate: `lc-admin` and `lc-employee-access` (record T96). A caller without either
+   * renders no `Solicitudes` tab and issues no queue request, because the queue endpoint carries
+   * that very `@PreAuthorize` and would answer 403.
+   */
+  readonly canReadAccess = hasAnyClientRole(ACCESS_READ_ROLES);
+
+  /** The caller's own `sub`, so the review dialog can hide `Aprobar` on their own request (O3). */
+  get currentUserId(): string | null {
+    return this.currentUser.sub;
+  }
+
+  /**
+   * The company's decision queue (record T94): the tasks in `APPROVAL_PENDING` waiting for a human.
+   *
+   * Keyed on the selected company and gated on the read role, exactly like the list read: a caller
+   * without `lc-admin`/`lc-employee-access`, or with no company selected, produces no params, so no
+   * request is ever issued. `getDecisionQueue` is a pure read, so this resource never clobbers the
+   * list's own state.
+   */
+  readonly queueResource = rxResource({
+    params: () => {
+      if (!this.canReadAccess) {
+        return undefined;
+      }
+      const companyId = this.selectedCompanyId();
+      if (!companyId) {
+        return undefined;
+      }
+      return { companyId };
+    },
+    stream: ({ params }) => this.accessService.getDecisionQueue(params.companyId),
+  });
+
+  /** The queue rows, or an empty array while loading and on a failed read. */
+  readonly queueEntries = computed(() =>
+    this.queueResource.hasValue() ? this.queueResource.value() : [],
+  );
+
+  /** The queue's own loading flag; drives only the `Solicitudes` tab. */
+  readonly queueLoading = this.queueResource.isLoading;
+
+  /**
+   * The failed queue read's copy, or `null` while loading, on success or before selection.
+   *
+   * `getDecisionQueue` keeps no error signal of its own (it is a pure read), so the page reads the
+   * resource's error. The API's envelope message wins when it carries one; the shared taxonomy is
+   * the fallback.
+   */
+  readonly queueError = computed(() => {
+    const error = this.queueResource.error();
+    if (!error) {
+      return null;
+    }
+    return this.serverEnvelope(error) ?? httpErrorMessage(error);
+  });
+
+  /** A failed decision, as the page resolved it; `null` when the last one succeeded. */
+  readonly queueActionError = signal<string | null>(null);
 
   readonly companies = toSignal(
     this.companyService.getCompanies(0, 1000).pipe(map((page) => page.content)),
@@ -267,11 +355,90 @@ export class EmployeeList {
     this.employeesResource.reload();
   }
 
+  /** Re-runs the queue read that failed. */
+  reloadQueue(): void {
+    this.queueResource.reload();
+  }
+
+  /**
+   * Opens the shared review dialog for a queue row (record T95).
+   *
+   * The queue row deliberately carries no role set (record T95), so the page first reads **that
+   * employee's overview** and feeds it to the dialog. The dialog collects the decision and performs
+   * no call; the page then calls `approve`/`reject` and **reloads the queue**, because the row leaves
+   * the decision set either way.
+   */
+  onReviewRequested(entry: AccessProvisioningQueueEntry): void {
+    const companyId = this.selectedCompanyId();
+    if (!this.canReadAccess || !companyId) {
+      return;
+    }
+    this.queueActionError.set(null);
+    this.accessService
+      .getOverview(companyId, entry.employeeId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (overview) => this.openReviewDialog(companyId, entry, overview),
+        error: (error: unknown) =>
+          this.queueActionError.set(
+            this.serverEnvelope(error) ?? this.accessService.error() ?? httpErrorMessage(error),
+          ),
+      });
+  }
+
+  /** Opens the shared dialog with the overview the page just read for the row's employee. */
+  private openReviewDialog(
+    companyId: string,
+    entry: AccessProvisioningQueueEntry,
+    overview: AccessProvisioningOverview,
+  ): void {
+    const data: AccessReviewDialogData = {
+      overview,
+      currentUserId: this.currentUserId,
+      employeeNumber: entry.employeeNumber,
+      employeeName: composeEmployeeFullName({
+        firstName: entry.employeeFirstName,
+        paternalLastName: entry.employeePaternalLastName,
+        maternalLastName: entry.employeeMaternalLastName,
+      }),
+    };
+    this.dialog
+      .open<AccessReviewDialog, AccessReviewDialogData, AccessReviewDialogResult>(AccessReviewDialog, {
+        data,
+      })
+      .afterClosed()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((result) => {
+        // `undefined` is a bare Material dismissal and means the same as `null`: no write.
+        if (!result) {
+          return;
+        }
+        const write =
+          result.decision === 'approve'
+            ? this.accessService.approve(companyId, entry.employeeId, entry.taskId)
+            : this.accessService.reject(companyId, entry.employeeId, entry.taskId, {
+                reason: result.reason,
+              });
+        this.queueActionError.set(null);
+        write.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+          next: () => this.queueResource.reload(),
+          error: (error: unknown) =>
+            this.queueActionError.set(
+              this.serverEnvelope(error) ?? this.accessService.error() ?? httpErrorMessage(error),
+            ),
+        });
+      });
+  }
+
+  /** The API envelope's own `message`, or `null` when the failure carried none. */
+  private serverEnvelope(error: unknown): string | null {
+    const message = (unwrapHttpError(error)?.error as { message?: unknown } | undefined)?.message;
+    return typeof message === 'string' && message.trim() !== '' ? message : null;
+  }
+
   /** `firstName` plus both last names, tolerating the nullable maternal one. */
   fullName(employee: Employee): string {
-    return [employee.firstName, employee.paternalLastName, employee.maternalLastName]
-      .filter((part): part is string => !!part)
-      .join(' ');
+    return composeEmployeeFullName(employee);
   }
 
   /** The Spanish status label; never the raw server name for a seeded status. */
