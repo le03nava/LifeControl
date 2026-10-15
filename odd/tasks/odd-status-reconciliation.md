@@ -377,6 +377,21 @@ to a commit hash instead of a running total.
   calls its own record "gitignored" (`#130` versioned `odd/tasks/`), and several records pin `Base:
   main @ <old sha>` values that no longer describe anything. A second pass could reconcile them; it was
   deliberately not bundled into a header-correction PR.
+- **Repair, 2026-10-15 — the second pass ran, and every prose item the two bullets above list had already
+  been corrected; what survived was the list that declared them open.** Verified against `main @ 8822ed4`
+  rather than trusted: `product-variant-identity-split.md`'s `## Plan` now reads `**done**` for S1–S3;
+  `store-zones-backend.md`'s T12 now states the commit landed as PR #103; `store-areas-frontend.md`'s
+  `## Next step` now records the purchase-orders refactor as delivered by work unit 1 of
+  `purchase-order-sections-polish` (PR #101 → `f8a29f8`) with no `detail-card` marker left;
+  `docker-images-rebuild.md` now records that `project-conventions-skill` landed through PRs #130/#131/#132
+  with T5 closed; and `angular-docs-prettier-scope.md` now calls its own record **versioned**. **Five of
+  the six were corrected by `docs/odd-header-hygiene`** (PR **#170**, merge **`0106380`**, commit
+  **`1a75908`**) — the slice whose subject was exactly this drift. The sixth,
+  `optimistic-lock-conflict.md:227`, is a dated row that correctly describes its own day: its header was
+  reconciled to `merged` by `025eadc`, and the row now carries its own `Repair, 2026-10-15` marker.
+  **The `Base: main @ <old sha>` pins are deliberately left alone**: they are origin data of their day,
+  not a claim about the present. What this bullet closes is the list; the preventive half stays open in
+  the bullet below. No source line was written.
 - **The real fix is preventive.** This feature repairs 14 headers; the next merge will create more,
   because the root cause is structural (the header is written pre-merge and never revisited). The
   durable options are (a) state the invariant in
