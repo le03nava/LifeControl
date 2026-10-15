@@ -10,15 +10,15 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface SeniorityLevelRepository extends JpaRepository<SeniorityLevel, UUID> {
 
-    Optional<SeniorityLevel> findByLevelCodeIgnoreCase(String levelCode);
+    Optional<SeniorityLevel> findByLevelCode(String levelCode);
 
-    Optional<SeniorityLevel> findByLevelNameIgnoreCase(String levelName);
+    Optional<SeniorityLevel> findByLevelName(String levelName);
 
     Optional<SeniorityLevel> findByRank(Integer rank);
 
-    boolean existsByLevelCodeIgnoreCase(String levelCode);
+    boolean existsByLevelCode(String levelCode);
 
-    boolean existsByLevelNameIgnoreCase(String levelName);
+    boolean existsByLevelName(String levelName);
 
     boolean existsByRank(Integer rank);
 

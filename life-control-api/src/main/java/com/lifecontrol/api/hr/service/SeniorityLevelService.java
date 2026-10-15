@@ -20,9 +20,19 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>Seniority levels are global reference data (decision D1), so this service deliberately performs
  * no company-scope check and exposes no company path segment. Every write validates the three
- * natural keys — {@code code}, {@code name} and {@code rank} — and evicts the cache region. The
- * check-then-write race is left to {@code GlobalExceptionHandler}'s {@code DataIntegrityViolationException}
- * mapping to 409; no lock is added. {@code delete} is a soft delete (record E4).</p>
+ * natural keys — {@code code}, {@code name} and {@code rank} — and evicts the cache region.</p>
+ *
+ * <p>Those three keys are compared <b>exactly</b>, not ignoring case (G14, decided 2026-10-15). That
+ * is what {@code V19}'s unique constraints do, and what {@code departments} and {@code positions}
+ * already did, so the three catalogs and the database now agree on one rule and the database is its
+ * authority. The consequence is deliberate and accepted: {@code jun} and {@code JUN} are two
+ * different keys and both can exist, because refusing the second one would require functional unique
+ * indexes over {@code lower(...)} — an invariant this service cannot hold on its own, and one this
+ * catalog was not given.</p>
+ *
+ * <p>The check-then-write race is left to {@code GlobalExceptionHandler}'s
+ * {@code DataIntegrityViolationException} mapping to 409; no lock is added. {@code delete} is a soft
+ * delete (record E4).</p>
  */
 @Service
 public class SeniorityLevelService {
@@ -59,10 +69,10 @@ public class SeniorityLevelService {
     public SeniorityLevelResponse createSeniorityLevel(SeniorityLevelRequest request) {
         logger.info("Creating seniority level with code: {}", request.levelCode());
 
-        if (repository.existsByLevelCodeIgnoreCase(request.levelCode())) {
+        if (repository.existsByLevelCode(request.levelCode())) {
             throw new DuplicateSeniorityLevelException("code", request.levelCode());
         }
-        if (repository.existsByLevelNameIgnoreCase(request.levelName())) {
+        if (repository.existsByLevelName(request.levelName())) {
             throw new DuplicateSeniorityLevelException("name", request.levelName());
         }
         if (repository.existsByRank(request.rank())) {
@@ -84,12 +94,12 @@ public class SeniorityLevelService {
         var seniorityLevel = repository.findById(id).orElseThrow(() -> new SeniorityLevelNotFoundException(id));
 
         // Validate uniqueness of code/name/rank excluding the entity being updated.
-        var codeOwner = repository.findByLevelCodeIgnoreCase(request.levelCode());
+        var codeOwner = repository.findByLevelCode(request.levelCode());
         if (codeOwner.isPresent() && !codeOwner.get().getId().equals(id)) {
             throw new DuplicateSeniorityLevelException("code", request.levelCode());
         }
 
-        var nameOwner = repository.findByLevelNameIgnoreCase(request.levelName());
+        var nameOwner = repository.findByLevelName(request.levelName());
         if (nameOwner.isPresent() && !nameOwner.get().getId().equals(id)) {
             throw new DuplicateSeniorityLevelException("name", request.levelName());
         }
