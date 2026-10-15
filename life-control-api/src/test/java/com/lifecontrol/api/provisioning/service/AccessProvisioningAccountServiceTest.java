@@ -22,6 +22,7 @@ import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.provisioning.exception.AccountLinkRefusedException;
 import com.lifecontrol.api.provisioning.exception.AccountNotLinkedException;
 import com.lifecontrol.api.provisioning.exception.InvitationNotDeliverableException;
+import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.usersadmin.identity.IdentityProvider;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderConflictException;
 import com.lifecontrol.api.usersadmin.identity.UserSearchDto;
@@ -309,6 +310,50 @@ class AccessProvisioningAccountServiceTest {
         @DisplayName("should refuse by name before any identity-provider call when no account is linked")
         void refusesWhenNoAccountIsLinked() {
             assertThatThrownBy(() -> service.deactivate(employee))
+                    .isInstanceOf(AccountNotLinkedException.class)
+                    .hasMessageContaining("no keycloakUserId");
+
+            verifyNoInteractions(identityProvider);
+        }
+    }
+
+    @Nested
+    @DisplayName("ensureAccountEnabled")
+    class EnsureAccountEnabledTests {
+
+        @Test
+        @DisplayName("should enable the linked account with the port's narrow capability and call nothing else")
+        void enablesTheLinkedAccount() {
+            employee.linkKeycloakUser("kc-existing");
+
+            service.ensureAccountEnabled(employee);
+
+            verify(identityProvider).enableUser("kc-existing");
+            // T99/T78: the disable direction belongs to the DEACTIVATE arm, and this is never the
+            // whole-representation write nor a delete.
+            verify(identityProvider, never()).disableUser(any());
+            verify(identityProvider, never()).updateUser(any(), any());
+            verify(identityProvider, never()).deleteUser(any());
+            verifyNoMoreInteractions(identityProvider);
+        }
+
+        @Test
+        @DisplayName("should do nothing for a revoked employee, whose account state the DEACTIVATE arm owns")
+        void doesNothingForATerminatedEmployee() {
+            var revoked = employeeWithDomain("acme.com");
+            revoked.linkKeycloakUser("kc-existing");
+            revoked.setStatus(
+                    Status.builder().statusName("Terminated").enabled(true).build());
+
+            service.ensureAccountEnabled(revoked);
+
+            verifyNoInteractions(identityProvider);
+        }
+
+        @Test
+        @DisplayName("should refuse by name before any identity-provider call when no account is linked")
+        void refusesWhenNoAccountIsLinked() {
+            assertThatThrownBy(() -> service.ensureAccountEnabled(employee))
                     .isInstanceOf(AccountNotLinkedException.class)
                     .hasMessageContaining("no keycloakUserId");
 

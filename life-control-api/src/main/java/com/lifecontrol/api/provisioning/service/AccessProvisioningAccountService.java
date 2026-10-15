@@ -4,6 +4,7 @@ import com.lifecontrol.api.config.invitation.InvitationProperties;
 import com.lifecontrol.api.config.security.ApplicationClientProperties;
 import com.lifecontrol.api.hr.model.Employee;
 import com.lifecontrol.api.hr.repository.EmployeeRepository;
+import com.lifecontrol.api.hr.service.EmployeeStatuses;
 import com.lifecontrol.api.provisioning.dto.AccountProvisioningResult;
 import com.lifecontrol.api.provisioning.exception.AccountLinkRefusedException;
 import com.lifecontrol.api.provisioning.exception.AccountNotLinkedException;
@@ -163,6 +164,38 @@ public class AccessProvisioningAccountService {
                     + " has no keycloakUserId, so its account cannot be disabled");
         }
         identityProvider.disableUser(userId);
+    }
+
+    /**
+     * Ensures the account of a <b>non-revoked</b> employee is enabled, and leaves a revoked employee's
+     * account exactly as it is.
+     *
+     * <p>This is the convergence half of gap G36 (records T99/T100): a rehired person stays linked —
+     * the revocation is {@code disableUser} and never a delete (record T6) — and this is what turns the
+     * account back on, which no pass performed before. It is deliberately narrow in one direction only:
+     * the <b>disable</b> direction belongs to {@code AccessProvisioningWorkerHandler}'s
+     * {@code DEACTIVATE} arm, which runs it first, so a terminated employee is a no-op here instead of a
+     * second write of the same fact.</p>
+     *
+     * <p>It deliberately does <b>not</b> call {@code verifyCompanyAccess}: the worker has no current
+     * user, exactly as this class' other capabilities declare (the precedent W1b set).</p>
+     *
+     * @param employee the employee whose account state is converged; it must already be linked when the
+     *     employee is not revoked
+     * @throws AccountNotLinkedException when a non-revoked employee has no linked Keycloak account, the
+     *     same refusal its siblings make and for the same reason: the write has nowhere to go
+     */
+    @Transactional
+    public void ensureAccountEnabled(Employee employee) {
+        if (EmployeeStatuses.isTerminated(employee)) {
+            return;
+        }
+        var userId = employee.getKeycloakUserId();
+        if (userId == null || userId.isBlank()) {
+            throw new AccountNotLinkedException("Account not linked: employee " + employee.getId()
+                    + " has no keycloakUserId, so its account cannot be enabled");
+        }
+        identityProvider.enableUser(userId);
     }
 
     /**
