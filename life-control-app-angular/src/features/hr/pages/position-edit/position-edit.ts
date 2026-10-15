@@ -100,13 +100,25 @@ export class PositionEdit implements OnInit {
   readonly submitError = signal<string | null>(null);
   readonly serverErrors = signal<Record<string, string>>({});
 
+  /**
+   * A failed **catalogue** read (the departments or the `reportsTo` options).
+   *
+   * Kept apart from `loadError`, which is the position itself: the form stays
+   * usable, but an empty select would otherwise read as "this company has no
+   * departments" instead of "that read failed".
+   */
+  readonly catalogueError = signal<string | null>(null);
+
   /** The company's departments: the required parent of every position (T11). */
   readonly departmentsResource = rxResource({
     params: () => this.selectedCompanyId() ?? undefined,
     stream: ({ params: companyId }) =>
-      this.departmentService
-        .getDepartments(companyId)
-        .pipe(catchError(() => of([] as Department[]))),
+      this.departmentService.getDepartments(companyId).pipe(
+        catchError(() => {
+          this.catalogueError.set('No se pudieron cargar los departamentos de la empresa');
+          return of([] as Department[]);
+        }),
+      ),
     defaultValue: [] as Department[],
   });
 
@@ -118,9 +130,12 @@ export class PositionEdit implements OnInit {
   readonly positionsResource = rxResource({
     params: () => this.selectedCompanyId() ?? undefined,
     stream: ({ params: companyId }) =>
-      this.positionService
-        .getPositions(companyId)
-        .pipe(catchError(() => of([] as Position[]))),
+      this.positionService.getPositions(companyId).pipe(
+        catchError(() => {
+          this.catalogueError.set('No se pudieron cargar los puestos de la empresa');
+          return of([] as Position[]);
+        }),
+      ),
     defaultValue: [] as Position[],
   });
 
@@ -224,7 +239,9 @@ export class PositionEdit implements OnInit {
     const next = companyId || null;
     this.selectedCompanyId.set(next);
     // The parent and the reporting position both belong to one company; keeping
-    // either one across a company change would submit a cross-company link.
+    // either one across a company change would submit a cross-company link. The
+    // catalogue failure is reset here too: it names the company that failed.
+    this.catalogueError.set(null);
     this.formGroup.controls.departmentId.setValue('');
     this.formGroup.controls.reportsToPositionId.setValue(null);
     void this.router.navigate([], {

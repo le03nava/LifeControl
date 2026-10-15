@@ -108,6 +108,7 @@ describe('PositionList', () => {
     loadError?: boolean;
     dialogConfirmed?: boolean;
     departments?: Department[];
+    departmentsError?: boolean;
   }
 
   function setup(options: SetupOptions = {}): void {
@@ -141,7 +142,14 @@ describe('PositionList', () => {
 
     departmentService = {
       getDepartments: vi.fn(() =>
-        of(options.departments ?? [department(), department({ id: 'dep-2', departmentName: 'Finanzas' })]),
+        options.departmentsError
+          ? throwError(() => new HttpErrorResponse({ status: 500 }))
+          : of(
+              options.departments ?? [
+                department(),
+                department({ id: 'dep-2', departmentName: 'Finanzas' }),
+              ],
+            ),
       ),
     };
 
@@ -410,6 +418,17 @@ describe('PositionList', () => {
     await settle();
 
     expect(component.actionError()).toBeTruthy();
+  });
+
+  it('should name a failed department catalogue instead of rendering an empty column', async () => {
+    setup({ queryCompanyId: 'company-1', departmentsError: true });
+    await settle();
+
+    // The positions still render; the failure is named rather than read as
+    // "this company has no departments".
+    expect(component.catalogueError()).toBe('No se pudieron cargar los departamentos de la empresa');
+    expect(text()).toContain('No se pudieron cargar los departamentos de la empresa');
+    expect(text()).toContain('OPR');
   });
 
   it('should show the load failure and re-issue the request on retry', async () => {
