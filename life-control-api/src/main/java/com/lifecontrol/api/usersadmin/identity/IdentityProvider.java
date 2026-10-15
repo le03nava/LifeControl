@@ -134,6 +134,24 @@ public interface IdentityProvider {
      */
     List<UserSearchDto> findUsersByEmail(String email);
 
+    /**
+     * Resolves one user's <b>display name</b>, for a payload that has to say <b>who</b> acted and not
+     * only which id acted (record T93).
+     *
+     * <p>It is deliberately narrow. The access-provisioning rows store the acting user's JWT
+     * {@code sub} — Keycloak's own user id (record T73) — and the Access section renders the requester
+     * of a task a human has to approve or refuse. The generic search carries <b>no</b> name at all
+     * ({@link UserSearchDto} is id/username/email/enabled), so widening it would touch its other
+     * consumers for a value only this read needs.</p>
+     *
+     * @param userId the identity provider user id
+     * @return the display name when the provider knows the user — their full name, falling back to the
+     *     username — or {@link Optional#empty()} when the user does not exist or carries no name at
+     *     all. A connection failure is <b>not</b> an empty result: it propagates, the same way the
+     *     sibling reads propagate it
+     */
+    Optional<String> findUserDisplayName(String userId);
+
     // --- Groups ---
 
     boolean companyGroupExists(String groupName);

@@ -315,4 +315,67 @@ class AccessProvisioningAccountServiceTest {
             verifyNoInteractions(identityProvider);
         }
     }
+
+    @Nested
+    @DisplayName("resendInvitation")
+    class ResendInvitationTests {
+
+        @Test
+        @DisplayName("sends the invitation again with the frozen actions, client, redirect and lifespan")
+        void resendsWithTheFrozenParameters() {
+            employee.linkKeycloakUser("kc-existing");
+
+            service.resendInvitation(employee);
+
+            verify(identityProvider)
+                    .sendActionsEmail("kc-existing", CLIENT_ID, REDIRECT_URI, LIFESPAN_SECONDS, REQUIRED_ACTIONS);
+        }
+
+        @Test
+        @DisplayName("refuses by name before any identity-provider call when no account is linked")
+        void refusesWhenNoAccountIsLinked() {
+            assertThatThrownBy(() -> service.resendInvitation(employee))
+                    .isInstanceOf(AccountNotLinkedException.class)
+                    .hasMessageContaining("no keycloakUserId");
+
+            verifyNoInteractions(identityProvider);
+        }
+
+        @Test
+        @DisplayName("refuses by name when the company has no usable email domain")
+        void refusesWhenTheDomainIsMissing() {
+            employee = employeeWithDomain(null);
+            employee.linkKeycloakUser("kc-existing");
+
+            assertThatThrownBy(() -> service.resendInvitation(employee))
+                    .isInstanceOf(InvitationNotDeliverableException.class)
+                    .hasMessageContaining("not deliverable");
+
+            verifyNoInteractions(identityProvider);
+        }
+
+        @Test
+        @DisplayName("the not-linked refusal comes first when both refusals would apply")
+        void theLinkedRefusalPrecedesTheDomainRefusal() {
+            employee = employeeWithDomain(null);
+
+            assertThatThrownBy(() -> service.resendInvitation(employee))
+                    .isInstanceOf(AccountNotLinkedException.class)
+                    .hasMessageContaining("no keycloakUserId");
+
+            verifyNoInteractions(identityProvider);
+        }
+
+        @Test
+        @DisplayName("writes no row and creates nothing: it only re-sends")
+        void resendingTouchesNoRow() {
+            employee.linkKeycloakUser("kc-existing");
+
+            service.resendInvitation(employee);
+
+            verify(employeeRepository, never()).save(any(Employee.class));
+            verify(identityProvider, never()).createUser(any(UserRepresentation.class));
+            verify(identityProvider, never()).updateUser(any(), any());
+        }
+    }
 }

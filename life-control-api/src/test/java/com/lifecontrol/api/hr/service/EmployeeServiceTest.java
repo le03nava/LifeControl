@@ -19,6 +19,7 @@ import com.lifecontrol.api.hr.exception.EmployeeEmailFrozenException;
 import com.lifecontrol.api.hr.exception.EmployeeNotFoundException;
 import com.lifecontrol.api.hr.model.Employee;
 import com.lifecontrol.api.hr.repository.EmployeeRepository;
+import com.lifecontrol.api.provisioning.service.AccessProvisioningProducer;
 import com.lifecontrol.api.provisioning.service.AccessProvisioningQueryService;
 import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.status.model.StatusType;
@@ -59,6 +60,9 @@ class EmployeeServiceTest {
 
     @Mock
     private AccessProvisioningQueryService accessProvisioningQueryService;
+
+    @Mock
+    private AccessProvisioningProducer accessProvisioningProducer;
 
     @InjectMocks
     private EmployeeService employeeService;
@@ -917,6 +921,106 @@ class EmployeeServiceTest {
             employeeService.getAllEmployees(companyId, "   ", null, true);
 
             verify(employeeRepository).findCompanyEmployees(companyId, null, null, true);
+        }
+    }
+
+    @Nested
+    @DisplayName("the revocation intent an employment end implies (W5c, S3)")
+    class AccessIntentTests {
+
+        @Test
+        @DisplayName("is produced on the transition into Terminated")
+        void update_TransitionToTerminated_ProducesTheRevocation() {
+            companyExists();
+            when(employeeRepository.findByIdAndCompanyId(employeeId, companyId)).thenReturn(Optional.of(testEmployee));
+            when(statusRepository.findById(terminatedStatus.getId())).thenReturn(Optional.of(terminatedStatus));
+            when(employeeRepository.existsByCompanyIdAndEmployeeNumberAndIdNot(companyId, "EMP-001", employeeId))
+                    .thenReturn(false);
+            when(employeeRepository.existsByCompanyIdAndEmailAndIdNot(companyId, "juan.perez@example.com", employeeId))
+                    .thenReturn(false);
+            saveReturnsArgument();
+
+            employeeService.updateEmployee(
+                    companyId,
+                    employeeId,
+                    requestWithStatus(
+                            "EMP-001", "juan.perez@example.com", terminatedStatus.getId(), LocalDate.of(2026, 1, 1)));
+
+            verify(accessProvisioningProducer).onEmploymentTerminated(companyId, testEmployee);
+        }
+
+        @Test
+        @DisplayName("is not produced when the employee was already Terminated")
+        void update_AlreadyTerminated_ProducesNothing() {
+            var alreadyTerminated = Employee.builder()
+                    .id(employeeId)
+                    .company(testCompany)
+                    .employeeNumber("EMP-001")
+                    .firstName("Juan")
+                    .paternalLastName("Pérez")
+                    .email("juan.perez@example.com")
+                    .birthDate(BIRTH_DATE)
+                    .hireDate(HIRE_DATE)
+                    .terminationDate(LocalDate.of(2021, 1, 1))
+                    .status(terminatedStatus)
+                    .enabled(true)
+                    .build();
+            companyExists();
+            when(employeeRepository.findByIdAndCompanyId(employeeId, companyId))
+                    .thenReturn(Optional.of(alreadyTerminated));
+            when(statusRepository.findById(terminatedStatus.getId())).thenReturn(Optional.of(terminatedStatus));
+            when(employeeRepository.existsByCompanyIdAndEmployeeNumberAndIdNot(companyId, "EMP-001", employeeId))
+                    .thenReturn(false);
+            when(employeeRepository.existsByCompanyIdAndEmailAndIdNot(companyId, "juan.perez@example.com", employeeId))
+                    .thenReturn(false);
+            saveReturnsArgument();
+
+            employeeService.updateEmployee(
+                    companyId,
+                    employeeId,
+                    requestWithStatus(
+                            "EMP-001", "juan.perez@example.com", terminatedStatus.getId(), LocalDate.of(2026, 1, 1)));
+
+            verifyNoInteractions(accessProvisioningProducer);
+        }
+
+        @Test
+        @DisplayName("is not produced when the status does not become Terminated")
+        void update_NotTerminated_ProducesNothing() {
+            companyExists();
+            activeStatusExists();
+            when(employeeRepository.findByIdAndCompanyId(employeeId, companyId)).thenReturn(Optional.of(testEmployee));
+            when(employeeRepository.existsByCompanyIdAndEmployeeNumberAndIdNot(companyId, "EMP-001", employeeId))
+                    .thenReturn(false);
+            when(employeeRepository.existsByCompanyIdAndEmailAndIdNot(companyId, "juan.perez@example.com", employeeId))
+                    .thenReturn(false);
+            saveReturnsArgument();
+
+            employeeService.updateEmployee(companyId, employeeId, request("EMP-001", "juan.perez@example.com"));
+
+            verifyNoInteractions(accessProvisioningProducer);
+        }
+
+        @Test
+        @DisplayName("is not produced when the write is refused before the save")
+        void update_RefusedWrite_ProducesNothing() {
+            companyExists();
+            when(employeeRepository.findByIdAndCompanyId(employeeId, companyId)).thenReturn(Optional.of(testEmployee));
+            when(statusRepository.findById(terminatedStatus.getId())).thenReturn(Optional.of(terminatedStatus));
+            when(employeeRepository.existsByCompanyIdAndEmployeeNumberAndIdNot(companyId, "EMP-001", employeeId))
+                    .thenReturn(true);
+
+            assertThatThrownBy(() -> employeeService.updateEmployee(
+                            companyId,
+                            employeeId,
+                            requestWithStatus(
+                                    "EMP-001",
+                                    "juan.perez@example.com",
+                                    terminatedStatus.getId(),
+                                    LocalDate.of(2026, 1, 1))))
+                    .isInstanceOf(DuplicateEmployeeException.class);
+
+            verifyNoInteractions(accessProvisioningProducer);
         }
     }
 }

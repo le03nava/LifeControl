@@ -123,8 +123,11 @@ class ProfileServiceTest {
             assertThat(result.email()).isEqualTo(EMAIL);
             assertThat(result.firstName()).isEqualTo(FIRST_NAME);
             assertThat(result.lastName()).isEqualTo(LAST_NAME);
-            assertThat(result.companyCountryId()).isEqualTo(countryId);
-            assertThat(result.companyId()).isEqualTo(companyId);
+            // T14/T18: the row keeps its four columns and the response never repeats them — the profile
+            // screen stopped writing them, and nothing reads them for authorization.
+            assertThat(prefs.getCompanyCountryId()).isEqualTo(countryId);
+            assertThat(prefs.getCompanyId()).isEqualTo(companyId);
+            assertThat(result.companyStoreId()).isNull();
         }
 
         @Test
@@ -137,8 +140,9 @@ class ProfileServiceTest {
             var result = profileService.getProfile();
 
             assertThat(result.keycloakUserId()).isEqualTo(USER_ID);
-            assertThat(result.companyCountryId()).isNull();
-            assertThat(result.companyId()).isNull();
+            // T14: the four tenancy ancestors are not on the wire; storage keeps them and the response
+            // reports only the store preference.
+            assertThat(result.companyStoreId()).isNull();
 
             var captor = ArgumentCaptor.forClass(UserPreferences.class);
             verify(userPreferencesRepository).save(captor.capture());
@@ -172,9 +176,7 @@ class ProfileServiceTest {
         @Test
         @DisplayName("should update Keycloak and preferences when all fields provided")
         void shouldUpdateKeycloakAndPreferences() {
-            var countryId = UUID.randomUUID();
-            var request = new ProfileUpdateRequest(
-                    "NewFirst", "NewLast", "new@example.com", countryId, null, null, null, null);
+            var request = new ProfileUpdateRequest("NewFirst", "NewLast", "new@example.com", null);
 
             var prefs = UserPreferences.builder().keycloakUserId(USER_ID).build();
             when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
@@ -184,14 +186,16 @@ class ProfileServiceTest {
 
             verify(identityProvider).updateUser(any(String.class), any());
             verify(userPreferencesRepository).save(any(UserPreferences.class));
-            assertThat(result.companyCountryId()).isEqualTo(countryId);
+            // T14: the response no longer carries the four tenancy ancestors; the store preference is the
+            // only location value it reports.
+            assertThat(result.companyStoreId()).isNull();
         }
 
         @Test
         @DisplayName("should skip Keycloak update when no identity fields provided")
         void shouldSkipKeycloakUpdateWhenNoIdentityFields() {
             var countryId = UUID.randomUUID();
-            var request = new ProfileUpdateRequest(null, null, null, countryId, null, null, null, null);
+            var request = new ProfileUpdateRequest(null, null, null, null);
 
             var prefs = UserPreferences.builder().keycloakUserId(USER_ID).build();
             when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
@@ -206,45 +210,80 @@ class ProfileServiceTest {
         @Test
         @DisplayName("should create preferences row when none exists on update")
         void shouldCreatePreferencesWhenNoneExists() {
-            var countryId = UUID.randomUUID();
-            var request = new ProfileUpdateRequest("First", null, null, countryId, null, null, null, null);
+            var request = new ProfileUpdateRequest("First", null, null, null);
 
             when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.empty());
 
-            var savedPrefs = UserPreferences.builder()
-                    .keycloakUserId(USER_ID)
-                    .companyCountryId(countryId)
-                    .build();
+            var savedPrefs = UserPreferences.builder().keycloakUserId(USER_ID).build();
             when(userPreferencesRepository.save(any(UserPreferences.class))).thenReturn(savedPrefs);
 
             var result = profileService.updateProfile(request);
 
             verify(identityProvider).updateUser(any(), any());
             verify(userPreferencesRepository).save(any(UserPreferences.class));
-            assertThat(result.companyCountryId()).isEqualTo(countryId);
+            // T14/T18: the request cannot carry the four any more, so the row this update creates keeps
+            // them null and the response reports only the store preference.
+            assertThat(savedPrefs.getCompanyCountryId()).isNull();
+            assertThat(savedPrefs.getCompanyId()).isNull();
+            assertThat(savedPrefs.getCompanyRegionId()).isNull();
+            assertThat(savedPrefs.getCompanyZoneId()).isNull();
+            assertThat(result.companyStoreId()).isNull();
         }
 
         @Test
-        @DisplayName("should update all location fields correctly")
-        void shouldUpdateAllLocationFields() {
+        @DisplayName("should write only the store and leave the four tenancy ancestors untouched (T14/T18)")
+        void shouldWriteOnlyTheStoreAndLeaveTheFourAncestorsUntouched() {
             var countryId = UUID.randomUUID();
             var companyId = UUID.randomUUID();
             var regionId = UUID.randomUUID();
             var zoneId = UUID.randomUUID();
             var storeId = UUID.randomUUID();
-            var request = new ProfileUpdateRequest(null, null, null, countryId, companyId, regionId, zoneId, storeId);
+            var request = new ProfileUpdateRequest(null, null, null, storeId);
 
-            var prefs = UserPreferences.builder().keycloakUserId(USER_ID).build();
+            // The row already holds a chain the subject typed while the profile screen still offered it.
+            // The update must leave every one of those columns alone: they are not writable any more
+            // (T14) and they are not cleaned either (T18).
+            var prefs = UserPreferences.builder()
+                    .keycloakUserId(USER_ID)
+                    .companyCountryId(countryId)
+                    .companyId(companyId)
+                    .companyRegionId(regionId)
+                    .companyZoneId(zoneId)
+                    .build();
             when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
             when(userPreferencesRepository.save(any(UserPreferences.class))).thenReturn(prefs);
 
             var result = profileService.updateProfile(request);
 
-            assertThat(result.companyCountryId()).isEqualTo(countryId);
-            assertThat(result.companyId()).isEqualTo(companyId);
-            assertThat(result.companyRegionId()).isEqualTo(regionId);
-            assertThat(result.companyZoneId()).isEqualTo(zoneId);
             assertThat(result.companyStoreId()).isEqualTo(storeId);
+            assertThat(prefs.getCompanyStoreId()).isEqualTo(storeId);
+            assertThat(prefs.getCompanyCountryId()).isEqualTo(countryId);
+            assertThat(prefs.getCompanyId()).isEqualTo(companyId);
+            assertThat(prefs.getCompanyRegionId()).isEqualTo(regionId);
+            assertThat(prefs.getCompanyZoneId()).isEqualTo(zoneId);
+        }
+
+        @Test
+        @DisplayName("still accepts a request that carries no location at all, and clears nothing (T14 supersedes T22)")
+        void updateProfile_noLocationAtAll_leavesTheFourAncestorsUntouched() {
+            var countryId = UUID.randomUUID();
+            var companyId = UUID.randomUUID();
+            var prefs = UserPreferences.builder()
+                    .keycloakUserId(USER_ID)
+                    .companyCountryId(countryId)
+                    .companyId(companyId)
+                    .build();
+            when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
+            when(userPreferencesRepository.save(any(UserPreferences.class))).thenReturn(prefs);
+
+            // T14 supersedes T22: the four are not "free-form but unvalidated", they are not writable at
+            // all — a request cannot name one, and an update with no store leaves the row as it was.
+            var request = new ProfileUpdateRequest(null, null, null, null);
+            var result = profileService.updateProfile(request);
+
+            assertThat(result.companyStoreId()).isNull();
+            assertThat(prefs.getCompanyCountryId()).isEqualTo(countryId);
+            assertThat(prefs.getCompanyId()).isEqualTo(companyId);
         }
     }
 
@@ -290,7 +329,7 @@ class ProfileServiceTest {
             when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
             when(userPreferencesRepository.save(any(UserPreferences.class))).thenReturn(prefs);
 
-            var request = new ProfileUpdateRequest(null, null, null, null, null, null, null, assignedStoreId);
+            var request = new ProfileUpdateRequest(null, null, null, assignedStoreId);
             var result = profileService.updateProfile(request);
 
             assertThat(result.companyStoreId()).isEqualTo(assignedStoreId);
@@ -307,7 +346,7 @@ class ProfileServiceTest {
             when(employeeStoreAssignmentService.getCurrentAssignmentsForEmployee(EMPLOYEE_ID))
                     .thenReturn(List.of(assignedStoreResponse(otherAssignedStoreId)));
 
-            var request = new ProfileUpdateRequest("NewFirst", null, null, null, null, null, null, requestedStoreId);
+            var request = new ProfileUpdateRequest("NewFirst", null, null, requestedStoreId);
 
             assertThatThrownBy(() -> profileService.updateProfile(request))
                     .isInstanceOf(ResourceNotFoundException.class)
@@ -326,7 +365,7 @@ class ProfileServiceTest {
             when(employeeStoreAssignmentService.getCurrentAssignmentsForEmployee(EMPLOYEE_ID))
                     .thenReturn(List.of());
 
-            var request = new ProfileUpdateRequest(null, null, null, null, null, null, null, requestedStoreId);
+            var request = new ProfileUpdateRequest(null, null, null, requestedStoreId);
 
             assertThatThrownBy(() -> profileService.updateProfile(request))
                     .isInstanceOf(ResourceNotFoundException.class)
@@ -335,7 +374,7 @@ class ProfileServiceTest {
         }
 
         @Test
-        @DisplayName("leaves the four cascade fields unvalidated (T22)")
+        @DisplayName("accepts a null store alongside a stored chain, and reports no chain (T14 supersedes T22)")
         void updateProfile_cascadeFieldsAreNotConstrained() {
             var assignedStoreId = UUID.randomUUID();
             when(employeeRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(employeeRow()));
@@ -345,55 +384,46 @@ class ProfileServiceTest {
             when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
             when(userPreferencesRepository.save(any(UserPreferences.class))).thenReturn(prefs);
 
-            // Only companyStoreId is constrained: the chain is scaffolding, not a second answer to
-            // "which store am I in", so arbitrary ancestors are accepted alongside a null store.
-            var request = new ProfileUpdateRequest(
-                    null, null, null, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), null);
+            // T22 said only companyStoreId is constrained while the four stay free-form. T14 removes the
+            // premise: there is no request field to be free-form, so what is left to pin is that a
+            // request with no store touches none of the four columns and reports no store.
+            var request = new ProfileUpdateRequest(null, null, null, null);
             var result = profileService.updateProfile(request);
 
-            assertThat(result.companyCountryId()).isEqualTo(request.companyCountryId());
-            assertThat(result.companyId()).isEqualTo(request.companyId());
-            assertThat(result.companyRegionId()).isEqualTo(request.companyRegionId());
-            assertThat(result.companyZoneId()).isEqualTo(request.companyZoneId());
             assertThat(result.companyStoreId()).isNull();
+            assertThat(prefs.getCompanyCountryId()).isNull();
+            assertThat(prefs.getCompanyId()).isNull();
+            assertThat(prefs.getCompanyRegionId()).isNull();
+            assertThat(prefs.getCompanyZoneId()).isNull();
         }
 
         @Test
-        @DisplayName("accepts an assigned store plus arbitrary ancestor ids, storing the ancestors verbatim (T22)")
+        @DisplayName(
+                "accepts an assigned store and writes only that store, leaving the ancestors alone (T14 supersedes T22)")
         void updateProfile_assignedStoreAndArbitraryAncestors_areStoredVerbatim() {
             var assignedStoreId = UUID.randomUUID();
+            var countryId = UUID.randomUUID();
+            var companyId = UUID.randomUUID();
             when(employeeRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(employeeRow()));
             when(employeeStoreAssignmentService.getCurrentAssignmentsForEmployee(EMPLOYEE_ID))
                     .thenReturn(List.of(assignedStoreResponse(assignedStoreId)));
-            var prefs = UserPreferences.builder().keycloakUserId(USER_ID).build();
+            // A chain the subject typed while the profile screen still offered it: the update writes the
+            // store and leaves every one of these columns untouched (T14), and cleans none of them (T18).
+            var prefs = UserPreferences.builder()
+                    .keycloakUserId(USER_ID)
+                    .companyCountryId(countryId)
+                    .companyId(companyId)
+                    .build();
             when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
             when(userPreferencesRepository.save(any(UserPreferences.class))).thenReturn(prefs);
 
-            // T22: only companyStoreId is constrained; the four cascade fields stay free-form, so a
-            // valid store with arbitrary ancestors is accepted exactly as supplied.
-            var request = new ProfileUpdateRequest(
-                    null,
-                    null,
-                    null,
-                    UUID.randomUUID(),
-                    UUID.randomUUID(),
-                    UUID.randomUUID(),
-                    UUID.randomUUID(),
-                    assignedStoreId);
+            var request = new ProfileUpdateRequest(null, null, null, assignedStoreId);
             var result = profileService.updateProfile(request);
 
             assertThat(result.companyStoreId()).isEqualTo(assignedStoreId);
-            assertThat(result.companyCountryId()).isEqualTo(request.companyCountryId());
-            assertThat(result.companyId()).isEqualTo(request.companyId());
-            assertThat(result.companyRegionId()).isEqualTo(request.companyRegionId());
-            assertThat(result.companyZoneId()).isEqualTo(request.companyZoneId());
-
-            // Stored verbatim: the four ancestors reach the column untouched (T22).
             assertThat(prefs.getCompanyStoreId()).isEqualTo(assignedStoreId);
-            assertThat(prefs.getCompanyCountryId()).isEqualTo(request.companyCountryId());
-            assertThat(prefs.getCompanyId()).isEqualTo(request.companyId());
-            assertThat(prefs.getCompanyRegionId()).isEqualTo(request.companyRegionId());
-            assertThat(prefs.getCompanyZoneId()).isEqualTo(request.companyZoneId());
+            assertThat(prefs.getCompanyCountryId()).isEqualTo(countryId);
+            assertThat(prefs.getCompanyId()).isEqualTo(companyId);
         }
 
         @Test
@@ -404,7 +434,7 @@ class ProfileServiceTest {
             when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
             when(userPreferencesRepository.save(any(UserPreferences.class))).thenReturn(prefs);
 
-            var request = new ProfileUpdateRequest(null, null, null, null, null, null, null, storeId);
+            var request = new ProfileUpdateRequest(null, null, null, storeId);
             var result = profileService.updateProfile(request);
 
             assertThat(result.companyStoreId()).isEqualTo(storeId);
@@ -488,7 +518,7 @@ class ProfileServiceTest {
             when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
             when(userPreferencesRepository.save(any(UserPreferences.class))).thenReturn(prefs);
 
-            var request = new ProfileUpdateRequest(null, null, null, null, null, null, null, null);
+            var request = new ProfileUpdateRequest(null, null, null, null);
             var result = profileService.updateProfile(request);
 
             assertThat(result.companyStoreId()).isNull();

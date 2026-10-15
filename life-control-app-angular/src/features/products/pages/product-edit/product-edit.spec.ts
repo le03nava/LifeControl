@@ -132,10 +132,6 @@ describe('ProductEdit', () => {
       email: 'operator@lifecontrol.test',
       firstName: 'Oper',
       lastName: 'Ator',
-      companyId: 'company-1',
-      companyCountryId: 'cc-1',
-      companyRegionId: 'region-1',
-      companyZoneId: 'zone-1',
       companyStoreId,
       assignedStores: null,
     };

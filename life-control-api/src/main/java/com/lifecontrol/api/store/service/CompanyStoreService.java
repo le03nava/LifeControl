@@ -129,6 +129,46 @@ public class CompanyStoreService {
         return toResponse(store);
     }
 
+    /**
+     * Flat, id-addressed read of one store, for the callers that hold a store id and nothing else.
+     *
+     * <p>Its three consumers are the profile's free-mode cascade, the purchase-order cascade and the
+     * sales-order create screen (W3/`T20` of {@code company-scope-local-fallback}), which is why the
+     * chain is resolved from the store's own JPA associations instead of from a path the caller cannot
+     * supply. Access goes through the same {@link CurrentUserContext#verifyCompanyStoreAccess} every
+     * store path uses, and a denial is reported as <b>not found</b> with a logged warning — the idiom
+     * {@code StoreLocationService#getLocationById(UUID)} already applies, because an id supplied by the
+     * caller must not disclose the existence of a store they cannot reach.</p>
+     *
+     * @throws CompanyStoreNotFoundException when the store does not exist, or when the current user
+     *     cannot reach it
+     */
+    @Transactional(readOnly = true)
+    public CompanyStoreResponse getStoreById(UUID storeId) {
+        var store =
+                companyStoreRepository.findById(storeId).orElseThrow(() -> new CompanyStoreNotFoundException(storeId));
+
+        var zone = store.getCompanyZone();
+        var region = zone.getCompanyRegion();
+        var companyCountry = region.getCompanyCountry();
+        try {
+            currentUserContext.verifyCompanyStoreAccess(
+                    companyCountry.getCompany().getId(),
+                    companyCountry.getId(),
+                    region.getId(),
+                    zone.getId(),
+                    store.getId());
+        } catch (AccessDeniedException ex) {
+            logger.warn(
+                    "Store access denied for id={} and actor={}; reporting as not found",
+                    storeId,
+                    currentUserContext.getUserId());
+            throw new CompanyStoreNotFoundException(storeId);
+        }
+
+        return toResponse(store);
+    }
+
     @Transactional
     public CompanyStoreResponse createStore(
             UUID companyId, UUID companyCountryId, UUID regionId, UUID zoneId, CreateCompanyStoreRequest request) {

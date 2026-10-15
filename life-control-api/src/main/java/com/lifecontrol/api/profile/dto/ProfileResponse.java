@@ -18,6 +18,15 @@ import java.util.UUID;
  * <b>possibly empty</b>, when they do, in which case the store preference is constrained to exactly
  * those. Each element carries the assigned store and the ancestor chain the token will derive from
  * it, so the client can label the option and post a coherent tuple without a second read.</p>
+ *
+ * <p>The four tenancy ancestors — {@code companyCountryId}, {@code companyId}, {@code companyRegionId}
+ * and {@code companyZoneId} — are <b>deliberately absent</b> since 2026-10-14 (W3 of
+ * {@code company-scope-local-fallback}, its T14): the profile screen was the only writer they ever
+ * had and it no longer writes them, so echoing them back would return a value nothing asserts. They
+ * never fed an authorization decision — {@code CurrentUserContext} reads the token's claims, which the
+ * access projection materialises — which is why removing them is a <b>contract</b> change and not a
+ * permission one. The chain a caller needs in order to label a store travels inside
+ * {@link AssignedStore}, or is resolved from the store id by the caller.</p>
  */
 public record ProfileResponse(
         String keycloakUserId,
@@ -25,10 +34,6 @@ public record ProfileResponse(
         String email,
         String firstName,
         String lastName,
-        UUID companyCountryId,
-        UUID companyId,
-        UUID companyRegionId,
-        UUID companyZoneId,
         UUID companyStoreId,
         List<AssignedStore> assignedStores) {
 

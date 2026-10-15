@@ -62,100 +62,137 @@
     <p class="filter-error">{{ catalogueErrorMsg }}</p>
   }
 
-  @if (!selectedCompanyId()) {
-    <p class="empty-prompt">Seleccioná una empresa para gestionar sus empleados</p>
-  } @else {
-    @if (loading()) {
-      <p class="loading-text">Cargando empleados...</p>
-    } @else if (loadError(); as err) {
-      <div class="error-state">
-        <mat-icon fontIcon="error" />
-        <p>{{ err }}</p>
-        <button mat-stroked-button type="button" (click)="reloadList()">Reintentar</button>
-      </div>
-    } @else if (employees().length > 0) {
-      <mat-card appearance="outlined" class="table-card">
-        <mat-card-content>
-          <table mat-table [dataSource]="employees()">
-            <ng-container matColumnDef="employeeNumber">
-              <th mat-header-cell *matHeaderCellDef>Número</th>
-              <td mat-cell *matCellDef="let row">{{ row.employeeNumber }}</td>
-            </ng-container>
+  <!--
+    T96: the pending-decisions inbox is a tab beside the list, rendered only for a caller holding
+    ACCESS_READ_ROLES. For anyone else there is no tab at all and no layout change — the list is
+    exactly what it was, because the queue endpoint carries that role's @PreAuthorize and would
+    answer 403. The company selector above drives both tabs.
+  -->
+  @if (canReadAccess) {
+    <mat-tab-group>
+      <mat-tab label="Empleados">
+        <ng-container [ngTemplateOutlet]="employeesTab" />
+      </mat-tab>
 
-            <ng-container matColumnDef="fullName">
-              <th mat-header-cell *matHeaderCellDef>Nombre completo</th>
-              <td mat-cell *matCellDef="let row">{{ fullName(row) }}</td>
-            </ng-container>
-
-            <ng-container matColumnDef="email">
-              <th mat-header-cell *matHeaderCellDef>Correo</th>
-              <td mat-cell *matCellDef="let row">{{ row.email }}</td>
-            </ng-container>
-
-            <ng-container matColumnDef="status">
-              <th mat-header-cell *matHeaderCellDef>Estado</th>
-              <td mat-cell *matCellDef="let row">
-                <span class="badge status">{{ statusLabel(row) }}</span>
-              </td>
-            </ng-container>
-
-            <ng-container matColumnDef="hireDate">
-              <th mat-header-cell *matHeaderCellDef>Fecha de ingreso</th>
-              <td mat-cell *matCellDef="let row">{{ row.hireDate }}</td>
-            </ng-container>
-
-            <ng-container matColumnDef="actions">
-              <th mat-header-cell *matHeaderCellDef>Acciones</th>
-              <td mat-cell *matCellDef="let row">
-                <!-- Read-only detail: offered to every caller, outside the write gate. -->
-                <button mat-icon-button type="button" (click)="onView(row)" aria-label="Ver">
-                  <mat-icon>visibility</mat-icon>
-                </button>
-                @if (canWrite) {
-                  <button mat-icon-button type="button" (click)="onEdit(row)" aria-label="Editar">
-                    <mat-icon>edit</mat-icon>
-                  </button>
-                  @if (row.enabled) {
-                    <button
-                      mat-icon-button
-                      color="warn"
-                      type="button"
-                      (click)="onDisable(row)"
-                      aria-label="Deshabilitar"
-                    >
-                      <mat-icon>block</mat-icon>
-                    </button>
-                  } @else {
-                    <button
-                      mat-icon-button
-                      color="primary"
-                      type="button"
-                      (click)="onEnable(row)"
-                      aria-label="Habilitar"
-                    >
-                      <mat-icon>restart_alt</mat-icon>
-                    </button>
-                  }
-                }
-              </td>
-            </ng-container>
-
-            <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
-            <tr mat-row *matRowDef="let row; columns: displayedColumns"></tr>
-          </table>
-        </mat-card-content>
-      </mat-card>
-    } @else {
-      <div class="empty-state">
-        @if (hasActiveFilters()) {
-          <h3 class="empty-title">No hay coincidencias con los filtros aplicados</h3>
-        } @else {
-          <h3 class="empty-title">No hay empleados registrados</h3>
-          @if (canWrite) {
-            <p class="empty-subtitle">Clic en "Nuevo empleado" para crear el primero</p>
+      <mat-tab label="Solicitudes">
+        <div class="tab-content">
+          @if (queueActionError(); as queueErr) {
+            <app-error-banner class="error-state" [message]="queueErr" />
           }
-        }
-      </div>
-    }
+          @if (!selectedCompanyId()) {
+            <p class="empty-prompt">Seleccioná una empresa para ver sus solicitudes pendientes</p>
+          } @else {
+            <app-access-requests-list
+              [entries]="queueEntries()"
+              [loading]="queueLoading()"
+              [error]="queueError()"
+              (retry)="reloadQueue()"
+              (reviewRequested)="onReviewRequested($event)"
+            />
+          }
+        </div>
+      </mat-tab>
+    </mat-tab-group>
+  } @else {
+    <ng-container [ngTemplateOutlet]="employeesTab" />
   }
+
+  <ng-template #employeesTab>
+    @if (!selectedCompanyId()) {
+      <p class="empty-prompt">Seleccioná una empresa para gestionar sus empleados</p>
+    } @else {
+      @if (loading()) {
+        <p class="loading-text">Cargando empleados...</p>
+      } @else if (loadError(); as err) {
+        <div class="error-state">
+          <mat-icon fontIcon="error" />
+          <p>{{ err }}</p>
+          <button mat-stroked-button type="button" (click)="reloadList()">Reintentar</button>
+        </div>
+      } @else if (employees().length > 0) {
+        <mat-card appearance="outlined" class="table-card">
+          <mat-card-content>
+            <table mat-table [dataSource]="employees()">
+              <ng-container matColumnDef="employeeNumber">
+                <th mat-header-cell *matHeaderCellDef>Número</th>
+                <td mat-cell *matCellDef="let row">{{ row.employeeNumber }}</td>
+              </ng-container>
+
+              <ng-container matColumnDef="fullName">
+                <th mat-header-cell *matHeaderCellDef>Nombre completo</th>
+                <td mat-cell *matCellDef="let row">{{ fullName(row) }}</td>
+              </ng-container>
+
+              <ng-container matColumnDef="email">
+                <th mat-header-cell *matHeaderCellDef>Correo</th>
+                <td mat-cell *matCellDef="let row">{{ row.email }}</td>
+              </ng-container>
+
+              <ng-container matColumnDef="status">
+                <th mat-header-cell *matHeaderCellDef>Estado</th>
+                <td mat-cell *matCellDef="let row">
+                  <span class="badge status">{{ statusLabel(row) }}</span>
+                </td>
+              </ng-container>
+
+              <ng-container matColumnDef="hireDate">
+                <th mat-header-cell *matHeaderCellDef>Fecha de ingreso</th>
+                <td mat-cell *matCellDef="let row">{{ row.hireDate }}</td>
+              </ng-container>
+
+              <ng-container matColumnDef="actions">
+                <th mat-header-cell *matHeaderCellDef>Acciones</th>
+                <td mat-cell *matCellDef="let row">
+                  <!-- Read-only detail: offered to every caller, outside the write gate. -->
+                  <button mat-icon-button type="button" (click)="onView(row)" aria-label="Ver">
+                    <mat-icon>visibility</mat-icon>
+                  </button>
+                  @if (canWrite) {
+                    <button mat-icon-button type="button" (click)="onEdit(row)" aria-label="Editar">
+                      <mat-icon>edit</mat-icon>
+                    </button>
+                    @if (row.enabled) {
+                      <button
+                        mat-icon-button
+                        color="warn"
+                        type="button"
+                        (click)="onDisable(row)"
+                        aria-label="Deshabilitar"
+                      >
+                        <mat-icon>block</mat-icon>
+                      </button>
+                    } @else {
+                      <button
+                        mat-icon-button
+                        color="primary"
+                        type="button"
+                        (click)="onEnable(row)"
+                        aria-label="Habilitar"
+                      >
+                        <mat-icon>restart_alt</mat-icon>
+                      </button>
+                    }
+                  }
+                </td>
+              </ng-container>
+
+              <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+              <tr mat-row *matRowDef="let row; columns: displayedColumns"></tr>
+            </table>
+          </mat-card-content>
+        </mat-card>
+      } @else {
+        <div class="empty-state">
+          @if (hasActiveFilters()) {
+            <h3 class="empty-title">No hay coincidencias con los filtros aplicados</h3>
+          } @else {
+            <h3 class="empty-title">No hay empleados registrados</h3>
+            @if (canWrite) {
+              <p class="empty-subtitle">Clic en "Nuevo empleado" para crear el primero</p>
+            }
+          }
+        </div>
+      }
+    }
+  </ng-template>
 </div>

@@ -14,10 +14,6 @@ describe('ProfileService', () => {
     email: 'john@example.com',
     firstName: 'John',
     lastName: 'Doe',
-    companyCountryId: null,
-    companyId: null,
-    companyRegionId: null,
-    companyZoneId: null,
     companyStoreId: null,
     assignedStores: null,
   };
@@ -62,17 +58,16 @@ describe('ProfileService', () => {
       expect(profile.keycloakUserId).toBe('user-123');
     });
 
-    it('should return null location fields when user has no preferences', async () => {
+    it('should return a null store preference when the user has none (W3/T14)', async () => {
       const profilePromise = firstValueFrom(service.getProfile());
 
       const req = httpMock.expectOne((r) => r.url.includes('/profile'));
       req.flush(mockProfile);
 
       const profile = await profilePromise;
-      expect(profile.companyId).toBeNull();
-      expect(profile.companyCountryId).toBeNull();
-      expect(profile.companyRegionId).toBeNull();
-      expect(profile.companyZoneId).toBeNull();
+      // T14: the four tenancy ancestors are not part of the payload any more, so the store preference is
+      // the only location value this response reports. Their absence is a contract fact, not an assertion
+      // to restate — the type carries it.
       expect(profile.companyStoreId).toBeNull();
     });
   });
@@ -105,21 +100,13 @@ describe('ProfileService', () => {
       expect(profile.email).toBe('jane@example.com');
     });
 
-    it('should update location preferences', async () => {
+    it('should update the store preference and never a tenancy ancestor (W3/T14)', async () => {
       const update: ProfileUpdateRequest = {
-        companyId: 'comp-1',
-        companyCountryId: 'cc-1',
-        companyRegionId: 'reg-1',
-        companyZoneId: 'zone-1',
         companyStoreId: 'store-1',
       };
 
       const updatedProfile: ProfileResponse = {
         ...mockProfile,
-        companyId: 'comp-1',
-        companyCountryId: 'cc-1',
-        companyRegionId: 'reg-1',
-        companyZoneId: 'zone-1',
         companyStoreId: 'store-1',
       };
 
@@ -130,8 +117,6 @@ describe('ProfileService', () => {
       req.flush(updatedProfile);
 
       const profile = await updatePromise;
-      expect(profile.companyId).toBe('comp-1');
-      expect(profile.companyCountryId).toBe('cc-1');
       expect(profile.companyStoreId).toBe('store-1');
     });
 
@@ -150,12 +135,8 @@ describe('ProfileService', () => {
       expect(profile.email).toBe('new@example.com');
     });
 
-    it('should clear location preferences by sending null', async () => {
+    it('should clear the store preference by sending null (W3/T16)', async () => {
       const update: ProfileUpdateRequest = {
-        companyId: null,
-        companyCountryId: null,
-        companyRegionId: null,
-        companyZoneId: null,
         companyStoreId: null,
       };
 
@@ -166,7 +147,7 @@ describe('ProfileService', () => {
       req.flush(mockProfile);
 
       const profile = await updatePromise;
-      expect(profile.companyId).toBeNull();
+      expect(profile.companyStoreId).toBeNull();
     });
   });
 });

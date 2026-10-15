@@ -504,4 +504,66 @@ class KeycloakIdentityProviderTest {
                     .hasMessageContaining("Failed to find users by email");
         }
     }
+
+    @Nested
+    @DisplayName("findUserDisplayName")
+    class FindUserDisplayNameTests {
+
+        private UserResource userResource;
+
+        @BeforeEach
+        void setUp() {
+            userResource = mock(UserResource.class);
+            when(realmResource.users()).thenReturn(usersResource);
+            when(usersResource.get(USER_ID)).thenReturn(userResource);
+        }
+
+        @Test
+        @DisplayName("should join the trimmed first and last name")
+        void shouldJoinTheTrimmedName() {
+            var representation = new UserRepresentation();
+            representation.setFirstName("  Ada ");
+            representation.setLastName("Lovelace");
+            when(userResource.toRepresentation()).thenReturn(representation);
+
+            assertThat(provider.findUserDisplayName(USER_ID)).contains("Ada Lovelace");
+        }
+
+        @Test
+        @DisplayName("should fall back to the username when the user carries no name")
+        void shouldFallBackToTheUsername() {
+            var representation = new UserRepresentation();
+            representation.setUsername("adoe");
+            when(userResource.toRepresentation()).thenReturn(representation);
+
+            assertThat(provider.findUserDisplayName(USER_ID)).contains("adoe");
+        }
+
+        @Test
+        @DisplayName("should answer an empty result for a user with neither name nor username")
+        void shouldAnswerEmptyWhenThereIsNoNameAtAll() {
+            when(userResource.toRepresentation()).thenReturn(new UserRepresentation());
+
+            assertThat(provider.findUserDisplayName(USER_ID)).isEmpty();
+        }
+
+        @Test
+        @DisplayName("should map a missing user to an empty result rather than a throw")
+        void shouldMapNotFoundToAnEmptyResult() {
+            when(userResource.toRepresentation()).thenThrow(new NotFoundException("User not found"));
+
+            assertThat(provider.findUserDisplayName(USER_ID)).isEmpty();
+        }
+
+        @Test
+        @DisplayName("should map ProcessingException to IdentityProviderConnectionException, never to an empty result")
+        void shouldMapConnectionFailureToAThrow() {
+            when(userResource.toRepresentation()).thenThrow(new ProcessingException("Connection refused"));
+
+            assertThatThrownBy(() -> provider.findUserDisplayName(USER_ID))
+                    .isInstanceOf(IdentityProviderConnectionException.class)
+                    .hasCauseInstanceOf(ProcessingException.class)
+                    .hasMessageContaining("Failed to find user by id");
+        }
+    }
 }

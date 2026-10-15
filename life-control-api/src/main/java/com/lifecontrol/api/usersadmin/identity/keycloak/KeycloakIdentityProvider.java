@@ -17,6 +17,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.keycloak.admin.client.Keycloak;
 import org.keycloak.representations.idm.GroupRepresentation;
 import org.keycloak.representations.idm.RoleRepresentation;
@@ -467,6 +469,38 @@ public class KeycloakIdentityProvider implements IdentityProvider {
         } catch (ProcessingException e) {
             throw new IdentityProviderConnectionException("Failed to find users by email: " + email, e);
         }
+    }
+
+    @Override
+    public Optional<String> findUserDisplayName(String userId) {
+        try {
+            return Optional.ofNullable(
+                    displayNameOf(keycloak.realm(realm()).users().get(userId).toRepresentation()));
+        } catch (NotFoundException e) {
+            return Optional.empty();
+        } catch (ProcessingException e) {
+            throw new IdentityProviderConnectionException("Failed to find user by id: " + userId, e);
+        }
+    }
+
+    /**
+     * The display name one representation carries: the full name when either half is present, and the
+     * username otherwise. A user with neither answers {@code null}, which the caller reads as "no name
+     * to show" rather than as an empty string — the read surface renders the actor id instead (record
+     * T93, gap G42).
+     */
+    private static String displayNameOf(UserRepresentation user) {
+        var first = user.getFirstName();
+        var last = user.getLastName();
+        var full = Stream.of(first, last)
+                .filter(part -> part != null && !part.isBlank())
+                .map(String::trim)
+                .collect(Collectors.joining(" "));
+        if (!full.isBlank()) {
+            return full;
+        }
+        var username = user.getUsername();
+        return username == null || username.isBlank() ? null : username;
     }
 
     // ---------------------------------------------------------------

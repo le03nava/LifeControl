@@ -23,7 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Orchestrates profile read/update across Keycloak (identity) and
- * the local {@code user_preferences} table (location hierarchy).
+ * the local {@code user_preferences} table (the store preference).
  */
 @Service
 @Transactional
@@ -81,10 +81,6 @@ public class ProfileService {
                 claims.email(),
                 claims.firstName(),
                 claims.lastName(),
-                preferences.getCompanyCountryId(),
-                preferences.getCompanyId(),
-                preferences.getCompanyRegionId(),
-                preferences.getCompanyZoneId(),
                 resolveStorePreference(preferences.getCompanyStoreId(), assignedStores),
                 assignedStores.map(ProfileService::toAssignedStores).orElse(null));
     }
@@ -100,6 +96,13 @@ public class ProfileService {
      * before the preferences row, so validating at the preference step would leave a refused request
      * with the name and email already changed. The refusal and the effective-value rule both come
      * from the same single read of the current assignments.</p>
+     *
+     * <p><b>What this path deliberately does not write</b> (T14 of {@code company-scope-local-fallback}):
+     * the four tenancy ancestors. They were copied straight from the request with no validation of any
+     * kind — which is what made the profile screen the escalation that record exists to remove — and
+     * since the access projection materialises the chain in Keycloak (D1 = A) there is nothing left for
+     * a subject to assert here. The columns stay in the row (T18); this method simply stops filling
+     * them.</p>
      */
     public ProfileResponse updateProfile(ProfileUpdateRequest request) {
         var userId = currentUserContext.getUserId();
@@ -125,24 +128,16 @@ public class ProfileService {
             identityProvider.updateUser(userId, userRep);
         }
 
-        // 2. Create or update user_preferences
+        // 2. Create or update user_preferences. The store preference is the only location column this
+        //    path still writes (T14 of `company-scope-local-fallback`): the four tenancy ancestors are
+        //    authorization inputs, and the subject of that decision is the last party who may assert
+        //    one, so the screen stopped writing them and this service followed. The columns survive in
+        //    the entity (T18) and nothing reads them for authorization (E10).
         var preferences = userPreferencesRepository
                 .findByKeycloakUserId(userId)
                 .orElseGet(
                         () -> UserPreferences.builder().keycloakUserId(userId).build());
 
-        if (request.companyCountryId() != null) {
-            preferences.setCompanyCountryId(request.companyCountryId());
-        }
-        if (request.companyId() != null) {
-            preferences.setCompanyId(request.companyId());
-        }
-        if (request.companyRegionId() != null) {
-            preferences.setCompanyRegionId(request.companyRegionId());
-        }
-        if (request.companyZoneId() != null) {
-            preferences.setCompanyZoneId(request.companyZoneId());
-        }
         if (request.companyStoreId() != null) {
             preferences.setCompanyStoreId(request.companyStoreId());
         }
@@ -159,10 +154,6 @@ public class ProfileService {
                 claims.email(),
                 claims.firstName(),
                 claims.lastName(),
-                preferences.getCompanyCountryId(),
-                preferences.getCompanyId(),
-                preferences.getCompanyRegionId(),
-                preferences.getCompanyZoneId(),
                 resolveStorePreference(preferences.getCompanyStoreId(), assignedStores),
                 assignedStores.map(ProfileService::toAssignedStores).orElse(null));
     }

@@ -14,8 +14,10 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Self-service profile endpoint. Authenticated users can read and update
- * their own basic info (name, email via Keycloak) and location preferences
- * (country → company → region → zone → store via {@code user_preferences}).
+ * their own basic info (name, email via Keycloak) and their stored store
+ * preference (the single {@code companyStoreId} column of
+ * {@code user_preferences}); the four tenancy ancestors are neither accepted
+ * nor returned since W3 of {@code company-scope-local-fallback}.
  */
 @RestController
 @RequestMapping("/api/profile")

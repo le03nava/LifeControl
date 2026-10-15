@@ -38,6 +38,7 @@ class IdentityProviderTest {
             "deleteUserAttribute",
             "createGroup",
             "searchUsers",
+            "findUserDisplayName",
             "companyGroupExists",
             "findGroupIdByName",
             "deleteClientRole");

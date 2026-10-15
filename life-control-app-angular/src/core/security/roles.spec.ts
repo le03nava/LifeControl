@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import Keycloak from 'keycloak-js';
 import {
+  ACCESS_READ_ROLES,
   CLIENT_ID,
   CLIENT_ROLES,
   DEPARTMENT_WRITE_ROLES,
@@ -10,6 +11,7 @@ import {
   LC_ADMIN,
   LC_DEPARTMENT,
   LC_EMPLOYEE,
+  LC_EMPLOYEE_ACCESS,
   LC_POSITION,
   LC_SALES,
   LC_SENIORITY_LEVEL,
@@ -101,6 +103,24 @@ describe('roles', () => {
         ...EMPLOYEE_WRITE_ROLES,
       ]);
       expect([...HR_WRITE_ROLES].sort()).toEqual([...union].sort());
+    });
+  });
+
+  describe('LC_EMPLOYEE_ACCESS', () => {
+    it('should equal the wire role name', () => {
+      expect(LC_EMPLOYEE_ACCESS).toBe('lc-employee-access');
+    });
+
+    it('should be registered in CLIENT_ROLES', () => {
+      expect(CLIENT_ROLES).toContain(LC_EMPLOYEE_ACCESS);
+    });
+  });
+
+  describe('ACCESS_READ_ROLES', () => {
+    it('should be the flat [lc-admin, lc-employee-access] allow-list', () => {
+      // Literal wire strings, not the imported constants: AccessProvisioningController
+      // and AccessProvisioningQueueController match on these exact names.
+      expect(ACCESS_READ_ROLES).toEqual(['lc-admin', 'lc-employee-access']);
     });
   });
 

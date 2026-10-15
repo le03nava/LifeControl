@@ -138,23 +138,39 @@ export class CompanyCascadeService {
     });
   }
 
-  /** Rebuilds the cascade from the authenticated user's profile (create mode). */
+  /**
+   * Rebuilds the cascade from the authenticated user's profile (create mode).
+   *
+   * <p>It seeds from the stored store preference through the flat store read (`T20` of
+   * {@code company-scope-local-fallback}): the profile used to carry the four ancestors, and `T14`
+   * removed them from the wire because the only thing that ever wrote them was the subject's own
+   * profile screen. The chain has one source the caller cannot forge — the store row the server
+   * resolves and authorizes — so it is read from there.</p>
+   */
   reconstructFromProfile(): void {
     this.profileService
       .getProfile()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (profile) => {
-          if (!profile.companyId) {
+          const storeId = profile.companyStoreId;
+          if (!storeId) {
             return;
           }
-          this.reconstruct({
-            companyId: profile.companyId,
-            companyCountryId: profile.companyCountryId,
-            regionId: profile.companyRegionId,
-            zoneId: profile.companyZoneId,
-            companyStoreId: profile.companyStoreId,
-          });
+          this.companyStoreService
+            .getStoreById(storeId)
+            .pipe(takeUntilDestroyed(this.destroyRef))
+            .subscribe({
+              next: (store) =>
+                this.reconstruct({
+                  companyId: store.companyId,
+                  companyCountryId: store.companyCountryId,
+                  regionId: store.regionId,
+                  zoneId: store.zoneId,
+                  companyStoreId: store.id,
+                }),
+              // Silently fail — the cascade stays empty.
+            });
         },
         // Silently fail — the cascade stays empty.
       });
