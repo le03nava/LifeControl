@@ -1,10 +1,16 @@
 package com.lifecontrol.api.provisioning.service;
 
+import static com.lifecontrol.api.provisioning.model.AccessProvisioningRoleDirection.GRANT;
+import static com.lifecontrol.api.provisioning.model.AccessProvisioningRoleDirection.REVOKE;
 import static com.lifecontrol.api.provisioning.model.AccessProvisioningTaskKind.ACTIVATE;
 import static com.lifecontrol.api.provisioning.model.AccessProvisioningTaskStatus.FAILED;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -18,11 +24,15 @@ import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.hr.service.EmployeeStoreScope;
 import com.lifecontrol.api.provisioning.dto.AccessProvisioningClaims;
 import com.lifecontrol.api.provisioning.dto.AccessProvisioningTaskView;
+import com.lifecontrol.api.provisioning.model.AccessProvisioningReviewedRole;
+import com.lifecontrol.api.provisioning.model.AccessProvisioningRoleDirection;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTask;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTaskStatus;
+import com.lifecontrol.api.provisioning.repository.AccessProvisioningReviewedRoleRepository;
 import com.lifecontrol.api.provisioning.repository.AccessProvisioningTaskRepository;
 import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.usersadmin.identity.IdentityProvider;
+import com.lifecontrol.api.usersadmin.identity.IdentityProviderConnectionException;
 import com.lifecontrol.api.usersadmin.identity.RoleDto;
 import com.lifecontrol.api.usersadmin.identity.RoleScope;
 import java.time.LocalDateTime;
@@ -85,6 +95,9 @@ class AccessProvisioningQueryServiceTest {
     private AccessProvisioningTaskRepository taskRepository;
 
     @Mock
+    private AccessProvisioningReviewedRoleRepository reviewedRoleRepository;
+
+    @Mock
     private ProvisioningWorkerProperties provisioningWorkerProperties;
 
     @InjectMocks
@@ -122,6 +135,11 @@ class AccessProvisioningQueryServiceTest {
                 .email("jane.doe@acme.com")
                 .status(activeStatus())
                 .build();
+
+        // The read resolves every rendered actor's display name through the port; a mock answers
+        // null for an Optional-returning method, so the default is the port's own "no name" answer.
+        // Each test that cares about a name overrides it.
+        when(identityProvider.findUserDisplayName(anyString())).thenReturn(Optional.empty());
     }
 
     // --- fixtures ---
@@ -197,6 +215,35 @@ class AccessProvisioningQueryServiceTest {
 
     private void stubMaxAttempts() {
         when(provisioningWorkerProperties.maxAttempts()).thenReturn(MAX_ATTEMPTS);
+    }
+
+    private void stubReviewed(UUID frozenTaskId, AccessProvisioningReviewedRole... rows) {
+        when(reviewedRoleRepository.findByTaskIdOrderByRoleNameAsc(frozenTaskId))
+                .thenReturn(List.of(rows));
+    }
+
+    private void stubDisplayName(String userId, String displayName) {
+        when(identityProvider.findUserDisplayName(userId)).thenReturn(Optional.of(displayName));
+    }
+
+    private static AccessProvisioningReviewedRole reviewed(String roleName, AccessProvisioningRoleDirection direction) {
+        return AccessProvisioningReviewedRole.builder()
+                .roleName(roleName)
+                .direction(direction)
+                .build();
+    }
+
+    private AccessProvisioningTask taskWithRequester(UUID id, String requestedBy, AccessProvisioningTaskStatus status) {
+        return AccessProvisioningTask.builder()
+                .id(id)
+                .employee(linked)
+                .kind(ACTIVATE)
+                .status(status)
+                .attempts(0)
+                .requestedBy(requestedBy)
+                .requestedAt(LocalDateTime.of(2026, 10, 8, 9, 0))
+                .enabled(true)
+                .build();
     }
 
     // --- tests ---
@@ -404,5 +451,139 @@ class AccessProvisioningQueryServiceTest {
                 task(FAILED, MAX_ATTEMPTS, "older failure", null));
 
         assertThat(service.accessState(employeeId)).isEqualTo("PENDING");
+    }
+
+    // --- the frozen reviewed set of the open task (record T92, closing G33) ---
+
+    @Test
+    @DisplayName("the open task carries the set it froze for review, and the live diff stays a different fact")
+    void openTaskCarriesTheFrozenReviewedSetWhileTheLiveDiffStaysLive() {
+        stubEmployee(linked);
+        stubRequired("lc-sales");
+        stubCurrentRoles("lc-receiving");
+        stubMembership(scope(companyId));
+        stubMaxAttempts();
+        stubTasks(task(AccessProvisioningTaskStatus.APPROVAL_PENDING, 0, null, null));
+        stubReviewed(taskId, reviewed("lc-company", GRANT), reviewed("lc-sales", REVOKE));
+
+        var overview = service.getAccessOverview(companyId, employeeId);
+
+        assertThat(overview.frozenRoleDiff()).isNotNull();
+        assertThat(overview.frozenRoleDiff().added()).containsExactly("lc-company");
+        assertThat(overview.frozenRoleDiff().removed()).containsExactly("lc-sales");
+        assertThat(overview.roleDiff().added()).containsExactly("lc-sales");
+        assertThat(overview.roleDiff().removed()).containsExactly("lc-receiving");
+        verify(reviewedRoleRepository).findByTaskIdOrderByRoleNameAsc(taskId);
+    }
+
+    @Test
+    @DisplayName("the frozen set is null for an open task that never needed a reviewer")
+    void frozenSetIsNullWhenTheOpenTaskFrozeNothing() {
+        stubEmployee(linked);
+        stubRequired("lc-sales");
+        stubCurrentRoles();
+        stubMembership(scope(companyId));
+        stubMaxAttempts();
+        stubTasks(task(AccessProvisioningTaskStatus.PENDING, 0, null, null));
+        stubReviewed(taskId);
+
+        var overview = service.getAccessOverview(companyId, employeeId);
+
+        assertThat(overview.frozenRoleDiff()).isNull();
+        assertThat(overview.roleDiff().added()).containsExactly("lc-sales");
+    }
+
+    @Test
+    @DisplayName("the frozen set belongs to the open task: a terminal history is never asked for one")
+    void frozenSetIsNullWhenNoTaskIsOpen() {
+        stubEmployee(linked);
+        stubRequired("lc-sales");
+        stubCurrentRoles();
+        stubMembership(scope(companyId));
+        stubMaxAttempts();
+        stubTasks(task(AccessProvisioningTaskStatus.APPLIED, 1, null, null));
+
+        var overview = service.getAccessOverview(companyId, employeeId);
+
+        assertThat(overview.openTask()).isNull();
+        assertThat(overview.frozenRoleDiff()).isNull();
+        verifyNoInteractions(reviewedRoleRepository);
+    }
+
+    @Test
+    @DisplayName("the requester's name is resolved once per distinct actor, not once per task")
+    void requesterNameIsResolvedOncePerDistinctActor() {
+        stubEmployee(linked);
+        stubRequired("lc-sales");
+        stubCurrentRoles();
+        stubMembership(scope(companyId));
+        stubMaxAttempts();
+        stubTasks(
+                taskWithRequester(UUID.randomUUID(), "actor-1", AccessProvisioningTaskStatus.APPLIED),
+                taskWithRequester(taskId, "actor-1", FAILED),
+                taskWithRequester(UUID.randomUUID(), "actor-2", AccessProvisioningTaskStatus.APPLIED));
+        stubDisplayName("actor-1", "Ada Lovelace");
+        stubDisplayName("actor-2", "Grace Hopper");
+
+        var overview = service.getAccessOverview(companyId, employeeId);
+
+        assertThat(overview.history())
+                .extracting(AccessProvisioningTaskView::requestedByName)
+                .containsExactly("Ada Lovelace", "Ada Lovelace", "Grace Hopper");
+        assertThat(overview.openTask().requestedByName()).isEqualTo("Ada Lovelace");
+        verify(identityProvider, times(1)).findUserDisplayName("actor-1");
+        verify(identityProvider, times(1)).findUserDisplayName("actor-2");
+    }
+
+    @Test
+    @DisplayName("an actor the provider no longer knows keeps its id and carries no name")
+    void unknownRequesterKeepsTheActorIdAndCarriesNoName() {
+        stubEmployee(linked);
+        stubRequired("lc-sales");
+        stubCurrentRoles();
+        stubMembership(scope(companyId));
+        stubMaxAttempts();
+        stubTasks(taskWithRequester(taskId, "ghost-actor", FAILED));
+
+        var overview = service.getAccessOverview(companyId, employeeId);
+
+        assertThat(overview.openTask().requestedBy()).isEqualTo("ghost-actor");
+        assertThat(overview.openTask().requestedByName()).isNull();
+        verify(identityProvider).findUserDisplayName("ghost-actor");
+    }
+
+    // --- the requester's name: the two edges the happy path cannot show (record T93) ---
+
+    @Test
+    @DisplayName("a blank actor is never asked of the port")
+    void blankActorNeverReachesThePort() {
+        stubEmployee(linked);
+        stubRequired("lc-sales");
+        stubCurrentRoles();
+        stubMembership(scope(companyId));
+        stubMaxAttempts();
+        stubTasks(taskWithRequester(taskId, "   ", FAILED));
+
+        var overview = service.getAccessOverview(companyId, employeeId);
+
+        assertThat(overview.openTask().requestedByName()).isNull();
+        assertThat(overview.openTask().requestedBy()).isEqualTo("   ");
+        verify(identityProvider, never()).findUserDisplayName(any());
+    }
+
+    @Test
+    @DisplayName("a provider failure propagates instead of becoming a nameless row")
+    void providerFailurePropagates() {
+        stubEmployee(linked);
+        stubRequired("lc-sales");
+        stubCurrentRoles();
+        stubMembership(scope(companyId));
+        stubMaxAttempts();
+        stubTasks(taskWithRequester(taskId, "actor-1", FAILED));
+        when(identityProvider.findUserDisplayName("actor-1"))
+                .thenThrow(new IdentityProviderConnectionException("keycloak is unreachable", new RuntimeException()));
+
+        assertThatThrownBy(() -> service.getAccessOverview(companyId, employeeId))
+                .isInstanceOf(IdentityProviderConnectionException.class);
     }
 }

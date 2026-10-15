@@ -98,6 +98,7 @@ class AccessProvisioningControllerTest {
                 "keycloak is unreachable",
                 null,
                 "operator",
+                "Ada Lovelace",
                 LocalDateTime.now(),
                 null,
                 null,
@@ -112,6 +113,7 @@ class AccessProvisioningControllerTest {
                 Set.of("lc-company", "lc-sales"),
                 Set.of("lc-sales"),
                 new AccessProvisioningRoleDiff(Set.of("lc-company"), Set.of()),
+                new AccessProvisioningRoleDiff(Set.of("lc-company"), Set.of("lc-receiving")),
                 openTask,
                 List.of(openTask),
                 claims);
@@ -132,6 +134,10 @@ class AccessProvisioningControllerTest {
                 .andExpect(jsonPath("$.currentRoles[0]").value("lc-sales"))
                 .andExpect(jsonPath("$.roleDiff.added[0]").value("lc-company"))
                 .andExpect(jsonPath("$.roleDiff.removed").isEmpty())
+                .andExpect(jsonPath("$.frozenRoleDiff.added[0]").value("lc-company"))
+                .andExpect(jsonPath("$.frozenRoleDiff.removed[0]").value("lc-receiving"))
+                .andExpect(jsonPath("$.openTask.requestedBy").value("operator"))
+                .andExpect(jsonPath("$.openTask.requestedByName").value("Ada Lovelace"))
                 .andExpect(jsonPath("$.openTask.kind").value("ACTIVATE"))
                 .andExpect(jsonPath("$.openTask.status").value("FAILED"))
                 .andExpect(jsonPath("$.openTask.attempts").value(1))

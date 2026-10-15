@@ -118,6 +118,7 @@ class AccessProvisioningControllerSecurityTest {
                 Set.of(),
                 new AccessProvisioningRoleDiff(Set.of(), Set.of()),
                 null,
+                null,
                 List.of(),
                 AccessProvisioningClaims.empty());
     }

@@ -22,6 +22,13 @@ import java.util.TreeSet;
  *       derivation the write path converges, and {@code currentRoles} is read live from the identity
  *       provider — never mirrored locally (record T7). {@code roleDiff} is the two sets'
  *       {@code added}/{@code removed} projection.</li>
+ *   <li><b>What did the reviewer actually freeze?</b> {@code frozenRoleDiff} is the set the open task
+ *       froze for review (record T92), and it is a <b>different fact</b> from {@code roleDiff}: the
+ *       live one is recomputed on every read, while the frozen one is what a human is being asked to
+ *       approve or refuse — so a decision is rendered against the frozen set and not against a diff
+ *       that moved after the request. It is {@code null} when no task is open, and also when the open
+ *       task carries no frozen rows (a task that never needed a human: the auto-applied ones). The
+ *       UI has to tell the two apart rather than render an empty set.</li>
  *   <li><b>What task is open?</b> {@code openTask} is the newest task in an open status, or
  *       {@code null} when none is open; {@code history} is the employee's tasks newest first.</li>
  *   <li><b>What would the token carry?</b> {@code claims} is the five tenancy claim values the
@@ -39,6 +46,9 @@ import java.util.TreeSet;
  * @param requiredRoles the roles the current contract's position template requires
  * @param currentRoles the account's live client roles; empty when the account is not linked
  * @param roleDiff the diff the convergence would apply
+ * @param frozenRoleDiff the set the open task froze for review ({@code GRANT} rows as
+ *     {@code added}, {@code REVOKE} rows as {@code removed}), or {@code null} when no task is open or
+ *     the open task froze nothing (record T92)
  * @param openTask the newest task in an open status, or {@code null} when none is open
  * @param history every task of the employee, newest first
  * @param claims the five tenancy claim values the account would publish
@@ -49,6 +59,7 @@ public record AccessProvisioningOverview(
         Set<String> requiredRoles,
         Set<String> currentRoles,
         AccessProvisioningRoleDiff roleDiff,
+        AccessProvisioningRoleDiff frozenRoleDiff,
         AccessProvisioningTaskView openTask,
         List<AccessProvisioningTaskView> history,
         AccessProvisioningClaims claims) {
