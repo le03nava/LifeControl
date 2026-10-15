@@ -445,6 +445,78 @@ class KeycloakIdentityProviderTest {
     }
 
     @Nested
+    @DisplayName("enableUser")
+    class EnableUserTests {
+
+        private UserResource userResource;
+
+        @BeforeEach
+        void setUp() {
+            userResource = mock(UserResource.class);
+            when(realmResource.users()).thenReturn(usersResource);
+            when(usersResource.get(USER_ID)).thenReturn(userResource);
+        }
+
+        @Test
+        @DisplayName("should read the current representation, flip enabled to true and preserve every other field")
+        void shouldReadModifyWriteAndPreserveOtherFields() {
+            var current = new UserRepresentation();
+            current.setId(USER_ID);
+            current.setUsername("jdoe");
+            current.setEmail("jdoe@example.com");
+            current.setFirstName("John");
+            current.setLastName("Doe");
+            current.setEnabled(false);
+            current.setAttributes(Map.of("company_id", List.of("uuid-123")));
+            when(userResource.toRepresentation()).thenReturn(current);
+
+            provider.enableUser(USER_ID);
+
+            var captor = ArgumentCaptor.forClass(UserRepresentation.class);
+            verify(userResource).update(captor.capture());
+            var updated = captor.getValue();
+            assertThat(updated.isEnabled()).isTrue();
+            assertThat(updated.getEmail()).isEqualTo("jdoe@example.com");
+            assertThat(updated.getAttributes()).containsEntry("company_id", List.of("uuid-123"));
+        }
+
+        @Test
+        @DisplayName("should write even when the account is already enabled, because the contract is unconditional")
+        void shouldWriteUnconditionallyWhenAlreadyEnabled() {
+            var current = new UserRepresentation();
+            current.setId(USER_ID);
+            current.setEnabled(true);
+            when(userResource.toRepresentation()).thenReturn(current);
+
+            provider.enableUser(USER_ID);
+
+            verify(userResource).update(any(UserRepresentation.class));
+        }
+
+        @Test
+        @DisplayName("should map NotFoundException to IdentityProviderNotFoundException")
+        void shouldMapNotFoundException() {
+            when(userResource.toRepresentation()).thenThrow(new NotFoundException("User not found"));
+
+            assertThatThrownBy(() -> provider.enableUser(USER_ID))
+                    .isInstanceOf(IdentityProviderNotFoundException.class)
+                    .hasCauseInstanceOf(NotFoundException.class)
+                    .hasMessageContaining("User not found");
+        }
+
+        @Test
+        @DisplayName("should map ProcessingException to IdentityProviderConnectionException")
+        void shouldMapProcessingException() {
+            when(userResource.toRepresentation()).thenThrow(new ProcessingException("Connection refused"));
+
+            assertThatThrownBy(() -> provider.enableUser(USER_ID))
+                    .isInstanceOf(IdentityProviderConnectionException.class)
+                    .hasCauseInstanceOf(ProcessingException.class)
+                    .hasMessageContaining("Failed to enable user");
+        }
+    }
+
+    @Nested
     @DisplayName("findUsersByEmail")
     class FindUsersByEmailTests {
 
