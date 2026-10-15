@@ -1,6 +1,12 @@
 import { Routes } from '@angular/router';
 import { keycloakRoleGuard } from '@core/guards/auth-keycloak-guard';
-import { CLIENT_ID, DEPARTMENT_WRITE_ROLES, EMPLOYEE_WRITE_ROLES, POSITION_WRITE_ROLES } from '@core/security/roles';
+import {
+  CLIENT_ID,
+  DEPARTMENT_WRITE_ROLES,
+  EMPLOYEE_WRITE_ROLES,
+  POSITION_WRITE_ROLES,
+  SENIORITY_LEVEL_WRITE_ROLES,
+} from '@core/security/roles';
 
 /**
  * Feature routes for `/hr`.
@@ -87,9 +93,9 @@ export const hrRoutes: Routes = [
       {
         // The global seniority-level catalog is a **secondary screen reached
         // from Puestos** (D5), not a fourth HR child: this repository's global
-        // catalogs carry no menu entry at all. This slice registers the read
-        // child; the `create` / `edit/:id` children arrive with the slice that
-        // ships the form they load.
+        // catalogs carry no menu entry at all. Both its read child and its own
+        // `create` / `edit/:id` children that load `SeniorityLevelEdit` are
+        // registered here, so the list's write controls have a destination.
         path: 'seniority-levels',
         children: [
           {
@@ -97,6 +103,24 @@ export const hrRoutes: Routes = [
             loadComponent: () =>
               import('./pages/seniority-level-list/seniority-level-list').then(
                 (m) => m.SeniorityLevelList,
+              ),
+          },
+          {
+            path: 'create',
+            canActivate: [keycloakRoleGuard],
+            data: { roles: SENIORITY_LEVEL_WRITE_ROLES, clientId: CLIENT_ID },
+            loadComponent: () =>
+              import('./pages/seniority-level-edit/seniority-level-edit').then(
+                (m) => m.SeniorityLevelEdit,
+              ),
+          },
+          {
+            path: 'edit/:id',
+            canActivate: [keycloakRoleGuard],
+            data: { roles: SENIORITY_LEVEL_WRITE_ROLES, clientId: CLIENT_ID },
+            loadComponent: () =>
+              import('./pages/seniority-level-edit/seniority-level-edit').then(
+                (m) => m.SeniorityLevelEdit,
               ),
           },
         ],

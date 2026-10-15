@@ -1,0 +1,70 @@
+<div class="seniority-level-edit-page">
+  <div class="form-card">
+    <h2>
+      @if (isEditMode()) {
+        Editar Nivel de Antigüedad
+      } @else {
+        Nuevo Nivel de Antigüedad
+      }
+    </h2>
+
+    @if (loadError(); as loadErrorMsg) {
+      <app-error-banner class="error-state" [message]="loadErrorMsg" />
+    }
+
+    @if (submitError(); as submitErrorMsg) {
+      <app-error-banner class="error-state" [message]="submitErrorMsg" />
+    }
+
+    <form [formGroup]="formGroup" (ngSubmit)="onSubmit()">
+      <mat-form-field appearance="outline">
+        <mat-label>Código</mat-label>
+        <input
+          matInput
+          type="text"
+          formControlName="levelCode"
+          placeholder="Ingrese el código (máx. 10 caracteres)"
+        />
+        @if (getErrorMessage(formGroup.controls.levelCode); as msg) {
+          <mat-error>{{ msg }}</mat-error>
+        }
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Nombre</mat-label>
+        <input
+          matInput
+          type="text"
+          formControlName="levelName"
+          placeholder="Ingrese el nombre del nivel"
+        />
+        @if (getErrorMessage(formGroup.controls.levelName); as msg) {
+          <mat-error>{{ msg }}</mat-error>
+        }
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Rango</mat-label>
+        <input matInput type="number" min="1" formControlName="rank" placeholder="1" />
+        @if (getErrorMessage(formGroup.controls.rank); as msg) {
+          <mat-error>{{ msg }}</mat-error>
+        }
+      </mat-form-field>
+
+      <div class="toggle-container">
+        <mat-slide-toggle formControlName="enabled">Activo</mat-slide-toggle>
+      </div>
+
+      <div class="form-actions">
+        <button mat-button type="button" (click)="onCancel()">Cancelar</button>
+        <button mat-flat-button color="primary" type="submit" [disabled]="loading()">
+          @if (isEditMode()) {
+            Actualizar
+          } @else {
+            Guardar
+          }
+        </button>
+      </div>
+    </form>
+  </div>
+</div>

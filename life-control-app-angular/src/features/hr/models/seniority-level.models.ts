@@ -1,3 +1,5 @@
+import { FormControl } from '@angular/forms';
+
 /**
  * Wire model of the global seniority-level catalog.
  *
@@ -33,4 +35,19 @@ export interface SeniorityLevelRequest {
   levelName: string;
   rank: number;
   enabled?: boolean;
+}
+
+/**
+ * Typed control map for the seniority-level edit form's `FormGroup`.
+ *
+ * `rank` is required and nullable at once for the same reason the other
+ * optional numbers in this feature are: an empty input must not become `NaN`.
+ * Here the empty case is not "no value" but "invalid", which is why the form
+ * marks it required and `min(1)` — the API accepts no rank below 1.
+ */
+export interface SeniorityLevelControl {
+  levelCode: FormControl<string>;
+  levelName: FormControl<string>;
+  rank: FormControl<number | null>;
+  enabled: FormControl<boolean>;
 }
