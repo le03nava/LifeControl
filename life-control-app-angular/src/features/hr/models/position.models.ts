@@ -85,3 +85,46 @@ export interface PositionControl {
   displayOrder: FormControl<number | null>;
   enabled: FormControl<boolean>;
 }
+
+/**
+ * One band of the settings editor, as the save submits it.
+ *
+ * Mirrors `PositionSalaryBandRequest`, which carries **no `enabled` field** by
+ * design: presence in the request list means enabled and omission means
+ * disabled, so "clear this level" has exactly one spelling (T10/D13) and the
+ * wire cannot accept an item the omission rule would immediately clear.
+ */
+export interface PositionSalaryBandRequest {
+  seniorityLevelId: string;
+  minimumSalary: number;
+  maximumSalary: number;
+}
+
+/**
+ * Write payload of the position's **complete** band set.
+ *
+ * The API replaces the position's whole set with this list: every submitted
+ * `(positionId, seniorityLevelId)` is upserted in place and every stored key the
+ * request omits is set `enabled = false` and **kept** (D13), never deleted. An
+ * empty list therefore clears the position's bands without removing a row.
+ */
+export interface PositionSalaryBandsRequest {
+  bands: PositionSalaryBandRequest[];
+}
+
+/**
+ * Typed control map of one row of the settings editor.
+ *
+ * Both amounts are nullable because the empty case is legal: a row with **no**
+ * amount is the level the operator wants without a band, and it is omitted from
+ * the save (which is what disables a previously stored one). A row with **one**
+ * amount is the invalid case the group validator refuses, so a half-filled row
+ * can never be silently dropped. There is no `enabled`/`configured` control on
+ * purpose: the wire has no such field, and a stored disabled row is not
+ * prefilled, so "this level has no band" and "this band is disabled" cannot be
+ * confused by a save that only touches the amounts.
+ */
+export interface PositionSalaryBandControl {
+  minimumSalary: FormControl<number | null>;
+  maximumSalary: FormControl<number | null>;
+}
