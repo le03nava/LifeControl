@@ -90,3 +90,15 @@
   display: block;
   margin-bottom: var(--space-md);
 }
+
+.section-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-md);
+}
+
+.roles-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}

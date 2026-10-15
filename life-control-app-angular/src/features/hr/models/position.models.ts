@@ -128,3 +128,52 @@ export interface PositionSalaryBandControl {
   minimumSalary: FormControl<number | null>;
   maximumSalary: FormControl<number | null>;
 }
+
+/**
+ * Read model of one row of a position's role template.
+ *
+ * `enabled` is part of the contract (T20): the read returns disabled rows too, so
+ * the editor can tell an explicitly cleared role from one that was never
+ * configured. A row with `enabled = false` is therefore **not** checked in the
+ * editor and is omitted from the next save — which is what keeps it disabled.
+ */
+export interface PositionRole {
+  id: string;
+  positionId: string;
+  roleName: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * One role of the template, as the save submits it.
+ *
+ * Mirrors `PositionRoleRequest`, which carries the name and **no `enabled` field**:
+ * presence in the request list means enabled and omission means disabled, exactly
+ * as the salary bands work (T20 mirroring D13).
+ */
+export interface PositionRoleRequest {
+  roleName: string;
+}
+
+/**
+ * Write payload of the position's **complete** role template.
+ *
+ * Every submitted name is upserted on `(positionId, roleName)` and every stored
+ * name the request omits is set `enabled = false` and kept — never deleted (T20).
+ * A name that is not in the frozen allowlist is a 400, which is why the editor
+ * draws its candidate set from `PositionGrantableRolesResponse` instead of a copy
+ * of its own (D14/D19).
+ */
+export interface PositionRolesRequest {
+  roles: PositionRoleRequest[];
+}
+
+/**
+ * The roles a position template may grant: the frozen allowlist of D7/D14, read
+ * from the API so the checkboxes and the save's own validation share one owner.
+ */
+export interface PositionGrantableRolesResponse {
+  roles: string[];
+}
