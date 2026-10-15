@@ -3,6 +3,7 @@ package com.lifecontrol.api.hr.controller;
 import static com.lifecontrol.api.common.security.Roles.ADMIN;
 import static com.lifecontrol.api.common.security.Roles.POSITION;
 
+import com.lifecontrol.api.hr.dto.PositionGrantableRolesResponse;
 import com.lifecontrol.api.hr.dto.PositionRoleResponse;
 import com.lifecontrol.api.hr.dto.PositionRolesRequest;
 import com.lifecontrol.api.hr.service.PositionRoleService;
@@ -68,5 +69,16 @@ public class PositionRoleController {
             @PathVariable UUID positionId,
             @Valid @RequestBody PositionRolesRequest request) {
         return ResponseEntity.ok(positionRoleService.replaceRoles(companyId, positionId, request));
+    }
+
+    @GetMapping("/grantable")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(
+            summary = "List the roles a position template may grant",
+            description = "Returns the frozen allowlist the save validates against, sorted by name")
+    @ApiResponses({@ApiResponse(responseCode = "200", description = "List of grantable role names")})
+    public ResponseEntity<PositionGrantableRolesResponse> getGrantableRoles(
+            @PathVariable UUID companyId, @PathVariable UUID positionId) {
+        return ResponseEntity.ok(positionRoleService.getGrantableRoles(companyId, positionId));
     }
 }
