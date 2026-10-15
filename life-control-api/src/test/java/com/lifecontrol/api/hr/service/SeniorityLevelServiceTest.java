@@ -147,8 +147,8 @@ class SeniorityLevelServiceTest {
         @Test
         @DisplayName("should create the level when code, name and rank are free")
         void createSeniorityLevel_Success() {
-            when(seniorityLevelRepository.existsByLevelCodeIgnoreCase("L1")).thenReturn(false);
-            when(seniorityLevelRepository.existsByLevelNameIgnoreCase("Junior")).thenReturn(false);
+            when(seniorityLevelRepository.existsByLevelCode("L1")).thenReturn(false);
+            when(seniorityLevelRepository.existsByLevelName("Junior")).thenReturn(false);
             when(seniorityLevelRepository.existsByRank(1)).thenReturn(false);
             when(seniorityLevelRepository.save(any(SeniorityLevel.class))).thenAnswer(inv -> {
                 SeniorityLevel sl = inv.getArgument(0);
@@ -171,9 +171,39 @@ class SeniorityLevelServiceTest {
         }
 
         @Test
+        @DisplayName("should accept a code that differs from an existing one only in case")
+        void createSeniorityLevel_CaseVariantCode_Accepted() {
+            // 'JUN' exists; the exact comparison makes 'jun' a different key (G14).
+            when(seniorityLevelRepository.existsByLevelCode("jun")).thenReturn(false);
+            when(seniorityLevelRepository.existsByLevelName("Trainee")).thenReturn(false);
+            when(seniorityLevelRepository.existsByRank(4)).thenReturn(false);
+            when(seniorityLevelRepository.save(any(SeniorityLevel.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            var result =
+                    seniorityLevelService.createSeniorityLevel(new SeniorityLevelRequest("jun", "Trainee", 4, true));
+
+            assertThat(result.levelCode()).isEqualTo("jun");
+            verify(seniorityLevelRepository).save(any(SeniorityLevel.class));
+        }
+
+        @Test
+        @DisplayName("should accept a name that differs from an existing one only in case")
+        void createSeniorityLevel_CaseVariantName_Accepted() {
+            when(seniorityLevelRepository.existsByLevelCode("L9")).thenReturn(false);
+            when(seniorityLevelRepository.existsByLevelName("junior")).thenReturn(false);
+            when(seniorityLevelRepository.existsByRank(4)).thenReturn(false);
+            when(seniorityLevelRepository.save(any(SeniorityLevel.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            var result = seniorityLevelService.createSeniorityLevel(new SeniorityLevelRequest("L9", "junior", 4, true));
+
+            assertThat(result.levelName()).isEqualTo("junior");
+            verify(seniorityLevelRepository).save(any(SeniorityLevel.class));
+        }
+
+        @Test
         @DisplayName("should throw DuplicateSeniorityLevelException naming code when the code exists")
         void createSeniorityLevel_DuplicateCode_ThrowsException() {
-            when(seniorityLevelRepository.existsByLevelCodeIgnoreCase("L1")).thenReturn(true);
+            when(seniorityLevelRepository.existsByLevelCode("L1")).thenReturn(true);
 
             assertThatThrownBy(() -> seniorityLevelService.createSeniorityLevel(testSeniorityLevelRequest))
                     .isInstanceOf(DuplicateSeniorityLevelException.class)
@@ -184,8 +214,8 @@ class SeniorityLevelServiceTest {
         @Test
         @DisplayName("should throw DuplicateSeniorityLevelException naming name when the name exists")
         void createSeniorityLevel_DuplicateName_ThrowsException() {
-            when(seniorityLevelRepository.existsByLevelCodeIgnoreCase("L1")).thenReturn(false);
-            when(seniorityLevelRepository.existsByLevelNameIgnoreCase("Junior")).thenReturn(true);
+            when(seniorityLevelRepository.existsByLevelCode("L1")).thenReturn(false);
+            when(seniorityLevelRepository.existsByLevelName("Junior")).thenReturn(true);
 
             assertThatThrownBy(() -> seniorityLevelService.createSeniorityLevel(testSeniorityLevelRequest))
                     .isInstanceOf(DuplicateSeniorityLevelException.class)
@@ -196,8 +226,8 @@ class SeniorityLevelServiceTest {
         @Test
         @DisplayName("should throw DuplicateSeniorityLevelException naming rank when the rank exists")
         void createSeniorityLevel_DuplicateRank_ThrowsException() {
-            when(seniorityLevelRepository.existsByLevelCodeIgnoreCase("L1")).thenReturn(false);
-            when(seniorityLevelRepository.existsByLevelNameIgnoreCase("Junior")).thenReturn(false);
+            when(seniorityLevelRepository.existsByLevelCode("L1")).thenReturn(false);
+            when(seniorityLevelRepository.existsByLevelName("Junior")).thenReturn(false);
             when(seniorityLevelRepository.existsByRank(1)).thenReturn(true);
 
             assertThatThrownBy(() -> seniorityLevelService.createSeniorityLevel(testSeniorityLevelRequest))
@@ -216,9 +246,8 @@ class SeniorityLevelServiceTest {
         void updateSeniorityLevel_Success() {
             var request = new SeniorityLevelRequest("L2", "Semi Senior", 2, true);
             when(seniorityLevelRepository.findById(testSeniorityLevelId)).thenReturn(Optional.of(testSeniorityLevel));
-            when(seniorityLevelRepository.findByLevelCodeIgnoreCase("L2")).thenReturn(Optional.empty());
-            when(seniorityLevelRepository.findByLevelNameIgnoreCase("Semi Senior"))
-                    .thenReturn(Optional.empty());
+            when(seniorityLevelRepository.findByLevelCode("L2")).thenReturn(Optional.empty());
+            when(seniorityLevelRepository.findByLevelName("Semi Senior")).thenReturn(Optional.empty());
             when(seniorityLevelRepository.findByRank(2)).thenReturn(Optional.empty());
             when(seniorityLevelRepository.save(any(SeniorityLevel.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -234,9 +263,8 @@ class SeniorityLevelServiceTest {
         @DisplayName("should allow a self-update that keeps its own code, name and rank")
         void updateSeniorityLevel_OwnValues_Allowed() {
             when(seniorityLevelRepository.findById(testSeniorityLevelId)).thenReturn(Optional.of(testSeniorityLevel));
-            when(seniorityLevelRepository.findByLevelCodeIgnoreCase("L1")).thenReturn(Optional.of(testSeniorityLevel));
-            when(seniorityLevelRepository.findByLevelNameIgnoreCase("Junior"))
-                    .thenReturn(Optional.of(testSeniorityLevel));
+            when(seniorityLevelRepository.findByLevelCode("L1")).thenReturn(Optional.of(testSeniorityLevel));
+            when(seniorityLevelRepository.findByLevelName("Junior")).thenReturn(Optional.of(testSeniorityLevel));
             when(seniorityLevelRepository.findByRank(1)).thenReturn(Optional.of(testSeniorityLevel));
             when(seniorityLevelRepository.save(any(SeniorityLevel.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -258,12 +286,30 @@ class SeniorityLevelServiceTest {
         }
 
         @Test
+        @DisplayName("should allow a case-variant code that another level already holds")
+        void updateSeniorityLevel_CaseVariantCode_Accepted() {
+            // The catalog holds 'L1'; the subject moves to 'l1', a different key under the exact rule.
+            var subject = level(testSeniorityLevelId, "L5", "Trainee", 5, true);
+            var request = new SeniorityLevelRequest("l1", "Trainee", 5, true);
+            when(seniorityLevelRepository.findById(testSeniorityLevelId)).thenReturn(Optional.of(subject));
+            when(seniorityLevelRepository.findByLevelCode("l1")).thenReturn(Optional.empty());
+            when(seniorityLevelRepository.findByLevelName("Trainee")).thenReturn(Optional.of(subject));
+            when(seniorityLevelRepository.findByRank(5)).thenReturn(Optional.of(subject));
+            when(seniorityLevelRepository.save(any(SeniorityLevel.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            var result = seniorityLevelService.updateSeniorityLevel(testSeniorityLevelId, request);
+
+            assertThat(result.levelCode()).isEqualTo("l1");
+            verify(seniorityLevelRepository).save(any(SeniorityLevel.class));
+        }
+
+        @Test
         @DisplayName("should throw DuplicateSeniorityLevelException naming code when another level owns it")
         void updateSeniorityLevel_DuplicateCode_ThrowsException() {
             var other = level(UUID.randomUUID(), "L2", "Other", 9, true);
             var request = new SeniorityLevelRequest("L2", "Junior", 1, true);
             when(seniorityLevelRepository.findById(testSeniorityLevelId)).thenReturn(Optional.of(testSeniorityLevel));
-            when(seniorityLevelRepository.findByLevelCodeIgnoreCase("L2")).thenReturn(Optional.of(other));
+            when(seniorityLevelRepository.findByLevelCode("L2")).thenReturn(Optional.of(other));
 
             assertThatThrownBy(() -> seniorityLevelService.updateSeniorityLevel(testSeniorityLevelId, request))
                     .isInstanceOf(DuplicateSeniorityLevelException.class)
@@ -277,9 +323,8 @@ class SeniorityLevelServiceTest {
             var other = level(UUID.randomUUID(), "L9", "Semi Senior", 9, true);
             var request = new SeniorityLevelRequest("L1", "Semi Senior", 1, true);
             when(seniorityLevelRepository.findById(testSeniorityLevelId)).thenReturn(Optional.of(testSeniorityLevel));
-            when(seniorityLevelRepository.findByLevelCodeIgnoreCase("L1")).thenReturn(Optional.of(testSeniorityLevel));
-            when(seniorityLevelRepository.findByLevelNameIgnoreCase("Semi Senior"))
-                    .thenReturn(Optional.of(other));
+            when(seniorityLevelRepository.findByLevelCode("L1")).thenReturn(Optional.of(testSeniorityLevel));
+            when(seniorityLevelRepository.findByLevelName("Semi Senior")).thenReturn(Optional.of(other));
 
             assertThatThrownBy(() -> seniorityLevelService.updateSeniorityLevel(testSeniorityLevelId, request))
                     .isInstanceOf(DuplicateSeniorityLevelException.class)
@@ -293,9 +338,8 @@ class SeniorityLevelServiceTest {
             var other = level(UUID.randomUUID(), "L9", "Other", 2, true);
             var request = new SeniorityLevelRequest("L1", "Junior", 2, true);
             when(seniorityLevelRepository.findById(testSeniorityLevelId)).thenReturn(Optional.of(testSeniorityLevel));
-            when(seniorityLevelRepository.findByLevelCodeIgnoreCase("L1")).thenReturn(Optional.of(testSeniorityLevel));
-            when(seniorityLevelRepository.findByLevelNameIgnoreCase("Junior"))
-                    .thenReturn(Optional.of(testSeniorityLevel));
+            when(seniorityLevelRepository.findByLevelCode("L1")).thenReturn(Optional.of(testSeniorityLevel));
+            when(seniorityLevelRepository.findByLevelName("Junior")).thenReturn(Optional.of(testSeniorityLevel));
             when(seniorityLevelRepository.findByRank(2)).thenReturn(Optional.of(other));
 
             assertThatThrownBy(() -> seniorityLevelService.updateSeniorityLevel(testSeniorityLevelId, request))
