@@ -38,11 +38,10 @@ import {
   Contract,
   ContractRequest,
   ContractType,
-  Position,
-  PositionSalaryBand,
-  SeniorityLevel,
   contractTypeLabel,
 } from '../../models/contract.models';
+import { Position, PositionSalaryBand } from '../../models/position.models';
+import { SeniorityLevel } from '../../models/seniority-level.models';
 import { StoreAssignment } from '../../models/store-assignment.models';
 import { Employee } from '../../models/employee.models';
 import { isContractCurrent } from '../contract-history/contract-history';

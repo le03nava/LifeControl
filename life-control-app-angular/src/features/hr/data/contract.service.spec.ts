@@ -3,13 +3,9 @@ import { HttpClientTestingModule, HttpTestingController } from '@angular/common/
 import { firstValueFrom } from 'rxjs';
 import { ContractService } from './contract.service';
 import { ConfigService } from '@app/services/config.service';
-import {
-  Contract,
-  ContractRequest,
-  Position,
-  PositionSalaryBand,
-  SeniorityLevel,
-} from '../models/contract.models';
+import { Contract, ContractRequest } from '../models/contract.models';
+import { Position, PositionSalaryBand } from '../models/position.models';
+import { SeniorityLevel } from '../models/seniority-level.models';
 
 describe('ContractService', () => {
   let service: ContractService;
