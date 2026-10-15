@@ -60,6 +60,21 @@ export interface DepartmentMock {
   updatedAt: string;
 }
 
+/** One position as `GET /api/companies/{companyId}/positions` returns it. */
+export interface PositionMock {
+  id: string;
+  companyId: string;
+  departmentId: string;
+  positionCode: string;
+  positionName: string;
+  description: string | null;
+  reportsToPositionId: string | null;
+  displayOrder: number | null;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface PurchaseOrderDetailMock {
   id: string;
   purchaseOrderId: string;
@@ -303,6 +318,35 @@ const SAMPLE_DEPARTMENTS: DepartmentMock[] = [
   },
 ];
 
+const SAMPLE_POSITIONS: PositionMock[] = [
+  {
+    id: 'position-1',
+    companyId: 'company-1',
+    departmentId: 'department-1',
+    positionCode: 'OPR',
+    positionName: 'Operario',
+    description: 'Planta',
+    reportsToPositionId: null,
+    displayOrder: 1,
+    enabled: true,
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+  },
+  {
+    id: 'position-2',
+    companyId: 'company-1',
+    departmentId: 'department-1',
+    positionCode: 'SUP',
+    positionName: 'Supervisor',
+    description: null,
+    reportsToPositionId: 'position-1',
+    displayOrder: 2,
+    enabled: false,
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+  },
+];
+
 /** Store chain the purchase orders and the inventory endpoints hang from. */
 const STORE_CHAIN = {
   companyId: 'company-1',
@@ -494,6 +538,8 @@ export interface ApiMockOptions {
   schedulingActivities?: SchedulingActivityMock[];
   /** Company-scoped department catalogue; the list filter is server-side on `includeDisabled`. */
   departments?: DepartmentMock[];
+  /** Company-scoped position catalogue; both filters are server-side. */
+  positions?: PositionMock[];
 }
 
 /**
@@ -525,6 +571,9 @@ export async function installApiMock(page: Page, options: ApiMockOptions = {}): 
   const departments: DepartmentMock[] = options.departments
     ? [...options.departments]
     : [...SAMPLE_DEPARTMENTS];
+  const positions: PositionMock[] = options.positions
+    ? [...options.positions]
+    : [...SAMPLE_POSITIONS];
   // Per-test state: the base slots derive from the requested week, so what a booking
   // changes is the extra `booked` count and the appointments it appends. Both live
   // here so the week re-read after a booking renders the new numbers.
@@ -822,6 +871,95 @@ export async function installApiMock(page: Page, options: ApiMockOptions = {}): 
         updatedAt: new Date().toISOString(),
       };
       await fulfillJson(route, departments[index], cors);
+      return;
+    }
+
+    // Position catalogue: stateful so create / edit / disable reflect back.
+    const positionsRootMatch = /^\/api\/companies\/([^/]+)\/positions$/.exec(path);
+    if (positionsRootMatch) {
+      const companyId = positionsRootMatch[1];
+      if (method === 'GET') {
+        const url = new URL(request.url());
+        const includeDisabled = url.searchParams.get('includeDisabled') === 'true';
+        const departmentId = url.searchParams.get('departmentId');
+        const rows = positions.filter(
+          (position) =>
+            position.companyId === companyId &&
+            (!departmentId || position.departmentId === departmentId) &&
+            (includeDisabled || position.enabled),
+        );
+        await fulfillJson(route, rows, cors);
+        return;
+      }
+      if (method === 'POST') {
+        const body = JSON.parse(request.postData() ?? '{}') as Partial<PositionMock>;
+        const now = new Date().toISOString();
+        const created: PositionMock = {
+          id: `e2e-position-${nextId++}`,
+          companyId,
+          departmentId: body.departmentId ?? '',
+          positionCode: body.positionCode ?? '',
+          positionName: body.positionName ?? '',
+          description: body.description ?? null,
+          reportsToPositionId: body.reportsToPositionId ?? null,
+          displayOrder: body.displayOrder ?? null,
+          enabled: body.enabled ?? true,
+          createdAt: now,
+          updatedAt: now,
+        };
+        positions.push(created);
+        await fulfillJson(route, created, cors, 201);
+        return;
+      }
+    }
+
+    const positionItemMatch = /^\/api\/companies\/([^/]+)\/positions\/([^/]+)$/.exec(path);
+    if (positionItemMatch) {
+      const companyId = positionItemMatch[1];
+      const id = positionItemMatch[2];
+      const index = positions.findIndex((p) => p.id === id && p.companyId === companyId);
+      if (index === -1) {
+        await fulfillJson(route, { status: 404, message: 'Puesto no encontrado' }, cors, 404);
+        return;
+      }
+      if (method === 'GET') {
+        await fulfillJson(route, positions[index], cors);
+        return;
+      }
+      if (method === 'PUT') {
+        positions[index] = {
+          ...positions[index],
+          ...(JSON.parse(request.postData() ?? '{}') as Partial<PositionMock>),
+          updatedAt: new Date().toISOString(),
+        };
+        await fulfillJson(route, positions[index], cors);
+        return;
+      }
+      if (method === 'DELETE') {
+        // Soft delete: the row is kept with `enabled` false.
+        positions[index] = { ...positions[index], enabled: false };
+        await route.fulfill({ status: 204, headers: cors, body: '' });
+        return;
+      }
+    }
+
+    const positionEnableMatch = /^\/api\/companies\/([^/]+)\/positions\/([^/]+)\/enable$/.exec(
+      path,
+    );
+    if (positionEnableMatch && method === 'PATCH') {
+      const companyId = positionEnableMatch[1];
+      const id = positionEnableMatch[2];
+      const index = positions.findIndex((p) => p.id === id && p.companyId === companyId);
+      if (index === -1) {
+        await fulfillJson(route, { status: 404, message: 'Puesto no encontrado' }, cors, 404);
+        return;
+      }
+      positions[index] = {
+        ...positions[index],
+        enabled: true,
+        updatedAt: new Date().toISOString(),
+      };
+      await fulfillJson(route, positions[index], cors);
       return;
     }
 
