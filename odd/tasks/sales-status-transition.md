@@ -191,8 +191,11 @@ record's own examples, and did not reproduce the 2537-test baseline it was given
   only two callers are the purchases `StatusService` (correct) and this component (defective).
 - The `statusFetchFailed()` / error-message behaviour of the component, its PATCH payload, and its
   notifications: all outside the defect and untouched.
-- The other inventory items (`T14`/`B1`, `D13b` step 5, the Keycloak protocol mappers, `store-ux-a11y`
-  `T7`/`T10`, the W3 follow-ups `F-1`…`F-6`). Separate records, separate decisions.
+- The other inventory items (`T14`/`B1`, `D13b` step 5, `store-ux-a11y` `T7`/`T10`, the W3 follow-ups
+  `F-1`…`F-6`). Separate records, separate decisions. **Corrected 2026-10-15**: this list also carried
+  *the Keycloak protocol mappers*, and that item closed on 2026-10-02 — `company-scope-local-fallback`'s
+  W0 (PR **#222**, `3f56a0dd`) provisions the five claim mappers and `unmanagedAttributePolicy=ADMIN_EDIT`
+  in `docker/scripts/keycloak-setup.sh`, pinned by `KeycloakClaimMapperCoverageTest`.
 
 ## Evidence log
 
@@ -212,3 +215,4 @@ record's own examples, and did not reproduce the 2537-test baseline it was given
 | 2026-09-26 | **Cleanup, in the documented order, before the merge** | `herdr workspace close w1B` → `git worktree remove <path>` → `git worktree prune`. The workspace had to be closed first: it was open on that worktree, and removing a worktree from under an open workspace is the dangling-workspace failure the cleanup order exists to prevent. The worktree was clean, so `git worktree remove` needed no `--force` and destroyed nothing |
 | 2026-09-26 | **Merged**, on the user's instruction ("arma el merge") | `gh pr merge 179 --merge --delete-branch`, run from the anchor once the worktree was gone. Merge commit **`dfb35adbc00b74bfb0d29ddbd7e66b88f37495c9`**, parents `450b741` + `0a196eb` — two parents, the repository's convention. `main^{tree}` = `8896dcb02c93cec874006fb9694ff2b89cd398b5` = tree of `0a196eb`, so the merged bytes are the gate-verified bytes, and `1e155da`, `d592269` and `0a196eb` were each verified ancestors of `main` with `git merge-base --is-ancestor`. Post-merge CI on `main` @ `dfb35ad`: Angular CI, API CI, Gateway CI and Docker Build Integrity all **success** (`36214430283`, `36214430301`, `36214430314`, `36214430282`). `gh` printed nothing, which is not evidence either way, so the state was read off `gh pr view --json state,mergeCommit`, `git ls-remote --heads origin` and `git worktree list` instead |
 | 2026-09-26 | Post-merge cleanup verified | `gh pr merge --delete-branch` deleted the remote ref and the local branch. Verified rather than trusted: `git fetch --prune` reported `[deleted] origin/fix/sales-status-transition`, `git ls-remote --heads origin` shows `main` alone, `git worktree list` shows the anchor alone, and `gh pr list --state open` is empty. This record's terminal state is written in the header above |
+| 2026-10-15 | record repair (no code) | **The out-of-scope list carried *the Keycloak protocol mappers* as a pending item and no longer does.** They closed on 2026-10-02 with `company-scope-local-fallback`'s W0 (PR **#222**, `3f56a0dd`), pinned by `KeycloakClaimMapperCoverageTest`. |
