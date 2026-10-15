@@ -4,7 +4,6 @@ import { firstValueFrom } from 'rxjs';
 import { ContractService } from './contract.service';
 import { ConfigService } from '@app/services/config.service';
 import { Contract, ContractRequest } from '../models/contract.models';
-import { PositionSalaryBand } from '../models/position.models';
 
 describe('ContractService', () => {
   let service: ContractService;
@@ -51,17 +50,6 @@ describe('ContractService', () => {
     monthlySalary: 25000,
     startDate: '2026-01-01',
     endDate: null,
-  };
-
-  const mockSalaryBand: PositionSalaryBand = {
-    id: 'band-1',
-    positionId: 'position-1',
-    seniorityLevelId: 'level-2',
-    minimumSalary: 20000,
-    maximumSalary: 30000,
-    enabled: true,
-    createdAt: '2026-01-01T00:00:00',
-    updatedAt: '2026-01-01T00:00:00',
   };
 
   beforeEach(() => {
@@ -213,24 +201,6 @@ describe('ContractService', () => {
 
       await expect(promise).rejects.toMatchObject({ status: 500 });
       expect(service.error()).toBe('Error al cerrar el contrato');
-    });
-  });
-
-  describe('catalog lookups', () => {
-    it('getSalaryBands should GET the position salary bands and mutate no state', async () => {
-      const promise = firstValueFrom(service.getSalaryBands(companyId, 'position-1'));
-
-      const req = httpMock.expectOne(
-        (r) =>
-          r.url === `${baseUrl}/companies/${companyId}/positions/position-1/salary-bands` &&
-          r.method === 'GET',
-      );
-      expect(req.request.method).toBe('GET');
-      req.flush([mockSalaryBand]);
-
-      await expect(promise).resolves.toEqual([mockSalaryBand]);
-      expect(service.loading()).toBe(false);
-      expect(service.error()).toBeNull();
     });
   });
 

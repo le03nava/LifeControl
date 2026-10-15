@@ -634,7 +634,7 @@ export class ContractDialog {
       .pipe(
         switchMap((positionId) =>
           positionId
-            ? this.contractService.getSalaryBands(this.data.companyId, positionId).pipe(
+            ? this.positionService.getSalaryBands(this.data.companyId, positionId).pipe(
                 map((bands) => ({ bands })),
                 catchError(() => of({ bands: [] as PositionSalaryBand[] })),
                 // Clear the previous position's band on selection, so a warning can
