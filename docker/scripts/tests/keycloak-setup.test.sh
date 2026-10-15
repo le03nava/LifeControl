@@ -187,6 +187,10 @@ write_shim() {
 #   calls.log       every kcadm argv, one line per call (evidence, not assertion).
 #   drift           a claim whose single-mapper JSON is served with
 #                   multivalued=false, modelling an existing but drifted mapper.
+#   missing_roles   client-role names the test seeds as ABSENT from the realm
+#                   (one per line). Empty means an already-provisioned realm:
+#                   every role keycloak-setup.sh:487-492 enumerates is served
+#                   present, which is what keeps the default cases idempotent.
 #   realm_frontend_url  the realm's attributes.frontendUrl (empty when unset),
 #                   seeded by the test and rewritten by `update realms/*`.
 #   realm_smtp      the realm's smtpServer map, one `field<TAB>value` per line,
@@ -506,9 +510,19 @@ $config_json
 				fi
 				;;
 			clients/*/roles/*)
-				# keycloak-setup.sh:126
-				present=1
-				output="{\"name\":\"${res##*/}\"}"
+				# keycloak-setup.sh:126 — `client_role_exists` keys on the read's
+				# EXIT STATUS alone and never on the body, so an absent role can
+				# only be modelled by the "Resource not found" diagnostic below
+				# (an empty success would read as present). The world state is the
+				# ordinary realm: every role the script enumerates already exists,
+				# unless the test seeds the role in missing_roles.
+				role="${res##*/}"
+				if [ -f "$STATE/missing_roles" ] && grep -qxF -- "$role" "$STATE/missing_roles"; then
+					present=0
+				else
+					present=1
+					output="{\"name\":\"$role\"}"
+				fi
 				;;
 			clients/*)
 				# The public client's own representation: redirectUris and
@@ -640,6 +654,11 @@ build_layout() {
 	: >"$state/creates.log"
 	: >"$state/updates.log"
 	printf '%s' "$drift" >"$state/drift"
+	# Client-role world state: empty = every role in keycloak-setup.sh:487-492
+	# already exists. A case seeds the one role it needs absent, so the create
+	# branch is exercised by the role the case names rather than by assuming the
+	# realm's contents (freshness-guard.test.sh's per-case knobs do the same).
+	: >"$state/missing_roles"
 
 	# W6b world state: realm frontendUrl/smtpServer and the public client's
 	# registered lists. Defaults are the already-converged values, so the plain
@@ -1029,6 +1048,43 @@ if build_layout "$root" "$state" all ""; then
 	assert_contains "case 13 (g): falls back to http://localhost:8181" "frontendUrl verified: http://localhost:8181" "$SETUP_OUT"
 fi
 unset LAYOUT_OMIT_KEYCLOAK_URL
+
+# ------------------------------------------
+# Case 14 (T97) — the realm provisions `lc-employee-access`. The API's own gate
+# names it (common/security/Roles.java:99, the @PreAuthorize of the
+# employee-access surface), and the client-role list in keycloak-setup.sh is
+# what makes it grantable: a realm with every other lc-* role but not this one
+# leaves the Access section and tab reachable by lc-admin alone. The role is
+# served as the same "Resource not found" diagnostic an absent role produces —
+# the only form client_role_exists reads as absence — while every other role in
+# the list stays present, so the case proves the script both READS and CREATES
+# this exact name and fails if it leaves the list. Exactly ONE create is
+# observed, so it cannot pass by recreating roles that already exist.
+# ------------------------------------------
+root="$(new_root)"
+state="$root/state"
+LAYOUT_ENV=dev
+LAYOUT_SMTP_AUTH=false
+LAYOUT_SMTP_HOST=""
+LAYOUT_KEYCLOAK_URL=""
+LAYOUT_CLIENT_REDIRECTS=""
+LAYOUT_CLIENT_WEB_ORIGINS=""
+if build_layout "$root" "$state" all ""; then
+	printf '%s\n' "lc-employee-access" >"$state/missing_roles"
+	export KCS_SHIM_STATE_DIR="$state"
+	export KCS_SHIM_INJECT_MATCH="roles/lc-employee-access"
+	export KCS_SHIM_INJECT_KIND="absent"
+	unset KCS_SHIM_REALM_DROP_UPDATE
+	run_setup "$root"
+	assert_rc "case 14 (T97): a realm missing lc-employee-access converges and exits 0" 0 "$SETUP_RC" "$SETUP_OUT"
+	assert_creates "case 14 (T97): exactly the missing role is created" 1 "$state/creates.log"
+	assert_contains "case 14 (T97): the created role is lc-employee-access" \
+		"name=lc-employee-access" "$(cat "$state/creates.log")"
+	assert_contains "case 14 (T97): the role is read before it is created" \
+		"clients/cid-$ENV_APP_CLIENT/roles/lc-employee-access" "$(cat "$state/calls.log")"
+	assert_contains "case 14 (T97): reports the role created" \
+		"Client role $ENV_APP_CLIENT/lc-employee-access created" "$SETUP_OUT"
+fi
 
 # ------------------------------------------
 # Summary
