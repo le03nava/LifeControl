@@ -6,25 +6,22 @@
       <p class="section-subtitle">{{ configured.positionCode }} — {{ configured.positionName }}</p>
     }
 
-    @if (loadError(); as loadErrorMsg) {
-      <app-error-banner class="error-state" [message]="loadErrorMsg" />
-    }
+    <section class="settings-section">
+      <h3>Tabuladores</h3>
+      <p class="section-hint">
+        Una fila por nivel de antigüedad. Dejá el mínimo y el máximo vacíos para que el nivel no tenga
+        tabulador; un nivel que ya lo tenía y se guarda vacío queda deshabilitado y conserva su fila.
+      </p>
 
-    @if (submitError(); as submitErrorMsg) {
-      <app-error-banner class="error-state" [message]="submitErrorMsg" />
-    }
-
-    @if (loading()) {
-      <p class="loading-state">Cargando la configuración del puesto…</p>
-    } @else if (rows().length > 0) {
-      <form [formGroup]="formGroup" (ngSubmit)="onSave()">
-        <section class="settings-section">
-          <h3>Tabuladores</h3>
-          <p class="section-hint">
-            Una fila por nivel de antigüedad. Dejá el mínimo y el máximo vacíos para que el nivel no
-            tenga tabulador; un nivel que ya lo tenía y se guarda vacío queda deshabilitado y conserva
-            su fila.
-          </p>
+      @if (loadError(); as loadErrorMsg) {
+        <app-error-banner class="error-state" [message]="loadErrorMsg" />
+      } @else if (loading()) {
+        <p class="loading-state">Cargando los tabuladores del puesto…</p>
+      } @else if (rows().length > 0) {
+        <form [formGroup]="bandsFormGroup" (ngSubmit)="onSave()">
+          @if (submitError(); as submitErrorMsg) {
+            <app-error-banner class="error-state" [message]="submitErrorMsg" />
+          }
 
           <table class="bands-table">
             <thead>
@@ -76,19 +73,58 @@
               }
             </tbody>
           </table>
-        </section>
 
-        <div class="form-actions">
-          <button mat-button type="button" (click)="onBack()">Volver</button>
           @if (canWrite) {
-            <button mat-flat-button color="primary" type="submit" [disabled]="saving()">
-              Guardar
-            </button>
+            <div class="section-actions">
+              <button mat-flat-button color="primary" type="submit" [disabled]="saving()">
+                Guardar
+              </button>
+            </div>
           }
-        </div>
-      </form>
-    } @else if (!loadError()) {
-      <p class="empty-state">El puesto no tiene niveles de antigüedad para configurar.</p>
-    }
+        </form>
+      } @else {
+        <p class="empty-state">El puesto no tiene niveles de antigüedad para configurar.</p>
+      }
+    </section>
+
+    <section class="settings-section">
+      <h3>Roles del sistema</h3>
+      <p class="section-hint">
+        La plantilla es una <strong>semilla de aprovisionamiento</strong>: marcá los roles que un
+        contrato de este puesto debe otorgar. Cambiarla no modifica el acceso que las personas ya
+        tienen — Keycloak sigue siendo la autoridad — y un rol que desmarques queda deshabilitado,
+        conservando su fila.
+      </p>
+
+      @if (rolesError(); as rolesErrorMsg) {
+        <app-error-banner class="error-state" [message]="rolesErrorMsg" />
+      } @else if (rolesLoading()) {
+        <p class="loading-state">Cargando los roles del sistema…</p>
+      } @else if (roleRows().length > 0) {
+        <form [formGroup]="rolesFormGroup" (ngSubmit)="onSaveRoles()">
+          <div formArrayName="roles" class="roles-list">
+            @for (row of roleRows(); track row.roleName; let i = $index) {
+              <mat-checkbox [formControlName]="i">
+                {{ row.roleName }}
+              </mat-checkbox>
+            }
+          </div>
+
+          @if (canWrite) {
+            <div class="section-actions">
+              <button mat-flat-button color="primary" type="submit" [disabled]="savingRoles()">
+                Guardar roles
+              </button>
+            </div>
+          }
+        </form>
+      } @else {
+        <p class="empty-state">La lista de roles otorgables está vacía.</p>
+      }
+    </section>
+
+    <div class="form-actions">
+      <button mat-button type="button" (click)="onBack()">Volver</button>
+    </div>
   </div>
 </div>

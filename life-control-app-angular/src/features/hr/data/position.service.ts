@@ -5,7 +5,10 @@ import { catchError, finalize, tap } from 'rxjs/operators';
 import { ConfigService } from '@app/services/config.service';
 import {
   Position,
+  PositionGrantableRolesResponse,
   PositionRequest,
+  PositionRole,
+  PositionRolesRequest,
   PositionSalaryBand,
   PositionSalaryBandsRequest,
 } from '../models/position.models';
@@ -202,6 +205,46 @@ export class PositionService {
 
   private salaryBandsUrl(companyId: string, positionId: string): string {
     return `${this.positionsUrl(companyId)}/${positionId}/salary-bands`;
+  }
+
+  /**
+   * The position's **complete** stored role template, disabled rows included.
+   *
+   * Sibling of {@link getSalaryBands} and the same rule: a stored role with
+   * `enabled = false` is part of the answer (T20), so the editor shows it
+   * unchecked instead of being unable to tell it from a role never configured.
+   */
+  getPositionRoles(companyId: string, positionId: string): Observable<PositionRole[]> {
+    return this.http.get<PositionRole[]>(this.positionRolesUrl(companyId, positionId));
+  }
+
+  /**
+   * The roles this template may grant: the backend's frozen allowlist (D7/D14),
+   * so the editor's candidate set and the save's validation cannot disagree.
+   */
+  getGrantablePositionRoles(
+    companyId: string,
+    positionId: string,
+  ): Observable<PositionGrantableRolesResponse> {
+    return this.http.get<PositionGrantableRolesResponse>(
+      `${this.positionRolesUrl(companyId, positionId)}/grantable`,
+    );
+  }
+
+  /**
+   * Replaces the position's complete role template (T20) and returns the stored set
+   * **after** the save, which is what the editor re-seeds its checkboxes from.
+   */
+  savePositionRoles(
+    companyId: string,
+    positionId: string,
+    request: PositionRolesRequest,
+  ): Observable<PositionRole[]> {
+    return this.http.put<PositionRole[]>(this.positionRolesUrl(companyId, positionId), request);
+  }
+
+  private positionRolesUrl(companyId: string, positionId: string): string {
+    return `${this.positionsUrl(companyId)}/${positionId}/roles`;
   }
 
   clearError(): void {

@@ -11,6 +11,8 @@ import { PositionService } from '../../data/position.service';
 import { SeniorityLevelService } from '../../data/seniority-level.service';
 import {
   Position,
+  PositionRole,
+  PositionRolesRequest,
   PositionSalaryBand,
   PositionSalaryBandsRequest,
 } from '../../models/position.models';
@@ -23,6 +25,9 @@ describe('PositionSettings', () => {
     getPosition: ReturnType<typeof vi.fn>;
     getSalaryBands: ReturnType<typeof vi.fn>;
     saveSalaryBands: ReturnType<typeof vi.fn>;
+    getPositionRoles: ReturnType<typeof vi.fn>;
+    getGrantablePositionRoles: ReturnType<typeof vi.fn>;
+    savePositionRoles: ReturnType<typeof vi.fn>;
   };
   let seniorityLevelService: { getSeniorityLevels: ReturnType<typeof vi.fn> };
   let notifications: { showSuccess: ReturnType<typeof vi.fn> };
@@ -68,6 +73,22 @@ describe('PositionSettings', () => {
     ...overrides,
   });
 
+  /**
+   * The allowlist the API answers with: deliberately wider than what is stored, so
+   * a test can tell "not granted" from "not grantable".
+   */
+  const GRANTABLE = ['lc-company', 'lc-sales', 'lc-scheduling'];
+
+  const role = (overrides: Partial<PositionRole> = {}): PositionRole => ({
+    id: 'role-1',
+    positionId: 'pos-1',
+    roleName: 'lc-sales',
+    enabled: true,
+    createdAt: '2026-01-01T00:00:00',
+    updatedAt: '2026-01-01T00:00:00',
+    ...overrides,
+  });
+
   /** The catalog of the three levels every test starts from, already rank-ordered. */
   const catalog = (): SeniorityLevel[] => [
     level(),
@@ -86,6 +107,12 @@ describe('PositionSettings', () => {
     positionError?: boolean;
     savedBands?: PositionSalaryBand[];
     saveError?: HttpErrorResponse;
+    storedRoles?: PositionRole[];
+    grantable?: string[];
+    rolesError?: boolean;
+    grantableError?: boolean;
+    savedRoles?: PositionRole[];
+    roleSaveError?: HttpErrorResponse;
   }
 
   function setup(options: SetupOptions = {}): void {
@@ -109,6 +136,24 @@ describe('PositionSettings', () => {
           return throwError(() => options.saveError);
         }
         return of(options.savedBands ?? [band()]);
+      }),
+      getPositionRoles: vi.fn(() => {
+        if (options.rolesError) {
+          return throwError(() => new HttpErrorResponse({ status: 500 }));
+        }
+        return of(options.storedRoles ?? [role()]);
+      }),
+      getGrantablePositionRoles: vi.fn(() => {
+        if (options.grantableError) {
+          return throwError(() => new HttpErrorResponse({ status: 500 }));
+        }
+        return of({ roles: options.grantable ?? GRANTABLE });
+      }),
+      savePositionRoles: vi.fn(() => {
+        if (options.roleSaveError) {
+          return throwError(() => options.roleSaveError);
+        }
+        return of(options.savedRoles ?? [role()]);
       }),
     };
 
@@ -206,6 +251,24 @@ describe('PositionSettings', () => {
 
   function lastSaveRequest(): PositionSalaryBandsRequest {
     return positionService.saveSalaryBands.mock.calls.at(-1)?.[2] as PositionSalaryBandsRequest;
+  }
+
+  function lastRolesRequest(): PositionRolesRequest {
+    return positionService.savePositionRoles.mock.calls.at(-1)?.[2] as PositionRolesRequest;
+  }
+
+  function roleCheckboxes(): HTMLInputElement[] {
+    return Array.from(
+      host().querySelectorAll<HTMLInputElement>('mat-checkbox input[type="checkbox"]'),
+    );
+  }
+
+  function rolesSaveButton(): HTMLButtonElement | null {
+    return (
+      (Array.from(host().querySelectorAll('button')).find(
+        (button) => button.textContent?.trim() === 'Guardar roles',
+      ) as HTMLButtonElement | undefined) ?? null
+    );
   }
 
   it('should read the position, its bands and the global catalog with disabled levels included', async () => {
@@ -346,9 +409,10 @@ describe('PositionSettings', () => {
     await settle();
 
     // An empty grid would read as "this position has no bands configured", which
-    // is a different and false statement.
+    // is a different and false statement; the section keeps its heading so the
+    // banner is attributable, and renders no editable table at all.
     expect(tableRows()).toHaveLength(0);
-    expect(text()).not.toContain('Tabuladores');
+    expect(text()).not.toContain('no tiene niveles de antigüedad');
     expect(component.loadError()).not.toBeNull();
     expect(text()).toContain(component.loadError()!);
   });
@@ -431,6 +495,132 @@ describe('PositionSettings', () => {
 
     expect(router.navigate).toHaveBeenCalledWith(['/hr/positions'], {
       queryParams: { companyId: 'company-1' },
+    });
+  });
+
+  describe('the roles section', () => {
+    it('should read the stored template and the allowlist, and check exactly the granted roles', async () => {
+      setup();
+      await settle();
+
+      expect(positionService.getPositionRoles).toHaveBeenCalledWith('company-1', 'pos-1');
+      expect(positionService.getGrantablePositionRoles).toHaveBeenCalledWith('company-1', 'pos-1');
+
+      // One checkbox per grantable name — never per stored row, which would hide a
+      // role that can be granted but is not configured yet (D19).
+      const boxes = roleCheckboxes();
+      expect(boxes).toHaveLength(3);
+      expect(text()).toContain('lc-company');
+      expect(text()).toContain('lc-sales');
+      expect(text()).toContain('lc-scheduling');
+      expect(boxes[0].checked).toBe(false);
+      expect(boxes[1].checked).toBe(true);
+      expect(boxes[2].checked).toBe(false);
+    });
+
+    it('should leave a stored disabled role unchecked', async () => {
+      setup({ storedRoles: [role({ enabled: false })] });
+      await settle();
+
+      // A disabled stored row is part of the read (T20): it must show as unchecked
+      // rather than as a role that was never configured.
+      expect(roleCheckboxes()[1].checked).toBe(false);
+      expect(text()).toContain('lc-sales');
+    });
+
+    it('should save exactly the checked roles and omit the rest', async () => {
+      setup();
+      await settle();
+
+      roleCheckboxes()[0].click();
+      fixture.detectChanges();
+      rolesSaveButton()!.click();
+      await settle();
+
+      expect(positionService.savePositionRoles).toHaveBeenCalledTimes(1);
+      expect(positionService.savePositionRoles.mock.calls[0][0]).toBe('company-1');
+      expect(positionService.savePositionRoles.mock.calls[0][1]).toBe('pos-1');
+      // An unchecked name is omitted, which is how the API is told to disable it —
+      // and no `enabled` field travels, because the wire has none (T20).
+      expect(lastRolesRequest()).toEqual({
+        roles: [{ roleName: 'lc-company' }, { roleName: 'lc-sales' }],
+      });
+    });
+
+    it('should re-check the boxes from the response of the save', async () => {
+      setup({
+        savedRoles: [role({ enabled: false }), role({ id: 'role-2', roleName: 'lc-scheduling' })],
+      });
+      await settle();
+
+      rolesSaveButton()!.click();
+      await settle();
+
+      const boxes = roleCheckboxes();
+      expect(boxes[1].checked).toBe(false);
+      expect(boxes[2].checked).toBe(true);
+      expect(notifications.showSuccess).toHaveBeenCalledTimes(1);
+    });
+
+    it('should name a failed allowlist read instead of rendering an empty list', async () => {
+      setup({ grantableError: true });
+      await settle();
+
+      expect(roleCheckboxes()).toHaveLength(0);
+      expect(component.rolesError()).not.toBeNull();
+      expect(text()).toContain(component.rolesError()!);
+    });
+
+    it('should name a stored role the allowlist no longer carries, instead of clearing it silently', async () => {
+      setup({ storedRoles: [role({ roleName: 'lc-country', enabled: true })] });
+      await settle();
+
+      // Saving without that name would disable it through the omission rule with
+      // nobody asking, so the section refuses to render an editable list.
+      expect(roleCheckboxes()).toHaveLength(0);
+      expect(component.rolesError()).not.toBeNull();
+      expect(positionService.savePositionRoles).not.toHaveBeenCalled();
+    });
+
+    it('should surface a failed roles save', async () => {
+      setup({ roleSaveError: new HttpErrorResponse({ status: 409 }) });
+      await settle();
+
+      rolesSaveButton()!.click();
+      await settle();
+
+      expect(component.rolesError()).not.toBeNull();
+      expect(text()).toContain(component.rolesError()!);
+      expect(notifications.showSuccess).not.toHaveBeenCalled();
+    });
+
+    it('should render the roles section read-only without the write role', async () => {
+      setup({ roles: ['lc-sales'] });
+      await settle();
+
+      expect(rolesSaveButton()).toBeNull();
+      expect(roleCheckboxes()).toHaveLength(3);
+      expect(roleCheckboxes()[1].checked).toBe(true);
+      expect(roleCheckboxes()[1].disabled).toBe(true);
+    });
+
+    it('should keep the sections independent: saving the bands never saves the roles', async () => {
+      setup();
+      await settle();
+
+      saveButton()!.click();
+      await settle();
+
+      expect(positionService.saveSalaryBands).toHaveBeenCalledTimes(1);
+      expect(positionService.savePositionRoles).not.toHaveBeenCalled();
+    });
+
+    it('should still render the roles section when the band read failed', async () => {
+      setup({ bandsError: true });
+      await settle();
+
+      expect(component.loadError()).not.toBeNull();
+      expect(roleCheckboxes()).toHaveLength(3);
     });
   });
 });

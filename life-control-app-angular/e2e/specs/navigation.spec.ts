@@ -60,6 +60,10 @@ app.describe('Navigation and role-based menus', () => {
       await expect(page).toHaveURL(/\/hr\/positions\/position-1\/settings/);
       await expect(page.getByRole('heading', { name: 'Configuración del puesto' })).toBeVisible();
       await expect(page.getByText('JR — Junior')).toBeVisible();
+      // The second section is W3b's: its checkboxes come from the allowlist read, and
+      // the stored role is the one checked here.
+      await expect(page.getByRole('checkbox', { name: 'lc-sales' })).toBeChecked();
+      await expect(page.getByRole('checkbox', { name: 'lc-company' })).not.toBeChecked();
     });
 
     app('loads the companies dashboard and the companies list', async ({ page }) => {

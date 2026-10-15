@@ -5,6 +5,7 @@ import com.lifecontrol.api.company.exception.CompanyNotFoundException;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.company.repository.CompanyRepository;
 import com.lifecontrol.api.config.security.ApplicationClientProperties;
+import com.lifecontrol.api.hr.dto.PositionGrantableRolesResponse;
 import com.lifecontrol.api.hr.dto.PositionRoleResponse;
 import com.lifecontrol.api.hr.dto.PositionRolesRequest;
 import com.lifecontrol.api.hr.exception.PositionNotFoundException;
@@ -124,6 +125,32 @@ public class PositionRoleService {
         return roleRepository.findByPositionIdOrderByRoleNameAsc(positionId).stream()
                 .map(this::toResponse)
                 .toList();
+    }
+
+    /**
+     * Returns the frozen allowlist of roles a position template may grant (decisions D7 and D14).
+     *
+     * <p>It is the <b>same</b> set {@link #replaceRoles} validates against, so the editor can never
+     * offer a role the save would refuse. The company and the position are resolved first for the same
+     * reason the sibling read does it: the company-scope check runs before anything is returned, and a
+     * position of another company stays a 404 instead of confirming that a template exists.</p>
+     *
+     * @throws org.springframework.security.access.AccessDeniedException when the current user cannot
+     *     access the company
+     * @throws CompanyNotFoundException                                when the company does not exist
+     * @throws PositionNotFoundException                               when the position does not belong to the company
+     */
+    @Transactional(readOnly = true)
+    public PositionGrantableRolesResponse getGrantableRoles(UUID companyId, UUID positionId) {
+        resolveCompany(companyId);
+        resolvePosition(companyId, positionId);
+
+        // `GrantablePositionRoles.names()` is an unordered Set, so the sort is what makes the wire
+        // order stable for the screen instead of leaving it to the JVM's iteration order.
+        var names = GrantablePositionRoles.names().stream()
+                .sorted(Comparator.naturalOrder())
+                .toList();
+        return new PositionGrantableRolesResponse(names);
     }
 
     /**

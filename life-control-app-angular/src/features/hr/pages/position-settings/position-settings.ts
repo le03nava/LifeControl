@@ -16,6 +16,7 @@ import {
 } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
+import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { forkJoin } from 'rxjs';
@@ -29,6 +30,8 @@ import { PositionService } from '../../data/position.service';
 import { SeniorityLevelService } from '../../data/seniority-level.service';
 import {
   Position,
+  PositionRole,
+  PositionRolesRequest,
   PositionSalaryBand,
   PositionSalaryBandControl,
   PositionSalaryBandsRequest,
@@ -42,6 +45,13 @@ export interface SalaryBandRow {
   rank: number;
   /** The stored band this row came from, or `null` when the level has none. */
   stored: PositionSalaryBand | null;
+}
+
+/** One checkbox row of the Roles section: a grantable role and its stored state. */
+export interface PositionRoleRow {
+  roleName: string;
+  /** The stored template row, or `null` when the role was never configured. */
+  stored: PositionRole | null;
 }
 
 /**
@@ -74,13 +84,20 @@ export function bandRowValidator(group: AbstractControl): ValidationErrors | nul
 }
 
 /**
- * `PositionSettings` — the position's policy screen (record T9, W3a).
+ * `PositionSettings` — the position's policy screen (record T9, W3).
  *
- * One page, one section in this slice: **Tabuladores**, the salary-band editor
- * over the API's full-set save (T10/D13). The **Roles del sistema** section is
- * W3b and is deliberately not rendered here: a section with no endpoint behind
- * it would be the rendered-control-without-a-destination defect D16 exists to
- * prevent.
+ * One page with **two independent sections**, each with its own read, its own save
+ * and its own endpoint: **Tabuladores**, the salary-band editor over the API's
+ * full-set save (T10/D13), and **Roles del sistema**, the role-template editor over
+ * the sibling contract (T20). The split is deliberate — a failure or a slow read on
+ * one side never blanks the other — and it is what makes the two chained slices
+ * (D18) reviewable one at a time.
+ *
+ * The Roles section draws its candidate set from the **backend's allowlist** read
+ * (D19) rather than a copy of the fifteen names, so the checkboxes cannot offer what
+ * the save would refuse, and it states in the UI what **D6** already decided: the
+ * template is a provisioning **seed**, so changing it does not alter anyone's
+ * current access.
  *
  * The company is **T21's mold** — the `companyId` query parameter, not the
  * `company_id` claim, which nothing in this repository provisions — and the page
@@ -103,6 +120,7 @@ export function bandRowValidator(group: AbstractControl): ValidationErrors | nul
   imports: [
     ReactiveFormsModule,
     MatButtonModule,
+    MatCheckboxModule,
     MatFormFieldModule,
     MatInputModule,
     ErrorBanner,
@@ -134,14 +152,30 @@ export class PositionSettings implements OnInit {
   readonly loadError = signal<string | null>(null);
   readonly submitError = signal<string | null>(null);
 
+  /**
+   * The **Roles del sistema** section, which is its own read, its own save and its
+   * own endpoint (T9): a failure on either side never blanks the other one.
+   */
+  readonly roleRows = signal<PositionRoleRow[]>([]);
+  readonly grantableRoles = signal<string[]>([]);
+  readonly rolesLoading = signal(false);
+  readonly savingRoles = signal(false);
+  readonly rolesError = signal<string | null>(null);
+
   readonly bandsForm = new FormArray<FormGroup<PositionSalaryBandControl>>([]);
 
   /**
-   * The form the template binds: a `FormArray` cannot be bound with `formGroup`,
-   * so the band rows live inside this one-field group and are addressed in the
-   * template through `formArrayName="bands"`.
+   * The form the Tabuladores section binds: a `FormArray` cannot be bound with
+   * `formGroup`, so the rows live inside this one-field group and are addressed in
+   * the template through `formArrayName="bands"`.
    */
-  readonly formGroup = new FormGroup({ bands: this.bandsForm });
+  readonly bandsFormGroup = new FormGroup({ bands: this.bandsForm });
+
+  /** One `boolean` control per grantable role: checked means the template grants it. */
+  readonly rolesForm = new FormArray<FormControl<boolean>>([]);
+
+  /** The form the Roles section binds, with the same one-field wrapper as the bands. */
+  readonly rolesFormGroup = new FormGroup({ roles: this.rolesForm });
 
   ngOnInit(): void {
     const id = this.positionId();
@@ -156,9 +190,17 @@ export class PositionSettings implements OnInit {
       // can only say why nothing loaded instead of issuing a request that would
       // 404 on the way out.
       this.loadError.set('No se indicó la empresa del puesto.');
+      this.rolesError.set('No se indicó la empresa del puesto.');
       return;
     }
 
+    // Two independent reads for two independent sections (T9): a failure on one
+    // side never blanks the other one's screen.
+    this.loadBands(companyId, id);
+    this.loadRoles(companyId, id);
+  }
+
+  private loadBands(companyId: string, id: string): void {
     this.loading.set(true);
     forkJoin({
       position: this.positionService.getPosition(companyId, id),
@@ -178,6 +220,28 @@ export class PositionSettings implements OnInit {
           // **Named, never degraded**: an empty grid would read as "this position
           // has no bands configured", which is a different and false statement.
           this.loadError.set(httpErrorMessage(err));
+        },
+      });
+  }
+
+  private loadRoles(companyId: string, id: string): void {
+    this.rolesLoading.set(true);
+    forkJoin({
+      roles: this.positionService.getPositionRoles(companyId, id),
+      grantable: this.positionService.getGrantablePositionRoles(companyId, id),
+    })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: ({ roles, grantable }) => {
+          this.rolesLoading.set(false);
+          this.grantableRoles.set(grantable.roles);
+          this.seedRoleRows(roles, grantable.roles);
+        },
+        error: (err: HttpErrorResponse) => {
+          this.rolesLoading.set(false);
+          // Named for the same reason the bands are: an empty checkbox list would
+          // read as "this template grants nothing" instead of "that read failed".
+          this.rolesError.set(httpErrorMessage(err));
         },
       });
   }
@@ -326,6 +390,112 @@ export class PositionSettings implements OnInit {
       }));
 
     return { bands };
+  }
+
+  /**
+   * Rebuilds the Roles section: one checkbox per grantable role, checked exactly
+   * when the stored template grants it.
+   *
+   * A stored **enabled** role the allowlist no longer carries makes the section
+   * refuse to render an editable list, because saving without that role would
+   * disable it through the omission rule without anyone asking.
+   */
+  private seedRoleRows(roles: PositionRole[], grantable: string[]): void {
+    const storedByName = new Map(roles.map((role) => [role.roleName, role]));
+    if (roles.some((role) => role.enabled && !grantable.includes(role.roleName))) {
+      this.roleRows.set([]);
+      this.rolesForm.clear();
+      this.rolesError.set(
+        'La plantilla guardada tiene un rol que ya no está en la lista permitida. Volvé a intentar antes de guardar.',
+      );
+      return;
+    }
+
+    const rows: PositionRoleRow[] = grantable.map((roleName) => ({
+      roleName,
+      stored: storedByName.get(roleName) ?? null,
+    }));
+    const sameShape =
+      rows.length === this.roleRows().length &&
+      rows.every((row, index) => row.roleName === this.roleRows()[index].roleName);
+    const checked = rows.map((row) => row.stored?.enabled === true);
+
+    this.roleRows.set(rows);
+
+    if (!sameShape) {
+      this.rolesForm.clear();
+      for (const value of checked) {
+        this.rolesForm.push(new FormControl<boolean>(value, { nonNullable: true }));
+      }
+      this.applyRoleWriteGate();
+      return;
+    }
+
+    // Same patch-not-rebuild rule as the band grid: a rebuilt checkbox keeps the
+    // DOM state it had, so the response would not be reflected on screen.
+    checked.forEach((value, index) => this.rolesForm.at(index).setValue(value));
+    this.applyRoleWriteGate();
+  }
+
+  /**
+   * Disables the role controls for a caller without the write role.
+   *
+   * The **control** is the authority on its own disabled state: a `[disabled]`
+   * binding next to `formControlName` is ignored by a reactive directive (Angular
+   * warns about it), and the checkbox follows the control through
+   * `setDisabledState`. The values stay readable, so the gate hides the action and
+   * never the information.
+   */
+  private applyRoleWriteGate(): void {
+    if (this.canWrite) {
+      this.rolesForm.enable({ emitEvent: false });
+    } else {
+      this.rolesForm.disable({ emitEvent: false });
+    }
+  }
+
+  /**
+   * Saves the role template as a **full set** (T20): every checked name travels and
+   * every stored name the request omits is disabled and **kept** by the API. No
+   * `enabled` field is sent, because the wire has none.
+   */
+  onSaveRoles(): void {
+    this.rolesError.set(null);
+    if (!this.canWrite) {
+      return;
+    }
+
+    const companyId = this.selectedCompanyId();
+    const id = this.positionId();
+    if (!companyId || !id) {
+      return;
+    }
+
+    const rows = this.roleRows();
+    const request: PositionRolesRequest = {
+      roles: this.rolesForm.controls
+        .map((control, index) => ({ checked: control.value, roleName: rows[index].roleName }))
+        .filter(({ checked }) => checked)
+        .map(({ roleName }) => ({ roleName })),
+    };
+
+    this.savingRoles.set(true);
+    this.positionService
+      .savePositionRoles(companyId, id, request)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (roles) => {
+          this.savingRoles.set(false);
+          // The response is the stored template after the save, which is what says
+          // which roles stayed enabled.
+          this.seedRoleRows(roles, this.grantableRoles());
+          this.notifications.showSuccess('Roles del sistema guardados correctamente.');
+        },
+        error: (err: HttpErrorResponse) => {
+          this.savingRoles.set(false);
+          this.rolesError.set(httpErrorMessage(err));
+        },
+      });
   }
 
   onBack(): void {

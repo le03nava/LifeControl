@@ -87,6 +87,16 @@ export interface PositionSalaryBandMock {
   updatedAt: string;
 }
 
+/** One row of a position's role template as `GET …/positions/{id}/roles` returns it. */
+export interface PositionRoleMock {
+  id: string;
+  positionId: string;
+  roleName: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /** One row of the **global** seniority-level catalog (`/api/seniority-levels`). */
 export interface SeniorityLevelMock {
   id: string;
@@ -409,6 +419,32 @@ const SAMPLE_SALARY_BANDS: PositionSalaryBandMock[] = [
   },
 ];
 
+/**
+ * The stored role template of `position-1` and the frozen allowlist the editor
+ * draws its checkboxes from: deliberately wider than what is stored, so the
+ * screen has roles it can grant but does not grant yet.
+ */
+const SAMPLE_POSITION_ROLES: PositionRoleMock[] = [
+  {
+    id: 'position-role-1',
+    positionId: 'position-1',
+    roleName: 'lc-sales',
+    enabled: true,
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+  },
+  {
+    id: 'position-role-2',
+    positionId: 'position-1',
+    roleName: 'lc-company',
+    enabled: false,
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+  },
+];
+
+const SAMPLE_GRANTABLE_ROLES = ['lc-company', 'lc-sales', 'lc-scheduling'];
+
 /** Store chain the purchase orders and the inventory endpoints hang from. */
 const STORE_CHAIN = {
   companyId: 'company-1',
@@ -606,6 +642,10 @@ export interface ApiMockOptions {
   salaryBands?: PositionSalaryBandMock[];
   /** The global seniority-level catalogue the band editor joins its rows from. */
   seniorityLevels?: SeniorityLevelMock[];
+  /** A position's stored role template; the reads and the full-set save are stateful. */
+  positionRoles?: PositionRoleMock[];
+  /** The allowlist the roles editor draws its checkboxes from. */
+  grantableRoles?: string[];
 }
 
 /**
@@ -646,6 +686,14 @@ export async function installApiMock(page: Page, options: ApiMockOptions = {}): 
   const salaryBands: PositionSalaryBandMock[] = options.salaryBands
     ? [...options.salaryBands]
     : [...SAMPLE_SALARY_BANDS];
+  const positionRoles: PositionRoleMock[] = options.positionRoles
+    ? [...options.positionRoles]
+    : [...SAMPLE_POSITION_ROLES];
+  const grantableRoles: string[] = options.grantableRoles
+    ? [...options.grantableRoles]
+    : [...SAMPLE_GRANTABLE_ROLES];
+  const rolesOf = (positionId: string): PositionRoleMock[] =>
+    positionRoles.filter((role) => role.positionId === positionId);
   /** The band editor's rows are ordered by the level's rank, as the API orders them. */
   const rankOf = (levelId: string): number =>
     seniorityLevels.find((level) => level.id === levelId)?.rank ?? 0;
@@ -1116,6 +1164,71 @@ export async function installApiMock(page: Page, options: ApiMockOptions = {}): 
         await fulfillJson(route, bandsOf(positionId), cors);
         return;
       }
+    }
+
+    const positionRolesMatch = /^\/api\/companies\/([^/]+)\/positions\/([^/]+)\/roles$/.exec(path);
+    if (positionRolesMatch) {
+      const companyId = positionRolesMatch[1];
+      const positionId = positionRolesMatch[2];
+      if (!positions.some((p) => p.id === positionId && p.companyId === companyId)) {
+        await fulfillJson(route, { status: 404, message: 'Puesto no encontrado' }, cors, 404);
+        return;
+      }
+
+      if (method === 'GET') {
+        await fulfillJson(route, rolesOf(positionId), cors);
+        return;
+      }
+
+      if (method === 'PUT') {
+        // Full-set semantics (T20): a submitted name is upserted, a stored name the
+        // request omits is disabled and **kept**, and the response is the stored set.
+        const body = JSON.parse(request.postData() ?? '{}') as { roles?: { roleName: string }[] };
+        const submitted = body.roles ?? [];
+        const now = new Date().toISOString();
+
+        for (const stored of positionRoles.filter((role) => role.positionId === positionId)) {
+          if (!submitted.some((item) => item.roleName === stored.roleName)) {
+            stored.enabled = false;
+            stored.updatedAt = now;
+          }
+        }
+        for (const item of submitted) {
+          const stored = positionRoles.find(
+            (role) => role.positionId === positionId && role.roleName === item.roleName,
+          );
+          if (stored) {
+            stored.enabled = true;
+            stored.updatedAt = now;
+          } else {
+            positionRoles.push({
+              id: `e2e-position-role-${nextId++}`,
+              positionId,
+              roleName: item.roleName,
+              enabled: true,
+              createdAt: now,
+              updatedAt: now,
+            });
+          }
+        }
+
+        await fulfillJson(route, rolesOf(positionId), cors);
+        return;
+      }
+    }
+
+    const positionGrantableRolesMatch =
+      /^\/api\/companies\/([^/]+)\/positions\/([^/]+)\/roles\/grantable$/.exec(path);
+    if (positionGrantableRolesMatch && method === 'GET') {
+      const companyId = positionGrantableRolesMatch[1];
+      const positionId = positionGrantableRolesMatch[2];
+      if (!positions.some((p) => p.id === positionId && p.companyId === companyId)) {
+        await fulfillJson(route, { status: 404, message: 'Puesto no encontrado' }, cors, 404);
+        return;
+      }
+
+      await fulfillJson(route, { roles: grantableRoles }, cors);
+      return;
     }
 
     if (path === '/api/scheduling/activities' && method === 'GET') {

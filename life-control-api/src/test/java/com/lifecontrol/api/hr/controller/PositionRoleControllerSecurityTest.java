@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.lifecontrol.api.config.ratelimit.RateLimitProperties;
+import com.lifecontrol.api.hr.dto.PositionGrantableRolesResponse;
 import com.lifecontrol.api.hr.dto.PositionRoleResponse;
 import com.lifecontrol.api.hr.dto.PositionRolesRequest;
 import com.lifecontrol.api.hr.service.PositionRoleService;
@@ -93,6 +94,27 @@ class PositionRoleControllerSecurityTest {
         @DisplayName("returns 401 Unauthorized for unauthenticated request")
         void unauthenticatedReturns401() throws Exception {
             mockMvc.perform(get(path(), companyId, positionId)).andExpect(status().isUnauthorized());
+        }
+    }
+
+    @Nested
+    @DisplayName("GET /api/companies/{companyId}/positions/{positionId}/roles/grantable")
+    class GetGrantableRolesSecurity {
+
+        @Test
+        @WithMockUser(roles = {"other-role"})
+        @DisplayName("returns 200 OK for any authenticated user (reads are isAuthenticated)")
+        void anyAuthenticatedUserCanReadTheAllowlist() throws Exception {
+            when(positionRoleService.getGrantableRoles(companyId, positionId))
+                    .thenReturn(new PositionGrantableRolesResponse(List.of("lc-sales")));
+
+            mockMvc.perform(get(path() + "/grantable", companyId, positionId)).andExpect(status().isOk());
+        }
+
+        @Test
+        @DisplayName("returns 401 Unauthorized for unauthenticated request")
+        void unauthenticatedReturns401() throws Exception {
+            mockMvc.perform(get(path() + "/grantable", companyId, positionId)).andExpect(status().isUnauthorized());
         }
     }
 
