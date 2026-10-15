@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import {
@@ -9,6 +9,20 @@ import {
   accessTaskKindLabel,
   accessTaskStatusLabel,
 } from '../../models/access-provisioning.models';
+
+/** The one status name the request surface refuses, as `V20` seeds it and `EmployeeStatuses` pins it. */
+const TERMINATED_STATUS_NAME = 'Terminated';
+
+/**
+ * Whether `statusName` is the `Terminated` row of the `EMPLOYEE_STATUS` family.
+ *
+ * Case-insensitive, mirroring `EmployeeStatuses.isTerminated` (record T84) and `employee-edit`'s own
+ * mirror: the seeded value is compared case-insensitively on the server, so a differently-cased
+ * catalogue name must not slip through.
+ */
+function isTerminatedStatus(statusName: string | null): boolean {
+  return statusName !== null && statusName.toLowerCase() === TERMINATED_STATUS_NAME.toLowerCase();
+}
 
 /**
  * The **Acceso** section of the employee detail.
@@ -26,10 +40,13 @@ import {
  *   on every read, while `frozenRoleDiff` is what a human is being asked to decide. The section
  *   renders both, labels the frozen one as the set the reviewer decides on, and when it is `null` it
  *   **says so** rather than drawing an empty set — the two are indistinguishable otherwise.
- * - **No control the API would refuse** (record O3/T95). `apply` and `deactivate` are hidden while a
- *   task is open (both answer 409), `retryRequest` only exists for a `FAILED` task, `resend` only for
- *   a linked account, and the decision control is hidden when the open task's `requestedBy` is the
- *   caller's own `sub`.
+ * - **No control the API would refuse** (records O3/T84/T85/T95). `apply` and `deactivate` are hidden
+ *   while a task is open (both answer 409), `retryRequest` only exists for a `FAILED` task, `resend`
+ *   only for a linked account, and the decision control is hidden when the open task's `requestedBy`
+ *   is the caller's own `sub`. On top of that, `apply` and `resend` are also hidden — with the reason
+ *   stated in Spanish — when the employee is `Terminated` (T84) or the company has no deliverable
+ *   `emailDomain` (T68/T85): both refusals are named 409s, and the operator must see which path
+ *   applies instead of discovering it from a bounced message.
  */
 @Component({
   selector: 'app-access-section',
@@ -59,6 +76,57 @@ export class AccessSection {
    * decision control on the caller's own request (O3).
    */
   readonly currentUserId = input<string | null>(null);
+
+  /**
+   * The employee's status name, as the employee read carries it (`Employee.statusName`), or `null`
+   * while that read has not resolved. It exists for the **terminated gate** (record T84): the API
+   * refuses `apply` and `resend` with a named 409 for a `Terminated` employee, so the section must
+   * not offer either control. The page supplies it because the access overview carries no status.
+   */
+  readonly employeeStatusName = input<string | null>(null);
+
+  /**
+   * The selected company's `emailDomain` (`Company.emailDomain`), as the companies read carries it.
+   * It exists for the **deliverable-domain gate** (record T68/T85): the API refuses `apply` and
+   * `resend` with a named 409 when the company has no usable domain, because nobody can be onboarded
+   * without one. `undefined` means the company is not resolved yet and must not fire the gate;
+   * `null` or a blank value means the domain is missing. The page supplies it because the access
+   * overview carries no domain.
+   */
+  readonly companyEmailDomain = input<string | null | undefined>(undefined);
+
+  /** Whether the employee holds the fixed `Terminated` status (record T84). */
+  private readonly employeeTerminated = computed(() =>
+    isTerminatedStatus(this.employeeStatusName()),
+  );
+
+  /**
+   * Whether the company has a usable `emailDomain` (record T68/T85).
+   *
+   * `undefined` means the company is not resolved yet and must not fire the gate; `null` or a blank
+   * value is a missing domain and does.
+   */
+  private readonly companyHasEmailDomain = computed(() => {
+    const domain = this.companyEmailDomain();
+    return domain === undefined || (domain !== null && domain.trim() !== '');
+  });
+
+  /**
+   * Why `apply` and `resend` are not offered, or `null` when they are.
+   *
+   * The API refuses both by name (409) for a `Terminated` employee and for a company with no usable
+   * domain, so the section **states which path applies** instead of leaving an empty gap where the
+   * controls would have been (T68/T84/T85).
+   */
+  readonly accessBlockedReason = computed<string | null>(() => {
+    if (this.employeeTerminated()) {
+      return 'El empleado está dado de baja: no se puede solicitar acceso ni reenviar la invitación.';
+    }
+    if (!this.companyHasEmailDomain()) {
+      return 'La empresa no tiene un dominio de correo configurado: sin un dominio entregable no se puede incorporar a nadie, así que no se puede solicitar acceso ni reenviar la invitación.';
+    }
+    return null;
+  });
 
   /** Re-runs the overview read that failed. */
   readonly retry = output<void>();
