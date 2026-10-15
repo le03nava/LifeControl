@@ -52,9 +52,10 @@ import { Department } from '../../models/department.models';
  *
  * Two absences are deliberate. There is **no version precondition**: positions
  * have no `version` column, so there is no 412 branch (T2). And there is **no
- * `Configuración` action yet**: the settings screen it would open is W3, and a
- * rendered control with no destination behind it is the defect D16 was written
- * to prevent. It arrives with its own slice, with its destination.
+ * `config`/state field on the row**: the position's policy (its salary bands and
+ * its role template) lives in the settings screen, which the **`Configuración`**
+ * action opens — it ships with that destination, because a rendered control with
+ * no destination behind it is the defect D16 was written to prevent.
  */
 @Component({
   selector: 'app-position-list',
@@ -254,6 +255,20 @@ export class PositionList {
 
   onEdit(position: Position): void {
     this.router.navigate(['/hr/positions/edit', position.id], {
+      queryParams: { companyId: position.companyId },
+    });
+  }
+
+  /**
+   * Opens the position's policy screen — the destination D16 ties this action to.
+   *
+   * It is gated by the same `canWrite` as every other row action of this list,
+   * because that screen is a write destination of the same roles; the URL stays
+   * reachable for any authenticated caller, which is D17's declared disagreement
+   * between a narrower menu and a wider read.
+   */
+  onConfigure(position: Position): void {
+    this.router.navigate(['/hr/positions', position.id, 'settings'], {
       queryParams: { companyId: position.companyId },
     });
   }

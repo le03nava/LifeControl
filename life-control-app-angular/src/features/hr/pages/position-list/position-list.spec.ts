@@ -371,6 +371,35 @@ describe('PositionList', () => {
     });
   });
 
+  it('should render the Configuración action for the position write role', async () => {
+    setup({ queryCompanyId: 'company-1', roles: WRITE_ROLES });
+    await settle();
+
+    // D16's rule: the action ships **with** the settings screen behind it, so it is
+    // a rendered control whose destination exists (the route tree pins that).
+    expect(actionButton('Configuración')).not.toBeNull();
+  });
+
+  it('should hide the Configuración action for a caller outside the position write set', async () => {
+    setup({ queryCompanyId: 'company-1', roles: READ_ONLY_ROLES });
+    await settle();
+
+    // The list's own mold: every row action of a write destination is gated; the
+    // URL stays reachable, which is D17's declared menu/read disagreement.
+    expect(actionButton('Configuración')).toBeNull();
+  });
+
+  it('should navigate to the settings route of the row carrying its company', async () => {
+    setup({ queryCompanyId: 'company-1' });
+    await settle();
+
+    component.onConfigure(position({ id: 'pos-9' }));
+
+    expect(router.navigate).toHaveBeenCalledWith(['/hr/positions', 'pos-9', 'settings'], {
+      queryParams: { companyId: 'company-1' },
+    });
+  });
+
   it('should disable the confirmed row and reload the list', async () => {
     setup({ queryCompanyId: 'company-1', dialogConfirmed: true });
     await settle();

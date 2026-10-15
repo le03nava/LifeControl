@@ -132,6 +132,14 @@
                   <button mat-icon-button type="button" (click)="onEdit(row)" aria-label="Editar">
                     <mat-icon>edit</mat-icon>
                   </button>
+                  <button
+                    mat-icon-button
+                    type="button"
+                    (click)="onConfigure(row)"
+                    aria-label="Configuración"
+                  >
+                    <mat-icon>settings</mat-icon>
+                  </button>
                   @if (row.enabled) {
                     <button
                       mat-icon-button
