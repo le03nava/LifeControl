@@ -19,3 +19,18 @@ export interface SeniorityLevel {
   createdAt: string;
   updatedAt: string;
 }
+
+/**
+ * Write payload for a seniority level, shared by create and update.
+ *
+ * Mirrors `SeniorityLevelRequest`: `levelCode`, `levelName` and `rank` are
+ * required and `enabled` is optional, defaulting to `true` on the server. `rank`
+ * is the ordering fact the salary-band editor reads the global catalog by, so
+ * it is not an optional decoration.
+ */
+export interface SeniorityLevelRequest {
+  levelCode: string;
+  levelName: string;
+  rank: number;
+  enabled?: boolean;
+}

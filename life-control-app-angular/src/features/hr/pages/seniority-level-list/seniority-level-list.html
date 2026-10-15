@@ -1,0 +1,120 @@
+<div class="seniority-level-list-page">
+  <app-page-header
+    title="Niveles de antigüedad"
+    subtitle="Catálogo global de niveles de antigüedad"
+  >
+    <a mat-stroked-button routerLink="/hr/positions">Volver a Puestos</a>
+    @if (canWrite) {
+      <button mat-flat-button color="primary" type="button" (click)="onCreate()">
+        <mat-icon fontIcon="add" /> Nuevo Nivel
+      </button>
+    }
+  </app-page-header>
+
+  @if (actionError(); as actionErrorMsg) {
+    <app-error-banner class="error-state" [message]="actionErrorMsg" />
+  }
+
+  <div class="filters-section">
+    <mat-form-field appearance="outline" class="search-field" subscriptSizing="dynamic">
+      <mat-label>Buscar</mat-label>
+      <input
+        matInput
+        type="search"
+        placeholder="Código o nombre"
+        [value]="search()"
+        (input)="onSearchChange($any($event.target).value)"
+      />
+    </mat-form-field>
+
+    <mat-slide-toggle
+      class="filter-toggle"
+      [checked]="includeDisabled()"
+      (change)="onIncludeDisabledChange($event.checked)"
+    >
+      Mostrar deshabilitados
+    </mat-slide-toggle>
+  </div>
+
+  @if (loading()) {
+    <p class="loading-text">Cargando niveles de antigüedad...</p>
+  } @else if (loadError(); as err) {
+    <div class="error-state">
+      <mat-icon fontIcon="error" />
+      <p>{{ err }}</p>
+      <button mat-stroked-button type="button" (click)="reloadList()">Reintentar</button>
+    </div>
+  } @else if (filteredLevels().length > 0) {
+    <mat-card appearance="outlined" class="table-card">
+      <mat-card-content>
+        <table mat-table [dataSource]="filteredLevels()">
+          <ng-container matColumnDef="rank">
+            <th mat-header-cell *matHeaderCellDef>Rango</th>
+            <td mat-cell *matCellDef="let row">{{ row.rank }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="levelCode">
+            <th mat-header-cell *matHeaderCellDef>Código</th>
+            <td mat-cell *matCellDef="let row">{{ row.levelCode }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="levelName">
+            <th mat-header-cell *matHeaderCellDef>Nombre</th>
+            <td mat-cell *matCellDef="let row">{{ row.levelName }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="enabled">
+            <th mat-header-cell *matHeaderCellDef>Estado</th>
+            <td mat-cell *matCellDef="let row">
+              <span class="badge status" [class.active]="row.enabled" [class.inactive]="!row.enabled">
+                {{ row.enabled ? 'Activo' : 'Deshabilitado' }}
+              </span>
+            </td>
+          </ng-container>
+
+          <ng-container matColumnDef="actions">
+            <th mat-header-cell *matHeaderCellDef>Acciones</th>
+            <td mat-cell *matCellDef="let row">
+              @if (canWrite) {
+                <button mat-icon-button type="button" (click)="onEdit(row)" aria-label="Editar">
+                  <mat-icon>edit</mat-icon>
+                </button>
+                @if (row.enabled) {
+                  <button
+                    mat-icon-button
+                    color="warn"
+                    type="button"
+                    (click)="onDisable(row)"
+                    aria-label="Deshabilitar"
+                  >
+                    <mat-icon>block</mat-icon>
+                  </button>
+                } @else {
+                  <button
+                    mat-icon-button
+                    color="primary"
+                    type="button"
+                    (click)="onEnable(row)"
+                    aria-label="Reactivar"
+                  >
+                    <mat-icon>restart_alt</mat-icon>
+                  </button>
+                }
+              }
+            </td>
+          </ng-container>
+
+          <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+          <tr mat-row *matRowDef="let row; columns: displayedColumns"></tr>
+        </table>
+      </mat-card-content>
+    </mat-card>
+  } @else {
+    <div class="empty-state">
+      <h3 class="empty-title">No hay niveles de antigüedad registrados</h3>
+      @if (canWrite) {
+        <p class="empty-subtitle">Clic en "Nuevo Nivel" para crear el primero</p>
+      }
+    </div>
+  }
+</div>

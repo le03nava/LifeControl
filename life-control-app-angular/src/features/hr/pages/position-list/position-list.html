@@ -1,5 +1,8 @@
 <div class="position-list-page">
   <app-page-header title="Puestos" subtitle="Catálogo de puestos de la empresa">
+    <!-- The global seniority-level catalog is reached from here (D5): it has no
+         menu entry, so this link is its only entry point. -->
+    <a mat-stroked-button routerLink="/hr/seniority-levels">Niveles de antigüedad</a>
     @if (canWrite) {
       <button
         mat-flat-button
