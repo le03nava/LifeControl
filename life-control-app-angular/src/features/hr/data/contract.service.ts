@@ -3,14 +3,9 @@ import { HttpClient } from '@angular/common/http';
 import { Observable, throwError } from 'rxjs';
 import { catchError, finalize, tap } from 'rxjs/operators';
 import { ConfigService } from '@app/services/config.service';
-import {
-  CloseContractRequest,
-  Contract,
-  ContractRequest,
-  Position,
-  PositionSalaryBand,
-  SeniorityLevel,
-} from '../models/contract.models';
+import { CloseContractRequest, Contract, ContractRequest } from '../models/contract.models';
+import { Position, PositionSalaryBand } from '../models/position.models';
+import { SeniorityLevel } from '../models/seniority-level.models';
 
 /**
  * HTTP access to an employee's contract history and the catalogs the contract

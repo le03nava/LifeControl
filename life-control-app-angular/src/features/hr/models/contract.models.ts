@@ -91,40 +91,11 @@ export interface CloseContractRequest {
   endDate?: string | null;
 }
 
-/** Read model of a company-scoped position, following the catalog id-only convention. */
-export interface Position {
-  id: string;
-  companyId: string;
-  departmentId: string;
-  positionCode: string;
-  positionName: string;
-  description: string | null;
-  reportsToPositionId: string | null;
-  displayOrder: number | null;
-  enabled: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
-
-/** Read model of a global seniority level. */
-export interface SeniorityLevel {
-  id: string;
-  levelCode: string;
-  levelName: string;
-  rank: number;
-  enabled: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
-
-/** Read model of a position's salary band for one seniority level. */
-export interface PositionSalaryBand {
-  id: string;
-  positionId: string;
-  seniorityLevelId: string;
-  minimumSalary: number;
-  maximumSalary: number;
-  enabled: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
+/**
+ * The catalog read models this file used to declare moved to their own model
+ * files, one per resource (the scope's own convention): `Position` and
+ * `PositionSalaryBand` to `position.models.ts`, and `SeniorityLevel` to
+ * `seniority-level.models.ts`. They are deliberately **not** re-exported from
+ * here — an importer points at the resource that owns the shape, and a
+ * re-export would leave two plausible paths for the same type.
+ */

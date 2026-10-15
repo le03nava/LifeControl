@@ -21,12 +21,9 @@ import {
 } from './contract-dialog';
 import { ContractService } from '../../data/contract.service';
 import { StoreAssignmentService } from '../../data/store-assignment.service';
-import {
-  Contract,
-  Position,
-  PositionSalaryBand,
-  SeniorityLevel,
-} from '../../models/contract.models';
+import { Contract } from '../../models/contract.models';
+import { Position, PositionSalaryBand } from '../../models/position.models';
+import { SeniorityLevel } from '../../models/seniority-level.models';
 import { StoreAssignment } from '../../models/store-assignment.models';
 import { Employee } from '../../models/employee.models';
 
