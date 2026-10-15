@@ -16,6 +16,7 @@ import { catchError, map, throwError } from 'rxjs';
 import { NonNullableFormBuilder, FormGroup, Validators, ReactiveFormsModule } from '@angular/forms';
 import { SalesOrderService } from '../../data/sales-order.service';
 import { ProfileService } from '@features/user/profile/data/profile.service';
+import { CompanyStoreService } from '@features/companies/stores/data/company-store.service';
 import { ConfigService } from '@app/services/config.service';
 import { ApiError } from '@shared/models';
 import {
@@ -65,6 +66,7 @@ export class SalesOrderEdit implements OnInit {
   private readonly fb = inject(NonNullableFormBuilder);
   private readonly salesOrderService = inject(SalesOrderService);
   private readonly profileService = inject(ProfileService);
+  private readonly companyStoreService = inject(CompanyStoreService);
   private readonly http = inject(HttpClient);
   private readonly configService = inject(ConfigService);
   private readonly notificationService = inject(NotificationService);
@@ -155,13 +157,13 @@ export class SalesOrderEdit implements OnInit {
   private readonly _storeReady = signal(false);
   private readonly _customerReady = signal(false);
 
-  // ─── Profile cascade IDs for store name lookup ────────────
-  private readonly _profileCascade = signal<{
-    companyId: string | null;
-    companyCountryId: string | null;
-    companyRegionId: string | null;
-    companyZoneId: string | null;
-  } | null>(null);
+  // ─── Profile step readiness (the store name is resolved once it finished) ───
+  //
+  // This used to be the profile's four tenancy ancestors. `T14` removed them from the wire, and what
+  // the effect below actually needs is "the profile step finished": the chain it carried was never read
+  // anywhere else, and the store name now comes from the order's own store id through the flat read
+  // (`T20`) instead of from a path the profile no longer supplies.
+  private readonly _profileStepDone = signal(false);
 
   // ─── Line items ────────────────────────────────────────
   readonly lineItems = signal<ItemTableRow[]>([]);
@@ -193,18 +195,12 @@ export class SalesOrderEdit implements OnInit {
       }
     });
 
-    // In edit mode: when both profile cascade and order are loaded, fetch store name
+    // In edit mode: when the profile step finished and the order is loaded, fetch store name
     effect(() => {
-      const cascade = this._profileCascade();
+      const profileStepDone = this._profileStepDone();
       const order = this.loadedOrder();
-      if (cascade && order?.companyStoreId && this.isEditMode() && !this.userStoreName()) {
-        this.fetchStoreName(
-          cascade.companyId,
-          cascade.companyCountryId,
-          cascade.companyRegionId,
-          cascade.companyZoneId,
-          order.companyStoreId,
-        );
+      if (profileStepDone && order?.companyStoreId && this.isEditMode() && !this.userStoreName()) {
+        this.fetchStoreName(order.companyStoreId);
       }
     });
   }
@@ -226,38 +222,51 @@ export class SalesOrderEdit implements OnInit {
   // DATA LOADING
   // ══════════════════════════════════════════════════════════
 
-  /** Load the user's profile to get cascade IDs and store info. */
+  /**
+   * Load the user's profile to seed the store preference, then resolve the store itself.
+   *
+   * <p>The profile stopped carrying the four tenancy ancestors (`T14` of
+   * {@code company-scope-local-fallback}); what it still carries is the store preference, and the chain
+   * is resolved from that store id through the flat store read (`T20`) — the same source the profile's
+   * own cascade uses, and one the caller cannot forge.</p>
+   */
   private loadProfile(): void {
     this.profileService
       .getProfile()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (profile) => {
-          this._profileCascade.set({
-            companyId: profile.companyId,
-            companyCountryId: profile.companyCountryId,
-            companyRegionId: profile.companyRegionId,
-            companyZoneId: profile.companyZoneId,
-          });
-
-          if (!this.isEditMode()) {
-            // Create mode: patch form and fetch store name with profile's store
-            if (profile.companyStoreId) {
-              this.headerForm().patchValue({
-                companyStoreId: profile.companyStoreId,
-              });
-              this.fetchStoreName(
-                profile.companyId,
-                profile.companyCountryId,
-                profile.companyRegionId,
-                profile.companyZoneId,
-                profile.companyStoreId,
-              );
+          const storeId = profile.companyStoreId;
+          if (!storeId) {
+            this._profileStepDone.set(true);
+            if (!this.isEditMode()) {
+              this._storeReady.set(true);
             }
-            this._storeReady.set(true);
+            return;
           }
+          this.companyStoreService
+            .getStoreById(storeId)
+            .pipe(takeUntilDestroyed(this.destroyRef))
+            .subscribe({
+              next: (store) => {
+                this._profileStepDone.set(true);
+                if (!this.isEditMode()) {
+                  // Create mode: patch form and take the name from the same read.
+                  this.headerForm().patchValue({ companyStoreId: store.id });
+                  this.userStoreName.set(store.storeName);
+                  this._storeReady.set(true);
+                }
+              },
+              error: () => {
+                this._profileStepDone.set(true);
+                if (!this.isEditMode()) {
+                  this._storeReady.set(true);
+                }
+              },
+            });
         },
         error: () => {
+          this._profileStepDone.set(true);
           if (!this.isEditMode()) {
             this._storeReady.set(true);
           }
@@ -265,19 +274,15 @@ export class SalesOrderEdit implements OnInit {
       });
   }
 
-  private fetchStoreName(
-    companyId: string | null,
-    companyCountryId: string | null,
-    regionId: string | null,
-    zoneId: string | null,
-    storeId: string,
-  ): void {
-    if (!companyId || !companyCountryId || !regionId || !zoneId) {
-      return;
-    }
-    const url = `${this.configService.apiUrl}/companies/${companyId}/countries/${companyCountryId}/regions/${regionId}/zones/${zoneId}/stores/${storeId}`;
-    this.http
-      .get<{ storeName: string }>(url)
+  /**
+   * Resolves the store's display name from the store id alone — the flat read (`T20`).
+   *
+   * <p>It used to compose the full company → country → region → zone path, which the profile no longer
+   * carries (`T14`); the flat read answers the same question with the id the order already has.</p>
+   */
+  private fetchStoreName(storeId: string): void {
+    this.companyStoreService
+      .getStoreById(storeId)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (store) => this.userStoreName.set(store.storeName),

@@ -9,6 +9,7 @@ import { SalesOrderEdit } from './sales-order-edit';
 import { ProductVariantSelector } from '../../components/product-variant-selector/product-variant-selector';
 import { SalesOrderService } from '../../data/sales-order.service';
 import { ProfileService } from '@features/user/profile/data/profile.service';
+import { CompanyStoreService } from '@features/companies/stores/data/company-store.service';
 import { NotificationService } from '@shared/data/notification';
 import { ConfigService } from '@app/services/config.service';
 import type {
@@ -62,10 +63,6 @@ const mockProfile: ProfileResponse = {
   email: 'juan@test.com',
   firstName: 'Juan',
   lastName: 'Pérez',
-  companyCountryId: null,
-  companyId: null,
-  companyRegionId: null,
-  companyZoneId: null,
   companyStoreId: 'store-1',
   assignedStores: null,
 };
@@ -126,6 +123,27 @@ describe('SalesOrderEdit', () => {
       useValue: {
         getProfile: vi.fn().mockReturnValue(of(mockProfile)),
         updateProfile: vi.fn(),
+      },
+    },
+    {
+      provide: CompanyStoreService,
+      useValue: {
+        // W3/T20: the store name and the chain come from the flat, id-addressed read now, so the
+        // create-mode flow needs it to answer for the store the profile pre-fills. Without this provider
+        // the real service is injected and its request is queued by the testing backend forever, which is
+        // why the create-mode tests hung instead of failing loudly.
+        getStoreById: vi.fn().mockReturnValue(
+          of({
+            id: 'store-1',
+            companyId: 'comp-1',
+            companyCountryId: 'cc-1',
+            regionId: 'reg-1',
+            zoneId: 'zone-1',
+            storeName: 'Tienda Centro',
+            enabled: true,
+          }),
+        ),
+        getStores: vi.fn().mockReturnValue(of([])),
       },
     },
     {
@@ -689,8 +707,10 @@ describe('SalesOrderEdit', () => {
       fixture.detectChanges();
     });
 
-    it('should compute displayStoreName from userStoreName', () => {
-      expect(component.displayStoreName()).toBeNull();
+    it('should compute displayStoreName from userStoreName, pre-filled by the flat read (W3/T20)', () => {
+      // T20: in create mode the store name arrives resolved from the flat, id-addressed read, so it is no
+      // longer null when the fixture is created — that is the behaviour this test now starts from.
+      expect(component.displayStoreName()).toBe('Tienda Centro');
       component.userStoreName.set('My Store');
       expect(component.displayStoreName()).toBe('My Store');
     });
