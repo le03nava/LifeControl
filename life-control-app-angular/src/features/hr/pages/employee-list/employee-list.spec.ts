@@ -14,6 +14,15 @@ import { Company, Page } from '@features/companies/companies/models/company.mode
 import { EmployeeList } from './employee-list';
 import { EmployeeService } from '../../data/employee.service';
 import { EmployeeStatusService } from '../../data/employee-status.service';
+import { AccessProvisioningService } from '../../data/access-provisioning.service';
+import {
+  AccessProvisioningOverview,
+  AccessProvisioningQueueEntry,
+} from '../../models/access-provisioning.models';
+import {
+  AccessReviewDialog,
+  AccessReviewDialogResult,
+} from '../../components/access-review-dialog/access-review-dialog';
 import { Employee } from '../../models/employee.models';
 
 describe('EmployeeList', () => {
@@ -26,6 +35,13 @@ describe('EmployeeList', () => {
     enableEmployee: ReturnType<typeof vi.fn>;
   };
   let statusService: { loadEmployeeStatusIds: ReturnType<typeof vi.fn> };
+  let accessService: {
+    error: ReturnType<typeof vi.fn>;
+    getDecisionQueue: ReturnType<typeof vi.fn>;
+    getOverview: ReturnType<typeof vi.fn>;
+    approve: ReturnType<typeof vi.fn>;
+    reject: ReturnType<typeof vi.fn>;
+  };
   let notifications: { showSuccess: ReturnType<typeof vi.fn> };
   let dialog: { open: ReturnType<typeof vi.fn> };
   let router: Router;
@@ -33,8 +49,13 @@ describe('EmployeeList', () => {
 
   const WRITE_ROLES = ['lc-employee'];
   const READ_ONLY_ROLES = ['lc-sales'];
+  /** The Access read pair (record T96): either one reaches the queue. */
+  const ACCESS_READER_ROLES = ['lc-employee-access'];
   /** In the HR menu-visibility union but deliberately absent from the employee write set. */
   const OTHER_HR_WRITE_ROLES = ['lc-department'];
+
+  /** The caller's own `sub`, as the review dialog's self-approval rule reads it (O3). */
+  const CALLER_SUB = 'caller-sub';
 
   const company: Company = {
     id: 'company-1',
@@ -92,6 +113,45 @@ describe('EmployeeList', () => {
     ['Terminated', 'status-terminated'],
   ]);
 
+  const queueEntry = (
+    overrides: Partial<AccessProvisioningQueueEntry> = {},
+  ): AccessProvisioningQueueEntry => ({
+    taskId: 'task-1',
+    kind: 'ACTIVATE',
+    status: 'APPROVAL_PENDING',
+    requestedBy: 'requester-sub',
+    requestedByName: 'Ada Lovelace',
+    requestedAt: '2026-10-14T10:00:00',
+    employeeId: 'emp-1',
+    employeeNumber: 'EMP-001',
+    employeeFirstName: 'Ana',
+    employeePaternalLastName: 'Gómez',
+    employeeMaternalLastName: 'Ruiz',
+    ...overrides,
+  });
+
+  /** The overview `getOverview` answers with; the dialog is fed it (record T95). */
+  const accessOverview = (
+    overrides: Partial<AccessProvisioningOverview> = {},
+  ): AccessProvisioningOverview => ({
+    keycloakUserId: 'keycloak-user-1',
+    accountLinked: true,
+    requiredRoles: ['lc-sales'],
+    currentRoles: [],
+    roleDiff: { added: ['lc-sales'], removed: [] },
+    frozenRoleDiff: { added: ['lc-sales'], removed: [] },
+    openTask: null,
+    history: [],
+    claims: {
+      companyId: ['company-1'],
+      companyCountryId: [],
+      companyRegionId: [],
+      companyZoneId: [],
+      companyStoreId: [],
+    },
+    ...overrides,
+  });
+
   /**
    * Emulates the real service's list contract: a successful read clears the
    * load error before emitting.
@@ -108,6 +168,19 @@ describe('EmployeeList', () => {
     loadError?: boolean;
     dialogConfirmed?: boolean;
     statusCatalogue?: Observable<ReadonlyMap<string, string>>;
+    /** What the queue read resolves with, or rejects with (record T94). */
+    queueEntries?: AccessProvisioningQueueEntry[];
+    queueError?: HttpErrorResponse;
+    /** What the per-employee overview read of the decision flow resolves with, or rejects with. */
+    dialogOverviewError?: HttpErrorResponse;
+    /** What the review dialog closes with; `undefined` is a bare dismissal. */
+    accessDialogResult?: AccessReviewDialogResult;
+    /** What the decision write rejects with. */
+    accessWriteError?: HttpErrorResponse;
+    /** What the access service's own error signal holds after a failed call. */
+    accessServiceError?: string | null;
+    /** The caller's own `sub`; `null` models a token that carries none. */
+    sub?: string | null;
   }
 
   function setup(options: SetupOptions = {}): void {
@@ -144,9 +217,36 @@ describe('EmployeeList', () => {
       loadEmployeeStatusIds: vi.fn().mockReturnValue(options.statusCatalogue ?? of(STATUS_IDS)),
     };
 
+    accessService = {
+      error: vi.fn(() => options.accessServiceError ?? null),
+      getDecisionQueue: vi.fn(() =>
+        options.queueError
+          ? throwError(() => options.queueError)
+          : of(options.queueEntries ?? []),
+      ),
+      getOverview: vi.fn(() =>
+        options.dialogOverviewError
+          ? throwError(() => options.dialogOverviewError)
+          : of(accessOverview()),
+      ),
+      approve: vi.fn(() =>
+        options.accessWriteError ? throwError(() => options.accessWriteError) : of(accessOverview()),
+      ),
+      reject: vi.fn(() =>
+        options.accessWriteError ? throwError(() => options.accessWriteError) : of(accessOverview()),
+      ),
+    };
+
     notifications = { showSuccess: vi.fn() };
     dialog = {
-      open: vi.fn().mockReturnValue({ afterClosed: () => of(options.dialogConfirmed ?? false) }),
+      // The page opens the shared ConfirmDialog and the shared AccessReviewDialog through the same
+      // `MatDialog`; answer each with what its caller expects.
+      open: vi.fn((opened: unknown) => ({
+        afterClosed: () =>
+          opened === AccessReviewDialog
+            ? of(options.accessDialogResult)
+            : of(options.dialogConfirmed ?? false),
+      })),
     };
 
     const roles = options.roles ?? WRITE_ROLES;
@@ -158,6 +258,7 @@ describe('EmployeeList', () => {
         provideRouter([]),
         { provide: EmployeeService, useValue: employeeService },
         { provide: EmployeeStatusService, useValue: statusService },
+        { provide: AccessProvisioningService, useValue: accessService },
         {
           provide: CompanyService,
           useValue: { getCompanies: vi.fn().mockReturnValue(of(companiesPage)) },
@@ -166,7 +267,12 @@ describe('EmployeeList', () => {
         { provide: MatDialog, useValue: dialog },
         {
           provide: Keycloak,
-          useValue: { tokenParsed: { resource_access: { 'life-control-client': { roles } } } },
+          useValue: {
+            tokenParsed: {
+              sub: options.sub ?? undefined,
+              resource_access: { 'life-control-client': { roles } },
+            },
+          },
         },
         {
           provide: ActivatedRoute,
@@ -730,6 +836,221 @@ describe('EmployeeList', () => {
       await settle();
 
       expect(text()).toContain('No tenés permisos');
+    });
+  });
+
+  describe('access requests tab (T96)', () => {
+    function element(): HTMLElement {
+      return fixture.nativeElement as HTMLElement;
+    }
+
+    function tabHeaders(): HTMLElement[] {
+      return Array.from(element().querySelectorAll<HTMLElement>('.mat-mdc-tab'));
+    }
+
+    function tabLabels(): string[] {
+      return tabHeaders().map((tab) => tab.textContent?.trim() ?? '');
+    }
+
+    function pageButton(label: string): HTMLButtonElement | undefined {
+      return Array.from(element().querySelectorAll('button')).find(
+        (button) => button.textContent?.trim() === label,
+      );
+    }
+
+    /** Activates the `Solicitudes` tab, whose content Material mounts lazily. */
+    function openSolicitudesTab(): void {
+      tabHeaders()
+        .find((tab) => (tab.textContent ?? '').includes('Solicitudes'))
+        ?.click();
+      fixture.detectChanges();
+    }
+
+    it('should render no tab and issue no queue request without an access read role', async () => {
+      setup({ roles: READ_ONLY_ROLES, queryCompanyId: 'company-1' });
+      await settle();
+
+      expect(component.canReadAccess).toBe(false);
+      expect(element().querySelector('mat-tab-group')).toBeNull();
+      expect(text()).not.toContain('Solicitudes');
+      expect(accessService.getDecisionQueue).not.toHaveBeenCalled();
+    });
+
+    it('should render the Empleados and Solicitudes tabs for an access read role', async () => {
+      setup({ roles: ACCESS_READER_ROLES, queryCompanyId: 'company-1' });
+      await settle();
+
+      expect(component.canReadAccess).toBe(true);
+      expect(tabLabels()).toEqual(['Empleados', 'Solicitudes']);
+    });
+
+    it('should feed the queue for the selected company, exactly like the list', async () => {
+      const entry = queueEntry();
+      setup({ roles: ACCESS_READER_ROLES, queryCompanyId: 'company-1', queueEntries: [entry] });
+      await settle();
+
+      expect(accessService.getDecisionQueue).toHaveBeenCalledWith('company-1');
+      expect(component.queueEntries()).toEqual([entry]);
+    });
+
+    it('should issue no queue request until a company is selected', async () => {
+      setup({ roles: ACCESS_READER_ROLES, queryCompanyId: null });
+      await settle();
+
+      expect(accessService.getDecisionQueue).not.toHaveBeenCalled();
+    });
+
+    it('should re-fetch the queue for the newly selected company', async () => {
+      setup({ roles: ACCESS_READER_ROLES, queryCompanyId: 'company-1' });
+      await settle();
+
+      component.onCompanyChange('company-2');
+      await settle();
+
+      expect(accessService.getDecisionQueue).toHaveBeenLastCalledWith('company-2');
+    });
+
+    it('should surface a failed queue read with the server message and retry from the tab', async () => {
+      setup({
+        roles: ACCESS_READER_ROLES,
+        queryCompanyId: 'company-1',
+        queueError: new HttpErrorResponse({
+          status: 500,
+          error: { message: 'No se pudieron cargar las solicitudes' },
+        }),
+      });
+      await settle();
+      openSolicitudesTab();
+      await settle();
+
+      expect(component.queueError()).toBe('No se pudieron cargar las solicitudes');
+      expect(text()).toContain('No se pudieron cargar las solicitudes');
+
+      accessService.getDecisionQueue.mockReturnValue(of([queueEntry()]));
+      pageButton('Reintentar')?.click();
+      await settle();
+
+      expect(accessService.getDecisionQueue).toHaveBeenCalledTimes(2);
+      expect(component.queueEntries()).toEqual([queueEntry()]);
+    });
+
+    it('should open the row review control only from the Solicitudes tab', async () => {
+      setup({
+        roles: ACCESS_READER_ROLES,
+        queryCompanyId: 'company-1',
+        queueEntries: [queueEntry()],
+      });
+      await settle();
+
+      openSolicitudesTab();
+      await settle();
+
+      expect(pageButton('Revisar solicitud')).toBeDefined();
+    });
+
+    it('should fetch that employee overview and open the review dialog with it (T95)', async () => {
+      setup({
+        roles: ACCESS_READER_ROLES,
+        queryCompanyId: 'company-1',
+        sub: CALLER_SUB,
+        queueEntries: [queueEntry()],
+        accessDialogResult: undefined,
+      });
+      await settle();
+
+      component.onReviewRequested(queueEntry());
+      await settle();
+
+      expect(accessService.getOverview).toHaveBeenCalledWith('company-1', 'emp-1');
+      const call = dialog.open.mock.calls.at(-1) as
+        | [unknown, { data: unknown }]
+        | undefined;
+      expect(call?.[0]).toBe(AccessReviewDialog);
+      expect(call?.[1]?.data).toMatchObject({
+        currentUserId: CALLER_SUB,
+        employeeNumber: 'EMP-001',
+        employeeName: 'Ana Gómez Ruiz',
+        overview: expect.objectContaining({ accountLinked: true }),
+      });
+    });
+
+    it('should approve, adopt no overview and reload the queue on an approve result', async () => {
+      setup({
+        roles: ACCESS_READER_ROLES,
+        queryCompanyId: 'company-1',
+        sub: CALLER_SUB,
+        queueEntries: [queueEntry()],
+        accessDialogResult: { decision: 'approve' },
+      });
+      await settle();
+
+      component.onReviewRequested(queueEntry());
+      await settle();
+
+      expect(accessService.approve).toHaveBeenCalledWith('company-1', 'emp-1', 'task-1');
+      expect(accessService.reject).not.toHaveBeenCalled();
+      expect(accessService.getDecisionQueue).toHaveBeenCalledTimes(2);
+    });
+
+    it('should reject with the reason and reload the queue on a reject result', async () => {
+      setup({
+        roles: ACCESS_READER_ROLES,
+        queryCompanyId: 'company-1',
+        sub: CALLER_SUB,
+        queueEntries: [queueEntry()],
+        accessDialogResult: { decision: 'reject', reason: 'El puesto no corresponde' },
+      });
+      await settle();
+
+      component.onReviewRequested(queueEntry());
+      await settle();
+
+      expect(accessService.reject).toHaveBeenCalledWith('company-1', 'emp-1', 'task-1', {
+        reason: 'El puesto no corresponde',
+      });
+      expect(accessService.approve).not.toHaveBeenCalled();
+      expect(accessService.getDecisionQueue).toHaveBeenCalledTimes(2);
+    });
+
+    it('should treat a bare review dismissal as no write', async () => {
+      setup({
+        roles: ACCESS_READER_ROLES,
+        queryCompanyId: 'company-1',
+        sub: CALLER_SUB,
+        queueEntries: [queueEntry()],
+        accessDialogResult: undefined,
+      });
+      await settle();
+
+      component.onReviewRequested(queueEntry());
+      await settle();
+
+      expect(accessService.approve).not.toHaveBeenCalled();
+      expect(accessService.reject).not.toHaveBeenCalled();
+      expect(accessService.getDecisionQueue).toHaveBeenCalledTimes(1);
+    });
+
+    it('should surface the server’s named 409 message on a failed decision, not the generic copy', async () => {
+      setup({
+        roles: ACCESS_READER_ROLES,
+        queryCompanyId: 'company-1',
+        sub: CALLER_SUB,
+        queueEntries: [queueEntry()],
+        accessDialogResult: { decision: 'approve' },
+        accessWriteError: new HttpErrorResponse({
+          status: 409,
+          error: { message: 'No podés aprobar tu propia solicitud' },
+        }),
+      });
+      await settle();
+
+      component.onReviewRequested(queueEntry());
+      await settle();
+      openSolicitudesTab();
+      await settle();
+
+      expect(text()).toContain('No podés aprobar tu propia solicitud');
+      expect(text()).not.toContain('El dato cambió mientras lo editabas');
     });
   });
 });
