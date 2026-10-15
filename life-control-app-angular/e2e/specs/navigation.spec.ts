@@ -31,6 +31,22 @@ app.describe('Navigation and role-based menus', () => {
       },
     );
 
+    app('reaches the positions screen from the Recursos Humanos submenu (D16)', async ({ page }) => {
+      await page.goto('/');
+
+      const hrEntry = page.getByRole('link', { name: 'Recursos Humanos' });
+      await expect(hrEntry).toBeVisible();
+
+      // The child is reached through the submenu, and it is the rendered control
+      // D16 requires to have a destination behind it: the entry grows one child
+      // at a time rather than shipping one that resolves to NotFound.
+      await page.getByRole('button', { name: 'Recursos Humanos submenu' }).click();
+      await page.getByRole('menuitem', { name: 'Puestos' }).click();
+
+      await expect(page).toHaveURL(/\/hr\/positions$/);
+      await expect(page.getByRole('heading', { name: 'Puestos' })).toBeVisible();
+    });
+
     app('loads the companies dashboard and the companies list', async ({ page }) => {
       await page.goto('/companies');
       await expect(page.getByRole('heading', { name: 'Companies Administration' })).toBeVisible();

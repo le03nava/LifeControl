@@ -756,7 +756,7 @@ describe('Header', () => {
   // ─── HR menu gating (lc-admin / lc-department / lc-position / lc-seniority-level / lc-employee) ───
 
   describe('human resources menu gating', () => {
-    it('should show the Recursos Humanos parent with its two children for a department user', () => {
+    it('should show the Recursos Humanos parent with its three children for a department user', () => {
       const { component } = setup(['lc-department']);
       const items = component.items();
 
@@ -774,6 +774,12 @@ describe('Header', () => {
             routeLink: '/hr/departments',
             textLink: 'Departamentos',
             icon: 'account_tree',
+          },
+          {
+            id: '9-2',
+            routeLink: '/hr/positions',
+            textLink: 'Puestos',
+            icon: 'badge',
           },
           {
             id: '9-3',

@@ -167,10 +167,12 @@ export class Header implements OnInit {
     // Recursos Humanos is appended last so the pinned product-order relations are
     // untouched. Its visibility is the union of the four HR write sets (D17):
     // anyone who can write in at least one HR catalog gets the entry, and each
-    // screen then gates its own controls on the narrower list. The `9-2` Puestos
-    // child arrives with its own slice — not with `W2b`, which was the contracts —
-    // and `9-3` Empleados landed with `employee-registry`; a child with no
-    // destination is not rendered here.
+    // screen then gates its own controls on the narrower list. The three
+    // children are the three destinations the feature has shipped: `9-1`
+    // Departamentos and `9-2` Puestos with this catalog's own screens, and `9-3`
+    // Empleados with `employee-registry`. A child with no destination is not
+    // rendered here — D16's rule, which is why the entry grew one child at a
+    // time rather than shipping all three against a wildcard route.
     if (this.isHr()) {
       menuItems.push({
         id: '9',
@@ -183,6 +185,12 @@ export class Header implements OnInit {
             routeLink: '/hr/departments',
             textLink: 'Departamentos',
             icon: 'account_tree',
+          },
+          {
+            id: '9-2',
+            routeLink: '/hr/positions',
+            textLink: 'Puestos',
+            icon: 'badge',
           },
           {
             id: '9-3',
