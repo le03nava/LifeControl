@@ -40,6 +40,19 @@ describe('hr.routes', () => {
     };
   }
 
+  it('should register the positions read child with no roles and a lazy component', () => {
+    const parent = routeAt(hrRoutes, '');
+    const positions = routeAt(parent.children, 'positions');
+    const read = routeAt(positions.children, '');
+
+    // Reads are `isAuthenticated()` on the API, which the guard expresses as an
+    // absent `roles` list; the write children arrive with the slice that ships
+    // the form they load.
+    expect(positions.data?.['roles']).toBeUndefined();
+    expect(read.data?.['roles']).toBeUndefined();
+    expect(typeof read.loadComponent).toBe('function');
+  });
+
   it('should carry the department write roles and clientId on the create and edit children', () => {
     const { create, edit } = hrBranch();
 

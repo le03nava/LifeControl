@@ -20,7 +20,9 @@ import { CLIENT_ID, DEPARTMENT_WRITE_ROLES, EMPLOYEE_WRITE_ROLES } from '@core/s
  * children (`create` and `edit/:id`, which load `EmployeeEdit`). The employees
  * write children are gated exactly like their department siblings, and the list
  * page's "Nuevo empleado" / "Editar" links now point at registered routes. The
- * `positions` catalog (`9-2`) still arrives with its own later slice.
+ * `positions` catalog (`9-2`) arrives with its own slices: this one registers
+ * its read child, and the `create` / `edit/:id` children arrive with the slice
+ * that ships the form they load, so no rendered control leads nowhere.
  *
  * The employees **detail** child (`:id`, which loads `EmployeeDetail`) is a read:
  * it carries **no `roles`**, exactly like the list child, because the employee
@@ -55,6 +57,16 @@ export const hrRoutes: Routes = [
             data: { roles: DEPARTMENT_WRITE_ROLES, clientId: CLIENT_ID },
             loadComponent: () =>
               import('./pages/department-edit/department-edit').then((m) => m.DepartmentEdit),
+          },
+        ],
+      },
+      {
+        path: 'positions',
+        children: [
+          {
+            path: '',
+            loadComponent: () =>
+              import('./pages/position-list/position-list').then((m) => m.PositionList),
           },
         ],
       },
