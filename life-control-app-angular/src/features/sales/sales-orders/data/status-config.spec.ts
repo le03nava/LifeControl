@@ -135,6 +135,18 @@ describe('isTerminalSalesOrderStatus', () => {
   it('should answer true for a status the map does not know, like the backend does', () => {
     expect(isTerminalSalesOrderStatus('Unknown')).toBe(true);
   });
+
+  it('should agree with the map for every key, not only for the examples above', () => {
+    for (const [name, transitions] of Object.entries(SO_STATUS_TRANSITIONS)) {
+      expect(isTerminalSalesOrderStatus(name)).toBe(transitions.length === 0);
+    }
+
+    const terminal = Object.entries(SO_STATUS_TRANSITIONS)
+      .filter(([, transitions]) => transitions.length === 0)
+      .map(([name]) => name)
+      .sort();
+    expect(terminal).toEqual(['Cancelled', 'Completed']);
+  });
 });
 
 describe('SO_ITEM_STATUS_TRANSITIONS', () => {
