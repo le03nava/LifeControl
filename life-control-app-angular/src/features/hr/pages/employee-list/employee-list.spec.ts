@@ -220,9 +220,7 @@ describe('EmployeeList', () => {
     accessService = {
       error: vi.fn(() => options.accessServiceError ?? null),
       getDecisionQueue: vi.fn(() =>
-        options.queueError
-          ? throwError(() => options.queueError)
-          : of(options.queueEntries ?? []),
+        options.queueError ? throwError(() => options.queueError) : of(options.queueEntries ?? []),
       ),
       getOverview: vi.fn(() =>
         options.dialogOverviewError
@@ -230,10 +228,14 @@ describe('EmployeeList', () => {
           : of(accessOverview()),
       ),
       approve: vi.fn(() =>
-        options.accessWriteError ? throwError(() => options.accessWriteError) : of(accessOverview()),
+        options.accessWriteError
+          ? throwError(() => options.accessWriteError)
+          : of(accessOverview()),
       ),
       reject: vi.fn(() =>
-        options.accessWriteError ? throwError(() => options.accessWriteError) : of(accessOverview()),
+        options.accessWriteError
+          ? throwError(() => options.accessWriteError)
+          : of(accessOverview()),
       ),
     };
 
@@ -782,7 +784,7 @@ describe('EmployeeList', () => {
         data: {
           title: 'Deshabilitar empleado',
           message:
-            '¿Confirmás que querés deshabilitar a "Ana Gómez Ruiz"? Deja de aparecer en el registro, pero se conserva y podés habilitarlo más adelante.',
+            '¿Confirmás que querés deshabilitar a "Ana Gómez Ruiz"? Deja de aparecer en el registro, pero se conserva y podés habilitarlo más adelante. Esto no revoca su acceso: los roles y la cuenta siguen activos hasta que cambies su estado.',
           confirmLabel: 'Deshabilitar',
           destructive: true,
         },
@@ -796,6 +798,19 @@ describe('EmployeeList', () => {
       expect(copy).toMatch(/deshabilitar/i);
       expect(copy).not.toMatch(/baja|Terminated/);
       expect(employeeService.removeEmployee).not.toHaveBeenCalled();
+    });
+
+    it('should state in the confirmation that disabling does not revoke access', async () => {
+      setup({ queryCompanyId: 'company-1' });
+      await settle();
+
+      component.onDisable(employee());
+      await settle();
+
+      const [, config] = dialog.open.mock.calls[0] as [unknown, { data: { message: string } }];
+      // G41: `enabled = false` is the registry's soft delete, never a revocation.
+      expect(config.data.message).toMatch(/no revoca su acceso/i);
+      expect(config.data.message).toMatch(/cambies su estado/i);
     });
 
     it('should disable, notify and reload when confirmed', async () => {
@@ -962,9 +977,7 @@ describe('EmployeeList', () => {
       await settle();
 
       expect(accessService.getOverview).toHaveBeenCalledWith('company-1', 'emp-1');
-      const call = dialog.open.mock.calls.at(-1) as
-        | [unknown, { data: unknown }]
-        | undefined;
+      const call = dialog.open.mock.calls.at(-1) as [unknown, { data: unknown }] | undefined;
       expect(call?.[0]).toBe(AccessReviewDialog);
       expect(call?.[1]?.data).toMatchObject({
         currentUserId: CALLER_SUB,

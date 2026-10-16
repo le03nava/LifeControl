@@ -86,7 +86,12 @@ interface StatusOption {
  *
  * Disable is a soft delete (`enabled = false`) and is **not** the `Terminated`
  * status (`T3`): the copy says "deshabilitar", the inverse action is offered for
- * a disabled row, and neither reads nor writes the life-cycle status.
+ * a disabled row, and neither reads nor writes the life-cycle status. The
+ * confirmation also states that disabling **does not revoke access** (`G41`):
+ * the projection derives the required roles from the contract and the status, so
+ * a disabled employee whose contract still covers today keeps their roles, their
+ * claims and their enabled account, and the copy says so instead of leaving the
+ * operator to infer it from the disable's own name.
  *
  * There is deliberately no position column (`G15`): `EmployeeResponse` carries
  * no position and the contracts are only reachable per employee, so the column
@@ -403,9 +408,12 @@ export class EmployeeList {
       }),
     };
     this.dialog
-      .open<AccessReviewDialog, AccessReviewDialogData, AccessReviewDialogResult>(AccessReviewDialog, {
-        data,
-      })
+      .open<AccessReviewDialog, AccessReviewDialogData, AccessReviewDialogResult>(
+        AccessReviewDialog,
+        {
+          data,
+        },
+      )
       .afterClosed()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((result) => {
@@ -473,7 +481,7 @@ export class EmployeeList {
     const dialogRef = this.dialog.open(ConfirmDialog, {
       data: {
         title: 'Deshabilitar empleado',
-        message: `¿Confirmás que querés deshabilitar a "${this.fullName(employee)}"? Deja de aparecer en el registro, pero se conserva y podés habilitarlo más adelante.`,
+        message: `¿Confirmás que querés deshabilitar a "${this.fullName(employee)}"? Deja de aparecer en el registro, pero se conserva y podés habilitarlo más adelante. Esto no revoca su acceso: los roles y la cuenta siguen activos hasta que cambies su estado.`,
         confirmLabel: 'Deshabilitar',
         destructive: true,
       },
