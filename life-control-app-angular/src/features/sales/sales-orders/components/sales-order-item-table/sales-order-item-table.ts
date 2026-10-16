@@ -30,8 +30,9 @@ const NO_ROWS_SAVING: ReadonlySet<string> = new Set<string>();
  * Displays product variant name, quantity, unit price, discount, and subtotal
  * columns. Emits granular per-row mutation events (`itemRemoved`,
  * `quantityChanged`, `listPriceChanged`, `discountChanged`) that the parent
- * component orchestrates into API calls. Editing is gated by `isDraft`, and
- * controls are disabled while the parent's `isSaving` signal is non-null.
+ * component orchestrates into API calls. Editing is gated by `isModifiable`, the page's own
+ * derivation of the backend rule (only a terminal status closes the order); controls are
+ * disabled while the parent's `isSaving` signal is non-null.
  */
 @Component({
   selector: 'app-sales-order-item-table',
@@ -54,7 +55,7 @@ export class SalesOrderItemTable {
   readonly items = input.required<ItemTableRow[]>();
 
   /** Whether the parent order is in Draft status (mutation guard). */
-  readonly isDraft = input<boolean>(false);
+  readonly isModifiable = input<boolean>(false);
 
   /**
    * Row ids with a write in flight.
@@ -120,14 +121,14 @@ export class SalesOrderItemTable {
   // ─── Mutations ─────────────────────────────────────────
 
   removeItem(index: number): void {
-    if (!this.isDraft()) return;
+    if (!this.isModifiable()) return;
     const updated = this.items().filter((_, i) => i !== index);
     this.itemRemoved.emit(index);
     this.itemsChanged.emit(updated);
   }
 
   onQuantityChange(index: number, value: number): void {
-    if (!this.isDraft()) return;
+    if (!this.isModifiable()) return;
     const newValue = value || 1;
     const updated = this.items().map((item, i) =>
       i === index ? { ...item, quantity: newValue } : item,
@@ -137,7 +138,7 @@ export class SalesOrderItemTable {
   }
 
   onListPriceChange(index: number, value: number): void {
-    if (!this.isDraft()) return;
+    if (!this.isModifiable()) return;
     const newValue = value || 0;
     const updated = this.items().map((item, i) =>
       i === index ? { ...item, listPrice: newValue } : item,
@@ -147,7 +148,7 @@ export class SalesOrderItemTable {
   }
 
   onDiscountChange(index: number, value: number): void {
-    if (!this.isDraft()) return;
+    if (!this.isModifiable()) return;
     const newValue = value || 0;
     const updated = this.items().map((item, i) =>
       i === index ? { ...item, discountApplied: newValue } : item,

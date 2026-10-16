@@ -1209,8 +1209,8 @@ class SalesOrderServiceTest {
         }
 
         @Test
-        @DisplayName("should throw SalesOrderAlreadyFinalizedException when order not in Draft or Active")
-        void addSalesOrderItem_NotDraftOrActive_ThrowsException() {
+        @DisplayName("should throw SalesOrderAlreadyFinalizedException when the order has reached a terminal status")
+        void addSalesOrderItem_TerminalOrder_ThrowsException() {
             var cerradaOrder = SalesOrder.builder()
                     .id(orderId)
                     .orderNumber(testOrder.getOrderNumber())
@@ -1230,6 +1230,33 @@ class SalesOrderServiceTest {
             assertThatThrownBy(() -> salesOrderService.addSalesOrderItem(orderId, testItemRequest))
                     .isInstanceOf(SalesOrderAlreadyFinalizedException.class)
                     .hasMessageContaining("already Completed")
+                    .hasMessageContaining("cannot be modified");
+
+            verify(itemRepository, never()).save(any(SalesOrderItem.class));
+        }
+
+        @Test
+        @DisplayName("should refuse the first item on a Cancelled order, the other terminal status")
+        void addSalesOrderItem_CancelledOrder_ThrowsException() {
+            var cancelledOrder = SalesOrder.builder()
+                    .id(orderId)
+                    .orderNumber(testOrder.getOrderNumber())
+                    .customerId(customerId)
+                    .companyStoreId(companyStoreId)
+                    .shiftId(shiftId)
+                    .userId("user123")
+                    .orderDate(testOrder.getOrderDate())
+                    .statusId(canceladaStatus.getId())
+                    .totalAmount(BigDecimal.ZERO)
+                    .enabled(true)
+                    .build();
+
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(cancelledOrder));
+            when(statusRepository.findById(canceladaStatus.getId())).thenReturn(Optional.of(canceladaStatus));
+
+            assertThatThrownBy(() -> salesOrderService.addSalesOrderItem(orderId, testItemRequest))
+                    .isInstanceOf(SalesOrderAlreadyFinalizedException.class)
+                    .hasMessageContaining("already Cancelled")
                     .hasMessageContaining("cannot be modified");
 
             verify(itemRepository, never()).save(any(SalesOrderItem.class));
@@ -1268,6 +1295,74 @@ class SalesOrderServiceTest {
             assertThat(result.finalPrice()).isEqualByComparingTo(new BigDecimal("90.00"));
             assertThat(result.statusName()).isEqualTo("Pending");
             verify(itemRepository).save(any(SalesOrderItem.class));
+            verifyDeducted(variantId, "2.00", itemId);
+        }
+
+        @Test
+        @DisplayName("should add item successfully when order is in Pending status")
+        void addSalesOrderItem_PendingOrder_AddsItemSuccessfully() {
+            var pendingOrder = SalesOrder.builder()
+                    .id(orderId)
+                    .orderNumber(testOrder.getOrderNumber())
+                    .customerId(customerId)
+                    .companyStoreId(companyStoreId)
+                    .shiftId(shiftId)
+                    .userId("user123")
+                    .orderDate(testOrder.getOrderDate())
+                    .statusId(enviadaStatus.getId())
+                    .totalAmount(BigDecimal.ZERO)
+                    .enabled(true)
+                    .build();
+
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(pendingOrder));
+            when(statusRepository.findById(enviadaStatus.getId())).thenReturn(Optional.of(enviadaStatus));
+            when(productVariantRepository.existsByIdAndEnabledTrue(variantId)).thenReturn(true);
+            when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Pending"))
+                    .thenReturn(Optional.of(pendienteItemStatus));
+            when(itemRepository.save(any(SalesOrderItem.class))).thenReturn(testItem);
+            // Not the first item — the order already holds one, so no activation is attempted
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of(testItem));
+            when(statusRepository.findById(pendienteItemStatus.getId())).thenReturn(Optional.of(pendienteItemStatus));
+
+            SalesOrderItemResponse result = salesOrderService.addSalesOrderItem(orderId, testItemRequest);
+
+            assertThat(result).isNotNull();
+            assertThat(result.id()).isEqualTo(itemId);
+            verify(itemRepository).save(any(SalesOrderItem.class));
+            verifyDeducted(variantId, "2.00", itemId);
+        }
+
+        @Test
+        @DisplayName("should not activate a Pending order when it receives its first enabled item")
+        void addSalesOrderItem_PendingOrderWithoutItems_DoesNotAttemptActivation() {
+            var pendingOrder = SalesOrder.builder()
+                    .id(orderId)
+                    .orderNumber(testOrder.getOrderNumber())
+                    .customerId(customerId)
+                    .companyStoreId(companyStoreId)
+                    .shiftId(shiftId)
+                    .userId("user123")
+                    .orderDate(testOrder.getOrderDate())
+                    .statusId(enviadaStatus.getId())
+                    .totalAmount(BigDecimal.ZERO)
+                    .enabled(true)
+                    .build();
+
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(pendingOrder));
+            when(statusRepository.findById(enviadaStatus.getId())).thenReturn(Optional.of(enviadaStatus));
+            when(productVariantRepository.existsByIdAndEnabledTrue(variantId)).thenReturn(true);
+            when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Pending"))
+                    .thenReturn(Optional.of(pendienteItemStatus));
+            when(itemRepository.save(any(SalesOrderItem.class))).thenReturn(testItem);
+            // Every line was soft-deleted, so this add is the order's first *enabled* item
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
+            when(statusRepository.findById(pendienteItemStatus.getId())).thenReturn(Optional.of(pendienteItemStatus));
+
+            SalesOrderItemResponse result = salesOrderService.addSalesOrderItem(orderId, testItemRequest);
+
+            assertThat(result).isNotNull();
+            // Draft → Active belongs to a draft: Pending has no such transition, so it must not be attempted
+            verify(statusRepository, never()).findByTypeNameAndStatusName("SALES_ORDER", "Active");
             verifyDeducted(variantId, "2.00", itemId);
         }
 
@@ -1507,8 +1602,8 @@ class SalesOrderServiceTest {
         }
 
         @Test
-        @DisplayName("should throw SalesOrderAlreadyFinalizedException when order not in Draft or Active")
-        void updateSalesOrderItem_NotDraftOrActive_ThrowsException() {
+        @DisplayName("should throw SalesOrderAlreadyFinalizedException when the order has reached a terminal status")
+        void updateSalesOrderItem_TerminalOrder_ThrowsException() {
             var cerradaOrder = SalesOrder.builder()
                     .id(orderId)
                     .orderNumber(testOrder.getOrderNumber())
@@ -1564,6 +1659,37 @@ class SalesOrderServiceTest {
             assertThat(result.finalPrice()).isEqualByComparingTo(new BigDecimal("90.00"));
             verify(itemRepository).save(any(SalesOrderItem.class));
             verify(salesOrderRepository).save(any(SalesOrder.class));
+        }
+
+        @Test
+        @DisplayName("should update item on Pending order successfully")
+        void updateSalesOrderItem_PendingOrder_Success() {
+            var pendingOrder = SalesOrder.builder()
+                    .id(orderId)
+                    .orderNumber(testOrder.getOrderNumber())
+                    .customerId(customerId)
+                    .companyStoreId(companyStoreId)
+                    .shiftId(shiftId)
+                    .userId("user123")
+                    .orderDate(testOrder.getOrderDate())
+                    .statusId(enviadaStatus.getId())
+                    .totalAmount(BigDecimal.ZERO)
+                    .enabled(true)
+                    .build();
+
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(pendingOrder));
+            when(statusRepository.findById(enviadaStatus.getId())).thenReturn(Optional.of(enviadaStatus));
+            when(itemRepository.findById(itemId)).thenReturn(Optional.of(testItem));
+            when(productVariantRepository.existsByIdAndEnabledTrue(variantId)).thenReturn(true);
+            when(itemRepository.save(any(SalesOrderItem.class))).thenReturn(testItem);
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of(testItem));
+            when(statusRepository.findById(pendienteItemStatus.getId())).thenReturn(Optional.of(pendienteItemStatus));
+
+            SalesOrderItemResponse result = salesOrderService.updateSalesOrderItem(orderId, itemId, testItemRequest);
+
+            assertThat(result).isNotNull();
+            assertThat(result.id()).isEqualTo(itemId);
+            verify(itemRepository).save(any(SalesOrderItem.class));
         }
 
         @Test
@@ -1707,6 +1833,35 @@ class SalesOrderServiceTest {
 
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(activeOrder));
             when(statusRepository.findById(activoStatus.getId())).thenReturn(Optional.of(activoStatus));
+            when(itemRepository.findById(itemId)).thenReturn(Optional.of(testItem));
+            when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
+            when(salesOrderRepository.save(any(SalesOrder.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            salesOrderService.deleteSalesOrderItem(orderId, itemId);
+
+            verify(itemRepository).save(any(SalesOrderItem.class));
+            verify(salesOrderRepository).save(any(SalesOrder.class));
+            verifyReversed(itemId);
+        }
+
+        @Test
+        @DisplayName("should soft-delete item on Pending order with stock restoration")
+        void deleteSalesOrderItem_PendingOrder_Success() {
+            var pendingOrder = SalesOrder.builder()
+                    .id(orderId)
+                    .orderNumber(testOrder.getOrderNumber())
+                    .customerId(customerId)
+                    .companyStoreId(companyStoreId)
+                    .shiftId(shiftId)
+                    .userId("user123")
+                    .orderDate(testOrder.getOrderDate())
+                    .statusId(enviadaStatus.getId())
+                    .totalAmount(BigDecimal.ZERO)
+                    .enabled(true)
+                    .build();
+
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(pendingOrder));
+            when(statusRepository.findById(enviadaStatus.getId())).thenReturn(Optional.of(enviadaStatus));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(testItem));
             when(itemRepository.findBySalesOrderIdAndEnabledTrue(orderId)).thenReturn(List.of());
             when(salesOrderRepository.save(any(SalesOrder.class))).thenAnswer(inv -> inv.getArgument(0));

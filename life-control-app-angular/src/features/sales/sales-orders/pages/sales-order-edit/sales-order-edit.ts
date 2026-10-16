@@ -35,7 +35,7 @@ import type {
 import type { ProductVariantOption } from '../../models/sales-order.models';
 import { NotificationService } from '@shared/data/notification';
 import type { SalesOrderHeaderControl } from '../../models/sales-order-control.models';
-import { SO_STATUS_COLORS, SO_STATUS_LABELS } from '../../data/status-config';
+import { SO_STATUS_COLORS, SO_STATUS_LABELS, isTerminalSalesOrderStatus } from '../../data/status-config';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
@@ -107,18 +107,27 @@ export class SalesOrderEdit implements OnInit {
   /**
    * Background re-sync of the order header alongside a row mutation.
    *
-   * Deliberately does NOT gate the template. The status chip and `isDraft` must
-   * follow the server (Draft → Pending on the first item) without paying for a
+   * Deliberately does NOT gate the template. The status chip and `isModifiable` must
+   * follow the server (Draft → Active on the first item) without paying for a
    * page rebuild.
    */
   readonly syncing = signal(false);
 
   // ─── Loaded order data (edit mode) ─────────────────────
   readonly loadedOrder = signal<SalesOrder | null>(null);
-  readonly isDraft = computed(() => {
+  /**
+   * Whether the order's lines may still be edited — the same rule the backend applies (F-3):
+   * only a terminal status closes the order, `Pending` included in the open ones.
+   *
+   * It used to be `statusName === 'Draft'`. That froze the line table from the first scanned line
+   * onward, because adding a line moves the order from Draft to Active, while the API accepted
+   * exactly those writes — so a wrongly scanned line could not be corrected from the screen even
+   * though nothing refused it.
+   */
+  readonly isModifiable = computed(() => {
     const order = this.loadedOrder();
     if (!order) return true;
-    return order.statusName === 'Draft';
+    return !isTerminalSalesOrderStatus(order.statusName);
   });
 
   /** Store name fetched from the stores API using profile cascade IDs. */
@@ -507,7 +516,7 @@ export class SalesOrderEdit implements OnInit {
       .subscribe({
         next: (created) => {
           this.lineItems.update((rows) => [...rows, this.toItemTableRow(created)]);
-          // Pick up server-derived state (e.g. Draft → Pending on the first item)
+          // Pick up server-derived state (e.g. Draft → Active on the first item)
           // without gating the page: the operator scans the next barcode immediately.
           this.syncOrder(orderId);
           this.variantSelector()?.focusInput();

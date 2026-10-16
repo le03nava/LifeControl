@@ -21,7 +21,7 @@
       <ng-container matColumnDef="quantity">
         <th mat-header-cell *matHeaderCellDef>Qty</th>
         <td mat-cell *matCellDef="let row; let i = index">
-          @if (isDraft()) {
+          @if (isModifiable()) {
             <input
               matInput
               type="number"
@@ -41,7 +41,7 @@
       <ng-container matColumnDef="listPrice">
         <th mat-header-cell *matHeaderCellDef>Unit Price</th>
         <td mat-cell *matCellDef="let row; let i = index">
-          @if (isDraft()) {
+          @if (isModifiable()) {
             <input
               matInput
               type="number"
@@ -62,7 +62,7 @@
       <ng-container matColumnDef="discountApplied">
         <th mat-header-cell *matHeaderCellDef>Discount</th>
         <td mat-cell *matCellDef="let row; let i = index">
-          @if (isDraft()) {
+          @if (isModifiable()) {
             <input
               matInput
               type="number"
@@ -95,8 +95,8 @@
             mat-icon-button
             color="warn"
             (click)="removeItem(i)"
-            [disabled]="!isDraft() || isRowSaving(row.id)"
-            [matTooltip]="isDraft() ? 'Remove item' : 'Items cannot be modified in this status'"
+            [disabled]="!isModifiable() || isRowSaving(row.id)"
+            [matTooltip]="isModifiable() ? 'Remove item' : 'Items cannot be modified once the order is closed'"
             [attr.aria-label]="'Remove ' + row.productVariantName"
           >
             <mat-icon>delete</mat-icon>

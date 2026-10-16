@@ -48,6 +48,7 @@ const mockStatusTypesPage = {
  */
 const mockStatuses = [
   { id: 'st-draft', statusName: 'Draft' },
+  { id: 'st-active', statusName: 'Active' },
   { id: 'st-pending', statusName: 'Pending' },
   { id: 'st-completed', statusName: 'Completed' },
   { id: 'st-cancelled', statusName: 'Cancelled' },
@@ -142,14 +143,29 @@ describe('StatusTransition', () => {
       httpMock.verify();
     });
 
-    it('Draft: should allow Pending and Cancelled', () => {
+    it('Draft: should allow Active and Cancelled, and never skip straight to Pending', () => {
       const order = createOrder({ statusName: 'Draft' });
+      const { comp } = setupWithOrder(order, httpMock);
+
+      const names = comp.validTransitions().map((t) => t.name);
+      expect(names).toContain('Active');
+      expect(names).toContain('Cancelled');
+      expect(names).not.toContain('Pending');
+      expect(names.length).toBe(2);
+    });
+
+    it('Active: should allow Pending and Cancelled, resolving both against the wire payload', () => {
+      const order = createOrder({ statusName: 'Active', statusId: 'st-active' });
       const { comp } = setupWithOrder(order, httpMock);
 
       const names = comp.validTransitions().map((t) => t.name);
       expect(names).toContain('Pending');
       expect(names).toContain('Cancelled');
       expect(names.length).toBe(2);
+      expect(comp.validTransitions()).toEqual([
+        { id: 'st-pending', name: 'Pending', label: 'Pending' },
+        { id: 'st-cancelled', name: 'Cancelled', label: 'Cancelled' },
+      ]);
     });
 
     it('Draft: should carry the real ids and names from the wire payload', () => {
@@ -157,7 +173,7 @@ describe('StatusTransition', () => {
       const { comp } = setupWithOrder(order, httpMock);
 
       expect(comp.validTransitions()).toEqual([
-        { id: 'st-pending', name: 'Pending', label: 'Pending' },
+        { id: 'st-active', name: 'Active', label: 'Active' },
         { id: 'st-cancelled', name: 'Cancelled', label: 'Cancelled' },
       ]);
     });
@@ -229,8 +245,8 @@ describe('StatusTransition', () => {
       // options from any other overlay and would never see the bound ids.
       const options = select.options.toArray();
       expect(options.length).toBe(2);
-      expect(options.map((option) => option.value)).toEqual(['st-pending', 'st-cancelled']);
-      expect(options.map((option) => option.viewValue.trim())).toEqual(['Pending', 'Cancelled']);
+      expect(options.map((option) => option.value)).toEqual(['st-active', 'st-cancelled']);
+      expect(options.map((option) => option.viewValue.trim())).toEqual(['Active', 'Cancelled']);
 
       select.close();
       fixture.detectChanges();

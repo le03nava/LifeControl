@@ -24,14 +24,14 @@ describe('SalesOrderItemTable', () => {
 
   function createFixture(overrides?: {
     items?: ItemTableRow[];
-    isDraft?: boolean;
+    isModifiable?: boolean;
     savingRowIds?: ReadonlySet<string>;
   }): { fixture: ComponentFixture<SalesOrderItemTable>; comp: SalesOrderItemTable } {
     const fixture = TestBed.createComponent(SalesOrderItemTable);
     const comp = fixture.componentInstance;
 
     fixture.componentRef.setInput('items', overrides?.items ?? []);
-    fixture.componentRef.setInput('isDraft', overrides?.isDraft ?? true);
+    fixture.componentRef.setInput('isModifiable', overrides?.isModifiable ?? true);
     fixture.componentRef.setInput('savingRowIds', overrides?.savingRowIds ?? new Set<string>());
     fixture.detectChanges();
 
@@ -103,10 +103,10 @@ describe('SalesOrderItemTable', () => {
   });
 
   describe('itemRemoved output', () => {
-    it('should emit itemRemoved with index when item removed (isDraft)', () => {
+    it('should emit itemRemoved with index when item removed (isModifiable)', () => {
       const { fixture, comp } = createFixture({
         items: [createItem(), createItem({ productVariantId: 'v2' })],
-        isDraft: true,
+        isModifiable: true,
       });
 
       let emittedIndex: number | undefined;
@@ -123,7 +123,7 @@ describe('SalesOrderItemTable', () => {
     it('should NOT emit itemRemoved when NOT in Draft', () => {
       const { comp } = createFixture({
         items: [createItem(), createItem({ productVariantId: 'v2' })],
-        isDraft: false,
+        isModifiable: false,
       });
 
       let emittedIndex: number | undefined;
@@ -138,7 +138,7 @@ describe('SalesOrderItemTable', () => {
     it('should allow removing last item in Draft', () => {
       const { comp } = createFixture({
         items: [createItem()],
-        isDraft: true,
+        isModifiable: true,
       });
 
       let emittedIndex: number | undefined;
@@ -155,7 +155,7 @@ describe('SalesOrderItemTable', () => {
     it('should emit quantityChanged with index and value when Draft', () => {
       const { fixture, comp } = createFixture({
         items: [createItem({ quantity: 2 })],
-        isDraft: true,
+        isModifiable: true,
       });
 
       let emitted: { index: number; value: number } | undefined;
@@ -172,7 +172,7 @@ describe('SalesOrderItemTable', () => {
     it('should default to 1 when value is falsy', () => {
       const { fixture, comp } = createFixture({
         items: [createItem({ quantity: 2 })],
-        isDraft: true,
+        isModifiable: true,
       });
 
       let emitted: { index: number; value: number } | undefined;
@@ -189,7 +189,7 @@ describe('SalesOrderItemTable', () => {
     it('should NOT emit quantityChanged when NOT Draft', () => {
       const { comp } = createFixture({
         items: [createItem({ quantity: 2 })],
-        isDraft: false,
+        isModifiable: false,
       });
 
       let emitted: { index: number; value: number } | undefined;
@@ -206,7 +206,7 @@ describe('SalesOrderItemTable', () => {
     it('should emit listPriceChanged with index and value', () => {
       const { fixture, comp } = createFixture({
         items: [createItem({ listPrice: 100 })],
-        isDraft: true,
+        isModifiable: true,
       });
 
       let emitted: { index: number; value: number } | undefined;
@@ -223,7 +223,7 @@ describe('SalesOrderItemTable', () => {
     it('should default to 0 when value is falsy', () => {
       const { fixture, comp } = createFixture({
         items: [createItem({ listPrice: 100 })],
-        isDraft: true,
+        isModifiable: true,
       });
 
       let emitted: { index: number; value: number } | undefined;
@@ -244,7 +244,7 @@ describe('SalesOrderItemTable', () => {
     it('should emit discountChanged with index and value', () => {
       const { fixture, comp } = createFixture({
         items: [createItem({ discountApplied: 0 })],
-        isDraft: true,
+        isModifiable: true,
       });
 
       let emitted: { index: number; value: number } | undefined;
@@ -286,7 +286,7 @@ describe('SalesOrderItemTable', () => {
     it('should disable only the rows with a write in flight', () => {
       const { fixture } = createFixture({
         items: threeRows,
-        isDraft: true,
+        isModifiable: true,
         savingRowIds: new Set(['a', 'c']),
       });
 
@@ -299,7 +299,7 @@ describe('SalesOrderItemTable', () => {
     it('should disable the remove button only on rows with a write in flight', () => {
       const { fixture } = createFixture({
         items: threeRows,
-        isDraft: true,
+        isModifiable: true,
         savingRowIds: new Set(['b']),
       });
 
@@ -310,7 +310,7 @@ describe('SalesOrderItemTable', () => {
     });
 
     it('should leave every row enabled when nothing is in flight', () => {
-      const { fixture } = createFixture({ items: threeRows, isDraft: true });
+      const { fixture } = createFixture({ items: threeRows, isModifiable: true });
 
       expect(
         Array.from<HTMLInputElement>(
@@ -322,17 +322,17 @@ describe('SalesOrderItemTable', () => {
     it('should not disable a row that has no server id', () => {
       const { fixture } = createFixture({
         items: [createItem()],
-        isDraft: true,
+        isModifiable: true,
         savingRowIds: new Set(['a']),
       });
 
       expect(inputsOfRow(fixture, 0).some((input) => input.disabled)).toBe(false);
     });
 
-    it('should enable remove button when nothing is in flight and isDraft is true', () => {
+    it('should enable remove button when nothing is in flight and isModifiable is true', () => {
       const { fixture } = createFixture({
         items: [createItem({ id: 'a' })],
-        isDraft: true,
+        isModifiable: true,
       });
 
       const removeButton: HTMLButtonElement | null =

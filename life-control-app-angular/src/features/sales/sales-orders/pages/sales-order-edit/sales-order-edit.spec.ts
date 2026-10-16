@@ -7,6 +7,7 @@ import { of, Subject, throwError } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
 import { SalesOrderEdit } from './sales-order-edit';
 import { ProductVariantSelector } from '../../components/product-variant-selector/product-variant-selector';
+import { SalesOrderItemTable } from '../../components/sales-order-item-table/sales-order-item-table';
 import { SalesOrderService } from '../../data/sales-order.service';
 import { ProfileService } from '@features/user/profile/data/profile.service';
 import { CompanyStoreService } from '@features/companies/stores/data/company-store.service';
@@ -199,8 +200,8 @@ describe('SalesOrderEdit', () => {
       expect(component.lineItems()).toEqual([]);
     });
 
-    it('should initially have isDraft = true (create mode always Draft)', () => {
-      expect(component.isDraft()).toBe(true);
+    it('should initially have isModifiable = true (create mode: no order loaded yet)', () => {
+      expect(component.isModifiable()).toBe(true);
     });
 
     it('should call service.create with header fields only (no items)', () => {
@@ -602,16 +603,46 @@ describe('SalesOrderEdit', () => {
       expect(items[0].listPrice).toBe(100);
     });
 
-    it('should compute isDraft = true when statusName is Draft', () => {
-      expect(component.isDraft()).toBe(true);
+    it('should compute isModifiable = true while the order is open, Pending included', () => {
+      expect(component.isModifiable()).toBe(true);
+
+      component.loadedOrder.set({ ...mockOrder, statusName: 'Active' });
+      expect(component.isModifiable()).toBe(true);
+
+      component.loadedOrder.set({ ...mockOrder, statusName: 'Pending' });
+      expect(component.isModifiable()).toBe(true);
     });
 
-    it('should compute isDraft = false when statusName is not Draft', () => {
+    it('should compute isModifiable = false only for a terminal status', () => {
       component.loadedOrder.set({
         ...mockOrder,
         statusName: 'Completed',
       });
-      expect(component.isDraft()).toBe(false);
+      expect(component.isModifiable()).toBe(false);
+
+      component.loadedOrder.set({
+        ...mockOrder,
+        statusName: 'Cancelled',
+      });
+      expect(component.isModifiable()).toBe(false);
+    });
+
+    it('should hand the line table the same gate, so the first scanned line does not lock it', () => {
+      const table = fixture.debugElement.query(By.directive(SalesOrderItemTable))
+        .componentInstance;
+      expect(table.isModifiable()).toBe(true);
+
+      component.loadedOrder.set({ ...mockOrder, statusName: 'Active' });
+      fixture.detectChanges();
+      expect(table.isModifiable()).toBe(true);
+
+      component.loadedOrder.set({ ...mockOrder, statusName: 'Pending' });
+      fixture.detectChanges();
+      expect(table.isModifiable()).toBe(true);
+
+      component.loadedOrder.set({ ...mockOrder, statusName: 'Completed' });
+      fixture.detectChanges();
+      expect(table.isModifiable()).toBe(false);
     });
 
     it('should call service.update with header-only data on save (no items)', () => {

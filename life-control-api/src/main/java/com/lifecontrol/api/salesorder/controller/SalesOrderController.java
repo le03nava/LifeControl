@@ -174,12 +174,14 @@ public class SalesOrderController {
     @Operation(
             summary = "Add an item to a sales order",
             description =
-                    "Adds a line item. finalPrice = listPrice - discountApplied. Auto-transitions Draft → Active on first item. Allowed in Draft and Active status.")
+                    "Adds a line item. finalPrice = listPrice - discountApplied. Auto-transitions Draft → Active on the first item, and only from Draft. Allowed while the order has not reached a terminal status (Completed or Cancelled).")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "Item created"),
         @ApiResponse(responseCode = "400", description = "Validation error"),
         @ApiResponse(responseCode = "404", description = "Sales order or product variant not found"),
-        @ApiResponse(responseCode = "409", description = "Sales order is not in Draft or Active status")
+        @ApiResponse(
+                responseCode = "409",
+                description = "Sales order has reached a terminal status (Completed or Cancelled)")
     })
     public ResponseEntity<SalesOrderItemResponse> addItem(
             @PathVariable UUID id, @Valid @RequestBody SalesOrderItemRequest request) {
@@ -191,12 +193,15 @@ public class SalesOrderController {
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(
             summary = "Update an item",
-            description = "Updates a sales order item. Only allowed when order is in Draft or Active status.")
+            description =
+                    "Updates a sales order item. Allowed while the order has not reached a terminal status (Completed or Cancelled).")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Item updated"),
         @ApiResponse(responseCode = "400", description = "Validation error"),
         @ApiResponse(responseCode = "404", description = "Sales order or item not found"),
-        @ApiResponse(responseCode = "409", description = "Sales order is not in Draft or Active status")
+        @ApiResponse(
+                responseCode = "409",
+                description = "Sales order has reached a terminal status (Completed or Cancelled)")
     })
     public ResponseEntity<SalesOrderItemResponse> updateItem(
             @PathVariable UUID id, @PathVariable UUID itemId, @Valid @RequestBody SalesOrderItemRequest request) {
@@ -207,11 +212,14 @@ public class SalesOrderController {
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + SALES + "')")
     @Operation(
             summary = "Delete an item",
-            description = "Soft-deletes a sales order item. Only allowed when order is in Draft or Active status.")
+            description =
+                    "Soft-deletes a sales order item. Allowed while the order has not reached a terminal status (Completed or Cancelled).")
     @ApiResponses({
         @ApiResponse(responseCode = "204", description = "Item deleted"),
         @ApiResponse(responseCode = "404", description = "Sales order or item not found"),
-        @ApiResponse(responseCode = "409", description = "Sales order is not in Draft or Active status")
+        @ApiResponse(
+                responseCode = "409",
+                description = "Sales order has reached a terminal status (Completed or Cancelled)")
     })
     public ResponseEntity<Void> deleteItem(@PathVariable UUID id, @PathVariable UUID itemId) {
         salesOrderService.deleteSalesOrderItem(id, itemId);
