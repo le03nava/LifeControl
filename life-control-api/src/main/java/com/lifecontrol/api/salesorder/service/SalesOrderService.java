@@ -267,11 +267,9 @@ public class SalesOrderService {
             // already given back by the engine — so a line that holds nothing contributes no old
             // state and is sold in full when it comes back enabled (W3-D11). Cancelled is terminal in
             // the item status machine, so re-enabling a cancelled line revives no hold and it
-            // contributes no stock work at all.
-            var cancelledItemStatusId = statusRepository
-                    .findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Cancelled")
-                    .map(Status::getId)
-                    .orElse(null);
+            // contributes no stock work at all. The status is resolved fail-closed: guessing here
+            // would classify a cancelled line as live and sell the stock it already gave back (F-2).
+            var cancelledItemStatusId = resolveCancelledItemStatusId();
 
             var oldQuantities = new HashMap<UUID, BigDecimal>();
             var itemIdToVariantId = new HashMap<UUID, UUID>();
@@ -775,16 +773,14 @@ public class SalesOrderService {
      * because it re-enables the line before re-selling it (W3-D11).
      *
      * @throws SalesOrderItemNotModifiableException (409) when the line is cancelled or soft-deleted
+     * @throws StatusNotFoundException when the {@code Cancelled} reference row is missing, because a
+     *     line that cannot be classified could be one that already gave its stock back (F-2)
      */
     private void validateItemIsModifiable(SalesOrderItem item) {
         if (!item.getEnabled()) {
             throw new SalesOrderItemNotModifiableException(item.getId(), "deleted");
         }
-        var cancelledItemStatusId = statusRepository
-                .findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Cancelled")
-                .map(Status::getId)
-                .orElse(null);
-        if (isCancelledLine(item, cancelledItemStatusId)) {
+        if (isCancelledLine(item, resolveCancelledItemStatusId())) {
             throw new SalesOrderItemNotModifiableException(item.getId(), "Cancelled");
         }
     }
@@ -963,9 +959,30 @@ public class SalesOrderService {
         applyStockChanges(operations);
     }
 
-    /** A line whose status is the terminal {@code Cancelled}: it holds no stock and is not revived. */
+    /**
+     * Resolves the terminal {@code Cancelled} status of a sales-order item, and fails closed when the
+     * row is missing (F-2 of {@code odd/tasks/sales-location-aware-stock.md}). Without it a line that
+     * was already given back by the engine cannot be told apart from one that still holds stock, and
+     * the previous {@code orElse(null)} answered "not cancelled" for every line: the item-level
+     * endpoints let a cancelled line be modified again and the order-level PUT sold it as if it held
+     * stock. A write that cannot classify its lines is refused, never classified on a guess.
+     *
+     * @throws StatusNotFoundException when the reference row V3 seeds is absent
+     */
+    private UUID resolveCancelledItemStatusId() {
+        return statusRepository
+                .findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Cancelled")
+                .map(Status::getId)
+                .orElseThrow(
+                        () -> new StatusNotFoundException("Status 'Cancelled' not found for SALES_ORDER_ITEM type"));
+    }
+
+    /**
+     * A line whose status is the terminal {@code Cancelled}: it holds no stock and is not revived.
+     * The id is never null — {@link #resolveCancelledItemStatusId()} refuses instead of guessing.
+     */
     private static boolean isCancelledLine(SalesOrderItem line, UUID cancelledItemStatusId) {
-        return cancelledItemStatusId != null && cancelledItemStatusId.equals(line.getStatusId());
+        return cancelledItemStatusId.equals(line.getStatusId());
     }
 
     private SaleChange deduct(UUID companyStoreId, UUID variantId, BigDecimal quantity, UUID itemId) {
