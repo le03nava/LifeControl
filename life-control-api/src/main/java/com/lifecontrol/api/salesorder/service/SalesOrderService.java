@@ -4,6 +4,7 @@ import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.customer.exception.CustomerNotFoundException;
 import com.lifecontrol.api.customer.repository.CustomerRepository;
 import com.lifecontrol.api.inventory.service.InventoryService;
+import com.lifecontrol.api.inventory.service.InventoryService.SaleChange;
 import com.lifecontrol.api.paymentmethod.exception.PaymentMethodNotFoundException;
 import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
@@ -40,7 +41,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -201,7 +201,7 @@ public class SalesOrderService {
                 savedItems.add(itemRepository.save(newItem));
             }
 
-            var operations = new ArrayList<StockOperation>();
+            var operations = new ArrayList<SaleChange>();
             for (var savedItem : savedItems) {
                 operations.add(deduct(
                         saved.getCompanyStoreId(),
@@ -351,7 +351,7 @@ public class SalesOrderService {
             // first — a deleted line was deducted under its own ledger reference — then every
             // persisted line contributes its delta. A re-enabled line that held nothing (soft-deleted)
             // is sold in full; a terminal Cancelled line moves nothing.
-            var operations = new ArrayList<StockOperation>();
+            var operations = new ArrayList<SaleChange>();
             for (var existing : existingItems) {
                 if (deletedItemIds.contains(existing.getId()) && !deadItemIds.contains(existing.getId())) {
                     operations.add(reverse(request.companyStoreId(), existing.getProductVariantId(), existing.getId()));
@@ -642,7 +642,7 @@ public class SalesOrderService {
         // difference and a decrease gives the line back and re-sells the new quantity. Every
         // movement keeps the line id as its reference, so the store can reverse it exactly (W3-D6).
         if (variantChanged || quantityChanged) {
-            var operations = new ArrayList<StockOperation>();
+            var operations = new ArrayList<SaleChange>();
             collectLineStockOperations(item, oldQuantity, oldVariantId, so.getCompanyStoreId(), operations);
             applyStockChanges(operations);
         }
@@ -899,52 +899,18 @@ public class SalesOrderService {
     // ─── Stock Movement Through the Inventory Engine ───────────────────
 
     /**
-     * One piece of stock work of a sales operation, keyed by the {@code (store, variant)} row the
-     * engine locks first. The key exists only for ordering: the engine derives the locations it
-     * moves from the store's settings or from the ledger.
+     * Sends one batch of stock work to {@link InventoryService}, the only writer of the per-store
+     * aggregate, the per-location balances and the ledger. The batch's ordering is the engine's
+     * contract (F-1), not this caller's: it locks every distinct {@code (store, variant)} row in key
+     * order before it runs anything, and runs every reversal before every deduction. A reversal is
+     * reference-scoped, so a deduction of the same reference running first would put a
+     * {@code SALE} row in front of it and the reversal would credit the fresh sale back.
      */
-    private record StockOperation(StoreVariantKey key, boolean reversal, Runnable action) {}
-
-    /**
-     * Applies a batch of stock work through {@link InventoryService}, the only writer of the
-     * per-store aggregate, the per-location balances and the ledger.
-     *
-     * <p>The batch is applied in a fixed order that satisfies both invariants at once. First every
-     * distinct {@code (store, variant)} row is locked in {@link StoreVariantKey} order, so the
-     * acquisition order is ascending and deadlock-free even though the actions run in a different
-     * order. Then every reversal runs before every deduction. The engine takes the per-store row as
-     * its FIRST lock and holds it to the commit, so the documented {@code storeStock -> locationBalance}
-     * order is untouched.</p>
-     *
-     * <p>Reversals must precede deductions because a reversal is reference-scoped: it credits
-     * whatever the line's ledger reference still holds, so a deduction of the same reference in the
-     * same batch would put a {@code SALE} row in front of it. A variant change registers the
-     * reversal of the old variant and the deduction of the new one under one line reference and two
-     * different sort keys, so with the old single sorted pass the deduction could win and the
-     * reversal would then credit the new variant back, leaving it unsold.</p>
-     */
-    private void applyStockChanges(List<StockOperation> operations) {
-        if (operations.isEmpty()) {
+    private void applyStockChanges(List<SaleChange> changes) {
+        if (changes.isEmpty()) {
             return;
         }
-        var ordered = operations.stream()
-                .sorted(Comparator.comparing(StockOperation::key))
-                .toList();
-
-        // 1. Lock every distinct row first, in key order. The actions below invert the key order
-        //    whenever a reversal sorts after a deduction, so the locks cannot be left to the actions.
-        ordered.stream()
-                .map(StockOperation::key)
-                .distinct()
-                .forEach(key -> inventoryService.lockStoreStock(key.variantId(), key.companyStoreId()));
-
-        // 2. Every reversal before every deduction.
-        ordered.stream()
-                .filter(StockOperation::reversal)
-                .forEach(operation -> operation.action().run());
-        ordered.stream()
-                .filter(operation -> !operation.reversal())
-                .forEach(operation -> operation.action().run());
+        inventoryService.applySaleBatch(SALE_REFERENCE_TYPE, currentUserContext.getUsername(), changes);
     }
 
     /**
@@ -959,7 +925,7 @@ public class SalesOrderService {
             BigDecimal oldQuantity,
             UUID oldVariantId,
             UUID companyStoreId,
-            List<StockOperation> operations) {
+            List<SaleChange> operations) {
 
         var newVariantId = line.getProductVariantId();
         var newQuantity = line.getQuantity();
@@ -990,7 +956,7 @@ public class SalesOrderService {
      * twice (W3-D6).
      */
     private void restoreAllLines(UUID companyStoreId, List<SalesOrderItem> items) {
-        var operations = new ArrayList<StockOperation>();
+        var operations = new ArrayList<SaleChange>();
         for (var item : items) {
             operations.add(reverse(companyStoreId, item.getProductVariantId(), item.getId()));
         }
@@ -1002,35 +968,12 @@ public class SalesOrderService {
         return cancelledItemStatusId != null && cancelledItemStatusId.equals(line.getStatusId());
     }
 
-    private StockOperation deduct(UUID companyStoreId, UUID variantId, BigDecimal quantity, UUID itemId) {
-        return new StockOperation(
-                new StoreVariantKey(companyStoreId, variantId),
-                false,
-                () -> inventoryService.applySaleDeduction(
-                        variantId,
-                        companyStoreId,
-                        quantity,
-                        SALE_REFERENCE_TYPE,
-                        itemId,
-                        currentUserContext.getUsername()));
+    private SaleChange deduct(UUID companyStoreId, UUID variantId, BigDecimal quantity, UUID itemId) {
+        return SaleChange.deduction(companyStoreId, variantId, quantity, itemId);
     }
 
-    private StockOperation reverse(UUID companyStoreId, UUID variantId, UUID itemId) {
-        return new StockOperation(
-                new StoreVariantKey(companyStoreId, variantId),
-                true,
-                () -> inventoryService.applySaleReversal(
-                        SALE_REFERENCE_TYPE, itemId, currentUserContext.getUsername()));
-    }
-
-    /** Composite identity of a per-store stock row: the order/sort key of the stock movers. */
-    private record StoreVariantKey(UUID companyStoreId, UUID variantId) implements Comparable<StoreVariantKey> {
-
-        @Override
-        public int compareTo(StoreVariantKey other) {
-            var storeOrder = companyStoreId.compareTo(other.companyStoreId);
-            return storeOrder != 0 ? storeOrder : variantId.compareTo(other.variantId);
-        }
+    private SaleChange reverse(UUID companyStoreId, UUID variantId, UUID itemId) {
+        return SaleChange.reversal(companyStoreId, variantId, itemId);
     }
 
     // ─── Total Amount Recalculation ────────────────────────────────────
