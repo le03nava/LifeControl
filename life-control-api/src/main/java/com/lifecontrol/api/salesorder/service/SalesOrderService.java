@@ -671,10 +671,16 @@ public class SalesOrderService {
             throw new SalesOrderItemNotFoundException(itemId);
         }
 
+        validateItemIsModifiable(item);
+
         // Restore through the engine BEFORE soft-deleting the item, referencing the line id so the
-        // reversal credits exactly the locations the sale took from (W3-D6). A line already
-        // reversed — individually cancelled, or the order cancelled — has no uncovered ledger
-        // remainder and the engine no-ops it, so it is never credited twice.
+        // reversal credits exactly the locations the sale took from (W3-D6). With the line guard
+        // above (F-7), a line whose ledger reference is already fully reversed — individually
+        // cancelled or soft-deleted — is no longer reachable through this endpoint, so the engine's
+        // remainder arithmetic is defence in depth rather than the active rule: the supported route
+        // to remove a cancelled line is the order-level PUT (W3-D13), which deals in the whole line
+        // set and soft-deletes it without a second reversal.
+        // See odd/tasks/sales-location-aware-stock.md.
         applyStockChanges(List.of(reverse(so.getCompanyStoreId(), item.getProductVariantId(), item.getId())));
 
         item.setEnabled(false);

@@ -316,6 +316,15 @@ class SalesOrderServiceTest {
     }
 
     /**
+     * updateSalesOrder reads the terminal item status to tell a line that still holds stock from one
+     * whose stock was already given back, so only the item-diff tests declare it (F-6).
+     */
+    private void stubCancelledItemStatus() {
+        when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Cancelled"))
+                .thenReturn(Optional.of(canceladoItemStatus));
+    }
+
+    /**
      * Asserts that the batch the service asked the engine for carries this deduction: variant, store,
      * quantity and the line-level ledger reference (W3-D6). This is the unit-level replacement for the
      * old assertion on the mocked per-store row; the resulting stock itself is asserted against real
@@ -1816,8 +1825,90 @@ class SalesOrderServiceTest {
         }
 
         @Test
+        @DisplayName("should refuse a line that belongs to another order")
+        void deleteSalesOrderItem_ForeignLine_ThrowsException() {
+            // Enabled and Pending, so the only check that can refuse the delete is the ownership one
+            // — and the refusal must come before any reversal is asked of the engine.
+            var foreignLine = foreignLine();
+
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
+            when(itemRepository.findById(itemId)).thenReturn(Optional.of(foreignLine));
+
+            assertThatThrownBy(() -> salesOrderService.deleteSalesOrderItem(orderId, itemId))
+                    .isInstanceOf(SalesOrderItemNotFoundException.class)
+                    .hasMessageContaining("Sales order item not found with id");
+
+            assertThat(foreignLine.getEnabled()).isTrue();
+            verify(itemRepository, never()).save(any(SalesOrderItem.class));
+            verifyNoInteractions(inventoryService);
+        }
+
+        @Test
+        @DisplayName("should reject deleting a Cancelled line and touch no stock")
+        void deleteSalesOrderItem_CancelledLine_ThrowsException() {
+            stubCancelledItemStatus();
+            // A Cancelled line already gave its stock back, so the delete must be refused by the same
+            // line guard the update path runs (F-7), before any reversal reaches the engine.
+            var cancelledLine = SalesOrderItem.builder()
+                    .id(itemId)
+                    .salesOrderId(orderId)
+                    .productVariantId(variantId)
+                    .quantity(new BigDecimal("4.00"))
+                    .listPrice(new BigDecimal("100.00"))
+                    .finalPrice(new BigDecimal("100.00"))
+                    .statusId(canceladoItemStatus.getId())
+                    .enabled(true)
+                    .build();
+
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
+            when(itemRepository.findById(itemId)).thenReturn(Optional.of(cancelledLine));
+
+            assertThatThrownBy(() -> salesOrderService.deleteSalesOrderItem(orderId, itemId))
+                    .isInstanceOf(SalesOrderItemNotModifiableException.class)
+                    .hasMessageContaining("is Cancelled")
+                    .hasMessageContaining("cannot be modified");
+
+            assertThat(cancelledLine.getEnabled()).isTrue();
+            verify(itemRepository, never()).save(any(SalesOrderItem.class));
+            verifyNoInteractions(inventoryService);
+        }
+
+        @Test
+        @DisplayName("should reject deleting a soft-deleted line and touch no stock")
+        void deleteSalesOrderItem_SoftDeletedLine_ThrowsException() {
+            // A soft-deleted line is never re-enabled by the item-level endpoint, so a delete on it
+            // would ask the engine to reverse a line that already gave its stock back (F-7).
+            var deletedLine = SalesOrderItem.builder()
+                    .id(itemId)
+                    .salesOrderId(orderId)
+                    .productVariantId(variantId)
+                    .quantity(new BigDecimal("4.00"))
+                    .listPrice(new BigDecimal("100.00"))
+                    .finalPrice(new BigDecimal("100.00"))
+                    .statusId(pendienteItemStatus.getId())
+                    .enabled(false)
+                    .build();
+
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
+            when(itemRepository.findById(itemId)).thenReturn(Optional.of(deletedLine));
+
+            assertThatThrownBy(() -> salesOrderService.deleteSalesOrderItem(orderId, itemId))
+                    .isInstanceOf(SalesOrderItemNotModifiableException.class)
+                    .hasMessageContaining("is deleted")
+                    .hasMessageContaining("cannot be modified");
+
+            assertThat(deletedLine.getEnabled()).isFalse();
+            verify(itemRepository, never()).save(any(SalesOrderItem.class));
+            verifyNoInteractions(inventoryService);
+        }
+
+        @Test
         @DisplayName("should soft-delete item on Active order with stock restoration")
         void deleteSalesOrderItem_ActiveOrder_Success() {
+            stubCancelledItemStatus();
             var activeOrder = SalesOrder.builder()
                     .id(orderId)
                     .orderNumber(testOrder.getOrderNumber())
