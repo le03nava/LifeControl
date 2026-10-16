@@ -1,8 +1,7 @@
 # ODD feature: keycloak-adapter-error-contract
 
-**Status**: **planned only — nothing implemented, and the closing shape is still open** (2026-10-16). This
-file is the unit's tracking commit, the shape `employee-access-provisioning`'s W1a, W1b, W2, W3, W4, W4b,
-W4b2a, W5a, W5b, W4b2b, W5c, W5d, W7 and W8 each took. No source line is written until the shape is closed.
+**Status**: **shape closed (A) and implementation in progress** — closed by the user on 2026-10-16; **no
+source line is written until this tracking commit is in** (2026-10-16), the shape `employee-access-provisioning`'s W1a, W1b, W2, W3, W4, W4b, W4b2a, W5a, W5b, W4b2b, W5c, W5d, W7 and W8 each took.
 **Risk**: **high — item 3**, *changing a contract others already consume*: the status a consumer sees when
 the identity provider refuses the application changes from the accidental **500** to a deliberate one, on
 `usersadmin`'s adapter, which five packages outside `usersadmin` consume.
@@ -24,9 +23,27 @@ is **not one method** and it is not only a `400`.
   convierte ese 403 en un 403/503 nombrado), que es lo único con consecuencia real que la medición de hoy
   destapó». The parenthetical names one of the two outcomes the closing shape decides, and names this
   unit's subject exactly: the **mapping**, not the coupling.
-- **S2** — *to be written when the shape is closed* (**T1**). It will quote the chosen shape's exact statuses
-  and messages, and those strings are the ones the tests will pin. Until then this record carries no
-  requirement the user has not stated, by design.
+- **S2** — *the shape, closed by the user on 2026-10-16 as **A***. The adapter translates the provider's
+  answer in **one private helper reused by all 29 port methods**, and its outcomes are exactly these:
+
+  | the provider's answer | domain exception | HTTP |
+  | --- | --- | --- |
+  | `jakarta.ws.rs.NotFoundException` | `IdentityProviderNotFoundException` | **404** |
+  | `ClientErrorException` with status **409** | `IdentityProviderConflictException` | **409** |
+  | `ClientErrorException` with **any other** status (400, 401, 403, 405, 415, 422, …) | `IdentityProviderConnectionException` | **503** |
+  | any other `WebApplicationException` — the 5xx `ServerErrorException` family and 3xx included | `IdentityProviderConnectionException` | **503** |
+  | `ProcessingException` (transport) | `IdentityProviderConnectionException` | **503** |
+
+  The 503's response body stays the handler's fixed message, *Identity provider temporarily unavailable*;
+  no handler and no permit are added, which is what makes A the minimum-change shape.
+  **The message the domain exception carries is the operation's own failure description** — the string each
+  site already passes today for its non-404 outcome — and the **404 outcome now carries that same string**
+  instead of a site-specific *not found* wording: the outcome is carried by the **type**, never by prose.
+  That is a **declared, message-level change on those sites' 404 responses**, and any test pinning the old
+  wording is corrected in the same slice and reported rather than silently absorbed.
+  **Out of scope, and stated so it is not discovered later**: `createUser`'s explicit non-201 branch
+  (`:64`) and `resolveClientUuid`'s cause-less domain 404 (`:610`) are not exceptions and stay as they are,
+  and `IdentityProviderExceptionTest:97-105` stays untouched because no permit is added.
 
 ## Measurements (2026-10-16, read from the tree — none assumed)
 
@@ -157,20 +174,20 @@ were closed on the sibling records.
 | | Content | Sizing note |
 | --- | --- | --- |
 | **W1** | **The mapping itself**: D2, D3 and the chosen shape applied as one reusable translation across the four catch shapes, with the adapter's unit tests per outcome | **No new port method, no migration, no endpoint.** Its evidence is the adapter's own tests over a stubbed client — the shape the 409 branch is already pinned by |
-| **W2** | **The boundary** (only under B or C): the handler, its status and message, and the listener decision of T4 | Reviewed against the global error contract, which is shared by every domain |
+| **W2** | **Not reachable under A**: no handler, no permit, no boundary change — kept as a row so a later move to B or C has its cut already named | — |
 | **W3** | **The records**: `employee-access-provisioning`'s `G11` row gains the pointer that the fix landed here and what the operator now sees, and this record's evidence log closes | Docs only, and it is not optional: a gap that moved to its own unit has to say where it went |
 
-Dependency order: **W1 → W2 → W3**. The shape (**T1**) precedes all three.
+Dependency order: **W1 → W3**. The shape (**T1**) is closed, and **W2 is not reachable under A**.
 
 ## Tasks
 
 | # | Task | Links | Route | Commit |
 | --- | --- | --- | --- | --- |
-| **T1** | **Close the shape** — A, B or C, from the three above, with the exact statuses and messages for S2 | S1, S2 | the user | — |
+| **T1** | **Close the shape** — **closed by the user on 2026-10-16 as A**; **S2** carries its exact outcomes | S1, S2 | the user | — |
 | **T2** | The adapter's uniform mapping: 404 → domain 404, 5xx → retryable 503, and the chosen outcome for refusals/request errors, applied to all 29 methods | S2, D2, D3, D4 | test-first, inline | — |
 | **T3** | The adapter's tests: one per outcome, over the stubbed client, asserting the status and the message | S2, D7 | test-first | — |
-| **T4** | Decide `KeycloakGroupEventListener`'s broad catch: swallow a refusal with a `warn` (today's shape), or propagate it. Only reachable under B | D5, measurements | inline | — |
-| **T5** | The handler and the permit pin (B), or the boundary handler (C) | S2, D5 | test-first | — |
+| **T4** | **dropped by A** — the listener decision only exists if a permit is added, and A adds none | D5, measurements | — | — |
+| **T5** | **dropped by A** — no handler, no permit pin: the three `GlobalExceptionHandler` mappings already exist and are not touched | S2, D5 | — | — |
 | **T6** | Independent verification of the contract change, because Risk is item 3 | D1 | `gentle-ai-verify` | — |
 | **T7** | The records: the `G11` pointer and this record's evidence log | W3 | inline | — |
 
@@ -195,3 +212,9 @@ Dependency order: **W1 → W2 → W3**. The shape (**T1**) precedes all three.
   contract rather than a site. **What this pass deliberately did not do**: write a line of source, touch
   `usersadmin`, or close the shape — S2 stays unwritten until **T1**, because the statuses and messages it
   will carry are exactly what the user has to choose. **No source line changed.**
+- **L3** — *the user, 2026-10-16, verbatim*: «dale con la A y manda todo en el PR» — closing **T1** as **A**
+  and deciding that this unit's record and its implementation reach the remote **in one pull request**
+  instead of a separate planning PR. **S2 was written from that decision and from nothing else**, which is
+  why it states the outcomes as a table of provider answer → domain exception → status and why it declares
+  the message-level change the shape implies; the alternatives B and C above are kept as written rather than
+  deleted, because the next reader of a rejected shape is the one who benefits from its price.
