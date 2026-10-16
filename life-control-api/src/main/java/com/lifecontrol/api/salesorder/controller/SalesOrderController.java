@@ -213,13 +213,14 @@ public class SalesOrderController {
     @Operation(
             summary = "Delete an item",
             description =
-                    "Soft-deletes a sales order item. Allowed while the order has not reached a terminal status (Completed or Cancelled).")
+                    "Soft-deletes a sales order item. Allowed while the order has not reached a terminal status (Completed or Cancelled), and only for a line that still holds stock (not Cancelled and not already soft-deleted); a settled line is removed through the order's PUT.")
     @ApiResponses({
         @ApiResponse(responseCode = "204", description = "Item deleted"),
         @ApiResponse(responseCode = "404", description = "Sales order or item not found"),
         @ApiResponse(
                 responseCode = "409",
-                description = "Sales order has reached a terminal status (Completed or Cancelled)")
+                description =
+                        "Sales order has reached a terminal status (Completed or Cancelled), or the line is Cancelled or already soft-deleted")
     })
     public ResponseEntity<Void> deleteItem(@PathVariable UUID id, @PathVariable UUID itemId) {
         salesOrderService.deleteSalesOrderItem(id, itemId);

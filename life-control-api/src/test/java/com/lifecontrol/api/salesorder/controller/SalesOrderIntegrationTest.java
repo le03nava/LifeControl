@@ -1653,53 +1653,73 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
         }
 
         @Test
-        @DisplayName("should not restore twice when a cancelled line is later deleted")
+        @DisplayName("should not restore twice when a cancelled line is later removed through the order PUT")
         void cancelItemThenDelete_DoesNotRestoreTwice() throws Exception {
             var variant = createTestVariant(new BigDecimal("100.00"));
+            var variantB = createTestVariantB(new BigDecimal("50.00"));
+            // Two lines: the cancelled one is the subject, the retained one keeps the order-level
+            // PUT's items non-empty so its diff actually runs.
+            var placed = createOrder(line(null, variant.getId(), "4.00"), line(null, variantB.getId(), "3.00"));
+            var itemId = placed.itemId(variant.getId());
 
-            var itemRequest = new SalesOrderItemRequest(
-                    null, variant.getId(), new BigDecimal("4.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
-            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(itemRequest));
-
-            var createResult = mockMvc.perform(post("/api/sales-orders")
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(request))
-                            .with(scopedSalesJwt()))
-                    .andExpect(status().isCreated())
-                    .andReturn();
-
-            var orderId = objectMapper
-                    .readTree(createResult.getResponse().getContentAsString())
-                    .get("id")
-                    .asText();
-            var itemId = objectMapper
-                    .readTree(createResult.getResponse().getContentAsString())
-                    .get("items")
-                    .get(0)
-                    .get("id")
-                    .asText();
-
-            var cancelItem = new UpdateSalesOrderStatusRequest(cancelledItemStatusId);
-            mockMvc.perform(patch("/api/sales-orders/{id}/items/{itemId}/status", orderId, itemId)
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(cancelItem))
-                            .with(scopedSalesJwt()))
-                    .andExpect(status().isOk());
+            cancelItem(placed.orderId(), itemId);
             assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(movementsOfType(variant.getId(), MovementType.SALE_REVERSAL))
+                    .hasSize(1);
 
-            mockMvc.perform(delete("/api/sales-orders/{id}/items/{itemId}", orderId, itemId)
+            // The item-level DELETE is refused now (F-7): the line already gave its stock back, so
+            // the old 204 invited a write the line rule refuses everywhere else.
+            mockMvc.perform(delete("/api/sales-orders/{id}/items/{itemId}", placed.orderId(), itemId)
                             .with(scopedSalesJwt()))
-                    .andExpect(status().isNoContent());
+                    .andExpect(status().isConflict());
 
-            // The second reversal finds a zero uncovered remainder (SUM(SALE) - SUM(SALE_REVERSAL))
-            // for this line's reference and writes nothing, so the stock is not credited again.
+            assertThat(itemEnabled(itemId)).isTrue();
+            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(movementsOfType(variant.getId(), MovementType.SALE_REVERSAL))
+                    .hasSize(1);
+
+            // The supported route is the order-level PUT (W3-D13): it soft-deletes the cancelled
+            // line without a second reversal, because a Cancelled line contributes no stock work.
+            updateOrderItems(placed.orderId(), line(placed.itemId(variantB.getId()), variantB.getId(), "3.00"));
+
+            assertThat(itemEnabled(itemId)).isFalse();
             assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(locationStockOf(variant.getId(), salesLocationId))
                     .isEqualByComparingTo(new BigDecimal("100.00"));
-            assertThat(movementsOf(variant.getId()).stream()
-                            .filter(m -> m.getMovementType() == MovementType.SALE_REVERSAL)
-                            .count())
-                    .isEqualTo(1L);
+            assertThat(movementsOfType(variant.getId(), MovementType.SALE_REVERSAL))
+                    .hasSize(1);
+        }
+
+        @Test
+        @DisplayName("should refuse a second delete of a soft-deleted line and restore only once")
+        void deleteItemTwice_SecondIsRefusedAndNoSecondReversal() throws Exception {
+            var variant = createTestVariant(new BigDecimal("100.00"));
+            var placed = createOrder(line(null, variant.getId(), "4.00"));
+            var itemId = placed.itemId(variant.getId());
+
+            mockMvc.perform(delete("/api/sales-orders/{id}/items/{itemId}", placed.orderId(), itemId)
+                            .with(scopedSalesJwt()))
+                    .andExpect(status().isNoContent());
+
+            assertThat(itemEnabled(itemId)).isFalse();
+            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(locationStockOf(variant.getId(), salesLocationId))
+                    .isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(movementsOfType(variant.getId(), MovementType.SALE_REVERSAL))
+                    .hasSize(1);
+
+            // The line is already soft-deleted, so the second delete is refused instead of answering
+            // 204 for a write the line rule refuses everywhere else (F-7).
+            mockMvc.perform(delete("/api/sales-orders/{id}/items/{itemId}", placed.orderId(), itemId)
+                            .with(scopedSalesJwt()))
+                    .andExpect(status().isConflict());
+
+            assertThat(itemEnabled(itemId)).isFalse();
+            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(locationStockOf(variant.getId(), salesLocationId))
+                    .isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(movementsOfType(variant.getId(), MovementType.SALE_REVERSAL))
+                    .hasSize(1);
         }
 
         @Test
@@ -2353,6 +2373,43 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
                     .isEqualByComparingTo(new BigDecimal("100.00"));
             assertThat(itemEnabled(itemId)).isFalse();
             assertThat(response.getResponse().getStatus()).isEqualTo(409);
+        }
+    }
+
+    // ─── 5.16 Item-level writes never cross the order boundary ───
+
+    @Nested
+    @DisplayName("5.16 A line of another order is not reachable through the order in the path")
+    class ForeignLineOwnershipTests {
+
+        @Test
+        @DisplayName("should answer 404 and move no stock for a foreign line, on update and on delete")
+        void foreignLine_IsNotFoundOnBothItemWrites() throws Exception {
+            var variant = createTestVariant(new BigDecimal("100.00"));
+            var owner = createOrder(line(null, variant.getId(), "4.00"));
+            var holder = createOrder(line(null, variant.getId(), "1.00"));
+            var foreignItemId = owner.itemId(variant.getId());
+            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("95.00"));
+
+            // The targeted line is live — enabled and Pending — so the ownership check is the only
+            // one that can refuse these two writes; the same request against its own order succeeds.
+            mockMvc.perform(put("/api/sales-orders/{id}/items/{itemId}", holder.orderId(), foreignItemId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(line(foreignItemId, variant.getId(), "9.00")))
+                            .with(scopedSalesJwt()))
+                    .andExpect(status().isNotFound());
+            mockMvc.perform(delete("/api/sales-orders/{id}/items/{itemId}", holder.orderId(), foreignItemId)
+                            .with(scopedSalesJwt()))
+                    .andExpect(status().isNotFound());
+
+            assertThat(itemEnabled(foreignItemId)).isTrue();
+            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("95.00"));
+            assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("95.00"));
+            // The two refusals wrote nothing: one SALE row per order, no reversal, nothing else.
+            assertThat(movementsOf(variant.getId())).hasSize(2);
+            assertThat(movementsOfType(variant.getId(), MovementType.SALE)).hasSize(2);
+            assertThat(movementsOfType(variant.getId(), MovementType.SALE_REVERSAL))
+                    .isEmpty();
         }
     }
 

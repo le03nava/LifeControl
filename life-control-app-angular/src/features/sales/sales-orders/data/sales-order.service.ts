@@ -96,7 +96,11 @@ export class SalesOrderService {
     return this.http.put<SalesOrderItem>(`${this.baseUrl}/${orderId}/items/${itemId}`, request);
   }
 
-  /** Remove a line item from a sales order (backend enforces Draft-only). */
+  /**
+   * Remove a line item from a sales order. The backend refuses it while the order is terminal and
+   * for a line that no longer holds stock (Cancelled or already deleted); a settled line is removed
+   * through the order `PUT`.
+   */
   deleteItem(orderId: string, itemId: string): Observable<void> {
     return this.http.delete<void>(`${this.baseUrl}/${orderId}/items/${itemId}`);
   }
