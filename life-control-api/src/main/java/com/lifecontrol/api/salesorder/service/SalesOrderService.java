@@ -586,19 +586,25 @@ public class SalesOrderService {
         // Recalculate order total
         recalculateTotalAmount(salesOrderId);
 
-        // Auto-transition from Draft → Active when the first item is added
+        // Auto-transition from Draft → Active when the first item is added. Only a draft activates:
+        // a Pending order whose lines were all soft-deleted has no transition back to Active, so
+        // asking for one would refuse a legal add with a 409 that says nothing about it.
         if (isFirstItem) {
-            var activeStatus = statusRepository
-                    .findByTypeNameAndStatusName("SALES_ORDER", "Active")
-                    .orElseThrow(() -> new StatusNotFoundException("Status 'Active' not found for SALES_ORDER type"));
             var currentStatus = statusRepository
                     .findById(so.getStatusId())
                     .orElseThrow(() -> new StatusNotFoundException(so.getStatusId()));
-            validateSOTransition(currentStatus, activeStatus);
 
-            so.setStatusId(activeStatus.getId());
-            salesOrderRepository.save(so);
-            logger.info("Order {} auto-transitioned from Draft to Active", salesOrderId);
+            if ("Draft".equals(currentStatus.getStatusName())) {
+                var activeStatus = statusRepository
+                        .findByTypeNameAndStatusName("SALES_ORDER", "Active")
+                        .orElseThrow(
+                                () -> new StatusNotFoundException("Status 'Active' not found for SALES_ORDER type"));
+                validateSOTransition(currentStatus, activeStatus);
+
+                so.setStatusId(activeStatus.getId());
+                salesOrderRepository.save(so);
+                logger.info("Order {} auto-transitioned from Draft to Active", salesOrderId);
+            }
         }
 
         return toItemResponse(saved);
@@ -718,17 +724,20 @@ public class SalesOrderService {
 
     // ─── FK Validation Helpers ──────────────────────────────────────────
 
+    /**
+     * Loads an order that still accepts a line-level write, and refuses a closed one.
+     *
+     * <p>One rule for every write surface (F-3): only a <em>terminal</em> status closes the order.
+     * These endpoints used to be stricter than the order-level {@code PUT} and refused a
+     * {@code Pending} order as well, which froze the line table in the very state the operator sits
+     * in after the first scanned line, while the same order still accepted a full item diff through
+     * the {@code PUT}. The stricter rule had no mechanical reason behind it: both surfaces write
+     * their stock through the same engine call, and charge re-reads the order.</p>
+     */
     private SalesOrder loadAndValidateModifiableSO(UUID id) {
         var so = salesOrderRepository.findById(id).orElseThrow(() -> new SalesOrderNotFoundException(id));
 
-        var name = requireOrderNotTerminal(so);
-
-        // The item-level endpoints are stricter than the order-level PUT: they operate only while
-        // the order is still being assembled. A Pending order is about to be charged, so it is
-        // refused here even though it is not terminal.
-        if (!"Draft".equals(name) && !"Active".equals(name)) {
-            throw new SalesOrderAlreadyFinalizedException(id, name);
-        }
+        requireOrderNotTerminal(so);
         return so;
     }
 
