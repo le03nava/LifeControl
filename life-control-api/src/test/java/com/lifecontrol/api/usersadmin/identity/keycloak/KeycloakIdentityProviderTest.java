@@ -16,6 +16,7 @@ import com.lifecontrol.api.usersadmin.identity.UserSearchDto;
 import jakarta.ws.rs.ClientErrorException;
 import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.ProcessingException;
+import jakarta.ws.rs.ServerErrorException;
 import jakarta.ws.rs.core.Response;
 import java.net.URI;
 import java.util.List;
@@ -278,7 +279,7 @@ class KeycloakIdentityProviderTest {
 
             assertThatThrownBy(() -> provider.updateUser(USER_ID, userRep))
                     .isInstanceOf(IdentityProviderNotFoundException.class)
-                    .hasMessageContaining("User not found");
+                    .hasMessageContaining("Failed to update user");
         }
 
         @Test
@@ -348,7 +349,7 @@ class KeycloakIdentityProviderTest {
                             List.of("UPDATE_PASSWORD")))
                     .isInstanceOf(IdentityProviderNotFoundException.class)
                     .hasCauseInstanceOf(NotFoundException.class)
-                    .hasMessageContaining("User not found");
+                    .hasMessageContaining("Failed to send actions email");
         }
 
         @Test
@@ -414,7 +415,7 @@ class KeycloakIdentityProviderTest {
             assertThatThrownBy(() -> provider.disableUser(USER_ID))
                     .isInstanceOf(IdentityProviderNotFoundException.class)
                     .hasCauseInstanceOf(NotFoundException.class)
-                    .hasMessageContaining("User not found");
+                    .hasMessageContaining("Failed to disable user");
         }
 
         @Test
@@ -501,7 +502,7 @@ class KeycloakIdentityProviderTest {
             assertThatThrownBy(() -> provider.enableUser(USER_ID))
                     .isInstanceOf(IdentityProviderNotFoundException.class)
                     .hasCauseInstanceOf(NotFoundException.class)
-                    .hasMessageContaining("User not found");
+                    .hasMessageContaining("Failed to enable user");
         }
 
         @Test
@@ -636,6 +637,79 @@ class KeycloakIdentityProviderTest {
                     .isInstanceOf(IdentityProviderConnectionException.class)
                     .hasCauseInstanceOf(ProcessingException.class)
                     .hasMessageContaining("Failed to find user by id");
+        }
+    }
+
+    @Nested
+    @DisplayName("provider error translation")
+    class ProviderErrorTranslationTests {
+
+        private UserResource userResource;
+
+        @BeforeEach
+        void setUp() {
+            userResource = mock(UserResource.class);
+            lenient().when(realmResource.users()).thenReturn(usersResource);
+            lenient().when(usersResource.get(USER_ID)).thenReturn(userResource);
+        }
+
+        @Test
+        @DisplayName("should map a provider 404 to IdentityProviderNotFoundException with the operation's message")
+        void shouldMapNotFoundToDomainNotFound() {
+            doThrow(new NotFoundException("User not found")).when(userResource).update(any(UserRepresentation.class));
+
+            assertThatThrownBy(() -> provider.updateUser(USER_ID, new UserRepresentation()))
+                    .isInstanceOf(IdentityProviderNotFoundException.class)
+                    .hasCauseInstanceOf(NotFoundException.class)
+                    .hasMessage("Failed to update user: " + USER_ID);
+        }
+
+        @Test
+        @DisplayName("should map a provider 409 to IdentityProviderConflictException")
+        void shouldMapConflictToDomainConflict() {
+            var e409 = new ClientErrorException("Conflict", Response.Status.CONFLICT.getStatusCode());
+            when(usersResource.create(any(UserRepresentation.class))).thenThrow(e409);
+
+            assertThatThrownBy(() -> provider.createUser(new UserRepresentation()))
+                    .isInstanceOf(IdentityProviderConflictException.class)
+                    .hasMessageContaining("User already exists");
+        }
+
+        @Test
+        @DisplayName("should map any other provider 4xx to IdentityProviderConnectionException")
+        void shouldMapOtherClientErrorToConnection() {
+            var e403 = new ClientErrorException("Forbidden", Response.Status.FORBIDDEN.getStatusCode());
+            doThrow(e403).when(userResource).update(any(UserRepresentation.class));
+
+            assertThatThrownBy(() -> provider.updateUser(USER_ID, new UserRepresentation()))
+                    .isInstanceOf(IdentityProviderConnectionException.class)
+                    .hasCauseInstanceOf(ClientErrorException.class)
+                    .hasMessage("Failed to update user: " + USER_ID);
+        }
+
+        @Test
+        @DisplayName("should map a provider 5xx to IdentityProviderConnectionException")
+        void shouldMapServerErrorToConnection() {
+            var e500 = new ServerErrorException("Server error", Response.Status.INTERNAL_SERVER_ERROR.getStatusCode());
+            doThrow(e500).when(userResource).update(any(UserRepresentation.class));
+
+            assertThatThrownBy(() -> provider.updateUser(USER_ID, new UserRepresentation()))
+                    .isInstanceOf(IdentityProviderConnectionException.class)
+                    .hasCauseInstanceOf(ServerErrorException.class)
+                    .hasMessage("Failed to update user: " + USER_ID);
+        }
+
+        @Test
+        @DisplayName("should map a transport failure to IdentityProviderConnectionException")
+        void shouldMapProcessingToConnection() {
+            doThrow(new ProcessingException("Connection refused"))
+                    .when(userResource)
+                    .update(any(UserRepresentation.class));
+
+            assertThatThrownBy(() -> provider.updateUser(USER_ID, new UserRepresentation()))
+                    .isInstanceOf(IdentityProviderConnectionException.class)
+                    .hasCauseInstanceOf(ProcessingException.class)
+                    .hasMessage("Failed to update user: " + USER_ID);
         }
     }
 }
