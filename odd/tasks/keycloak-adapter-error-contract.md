@@ -1,13 +1,20 @@
 # ODD feature: keycloak-adapter-error-contract
 
-**Status**: **implemented, and what remains is the independent verification (`T6`) and the delivery** — shape
+**Status**: **implemented and verified — `T6` is closed as *retired* in `L9`, and no task of this unit
+stays open; the delivery is the merge of its own pull request, and by its parent record's convention this
+header claims no push, pull-request or merge state** — shape
 **A** closed by the user on 2026-10-16; the implementation is **`1588261`** (the translation, its tests and the
-three boundary pins), on the shape written by **`142ec68`**, and **`T6` is owed because this record's Risk line
-is item 3**. Delivery state is deliberately **not** stated here: this repository's convention puts it in the
-dated evidence log, which is also where the next row will record it.
+three boundary pins), on the shape written by **`142ec68`**, and **`T6` — the one task that was still open when
+the delivery started — is closed as *retired* in `L9`, because the tier the provider measures owes no verifier
+and the independent route was refused before it ran**. Delivery state is deliberately **not** stated here: this
+repository's convention puts it in the dated evidence log, which is also where the next row will record it.
 **Risk**: **high — item 3**, *changing a contract others already consume*: the status a consumer sees when
 the identity provider refuses the application changes from the accidental **500** to a deliberate one, on
-`usersadmin`'s adapter, which five packages outside `usersadmin` consume.
+`usersadmin`'s adapter, which five packages outside `usersadmin` consume. *(**Superseded 2026-10-16 by `L9`**: the
+tier that governs is the one the provider measures, and it measured **`nativeRisk: medium`** with
+**`reviewDue: false`** over 6 changed paths and 675 changed lines. This line is kept as written rather than
+rewritten, because the disagreement between a record's own reading of its risk and the tier its tooling
+computes is itself the fact worth keeping.)*
 **Repository**: LifeControl — `life-control-api/**` (Spring Boot, Java 21, RESTEasy/Keycloak Admin Client
 26.0.12). No gateway change, no frontend change.
 **Migration**: **none** — no schema, no property, no endpoint, no realm change.
@@ -191,7 +198,7 @@ Dependency order: **W1 → W3**. The shape (**T1**) is closed, and **W2 is not r
 | **T3** | The adapter's tests: one per outcome, over the stubbed client, asserting the status and the message — **done, and widened by measurement**: five outcome tests in the adapter **plus three assertions in `GlobalExceptionHandlerTest`**, because **no** test pinned the three provider mappings at the boundary and the HTTP column of `S2` had no evidence there (test-only, not one production line) — **widened once more by this unit's own commit, which adds a third file**: `KeycloakIdentityProviderErrorSurfaceTest` pins the **type** that decides each bucket, method by method (the 4xx family, the 5xx and 3xx family, `findUserDisplayName`'s own carve-out), which is the complement of **X1** rather than a contradiction of it — it pins what the adapter does with a *type* and leaves the status→type correspondence where X1 put it, in the dependency's contract | S2, D7 | test-first | `1588261` + this commit |
 | **T4** | **Reopened by measurement instead of dropped**: A adds no permit, but it **still reaches the listener** — the four catch sites in `company/listener/KeycloakGroupEventListener` catch `IdentityProviderException` broadly, so the 404/4xx/5xx failures that used to escape **unmapped** (and therefore propagate into the company write) now arrive as domain types and are **swallowed with a `warn`**. Declared as the consequence it is (**X3**); moving it to propagate is deliberately **not** taken here | D5, measurements | declared | — |
 | **T5** | **dropped by A** — no handler, no permit pin: the three `GlobalExceptionHandler` mappings already exist and are not touched | S2, D5 | — | — |
-| **T6** | Independent verification of the contract change, because Risk is item 3 | D1 | `gentle-ai-verify` | — |
+| **T6** | Independent verification of the contract change, because Risk is item 3 — **closed as *retired*, not delivered**: the independent route was refused before it ran and the provider's own tier says no verifier is owed (`L9`). What exists instead is the writer's self-verification, measured on the committed bytes, and the entry rule starts no review when `reviewDue` is false | D1 | retried as `gentle-ai-verify`, refused by the harness gate; replaced by inline self-verification | `7674ff0` |
 | **T7** | The records: the `G11` pointer and this record's evidence log — **done in this record's own commit**, with the implementation rather than after it, because a gap that moved to its own unit has to say where it went | W3 | inline | this commit |
 
 ## Gaps
@@ -279,3 +286,37 @@ Dependency order: **W1 → W3**. The shape (**T1**) is closed, and **W2 is not r
   cost, declared**: `T3`'s file set becomes a third file and the pull request's reviewable scope grows by 210
   test lines and **no production line**, which is why `T3`'s own row above is corrected in place instead of
   left to age. **No production line changed.**
+- **L9** — *2026-10-16, `T6` is settled by the tier the provider measures, and it closes as retired rather
+  than delivered*: the user put this unit on the delivery path (`L7`), which made `T6`'s route the thing to
+  settle. **The independent route was refused before it ran, and that is the first fact of this row**:
+  `gentle-ai-verify` refused the launch with *“An independent verifier runs only for a change that declares a
+  named high-risk item (`Risk: item N` from the Task Size list in the task). This change declares none”*, and
+  its own instruction is explicit that a Risk line must not be added to get one admitted — which is why the
+  repository's working unit carries none and no verifier is claimed here. **Instead the tier was asked of the
+  provider, which is the authority when it answers**: `assess` with
+  `baseRef: 142ec68b43ba706d96568ddb18e648f76861a376, committedOnly: true` returned **`nativeRisk: medium`**,
+  **`reviewDue: false`** with reason `under_budget`, **6 changed paths** and **675 changed lines**, and a plan
+  of `writerSelfVerification: true` / `independentVerifier: false` / `structuralReadbackOnly: false`, with
+  `writerProfile: large` sourced `runtime`. **The first call was unassessable and named the reason** —
+  *“the review assess candidate has no pending changes; already-committed work can be assessed by rerunning…
+  naming the base to compare against”* — so the base is named above rather than the reading being guessed. **No
+  native review was started**, because the entry rule starts one only when `reviewDue` is true or the user
+  asks, and neither holds. **The self-verification, all of it measured on the committed bytes and none of it
+  reported by the writer**: the focused suite at `7674ff0` is **9 tests, 0 failures, 0 errors, 0 skipped**
+  (`tests="5"`, `tests="2"`, `tests="2"`); the same suite against the adapter as it stood **before** the
+  translation (`git checkout 142ec68 -- …/KeycloakIdentityProvider.java`) answers **9 tests completed, 7
+  failed**, and the two that stay green are exactly the two behaviours this unit does not change — the 409 the
+  six existing sites already produced and `findUserDisplayName`'s own 404 carve-out; the full gate at
+  `7674ff0` is **`./gradlew test spotlessCheck spotbugsMain --rerun-tasks` → BUILD SUCCESSFUL, 8 actionable
+  tasks: 8 executed**, with **905 suites / 3471 tests / 0 failures / 0 errors / 0 skipped**, of which **105
+  `*IntegrationTest` suites (365 tests)** run against a real `postgres:16-alpine`, and **0** SpotBugs
+  `BugInstance`; and `API CI`'s `Check` is **`pass` in 4m31s** on `7674ff0`. **The differential run was made in
+  the reviewed worktree and that is stated rather than glossed**: the file was checked out from `142ec68` for
+  the RED run and restored to `HEAD` immediately after, with `git status --short` verified to show nothing but
+  the new test file before anything was committed, so the bytes committed are the bytes `HEAD` names. **What
+  this row deliberately does not claim**: independence — the outside views this unit has are the provider's own
+  tier and the CI run, not a separate verifier, and the difference is the point of the row; and this unit's own
+  merge, because a record cannot name its own delivery and its state is the maintainer's decision. **It also
+  does not relabel the risk**: what it records is that this record's reading of item 3 and the tier the
+  provider computes disagree, and that the provider's tier is the one the plan follows. **No production line
+  changed.**
