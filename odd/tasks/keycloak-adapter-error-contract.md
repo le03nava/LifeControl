@@ -188,7 +188,7 @@ Dependency order: **W1 → W3**. The shape (**T1**) is closed, and **W2 is not r
 | --- | --- | --- | --- | --- |
 | **T1** | **Close the shape** — **closed by the user on 2026-10-16 as A**; **S2** carries its exact outcomes | S1, S2 | the user | — |
 | **T2** | The adapter's uniform mapping: 404 → domain 404, 5xx → retryable 503, and the chosen outcome for refusals/request errors, applied to all 29 methods — **done**: one `toDomainFailure` helper reused by all 29 sites, the four catch shapes collapsed into a single multi-catch | S2, D2, D3, D4 | test-first, inline | `1588261` |
-| **T3** | The adapter's tests: one per outcome, over the stubbed client, asserting the status and the message — **done, and widened by measurement**: five outcome tests in the adapter **plus three assertions in `GlobalExceptionHandlerTest`**, because **no** test pinned the three provider mappings at the boundary and the HTTP column of `S2` had no evidence there (test-only, not one production line) | S2, D7 | test-first | `1588261` |
+| **T3** | The adapter's tests: one per outcome, over the stubbed client, asserting the status and the message — **done, and widened by measurement**: five outcome tests in the adapter **plus three assertions in `GlobalExceptionHandlerTest`**, because **no** test pinned the three provider mappings at the boundary and the HTTP column of `S2` had no evidence there (test-only, not one production line) — **widened once more by this unit's own commit, which adds a third file**: `KeycloakIdentityProviderErrorSurfaceTest` pins the **type** that decides each bucket, method by method (the 4xx family, the 5xx and 3xx family, `findUserDisplayName`'s own carve-out), which is the complement of **X1** rather than a contradiction of it — it pins what the adapter does with a *type* and leaves the status→type correspondence where X1 put it, in the dependency's contract | S2, D7 | test-first | `1588261` + this commit |
 | **T4** | **Reopened by measurement instead of dropped**: A adds no permit, but it **still reaches the listener** — the four catch sites in `company/listener/KeycloakGroupEventListener` catch `IdentityProviderException` broadly, so the 404/4xx/5xx failures that used to escape **unmapped** (and therefore propagate into the company write) now arrive as domain types and are **swallowed with a `warn`**. Declared as the consequence it is (**X3**); moving it to propagate is deliberately **not** taken here | D5, measurements | declared | — |
 | **T5** | **dropped by A** — no handler, no permit pin: the three `GlobalExceptionHandler` mappings already exist and are not touched | S2, D5 | — | — |
 | **T6** | Independent verification of the contract change, because Risk is item 3 | D1 | `gentle-ai-verify` | — |
@@ -258,3 +258,24 @@ Dependency order: **W1 → W3**. The shape (**T1**) is closed, and **W2 is not r
   own best-effort intent and **G8**'s cosmetic-mirror declaration make the gentler outcome the defensible
   one. **The plan was corrected by measurement instead of confirmed by it**, which is the second time in this
   record and the shape its parent record's log records for the same reason.
+- **L7** — *the user, 2026-10-16, verbatim*: «commitea el test huerfano y has los merge» — answering the
+  inventory of what remained, which found on this branch's worktree a suite **written but never committed**.
+- **L8** — *2026-10-16, the orphan suite is committed rather than deleted, and it is not vacuous*:
+  `KeycloakIdentityProviderErrorSurfaceTest` — **210 lines, 9 tests** in three nested families (`the 4xx family`
+  5, `the 5xx and 3xx family` 2, `findUserDisplayName's 404 carve-out` 2) — sat **untracked** in
+  `~/workspace/LifeControl-worktrees/keycloak-adapter-error-contract`, and `git log --all` over its path
+  returned **nothing**, so neither `1588261` nor the pull request ever carried it. **What made the decision
+  for committing rather than deleting is a differential run, not taste**: the same suite was executed against
+  the adapter as it stood **before** the translation (`git checkout 142ec68 -- …/KeycloakIdentityProvider.java`,
+  restored to `HEAD` afterwards with the worktree verified clean) and answered **9 tests completed, 7 failed** —
+  a 403, the 404 that is *not* a `NotFoundException`, the 404 of a method that never had that outcome, the 404
+  of `createGroup`, the 500, the redirect and the non-carve-out `findUserDisplayName` failure — while exactly
+  **two stayed green, and the two are the point**: the 409 the six existing sites already produced, and the
+  `findUserDisplayName` 404 that keeps its own catch. Its green run on the committed bytes is
+  `./gradlew test --tests '*KeycloakIdentityProviderErrorSurfaceTest' --rerun-tasks` → **BUILD SUCCESSFUL**, the
+  three suites reporting `tests="5"`, `tests="2"` and `tests="2"` with **0 failures, 0 errors, 0 skipped**. **What
+  this row does not claim**: RED against the tree it lands on, because the translation already exists there —
+  what the differential run proves is that the suite **would have caught** the escape it is named after. **Its
+  cost, declared**: `T3`'s file set becomes a third file and the pull request's reviewable scope grows by 210
+  test lines and **no production line**, which is why `T3`'s own row above is corrected in place instead of
+  left to age. **No production line changed.**
