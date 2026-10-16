@@ -22,6 +22,7 @@ import com.lifecontrol.api.company.model.CompanyZone;
 import com.lifecontrol.api.customer.exception.CustomerNotFoundException;
 import com.lifecontrol.api.customer.repository.CustomerRepository;
 import com.lifecontrol.api.inventory.service.InventoryService;
+import com.lifecontrol.api.inventory.service.InventoryService.SaleChange;
 import com.lifecontrol.api.paymentmethod.exception.PaymentMethodNotFoundException;
 import com.lifecontrol.api.paymentmethod.repository.PaymentMethodRepository;
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
@@ -314,25 +315,42 @@ class SalesOrderServiceTest {
     }
 
     /**
-     * Asserts the exact deduction the service asked the engine for: variant, store, quantity and
-     * the line-level ledger reference (W3-D6). This is the unit-level replacement for the old
-     * assertion on the mocked per-store row; the resulting stock itself is asserted against real
+     * Asserts that the batch the service asked the engine for carries this deduction: variant, store,
+     * quantity and the line-level ledger reference (W3-D6). This is the unit-level replacement for the
+     * old assertion on the mocked per-store row; the resulting stock itself is asserted against real
      * PostgreSQL in {@code SalesOrderIntegrationTest} and against the mocked rows in
      * {@code InventoryServiceSaleMovementTest}.
      */
     private void verifyDeducted(UUID variantId, String quantity, UUID itemId) {
         verify(inventoryService)
-                .applySaleDeduction(
-                        eq(variantId),
-                        eq(companyStoreId),
-                        argThat(actual -> actual.compareTo(new BigDecimal(quantity)) == 0),
+                .applySaleBatch(
                         eq("SALES_ORDER_ITEM"),
-                        eq(itemId),
-                        any());
+                        any(),
+                        argThat((List<SaleChange> changes) -> changes.stream()
+                                .anyMatch(change -> !change.reversal()
+                                        && change.productVariantId().equals(variantId)
+                                        && change.companyStoreId().equals(companyStoreId)
+                                        && change.referenceId().equals(itemId)
+                                        && change.quantity().compareTo(new BigDecimal(quantity)) == 0)));
     }
 
     private void verifyReversed(UUID itemId) {
-        verify(inventoryService).applySaleReversal(eq("SALES_ORDER_ITEM"), eq(itemId), any());
+        verify(inventoryService)
+                .applySaleBatch(
+                        eq("SALES_ORDER_ITEM"),
+                        any(),
+                        argThat((List<SaleChange> changes) -> changes.stream()
+                                .anyMatch(change -> change.reversal()
+                                        && change.referenceId().equals(itemId))));
+    }
+
+    /** Asserts that no batch carried a deduction: what a restore-only operation looks like. */
+    private void verifyNoDeduction() {
+        verify(inventoryService, never())
+                .applySaleBatch(
+                        any(),
+                        any(),
+                        argThat((List<SaleChange> changes) -> changes.stream().anyMatch(change -> !change.reversal())));
     }
 
     // ─────────────────────────────────────────────
@@ -818,7 +836,7 @@ class SalesOrderServiceTest {
             salesOrderService.deleteSalesOrder(orderId);
 
             // Reversed exactly once (only during cancel), never again on delete.
-            verify(inventoryService, times(1)).applySaleReversal(eq("SALES_ORDER_ITEM"), eq(itemId), any());
+            verifyReversed(itemId);
         }
 
         @Test
@@ -1422,7 +1440,7 @@ class SalesOrderServiceTest {
             when(productVariantRepository.existsByIdAndEnabledTrue(variantId)).thenReturn(true);
             doThrow(new InsufficientStockException(variantId, new BigDecimal("8.00"), new BigDecimal("1.00")))
                     .when(inventoryService)
-                    .applySaleDeduction(any(), any(), any(), any(), any(), any());
+                    .applySaleBatch(any(), any(), any());
 
             assertThatThrownBy(() -> salesOrderService.updateSalesOrderItem(orderId, itemId, request))
                     .isInstanceOf(InsufficientStockException.class)
@@ -2300,7 +2318,7 @@ class SalesOrderServiceTest {
                     .save(argThat(item -> item.getId().equals(existingItem3.getId()) && !item.getEnabled()));
             // Only the deleted line reaches the engine; item1 and item2 keep their quantity.
             verifyReversed(existingItem3.getId());
-            verify(inventoryService, never()).applySaleDeduction(any(), any(), any(), any(), any(), any());
+            verifyNoDeduction();
         }
 
         @Test
@@ -2525,7 +2543,7 @@ class SalesOrderServiceTest {
 
             // Only the deleted line is restored; the kept one keeps its quantity.
             verifyReversed(existingToDelete.getId());
-            verify(inventoryService, never()).applySaleDeduction(any(), any(), any(), any(), any(), any());
+            verifyNoDeduction();
         }
 
         @Test
@@ -2719,7 +2737,7 @@ class SalesOrderServiceTest {
             when(itemRepository.save(any(SalesOrderItem.class))).thenAnswer(inv -> inv.getArgument(0));
             doThrow(new InsufficientStockException(variantId, new BigDecimal("3.00"), new BigDecimal("1.00")))
                     .when(inventoryService)
-                    .applySaleDeduction(any(), any(), any(), any(), any(), any());
+                    .applySaleBatch(any(), any(), any());
 
             assertThatThrownBy(() -> salesOrderService.updateSalesOrder(orderId, request))
                     .isInstanceOf(InsufficientStockException.class)
