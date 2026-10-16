@@ -77,7 +77,8 @@ public class SalesOrderController {
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "Sales order created"),
         @ApiResponse(responseCode = "400", description = "Validation error"),
-        @ApiResponse(responseCode = "404", description = "Referenced entity not found")
+        @ApiResponse(responseCode = "404", description = "Referenced entity not found"),
+        @ApiResponse(responseCode = "409", description = "Insufficient stock for one of the order's items")
     })
     public ResponseEntity<SalesOrderResponse> createSalesOrder(@Valid @RequestBody SalesOrderRequest request) {
         var response = salesOrderService.createSalesOrder(request);
@@ -93,7 +94,11 @@ public class SalesOrderController {
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Sales order updated"),
         @ApiResponse(responseCode = "400", description = "Validation error"),
-        @ApiResponse(responseCode = "404", description = "Sales order or FK entity not found")
+        @ApiResponse(responseCode = "404", description = "Sales order or FK entity not found"),
+        @ApiResponse(
+                responseCode = "409",
+                description =
+                        "Sales order has reached a terminal status (Completed or Cancelled), the store cannot be reassigned while the order still holds items, or an item does not have enough stock")
     })
     public ResponseEntity<SalesOrderResponse> updateSalesOrder(
             @PathVariable UUID id, @Valid @RequestBody SalesOrderRequest request) {
@@ -181,7 +186,8 @@ public class SalesOrderController {
         @ApiResponse(responseCode = "404", description = "Sales order or product variant not found"),
         @ApiResponse(
                 responseCode = "409",
-                description = "Sales order has reached a terminal status (Completed or Cancelled)")
+                description =
+                        "Sales order has reached a terminal status (Completed or Cancelled), or the line's variant does not have enough stock")
     })
     public ResponseEntity<SalesOrderItemResponse> addItem(
             @PathVariable UUID id, @Valid @RequestBody SalesOrderItemRequest request) {
@@ -194,14 +200,15 @@ public class SalesOrderController {
     @Operation(
             summary = "Update an item",
             description =
-                    "Updates a sales order item. Allowed while the order has not reached a terminal status (Completed or Cancelled).")
+                    "Updates a sales order item. Allowed while the order has not reached a terminal status (Completed or Cancelled), and only for a line that still holds stock (not Cancelled and not already soft-deleted).")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Item updated"),
         @ApiResponse(responseCode = "400", description = "Validation error"),
         @ApiResponse(responseCode = "404", description = "Sales order or item not found"),
         @ApiResponse(
                 responseCode = "409",
-                description = "Sales order has reached a terminal status (Completed or Cancelled)")
+                description =
+                        "Sales order has reached a terminal status (Completed or Cancelled), the line is Cancelled or already soft-deleted, or the change does not have enough stock")
     })
     public ResponseEntity<SalesOrderItemResponse> updateItem(
             @PathVariable UUID id, @PathVariable UUID itemId, @Valid @RequestBody SalesOrderItemRequest request) {
