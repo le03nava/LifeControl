@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
@@ -24,6 +26,7 @@ import com.lifecontrol.api.inventory.repository.InventoryMovementRepository;
 import com.lifecontrol.api.inventory.repository.ProductVariantLocationRepository;
 import com.lifecontrol.api.inventory.repository.StoreInventorySettingsRepository;
 import com.lifecontrol.api.inventory.service.InventoryService;
+import com.lifecontrol.api.inventory.service.InventoryService.SaleChange;
 import com.lifecontrol.api.product.exception.ProductVariantNotFoundException;
 import com.lifecontrol.api.product.model.ProductVariant;
 import com.lifecontrol.api.product.model.ProductVariantStoreStock;
@@ -52,8 +55,9 @@ import org.slf4j.LoggerFactory;
 /**
  * Unit coverage of the sale movement engine: {@link InventoryService#applySaleDeduction} (priority
  * allocation with FIFO spillover, the two fail-closed checks and the {@code SALE} ledger rows),
- * {@link InventoryService#applySaleReversal} (ledger-driven reversal, idempotent by construction)
- * and {@link InventoryService#applyStockAdjustment} (the manual per-store editor of W3-D14).
+ * {@link InventoryService#applySaleReversal} (ledger-driven reversal, idempotent by construction),
+ * {@link InventoryService#applySaleBatch} (the ordering rules the engine owns for a whole batch) and
+ * {@link InventoryService#applyStockAdjustment} (the manual per-store editor of W3-D14).
  *
  * <p>These tests replace the interim expectation that sales never touch a location row. Persistence
  * behaviour on real PostgreSQL stays covered by {@code InventoryIntegrationTest}.</p>
@@ -727,6 +731,194 @@ class InventoryServiceSaleMovementTest {
             lockOrder
                     .verify(productVariantLocationRepository)
                     .findByProductVariantIdAndStoreLocationIdForUpdate(VARIANT_ID, LOCATION_B);
+        }
+    }
+
+    // ---------------------------------------------------------------- sale batch (F-1)
+
+    @Nested
+    @DisplayName("sale batch")
+    class SaleBatchTests {
+
+        private static final UUID SECOND_VARIANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
+        private static final UUID SECOND_REFERENCE_ID = UUID.fromString("00000000-0000-0000-0000-000000000011");
+
+        /** The second key of a batch, sellable: an enabled variant with stock and one location row. */
+        private void givenSecondVariantSellable() {
+            var secondBalance = ProductVariantLocation.builder()
+                    .id(UUID.randomUUID())
+                    .productVariantId(SECOND_VARIANT_ID)
+                    .storeLocationId(LOCATION_A)
+                    .stock(new BigDecimal("10.00"))
+                    .build();
+            when(productVariantRepository.findById(SECOND_VARIANT_ID))
+                    .thenReturn(Optional.of(ProductVariant.builder()
+                            .id(SECOND_VARIANT_ID)
+                            .barCode("7501234567891")
+                            .variantName("Talla L")
+                            .enabled(true)
+                            .build()));
+            when(productVariantStoreStockRepository.findByProductVariantIdAndCompanyStoreIdForUpdate(
+                            SECOND_VARIANT_ID, STORE_ID))
+                    .thenReturn(Optional.of(ProductVariantStoreStock.builder()
+                            .id(UUID.fromString("00000000-0000-0000-0000-000000000004"))
+                            .productVariantId(SECOND_VARIANT_ID)
+                            .companyStoreId(STORE_ID)
+                            .stock(new BigDecimal("10.00"))
+                            .build()));
+            when(productVariantLocationRepository.findByProductVariantIdAndCompanyStoreId(SECOND_VARIANT_ID, STORE_ID))
+                    .thenReturn(List.of(secondBalance));
+            when(productVariantLocationRepository.findByProductVariantIdAndStoreLocationIdForUpdate(
+                            SECOND_VARIANT_ID, LOCATION_A))
+                    .thenReturn(Optional.of(secondBalance));
+        }
+
+        /** Only what a reversal of the second key reads: the store row and the location it credits. */
+        private void givenSecondVariantLedgerScope() {
+            var secondBalance = ProductVariantLocation.builder()
+                    .id(UUID.randomUUID())
+                    .productVariantId(SECOND_VARIANT_ID)
+                    .storeLocationId(LOCATION_A)
+                    .stock(new BigDecimal("0.00"))
+                    .build();
+            when(productVariantStoreStockRepository.findByProductVariantIdAndCompanyStoreIdForUpdate(
+                            SECOND_VARIANT_ID, STORE_ID))
+                    .thenReturn(Optional.of(ProductVariantStoreStock.builder()
+                            .id(UUID.fromString("00000000-0000-0000-0000-000000000004"))
+                            .productVariantId(SECOND_VARIANT_ID)
+                            .companyStoreId(STORE_ID)
+                            .stock(new BigDecimal("0.00"))
+                            .build()));
+            when(productVariantLocationRepository.findByProductVariantIdAndStoreLocationIdForUpdate(
+                            SECOND_VARIANT_ID, LOCATION_A))
+                    .thenReturn(Optional.of(secondBalance));
+        }
+
+        @Test
+        @DisplayName("should lock the rows of the batch in ascending key order, not in the input order")
+        void locksTheRowsInKeyOrderWhateverTheInputOrder() {
+            givenEnabledVariant();
+            givenStoreStock("10.00");
+            givenSalesLocation(LOCATION_A);
+            balance(LOCATION_A, "10.00");
+            givenFifoOrder(LOCATION_A);
+            givenSecondVariantSellable();
+
+            // The higher key is listed first, so an engine that locked as it read the batch would take
+            // them in the wrong order and could deadlock a concurrent batch that listed them the other
+            // way round.
+            inventoryService.applySaleBatch(
+                    REFERENCE_TYPE,
+                    ACTOR,
+                    List.of(
+                            SaleChange.deduction(
+                                    STORE_ID, SECOND_VARIANT_ID, new BigDecimal("1.00"), SECOND_REFERENCE_ID),
+                            SaleChange.deduction(STORE_ID, VARIANT_ID, new BigDecimal("1.00"), REFERENCE_ID)));
+
+            // The batch's own pre-lock must be what takes the rows, and in ascending key order: the
+            // phases below invert that order whenever a reversal sorts above a deduction. The assertion
+            // is on the argument SEQUENCE, not on the order of interactions: every operation re-locks
+            // its own row inside the same transaction, so an order-based verify is satisfied by those
+            // re-locks whatever order the pre-lock phase used (measured: mutating the sort away left an
+            // `inOrder` version of this test green).
+            var lockedVariants = ArgumentCaptor.forClass(UUID.class);
+            verify(productVariantStoreStockRepository, atLeast(2))
+                    .findByProductVariantIdAndCompanyStoreIdForUpdate(lockedVariants.capture(), eq(STORE_ID));
+            assertThat(lockedVariants.getAllValues()).startsWith(VARIANT_ID, SECOND_VARIANT_ID);
+        }
+
+        @Test
+        @DisplayName("should reverse a reference before the deduction that shares it, whatever the input order")
+        void reversesBeforeTheDeductionOfTheSameReference() {
+            givenEnabledVariant();
+            givenStoreStock("10.00");
+            givenSalesLocation(LOCATION_A);
+            balance(LOCATION_A, "10.00");
+            givenFifoOrder(LOCATION_A);
+            givenSecondVariantLedgerScope();
+            // One line reference with a SALE row under the SECOND variant: the same reference the batch
+            // also deducts from, under the lower key. A variant change is exactly this shape (W3-D6).
+            when(inventoryMovementRepository.findByReferenceTypeAndReferenceId(REFERENCE_TYPE, REFERENCE_ID))
+                    .thenReturn(List.of(InventoryMovement.builder()
+                            .productVariantId(SECOND_VARIANT_ID)
+                            .companyStoreId(STORE_ID)
+                            .storeLocationId(LOCATION_A)
+                            .movementType(MovementType.SALE)
+                            .quantity(new BigDecimal("4.00"))
+                            .referenceType(REFERENCE_TYPE)
+                            .referenceId(REFERENCE_ID)
+                            .createdBy(ACTOR)
+                            .build()));
+
+            // The naive order: the deduction first, and its key sorts first too. A batch that trusted
+            // its input order would write the SALE row before the reversal read the ledger, and the
+            // reversal would then credit the fresh sale back instead of the sale it balances.
+            inventoryService.applySaleBatch(
+                    REFERENCE_TYPE,
+                    ACTOR,
+                    List.of(
+                            SaleChange.deduction(STORE_ID, VARIANT_ID, new BigDecimal("2.00"), REFERENCE_ID),
+                            SaleChange.reversal(STORE_ID, SECOND_VARIANT_ID, REFERENCE_ID)));
+
+            InOrder phases = inOrder(inventoryMovementRepository);
+            phases.verify(inventoryMovementRepository)
+                    .save(argThat(movement -> movement.getMovementType() == MovementType.SALE_REVERSAL
+                            && movement.getProductVariantId().equals(SECOND_VARIANT_ID)));
+            phases.verify(inventoryMovementRepository)
+                    .save(argThat(movement -> movement.getMovementType() == MovementType.SALE
+                            && movement.getProductVariantId().equals(VARIANT_ID)));
+        }
+
+        @Test
+        @DisplayName("should lock nothing and write nothing for an empty batch")
+        void emptyBatchTouchesNothing() {
+            inventoryService.applySaleBatch(REFERENCE_TYPE, ACTOR, List.of());
+
+            verifyNoInteractions(
+                    productVariantRepository,
+                    productVariantStoreStockRepository,
+                    productVariantLocationRepository,
+                    inventoryMovementRepository,
+                    storeInventorySettingsRepository);
+        }
+
+        @Test
+        @DisplayName("should pre-lock the whole batch in ascending key order even when the phases invert it")
+        void preLocksBeforePhasesThatInvertTheKeyOrder() {
+            givenEnabledVariant();
+            givenStoreStock("10.00");
+            givenSalesLocation(LOCATION_A);
+            balance(LOCATION_A, "10.00");
+            givenFifoOrder(LOCATION_A);
+            givenSecondVariantLedgerScope();
+            when(inventoryMovementRepository.findByReferenceTypeAndReferenceId(REFERENCE_TYPE, REFERENCE_ID))
+                    .thenReturn(List.of(InventoryMovement.builder()
+                            .productVariantId(SECOND_VARIANT_ID)
+                            .companyStoreId(STORE_ID)
+                            .storeLocationId(LOCATION_A)
+                            .movementType(MovementType.SALE)
+                            .quantity(new BigDecimal("4.00"))
+                            .referenceType(REFERENCE_TYPE)
+                            .referenceId(REFERENCE_ID)
+                            .createdBy(ACTOR)
+                            .build()));
+
+            // The reversal (higher key) runs first, so without a pre-lock phase its own re-lock would take
+            // SECOND_VARIANT before the deduction's re-lock takes VARIANT and the captured order would be
+            // [SECOND_VARIANT, VARIANT]: only a pre-lock phase makes the lower key first. This is the case
+            // the pre-lock exists for, so it is the case that has to detect its absence (measured: deleting
+            // the pre-lock loop leaves every other test of this class green).
+            inventoryService.applySaleBatch(
+                    REFERENCE_TYPE,
+                    ACTOR,
+                    List.of(
+                            SaleChange.deduction(STORE_ID, VARIANT_ID, new BigDecimal("2.00"), REFERENCE_ID),
+                            SaleChange.reversal(STORE_ID, SECOND_VARIANT_ID, REFERENCE_ID)));
+
+            var lockedVariants = ArgumentCaptor.forClass(UUID.class);
+            verify(productVariantStoreStockRepository, atLeast(2))
+                    .findByProductVariantIdAndCompanyStoreIdForUpdate(lockedVariants.capture(), eq(STORE_ID));
+            assertThat(lockedVariants.getAllValues()).startsWith(VARIANT_ID, SECOND_VARIANT_ID);
         }
     }
 

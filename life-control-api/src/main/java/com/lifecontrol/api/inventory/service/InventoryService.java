@@ -384,6 +384,105 @@ public class InventoryService {
     }
 
     /**
+     * One piece of sale work of a batch, keyed by the {@code (store, variant)} row the batch locks
+     * first. A {@code reversal} gives the reference back; otherwise the change sells
+     * {@code quantity} under it. The engine derives the locations from the store's settings or from
+     * the ledger, so the key exists only for ordering and locking.
+     */
+    public record SaleChange(
+            UUID companyStoreId, UUID productVariantId, BigDecimal quantity, UUID referenceId, boolean reversal) {
+
+        /**
+         * Sells {@code quantity} of the variant in the store, under the line-level reference the
+         * ledger carries (W3-D6).
+         */
+        public static SaleChange deduction(
+                UUID companyStoreId, UUID productVariantId, BigDecimal quantity, UUID referenceId) {
+            return new SaleChange(companyStoreId, productVariantId, quantity, referenceId, false);
+        }
+
+        /**
+         * Gives back whatever the reference still holds, so the same line id says which sale to
+         * balance; {@code quantity} plays no part and is null.
+         */
+        public static SaleChange reversal(UUID companyStoreId, UUID productVariantId, UUID referenceId) {
+            return new SaleChange(companyStoreId, productVariantId, null, referenceId, true);
+        }
+    }
+
+    /** Composite identity of a per-store stock row: the batch's sort key and its first lock. */
+    private record StoreVariantKey(UUID companyStoreId, UUID productVariantId) implements Comparable<StoreVariantKey> {
+
+        @Override
+        public int compareTo(StoreVariantKey other) {
+            var storeOrder = companyStoreId.compareTo(other.companyStoreId);
+            return storeOrder != 0 ? storeOrder : productVariantId.compareTo(other.productVariantId);
+        }
+    }
+
+    /**
+     * Applies one batch of sale work, owning the two ordering rules instead of lending them to the
+     * caller (F-1 of {@code odd/tasks/sales-location-aware-stock.md}).
+     *
+     * <p>First every distinct {@code (store, variant)} row is locked in {@link StoreVariantKey}
+     * order, so the acquisition order is ascending and deadlock-free even though the work runs in a
+     * different order. Then every reversal runs before every deduction. The engine takes the
+     * per-store row as its FIRST lock and holds it to the commit, so the documented
+     * {@code storeStock -> locationBalance} order is untouched, and re-locking a held row inside the
+     * same transaction is a no-op. A row that does not exist is simply not locked: the work that
+     * follows raises its own exception.</p>
+     *
+     * <p>Reversals must precede deductions because a reversal is reference-scoped: it credits
+     * whatever the line's ledger reference still holds, so a deduction of the same reference in the
+     * same batch would put a {@code SALE} row in front of it and the reversal would credit the fresh
+     * sale back. A variant change registers the reversal of the old variant and the deduction of the
+     * new one under one line reference and two different sort keys, so a batch run in its input
+     * order would let the deduction win. That is why the caller's order is irrelevant here:
+     * {@code changes} may name the deduction of a reference before its reversal.</p>
+     *
+     * @param referenceType source discriminator carrying the line-level provenance of every sale in
+     *     the batch (W3-D6)
+     * @param createdBy username of the actor, when known
+     * @param changes the batch, in any order; an empty batch locks nothing and writes no movement
+     * @throws IllegalArgumentException as {@link #applySaleDeduction} and {@link #applySaleReversal}
+     * @throws InsufficientStockException as {@link #applySaleDeduction}
+     * @throws ProductVariantNotFoundException as {@link #applySaleDeduction}
+     */
+    public void applySaleBatch(String referenceType, String createdBy, List<SaleChange> changes) {
+        if (changes.isEmpty()) {
+            return;
+        }
+        var ordered = changes.stream()
+                .sorted(Comparator.comparing(InventoryService::keyOf))
+                .toList();
+
+        // 1. Lock every distinct row first, in key order. The phases below invert the key order
+        //    whenever a reversal sorts after a deduction, so the locks cannot be left to the work.
+        ordered.stream()
+                .map(InventoryService::keyOf)
+                .distinct()
+                .forEach(key -> lockStoreStock(key.productVariantId(), key.companyStoreId()));
+
+        // 2. Every reversal before every deduction.
+        ordered.stream()
+                .filter(SaleChange::reversal)
+                .forEach(change -> applySaleReversal(referenceType, change.referenceId(), createdBy));
+        ordered.stream()
+                .filter(change -> !change.reversal())
+                .forEach(change -> applySaleDeduction(
+                        change.productVariantId(),
+                        change.companyStoreId(),
+                        change.quantity(),
+                        referenceType,
+                        change.referenceId(),
+                        createdBy));
+    }
+
+    private static StoreVariantKey keyOf(SaleChange change) {
+        return new StoreVariantKey(change.companyStoreId(), change.productVariantId());
+    }
+
+    /**
      * Sets the per-store sellable stock to {@code newStock} and moves every side of the invariant
      * with it: the aggregate, the store's sales-location balance and one ledger row explaining the
      * delta (W3-D14).
@@ -551,20 +650,14 @@ public class InventoryService {
     }
 
     /**
-     * Takes the pessimistic lock on one {@code (variant, store)} stock row without moving it, so a
-     * caller that runs several stock operations in one batch can take every row in a deterministic
-     * order before it runs any of them.
-     *
-     * <p>Such a caller must run its reference-scoped reversals before its deductions, because a
-     * reversal that reads the ledger after a same-batch deduction of the same reference would credit
-     * the fresh sale back. That ordering can invert the sorted key order of the rows an unordered
-     * batch would take, so locking every row up front keeps the acquisition order ascending and the
-     * deadlock invariant intact. It is the same first lock every mover takes, which preserves the
+     * Takes the pessimistic lock on one {@code (variant, store)} stock row without moving it, so
+     * {@link #applySaleBatch} can take every row of its batch in a deterministic order before it
+     * runs any of the work. It is the same first lock every mover takes, which preserves the
      * documented {@code storeStock -> locationBalance} order, and re-locking an already-held row
      * inside the same transaction is a no-op. A row that does not exist is simply not locked: the
-     * operation that follows raises its own exception.</p>
+     * operation that follows raises its own exception.
      */
-    public void lockStoreStock(UUID productVariantId, UUID companyStoreId) {
+    private void lockStoreStock(UUID productVariantId, UUID companyStoreId) {
         productVariantStoreStockRepository.findByProductVariantIdAndCompanyStoreIdForUpdate(
                 productVariantId, companyStoreId);
     }
