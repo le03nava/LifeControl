@@ -7,7 +7,6 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -291,18 +290,6 @@ class SalesOrderServiceTest {
 
         testItemRequest = new SalesOrderItemRequest(
                 null, variantId, new BigDecimal("2.00"), new BigDecimal("100.00"), new BigDecimal("10.00"), null);
-
-        // The stock-delta tests are about delta arithmetic, not about the gate that forbids selling a
-        // soft-deleted definition, so the default is "sellable" and the tests that care about the
-        // gate override it. Lenient because most tests never reach a deduction.
-        lenient()
-                .when(productVariantRepository.existsByIdAndEnabledTrue(any(UUID.class)))
-                .thenReturn(true);
-        // updateSalesOrder reads the terminal item status to tell a line that still holds stock from
-        // one whose stock was already given back. Lenient because only the item-diff tests reach it.
-        lenient()
-                .when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Cancelled"))
-                .thenReturn(Optional.of(canceladoItemStatus));
     }
 
     private Shift openShift(String status) {
@@ -342,6 +329,24 @@ class SalesOrderServiceTest {
                                         && change.companyStoreId().equals(companyStoreId)
                                         && change.referenceId().equals(itemId)
                                         && change.quantity().compareTo(new BigDecimal(quantity)) == 0)));
+    }
+
+    /**
+     * A live line (enabled, {@code Pending}) that belongs to some other order, so the only check
+     * that can refuse an item-level write on it is the one that reads {@code salesOrderId} (F-5).
+     */
+    private SalesOrderItem foreignLine() {
+        return SalesOrderItem.builder()
+                .id(itemId)
+                .salesOrderId(UUID.randomUUID())
+                .productVariantId(variantId)
+                .quantity(new BigDecimal("2.00"))
+                .listPrice(new BigDecimal("100.00"))
+                .discountApplied(BigDecimal.ZERO)
+                .finalPrice(new BigDecimal("100.00"))
+                .statusId(pendienteItemStatus.getId())
+                .enabled(true)
+                .build();
     }
 
     private void verifyReversed(UUID itemId) {
@@ -704,6 +709,7 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should not sell a cancelled line re-enabled with a changed quantity through the order PUT")
         void updateSalesOrder_ReEnableCancelledLineWithChangedQuantity_NoStockMovement() {
+            stubCancelledItemStatus();
             var cancelledLine = SalesOrderItem.builder()
                     .id(itemId)
                     .salesOrderId(orderId)
@@ -1451,6 +1457,7 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should update item and recalculate total")
         void updateSalesOrderItem_Success() {
+            stubCancelledItemStatus();
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(testItem));
@@ -1471,6 +1478,7 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should deduct stock when item quantity increases")
         void updateSalesOrderItem_QuantityIncrease_DeductsStock() {
+            stubCancelledItemStatus();
             var request = new SalesOrderItemRequest(
                     itemId, variantId, new BigDecimal("5.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
 
@@ -1491,6 +1499,7 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should restore stock when item quantity decreases")
         void updateSalesOrderItem_QuantityDecrease_RestoresStock() {
+            stubCancelledItemStatus();
             var request = new SalesOrderItemRequest(
                     itemId, variantId, new BigDecimal("1.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
 
@@ -1512,6 +1521,7 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should not change stock when quantity unchanged")
         void updateSalesOrderItem_SameQuantity_NoStockChange() {
+            stubCancelledItemStatus();
             // testItemRequest has qty 2.00, testItem has qty 2.00 → diff = 0 → no stock change
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
@@ -1530,6 +1540,7 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should restore old variant stock and deduct new variant stock when productVariantId changes")
         void updateSalesOrderItem_VariantChange_RestoresOldAndDeductsNew() {
+            stubCancelledItemStatus();
             var newVariantId = UUID.randomUUID();
 
             var request = new SalesOrderItemRequest(
@@ -1555,6 +1566,7 @@ class SalesOrderServiceTest {
         @DisplayName(
                 "should restore old variant full quantity and deduct new quantity when both variant and quantity change")
         void updateSalesOrderItem_VariantChange_WithQuantityChange() {
+            stubCancelledItemStatus();
             var newVariantId = UUID.randomUUID();
 
             var request = new SalesOrderItemRequest(
@@ -1578,6 +1590,7 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should throw InsufficientStockException on quantity increase beyond stock")
         void updateSalesOrderItem_InsufficientStock_Throws409() {
+            stubCancelledItemStatus();
             var request = new SalesOrderItemRequest(
                     itemId, variantId, new BigDecimal("10.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
 
@@ -1611,6 +1624,26 @@ class SalesOrderServiceTest {
         }
 
         @Test
+        @DisplayName("should refuse a line that belongs to another order")
+        void updateSalesOrderItem_ForeignLine_ThrowsException() {
+            // The line is enabled and Pending, so the line guard would let it through: the ownership
+            // check is the only one that can refuse this write, which is what this probe isolates.
+            var foreignLine = foreignLine();
+
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
+            when(itemRepository.findById(itemId)).thenReturn(Optional.of(foreignLine));
+
+            assertThatThrownBy(() -> salesOrderService.updateSalesOrderItem(orderId, itemId, testItemRequest))
+                    .isInstanceOf(SalesOrderItemNotFoundException.class)
+                    .hasMessageContaining("Sales order item not found with id");
+
+            assertThat(foreignLine.getEnabled()).isTrue();
+            verify(itemRepository, never()).save(any(SalesOrderItem.class));
+            verifyNoInteractions(inventoryService);
+        }
+
+        @Test
         @DisplayName("should throw SalesOrderAlreadyFinalizedException when the order has reached a terminal status")
         void updateSalesOrderItem_TerminalOrder_ThrowsException() {
             var cerradaOrder = SalesOrder.builder()
@@ -1640,6 +1673,7 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should update item on Active order successfully")
         void updateSalesOrderItem_ActiveOrder_Success() {
+            stubCancelledItemStatus();
             var activeOrder = SalesOrder.builder()
                     .id(orderId)
                     .orderNumber(testOrder.getOrderNumber())
@@ -1673,6 +1707,7 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should update item on Pending order successfully")
         void updateSalesOrderItem_PendingOrder_Success() {
+            stubCancelledItemStatus();
             var pendingOrder = SalesOrder.builder()
                     .id(orderId)
                     .orderNumber(testOrder.getOrderNumber())
@@ -1704,6 +1739,7 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should reject changing a Cancelled line and touch no stock")
         void updateSalesOrderItem_CancelledLine_ThrowsException() {
+            stubCancelledItemStatus();
             var cancelledLine = SalesOrderItem.builder()
                     .id(itemId)
                     .salesOrderId(orderId)
@@ -1798,6 +1834,7 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should soft-delete item with stock restoration and recalculate total")
         void deleteSalesOrderItem_Success() {
+            stubCancelledItemStatus();
             when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
             when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
             when(itemRepository.findById(itemId)).thenReturn(Optional.of(testItem));
@@ -1938,6 +1975,7 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should soft-delete item on Pending order with stock restoration")
         void deleteSalesOrderItem_PendingOrder_Success() {
+            stubCancelledItemStatus();
             var pendingOrder = SalesOrder.builder()
                     .id(orderId)
                     .orderNumber(testOrder.getOrderNumber())
@@ -2567,6 +2605,7 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should soft-delete items present in DB but absent from request")
         void updateSalesOrder_SoftDeletesMissingItems() {
+            stubCancelledItemStatus();
             var vid2 = UUID.randomUUID();
             var vid3 = UUID.randomUUID();
 
@@ -2645,6 +2684,7 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should update changed fields on existing items with matching IDs")
         void updateSalesOrder_UpdatesChangedItems() {
+            stubCancelledItemStatus();
             var newQty = new BigDecimal("5.00");
             var newPrice = new BigDecimal("200.00");
             var newDiscount = new BigDecimal("20.00");
@@ -2681,6 +2721,7 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should insert new items when request items have null id")
         void updateSalesOrder_InsertsNewItems() {
+            stubCancelledItemStatus();
             UUID newVariantId = UUID.randomUUID();
             UUID savedItemId = UUID.randomUUID();
 
@@ -2739,6 +2780,7 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should recalculate total amount after item changes")
         void updateSalesOrder_RecalculatesTotalAfterItemChanges() {
+            stubCancelledItemStatus();
             var savedItemId = UUID.randomUUID();
             var reqItem = new SalesOrderItemRequest(
                     null, variantId, BigDecimal.ONE, new BigDecimal("100.00"), BigDecimal.ZERO, null);
@@ -2779,6 +2821,7 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should deduct stock for new items (create flow via updateSalesOrder)")
         void deltaComputation_NewItemOnly_DeductsStock() {
+            stubCancelledItemStatus();
             var newVariantId = UUID.randomUUID();
             var savedItemId = UUID.randomUUID();
 
@@ -2813,6 +2856,7 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should restore stock for deleted items only")
         void deltaComputation_DeletedItemOnly_RestoresStock() {
+            stubCancelledItemStatus();
             var vid2 = UUID.randomUUID();
 
             var existingToDelete = SalesOrderItem.builder()
@@ -2870,6 +2914,7 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should deduct additional stock on quantity increase")
         void deltaComputation_QuantityIncrease_DeductsAdditional() {
+            stubCancelledItemStatus();
             var reqItem = new SalesOrderItemRequest(
                     testItem.getId(),
                     testItem.getProductVariantId(),
@@ -2901,6 +2946,7 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should restore stock on quantity decrease")
         void deltaComputation_QuantityDecrease_RestoresStock() {
+            stubCancelledItemStatus();
             var reqItem = new SalesOrderItemRequest(
                     testItem.getId(),
                     testItem.getProductVariantId(),
@@ -2933,6 +2979,7 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should handle mix of add, modify, and delete in one update")
         void deltaComputation_MixOfAllThree() {
+            stubCancelledItemStatus();
             var vidNew = UUID.randomUUID();
             var vidOld = UUID.randomUUID();
             var savedItemId = UUID.randomUUID();
@@ -2992,6 +3039,7 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should restore old variant and deduct new variant when an item switches variants inline")
         void deltaComputation_VariantChange_RestoresOldAndDeductsNew() {
+            stubCancelledItemStatus();
             var vidOld = UUID.randomUUID();
 
             var existingItem = SalesOrderItem.builder()
@@ -3037,6 +3085,7 @@ class SalesOrderServiceTest {
         @Test
         @DisplayName("should throw InsufficientStockException on update with insufficient stock")
         void deltaComputation_InsufficientStock_Throws409() {
+            stubCancelledItemStatus();
             var reqItem = new SalesOrderItemRequest(
                     testItem.getId(),
                     testItem.getProductVariantId(),

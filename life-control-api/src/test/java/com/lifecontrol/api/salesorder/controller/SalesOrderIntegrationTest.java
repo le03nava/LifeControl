@@ -2376,6 +2376,43 @@ class SalesOrderIntegrationTest extends AbstractPostgresIntegrationTest {
         }
     }
 
+    // ─── 5.16 Item-level writes never cross the order boundary ───
+
+    @Nested
+    @DisplayName("5.16 A line of another order is not reachable through the order in the path")
+    class ForeignLineOwnershipTests {
+
+        @Test
+        @DisplayName("should answer 404 and move no stock for a foreign line, on update and on delete")
+        void foreignLine_IsNotFoundOnBothItemWrites() throws Exception {
+            var variant = createTestVariant(new BigDecimal("100.00"));
+            var owner = createOrder(line(null, variant.getId(), "4.00"));
+            var holder = createOrder(line(null, variant.getId(), "1.00"));
+            var foreignItemId = owner.itemId(variant.getId());
+            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("95.00"));
+
+            // The targeted line is live — enabled and Pending — so the ownership check is the only
+            // one that can refuse these two writes; the same request against its own order succeeds.
+            mockMvc.perform(put("/api/sales-orders/{id}/items/{itemId}", holder.orderId(), foreignItemId)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(line(foreignItemId, variant.getId(), "9.00")))
+                            .with(scopedSalesJwt()))
+                    .andExpect(status().isNotFound());
+            mockMvc.perform(delete("/api/sales-orders/{id}/items/{itemId}", holder.orderId(), foreignItemId)
+                            .with(scopedSalesJwt()))
+                    .andExpect(status().isNotFound());
+
+            assertThat(itemEnabled(foreignItemId)).isTrue();
+            assertThat(storeStockOf(variant.getId()).getStock()).isEqualByComparingTo(new BigDecimal("95.00"));
+            assertThat(locationStockOf(variant.getId(), salesLocationId)).isEqualByComparingTo(new BigDecimal("95.00"));
+            // The two refusals wrote nothing: one SALE row per order, no reversal, nothing else.
+            assertThat(movementsOf(variant.getId())).hasSize(2);
+            assertThat(movementsOfType(variant.getId(), MovementType.SALE)).hasSize(2);
+            assertThat(movementsOfType(variant.getId(), MovementType.SALE_REVERSAL))
+                    .isEmpty();
+        }
+    }
+
     /**
      * A store-scoped {@code lc-sales} principal whose claims carry the real company -> country ->
      * region -> zone -> store chain, so the store guard passes through the real stack instead of
