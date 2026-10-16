@@ -608,7 +608,7 @@ class SalesOrderControllerTest {
     // POST /api/sales-orders/{id}/items
     // ─────────────────────────────────────────────
     @Nested
-    @DisplayName("POST /api/sales-orders/{id}/items (allowed in Draft and Active)")
+    @DisplayName("POST /api/sales-orders/{id}/items (allowed while the order is not terminal)")
     class AddSalesOrderItemTests {
 
         @Test
@@ -660,7 +660,7 @@ class SalesOrderControllerTest {
         }
 
         @Test
-        @DisplayName("should return 409 when sales order is not in Draft or Active status")
+        @DisplayName("should return 409 when the sales order has reached a terminal status")
         void addItem_NotDraftOrActive_Returns409() throws Exception {
             when(salesOrderService.addSalesOrderItem(eq(testOrderId), any(SalesOrderItemRequest.class)))
                     .thenThrow(new SalesOrderAlreadyFinalizedException(testOrderId, "Completed"));
@@ -701,7 +701,7 @@ class SalesOrderControllerTest {
     // PUT /api/sales-orders/{id}/items/{itemId}
     // ─────────────────────────────────────────────
     @Nested
-    @DisplayName("PUT /api/sales-orders/{id}/items/{itemId} (allowed in Draft and Active)")
+    @DisplayName("PUT /api/sales-orders/{id}/items/{itemId} (allowed while the order is not terminal)")
     class UpdateSalesOrderItemTests {
 
         @Test
@@ -755,7 +755,7 @@ class SalesOrderControllerTest {
     // DELETE /api/sales-orders/{id}/items/{itemId}
     // ─────────────────────────────────────────────
     @Nested
-    @DisplayName("DELETE /api/sales-orders/{id}/items/{itemId} (allowed in Draft and Active)")
+    @DisplayName("DELETE /api/sales-orders/{id}/items/{itemId} (allowed while the order is not terminal)")
     class DeleteSalesOrderItemTests {
 
         @Test

@@ -1209,8 +1209,8 @@ class SalesOrderServiceTest {
         }
 
         @Test
-        @DisplayName("should throw SalesOrderAlreadyFinalizedException when order not in Draft or Active")
-        void addSalesOrderItem_NotDraftOrActive_ThrowsException() {
+        @DisplayName("should throw SalesOrderAlreadyFinalizedException when the order has reached a terminal status")
+        void addSalesOrderItem_TerminalOrder_ThrowsException() {
             var cerradaOrder = SalesOrder.builder()
                     .id(orderId)
                     .orderNumber(testOrder.getOrderNumber())
@@ -1230,6 +1230,33 @@ class SalesOrderServiceTest {
             assertThatThrownBy(() -> salesOrderService.addSalesOrderItem(orderId, testItemRequest))
                     .isInstanceOf(SalesOrderAlreadyFinalizedException.class)
                     .hasMessageContaining("already Completed")
+                    .hasMessageContaining("cannot be modified");
+
+            verify(itemRepository, never()).save(any(SalesOrderItem.class));
+        }
+
+        @Test
+        @DisplayName("should refuse the first item on a Cancelled order, the other terminal status")
+        void addSalesOrderItem_CancelledOrder_ThrowsException() {
+            var cancelledOrder = SalesOrder.builder()
+                    .id(orderId)
+                    .orderNumber(testOrder.getOrderNumber())
+                    .customerId(customerId)
+                    .companyStoreId(companyStoreId)
+                    .shiftId(shiftId)
+                    .userId("user123")
+                    .orderDate(testOrder.getOrderDate())
+                    .statusId(canceladaStatus.getId())
+                    .totalAmount(BigDecimal.ZERO)
+                    .enabled(true)
+                    .build();
+
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(cancelledOrder));
+            when(statusRepository.findById(canceladaStatus.getId())).thenReturn(Optional.of(canceladaStatus));
+
+            assertThatThrownBy(() -> salesOrderService.addSalesOrderItem(orderId, testItemRequest))
+                    .isInstanceOf(SalesOrderAlreadyFinalizedException.class)
+                    .hasMessageContaining("already Cancelled")
                     .hasMessageContaining("cannot be modified");
 
             verify(itemRepository, never()).save(any(SalesOrderItem.class));
@@ -1575,8 +1602,8 @@ class SalesOrderServiceTest {
         }
 
         @Test
-        @DisplayName("should throw SalesOrderAlreadyFinalizedException when order not in Draft or Active")
-        void updateSalesOrderItem_NotDraftOrActive_ThrowsException() {
+        @DisplayName("should throw SalesOrderAlreadyFinalizedException when the order has reached a terminal status")
+        void updateSalesOrderItem_TerminalOrder_ThrowsException() {
             var cerradaOrder = SalesOrder.builder()
                     .id(orderId)
                     .orderNumber(testOrder.getOrderNumber())

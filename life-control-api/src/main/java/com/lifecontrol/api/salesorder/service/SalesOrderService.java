@@ -742,8 +742,7 @@ public class SalesOrderService {
     }
 
     /**
-     * Rejects a write against an order that has reached a terminal status, and returns the order's
-     * status name so a caller that needs a stricter rule does not read the status twice.
+     * Rejects a write against an order that has reached a terminal status.
      *
      * <p>A terminal status has no outgoing transition, so the order is closed: letting a write run
      * would move stock that no automatic path can bring back. The concrete case is the order-level
@@ -752,9 +751,12 @@ public class SalesOrderService {
      * so the deduction was stranded. {@code Completed} is terminal for the same reason and is refused
      * too.</p>
      *
+     * <p>It answers nothing because it is the whole rule: no write surface is stricter than this one
+     * since F-3 closed the item-level endpoints on the same policy.</p>
+     *
      * @throws SalesOrderAlreadyFinalizedException (409) when the status is terminal
      */
-    private String requireOrderNotTerminal(SalesOrder so) {
+    private void requireOrderNotTerminal(SalesOrder so) {
         var status = statusRepository
                 .findById(so.getStatusId())
                 .orElseThrow(() -> new StatusNotFoundException(so.getStatusId()));
@@ -762,7 +764,6 @@ public class SalesOrderService {
         if (isTerminalStatus(name)) {
             throw new SalesOrderAlreadyFinalizedException(so.getId(), name);
         }
-        return name;
     }
 
     /**
