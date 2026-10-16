@@ -1,7 +1,10 @@
 # ODD feature: keycloak-adapter-error-contract
 
-**Status**: **shape closed (A) and implementation in progress** — closed by the user on 2026-10-16; **no
-source line is written until this tracking commit is in** (2026-10-16), the shape `employee-access-provisioning`'s W1a, W1b, W2, W3, W4, W4b, W4b2a, W5a, W5b, W4b2b, W5c, W5d, W7 and W8 each took.
+**Status**: **implemented, and what remains is the independent verification (`T6`) and the delivery** — shape
+**A** closed by the user on 2026-10-16; the implementation is **`1588261`** (the translation, its tests and the
+three boundary pins), on the shape written by **`142ec68`**, and **`T6` is owed because this record's Risk line
+is item 3**. Delivery state is deliberately **not** stated here: this repository's convention puts it in the
+dated evidence log, which is also where the next row will record it.
 **Risk**: **high — item 3**, *changing a contract others already consume*: the status a consumer sees when
 the identity provider refuses the application changes from the accidental **500** to a deliberate one, on
 `usersadmin`'s adapter, which five packages outside `usersadmin` consume.
@@ -184,12 +187,12 @@ Dependency order: **W1 → W3**. The shape (**T1**) is closed, and **W2 is not r
 | # | Task | Links | Route | Commit |
 | --- | --- | --- | --- | --- |
 | **T1** | **Close the shape** — **closed by the user on 2026-10-16 as A**; **S2** carries its exact outcomes | S1, S2 | the user | — |
-| **T2** | The adapter's uniform mapping: 404 → domain 404, 5xx → retryable 503, and the chosen outcome for refusals/request errors, applied to all 29 methods | S2, D2, D3, D4 | test-first, inline | — |
-| **T3** | The adapter's tests: one per outcome, over the stubbed client, asserting the status and the message | S2, D7 | test-first | — |
-| **T4** | **dropped by A** — the listener decision only exists if a permit is added, and A adds none | D5, measurements | — | — |
+| **T2** | The adapter's uniform mapping: 404 → domain 404, 5xx → retryable 503, and the chosen outcome for refusals/request errors, applied to all 29 methods — **done**: one `toDomainFailure` helper reused by all 29 sites, the four catch shapes collapsed into a single multi-catch | S2, D2, D3, D4 | test-first, inline | `1588261` |
+| **T3** | The adapter's tests: one per outcome, over the stubbed client, asserting the status and the message — **done, and widened by measurement**: five outcome tests in the adapter **plus three assertions in `GlobalExceptionHandlerTest`**, because **no** test pinned the three provider mappings at the boundary and the HTTP column of `S2` had no evidence there (test-only, not one production line) | S2, D7 | test-first | `1588261` |
+| **T4** | **Reopened by measurement instead of dropped**: A adds no permit, but it **still reaches the listener** — the four catch sites in `company/listener/KeycloakGroupEventListener` catch `IdentityProviderException` broadly, so the 404/4xx/5xx failures that used to escape **unmapped** (and therefore propagate into the company write) now arrive as domain types and are **swallowed with a `warn`**. Declared as the consequence it is (**X3**); moving it to propagate is deliberately **not** taken here | D5, measurements | declared | — |
 | **T5** | **dropped by A** — no handler, no permit pin: the three `GlobalExceptionHandler` mappings already exist and are not touched | S2, D5 | — | — |
 | **T6** | Independent verification of the contract change, because Risk is item 3 | D1 | `gentle-ai-verify` | — |
-| **T7** | The records: the `G11` pointer and this record's evidence log | W3 | inline | — |
+| **T7** | The records: the `G11` pointer and this record's evidence log — **done in this record's own commit**, with the implementation rather than after it, because a gap that moved to its own unit has to say where it went | W3 | inline | this commit |
 
 ## Gaps
 
@@ -197,6 +200,7 @@ Dependency order: **W1 → W3**. The shape (**T1**) is closed, and **W2 is not r
 | --- | --- | --- |
 | **X1** | **The mapping is pinned by unit tests over a stubbed client, so it pins what the adapter *does with* a status, not that RESTEasy raises that type for that status** | Measured today on one path only: a resource 403 really does arrive as `jakarta.ws.rs.ForbiddenException` (`G40`'s probe), and a 409 as `ClientErrorException` (the existing test fixture). The remaining status→type correspondence is the dependency's contract, not this record's measurement, and no test here will prove it — the same limit `F6` recorded for the pessimistic lock on the sibling record |
 | **X2** | **The `WebApplicationException` family is wider than the statuses this unit names** | `RedirectionException` and any non-mapped `WebApplicationException` remain outside the buckets until a shape decides them; declared so a future "the 500 is back" report resolves in one grep |
+| **X3** | **The group listener's swallowing surface widens, and it is a consequence of shape A rather than of a new permit** | Measured: `company/listener/KeycloakGroupEventListener` catches `IdentityProviderException` broadly at `:48`, `:72`, `:94`, `:113` and `:133`, so every failure this unit translates from an unmapped JAX-RS error into a domain type is **swallowed there with a `warn`** instead of propagating into the company write. **Bounded rather than fixed**: the listener's own intent is best-effort — it is the mirror `employee-access-provisioning`'s **G8** already declares **cosmetic under T1**, because authorization travels as user attributes — so the new outcome is consistent with the declared design and strictly gentler than the 500 it replaces. **Why it is written down anyway**: a misconfigured admin client **stops failing the company write loudly** on that path, and the only trace left is a `warn` line. A later decision to have it propagate is a change to that listener, with its own before and after |
 
 ## Log
 
@@ -218,3 +222,39 @@ Dependency order: **W1 → W3**. The shape (**T1**) is closed, and **W2 is not r
   why it states the outcomes as a table of provider answer → domain exception → status and why it declares
   the message-level change the shape implies; the alternatives B and C above are kept as written rather than
   deleted, because the next reader of a rejected shape is the one who benefits from its price.
+- **L4** — *2026-10-16, implementation*, on `feat/keycloak-adapter-error-contract`: **`1588261`** carries shape
+  A — one `toDomainFailure` helper reused by the 29 port methods, the four catch shapes collapsed into one
+  multi-catch, and the boundary pins nobody had written. **The evidence, as the parent observed it on the
+  committed bytes** rather than as the writer reported it: RED before the production change was **39 tests
+  completed, 7 failed, every one of them on an assertion and none on compilation** — three new outcome tests
+  plus the four pins the declared message change corrects — and GREEN after it was
+  **`KeycloakIdentityProviderTest` 39 tests / 0 failures / 0 errors / 0 skipped** and
+  **`GlobalExceptionHandlerTest` 24 / 0 / 0 / 0**, with `spotlessCheck spotbugsMain --rerun-tasks` green at
+  **8 actionable tasks: 8 executed**. **The four corrected pins are named rather than smoothed over**:
+  `updateUser:282`, `sendActionsEmail:352`, `disableUser:418` and `enableUser:505` asserted the old *User not
+  found* wording and now assert the operation's own failure description, which is exactly the message-level
+  consequence **S2** declares; nothing was deleted, relaxed or weakened, and the two 409 pins and the
+  transport pins are untouched. **What the writer found and this unit closed instead of declaring**: no test
+  pinned the three provider mappings at the boundary at all — `GlobalExceptionHandlerTest` never mentioned
+  `IdentityProvider` — so the HTTP status this change makes reachable had no evidence; three assertions were
+  added there (the 404 carrying the operation's message, the 409, and the **503** with the handler's fixed
+  message). They change no production line, and they are recorded here because they **widen `T3`'s file set**
+  beyond the adapter, which is the honest way to carry a finding rather than an undeclared expansion.
+- **L5** — *2026-10-16, the slice boundary, recorded because the delivery is a single pull request*: the branch
+  carries **three** commits — the tracking commit, `142ec68` (the closed shape and `S2`) and `1588261` (the
+  translation and its tests) — and the **reviewable slice is the third alone: 241 insertions and 149 deletions
+  across three files**, of which the deletions are the four catch shapes the helper replaces. The two earlier
+  commits are this record, delivered **in the same pull request** by the user's own decision (`L3`). **What
+  rests here rather than being claimed**: `T6`, the independent verification this record's own Risk line
+  requires, is still open, and this row asserts no push, no pull request and no merge state — those belong to a
+  later dated row, per the header's own convention.
+- **L6** — *2026-10-16, a plan correction the implementation forced*: **`T4` was dropped on the argument that
+  shape A adds no permit and therefore cannot reach the listener, and the argument is wrong** — A reaches it,
+  because the failures it maps stop being unmapped JAX-RS types and become `IdentityProviderException`
+  subtypes, which `KeycloakGroupEventListener` already catches broadly. So what this unit changes is not only
+  the 500 → named refusal it was opened for: on those four call sites it is also **500 → swallowed `warn`**.
+  `T4` is **reopened as a declared consequence** and **X3** carries it, because the alternative — treating it
+  as an oversight and quietly propagating — would be a behavior change nobody asked for, while the listener's
+  own best-effort intent and **G8**'s cosmetic-mirror declaration make the gentler outcome the defensible
+  one. **The plan was corrected by measurement instead of confirmed by it**, which is the second time in this
+  record and the shape its parent record's log records for the same reason.
