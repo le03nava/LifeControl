@@ -12,6 +12,9 @@ import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.country.exception.CountryNotFoundException;
 import com.lifecontrol.api.country.exception.DuplicateCountryException;
 import com.lifecontrol.api.purchaseorder.exception.InvalidStatusTransitionException;
+import com.lifecontrol.api.usersadmin.identity.IdentityProviderConflictException;
+import com.lifecontrol.api.usersadmin.identity.IdentityProviderConnectionException;
+import com.lifecontrol.api.usersadmin.identity.IdentityProviderNotFoundException;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.Path;
@@ -514,6 +517,71 @@ class GlobalExceptionHandlerTest {
             assertThat(new DuplicateCountryException("duplicate")).isInstanceOf(DuplicateResourceException.class);
             assertThat(new InvalidStatusTransitionException("Draft", "Received"))
                     .isInstanceOf(ConflictException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("identity provider failures")
+    class IdentityProviderFailureTests {
+
+        /**
+         * The three mappings {@code KeycloakIdentityProvider}'s translation depends on, which nothing
+         * pinned before the adapter stopped letting a 400, a 401, a 403 and every 5xx escape to the
+         * catch-all: a missing resource is a 404 that carries the operation's message, a conflict is a
+         * 409, and every other provider answer reaches the operator as a named 503.
+         */
+        @Test
+        @DisplayName("should return 404 for a provider not-found, carrying the operation's message")
+        void identityProviderNotFound_Returns404() {
+            // Arrange
+            IdentityProviderNotFoundException exception =
+                    new IdentityProviderNotFoundException("Failed to delete user: 42");
+
+            // Act
+            ResponseEntity<GlobalExceptionHandler.ErrorResponse> response =
+                    globalExceptionHandler.handleIdentityProviderNotFound(exception);
+
+            // Assert
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+            assertThat(response.getBody()).isNotNull();
+            assertThat(response.getBody().status()).isEqualTo(404);
+            assertThat(response.getBody().message()).isEqualTo("Failed to delete user: 42");
+        }
+
+        @Test
+        @DisplayName("should return 409 for a provider conflict, carrying the operation's message")
+        void identityProviderConflict_Returns409() {
+            // Arrange
+            IdentityProviderConflictException exception =
+                    new IdentityProviderConflictException("Client role already exists: lc-sales");
+
+            // Act
+            ResponseEntity<GlobalExceptionHandler.ErrorResponse> response =
+                    globalExceptionHandler.handleIdentityProviderConflict(exception);
+
+            // Assert
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+            assertThat(response.getBody()).isNotNull();
+            assertThat(response.getBody().status()).isEqualTo(409);
+            assertThat(response.getBody().message()).isEqualTo("Client role already exists: lc-sales");
+        }
+
+        @Test
+        @DisplayName("should return 503 with the fixed message for every other provider answer")
+        void identityProviderConnection_Returns503_WithFixedMessage() {
+            // Arrange
+            IdentityProviderConnectionException exception =
+                    new IdentityProviderConnectionException("Failed to get client roles for user: 7");
+
+            // Act
+            ResponseEntity<GlobalExceptionHandler.ErrorResponse> response =
+                    globalExceptionHandler.handleIdentityProviderConnection(exception);
+
+            // Assert
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+            assertThat(response.getBody()).isNotNull();
+            assertThat(response.getBody().status()).isEqualTo(503);
+            assertThat(response.getBody().message()).isEqualTo("Identity provider temporarily unavailable");
         }
     }
 }

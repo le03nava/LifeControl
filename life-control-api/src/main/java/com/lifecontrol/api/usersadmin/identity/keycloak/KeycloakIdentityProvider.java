@@ -5,6 +5,7 @@ import com.lifecontrol.api.usersadmin.dto.RoleRequest;
 import com.lifecontrol.api.usersadmin.identity.IdentityProvider;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderConflictException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderConnectionException;
+import com.lifecontrol.api.usersadmin.identity.IdentityProviderException;
 import com.lifecontrol.api.usersadmin.identity.IdentityProviderNotFoundException;
 import com.lifecontrol.api.usersadmin.identity.RoleDto;
 import com.lifecontrol.api.usersadmin.identity.RoleScope;
@@ -12,6 +13,7 @@ import com.lifecontrol.api.usersadmin.identity.UserSearchDto;
 import jakarta.ws.rs.ClientErrorException;
 import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.ProcessingException;
+import jakarta.ws.rs.WebApplicationException;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -62,13 +64,9 @@ public class KeycloakIdentityProvider implements IdentityProvider {
                 return path.substring(path.lastIndexOf('/') + 1);
             }
             throw new IdentityProviderConnectionException("Unexpected response creating user: " + response.getStatus());
-        } catch (ClientErrorException e) {
-            if (e.getResponse().getStatus() == 409) {
-                throw new IdentityProviderConflictException("User already exists: " + user.getUsername(), e);
-            }
-            throw new IdentityProviderConnectionException("Failed to create user: " + user.getUsername(), e);
-        } catch (ProcessingException e) {
-            throw new IdentityProviderConnectionException("Failed to create user: " + user.getUsername(), e);
+        } catch (WebApplicationException | ProcessingException e) {
+            var message = "Failed to create user: " + user.getUsername();
+            throw toDomainFailure(e, message, "User already exists: " + user.getUsername());
         }
     }
 
@@ -77,10 +75,8 @@ public class KeycloakIdentityProvider implements IdentityProvider {
         try {
             var response = keycloak.realm(realm()).users().delete(userId);
             response.close();
-        } catch (NotFoundException e) {
-            throw new IdentityProviderNotFoundException("User not found: " + userId, e);
-        } catch (ProcessingException e) {
-            throw new IdentityProviderConnectionException("Failed to delete user: " + userId, e);
+        } catch (WebApplicationException | ProcessingException e) {
+            throw toDomainFailure(e, "Failed to delete user: " + userId);
         }
     }
 
@@ -88,10 +84,8 @@ public class KeycloakIdentityProvider implements IdentityProvider {
     public void updateUser(String userId, UserRepresentation user) {
         try {
             keycloak.realm(realm()).users().get(userId).update(user);
-        } catch (NotFoundException e) {
-            throw new IdentityProviderNotFoundException("User not found: " + userId, e);
-        } catch (ProcessingException e) {
-            throw new IdentityProviderConnectionException("Failed to update user: " + userId, e);
+        } catch (WebApplicationException | ProcessingException e) {
+            throw toDomainFailure(e, "Failed to update user: " + userId);
         }
     }
 
@@ -102,10 +96,8 @@ public class KeycloakIdentityProvider implements IdentityProvider {
             var userRep = user.toRepresentation();
             userRep.setEnabled(false);
             user.update(userRep);
-        } catch (NotFoundException e) {
-            throw new IdentityProviderNotFoundException("User not found: " + userId, e);
-        } catch (ProcessingException e) {
-            throw new IdentityProviderConnectionException("Failed to disable user: " + userId, e);
+        } catch (WebApplicationException | ProcessingException e) {
+            throw toDomainFailure(e, "Failed to disable user: " + userId);
         }
     }
 
@@ -116,10 +108,8 @@ public class KeycloakIdentityProvider implements IdentityProvider {
             var userRep = user.toRepresentation();
             userRep.setEnabled(true);
             user.update(userRep);
-        } catch (NotFoundException e) {
-            throw new IdentityProviderNotFoundException("User not found: " + userId, e);
-        } catch (ProcessingException e) {
-            throw new IdentityProviderConnectionException("Failed to enable user: " + userId, e);
+        } catch (WebApplicationException | ProcessingException e) {
+            throw toDomainFailure(e, "Failed to enable user: " + userId);
         }
     }
 
@@ -133,8 +123,8 @@ public class KeycloakIdentityProvider implements IdentityProvider {
             return keycloak.realm(realm()).roles().list().stream()
                     .map(r -> toRoleDto(r, RoleScope.REALM, null))
                     .toList();
-        } catch (ProcessingException e) {
-            throw new IdentityProviderConnectionException("Failed to list realm roles", e);
+        } catch (WebApplicationException | ProcessingException e) {
+            throw toDomainFailure(e, "Failed to list realm roles");
         }
     }
 
@@ -144,13 +134,9 @@ public class KeycloakIdentityProvider implements IdentityProvider {
             var rep = toRepresentation(request);
             keycloak.realm(realm()).roles().create(rep);
             return getRealmRole(request.name());
-        } catch (ClientErrorException e) {
-            if (e.getResponse().getStatus() == 409) {
-                throw new IdentityProviderConflictException("Realm role already exists: " + request.name(), e);
-            }
-            throw new IdentityProviderConnectionException("Failed to create realm role: " + request.name(), e);
-        } catch (ProcessingException e) {
-            throw new IdentityProviderConnectionException("Failed to create realm role: " + request.name(), e);
+        } catch (WebApplicationException | ProcessingException e) {
+            var message = "Failed to create realm role: " + request.name();
+            throw toDomainFailure(e, message, "Realm role already exists: " + request.name());
         }
     }
 
@@ -159,10 +145,8 @@ public class KeycloakIdentityProvider implements IdentityProvider {
         try {
             var rep = keycloak.realm(realm()).roles().get(name).toRepresentation();
             return toRoleDto(rep, RoleScope.REALM, null);
-        } catch (NotFoundException e) {
-            throw new IdentityProviderNotFoundException("Realm role not found: " + name, e);
-        } catch (ProcessingException e) {
-            throw new IdentityProviderConnectionException("Failed to get realm role: " + name, e);
+        } catch (WebApplicationException | ProcessingException e) {
+            throw toDomainFailure(e, "Failed to get realm role: " + name);
         }
     }
 
@@ -174,10 +158,8 @@ public class KeycloakIdentityProvider implements IdentityProvider {
             rep.setDescription(request.description());
             roleResource.update(rep);
             return toRoleDto(roleResource.toRepresentation(), RoleScope.REALM, null);
-        } catch (NotFoundException e) {
-            throw new IdentityProviderNotFoundException("Realm role not found: " + name, e);
-        } catch (ProcessingException e) {
-            throw new IdentityProviderConnectionException("Failed to update realm role: " + name, e);
+        } catch (WebApplicationException | ProcessingException e) {
+            throw toDomainFailure(e, "Failed to update realm role: " + name);
         }
     }
 
@@ -185,16 +167,9 @@ public class KeycloakIdentityProvider implements IdentityProvider {
     public void deleteRealmRole(String name) {
         try {
             keycloak.realm(realm()).roles().deleteRole(name);
-        } catch (NotFoundException e) {
-            throw new IdentityProviderNotFoundException("Realm role not found: " + name, e);
-        } catch (ClientErrorException e) {
-            if (e.getResponse().getStatus() == 409) {
-                throw new IdentityProviderConflictException(
-                        "Cannot delete realm role: " + name + " (has user assignments)", e);
-            }
-            throw new IdentityProviderConnectionException("Failed to delete realm role: " + name, e);
-        } catch (ProcessingException e) {
-            throw new IdentityProviderConnectionException("Failed to delete realm role: " + name, e);
+        } catch (WebApplicationException | ProcessingException e) {
+            var message = "Failed to delete realm role: " + name;
+            throw toDomainFailure(e, message, "Cannot delete realm role: " + name + " (has user assignments)");
         }
     }
 
@@ -209,10 +184,8 @@ public class KeycloakIdentityProvider implements IdentityProvider {
             return keycloak.realm(realm()).clients().get(clientUuid).roles().list().stream()
                     .map(r -> toRoleDto(r, RoleScope.CLIENT, clientId))
                     .toList();
-        } catch (NotFoundException e) {
-            throw new IdentityProviderNotFoundException("Client not found: " + clientId, e);
-        } catch (ProcessingException e) {
-            throw new IdentityProviderConnectionException("Failed to list client roles for: " + clientId, e);
+        } catch (WebApplicationException | ProcessingException e) {
+            throw toDomainFailure(e, "Failed to list client roles for: " + clientId);
         }
     }
 
@@ -223,16 +196,10 @@ public class KeycloakIdentityProvider implements IdentityProvider {
             var rep = toRepresentation(request);
             keycloak.realm(realm()).clients().get(clientUuid).roles().create(rep);
             return getClientRoleByName(clientUuid, request.name(), clientId);
-        } catch (NotFoundException e) {
-            throw new IdentityProviderNotFoundException("Client not found: " + clientId, e);
-        } catch (ClientErrorException e) {
-            if (e.getResponse().getStatus() == 409) {
-                throw new IdentityProviderConflictException(
-                        "Client role already exists: " + request.name() + " for client " + clientId, e);
-            }
-            throw new IdentityProviderConnectionException("Failed to create client role: " + request.name(), e);
-        } catch (ProcessingException e) {
-            throw new IdentityProviderConnectionException("Failed to create client role: " + request.name(), e);
+        } catch (WebApplicationException | ProcessingException e) {
+            var message = "Failed to create client role: " + request.name();
+            var conflictMessage = "Client role already exists: " + request.name() + " for client " + clientId;
+            throw toDomainFailure(e, message, conflictMessage);
         }
     }
 
@@ -244,17 +211,10 @@ public class KeycloakIdentityProvider implements IdentityProvider {
                     keycloak.realm(realm()).clients().get(clientUuid).roles().get(roleName);
             roleResource.toRepresentation(); // verify exists
             roleResource.remove();
-        } catch (NotFoundException e) {
-            throw new IdentityProviderNotFoundException(
-                    "Client role not found: " + roleName + " for client " + clientId, e);
-        } catch (ClientErrorException e) {
-            if (e.getResponse().getStatus() == 409) {
-                throw new IdentityProviderConflictException(
-                        "Cannot delete client role: " + roleName + " (has assignments or is composite)", e);
-            }
-            throw new IdentityProviderConnectionException("Failed to delete client role: " + roleName, e);
-        } catch (ProcessingException e) {
-            throw new IdentityProviderConnectionException("Failed to delete client role: " + roleName, e);
+        } catch (WebApplicationException | ProcessingException e) {
+            var message = "Failed to delete client role: " + roleName;
+            var conflictMessage = "Cannot delete client role: " + roleName + " (has assignments or is composite)";
+            throw toDomainFailure(e, message, conflictMessage);
         }
     }
 
@@ -269,12 +229,8 @@ public class KeycloakIdentityProvider implements IdentityProvider {
             parentResource.toRepresentation(); // verify exists
             var childRep = findChildRoleRepresentation(childRole, scope, clientId);
             parentResource.addComposites(List.of(childRep));
-        } catch (NotFoundException e) {
-            throw new IdentityProviderNotFoundException(
-                    "Parent or child role not found: parent=" + parentRole + ", child=" + childRole, e);
-        } catch (ProcessingException e) {
-            throw new IdentityProviderConnectionException(
-                    "Failed to add child role: " + childRole + " to " + parentRole, e);
+        } catch (WebApplicationException | ProcessingException e) {
+            throw toDomainFailure(e, "Failed to add child role: " + childRole + " to " + parentRole);
         }
     }
 
@@ -285,12 +241,8 @@ public class KeycloakIdentityProvider implements IdentityProvider {
             parentResource.toRepresentation(); // verify exists
             var childRep = findChildRoleRepresentation(childRole, scope, clientId);
             parentResource.deleteComposites(List.of(childRep));
-        } catch (NotFoundException e) {
-            throw new IdentityProviderNotFoundException(
-                    "Parent or child role not found: parent=" + parentRole + ", child=" + childRole, e);
-        } catch (ProcessingException e) {
-            throw new IdentityProviderConnectionException(
-                    "Failed to remove child role: " + childRole + " from " + parentRole, e);
+        } catch (WebApplicationException | ProcessingException e) {
+            throw toDomainFailure(e, "Failed to remove child role: " + childRole + " from " + parentRole);
         }
     }
 
@@ -311,12 +263,8 @@ public class KeycloakIdentityProvider implements IdentityProvider {
                 var clientUuid = resolveClientUuid(clientId);
                 user.roles().clientLevel(clientUuid).add(List.of(roleRep));
             }
-        } catch (NotFoundException e) {
-            throw new IdentityProviderNotFoundException(
-                    "User or role not found: user=" + userId + ", role=" + roleName, e);
-        } catch (ProcessingException e) {
-            throw new IdentityProviderConnectionException(
-                    "Failed to assign role " + roleName + " to user " + userId, e);
+        } catch (WebApplicationException | ProcessingException e) {
+            throw toDomainFailure(e, "Failed to assign role " + roleName + " to user " + userId);
         }
     }
 
@@ -332,12 +280,8 @@ public class KeycloakIdentityProvider implements IdentityProvider {
                 var clientUuid = resolveClientUuid(clientId);
                 user.roles().clientLevel(clientUuid).remove(List.of(roleRep));
             }
-        } catch (NotFoundException e) {
-            throw new IdentityProviderNotFoundException(
-                    "User or role not found: user=" + userId + ", role=" + roleName, e);
-        } catch (ProcessingException e) {
-            throw new IdentityProviderConnectionException(
-                    "Failed to remove role " + roleName + " from user " + userId, e);
+        } catch (WebApplicationException | ProcessingException e) {
+            throw toDomainFailure(e, "Failed to remove role " + roleName + " from user " + userId);
         }
     }
 
@@ -353,10 +297,8 @@ public class KeycloakIdentityProvider implements IdentityProvider {
                     .toList());
 
             return Collections.unmodifiableList(result);
-        } catch (NotFoundException e) {
-            throw new IdentityProviderNotFoundException("User not found: " + userId, e);
-        } catch (ProcessingException e) {
-            throw new IdentityProviderConnectionException("Failed to get roles for user: " + userId, e);
+        } catch (WebApplicationException | ProcessingException e) {
+            throw toDomainFailure(e, "Failed to get roles for user: " + userId);
         }
     }
 
@@ -371,11 +313,8 @@ public class KeycloakIdentityProvider implements IdentityProvider {
             return clientRoles.stream()
                     .map(r -> toRoleDto(r, RoleScope.CLIENT, clientId))
                     .toList();
-        } catch (NotFoundException e) {
-            throw new IdentityProviderNotFoundException(
-                    "User or client not found: user=" + userId + ", client=" + clientId, e);
-        } catch (ProcessingException e) {
-            throw new IdentityProviderConnectionException("Failed to get client roles for user: " + userId, e);
+        } catch (WebApplicationException | ProcessingException e) {
+            throw toDomainFailure(e, "Failed to get client roles for user: " + userId);
         }
     }
 
@@ -389,10 +328,8 @@ public class KeycloakIdentityProvider implements IdentityProvider {
             var userRep = keycloak.realm(realm()).users().get(userId).toRepresentation();
             var attrs = userRep.getAttributes();
             return attrs != null ? Collections.unmodifiableMap(attrs) : Map.of();
-        } catch (NotFoundException e) {
-            throw new IdentityProviderNotFoundException("User not found: " + userId, e);
-        } catch (ProcessingException e) {
-            throw new IdentityProviderConnectionException("Failed to get attributes for user: " + userId, e);
+        } catch (WebApplicationException | ProcessingException e) {
+            throw toDomainFailure(e, "Failed to get attributes for user: " + userId);
         }
     }
 
@@ -408,11 +345,8 @@ public class KeycloakIdentityProvider implements IdentityProvider {
             }
             attrs.put(key, values);
             user.update(userRep);
-        } catch (NotFoundException e) {
-            throw new IdentityProviderNotFoundException("User not found: " + userId, e);
-        } catch (ProcessingException e) {
-            throw new IdentityProviderConnectionException(
-                    "Failed to update attribute " + key + " for user: " + userId, e);
+        } catch (WebApplicationException | ProcessingException e) {
+            throw toDomainFailure(e, "Failed to update attribute " + key + " for user: " + userId);
         }
     }
 
@@ -426,11 +360,8 @@ public class KeycloakIdentityProvider implements IdentityProvider {
                 attrs.remove(key);
                 user.update(userRep);
             }
-        } catch (NotFoundException e) {
-            throw new IdentityProviderNotFoundException("User not found: " + userId, e);
-        } catch (ProcessingException e) {
-            throw new IdentityProviderConnectionException(
-                    "Failed to delete attribute " + key + " for user: " + userId, e);
+        } catch (WebApplicationException | ProcessingException e) {
+            throw toDomainFailure(e, "Failed to delete attribute " + key + " for user: " + userId);
         }
     }
 
@@ -445,10 +376,8 @@ public class KeycloakIdentityProvider implements IdentityProvider {
             var user = keycloak.realm(realm()).users().get(userId);
             user.toRepresentation(); // verify exists
             user.executeActionsEmail(clientId, redirectUri, lifespan, actions);
-        } catch (NotFoundException e) {
-            throw new IdentityProviderNotFoundException("User not found: " + userId, e);
-        } catch (ProcessingException e) {
-            throw new IdentityProviderConnectionException("Failed to send actions email to user: " + userId, e);
+        } catch (WebApplicationException | ProcessingException e) {
+            throw toDomainFailure(e, "Failed to send actions email to user: " + userId);
         }
     }
 
@@ -467,8 +396,8 @@ public class KeycloakIdentityProvider implements IdentityProvider {
             var content = users.stream().map(this::toUserSearchDto).toList();
 
             return new PageResponse<>(content, page, size, total != null ? total : 0);
-        } catch (ProcessingException e) {
-            throw new IdentityProviderConnectionException("Failed to search users with query: " + query, e);
+        } catch (WebApplicationException | ProcessingException e) {
+            throw toDomainFailure(e, "Failed to search users with query: " + query);
         }
     }
 
@@ -478,10 +407,8 @@ public class KeycloakIdentityProvider implements IdentityProvider {
             return keycloak.realm(realm()).users().searchByEmail(email, Boolean.TRUE).stream()
                     .map(this::toUserSearchDto)
                     .toList();
-        } catch (NotFoundException e) {
-            throw new IdentityProviderNotFoundException("Failed to find users by email: " + email, e);
-        } catch (ProcessingException e) {
-            throw new IdentityProviderConnectionException("Failed to find users by email: " + email, e);
+        } catch (WebApplicationException | ProcessingException e) {
+            throw toDomainFailure(e, "Failed to find users by email: " + email);
         }
     }
 
@@ -492,8 +419,8 @@ public class KeycloakIdentityProvider implements IdentityProvider {
                     displayNameOf(keycloak.realm(realm()).users().get(userId).toRepresentation()));
         } catch (NotFoundException e) {
             return Optional.empty();
-        } catch (ProcessingException e) {
-            throw new IdentityProviderConnectionException("Failed to find user by id: " + userId, e);
+        } catch (WebApplicationException | ProcessingException e) {
+            throw toDomainFailure(e, "Failed to find user by id: " + userId);
         }
     }
 
@@ -533,13 +460,9 @@ public class KeycloakIdentityProvider implements IdentityProvider {
             } else {
                 keycloak.realm(realm()).groups().add(groupRep);
             }
-        } catch (ClientErrorException e) {
-            if (e.getResponse().getStatus() == 409) {
-                throw new IdentityProviderConflictException("Group already exists: " + name, e);
-            }
-            throw new IdentityProviderConnectionException("Failed to create group: " + name, e);
-        } catch (ProcessingException e) {
-            throw new IdentityProviderConnectionException("Failed to create group: " + name, e);
+        } catch (WebApplicationException | ProcessingException e) {
+            var message = "Failed to create group: " + name;
+            throw toDomainFailure(e, message, "Group already exists: " + name);
         }
     }
 
@@ -547,8 +470,8 @@ public class KeycloakIdentityProvider implements IdentityProvider {
     public boolean companyGroupExists(String groupName) {
         try {
             return keycloak.realm(realm()).groups().groups().stream().anyMatch(g -> groupName.equals(g.getName()));
-        } catch (ProcessingException e) {
-            throw new IdentityProviderConnectionException("Failed to check if group exists: " + groupName, e);
+        } catch (WebApplicationException | ProcessingException e) {
+            throw toDomainFailure(e, "Failed to check if group exists: " + groupName);
         }
     }
 
@@ -562,8 +485,8 @@ public class KeycloakIdentityProvider implements IdentityProvider {
                 if (found.isPresent()) return found;
             }
             return Optional.empty();
-        } catch (ProcessingException e) {
-            throw new IdentityProviderConnectionException("Failed to search group: " + name, e);
+        } catch (WebApplicationException | ProcessingException e) {
+            throw toDomainFailure(e, "Failed to search group: " + name);
         }
     }
 
@@ -578,6 +501,33 @@ public class KeycloakIdentityProvider implements IdentityProvider {
             if (found.isPresent()) return found;
         }
         return Optional.empty();
+    }
+
+    // ---------------------------------------------------------------
+    // Error translation
+    // ---------------------------------------------------------------
+
+    /**
+     * Translates the identity provider's answer into the port's sealed vocabulary. A missing resource
+     * is a domain 404, a 409 is a conflict, and every other provider answer — any other client error,
+     * the 5xx family, a redirect, or a transport failure — is retryable and becomes a domain 503. The
+     * message is the operation's own failure description; the outcome is carried by the type, never by
+     * prose.
+     */
+    private IdentityProviderException toDomainFailure(RuntimeException failure, String message) {
+        return toDomainFailure(failure, message, message);
+    }
+
+    private IdentityProviderException toDomainFailure(
+            RuntimeException failure, String message, String conflictMessage) {
+        if (failure instanceof NotFoundException) {
+            return new IdentityProviderNotFoundException(message, failure);
+        }
+        if (failure instanceof ClientErrorException clientError
+                && clientError.getResponse().getStatus() == 409) {
+            return new IdentityProviderConflictException(conflictMessage, failure);
+        }
+        return new IdentityProviderConnectionException(message, failure);
     }
 
     // ---------------------------------------------------------------
