@@ -37,8 +37,16 @@ import com.lifecontrol.api.store.repository.StoreLocationRepository;
 import com.lifecontrol.api.store.repository.StoreZoneRepository;
 import com.lifecontrol.api.support.AbstractPostgresIntegrationTest;
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -533,6 +541,95 @@ class InventoryIntegrationTest extends AbstractPostgresIntegrationTest {
                 }
             }
             return false;
+        }
+    }
+
+    /**
+     * F-4 of {@code odd/tasks/sales-location-aware-stock.md}: the engine's multi-key lock ordering
+     * is argued but not reproduced. {@code SalesOrderIntegrationTest} 5.9 races a single
+     * {@code (store, variant)} key, so it cannot tell a sorted acquisition order from an unsorted
+     * one — with one key there is no cycle to form. This case races two transactions whose batches
+     * name the same set of keys in opposite input orders: {@code applySaleBatch} pre-locks every
+     * distinct row in ascending key order, so both transactions claim the rows in the same order and
+     * serialize; losing that sort lets the two acquisition orders cross and deadlock instead.
+     */
+    @Nested
+    @DisplayName("concurrent multi-key sale batch")
+    class ConcurrentMultiKeySaleBatchTests {
+
+        private static final int DISTINCT_KEYS = 6;
+        private static final int ROUNDS = 12;
+        private static final BigDecimal SEEDED_STOCK = new BigDecimal("1000.00");
+        private static final BigDecimal DEDUCTION_PER_THREAD = new BigDecimal("1.00");
+
+        @Test
+        @DisplayName("should commit two opposite-order multi-key batches with deterministic stock and no deadlock")
+        void concurrentOppositeOrderBatchesCommitDeterministically() throws Exception {
+            // Seed each (store, variant) key so the pessimistic store-stock lock and the location
+            // balance row both exist, and give every key enough stock that an insufficient-stock 409
+            // can never be mistaken for the deadlock this case is here to catch.
+            var ascendingVariants = new ArrayList<UUID>();
+            for (var i = 0; i < DISTINCT_KEYS; i++) {
+                var variant = createVariant("0.00");
+                applyReceipt(variant.getId(), SEEDED_STOCK.toPlainString());
+                ascendingVariants.add(variant.getId());
+            }
+            var descendingVariants = new ArrayList<>(ascendingVariants);
+            Collections.reverse(descendingVariants);
+
+            // A dedicated pair of threads, not the shared common pool, so the race actually starts
+            // two transactions at once even on a single-core machine.
+            ExecutorService pool = Executors.newFixedThreadPool(2);
+            try {
+                for (var round = 0; round < ROUNDS; round++) {
+                    var ready = new CountDownLatch(2);
+                    var start = new CountDownLatch(1);
+
+                    var ascending = CompletableFuture.runAsync(() -> raceBatch(ready, start, ascendingVariants), pool);
+                    var descending =
+                            CompletableFuture.runAsync(() -> raceBatch(ready, start, descendingVariants), pool);
+
+                    assertThat(ready.await(10, TimeUnit.SECONDS))
+                            .as("both racing threads reached the barrier (round %d)", round)
+                            .isTrue();
+                    start.countDown();
+                    // A deadlock aborts one of the two futures here with SQLState 40P01; a commit
+                    // loss or a rolled-back deduction fails the aggregate assertions below.
+                    CompletableFuture.allOf(ascending, descending).get(30, TimeUnit.SECONDS);
+                }
+            } finally {
+                pool.shutdownNow();
+            }
+
+            var expectedFinal = SEEDED_STOCK.subtract(DEDUCTION_PER_THREAD.multiply(BigDecimal.valueOf(2L * ROUNDS)));
+            for (var variantId : ascendingVariants) {
+                assertThat(aggregateStockOf(variantId))
+                        .as("aggregate must be initial minus what both threads deducted over %d rounds", ROUNDS)
+                        .isEqualByComparingTo(expectedFinal);
+                assertInvariant(variantId);
+            }
+        }
+
+        private void raceBatch(CountDownLatch ready, CountDownLatch start, List<UUID> variantIds) {
+            try {
+                ready.countDown();
+                if (!start.await(10, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("race start signal was never released");
+                }
+                inventoryService.applySaleBatch("SALES_ORDER_ITEM", "seller", deductionsOf(variantIds));
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("raced sale-batch thread was interrupted", interrupted);
+            }
+        }
+
+        private List<InventoryService.SaleChange> deductionsOf(List<UUID> variantIds) {
+            var changes = new ArrayList<InventoryService.SaleChange>();
+            for (var variantId : variantIds) {
+                changes.add(InventoryService.SaleChange.deduction(
+                        storeId, variantId, DEDUCTION_PER_THREAD, UUID.randomUUID()));
+            }
+            return changes;
         }
     }
 }
