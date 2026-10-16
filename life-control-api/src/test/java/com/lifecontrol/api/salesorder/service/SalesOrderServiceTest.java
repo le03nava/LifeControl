@@ -48,6 +48,7 @@ import com.lifecontrol.api.shift.exception.ShiftNotFoundException;
 import com.lifecontrol.api.shift.exception.ShiftNotOpenException;
 import com.lifecontrol.api.shift.model.Shift;
 import com.lifecontrol.api.shift.repository.ShiftRepository;
+import com.lifecontrol.api.status.exception.StatusNotFoundException;
 import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.status.model.StatusType;
 import com.lifecontrol.api.status.repository.StatusRepository;
@@ -709,6 +710,48 @@ class SalesOrderServiceTest {
             // The terminal item status is the only signal that the line holds nothing, so the guard
             // must read the "SALES_ORDER_ITEM"/"Cancelled" status. With the lookup broken the line
             // would look like it still held 4 and the engine would deduct the 1-unit delta.
+            verifyNoInteractions(inventoryService);
+        }
+
+        @Test
+        @DisplayName("should refuse the order-level write, not sell a cancelled line, when the Cancelled "
+                + "status row is missing")
+        void updateSalesOrder_MissingCancelledItemStatus_RefusesInsteadOfSellingTheLine() {
+            var cancelledLine = SalesOrderItem.builder()
+                    .id(itemId)
+                    .salesOrderId(orderId)
+                    .productVariantId(variantId)
+                    .quantity(new BigDecimal("4.00"))
+                    .listPrice(new BigDecimal("100.00"))
+                    .discountApplied(BigDecimal.ZERO)
+                    .finalPrice(new BigDecimal("100.00"))
+                    .statusId(canceladoItemStatus.getId())
+                    .enabled(true)
+                    .build();
+            var lineRequest = new SalesOrderItemRequest(
+                    itemId, variantId, new BigDecimal("5.00"), new BigDecimal("100.00"), BigDecimal.ZERO, null);
+
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(customerRepository.existsById(customerId)).thenReturn(true);
+            when(companyStoreRepository.findById(companyStoreId)).thenReturn(Optional.of(testCompanyStore));
+            when(shiftRepository.existsById(shiftId)).thenReturn(true);
+            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
+            when(itemRepository.findBySalesOrderId(orderId)).thenReturn(List.of(cancelledLine));
+            when(salesOrderRepository.save(any(SalesOrder.class))).thenReturn(testOrder);
+            // F-2: the row that tells a line which still holds stock from one that was already given
+            // back is gone, so the delta this PUT would compute is unknowable. Fail closed: refuse the
+            // write instead of classifying the cancelled line as live and selling the 4 -> 5 delta.
+            when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Cancelled"))
+                    .thenReturn(Optional.empty());
+
+            var request = new SalesOrderRequest(customerId, companyStoreId, shiftId, "user123", List.of(lineRequest));
+
+            assertThatThrownBy(() -> salesOrderService.updateSalesOrder(orderId, request))
+                    .isInstanceOf(StatusNotFoundException.class)
+                    .hasMessageContaining("Cancelled")
+                    .hasMessageContaining("SALES_ORDER_ITEM");
+
+            verify(itemRepository, never()).save(any(SalesOrderItem.class));
             verifyNoInteractions(inventoryService);
         }
     }
@@ -1527,6 +1570,38 @@ class SalesOrderServiceTest {
                     .isInstanceOf(SalesOrderItemNotModifiableException.class)
                     .hasMessageContaining("is Cancelled")
                     .hasMessageContaining("cannot be modified");
+
+            verify(itemRepository, never()).save(any(SalesOrderItem.class));
+            verifyNoInteractions(inventoryService);
+        }
+
+        @Test
+        @DisplayName("should refuse the item-level write, not modify a cancelled line, when the Cancelled "
+                + "status row is missing")
+        void updateSalesOrderItem_MissingCancelledItemStatus_RefusesInsteadOfModifyingTheLine() {
+            var cancelledLine = SalesOrderItem.builder()
+                    .id(itemId)
+                    .salesOrderId(orderId)
+                    .productVariantId(variantId)
+                    .quantity(new BigDecimal("4.00"))
+                    .listPrice(new BigDecimal("100.00"))
+                    .finalPrice(new BigDecimal("100.00"))
+                    .statusId(canceladoItemStatus.getId())
+                    .enabled(true)
+                    .build();
+
+            when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(testOrder));
+            when(statusRepository.findById(borradorStatus.getId())).thenReturn(Optional.of(borradorStatus));
+            when(itemRepository.findById(itemId)).thenReturn(Optional.of(cancelledLine));
+            // F-2: without the row the guard cannot tell a cancelled line from a live one, so the
+            // write must refuse rather than fall through and modify the line.
+            when(statusRepository.findByTypeNameAndStatusName("SALES_ORDER_ITEM", "Cancelled"))
+                    .thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> salesOrderService.updateSalesOrderItem(orderId, itemId, testItemRequest))
+                    .isInstanceOf(StatusNotFoundException.class)
+                    .hasMessageContaining("Cancelled")
+                    .hasMessageContaining("SALES_ORDER_ITEM");
 
             verify(itemRepository, never()).save(any(SalesOrderItem.class));
             verifyNoInteractions(inventoryService);
