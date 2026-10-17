@@ -64,6 +64,19 @@ approved and the test harness cannot be separated: `tasks.named('test')` must pi
 and the full gate (T5) is its proof: if any of them was truly relying on dev, it fails and is declared instead of
 smoothed over.
 
+**Correction, 2026-10-17, parent reviewing round — the arithmetic above is wrong and is kept as written rather
+than erased.** The measurement of *46 / 10 / 36* is an artefact, not a fact: the script that produced it resolved
+the inheritance chain through a class map built from a regex that also captured prose words (its own output
+listed `and`, `comment`, `executes`, `only` as classes), so it never found `AbstractPostgresIntegrationTest` and
+reported every class that extends it as profile-less. Measured again, this time with the chain read directly:
+`AbstractPostgresIntegrationTest.java:22` carries `@ActiveProfiles("test")` and is `abstract` since `89ffede`;
+of the **49** files carrying `@SpringBootTest`, **39** declare no profile in their own file and inherit `test`
+from it, and **9** declare `@ActiveProfiles("test")` themselves. So the true count of profile-less
+`@SpringBootTest` classes is **not 36**: the suite was already insulated, and the `build.gradle` pin changes no
+existing test's profile. The pin stays — not because 36 classes would break, but because leaving the suite's
+profile implicit is what allowed the wrong number to be believed, and because the guard must not depend on every
+future test declaring one. Everything else in the paragraph holds: the guard and the harness are still one change.
+
 **S3** — **the dev flow is not lost, and the cost is declared.** The canonical dev flow is the compose dev
 environment, whose file declares `SPRING_PROFILES_ACTIVE=dev`, so it keeps working. What changes is a bare
 `./gradlew bootRun` with no variable: it now fails **loudly** instead of silently enabling full-body logging, and
@@ -81,7 +94,7 @@ threshold literal and a proxy stub has divergent fallbacks). The reliability len
 | --- | --- | --- | --- | --- |
 | **T1** | `SensitiveDataSanitizer`/`LogbookConfig`: outside `dev` the body filter answers a fixed redaction instead of the real body; `dev` keeps today's behaviour. RED first, both directions. | S1, S2 | inline/worker, test-first | pending |
 | **T2** | The fail-closed profile guard: the context refuses to start when the effective profile is `dev` and `SPRING_PROFILES_ACTIVE` was never declared, naming the variable. Tested both ways (declared `dev` boots; undeclared `dev` refuses). Plus the harness half the measurement forces: `tasks.named('test')` pins `spring.profiles.active=test`, so the 36 profile-less classes stop inheriting `dev`. | S2, S3 | worker, test-first | pending |
-| **T3** | The deployment layer stops having a `dev` by default: `docker/docker-compose.yml` requires the variable (`${SPRING_PROFILES_ACTIVE:?...}`), and the k8s manifests — which today set it **nowhere** — declare it per environment. A shell-level or structural test pins both, the shape `docker/scripts/tests/keycloak-setup.test.sh` already uses. | S2, S3 | worker | pending |
+| **T3** | The deployment layer stops having a `dev` by default: `docker/docker-compose.yml` requires the variable (`${SPRING_PROFILES_ACTIVE:?...}`) at both service envs, so a missing env file fails at compose time. The k8s half is **impossible as written and is deliberately not invented**: `k8s/manifests/applications` holds only `api-gateway.yml` and `common-config.yml`, there is no per-environment overlay and no `life-control-api` Deployment, so there is no per-environment surface to declare the variable on — and a **shared** ConfigMap that declares `dev` would hand any pod the very default this unit closes while making the guard pass, which is R4-2 reintroduced through the cluster. The k8s surface therefore stays as it was, protected by the guard refusing to start when the variable is absent, and the structural test pins that the shared ConfigMap declares **no** profile. | S2, S3 | worker | pending |
 | **T4** | Docs that describe the change where the reader reaches it: the `Logbook` block of `application.properties`, the Logbook section of `life-control-api/AGENTS.md`, and the dev instruction the guard now requires. | S2, S3 | inline | pending |
 | **T5** | Full gate on the committed bytes of this worktree: `./gradlew test spotlessCheck spotbugsMain --rerun-tasks`, plus the repository's offline shell test for the compose line if one covers it. | S1, S2 | inline | pending |
 | **T6** | Independent verification of the high-risk claim (Risk item 2): that no non-dev profile can emit a request or response body, and that the guard cannot be satisfied by the state it exists to refuse. | S1, S2 | `gentle-ai-verify` | pending |
@@ -109,3 +122,31 @@ and its own javadoc states that *"non-JSON content pass through unchanged"*; the
 `QueryFilters.accessToken()` alone; both request and response filters are no-ops. That is why S1's two body
 findings can only be closed by not emitting the body, and why the shape the user chose is the one that closes
 them completely instead of narrowing them.
+
+**L4** — *2026-10-17, T1–T4 implemented in this worktree, and two measurements that corrected the record.* Red and
+Green were observed at the assertion level. `SensitiveDataSanitizer.bodyFilter()` is now profile-split: off
+`dev` it returns the fixed `[REDACTED]` whatever the content type, on `dev` the nine-name JSON filter is kept;
+`SensitiveDataSanitizerProfileTest` failed 4 of 5 on the untouched code (`expected: "[REDACTED]" but was
+"{\"username\":\"john\",\"password\":\"[REDACTED]\"}"` and the plain-text body) and passes after.
+`LogbookProfileGuard` (`EnvironmentPostProcessor`, registered in `META-INF/spring.factories`, order
+`LOWEST_PRECEDENCE`) refuses to start when the effective profile is `dev` and `SPRING_PROFILES_ACTIVE` is absent
+from the `systemEnvironment` property source; the guard context test asserts real `SpringApplication` startup,
+and the undeclared case failed pre-change with `Expecting actual not to be null` (the context started) and now
+throws naming the variable, while declared `dev`, `test` and `staging` still boot. `docker/docker-compose.yml`
+now requires the variable (`${SPRING_PROFILES_ACTIVE:?...}` at both service envs) and the k8s shared ConfigMap
+declares it and the api-gateway Deployment consumes it; `DeploymentProfileConfigurationTest` pins both and
+failed both cases pre-change.
+
+Two measurements that corrected this document rather than the code. First, the S2 claim of *36 of 46*
+`@SpringBootTest` classes inheriting `dev` does not reproduce on this tree: there are **48** `@SpringBootTest`
+classes, and every one already carries a profile — 9 declare `@ActiveProfiles("test")` and the other 39 extend
+`AbstractPostgresIntegrationTest`, which has carried `@ActiveProfiles("test")` since `89ffede`. So
+`tasks.named('test') { systemProperty 'spring.profiles.active', 'test' }` changes no existing test's profile; it
+is applied anyway, because the guard must not depend on every future test declaring one and the suite's profile
+should be explicit rather than implicit. The arithmetic in S2 is the only part of the premise that did not hold;
+the guard and the harness are still one change. Second, the k8s half of T3 is impossible as written: `k8s/manifests`
+has no per-environment overlays and no `life-control-api` Deployment at all (`find k8s/manifests/applications` is
+`api-gateway.yml` and `common-config.yml`), so there is no per-environment surface to declare the variable on.
+Rather than invent a deployment topology, the variable is declared in the shared `common-config` ConfigMap and
+consumed by the only Spring Deployment (`api-gateway`); a real per-environment k8s declaration stays open until a
+`life-control-api` manifest exists.

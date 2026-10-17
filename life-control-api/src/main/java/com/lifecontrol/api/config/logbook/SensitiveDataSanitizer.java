@@ -1,6 +1,7 @@
 package com.lifecontrol.api.config.logbook;
 
 import java.util.Set;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 import org.zalando.logbook.BodyFilter;
 import org.zalando.logbook.HeaderFilter;
@@ -15,9 +16,28 @@ import org.zalando.logbook.json.JsonBodyFilters;
  * Defines which headers and body fields to redact from HTTP request/response logs
  * to prevent exposure of Personally Identifiable Information (PII), credentials,
  * and JWT tokens.
+ * <p>
+ * The body handling is profile-split. Outside {@code dev} the body is not emitted at
+ * all: {@link #bodyFilter()} answers a fixed redaction instead of the body, because
+ * the field-level filter below is partial (it only redacts nine JSON string fields,
+ * and passes non-JSON content through unchanged). On {@code dev} the previous
+ * field-level behaviour is preserved.
  */
 @Component
 public class SensitiveDataSanitizer {
+
+    /**
+     * The exact value substituted for every body outside {@code dev}. Fixed, so no
+     * payload content can survive the filter whatever its content type.
+     */
+    static final String REDACTED_BODY = "[REDACTED]";
+
+    /** Whether this instance runs on the {@code dev} profile, the only one that emits bodies. */
+    private final boolean bodyEmitted;
+
+    public SensitiveDataSanitizer(Environment environment) {
+        this.bodyEmitted = environment.matchesProfiles("dev");
+    }
 
     /**
      * Header names (case-insensitive) whose values MUST be fully redacted.
@@ -56,12 +76,18 @@ public class SensitiveDataSanitizer {
     }
 
     /**
-     * Returns a {@link BodyFilter} that redacts the values of known sensitive JSON
-     * string properties. Non-sensitive fields and non-JSON content pass through unchanged.
+     * Returns a {@link BodyFilter}. On {@code dev} it redacts the values of known
+     * sensitive JSON string properties and lets everything else through, which is the
+     * previous behaviour. On every other profile it discards the body entirely and
+     * answers {@value #REDACTED_BODY}, so non-JSON bodies, non-string JSON values and
+     * unnamed fields cannot reach the log.
      */
     public BodyFilter bodyFilter() {
+        if (!bodyEmitted) {
+            return (contentType, body) -> REDACTED_BODY;
+        }
         return JsonBodyFilters.replaceJsonStringProperty(
-                name -> SENSITIVE_BODY_FIELDS.contains(name.toLowerCase()), "[REDACTED]");
+                name -> SENSITIVE_BODY_FIELDS.contains(name.toLowerCase()), REDACTED_BODY);
     }
 
     /**
