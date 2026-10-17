@@ -260,7 +260,7 @@ inventory and the verification live. It used to assert a **live** delivery state
 commits on `fix/mobile-breakpoint-single-source` off `main` @ `4469cf7`, worktree
 `~/workspace/LifeControl-worktrees/fix-mobile-breakpoint-single-source`» — which the merge of **PR #165**
 (`7f8ba11`, 2026-09-24T17:36:37Z) falsified, and the merge fact itself sat two lines below in a separate
-`**Merged as PR #165 (`7f8ba11b9`), 2026-09-24.**` row, so the header carried the state in the one place
+**Merged as PR #165** (`7f8ba11b9`), **2026-09-24.** row, so the header carried the state in the one place
 that is never revisited. Three things changed and nothing else in this record was touched: the line now
 leads with the merge identity; the ephemeral working-copy location was removed (that worktree no longer
 exists — `git worktree list` shows only the anchor), and the now-redundant `**Merged as PR #165 …**` row
