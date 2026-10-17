@@ -136,6 +136,20 @@ check "the resolve family closes too" 0 "PASS: #12 is open and carries status:ap
 	"$GUARD" --body "resolve #12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
 check "a keyword GitHub does not honor is not a reference" 1 - "FAIL: no issue reference" \
 	"$GUARD" --body "Linked #12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+# A pull request that documents this gate quotes its own keywords. Pull request #390 did exactly
+# that: its body explained the corrected `Fix #12` case, the raw scan read the quotation as a
+# closing reference, #12 happens to be a pull request in this repository, and the gate failed the
+# pull request that fixes the gate. Only prose references count.
+check "a quoted keyword is documentation, not a reference" 1 - "FAIL: no issue reference" \
+	"$GUARD" --body 'The gate now accepts `Fix #12` as a closing keyword.' --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+check "a fenced keyword is documentation, not a reference" 1 - "FAIL: no issue reference" \
+	"$GUARD" --body '```
+Closes #12
+```' --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+check "a quoted example beside a real reference passes" 0 "PASS: #12 is open and carries status:approved" - \
+	"$GUARD" --body 'The old gate rejected `Fix #12`, which is a pull request here.
+
+Closes #12' --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
 
 echo "== the referenced issue =="
 check "an approved open issue passes" 0 "PASS: #12 is open and carries status:approved" - \
@@ -165,6 +179,10 @@ check "an unreadable --issues-json-file fails closed" 1 - "FAIL: cannot read --i
 echo "== extraction for the workflow =="
 check "--print-refs emits the closing reference" 0 "12" - \
 	"$GUARD" --body "Closes #12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --print-refs
+check "--print-refs ignores a quoted example" 0 "12" - \
+	"$GUARD" --body 'The old gate rejected `Fix #4` as a reference.
+
+Closes #12' --base-branch "$DEFAULT" --default-branch "$DEFAULT" --print-refs
 check "--print-refs emits every reference once, closing first" 0 "12
 4" - \
 	"$GUARD" --body "Closes #12
