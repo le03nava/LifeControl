@@ -7,6 +7,8 @@ application code, no schema, no endpoint, no contract, no workflow.
 five `type:*` labels the mandate names are live on the remote (`L6`), and the delivery close-out — merge, branch and
 worktree cleanup, anchor realignment — is recorded in `L11`. What remains is not work of this slice: the two
 deferred pieces in `L7` (a PR template and a CI guard) are new candidate work that needs its own authorization.
+**Reversed 2026-10-17**: the user authorized the three pieces (`L12`), and they are specified, delivered and verified
+in `odd/tasks/pr-label-enforcement.md` — this record's own diff is unchanged.
 **Created**: 2026-10-17 · **Base**: `main` @ `fc20a15` (merge of PR #360) · **Risk**: **none** — no stored data,
 no secret, no contract others consume, no concurrency, no delivery pipeline. The two deferred pieces in `L7`
 would be item 5 (delivery/CI) and are explicitly not part of this slice; the label set in `S2` is the tooling's
@@ -53,7 +55,10 @@ gentle-ai skill.
 
 **S4** — *the non-goals, from the options the user did not choose*: no `.github/PULL_REQUEST_TEMPLATE.md`, no CI
 guard that validates the label, and no retroactive re-labelling of the already-merged PRs (#355, #356, #360 keep
-what they carry). Recorded so the omissions are decisions, not oversights.
+what they carry). Recorded so the omissions are decisions, not oversights. **Reversed on 2026-10-17 by the user's own
+instruction** (`L12`): the three omissions are now specified, implemented and verified in
+`odd/tasks/pr-label-enforcement.md` — the template is its `S3`, the guard its `S4`, and the retro-label its `S5`.
+Nothing in this record's own diff changes; what changes is only whether the three omissions stay omissions.
 
 **S5** — *the user, 2026-10-17, verbatim*: «agrega el registro formal de odd» — this record.
 
@@ -153,3 +158,9 @@ documented order: `herdr workspace close w3F` (never `--group`, which would have
 every linked worktree), `git worktree remove`, `git worktree prune`, the anchor fast-forwarded `fc20a15..8727627`,
 and `git branch -d docs/pr-type-labels` — which needed no `--force` because `git merge-base --is-ancestor` had
 confirmed the branch was an ancestor of `origin/main` first.
+
+**L12** *(the user reversed `S4`, 2026-10-17, verbatim)*: «continua con Sigue diferido por decisión (L7):
+PULL_REQUEST_TEMPLATE.md, guard de CI y re-etiquetar los PRs mergeados.» A deferral is a decision, so the reversal is
+appended here rather than edited into `L7` or `S4`: `S4` now points at `odd/tasks/pr-label-enforcement.md`, which
+carries the template, the guard and the retro-label — and the retro-label's scope was settled by the user against the
+full measured inventory, 328 of 341 merged pull requests, not the three this record happened to name.

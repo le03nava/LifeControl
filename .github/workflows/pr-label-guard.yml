@@ -1,0 +1,62 @@
+name: PR Label Guard
+
+# Every pull request must carry exactly one `type:*` label, from the vocabulary the
+# machine-installed `branch-pr` skill declares and this repository mirrors in
+# `.agents/skills/project-conventions/references/labels.md`.
+#
+# There is deliberately NO `paths:` filter here. The other four workflows all nest one
+# under `pull_request`, which is why a markdown-only PR runs zero jobs in this
+# repository; measuring that was what made the label rule review-time only. A filter
+# would blind this gate exactly where the rule is used most — 80 of the 341 merged PRs
+# are `docs`-prefixed — so the rule is enforced for every PR and the cost is one short
+# job. The same reasoning is recorded in `references/labels.md`.
+#
+# `labeled` and `unlabeled` are part of the trigger set so that adding the missing label
+# clears the check without pushing an empty commit.
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-label-guard-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    name: Exactly one type:* label
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: ShellCheck
+        shell: bash
+        run: |
+          mapfile -t scripts < <(find .github/scripts -type f -name '*.sh' | sort)
+          printf 'Checking %d script(s)\n' "${#scripts[@]}"
+          # Same pinned image as docker-build-integrity.yml, so the verdict does not
+          # drift with the runner image.
+          docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:stable \
+            --severity=warning "${scripts[@]}"
+
+      - name: Self-tests
+        run: |
+          # Every suite under .github/scripts/tests, so a new one is wired by existing
+          # rather than by remembering to add a step. The guard's own four failure modes,
+          # the planner's mapping and idempotency, and the wiring between the template and
+          # the vocabulary are all offline: no network, no `gh`, no token.
+          for suite in .github/scripts/tests/*.test.sh; do
+            printf '\n== %s\n' "$suite"
+            "$suite"
+          done
+
+      - name: Exactly one type:* label
+        env:
+          # The label names of this pull request, straight from the event payload: no API
+          # call, no token, nothing to go stale between the event and the check.
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: .github/scripts/check-pr-type-labels.sh --labels-json "$PR_LABELS"
