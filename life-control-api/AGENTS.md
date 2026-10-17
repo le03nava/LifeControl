@@ -656,8 +656,18 @@ app.rate-limit.endpoints./api/users-admin/users.duration=1m
 
 ### HTTP Request/Response Logging (Zalando Logbook)
 
-- Filters sensitive headers (Authorization, cookies) and body fields (password, secret, token)
-- Strategy: `status-only` (logs only when non-2xx)
+- Filters: `Authorization` and an `access_token` query parameter become `XXX`; `cookie`,
+  `set-cookie`, `x-csrf-token`, `x-xsrf-token` and `x-api-key` become `[REDACTED]`; JSON
+  string fields named `password`, `secret`, `token`, `access_token`, `refresh_token`,
+  `client_secret`, `api_key`, `secret_key` or `private_key` become `[REDACTED]`
+- **Not** redacted, and therefore what a refusal can put in staging/prod logs: non-JSON
+  bodies (form-encoded, XML, plain text), non-string JSON values of those field names,
+  headers outside the list above, and any query parameter other than `access_token`
+- Volume: every exchange on the `dev` profile — which is also the default when
+  `SPRING_PROFILES_ACTIVE` is unset — and only a status `>= 400` on every other profile
+  (`LogbookConfig.logbookStrategy`)
+- Emits at TRACE: the `org.zalando.logbook.Logbook` logger in `logback-spring.xml` enables
+  it, and `LogbookLogbookLoggerPinningTest` fails if that line is weakened
 
 ### Activity Audit Trail (AOP)
 

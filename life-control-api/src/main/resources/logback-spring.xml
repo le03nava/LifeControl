@@ -30,8 +30,16 @@
         <appender-ref ref="LOKI"/>
     </root>
 
-    <!-- Logbook HTTP request/response logging -->
-    <logger name="org.zalando.logbook" level="WARN"/>
+    <!-- Logbook HTTP request/response logging. Logbook's default writer emits its
+         messages through exactly this logger, so pinning it is what makes Logbook log at
+         all; *what* it emits is the strategy in LogbookConfig — every exchange on dev,
+         only a status >= 400 everywhere else. A logger for the whole `org.zalando.logbook`
+         package is not equivalent: Spring Boot's condition-evaluation lines about the
+         Logbook auto-configuration classes are emitted under those condition classes' own
+         names (`org.zalando.logbook.ecs.autoconfigure.*`), so the package-level logger
+         turns them on too — measured: 2 of them on the boot with the package pinned versus
+         0 with this line. `LogbookLogbookLoggerPinningTest` fails if this is weakened. -->
+    <logger name="org.zalando.logbook.Logbook" level="TRACE"/>
 
     <!-- Debug logging for SQL — development profile only (avoids leaking
          query parameter data in staging/prod logs) -->
