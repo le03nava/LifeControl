@@ -3,10 +3,10 @@
 **Repository**: LifeControl — the GitHub label inventory (13 → 18 labels), `.agents/skills/project-conventions/`
 (`SKILL.md`, `references/index.md`, the new `references/labels.md`) and one section of the root `AGENTS.md`. No
 application code, no schema, no endpoint, no contract, no workflow.
-**Status**: implemented — T1–T5 are done: the five `type:*` labels the mandate names are live on the remote
-(readback in `L6`) and the four files are written. What remains is not work of this slice: the two deferred pieces
-in `L7` (a PR template and a CI guard) are new candidate work that needs its own authorization. This header makes
-no claim about commit, push or PR state; see the evidence log.
+**Status**: merged — PR **#362** (`docs/pr-type-labels` @ `8727627`), 2026-10-17, so `main` carries the change; the
+five `type:*` labels the mandate names are live on the remote (`L6`), and the delivery close-out — merge, branch and
+worktree cleanup, anchor realignment — is recorded in `L11`. What remains is not work of this slice: the two
+deferred pieces in `L7` (a PR template and a CI guard) are new candidate work that needs its own authorization.
 **Created**: 2026-10-17 · **Base**: `main` @ `fc20a15` (merge of PR #360) · **Risk**: **none** — no stored data,
 no secret, no contract others consume, no concurrency, no delivery pipeline. The two deferred pieces in `L7`
 would be item 5 (delivery/CI) and are explicitly not part of this slice; the label set in `S2` is the tooling's
@@ -76,10 +76,10 @@ Measured 2026-10-17 against the remote label inventory and the 120 most recent p
 | ID | Spec | Task | Route | Commit |
 | --- | --- | --- | --- | --- |
 | T1 | S1, S2 | Create the five missing `type:*` labels with the skill's exact names and one shared colour `#bfdadc`; `type:chore` was left as it was | inline (remote only) | — (remote label state, not a file) |
-| T2 | S3 | Write `references/labels.md`: the rule, the vocabulary, the measured failure mode, 6 invariants, the commands, 6 anti-patterns and the gaps | inline | this unit's commit |
-| T3 | S3 | Wire the reference: `SKILL.md` Hard Rule 6 + References entry, `references/index.md` Workflow bullet + gap line, and the `AGENTS.md` section "Labels de PR" | inline | this unit's commit |
+| T2 | S3 | Write `references/labels.md`: the rule, the vocabulary, the measured failure mode, 6 invariants, the commands, 6 anti-patterns and the gaps | inline | `2e03338` |
+| T3 | S3 | Wire the reference: `SKILL.md` Hard Rule 6 + References entry, `references/index.md` Workflow bullet + gap line, and the `AGENTS.md` section "Labels de PR" | inline | `2e03338` |
 | T4 | S1, S2 | Measure the evidence above (inventory, the 120-PR cross-tab, the mislabel set, the enforcement gaps) before writing any of it | inline | `## Evidence` |
-| T5 | S5 | This record | inline | this unit's commit |
+| T5 | S5 | This record | inline | `2e03338` |
 
 No task needs a worker: the whole slice is three markdown files, one remote label mutation and one measurement, and
 a worker would spend longer reading the house style than doing the work.
@@ -141,3 +141,15 @@ repos/le03nava/LifeControl/issues/361`) with an authenticated actor whose `permi
 branch is `docs/pr-type-labels` in `~/workspace/LifeControl-worktrees/docs-pr-type-labels`, and the anchor stays on
 `main` and clean. The five changed paths were moved there by copy with a `sha256sum` equality check before the
 anchor was reverted, so no path exists in two places and nothing was edited twice.
+
+**L11** *(delivery evidence, 2026-10-17)*: merged as a merge commit — `8727627`
+(`87276278976d4fcc4455ea651fb3c17a2a5bdd90`) at 16:26:27Z — by PR #362, which closed issue #361 two seconds later;
+the issue keeps `status:approved`. The PR ran **zero** CI jobs, which its body stated before the merge instead of
+assuming green: all four workflows nest a `paths:` filter under `pull_request` scoped to their own component, and
+this unit changed markdown only. `gh pr merge --delete-branch` deleted the remote ref and **skipped** the local
+branch deletion, because the command ran inside the worktree holding the branch — the third row of the measured
+table in `references/worktrees.md`, which is why it printed the manual follow-up. The close-out then followed the
+documented order: `herdr workspace close w3F` (never `--group`, which would have closed the primary workspace and
+every linked worktree), `git worktree remove`, `git worktree prune`, the anchor fast-forwarded `fc20a15..8727627`,
+and `git branch -d docs/pr-type-labels` — which needed no `--force` because `git merge-base --is-ancestor` had
+confirmed the branch was an ancestor of `origin/main` first.
