@@ -238,11 +238,48 @@ clean_services() {
 	fi
 }
 
+# Loki and Tempo images are distroless: an in-container healthcheck cannot run, so their
+# readiness is measured from the host through the published port. Prints one
+# " <name>(not-ready)" token per service that is not answering, and returns non-zero when
+# at least one did not. Ports that are not configured are skipped.
+host_readiness_probes() {
+	local failures=""
+	local loki_port tempo_port
+	loki_port="$(get_env_var LOKI_PORT)"
+	tempo_port="$(get_env_var TEMPO_PORT)"
+
+	local probes=()
+	if [ -n "$loki_port" ]; then
+		probes+=("Loki http://127.0.0.1:$(get_env_var LOKI_PORT)/ready")
+	fi
+	if [ -n "$tempo_port" ]; then
+		probes+=("Tempo http://127.0.0.1:$(get_env_var TEMPO_PORT)/ready")
+	fi
+
+	local entry name url
+	for entry in ${probes[@]+"${probes[@]}"}; do
+		name="${entry%% *}"
+		url="${entry#* }"
+		if ! curl -sf -o /dev/null --max-time 5 "$url"; then
+			failures="$failures ${name}(not-ready)"
+		fi
+	done
+
+	[ -z "$failures" ] || printf '%s\n' "$failures"
+	[ -z "$failures" ]
+}
+
 health_check() {
 	print_status "Waiting for all services to become healthy..."
 
 	local max_attempts=30
 	local attempt=1
+
+	local has_curl=1
+	if ! command -v curl >/dev/null 2>&1; then
+		has_curl=0
+		print_warning "curl not found: Loki and Tempo readiness (/ready) will NOT be checked."
+	fi
 
 	while [ "$attempt" -le "$max_attempts" ]; do
 		local ps_output expected count unhealthy=""
@@ -261,6 +298,13 @@ health_check() {
 				unhealthy="$unhealthy $svc($health)"
 			fi
 		done <<< "$ps_output"
+
+		if [ "$has_curl" -eq 1 ]; then
+			local not_ready=""
+			# `|| true` keeps set -e happy while still capturing the tokens on stdout.
+			not_ready="$(host_readiness_probes)" || true
+			unhealthy="$unhealthy$not_ready"
+		fi
 
 		if [ -n "$unhealthy" ] || [ "$count" -lt "$expected" ]; then
 			print_status "Attempt $attempt/$max_attempts — waiting for:$unhealthy"

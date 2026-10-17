@@ -12,7 +12,7 @@ services:
   # PostgreSQL - Keycloak Database
   # ============================================
   keycloak-postgres:
-    image: ${POSTGRES_IMAGE:-postgres:18.1}
+    image: ${POSTGRES_IMAGE:-postgres:18.6}
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-keycloak-postgres
     entrypoint: ["/usr/local/bin/lc-postgres-entrypoint.sh"]
     command: ["postgres"]
@@ -44,7 +44,7 @@ services:
   # PostgreSQL - LifeControl API Database
   # ============================================
   lifecontrol-postgres:
-    image: ${POSTGRES_IMAGE:-postgres:18.1}
+    image: ${POSTGRES_IMAGE:-postgres:18.6}
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-lifecontrol-postgres
     entrypoint: ["/usr/local/bin/lc-postgres-entrypoint.sh"]
     command: ["postgres"]
@@ -80,7 +80,7 @@ services:
   # Keycloak - Identity Provider
   # ============================================
   keycloak:
-    image: ${KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak:26.2.1}
+    image: ${KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak:26.8.1}
     entrypoint: ["/opt/keycloak/kc-entrypoint.sh"]
     command: ["start-dev", "--import-realm"]
     ports:
@@ -120,39 +120,28 @@ services:
   # Loki - Log Aggregation
   # ============================================
   loki:
-    image: ${LOKI_IMAGE:-grafana/loki:2.9.0}
+    image: ${LOKI_IMAGE:-grafana/loki:3.7.8}
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-loki
     command: ["-config.file=/etc/loki/local-config.yaml"]
     ports:
       - "${LOKI_PORT:-3100}:3100"
     volumes:
-      - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/loki/data:/loki/data
+      - ${VOLUMES_ROOT:?VOLUMES_ROOT must be set}/loki/data:/loki
     networks:
       - default
     deploy:
       resources:
         limits:
           memory: ${LOKI_MEMORY_LIMIT:-256m}
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "wget",
-          "--no-verbose",
-          "--tries=1",
-          "--spider",
-          "http://localhost:3100/ready",
-        ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+    # No healthcheck: this image is distroless (no shell, no wget), so an in-container probe
+    # could never pass. deploy.sh health measures /ready from the host instead.
     restart: unless-stopped
 
   # ============================================
   # Prometheus - Metrics Collection
   # ============================================
   prometheus:
-    image: ${PROMETHEUS_IMAGE:-prom/prometheus:v2.48.0}
+    image: ${PROMETHEUS_IMAGE:-prom/prometheus:v3.15.0}
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-prometheus
     user: "0:0"
     command:
@@ -190,7 +179,7 @@ services:
   # Tempo - Distributed Tracing
   # ============================================
   tempo:
-    image: ${TEMPO_IMAGE:-grafana/tempo:2.3.0}
+    image: ${TEMPO_IMAGE:-grafana/tempo:3.1.0}
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-tempo
     user: "0:0"
     command: ["-config.file=/etc/tempo/tempo.yml"]
@@ -206,26 +195,15 @@ services:
       resources:
         limits:
           memory: ${TEMPO_MEMORY_LIMIT:-512m}
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "wget",
-          "--no-verbose",
-          "--tries=1",
-          "--spider",
-          "http://localhost:3100/ready",
-        ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+    # No healthcheck: this image is distroless (no shell, no wget), so an in-container probe
+    # could never pass. deploy.sh health measures /ready from the host instead.
     restart: unless-stopped
 
   # ============================================
   # Grafana - Metrics Visualization
   # ============================================
   grafana:
-    image: ${GRAFANA_IMAGE:-grafana/grafana:10.2.0}
+    image: ${GRAFANA_IMAGE:-grafana/grafana:13.2.4}
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-grafana
     user: "1000:1000"
     entrypoint: ["/usr/local/bin/lc-grafana-entrypoint.sh"]
@@ -317,7 +295,7 @@ services:
   # Redis - Cache for LifeControl API
   # ============================================
   redis:
-    image: ${REDIS_IMAGE:-redis:7.4-alpine}
+    image: ${REDIS_IMAGE:-redis:8.10-alpine}
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-redis
     ports:
       - "${REDIS_PORT:-6379}:6379"
