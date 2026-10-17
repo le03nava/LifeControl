@@ -90,7 +90,9 @@ class GatewayRouteCoverageTests {
                     prefix ->
                         "  .route(RequestPredicates.path(\"/api/"
                             + prefix
-                            + "/**\"), HandlerFunctions.http(props.lifeControlApiUri()))")
+                            + "/**\"), HandlerFunctions.http())"
+                            + System.lineSeparator()
+                            + "  .before(BeforeFilterFunctions.uri(props.lifeControlApiUri()))")
                 .collect(Collectors.joining(System.lineSeparator())));
   }
 
