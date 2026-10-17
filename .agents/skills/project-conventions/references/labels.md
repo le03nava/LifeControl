@@ -93,18 +93,54 @@ repository the vocabulary the tooling mandates, which is what this change did.
 | 3 | The GitHub defaults (`bug`, `enhancement`, `documentation`, `duplicate`, `invalid`, `question`, `wontfix`, `good first issue`, `help wanted`) stay issue-triage vocabulary. | `bug`/`enhancement` are this repository's issue labels; `type:bug`/`type:feature` are its PR labels. One meaning per namespace, so no PR has to choose between two labels that both fit. |
 | 4 | The linked issue carries `status:approved` before the PR is opened. | `status:approved` is the issue-side gate; the skill requires the approval, not merely the link. |
 | 5 | `size:exception` is a Gentle-owned repository policy and is **not** this repository's. Never create it, never apply it. | No size policy is documented here, so the label would assert an acceptance gate nobody declared. |
-| 6 | A label is review-time metadata, never evidence. | No workflow in this repository reads labels: all four pipelines trigger on `paths:` filters scoped to their own component. The diff, the commit prefix and the linked issue carry the proof. |
+| 6 | A label is metadata, never evidence of what the diff does. | The guard reads labels, but it can only see names: it cannot see whether the diff deserves the name it carries. The diff, the commit prefix and the linked issue carry the proof. |
 
 ## How to apply
 
 ```bash
 gh label list --limit 200 | grep '^type:'                              # inventory
 gh pr create --label type:docs --title "docs(odd): ..." --body "..."   # at creation
-gh pr edit 360 --add-label type:docs --remove-label documentation      # retrofit
+gh pr edit 360 --add-label type:docs                                      # retrofit a missing type
+gh pr edit 339 --remove-label type:chore --add-label type:docs           # correct a wrong one
 gh pr view 360 --json labels --jq '[.labels[].name]'                   # read back
 ```
 
+The PR template carries the same six options as checkboxes, each naming its label, so the pair is decided
+once and in one place. The label is still applied separately: the guard reads labels, not checkboxes.
+
+> The retrofit commands above touch `type:*` names only. The triage vocabulary (`documentation`, `bug`,
+> `enhancement`, `java`, `dependencies`) stays where it is: on a merged PR it records how the change was
+> triaged at the time, and removing it would destroy information to make a filter look tidy.
+
 Every `type:*` label shares one colour (`#bfdadc`) so the namespace reads as one family at a glance.
+
+## Enforcement
+
+Three pieces, added 2026-10-17, close the gaps this file used to carry:
+
+| Piece | Path | What it does |
+| --- | --- | --- |
+| Template | `.github/PULL_REQUEST_TEMPLATE.md` | Carries the six checkboxes, each paired with its label, plus the linked issue, summary, changes table and test plan. It is the in-repo widget the `branch-pr` skill's "check exactly ONE in the template" step needs. |
+| Guard | `.github/workflows/pr-label-guard.yml` -> `.github/scripts/check-pr-type-labels.sh` | Fails the pull request when the label set has zero `type:*` labels, more than one, or one whose name is not in the vocabulary. |
+| Planner | `.github/scripts/retro-label-prs.sh` | Applies the commit-type mapping to an existing history, dry-run by default and idempotent. |
+
+The three suites under `.github/scripts/tests/` run inside the guard workflow, all offline:
+`check-pr-type-labels.test.sh` (the guard's own failure modes — zero labels, two labels, a synonym,
+an unreadable or malformed set), `retro-label-prs.test.sh` (the whole mapping, the `!` marker, the
+fail-closed case and idempotency) and `label-artifacts.test.sh` (the template offers exactly the
+vocabulary the guard accepts, and the workflow keeps no `paths:` filter).
+
+The workflow carries **no `paths:` filter**, and that is the point: every other workflow here filters
+by component, so a markdown-only pull request runs no job at all — which is precisely the pull request
+where this rule is easiest to forget. `docs` is the second largest prefix in the history (80 of 341
+merged PRs), so a filtered guard would have been blind to 23% of the volume.
+
+Running the planner on 2026-10-17 reconciled the history that predates the rule: of **341 merged pull requests**,
+**307 carried no `type:*` label** and **21 carried one that named a type the diff was not** (only 13 were correct).
+It planned and applied **328 mutations** — 307 additions and 21 corrections — and a second run plans **zero**,
+which is the idempotency the tests assert offline. The one title carrying `!` (`refactor(product)!`, #134) took
+`type:breaking-change`: the `!` is the conventional-commits breaking marker whatever the type, and the skill's table
+(enumerating only `feat!`/`fix!`) is a subset of that rule, not a different one.
 
 ## Anti-patterns
 
@@ -113,14 +149,22 @@ Every `type:*` label shares one colour (`#bfdadc`) so the namespace reads as one
 | Applying two `type:*` labels because the PR does two things | Split the PR instead: the label answers one question, and the review budget is per unit of behaviour anyway. |
 | Applying `type:chore` to a documentation-only PR | The label's own description misdescribes the diff, and a reader filtering by `type:chore` gets a docs record. This is the historical failure above, repeated. |
 | Creating `type:feat` or `type:fix` to avoid the `style`/`test`/`build` fold into `type:chore` | Invents a second vocabulary beside the tool's mapping, so the skill can no longer satisfy its own rule. |
-| Keeping `documentation` on a PR now that `type:docs` exists | One change type lands under two labels across PRs and the filter silently lies. |
+| Keeping `documentation` as the answer to the mandate, now that `type:docs` exists | One change type lands under two labels across PRs and the filter silently lies. The historical triage label on an already-merged PR is a different thing: it stays, beside the `type:*` label. |
 | Adding `size:exception` to exempt an oversized PR | Asserts an acceptance gate this repository never declared. |
 | Treating the label as evidence that a change is documentation-only | Labels are unverified metadata; the diff and the commit prefix are the evidence. |
+| Ticking the template's checkbox and skipping the label | The checkbox is a declaration for the human reader; the guard reads labels, so the check still fails. |
 
 ## Gaps
 
-- No workflow validates that a PR carries exactly one `type:*` label: the rule is review-time only.
-- `.github/PULL_REQUEST_TEMPLATE.md` is absent, so the skill's "check exactly ONE in the template" step
-  has no in-repo widget; a PR body is written without the checkbox block the label pairs with.
-- A contributor who runs no gentle-ai skill has no way to discover the mandate from the repository
-  alone: this file is the only local copy, and `gentle-ai sync` refreshes the skill independently of it.
+- The guard is **not a required check**: it reports on every pull request, but nothing forces a merge to wait
+  for a green verdict until the branch protection rules name it. Its verdict can be ignored.
+- A pull request opened through the API or the CLI does not necessarily use the template: the label guard covers
+  the label, not the body, so the issue link and the contributor checklist remain review-time conventions.
+- The vocabulary lives in three places by design — this file, the `branch-pr` skill, and the guard script's
+  `VOCABULARY` — because each has a different consumer. A seventh `type:*` label must be added to all three in
+  the same commit, or the guard starts rejecting a name the documentation prescribes.
+- A contributor who runs no gentle-ai skill still has to find this file; the template links to it, which is one
+  hop closer than before.
+- Dependabot opens its pull requests with `dependencies` and no `type:*` label, so the guard reports red on a
+  dependency bump until a human adds `type:chore`. Auto-labelling is deliberately not in this slice: it would need
+  a token with `issues: write`, and this gate runs with `permissions: contents: read`.

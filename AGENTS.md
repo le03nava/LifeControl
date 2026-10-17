@@ -113,11 +113,15 @@ anti-patrones están en
 | Regla | Valor |
 |-------|-------|
 | Cuántos | Exactamente uno por PR: ni cero ni dos. Los labels de área (ej. `java`) son ortogonales y pueden acompañarlo |
-| Vocabulario | `type:feature` (`feat`, `perf`) · `type:bug` (`fix`, `revert`) · `type:docs` (`docs`) · `type:refactor` (`refactor`) · `type:chore` (`chore`, `style`, `test`, `build`, `ci`) · `type:breaking-change` (`feat!`, `fix!`) |
+| Vocabulario | `type:feature` (`feat`, `perf`) · `type:bug` (`fix`, `revert`) · `type:docs` (`docs`) · `type:refactor` (`refactor`) · `type:chore` (`chore`, `style`, `test`, `build`, `ci`) · `type:breaking-change` (cualquier tipo con `!`: `feat!`, `fix!`, `refactor!`) |
 | Otros labels | Los defaults de GitHub (`bug`, `enhancement`, `documentation`) son vocabulario de triage de **issues**; `status:approved` aprueba el issue linkeado; `dependencies` lo pone Dependabot |
-| Cómo se aplica | `gh pr create --label type:docs ...`, o `gh pr edit <n> --add-label type:docs` sobre un PR ya abierto |
+| Cómo se aplica | Se tilda **un** checkbox de la sección *PR Type* de `.github/PULL_REQUEST_TEMPLATE.md` y se agrega el label que ese renglón nombra: `gh pr create --label type:docs ...`, o `gh pr edit <n> --add-label type:docs` sobre un PR ya abierto |
 | Qué no se crea | Sinónimos (`type:feat`, `type:fix`) ni `size:exception`, que es política de repos de Gentle, no de este repo |
-| Enforcement | Ninguno automático: ningún workflow lee labels y no hay PR template. Es una convención de review |
+| Plantilla | `.github/PULL_REQUEST_TEMPLATE.md`: los seis checkboxes (uno por label), el issue linkeado, el resumen, la tabla de cambios y el test plan. El label se aplica igual: el guard lee labels, no checkboxes |
+| Enforcement | `PR Label Guard` (`.github/workflows/pr-label-guard.yml` → `.github/scripts/check-pr-type-labels.sh`) falla el PR si el set de labels no tiene exactamente un `type:*` del vocabulario — cero, dos o un nombre fuera del vocabulario son fallos. **No** lleva filtro `paths:`, a propósito: los otros cuatro workflows filtran por componente, así que un PR sólo-markdown no corre ningún job, que es justo donde esta regla se olvida |
+| Historial | `.github/scripts/retro-label-prs.sh` reconcilió los 341 PRs mergeados el 2026-10-17: 307 altas y 21 correcciones (`type:chore` sobre diffs que no eran chores). Es dry-run por defecto, idempotente, y **no** toca los labels de triage (`documentation`, `bug`, `enhancement`, `java`, `dependencies`) |
+| Suite del guard | `.github/scripts/tests/*.test.sh` (71 aserciones, offline: el mapeo completo, el marcador `!`, los cinco modos de falla del guard, la idempotencia y la coincidencia plantilla↔vocabulario). Corre en el mismo workflow, y shellcheck `--severity=warning` sobre los cinco scripts |
+| Qué no hace | El guard **no** está en branch protection: reporta en cada PR, pero nada obliga a esperarlo antes de mergear hasta que las reglas de protección lo nombren. Tampoco valida el issue linkeado ni el cuerpo del PR |
 
 ---
 
