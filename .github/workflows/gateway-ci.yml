@@ -3,6 +3,10 @@ name: Gateway CI
 on:
   push:
     branches: [main]
+    paths:
+      - 'api-gateway/**'
+      - 'life-control-api/src/main/java/**/controller/**'
+      - '.github/workflows/gateway-ci.yml'
   pull_request:
     paths:
       - 'api-gateway/**'

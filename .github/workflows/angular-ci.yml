@@ -3,6 +3,9 @@ name: Angular CI
 on:
   push:
     branches: [main]
+    paths:
+      - 'life-control-app-angular/**'
+      - '.github/workflows/angular-ci.yml'
   pull_request:
     paths:
       - 'life-control-app-angular/**'

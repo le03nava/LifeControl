@@ -3,6 +3,13 @@ name: Docker Build Integrity
 on:
   push:
     branches: [main]
+    paths:
+      - 'docker/**'
+      - 'api-gateway/Dockerfile'
+      - 'api-gateway/build.gradle'
+      - 'life-control-api/Dockerfile'
+      - 'life-control-api/build.gradle'
+      - '.github/workflows/docker-build-integrity.yml'
   pull_request:
     paths:
       - 'docker/**'
