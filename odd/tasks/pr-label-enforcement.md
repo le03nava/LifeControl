@@ -4,10 +4,11 @@
 new scripts and their tests), the project-conventions skill (`references/labels.md`, `SKILL.md`,
 `references/index.md`), one section of root `AGENTS.md`, the two ODD records, plus one remote mutation of 328
 merged pull requests. No application code, no schema, no endpoint, no consumed contract.
-**Status**: delivered for review as PR **#367** (`ci/pr-label-enforcement`, against `main` @ `b05b525`), 2026-10-17,
-closing issue **#366**; what remains is the merge, which is the user's decision. The retro-label of the merged history
-is **done** and read back from the remote (`L8`), the guard ran green on this very pull request (`L10`), and
-`## Delivery slices` marks where a reviewer can stop.
+**Status**: merged — PR **#367** (`ci/pr-label-enforcement` @ `07a7b81`), merge commit
+**`48bda52da78b153276605c3f469ecf3f9946bc32`** on 2026-10-17T18:27:18Z, closing issue **#366**; `main` carries the
+change (`L11`) and the gate is live for every new pull request. What remains is not work of this slice: the two gaps
+this slice declared instead of closing (`references/labels.md`, "Gaps") — the guard is not yet a branch-protection
+required check, and a Dependabot pull request still needs a human to add `type:chore`.
 **Created**: 2026-10-17 · **Base**: `main` @ `b05b525` · **Risk**: **item 5** (delivery pipeline: a workflow that
 gates every pull request) and, for the retro-label, a wide but reversible remote mutation of merged PRs. No stored
 data, no secret, no application contract, no concurrency. The guard also touches **item 3** in the narrow sense
@@ -189,3 +190,38 @@ label`): the gate's first run on a real pull request is on the pull request that
 `--label` fired `opened` and `labeled`, so two runs were queued and `cancel-in-progress` kept the newer — the trigger
 set works as designed. What remains is the merge, a user decision, and the merge identity, which the house convention
 records in a follow-up slice (`pr-type-labels`' `L11` is the precedent).
+
+**L11** *(merge evidence, 2026-10-17)*: merged with a **real merge commit**, never a squash — `48bda52`
+(`48bda52da78b153276605c3f469ecf3f9946bc32`) at 18:27:18Z; its first parent is `f02e927` (the anchor's `main` had
+already moved past `b05b525` because another session's PR #365 merged first) and its second parent is this slice's
+tip `07a7b81`. Issue #366 closed as `COMPLETED`. The merge brought **13 files, 1202 insertions, 15 deletions** into
+`main`, with the five scripts landing as mode `100755`.
+
+On the pull request itself, `PR Label Guard` — the gate this slice adds — was the **only** workflow that ran: green in
+7s at `b9f57db` and 6s at `07a7b81`, because the other four match none of these paths. The `push` to `main` then
+started all four push-triggered workflows, and the measured outcome is **partial**: `Docker Build Integrity` and
+`Gateway CI` `success`, while `API CI` and `Angular CI` are **`cancelled`** — PR #368 merged 96 seconds later and the
+shared `concurrency` group cancelled them. That is the policy working, not a failure, but it is not a green verdict
+either, so it is recorded as measured; neither workflow has anything to say about this slice, which changes no
+`life-control-api` or `life-control-app-angular` path. The next push (`83c94df`, whose tree **contains** this merge)
+ran the same four again and **all four concluded `success`** — Docker Build Integrity 18:29:15Z, Gateway CI 18:29:35Z,
+Angular CI 18:33:07Z, API CI 18:34:06Z — so the tree that carries this slice has a full green `main` CI even though the
+merge commit's own run did not finish.
+
+The gate's coverage starts here, and that is worth stating precisely: PR #368 carries `type:docs` but produced **no**
+`PR Label Guard` run at all, because its branch was cut before the workflow existed and a `pull_request` run uses the
+workflow files of the pull request's own commit. The first pull request to be *gated* is the next one opened from the
+new `main`; the first pull request the gate *ran on* was the one that introduced it.
+
+The close-out followed the documented order: `herdr workspace close w3J` (never `--group`), `git worktree remove`,
+`git worktree prune`, then the anchor — after confirming local `main` was an ancestor of `origin/main` and that the
+anchor's one untracked file (`odd/tasks/angular-22-upgrade.md`, another unit's) collided with nothing incoming —
+fast-forwarded `f02e927..48bda52`; then `git branch -d ci/pr-label-enforcement` with no `--force` (the ancestor check
+ran first) and `git push origin --delete ci/pr-label-enforcement`.
+
+The state this close-out left, with the instant attached so no later merge can falsify it (18:28Z): the anchor on
+`main` at `48bda52`, clean except the untracked file above; one worktree besides the anchor, a sibling session's; and
+two remote branches (`main` and that session's). The sibling then merged PR #368 at 18:28:54Z, deleted its branch and
+removed its worktree — and that commit is what made `odd/tasks/angular-22-upgrade.md` **tracked**, which is why the
+anchor now reads `83c94df` with a clean tree. This bookkeeping slice's own branch is the only extra worktree at the
+time of writing.
