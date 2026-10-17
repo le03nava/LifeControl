@@ -42,3 +42,6 @@ jobs:
 
       - name: Keycloak setup offline behaviour tests
         run: ./docker/scripts/tests/keycloak-setup.test.sh
+
+      - name: Compose runtime profile tests
+        run: ./docker/scripts/tests/compose-profile.test.sh

@@ -94,6 +94,11 @@ dependencies {
 tasks.named('test') {
     outputs.dir snippetsDir
     useJUnitPlatform()
+    // The application's own `spring.profiles.active` defaults to `dev`, and the Logbook
+    // fail-closed profile guard refuses to start on that default unless SPRING_PROFILES_ACTIVE
+    // is declared. The suite is not a deployment, so it declares its own profile here instead
+    // of inheriting `dev` by accident from the main application.properties.
+    systemProperty 'spring.profiles.active', 'test'
 }
 
 tasks.named('asciidoctor') {

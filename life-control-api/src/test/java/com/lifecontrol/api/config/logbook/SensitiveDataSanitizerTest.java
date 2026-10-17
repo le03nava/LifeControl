@@ -4,20 +4,41 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
 import java.util.Map;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.mock.env.MockEnvironment;
 import org.zalando.logbook.HttpHeaders;
 
 @DisplayName("SensitiveDataSanitizer Tests")
 class SensitiveDataSanitizerTest {
 
+    private ConfigurableApplicationContext context;
     private SensitiveDataSanitizer sanitizer;
 
     @BeforeEach
     void setUp() {
-        sanitizer = new SensitiveDataSanitizer();
+        // Built through a context so the profile the sanitizer reads is explicit: the
+        // body filter is profile-dependent and these tests pin the dev behaviour.
+        var environment = new MockEnvironment();
+        environment.setActiveProfiles("dev");
+        var applicationContext = new AnnotationConfigApplicationContext();
+        applicationContext.setEnvironment(environment);
+        applicationContext.registerBean(SensitiveDataSanitizer.class);
+        applicationContext.refresh();
+        context = applicationContext;
+        sanitizer = applicationContext.getBean(SensitiveDataSanitizer.class);
+    }
+
+    @AfterEach
+    void tearDown() {
+        if (context != null) {
+            context.close();
+        }
     }
 
     @Nested

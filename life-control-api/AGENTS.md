@@ -656,16 +656,22 @@ app.rate-limit.endpoints./api/users-admin/users.duration=1m
 
 ### HTTP Request/Response Logging (Zalando Logbook)
 
-- Filters: `Authorization` and an `access_token` query parameter become `XXX`; `cookie`,
+- Body outside `dev`: `SensitiveDataSanitizer.bodyFilter()` answers the fixed `[REDACTED]`
+  instead of the body, so no request/response content reaches the log whatever its content
+  type. The field-level filter below only runs on the `dev` profile
+- On `dev` only: `Authorization` and an `access_token` query parameter become `XXX`; `cookie`,
   `set-cookie`, `x-csrf-token`, `x-xsrf-token` and `x-api-key` become `[REDACTED]`; JSON
   string fields named `password`, `secret`, `token`, `access_token`, `refresh_token`,
-  `client_secret`, `api_key`, `secret_key` or `private_key` become `[REDACTED]`
-- **Not** redacted, and therefore what a refusal can put in staging/prod logs: non-JSON
-  bodies (form-encoded, XML, plain text), non-string JSON values of those field names,
-  headers outside the list above, and any query parameter other than `access_token`
-- Volume: every exchange on the `dev` profile — which is also the default when
-  `SPRING_PROFILES_ACTIVE` is unset — and only a status `>= 400` on every other profile
-  (`LogbookConfig.logbookStrategy`)
+  `client_secret`, `api_key`, `secret_key` or `private_key` become `[REDACTED]`. That field
+  filter is partial, so on `dev` non-JSON bodies, non-string JSON values of those names,
+  headers outside the list above and any query parameter other than `access_token` are still
+  emitted
+- Volume: every exchange on the `dev` profile, and only a status `>= 400` on every other
+  profile (`LogbookConfig.logbookStrategy`)
+- Fail-closed profile guard: `LogbookProfileGuard`, registered in
+  `src/main/resources/META-INF/spring.factories`, refuses to start when the effective profile
+  is `dev` and `SPRING_PROFILES_ACTIVE` was never declared, and the failure names the variable.
+  A bare `./gradlew bootRun` therefore fails; declare the profile as shown under Profiles
 - Emits at TRACE: the `org.zalando.logbook.Logbook` logger in `logback-spring.xml` enables
   it, and `LogbookLogbookLoggerPinningTest` fails if that line is weakened
 
@@ -807,8 +813,9 @@ class CompanyControllerSecurityTest {
 # Build (compile + test)
 ./gradlew build
 
-# Run application
-./gradlew bootRun
+# Run application (the profile variable is mandatory — the LogbookProfileGuard refuses to
+# start on the built-in dev default, see Profiles below)
+SPRING_PROFILES_ACTIVE=dev ./gradlew bootRun
 
 # Run tests
 ./gradlew test
@@ -836,13 +843,14 @@ class CompanyControllerSecurityTest {
 ### Profiles
 
 ```bash
-# Dev (default)
-./gradlew bootRun
+# Dev — mandatory: a bare `./gradlew bootRun` is refused by the LogbookProfileGuard
+# instead of silently enabling full request/response body logging
+SPRING_PROFILES_ACTIVE=dev ./gradlew bootRun
 
 # Production
 ./gradlew bootRun --args='--spring.profiles.active=prod'
 
-# Test with profile
+# Test profile — pinned in build.gradle for the whole suite; this explicit form also works
 SPRING_PROFILES_ACTIVE=test ./gradlew test
 ```
 

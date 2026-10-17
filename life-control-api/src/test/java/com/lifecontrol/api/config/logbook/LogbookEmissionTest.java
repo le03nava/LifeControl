@@ -17,6 +17,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
+import org.springframework.mock.env.MockEnvironment;
 import org.zalando.logbook.HttpHeaders;
 import org.zalando.logbook.HttpRequest;
 import org.zalando.logbook.HttpResponse;
@@ -65,7 +66,10 @@ class LogbookEmissionTest {
     @Test
     @DisplayName("off dev, a 2xx emits nothing and a refusal emits both halves without leaking a secret")
     void emitsFailuresOnlyAndRedacts() throws IOException {
-        Logbook logbook = new LogbookConfig().logbook(new SensitiveDataSanitizer(), new StatusAtLeastStrategy(400));
+        var environment = new MockEnvironment();
+        environment.setActiveProfiles("prod");
+        Logbook logbook =
+                new LogbookConfig().logbook(new SensitiveDataSanitizer(environment), new StatusAtLeastStrategy(400));
 
         exchange(logbook, request(), response(200, "{}"));
         assertThat(appender.list).isEmpty();
@@ -79,13 +83,40 @@ class LogbookEmissionTest {
                 "\n",
                 appender.list.stream().map(ILoggingEvent::getFormattedMessage).toList());
         assertThat(logged).doesNotContain(REQUEST_SECRET, RESPONSE_SECRET, QUERY_SECRET);
+        // Off dev the body is discarded whole, so not even the field name survives: the
+        // partial JSON field filter would have kept `password` and redacted only its value.
+        assertThat(logged).doesNotContain("password");
     }
 
     private static void exchange(Logbook logbook, HttpRequest request, HttpResponse response) throws IOException {
         logbook.process(request).write().process(response).write();
     }
 
+    @Test
+    @DisplayName("off dev, a non-JSON body is discarded whole rather than passed through")
+    void redactsNonJsonBodyWhole() throws IOException {
+        var environment = new MockEnvironment();
+        environment.setActiveProfiles("prod");
+        Logbook logbook =
+                new LogbookConfig().logbook(new SensitiveDataSanitizer(environment), new StatusAtLeastStrategy(400));
+
+        exchange(
+                logbook,
+                request("text/plain", "password=" + REQUEST_SECRET),
+                response(500, "text/plain", "password=" + RESPONSE_SECRET));
+
+        var logged = String.join(
+                "\n",
+                appender.list.stream().map(ILoggingEvent::getFormattedMessage).toList());
+        assertThat(logged).doesNotContain(REQUEST_SECRET, RESPONSE_SECRET);
+        assertThat(logged).contains("[REDACTED]");
+    }
+
     private static HttpRequest request() {
+        return request("application/json", "{\"password\":\"" + REQUEST_SECRET + "\"}");
+    }
+
+    private static HttpRequest request(String contentType, String body) {
         return proxy(
                 HttpRequest.class,
                 values(
@@ -108,18 +139,22 @@ class LogbookEmissionTest {
                         "getProtocolVersion",
                         "HTTP/1.1",
                         "getContentType",
-                        "application/json",
+                        contentType,
                         "getCharset",
                         StandardCharsets.UTF_8,
                         "getHeaders",
                         HttpHeaders.of("Authorization", "Bearer " + REQUEST_SECRET),
                         "getBodyAsString",
-                        "{\"password\":\"" + REQUEST_SECRET + "\"}",
+                        body,
                         "getBody",
-                        ("{\"password\":\"" + REQUEST_SECRET + "\"}").getBytes(StandardCharsets.UTF_8)));
+                        body.getBytes(StandardCharsets.UTF_8)));
     }
 
     private static HttpResponse response(int status, String body) {
+        return response(status, "application/json", body);
+    }
+
+    private static HttpResponse response(int status, String contentType, String body) {
         return proxy(
                 HttpResponse.class,
                 values(
@@ -132,7 +167,7 @@ class LogbookEmissionTest {
                         "getProtocolVersion",
                         "HTTP/1.1",
                         "getContentType",
-                        "application/json",
+                        contentType,
                         "getCharset",
                         StandardCharsets.UTF_8,
                         "getHeaders",
