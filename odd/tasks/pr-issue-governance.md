@@ -203,3 +203,19 @@ every suite, and because the suites did not check it the result read as **all 7 
 tests this feature never touched. The directory was recreated and every suite re-run green. The two suites
 this feature adds now fail loudly when their scratch directory cannot be created, and the lesson is recorded
 here because the same cleanup would mislead the next session in the same way.
+
+**L13** *(the receipt-driven review, 2026-10-17)*: `gentle_review` with `assess` over the committed range from
+the branch point reports `nativeRisk: high`, `reviewDue: true` (`high_risk`), writer profile `large` from the
+runtime evidence, 24 paths and 2109 changed lines; the risk signals are the new executable shell script
+(`executable_mode`, `process_boundary`, `shell_source`). The first attempt reported `unassessable` because the
+call ran with the session's own directory — `main`, clean — instead of the worktree; naming the worktree as the
+workspace root produced the assessment above. `inspect` then reports `status: ready`, `action: start`,
+`fresh_target_ready`, and offers exactly one route: `review.start` with `--base-ref=5b2c7ee --committed-only`
+over the whole tracker range.
+
+**The review was deliberately not started.** The offered candidate is the accumulated feature branch, and the
+lifecycle that governs this call states the candidate is a work-unit commit or a pull request slice and never
+the accumulated feature branch. The five slices exist as commits on the tracker, not yet as the branches the
+chain needs, and materializing those branches is part of the delivery the user has not authorized. The decision
+returned to the user with the outcome: which slice to review first (recommendation: `S2`'s gate, which is where
+the high-risk signal is), and whether to start the review at all.
