@@ -13,14 +13,18 @@
 # inside a workflow step can only be tested by pushing a branch, which is the wrong price
 # for a gate that runs on every PR of the repository.
 #
-# The vocabulary below mirrors the machine-installed `branch-pr` skill and
-# `.agents/skills/project-conventions/references/labels.md`, exactly the way
-# `docker/scripts/tests/image-pins.test.sh` freezes the image set on purpose: a name that
-# exists in one place and not the other is the defect those files exist to catch. A
-# seventh `type:*` label must be added in all three at once, in the same commit.
+# The vocabulary is not written here: it is read from `.github/label-vocabulary.txt`, the one
+# machine-readable source. `.github/PULL_REQUEST_TEMPLATE.md` and
+# `.agents/skills/project-conventions/references/labels.md` carry the same six names, and
+# `.github/scripts/tests/vocabulary-source.test.sh` freezes the three artifacts together —
+# the way `docker/scripts/tests/image-pins.test.sh` freezes the image set on purpose: a name
+# that exists in one artifact and not the others is the defect those files exist to catch. A
+# seventh `type:*` label must be added to the source file and both documentation artifacts at
+# once, in the same commit.
 #
-# Fails closed: an empty label set, an unreadable file, malformed JSON and an unknown
-# argument are all failures, never a silent pass.
+# Fails closed: a missing, unreadable or empty vocabulary source, an empty label set, an
+# unreadable file, malformed JSON and an unknown argument are all failures, never a silent
+# pass.
 #
 # Usage:
 #   check-pr-type-labels.sh --labels-json '["java","type:docs"]'
@@ -31,7 +35,8 @@
 
 set -u
 
-VOCABULARY="type:bug type:feature type:docs type:refactor type:chore type:breaking-change"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VOCABULARY_FILE="$SCRIPT_DIR/../label-vocabulary.txt"
 
 usage() {
 	cat <<'EOF'
@@ -39,6 +44,9 @@ Usage: check-pr-type-labels.sh [--labels-json JSON | --labels-file PATH]
 
 Fails unless the given label set contains exactly one declared `type:*` label.
 With no option the label names are read from stdin, one per line.
+
+The vocabulary is read from `.github/label-vocabulary.txt`, beside this script's parent
+directory: a missing, unreadable or empty source is itself a failure.
 EOF
 }
 
@@ -77,6 +85,25 @@ if [ -n "$labels_json" ] && [ -n "$labels_file" ]; then
 	printf 'FAIL: --labels-json and --labels-file are mutually exclusive\n' >&2
 	exit 1
 fi
+
+# The vocabulary is read before any label is validated: a broken source is a broken gate,
+# not a gate that silently rejects every name. An empty read is empty vocabulary, and empty
+# vocabulary would make every label unknown, so it fails here instead.
+vocabulary=()
+if [ ! -f "$VOCABULARY_FILE" ] || [ ! -r "$VOCABULARY_FILE" ]; then
+	printf 'FAIL: cannot read the label vocabulary source: %s\n' "$VOCABULARY_FILE" >&2
+	exit 1
+fi
+while IFS= read -r line; do
+	line="${line%$'\r'}"
+	[ -n "$line" ] && vocabulary+=("$line")
+done <"$VOCABULARY_FILE"
+
+if [ "${#vocabulary[@]}" -eq 0 ]; then
+	printf 'FAIL: the label vocabulary source is empty: %s\n' "$VOCABULARY_FILE" >&2
+	exit 1
+fi
+VOCABULARY="${vocabulary[*]}"
 
 labels=()
 

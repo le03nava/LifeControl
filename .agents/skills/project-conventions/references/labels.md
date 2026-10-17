@@ -6,10 +6,12 @@ recording which label a merged PR carried.
 ## The rule
 
 Every pull request carries **exactly one** `type:*` label, taken from the labels that already exist on
-the target repository. The vocabulary is declared by the machine-installed `branch-pr` skill —
-`gentle-ai-branch-pr`, Critical Rule 2, *"Every PR MUST have exactly one `type:*` label"* — not by this
-repository. That skill is refreshed by `gentle-ai sync` on each developer's machine, so this file is
-both the mirror for a contributor who runs no gentle-ai skill and the copy the repository can version.
+the target repository. The vocabulary originates in the machine-installed `branch-pr` skill —
+`gentle-ai-branch-pr`, Critical Rule 2, *"Every PR MUST have exactly one `type:*` label"*. This
+repository mirrors it in `.github/label-vocabulary.txt`, the one machine-readable source: the guard
+reads that file, this document's vocabulary table and the PR template carry the same six names, and
+`vocabulary-source.test.sh` fails when the three disagree. The skill is refreshed by `gentle-ai sync`
+on each developer's machine, so this file also serves the contributor who runs no gentle-ai skill.
 
 Section 2 of that skill's PR body pairs each checkbox with the label to apply:
 
@@ -116,19 +118,23 @@ Every `type:*` label shares one colour (`#bfdadc`) so the namespace reads as one
 
 ## Enforcement
 
-Three pieces, added 2026-10-17, close the gaps this file used to carry:
+Four pieces, added 2026-10-17, close the gaps this file used to carry:
 
 | Piece | Path | What it does |
 | --- | --- | --- |
+| Vocabulary | `.github/label-vocabulary.txt` | The one machine-readable source: the six names, one per line. The guard reads it, and `vocabulary-source.test.sh` freezes it against the template and this file's table. |
 | Template | `.github/PULL_REQUEST_TEMPLATE.md` | Carries the six checkboxes, each paired with its label, plus the linked issue, summary, changes table and test plan. It is the in-repo widget the `branch-pr` skill's "check exactly ONE in the template" step needs. |
 | Guard | `.github/workflows/pr-label-guard.yml` -> `.github/scripts/check-pr-type-labels.sh` | Fails the pull request when the label set has zero `type:*` labels, more than one, or one whose name is not in the vocabulary. |
 | Planner | `.github/scripts/retro-label-prs.sh` | Applies the commit-type mapping to an existing history, dry-run by default and idempotent. |
 
-The three suites under `.github/scripts/tests/` run inside the guard workflow, all offline:
+The four suites under `.github/scripts/tests/` run inside the guard workflow, all offline:
 `check-pr-type-labels.test.sh` (the guard's own failure modes — zero labels, two labels, a synonym,
-an unreadable or malformed set), `retro-label-prs.test.sh` (the whole mapping, the `!` marker, the
-fail-closed case and idempotency) and `label-artifacts.test.sh` (the template offers exactly the
-vocabulary the guard accepts, and the workflow keeps no `paths:` filter).
+an unreadable or malformed set), `vocabulary-source.test.sh` (the source file, the template and this
+file's table declare the same six names, and a missing or empty source fails closed),
+`retro-label-prs.test.sh` (the whole mapping, the `!` marker, the fail-closed case and idempotency)
+and `label-artifacts.test.sh` (the template offers exactly the vocabulary the guard accepts, every
+Dependabot `updates[]` entry carries `dependencies` and one `type:*`, and the workflow keeps no
+`paths:` filter).
 
 The workflow carries **no `paths:` filter**, and that is the point: every other workflow here filters
 by component, so a markdown-only pull request runs no job at all — which is precisely the pull request
@@ -160,11 +166,16 @@ which is the idempotency the tests assert offline. The one title carrying `!` (`
   for a green verdict until the branch protection rules name it. Its verdict can be ignored.
 - A pull request opened through the API or the CLI does not necessarily use the template: the label guard covers
   the label, not the body, so the issue link and the contributor checklist remain review-time conventions.
-- The vocabulary lives in three places by design — this file, the `branch-pr` skill, and the guard script's
-  `VOCABULARY` — because each has a different consumer. A seventh `type:*` label must be added to all three in
-  the same commit, or the guard starts rejecting a name the documentation prescribes.
+- The vocabulary has one machine-readable source, `.github/label-vocabulary.txt`, which the guard reads
+  instead of an inline string. The `branch-pr` skill still declares the vocabulary independently, and this file
+  and the PR template repeat it for a human reader, so a seventh `type:*` label must still be added to the source
+  and to both documentation artifacts in the same commit. `vocabulary-source.test.sh` freezes the source, the
+  template and this file's table together so the drift is caught offline; the skill's copy stays out of reach
+  because it lives outside the repository.
 - A contributor who runs no gentle-ai skill still has to find this file; the template links to it, which is one
   hop closer than before.
-- Dependabot opens its pull requests with `dependencies` and no `type:*` label, so the guard reports red on a
-  dependency bump until a human adds `type:chore`. Auto-labelling is deliberately not in this slice: it would need
-  a token with `issues: write`, and this gate runs with `permissions: contents: read`.
+- Dependabot's pull requests now satisfy the gate at open time: every `updates[]` entry in
+  `.github/dependabot.yml` declares `labels:` with `dependencies` and `type:chore`, and
+  `label-artifacts.test.sh` parses the file and fails on a missing, doubled or off-vocabulary label.
+  Auto-labelling a hand-authored PR is still out of scope: it would need a token with `issues: write`,
+  and this gate runs with `permissions: contents: read`.

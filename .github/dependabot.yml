@@ -7,3 +7,11 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"
+    # Dependabot cannot author the approved issue the `issue` gate needs, and it cannot edit
+    # its own labels after opening, so these two labels at open time are what let its pull
+    # requests satisfy `.github/scripts/check-pr-type-labels.sh`. `dependencies` is the
+    # Dependabot-created triage label; `type:chore` is the `type:*` name the guard accepts.
+    # `label-artifacts.test.sh` fails if any `updates[]` entry drops or doubles them.
+    labels:
+      - dependencies
+      - type:chore

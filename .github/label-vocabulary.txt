@@ -1,0 +1,6 @@
+type:bug
+type:feature
+type:docs
+type:refactor
+type:chore
+type:breaking-change
