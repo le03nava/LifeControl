@@ -1,8 +1,8 @@
 # ODD feature: sales-scan-ux
 
-**Status**: implemented — the three work-unit commits and their gate results are in the evidence log below.
+**Status**: merged — PRs **#189** `0d58a8a`, **#190** `a4c698c`, **#191** `299837f`, record **#192** `879ae2a`, 2026-09-27: the three work-unit commits and their gate results are in the evidence log below.
 Open in this record: the manual scan-coherence pass (no automated check covers it), plus follow-ups
-F1–F5. No claim is made here about push or PR state.
+F1–F5.
 **Repository**: LifeControl — Angular frontend (`life-control-app-angular/**`) only. No backend edit, no
 contract change, no schema, no auth, no route, no build config, no CI change.
 **Created**: 2026-09-26
@@ -182,3 +182,7 @@ call.
 | F3 | Make `POST /sales-orders/{id}/items` return the resulting order status so the background GET disappears entirely. | A contract change: high risk, needs a compatibility note and the backend gate. Out of the frontend-only scope chosen for this record. |
 | F4 | A row edit applied optimistically on input would make the merge's `savingRowIds` guard load-bearing; today it is defensive. The residual race is real either way: a `syncOrder` GET that started before a row's own PATCH settled can return the older row and overwrite it. | Ordering the reconciliation against in-flight writes is its own change with its own specs; the write lock from T3 removes the operator-reachable path, not the race. |
 | F5 | `npm run test:e2e` is declared in `package.json` but has no step in `.github/workflows/angular-ci.yml`, and it cannot be trusted locally while `reuseExistingServer` points at the Docker container on `:4200`. | A CI/pipeline change: high risk under `assets/risk-classification-matrix.md`, needs a rollback plan and is independent of this fix. |
+
+## Header repair (2026-10-17)
+
+The `**Status**:` line above was rewritten on 2026-10-17 by `odd/tasks/odd-merged-header-reconciliation.md` (T4), where the inventory and the verification live. It used to decline the delivery state: «No claim is made here about push or PR state.». That state — the pull request and its merge commit — became known when the work landed, so the line now carries it. Nothing else in this record was touched.

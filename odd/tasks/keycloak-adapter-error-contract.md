@@ -1,13 +1,11 @@
 # ODD feature: keycloak-adapter-error-contract
 
-**Status**: **implemented and verified — `T6` is closed as *retired* in `L9`, and no task of this unit
-stays open; the delivery is the merge of its own pull request, and by its parent record's convention this
-header claims no push, pull-request or merge state** — shape
+**Status**: merged — PR **#347**, merge `3a19856`, 2026-10-16 (`1588261`, `142ec68` ⊂ `3a19856`): **implemented and verified — `T6` is closed as *retired* in `L9`, and no task of this unit
+stays open** — shape
 **A** closed by the user on 2026-10-16; the implementation is **`1588261`** (the translation, its tests and the
 three boundary pins), on the shape written by **`142ec68`**, and **`T6` — the one task that was still open when
 the delivery started — is closed as *retired* in `L9`, because the tier the provider measures owes no verifier
-and the independent route was refused before it ran**. Delivery state is deliberately **not** stated here: this
-repository's convention puts it in the dated evidence log, which is also where the next row will record it.
+and the independent route was refused before it ran**. The gaps `X1`–`X3` are declared limits, not unfinished work.
 **Risk**: **high — item 3**, *changing a contract others already consume*: the status a consumer sees when
 the identity provider refuses the application changes from the accidental **500** to a deliberate one, on
 `usersadmin`'s adapter, which five packages outside `usersadmin` consume. *(**Superseded 2026-10-16 by `L9`**: the
@@ -320,3 +318,7 @@ Dependency order: **W1 → W3**. The shape (**T1**) is closed, and **W2 is not r
   does not relabel the risk**: what it records is that this record's reading of item 3 and the tier the
   provider computes disagree, and that the provider's tier is the one the plan follows. **No production line
   changed.**
+
+## Header repair (2026-10-17)
+
+The `**Status**:` line above was rewritten on 2026-10-17 by `odd/tasks/odd-merged-header-reconciliation.md` (T4), where the inventory and the verification live. It used to decline the delivery state: «by its parent record's convention this header claims no push, pull-request or merge state». That state — the pull request and its merge commit — became known when the work landed, so the line now carries it. Nothing else in this record was touched.

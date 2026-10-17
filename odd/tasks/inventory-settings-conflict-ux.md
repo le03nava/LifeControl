@@ -3,10 +3,11 @@
 **Repository**: LifeControl — Angular frontend (`life-control-app-angular/**`) only. One feature
 (`inventory`), one page, one shared helper. No backend edit, no template edit, no route, no contract
 change, no build config, no CI change.
-**Status**: implemented — the slice changes **seven files (+93 −3)** and the gate is green on the
-committed tree `2b7368e` (130 files / 2537 tests / 0 failures; coverage 94.08 / 76.00 / 89.32 / 94.08
-against the enforced 80 / 60 / 75 / 80). One independent read-only verification round was run and is
-closed under `## Findings` and the evidence log. This header makes no claim about push or PR state.
+**Status**: merged — PR **#172**, merge `167a6ce`, 2026-09-25 (`2b7368e` ⊂ `167a6ce`): the slice changes
+**seven files (+93 −3)** and the gate is green on the committed tree `2b7368e` (130 files / 2537 tests /
+0 failures; coverage 94.08 / 76.00 / 89.32 / 94.08 against the enforced 80 / 60 / 75 / 80). One
+independent read-only verification round was run and is closed under `## Findings` and the evidence log.
+Follow-ups 1–5 stay open.
 **Created**: 2026-09-25
 **Risk**: **low but not cosmetic.** Production behaviour changes on two paths — a write now carries a
 precondition it did not carry, and a rejected write now reloads the form instead of leaving it stale.
@@ -329,3 +330,7 @@ A one-file, one-line change to a shared helper is the only cross-cutting edit; i
 5. **A 409-specific assertion that the version was re-seeded** — the property is guarded only indirectly
    today, through the update-body test (F8). One extra assertion on the existing 409 test would localise a
    regression to the path that depends on it.
+
+## Header repair (2026-10-17)
+
+The `**Status**:` line above was rewritten on 2026-10-17 by `odd/tasks/odd-merged-header-reconciliation.md` (T4), where the inventory and the verification live. It used to decline the delivery state: «This header makes no claim about push or PR state.». That state — the pull request and its merge commit — became known when the work landed, so the line now carries it. Nothing else in this record was touched.

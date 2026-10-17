@@ -3,12 +3,11 @@
 **Repository**: LifeControl — Angular frontend (`life-control-app-angular/**`). Two production
 components migrated onto an existing shared helper, plus two spec files. No new module, no template
 change, no route, no contract, no build config, no CI change.
-**Status**: **implemented — 3 code commits plus this record on `refactor/unify-mobile-viewport-consumers`
-off `main` @ `0725237`**, worktree `~/workspace/LifeControl-worktrees/refactor-unify-mobile-viewport-consumers`
+**Status**: merged — PR **#168**, merge `12cef90`, 2026-09-24 (`dc0152a`, `91f4d61`, `e0f6c33` ⊂ `12cef90`) — 3 code commits plus this record on `refactor/unify-mobile-viewport-consumers`
+off `main` @ `0725237`, worktree `~/workspace/LifeControl-worktrees/refactor-unify-mobile-viewport-consumers`
 (herdr workspace `w13`): `dc0152a` (the two consumers), `91f4d61` (the detail-table re-stub),
 `e0f6c33` (the receipt-detail mobile case). **4 files, 84 insertions / 33 deletions** (production: 7 / 22;
-specs: 77 / 11). Lint, build and the CI coverage gate pass at the tip. This header carries only dated
-local facts and makes no claim about push or PR state — see F11.
+specs: 77 / 11). Lint, build and the CI coverage gate pass at the tip. F11 and the other follow-ups in `## Follow-ups` stay open.
 **Created**: 2026-09-24
 **Risk**: **low.** Nothing changes for a user: both idioms read the same constant, and the initial value
 they expose is provably identical (D2). The one item that could have grown the slice did not: the
@@ -232,3 +231,7 @@ things it found that were not claimed:
 - Unchanged from the previous inventories: the dead `zones-list`/`stores-list` components,
   `var(--bp-*)` having no consumer, and `docker/scripts/_common.sh::verify_artifact_freshness` comparing
   mtimes.
+
+## Header repair (2026-10-17)
+
+The `**Status**:` line above was rewritten on 2026-10-17 by `odd/tasks/odd-merged-header-reconciliation.md` (T4), where the inventory and the verification live. It used to decline the delivery state: «This header carries only dated local facts and makes no claim about push or PR state — see F11.». That state — the pull request and its merge commit — became known when the work landed, so the line now carries it. Nothing else in this record was touched.
