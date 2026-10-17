@@ -10,10 +10,10 @@ PR 2 = `S2`, PR 3 = `S4+S5`, PR 4 = `S6+S3`, PR 5 = `S7` (re-cut from the three-
 first slice was measured; see `L7`). Push, issue creation and merge are the user's decisions.
 **Test runner**: `.github/scripts/tests/*.test.sh` and `docker/scripts/tests/*.test.sh` — offline bash
 suites, run from the worktree; `shellcheck --severity=warning` on modified scripts.
-**Status**: implemented on the tracker branch `chore/pr-issue-governance` — 6 commits in 5 slices, all
-7 suites green. What remains is the delivery: the issue that approves this work, the five pull requests and
-the merge, every one of them a user decision. This header makes no claim about push, PR or merge state; the
-`## Log` holds the evidence.
+**Status**: implemented on the tracker branch `chore/pr-issue-governance` — 9 commits in 5 slices, the 7
+suites at 182 assertions green and the 5 docker suites untouched. What remains is the delivery: the issue
+that approves this work, the pull requests and the merge, every one of them a user decision. This header
+makes no claim about push, PR or merge state; the `## Log` holds the evidence.
 **Created**: 2026-10-17
 **Risk**: **high.** Two slices change what CI does at merge time (Task Size item 5: `S2` adds a merge-blocking
 gate and an `issues: read` token scope; `S7` changes workflow triggers) and `S3` decides who must review what.
@@ -97,10 +97,10 @@ touched this record: the parent re-ran every suite, the shellcheck step and the 
 | PR | Specs | Commits on the tracker branch |
 | --- | --- | --- |
 | 1 | `S1` | `cd58c1e` (this record), `b560378` (forms + suite) |
-| 2 | `S2` | `9fa68f3` (gate + suite + workflow wiring) |
+| 2 | `S2` | `9fa68f3` (gate + suite + workflow wiring), `788fb45` (the nine closing keywords + the scratch guard) |
 | 3 | `S4+S5` | `b7a034a` (vocabulary source, guard, Dependabot labels, three suites) |
 | 4 | `S6+S3` | `5c382e6` (CONTRIBUTING.md, AGENTS link, CODEOWNERS, index registry) |
-| 5 | `S7` | `b385f35` (the four `push:` filters + the parity suite) |
+| 5 | `S7` | `b385f35` (the four `push:` filters + the parity suite), `7a890be` (the parser's hyphenated keys) |
 
 The record itself is touched by more than one slice: the Log grows with each unit, so the last slice
 carries the completed table. The tracker branch is never the review candidate — each slice is.
@@ -174,3 +174,32 @@ silently taken.
    reversible. `Dependabot` pull requests are exempt from the issue gate for the same reason their label is now
    declared in `dependabot.yml`: a machine cannot author an approved issue, and the weekly dependency policy is
    its approval model.
+
+**L11** *(independent verification, and the two defects it found, 2026-10-17)*: a read-only `gentle-ai-verify`
+pass re-ran every suite, validated all six workflow files with `actionlint` 1.7.12 (exit 0), replayed the
+workflow's run block against a mock `gh` for the fail-closed paths (unreadable payload, non-JSON, a pull
+request, a wrong number, a valid approved issue), and proved the `S7` diff adds only `paths:` lines under
+`push:` (`3/3/7/4` inserted, nothing removed). Verdicts: **verified** for both units, with no blocker. It also
+found two defects, both fixed and both pinned by a case that was red first:
+
+1. **The gate matched three of GitHub's nine closing keywords** (`788fb45`). A body saying `Fix #12` was
+   rejected as having no reference at all — a valid pull request blocked over a conjugation, by the gate whose
+   purpose is to make linking issues easy. The suite now pins one case per family plus a keyword GitHub does
+   not honor.
+2. **The parity suite could report a false pass** (`7a890be`). Its key rule matched only `[A-Za-z_]+` before the
+   colon, so `paths-ignore:` fell through and its entries were read as `paths:` entries: a push of `one/**` plus
+   `paths-ignore: two/**` compared equal to a pull-request list of both. A test that can pass wrongly is the
+   same defect class this repository's other suites exist to catch, which is why it is fixed rather than noted.
+
+Advisories accepted and documented, not fixed: a reference quoted inside a code fence is still read as a
+reference; the cross-repository rule also rejects a self-repository `owner/repo#N` reference; and the `issue`
+job checks out and runs the guard from the pull request itself, so a pull request that edits the guard decides
+its own verdict — inherent to the `pull_request` trigger, mitigated by `.github/CODEOWNERS` and by branch
+protection once it is applied.
+
+**L12** *(the incident this turn caused and repaired, 2026-10-17)*: cleaning up the leftover scratch of the
+delegated writers removed `/tmp/gpfNX1J8`, which was the session's `TMPDIR`. `mktemp -d` then failed inside
+every suite, and because the suites did not check it the result read as **all 7 suites failing**, including
+tests this feature never touched. The directory was recreated and every suite re-run green. The two suites
+this feature adds now fail loudly when their scratch directory cannot be created, and the lesson is recorded
+here because the same cleanup would mislead the next session in the same way.
