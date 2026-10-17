@@ -13,39 +13,49 @@ app.describe('Navigation and role-based menus', () => {
       await expect(page.getByRole('link', { name: 'Compras' })).toBeVisible();
       await expect(page.getByRole('link', { name: 'Users Admin' })).toBeVisible();
       await expect(page.getByRole('link', { name: 'Calendario y citas' })).toBeVisible();
-      await expect(page.getByRole('link', { name: 'Recursos Humanos' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Recursos Humanos submenu' })).toBeVisible();
     });
 
     app(
-      'reaches the departments screen from the Recursos Humanos entry (E53)',
+      'reaches the departments screen from the Recursos Humanos label, which opens its submenu (E53)',
       async ({ page }) => {
         await page.goto('/');
 
-        const hrLink = page.getByRole('link', { name: 'Recursos Humanos' });
-        await expect(hrLink).toBeVisible();
+        // The label is a menu-only entry: it is the submenu trigger and carries no
+        // destination of its own, because `Departamentos` (9-1) already carries
+        // `/hr/departments`. Clicking it must therefore open the menu, not navigate.
+        const hrLabel = page.getByRole('button', { name: 'Recursos Humanos submenu' });
+        await expect(hrLabel).toBeVisible();
 
-        await hrLink.click();
+        await hrLabel.click();
+
+        await expect(page).not.toHaveURL(/\/hr\//);
+
+        await page.getByRole('menuitem', { name: 'Departamentos' }).click();
 
         await expect(page).toHaveURL(/\/hr\/departments$/);
         await expect(page.getByRole('heading', { name: 'Departamentos' })).toBeVisible();
       },
     );
 
-    app('reaches the positions screen from the Recursos Humanos submenu (D16)', async ({ page }) => {
-      await page.goto('/');
+    app(
+      'reaches the positions screen from the Recursos Humanos submenu (D16)',
+      async ({ page }) => {
+        await page.goto('/');
 
-      const hrEntry = page.getByRole('link', { name: 'Recursos Humanos' });
-      await expect(hrEntry).toBeVisible();
+        const hrEntry = page.getByRole('button', { name: 'Recursos Humanos submenu' });
+        await expect(hrEntry).toBeVisible();
 
-      // The child is reached through the submenu, and it is the rendered control
-      // D16 requires to have a destination behind it: the entry grows one child
-      // at a time rather than shipping one that resolves to NotFound.
-      await page.getByRole('button', { name: 'Recursos Humanos submenu' }).click();
-      await page.getByRole('menuitem', { name: 'Puestos' }).click();
+        // The child is reached through the submenu, and it is the rendered control
+        // D16 requires to have a destination behind it: the entry grows one child
+        // at a time rather than shipping one that resolves to NotFound.
+        await page.getByRole('button', { name: 'Recursos Humanos submenu' }).click();
+        await page.getByRole('menuitem', { name: 'Puestos' }).click();
 
-      await expect(page).toHaveURL(/\/hr\/positions$/);
-      await expect(page.getByRole('heading', { name: 'Puestos' })).toBeVisible();
-    });
+        await expect(page).toHaveURL(/\/hr\/positions$/);
+        await expect(page.getByRole('heading', { name: 'Puestos' })).toBeVisible();
+      },
+    );
 
     app('reaches the position settings screen from the row action (W3)', async ({ page }) => {
       await page.goto('/hr/positions?companyId=company-1');

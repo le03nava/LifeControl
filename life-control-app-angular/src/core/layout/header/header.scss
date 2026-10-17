@@ -135,6 +135,35 @@
   color: var(--color-gray-500);
 }
 
+/* ── Menu-only entry: its label is the submenu trigger ── */
+
+.nav-item-trigger {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  /* Mirrors the `large` hyperlink the sibling labels use, so the row keeps the same
+     height, padding, typography and hover as the entries that navigate. */
+  padding: var(--space-md) var(--space-lg);
+  min-height: 3rem;
+  font-size: 1.125rem;
+  font-weight: 500;
+  color: var(--color-gray-600);
+  text-align: start;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.nav-item-trigger:hover {
+  background-color: var(--color-gray-200);
+}
+
+.nav-item-trigger .menu-caret {
+  margin-inline-start: auto;
+  color: var(--color-gray-500);
+}
+
 .nav-actions {
   display: flex;
   flex-wrap: wrap;

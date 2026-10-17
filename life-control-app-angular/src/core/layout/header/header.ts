@@ -67,9 +67,15 @@ export class Header implements OnInit {
   items = computed(() => {
     const menuItems: {
       id: string;
-      routeLink: string;
+      /**
+       * The entry's destination. A menu-only entry (`opensSubmenu`) has none: its label
+       * opens `children` instead of navigating, so it leaves this out.
+       */
+      routeLink?: string;
       textLink: string;
       icon: string;
+      /** The label itself opens `children` as a menu instead of navigating. */
+      opensSubmenu?: boolean;
       children?: { id: string; routeLink: string; textLink: string; icon: string }[];
     }[] = [];
 
@@ -165,7 +171,10 @@ export class Header implements OnInit {
     }
 
     // Recursos Humanos is appended last so the pinned product-order relations are
-    // untouched. Its visibility is the union of the four HR write sets (D17):
+    // untouched. It is a **menu-only** entry (`opensSubmenu`): its label opens the
+    // submenu and it carries no `routeLink` of its own, because `9-1` Departamentos
+    // already carries `/hr/departments` and a parent link only jumped into one of its
+    // own children. Its visibility is the union of the four HR write sets (D17):
     // anyone who can write in at least one HR catalog gets the entry, and each
     // screen then gates its own controls on the narrower list. The three
     // children are the three destinations the feature has shipped: `9-1`
@@ -176,9 +185,9 @@ export class Header implements OnInit {
     if (this.isHr()) {
       menuItems.push({
         id: '9',
-        routeLink: '/hr/departments',
         textLink: 'Recursos Humanos',
         icon: 'badge',
+        opensSubmenu: true,
         children: [
           {
             id: '9-1',
