@@ -1,10 +1,12 @@
 package com.lifecontrol.api.hr.repository;
 
 import com.lifecontrol.api.hr.model.Employee;
+import jakarta.persistence.LockModeType;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -27,6 +29,31 @@ import org.springframework.stereotype.Repository;
 public interface EmployeeRepository extends JpaRepository<Employee, UUID> {
 
     Optional<Employee> findByIdAndCompanyId(UUID id, UUID companyId);
+
+    /**
+     * The company-scoped employee row under a <b>pessimistic write lock</b>
+     * ({@code SELECT ... FOR UPDATE}), mirroring
+     * {@code AccessProvisioningTaskRepository#findByIdAndEmployeeIdForUpdate} and
+     * {@code PurchaseOrderRepository#findByIdForUpdate}.
+     *
+     * <p>Its consumer is {@code AccessProvisioningProducer.enqueue}, which takes this lock
+     * <b>before</b> it reads the employee's open access-provisioning task: the access-provisioning
+     * per-employee partial unique index {@code uq_access_provisioning_tasks_open} admits one open
+     * task, so two concurrent facts for one employee would otherwise both pass the pre-check and one
+     * would be refused at commit — losing a legitimate HR write. The lock serializes the whole
+     * decision (open-set read, suppress-or-supersede, create) on the employee row, inside the
+     * caller's transaction, so the second transaction re-reads the committed open set instead of a
+     * stale one.</p>
+     *
+     * <p>The lock order is <b>employee &rarr; task</b> for every writer: the HR facts
+     * ({@code ContractService.createContract}, {@code EmployeeStoreAssignmentService}) and
+     * {@code EmployeeService.updateEmployee} all reach the task only through the producer, after
+     * their own row write. A path that held a task lock and then took this one would invert the
+     * order and deadlock against them.</p>
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT e FROM Employee e WHERE e.id = :id AND e.company.id = :companyId")
+    Optional<Employee> findByIdAndCompanyIdForUpdate(@Param("id") UUID id, @Param("companyId") UUID companyId);
 
     /**
      * The employee row of the account that owns {@code keycloakUserId}, if any.

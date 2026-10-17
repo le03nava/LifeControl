@@ -17,6 +17,7 @@ import static org.mockito.Mockito.when;
 import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.company.model.Company;
 import com.lifecontrol.api.hr.model.Employee;
+import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.provisioning.exception.AmbiguousCurrentContractException;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTask;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTaskKind;
@@ -69,6 +70,9 @@ class AccessProvisioningProducerTest {
 
     @Mock
     private AccessProvisioningTaskService taskService;
+
+    @Mock
+    private EmployeeRepository employeeRepository;
 
     @InjectMocks
     private AccessProvisioningProducer producer;
