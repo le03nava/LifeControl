@@ -134,11 +134,23 @@ unit, and the tests are what make the other 79 lines checkable.
 - **The `dev` default reaches deployments that forget the variable.** `spring.profiles.active=${SPRING_PROFILES_ACTIVE:dev}`
   means an unset variable logs **every** exchange, not only refusals. The compose files set it per
   environment; nothing fails closed if one stops doing so. Recorded, not fixed here: changing a profile
-  default is not this unit's decision.
+  default is not this unit's decision. *(**Closed on 2026-10-17** by the `logbook-log-safety` unit, delivered as
+  PR #354 → `11275c4`: a fail-closed `EnvironmentPostProcessor` (`LogbookProfileGuard`) refuses to start when
+  the effective profile is `dev` and `SPRING_PROFILES_ACTIVE` was never declared, `docker/docker-compose.yml`
+  now requires the variable at both service envs (`${SPRING_PROFILES_ACTIVE:?...}`), and neither image bakes a
+  default any more — the `ENV SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-dev}` lines are gone. In a
+  cluster that declares no profile, what protects the deployment is that refusal and not a manifest.)*
 - **The sanitizer's partial coverage is now load-bearing.** With the logger silent, its gaps were
   unobservable; now they are the real exposure surface. Non-JSON bodies, non-string JSON values, headers
   outside the list and every query parameter other than `access_token` reach the log unredacted. No test
-  pins the gaps as gaps.
+  pins the gaps as gaps. *(**Half closed on 2026-10-17** by the same unit as the bullet above: outside `dev`,
+  `SensitiveDataSanitizer.bodyFilter()` now returns the fixed `[REDACTED]` whatever the content type, so
+  **no body** reaches the log there and the non-JSON bodies and non-string JSON values this bullet names are
+  covered. **What still stands, and it is metadata rather than content**: headers outside the sanitizer's
+  list and every query parameter other than `access_token` are emitted as they arrive, in every profile, and
+  `dev` keeps the previous body behaviour by design — the shape the user chose was *«Metadatos fuera de dev +
+  guard de perfil»*, and that is exactly what it left standing. The route that widens instead of silencing it
+  — `logbook.enabled=false` — is declared as **F1** of `odd/tasks/logbook-log-safety.md`.)*
 - **Nothing measures log volume.** No test or dashboard asserts how many exchanges a profile actually
   emits; the strategy is pinned, the resulting volume is not.
 - **Unrelated defect found while running the gates, not fixed here**: the repository-root Gradle build does
@@ -189,3 +201,13 @@ unit, and the tests are what make the other 79 lines checkable.
   *belongs in its own issue*. Tree identity is not available for this merge — `main` had moved by #354's merge
   before it landed — so the proof is content: the diff `b0ba086` added to its own previous `main` (`11275c4`) is
   **1 file / +2 −2**, equal to the pull request's own numbers. **No source line of this record changed.**
+- **L5** — *2026-10-17, two more bullets of this record were superseded by work that landed after it, and the
+  repair is registered rather than left to age.* Measured on `main @ 1043b05`: the **`dev`-default bullet is
+  closed** by `logbook-log-safety` (PR #354 → `11275c4`) — the fail-closed guard, the compose requirement and
+  both Dockerfiles losing their baked `:-dev` default — and the **sanitizer bullet is half closed** by the same
+  unit, because outside `dev` the body filter answers a fixed `[REDACTED]`, which covers the non-JSON bodies
+  and the non-string JSON values it named; its remaining half — headers outside the sanitizer's list and query
+  parameters other than `access_token` — is **metadata**, stays emitted in every profile, and is precisely what
+  the chosen shape *«Metadatos fuera de dev + guard de perfil»* left standing. The root-Gradle bullet had already
+  been closed in place by `L4`, and the **log-volume bullet stands open**: no test and no dashboard asserts how
+  many exchanges a profile emits. **No source line changed.**
