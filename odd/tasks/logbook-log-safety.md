@@ -3,10 +3,13 @@
 **Repository**: LifeControl — `life-control-api/` only: `SensitiveDataSanitizer`, `LogbookConfig`, the
 `Logbook` block of `application.properties`, the component `AGENTS.md`, the new tests, plus one line of
 `docker/docker-compose.yml`. No endpoint, no schema, no contract, no dependency.
-**Status**: opened on 2026-10-17 with the shape closed by the user; the three severe findings it closes
-are the ones the native refuter corroborated over the Logbook candidate (`review-2f26d3ab7e181a9a`, since
-quarantined), and their evidence lives in that lineage's `residue/review-state.json`. This header makes no
-claim about push or PR state.
+**Status**: **delivered** — PR **#354** merged as **`11275c4`** on 2026-10-17, so `main` carries the change.
+The three severe findings it closes are the ones the native refuter corroborated over the Logbook candidate
+(`review-2f26d3ab7e181a9a`, since quarantined), and their evidence lives in that lineage's
+`residue/review-state.json`. What stays open is not a unit of this feature: **F1** (`logbook.enabled=false`
+widens what reaches the log instead of silencing it — pre-existing, and its own unit, because closing it means
+deciding what that switch is supposed to mean) and the per-environment k8s declaration, which needs a
+`life-control-api` Deployment that does not exist in the tree yet.
 **Created**: 2026-10-17 · **Risk**: **item 2 (security)** — the change decides whether HTTP request/response
 bodies can reach the staging/prod log store, and a mistake in the guard is a startup failure or a silent
 return of the exposure.
@@ -92,12 +95,12 @@ threshold literal and a proxy stub has divergent fallbacks). The reliability len
 
 | ID | Task | Specs | Route | Commit |
 | --- | --- | --- | --- | --- |
-| **T1** | `SensitiveDataSanitizer`/`LogbookConfig`: outside `dev` the body filter answers a fixed redaction instead of the real body; `dev` keeps today's behaviour. RED first, both directions. | S1, S2 | inline/worker, test-first | pending |
-| **T2** | The fail-closed profile guard: the context refuses to start when the effective profile is `dev` and `SPRING_PROFILES_ACTIVE` was never declared, naming the variable. Tested both ways (declared `dev` boots; undeclared `dev` refuses). Plus the harness half the measurement forces: `tasks.named('test')` pins `spring.profiles.active=test`, so the 36 profile-less classes stop inheriting `dev`. | S2, S3 | worker, test-first | pending |
-| **T3** | The deployment layer stops having a `dev` by default: `docker/docker-compose.yml` requires the variable (`${SPRING_PROFILES_ACTIVE:?...}`) at both service envs, so a missing env file fails at compose time. The k8s half is **impossible as written and is deliberately not invented**: `k8s/manifests/applications` holds only `api-gateway.yml` and `common-config.yml`, there is no per-environment overlay and no `life-control-api` Deployment, so there is no per-environment surface to declare the variable on — and a **shared** ConfigMap that declares `dev` would hand any pod the very default this unit closes while making the guard pass, which is R4-2 reintroduced through the cluster. The k8s surface therefore stays as it was, protected by the guard refusing to start when the variable is absent, and the structural test pins that the shared ConfigMap declares **no** profile. | S2, S3 | worker | pending |
-| **T4** | Docs that describe the change where the reader reaches it: the `Logbook` block of `application.properties`, the Logbook section of `life-control-api/AGENTS.md`, and the dev instruction the guard now requires. | S2, S3 | inline | pending |
-| **T5** | Full gate on the committed bytes of this worktree: `./gradlew test spotlessCheck spotbugsMain --rerun-tasks`, plus the repository's offline shell test for the compose line if one covers it. | S1, S2 | inline | pending |
-| **T6** | Independent verification of the high-risk claim (Risk item 2): that no non-dev profile can emit a request or response body, and that the guard cannot be satisfied by the state it exists to refuse. | S1, S2 | `gentle-ai-verify` | pending |
+| **T1** | `SensitiveDataSanitizer`/`LogbookConfig`: outside `dev` the body filter answers a fixed redaction instead of the real body; `dev` keeps today's behaviour. RED first, both directions. | S1, S2 | inline/worker, test-first | `ecc188e` |
+| **T2** | The fail-closed profile guard: the context refuses to start when the effective profile is `dev` and `SPRING_PROFILES_ACTIVE` was never declared, naming the variable. Tested both ways (declared `dev` boots; undeclared `dev` refuses). Plus the harness half the measurement forces: `tasks.named('test')` pins `spring.profiles.active=test`, so the 36 profile-less classes stop inheriting `dev`. | S2, S3 | worker, test-first | `ecc188e` |
+| **T3** | The deployment layer stops having a `dev` by default: `docker/docker-compose.yml` requires the variable (`${SPRING_PROFILES_ACTIVE:?...}`) at both service envs, so a missing env file fails at compose time. The k8s half is **impossible as written and is deliberately not invented**: `k8s/manifests/applications` holds only `api-gateway.yml` and `common-config.yml`, there is no per-environment overlay and no `life-control-api` Deployment, so there is no per-environment surface to declare the variable on — and a **shared** ConfigMap that declares `dev` would hand any pod the very default this unit closes while making the guard pass, which is R4-2 reintroduced through the cluster. The k8s surface therefore stays as it was, protected by the guard refusing to start when the variable is absent, and the structural test pins that the shared ConfigMap declares **no** profile. | S2, S3 | worker | `ecc188e`, plus the two `Dockerfile` lines the verification forced in `3728717` |
+| **T4** | Docs that describe the change where the reader reaches it: the `Logbook` block of `application.properties`, the Logbook section of `life-control-api/AGENTS.md`, and the dev instruction the guard now requires. | S2, S3 | inline | `ecc188e` |
+| **T5** | Full gate on the committed bytes of this worktree: `./gradlew test spotlessCheck spotbugsMain --rerun-tasks`, plus the repository's offline shell test for the compose line if one covers it. | S1, S2 | inline | `ecc188e` — see `L5` |
+| **T6** | Independent verification of the high-risk claim (Risk item 2): that no non-dev profile can emit a request or response body, and that the guard cannot be satisfied by the state it exists to refuse. | S1, S2 | `gentle-ai-verify` | the verification is `8b991f4`'s subject and the four findings it forced are `3728717` — see `L6` |
 
 ## Log
 
@@ -240,3 +243,23 @@ evidence that they are indifferent to it, which is the honest way to say it.
 one code+test+docs, one closing the verification's findings — and it is delivered as **one pull request declaring
 `size:exception`**, for the reason L5 records: the guard without the redaction leaves the exposure and the redaction
 without the guard leaves the footgun.
+
+**L7** — *2026-10-17, the delivery, and the two invariants it was proved with.* PR **#354**
+(`fix/logbook-log-safety`, head **`8b991f4`**, carrying the `size:exception` its body declares) was merged to `main`
+as **`11275c48700e0410ae54f5b10deb8069e92cd757`** on 2026-10-17, `--merge` and never a squash, with **no
+`--delete-branch`**: `delete_branch_on_merge` reads `false` in this repository, so the branch stays in `origin` as
+evidence and was verified still there at `8b991f4`. **The parents fix the order, and the proof here is tree identity
+— available because `main` had not moved under this cut**: `11275c4` ← `0e0bc69` (the previous `main`) +
+`8b991f4` (the reviewed head), and **`8b991f4^{tree}` == `11275c4^{tree}` ==
+`2b1ca93dfd6b81ecbb3202eb46dd968ec66928bc`**, so the merge added the reviewed bytes and not one byte more — the
+same proof this repository's records use for W8 and the G41 unit, and the one the two units that merged after this
+one could not use because this merge had moved `main` under them. **The diff the merge added to `main`** is **17
+files / +892 −35**, byte-equal to the numbers the pull request itself reports. **On the PR head** the checks had
+already answered **pass**: `Check` in 4m29s (run `39000585724`), `Check` in 1m11s (run `39000585713`) and
+`Shell & Artifact Integrity` in 17s (run `39000585719`). **The post-merge workflows on `443e9b6`** — the commit that
+carries this unit plus the two that merged after it — are `success` on all four: **Docker Build Integrity**
+(`39001069965`), **Gateway CI** (`39001070107`), **API CI** (`39001070035`) and **Angular CI** (`39001069984`),
+which is the unfiltered `push` trigger running on a diff this unit is part of. **What stays open after delivery,
+and it is not this unit's subject**: **F1** (the `logbook.enabled=false` route that widens instead of silencing) and
+the per-environment k8s declaration, which waits on a `life-control-api` Deployment and an environment overlay
+— neither exists in the tree, which is why the guard, and not a manifest, is what protects the cluster today.
