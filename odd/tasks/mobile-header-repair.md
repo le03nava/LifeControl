@@ -51,7 +51,8 @@ the same repair shape — and no task's risk line names a high-risk item.
 | T1 | S1–S3 | Repair the `**Status**:` line of `odd/tasks/mobile-breakpoint-guard.md` and record the repair in it | `0c9c7a9` |
 | T2 | S1–S3 | Repair the `**Status**:` line of `odd/tasks/mobile-breakpoint-single-source.md` and record the repair in it | `0c9c7a9` |
 | T3 | S1–S3, S4 | Repair the `**Status**:` line of `odd/tasks/mobile-viewport-observer.md`, record the repair in it, and report the stale `F1` rather than rewriting it | `0c9c7a9` |
-| T4 | S1–S4 | Record this slice, its inventory and its evidence | *(this record's own commit)* |
+| T4 | S1–S4 | Record this slice, its inventory and its evidence | `b94fac4` |
+| T5 | S1–S3 | Fix the nested code spans L7 found, in the two records that carried them | `9d7cabd` |
 
 ## Inventory
 
@@ -63,7 +64,7 @@ regex is an index and not a verdict. Three were false now:
 | Record | What the header asserted | Why it is false now | Evidence verified |
 | --- | --- | --- | --- |
 | `mobile-breakpoint-guard.md` | `implemented` — 3 commits on `fix/mobile-breakpoint-guard`, worktree `…/fix-mobile-breakpoint-guard` (`w11`) | The work merged on 2026-09-24; the merge fact sat two lines below in its own `**Merged as PR #166 …**` row; the worktree and herdr workspace no longer exist | `git rev-list --parents 89b4d9b` → `4469cf7` + `9c272ce`; `gh pr view 166` → `MERGED` `89b4d9b` 2026-09-24T19:34:16Z |
-| `mobile-breakpoint-single-source.md` | `implemented` — 4 commits on `fix/mobile-breakpoint-single-source`, worktree `…/fix-mobile-breakpoint-single-source` | Same defect; its merge row said `**Merged as PR #165 (`7f8ba11b9`), 2026-09-24.**` | `git rev-list --parents 7f8ba11` → `4469cf7` + `ac7cc09`; `gh pr view 165` → `MERGED` `7f8ba11` 2026-09-24T17:36:37Z |
+| `mobile-breakpoint-single-source.md` | `implemented` — 4 commits on `fix/mobile-breakpoint-single-source`, worktree `…/fix-mobile-breakpoint-single-source` | Same defect; its merge row said **Merged as PR #165** (`7f8ba11b9`), **2026-09-24.** | `git rev-list --parents 7f8ba11` → `4469cf7` + `ac7cc09`; `gh pr view 165` → `MERGED` `7f8ba11` 2026-09-24T17:36:37Z |
 | `mobile-viewport-observer.md` | `implemented` — 3 code commits plus this record, worktree `…/refactor-mobile-viewport-observer` (`w12`) | Same defect, worse shaped: the merge fact was parked at the **end** of the same overloaded line | `git rev-list --parents 0725237` → `89b4d9b` + `a6cd059`; `gh pr view 167` → `MERGED` `0725237` 2026-09-24T20:35:56Z |
 
 Two checks make the repairs safe rather than merely plausible:
@@ -111,3 +112,15 @@ narrative is evidence; the row should be corrected by whoever owns it.
 **L6** *(base)*: this slice sits on `main` @ `31a15b8`, the merge of **PR #369** (the `pr-label-enforcement`
 bookkeeping slice), whose push-triggered CI concluded **4/4 `success`** — `Docker Build Integrity`,
 `Gateway CI`, `API CI`, `Angular CI`.
+
+**L7** *(a self-inflicted defect the gates could not see, 2026-10-17)*: the first draft of two repair
+sections wrapped a quoted line inside a code span that itself contained code spans —
+`` `**Merged as PR #166 (`89b4d9b76`), 2026-09-24.**` `` — and a code span ends at the first backtick, so
+that quote would have rendered as broken prose. No CI workflow inspects markdown, so nothing but a read would
+have caught it. It was found by re-reading the pushed diff. The first repair was an **amend** of `0c9c7a9`, and
+the force-push was **blocked by the harness's safety policy** — rewriting a published branch is a destructive
+operation, so it was put to the user, who chose **no rewrite**: the branch keeps `0c9c7a9` and `b94fac4` as
+published and the fix lands as a further commit (T5). That is why the `## Tasks` table above still names the
+original hashes rather than an amended one. The lesson is not about backticks: **this slice's only real gate
+is a human read**, so the verification that a markdown change gets has to include one — and a gate that cannot
+see the defect is not a gate for it.
