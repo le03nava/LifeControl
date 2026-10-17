@@ -1,7 +1,7 @@
 # ODD feature: redis-outage-failure-policy
 
 **Repository**: LifeControl — `life-control-api/` (`src/main/resources/application.properties`, `src/test/java/com/lifecontrol/api/config/cache/`, `AGENTS.md`), plus the antecedent record whose open decision it resolves: `odd/tasks/redis-cache-activation.md` (D1, in its L9).
-**Status**: implemented — nothing open in this slice; the policy, its gate (919 suites / 3517 tests / 0 failures) and the independent verification are in the log (L1-L7). This header makes no claim about push or PR state; see the evidence log.
+**Status**: merged — PR #378 (`fix/redis-outage-failure-policy` @ `9c01300`), 2026-10-17, with the post-merge `main` CI green on all four workflows. Nothing remains open in this slice; the two follow-ups the antecedent record declares in its own L10 are separate units.
 **Created**: 2026-10-17 · **Risk**: item 5 (operational configuration) — the change decides what the container probe sees and how long a cached read blocks while Redis is unreachable; to be independently verified by `gentle-ai-verify`
 **Antecedent**: `odd/tasks/redis-cache-activation.md`, decision **D1** (L9), which recorded the measurement and left the policy to the human
 
@@ -33,6 +33,7 @@
 | T4 | Repair the antecedent record: D1 resolved, pointer to this record | S2 | inline | `redis-cache-activation.md` header and D1 row |
 | T5 | Run the gate and the differential against the baseline suite | S4c | inline + `bash_background` | baseline vs working tree counts |
 | T6 | Independent verification of the finished diff | S4a, S4b, S4c | `gentle-ai-verify` | verdict per claim |
+| T7 | Deliver it: issue, pull request, merge and the delivery row | — | inline | issue #377; PR #378 merged as `9c01300`; L9 |
 
 ## Log
 
@@ -140,3 +141,24 @@ record that says what it measured. The antecedent record faced the same choice a
 chaining for a stronger reason — a knowingly broken intermediate state; here a split would be merely
 inconvenient. The volume is also concentrated in one new test file (`RedisOutagePolicyTest`, six tests) rather
 than spread across production code: the two production files carry **20 lines** between them.
+
+**L9** (2026-10-17, T7 — delivery):
+
+Merged as **PR #378** (`fix/redis-outage-failure-policy` @ `9c01300d0ec07ad8127ba91273aa8c134fc93512`),
+2026-10-17T22:23:19Z, closing **issue #377**. Three commits: `855d3e6` (the policy, its test and the docs),
+`4bdb9da` (the records and the antecedent repair) and `d7ab083` (the slice boundary, L8).
+
+The merge is proven tree-identical to what was verified: the merge commit has **two parents** (`5b2c7ee`,
+the `main` of the moment, and `d7ab083`, the reviewed head), and `git diff d7ab083 9c01300 -- <this unit's
+five files>` is **empty**. Note the trap: the same diff *without* restricting it to this unit's files is not
+empty, because `main` had advanced with the access-provisioning records (#375/#376).
+
+CI on the pull request: **`API CI` pass in 3m28s** and the **`PR Label Guard` pass in 5s**, with the single
+label `type:bug`. CI on `main` after the merge: **all four workflows green** — `API CI` 4m39s, `Angular CI`
+6m25s, `Gateway CI` 40s, `Docker Build Integrity` 25s. The worktree and the branch were removed after the
+merge, the anchor is clean on `main @ 9c01300`, and no orphaned worktree metadata remains.
+
+One hole is declared rather than papered over: this records-only pull request carries **no linked issue**, the
+same declared gap the antecedent's own delivery record left (`odd/tasks/redis-cache-activation.md`'s #372).
+The template requires one, and the linked-issue rule exists to gate *code* behind an approved decision — this
+change only writes down what already merged.
