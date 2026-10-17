@@ -10,10 +10,9 @@ PR 2 = `S2`, PR 3 = `S4+S5`, PR 4 = `S6+S3`, PR 5 = `S7` (re-cut from the three-
 first slice was measured; see `L7`). Push, issue creation and merge are the user's decisions.
 **Test runner**: `.github/scripts/tests/*.test.sh` and `docker/scripts/tests/*.test.sh` — offline bash
 suites, run from the worktree; `shellcheck --severity=warning` on modified scripts.
-**Status**: implemented on the tracker branch `chore/pr-issue-governance` — 9 commits in 5 slices, the 7
-suites at 182 assertions green and the 5 docker suites untouched. What remains is the delivery: the issue
-that approves this work, the pull requests and the merge, every one of them a user decision. This header
-makes no claim about push, PR or merge state; the `## Log` holds the evidence.
+**Status**: implemented and delivered as the chained pull requests **#385–#390**, each from an approved
+issue (**#379–#384**) — what remains is review, the retarget-and-merge protocol of the chain, and applying
+branch protection, all of them user decisions (see the evidence log).
 **Created**: 2026-10-17
 **Risk**: **high.** Two slices change what CI does at merge time (Task Size item 5: `S2` adds a merge-blocking
 gate and an `issues: read` token scope; `S7` changes workflow triggers) and `S3` decides who must review what.
@@ -94,16 +93,20 @@ touched this record: the parent re-ran every suite, the shellcheck step and the 
 
 ## Slice boundaries
 
-| PR | Specs | Commits on the tracker branch |
-| --- | --- | --- |
-| 1 | `S1` | `cd58c1e` (this record), `b560378` (forms + suite) |
-| 2 | `S2` | `9fa68f3` (gate + suite + workflow wiring), `788fb45` (the nine closing keywords + the scratch guard) |
-| 3 | `S4+S5` | `b7a034a` (vocabulary source, guard, Dependabot labels, three suites) |
-| 4 | `S6+S3` | `5c382e6` (CONTRIBUTING.md, AGENTS link, CODEOWNERS, index registry) |
-| 5 | `S7` | `b385f35` (the four `push:` filters + the parity suite), `7a890be` (the parser's hyphenated keys) |
+| Slice | Specs | Commits on the tracker branch | Pull request | Diff |
+| --- | --- | --- | --- | --- |
+| 1 | `S1` | `cd58c1e` (this record), `b560378` (forms + suite) | #385 → `main` | 458 lines |
+| 2 | `S2` | `9fa68f3` (gate + suite + wiring) | #386 → `s1` | 586 |
+| 3 | `S4+S5` | `b7a034a` (vocabulary source, guard, Dependabot labels) | #387 → `s2` | 553 |
+| 4 | `S6+S3` | `5c382e6` (CONTRIBUTING.md, AGENTS link, CODEOWNERS, registry) | #388 → `s3` | 243 |
+| 5 | `S7` | `b385f35` (the four `push:` filters + the parity suite) | #389 → `s4` | 207 |
+| 6 | the verification corrections and the evidence | `2086aea`, `788fb45`, `7a890be`, `66fa69d`, `f630328` | #390 → `s5` | 134 |
 
-The record itself is touched by more than one slice: the Log grows with each unit, so the last slice
-carries the completed table. The tracker branch is never the review candidate — each slice is.
+The record itself is touched by more than one slice, so the last slice carries the completed table. The tracker
+branch is never the review candidate — each pull request is. Slice 6 exists because the two corrections were
+found by the verification that ran *after* the five slices were committed: joining them to the slices they
+belong to would rewrite refs that were already pushed, and the alternative — one 2109-line pull request — is
+what the chained delivery exists to avoid.
 
 ## Log
 
@@ -219,3 +222,15 @@ the accumulated feature branch. The five slices exist as commits on the tracker,
 chain needs, and materializing those branches is part of the delivery the user has not authorized. The decision
 returned to the user with the outcome: which slice to review first (recommendation: `S2`'s gate, which is where
 the high-risk signal is), and whether to start the review at all.
+
+**L14** *(the delivery, 2026-10-17)*: authorized by the user («sigue con el 1»), after the outcome, the
+numbers and the four open decisions were reported to them. Six issues were opened through the repository's own
+flow — **#379–#384**, each stating the problem, the expected outcome and the acceptance criteria of its slice
+— and each was labelled `enhancement` and `status:approved`, the approval being the user's instruction
+recorded here rather than a conclusion of mine. Seven refs were pushed (`chore/pr-issue-governance` and the six
+slice branches), and six chained pull requests were opened: **#385** (`s1` → `main`, the only one on the
+default branch, so the only one that closes its issue from the body) followed by **#386–#390**, each targeting
+the previous slice and carrying `Refs #<issue>`, which is exactly the non-default-base case
+`check-issue-reference.sh` supports. The pull requests are the first live exercise of the gate this feature
+adds. What remains, and is deliberately not done here: the chain's retarget-and-merge protocol
+(`references/pr-chains.md`), the review, and applying branch protection.
