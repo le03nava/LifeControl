@@ -3,16 +3,16 @@
 **Repository**: LifeControl — repository governance: issue templates, an issue-reference gate, the `type:*`
 vocabulary single source, Dependabot labels, `CONTRIBUTING.md`, `CODEOWNERS`, and the CI trigger alignment.
 No `life-control-api/` or `life-control-app-angular/` runtime source is touched.
-**Branch**: `chore/pr-issue-governance`, worktree `~/workspace/LifeControl-worktrees/chore-pr-issue-governance`
-(herdr workspace `w3V`), cut from `main` @ `5b2c7ee`; the anchor stays on `main` and clean.
-**Delivery**: `chain_strategy=feature-branch-chain` — one tracker branch, five PR slices: PR 1 = `S1`,
-PR 2 = `S2`, PR 3 = `S4+S5`, PR 4 = `S6+S3`, PR 5 = `S7` (re-cut from the three-slice plan after the
-first slice was measured; see `L7`). Push, issue creation and merge are the user's decisions.
+**Branch**: `chore/pr-issue-governance`, cut from `main` @ `5b2c7ee`; every commit it holds is an ancestor
+of `main` after the chain merged, verified with `git merge-base --is-ancestor` over all thirteen of them.
+**Delivery**: `chain_strategy=feature-branch-chain` — six pull requests, each retargeted to `main` as its
+parent landed: #385 (`S1`) | #386 (`S2`) | #387 (`S4+S5`) | #388 (`S6+S3`) | #389 (`S7`) | #390 (the
+verification corrections).
 **Test runner**: `.github/scripts/tests/*.test.sh` and `docker/scripts/tests/*.test.sh` — offline bash
 suites, run from the worktree; `shellcheck --severity=warning` on modified scripts.
-**Status**: implemented and delivered as the chained pull requests **#385–#390**, each from an approved
-issue (**#379–#384**) — what remains is review, the retarget-and-merge protocol of the chain, and applying
-branch protection, all of them user decisions (see the evidence log).
+**Status**: merged — PRs **#385–#390** (`de408b3`, `ba56674`, `199155b`, `e64d9f0`, `55ad71f`, `9c7c4c9`),
+2026-10-17. No work left in the repository: the two decisions of `L10` (branch protection and the review)
+stay with the user, and nothing in the tree waits on them.
 **Created**: 2026-10-17
 **Risk**: **high.** Two slices change what CI does at merge time (Task Size item 5: `S2` adds a merge-blocking
 gate and an `issues: read` token scope; `S7` changes workflow triggers) and `S3` decides who must review what.
@@ -93,14 +93,14 @@ touched this record: the parent re-ran every suite, the shellcheck step and the 
 
 ## Slice boundaries
 
-| Slice | Specs | Commits on the tracker branch | Pull request | Diff |
-| --- | --- | --- | --- | --- |
-| 1 | `S1` | `cd58c1e` (this record), `b560378` (forms + suite) | #385 → `main` | 458 lines |
-| 2 | `S2` | `9fa68f3` (gate + suite + wiring) | #386 → `s1` | 586 |
-| 3 | `S4+S5` | `b7a034a` (vocabulary source, guard, Dependabot labels) | #387 → `s2` | 553 |
-| 4 | `S6+S3` | `5c382e6` (CONTRIBUTING.md, AGENTS link, CODEOWNERS, registry) | #388 → `s3` | 243 |
-| 5 | `S7` | `b385f35` (the four `push:` filters + the parity suite) | #389 → `s4` | 207 |
-| 6 | the verification corrections and the evidence | `2086aea`, `788fb45`, `7a890be`, `66fa69d`, `f630328` | #390 → `s5` | 134 |
+| Slice | Specs | Commits on the tracker branch | Pull request | Merged as | Diff |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `S1` | `cd58c1e` (this record), `b560378` (forms + suite) | #385 → `main` | `de408b3` | 458 lines |
+| 2 | `S2` | `9fa68f3` (gate + suite + wiring) | #386, from `s1` | `ba56674` | 586 |
+| 3 | `S4+S5` | `b7a034a` (vocabulary source, guard, Dependabot labels) | #387, from `s2` | `199155b` | 553 |
+| 4 | `S6+S3` | `5c382e6` (CONTRIBUTING.md, AGENTS link, CODEOWNERS, registry) | #388, from `s3` | `e64d9f0` | 243 |
+| 5 | `S7` | `b385f35` (the four `push:` filters + the parity suite) | #389, from `s4` | `55ad71f` | 207 |
+| 6 | the verification corrections and the evidence | `2086aea`, `788fb45`, `7a890be`, `66fa69d`, `f630328`, `3f5b387`, `4a1b452` | #390, from `s5` | `9c7c4c9` | 245 |
 
 The record itself is touched by more than one slice, so the last slice carries the completed table. The tracker
 branch is never the review candidate — each pull request is. Slice 6 exists because the two corrections were
@@ -234,3 +234,21 @@ the previous slice and carrying `Refs #<issue>`, which is exactly the non-defaul
 `check-issue-reference.sh` supports. The pull requests are the first live exercise of the gate this feature
 adds. What remains, and is deliberately not done here: the chain's retarget-and-merge protocol
 (`references/pr-chains.md`), the review, and applying branch protection.
+
+**L15** *(delivery evidence, 2026-10-17)*: the chain merged in order, each pull request retargeted to `main`
+with its `Refs` swapped for `Closes` in the same step, and every merge is a real merge commit: **#385**
+`de408b3`, **#386** `ba56674`, **#387** `199155b`, **#388** `e64d9f0`, **#389** `55ad71f`, **#390** `9c7c4c9`.
+All six issues (#379–#384) closed as `COMPLETED`, and the six slice branches were deleted only after the last
+merge landed, so no base of an open pull request was ever removed. The record's own promise was checked, not
+assumed: all **thirteen** cited commit ids are ancestors of `main` (`git merge-base --is-ancestor`, one line
+each), which is what makes the table above checkable after the tracker branch is gone.
+
+**L16** *(the second defect the delivery itself found, 2026-10-17)*: the chain stopped one merge from the end.
+Pull request #390 explains the corrected `Fix #12` case in its description, the gate's raw scan read that
+quotation as a closing reference, and #12 is a pull request in this repository — so `A linked, approved issue`
+failed the pull request that fixes the gate. The advisory the independent verification had recorded as accepted
+behaviour (see `L11`) was the defect. The gate now removes fenced blocks and inline code spans before scanning,
+so a reference must appear in prose; the rule cuts both ways, since a reference buried in code no longer counts
+as the pull request's own reference either. Four cases pin it, one of them the real body that failed, and the
+chain resumed and completed. The worktree is removed after this slice through `herdr workspace close w3V` →
+`git worktree remove` → `git worktree prune`, in that order, now that every commit is in `main`.
