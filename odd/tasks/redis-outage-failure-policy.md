@@ -129,3 +129,14 @@ fixed:
   the header repair had removed the period that ended the original sentence
   (`…the Redis-outage failure policy (L9, D1).`), while the repair text says that sentence "is kept as
   written". The period is restored, so the claim is true.
+
+**L8** (2026-10-17, the slice boundary):
+
+Two work-unit commits carrying **449 authored changed lines**, past the ~400-line slice the convention aims
+for. Chaining was considered and rejected: this record is the only place the policy's RED/GREEN evidence, the
+gate counts and the two findings the independent verification raised live, so a docs-only pull request would
+carry the evidence for a change the reviewer cannot see, and the code pull request would arrive without the
+record that says what it measured. The antecedent record faced the same choice at 894 lines and rejected
+chaining for a stronger reason — a knowingly broken intermediate state; here a split would be merely
+inconvenient. The volume is also concentrated in one new test file (`RedisOutagePolicyTest`, six tests) rather
+than spread across production code: the two production files carry **20 lines** between them.
