@@ -1,0 +1,69 @@
+name: Bug report
+description: Something in LifeControl does not behave as documented
+title: "fix: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Two repository rules apply before any code is written for this report:
+
+        - The issue must carry `status:approved` before a pull request links it.
+        - The fix lands through the worktree convention, as a `fix/` branch, with the test that
+          reproduces this report.
+
+        Fill every required field below with observed facts. A report nobody can verify cannot be
+        approved.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What happens today, in which component, and what it should do instead.
+      placeholder: |
+        life-control-app-angular: opening the Recursos Humanos menu shows an empty page.
+        It should open the submenu with the sections the roles allow.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Expected outcome
+      description: The behavior that has to be true once this is fixed, stated as an observable fact.
+      placeholder: |
+        Selecting Recursos Humanos expands the submenu instead of navigating to an empty route.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: |
+        One line per check, each phrased so someone else can verify it without asking you: the
+        command, the input, or the screen, and the result that proves it. "It works" is not a
+        criterion. Include the case that must keep working, not only the new one.
+      placeholder: |
+        - `npm run test:e2e` passes the menu navigation spec.
+        - The rejected selection leaves the route unchanged and logs one warning.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Reproduction or evidence
+      description: |
+        The exact command and its observed result, or the exact steps and the exact error. Paste the
+        output rather than describing it. An unattached screenshot of a red screen is not evidence of
+        a cause.
+      placeholder: |
+        `./gradlew test --tests '*StoreServiceTest'` fails with:
+        org.opentest4j.AssertionFailedError: expected 2 records but got 1
+    validations:
+      required: false
+  - type: input
+    id: component
+    attributes:
+      label: Affected component
+      description: One of life-control-api, life-control-app-angular, api-gateway, docker, k8s, .github.
+      placeholder: life-control-app-angular
+    validations:
+      required: false

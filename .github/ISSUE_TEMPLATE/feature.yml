@@ -1,0 +1,62 @@
+name: Feature request
+description: Propose a behavior LifeControl does not have yet
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Two repository rules apply before any code is written for this proposal:
+
+        - The issue must carry `status:approved` before a pull request links it. Approval is a
+          maintainer decision, never a label the author adds to their own issue.
+        - The work lands through the worktree convention, as a `feat/` branch, in reviewable slices
+          of about 400 authored lines.
+
+        State the problem before the solution. A proposal that starts with the implementation has no
+        room for the discussion that would have improved it.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: The situation today and who it costs. Not the solution.
+      placeholder: |
+        Provisioning an employee to two stores takes two passes and the second one silently
+        overwrites the first.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Expected outcome
+      description: The behavior that has to be true once this lands, stated as an observable fact.
+      validations:
+        required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: |
+        One line per check, each phrased so someone else can verify it without asking you: the
+        command, the input, or the screen, and the result that proves it. "It works" is not a
+        criterion. Include what must keep working and what must be rejected.
+      placeholder: |
+        - A second assignment for the same employee keeps both store ids.
+        - An assignment without a store id returns 400 and stores nothing.
+    validations:
+      required: true
+  - type: textarea
+    id: non_goals
+    attributes:
+      label: Non-goals
+      description: What this deliberately does not do. The cheapest way to keep a slice reviewable.
+    validations:
+      required: false
+  - type: input
+    id: component
+    attributes:
+      label: Affected component
+      description: One of life-control-api, life-control-app-angular, api-gateway, docker, k8s, .github.
+      placeholder: life-control-api
+    validations:
+      required: false
