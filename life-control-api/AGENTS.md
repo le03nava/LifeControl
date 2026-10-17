@@ -695,6 +695,14 @@ app.rate-limit.endpoints./api/users-admin/users.duration=1m
   has no declared type to fall back on: `CacheValueCodecTest` fails when a `@Cacheable` return type
   has no registered representative. A cached `Page` cannot be deserialized — the `statusTypes`
   region caches a `StatusTypePage` (content plus total) instead.
+- A Redis outage is bounded and must not take the service down. `spring.data.redis.timeout=2s` caps
+  how long a cached read waits — unset, Lettuce waits 60s and every request fails that slowly.
+  `management.health.redis.enabled=false` keeps Redis out of `/actuator/health`, which is what the
+  container healthcheck reads: with the indicator on, a Redis outage marks the whole service
+  unhealthy and takes down the endpoints that never read the cache (only the eight regions above
+  are cached). The cost is deliberate — the health endpoint no longer reports Redis, so that signal
+  lives in the log and in the failing reads. `RedisOutagePolicyTest` pins both settings against the
+  shipped `application.properties`.
 
 ### Observability
 
@@ -704,7 +712,7 @@ app.rate-limit.endpoints./api/users-admin/users.duration=1m
 | Tracing             | Micrometer Tracing + Brave + Zipkin |
 | Log Aggregation     | Loki (Loki4j appender)             |
 | Correlation IDs     | `traceId`/`spanId` in MDC, included in error responses |
-| Health              | `/actuator/health`                  |
+| Health              | `/actuator/health` (Redis is excluded on purpose — see Caching) |
 
 ---
 

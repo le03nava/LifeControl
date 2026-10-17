@@ -1,7 +1,7 @@
 # ODD feature: redis-cache-activation
 
 **Repository**: LifeControl — module `life-control-api/` (`config/cache`, `status/service`, `status/repository`, `AGENTS.md`)
-**Status**: merged — PR #371 (`fix/redis-cache-activation` @ `a402988`), 2026-10-17. The evidence is in the log (L3-L12). One decision is still open and needs the human: the Redis-outage failure policy (L9, D1). Two follow-ups this work found and deliberately did not take are recorded in L10.
+**Status**: merged — PR #371 (`fix/redis-cache-activation` @ `a402988`), 2026-10-17. The evidence is in the log (L3-L12). One decision is still open and needs the human: the Redis-outage failure policy (L9, D1). (**Repair, 2026-10-17: that decision was taken by the human and is implemented in its own record, `odd/tasks/redis-outage-failure-policy.md` — a bounded `spring.data.redis.timeout` plus `management.health.redis.enabled=false`; the sentence is kept as written and superseded here rather than erased, and the repair is recorded in L13**). Two follow-ups this work found and deliberately did not take are recorded in L10.
 **Created**: 2026-10-17 · **Risk**: item 4 — the cache stops being per-JVM and becomes shared state across instances; independently verified by `gentle-ai-verify` (claims C1-C5 met, no blockers)
 **Antecedent**: `odd/tasks/spring-boot-4-1-migration.md`, Gap 1
 
@@ -115,3 +115,14 @@ Chaining this into two PRs was considered and rejected. The `statusTypes` payloa
 **L12** (2026-10-17, delivery):
 
 Merged as **PR #371** (`fix/redis-cache-activation` @ `a402988`), two commits: `06f53b3` (behaviour and tests) and `40179ff` (the records). CI on the PR: **API CI pass in 4m33s** (`spotlessCheck` + `spotbugsMain` + the suite) and the **`PR Label Guard` pass in 8s**; the label was `type:bug`, exactly one `type:*`, which the repository's own script confirms locally. Gates run before opening the PR: the full suite on the finished tree (3511 tests, 0 failures) and a differential against `main` at `31a15b8` (3498 tests, 0 failures) whose only delta is the new suites; `spotlessCheck` and `spotbugsMain` on the branch; the live end-to-end check on the final artifact; and an independent verification pass that met all five of its claims with no blockers. The native review was assessed and not due (`medium` risk, `under_budget`), so none was started. The branch and its worktree were removed after the merge and the anchor is clean on `main`.
+
+**L13** (2026-10-17, the repair this record's header needed):
+
+D1 was the human's call and this record said so; it was taken on 2026-10-17, choosing the bounded
+timeout plus the health exclusion over degrading a cache failure to a database read. The policy is
+implemented in its own record, `odd/tasks/redis-outage-failure-policy.md`: `spring.data.redis.timeout=2s`
+bounds the wait L9 measured at 60.15s per request, and `management.health.redis.enabled=false` keeps
+Redis out of `/actuator/health`, the endpoint the container healthcheck reads. The header's claim that
+the decision "is still open and needs the human" is false now, so it is superseded in place: the
+original sentence is kept as written rather than erased, and this entry is the repair's record. L10's
+two follow-ups are untouched and remain open.
