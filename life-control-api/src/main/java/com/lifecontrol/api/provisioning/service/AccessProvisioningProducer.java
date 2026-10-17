@@ -2,6 +2,7 @@ package com.lifecontrol.api.provisioning.service;
 
 import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.hr.model.Employee;
+import com.lifecontrol.api.hr.service.EmployeeStatuses;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTaskKind;
 import com.lifecontrol.api.provisioning.repository.AccessProvisioningTaskRepository;
 import java.util.UUID;
@@ -108,6 +109,53 @@ public class AccessProvisioningProducer {
      */
     public void onEmploymentTerminated(UUID companyId, Employee employee) {
         enqueue(companyId, employee, AccessProvisioningTaskKind.DEACTIVATE);
+    }
+
+    /**
+     * Produces the reconciliation intent a <b>store-assignment change</b> implies: always
+     * {@code RECONCILE}, and only for an employee the projection can actually converge.
+     *
+     * <p>This is the trigger <b>G38</b> was missing: the two writers of
+     * {@code EmployeeStoreAssignmentService} save their row and return, so a change of assignment
+     * moves the derivation {@code StoreScopeDerivation} computes — the five {@code company_*} claims
+     * {@code CurrentUserContext} reads for scope — and nothing enqueued a convergence, leaving the
+     * claims at the old scope until another fact enqueued a task.</p>
+     *
+     * <p><b>No kind is derived here.</b> {@link #kindFor(Employee)} answers {@code ACTIVATE} for an
+     * unlinked employee, which is exactly wrong for this fact: an assignment change is never the
+     * moment to create an account and send an invitation nobody asked for, and {@code RECONCILE}
+     * refuses outright on an unlinked account. The kind is a constant because the fact is one.</p>
+     *
+     * <p><b>Two employees produce nothing, for two different reasons</b> (decision <b>S2</b>): an
+     * <b>unlinked</b> employee has no account to converge, and a <b>{@code Terminated}</b> one must
+     * not supersede the open {@code DEACTIVATE} that still has to apply — {@link #enqueue}
+     * supersedes an open task of a different kind, and nothing in the {@code RECONCILE} convergence
+     * disables an account ({@code AccessProvisioningAccountService.ensureAccountEnabled} no-ops for a
+     * terminated employee), so a naive {@code RECONCILE} would leave the revoked account enabled.
+     * Both guards return before {@link #enqueue}, so neither the open revocation nor the open-task
+     * read is touched.</p>
+     *
+     * @param companyId the company that owns the employee
+     * @param employee the employee whose store assignment changed
+     */
+    public void onMembershipChanged(UUID companyId, Employee employee) {
+        if (EmployeeStatuses.isTerminated(employee)) {
+            logger.info(
+                    "Access provisioning intent not enqueued: employee={} is terminated, so the open revocation"
+                            + " must not be superseded",
+                    employee.getId());
+            return;
+        }
+
+        var linked = employee.getKeycloakUserId();
+        if (linked == null || linked.isBlank()) {
+            logger.info(
+                    "Access provisioning intent not enqueued: employee={} has no linked account to converge",
+                    employee.getId());
+            return;
+        }
+
+        enqueue(companyId, employee, AccessProvisioningTaskKind.RECONCILE);
     }
 
     private void enqueue(UUID companyId, Employee employee, AccessProvisioningTaskKind kind) {

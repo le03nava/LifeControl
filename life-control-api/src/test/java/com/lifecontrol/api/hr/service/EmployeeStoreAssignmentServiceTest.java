@@ -23,6 +23,7 @@ import com.lifecontrol.api.hr.model.Employee;
 import com.lifecontrol.api.hr.model.EmployeeStoreAssignment;
 import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.hr.repository.EmployeeStoreAssignmentRepository;
+import com.lifecontrol.api.provisioning.service.AccessProvisioningProducer;
 import com.lifecontrol.api.status.model.Status;
 import com.lifecontrol.api.status.model.StatusType;
 import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
@@ -72,6 +73,9 @@ class EmployeeStoreAssignmentServiceTest {
 
     @Mock
     private CurrentUserContext currentUserContext;
+
+    @Mock
+    private AccessProvisioningProducer accessProvisioningProducer;
 
     @InjectMocks
     private EmployeeStoreAssignmentService service;
@@ -673,6 +677,38 @@ class EmployeeStoreAssignmentServiceTest {
             assertThatThrownBy(() -> service.closeAssignment(companyId, employeeId, id, null))
                     .isInstanceOf(StoreAssignmentNotFoundException.class);
             verify(employeeStoreAssignmentRepository, never()).save(any());
+        }
+    }
+
+    @Nested
+    @DisplayName("the provisioning hook (S2)")
+    class ProvisioningHookTests {
+
+        @Test
+        @DisplayName("creating an assignment asks the producer to reconcile the membership")
+        void createAssignment_NotifiesTheProducer() {
+            employeeExists();
+            storeExists();
+            noPredecessor();
+            saveReturnsArgument();
+
+            service.createAssignment(companyId, employeeId, new StoreAssignmentRequest(testStore.getId(), START));
+
+            verify(accessProvisioningProducer).onMembershipChanged(companyId, testEmployee);
+        }
+
+        @Test
+        @DisplayName("closing an assignment asks the producer to reconcile the membership")
+        void closeAssignment_NotifiesTheProducer() {
+            employeeExists();
+            var open = assignment(UUID.randomUUID(), testStore, PREDECESSOR_START, null, true);
+            when(employeeStoreAssignmentRepository.findByEmployeeIdAndId(employeeId, open.getId()))
+                    .thenReturn(Optional.of(open));
+            saveReturnsArgument();
+
+            service.closeAssignment(companyId, employeeId, open.getId(), new CloseStoreAssignmentRequest(START));
+
+            verify(accessProvisioningProducer).onMembershipChanged(companyId, testEmployee);
         }
     }
 
