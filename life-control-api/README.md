@@ -8,9 +8,9 @@ REST API central del sistema LifeControl. Microservicio Spring Boot que maneja l
 
 | Componente        | Tecnología                        |
 |-------------------|-----------------------------------|
-| Framework         | Spring Boot 3.5.16               |
+| Framework         | Spring Boot 4.1.1                |
 | Lenguaje          | Java 21                           |
-| Build             | Gradle 8.x+                       |
+| Build             | Gradle 9.x+                       |
 | Base de datos     | PostgreSQL                        |
 | Cache             | Redis (fallback in-memory)        |
 | Seguridad         | OAuth2 / JWT (Keycloak)           |

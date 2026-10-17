@@ -8,7 +8,6 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifecontrol.api.exception.GlobalExceptionHandler;
 import com.lifecontrol.api.hr.dto.SeniorityLevelRequest;
 import com.lifecontrol.api.hr.dto.SeniorityLevelResponse;
@@ -30,6 +29,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("SeniorityLevelController Tests")
@@ -52,8 +53,7 @@ class SeniorityLevelControllerTest {
         mockMvc = MockMvcBuilders.standaloneSetup(seniorityLevelController)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
-        objectMapper = new ObjectMapper();
-        objectMapper.findAndRegisterModules();
+        objectMapper = JsonMapper.builder().build();
 
         testId = UUID.randomUUID();
         testResponse =

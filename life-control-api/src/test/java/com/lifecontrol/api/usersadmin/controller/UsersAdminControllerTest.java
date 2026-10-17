@@ -13,7 +13,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifecontrol.api.exception.GlobalExceptionHandler;
 import com.lifecontrol.api.usersadmin.dto.AttributeValueRequest;
 import com.lifecontrol.api.usersadmin.dto.CreateUserRequest;
@@ -40,6 +39,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("UsersAdminController Tests")
@@ -63,7 +64,7 @@ class UsersAdminControllerTest {
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
-        objectMapper = new ObjectMapper();
+        objectMapper = JsonMapper.builder().build();
 
         testRole = new RoleDto("admin-role", "Administrator", false, RoleScope.REALM, null);
         testUser = new UserSearchDto("user-1", "testuser", "test@example.com", true);

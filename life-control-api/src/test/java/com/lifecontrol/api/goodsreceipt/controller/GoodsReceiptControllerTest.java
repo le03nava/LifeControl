@@ -8,7 +8,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifecontrol.api.exception.GlobalExceptionHandler;
 import com.lifecontrol.api.goodsreceipt.dto.GoodsReceiptLineRequest;
 import com.lifecontrol.api.goodsreceipt.dto.GoodsReceiptLineResponse;
@@ -34,6 +33,8 @@ import org.springframework.data.web.PageableHandlerMethodArgumentResolver;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 /** Controller-level verification of the goods receipt endpoints: paths, serialized contract and errors. */
 @ExtendWith(MockitoExtension.class)
@@ -66,8 +67,7 @@ class GoodsReceiptControllerTest {
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setCustomArgumentResolvers(new PageableHandlerMethodArgumentResolver())
                 .build();
-        objectMapper = new ObjectMapper();
-        objectMapper.findAndRegisterModules();
+        objectMapper = JsonMapper.builder().build();
 
         receiptId = UUID.randomUUID();
         purchaseOrderId = UUID.randomUUID();

@@ -19,11 +19,24 @@ import org.springframework.web.util.ContentCachingRequestWrapper;
 @Component
 public class ContentCachingFilter extends OncePerRequestFilter {
 
+    /**
+     * Spring Framework 7 removed the single-argument {@link ContentCachingRequestWrapper}
+     * constructor, which cached the whole body without a limit, in favour of an explicit
+     * cache limit. The wrapper only enforces a limit when the value is {@code > 0}; a
+     * non-positive value (passed here) reproduces the removed constructor exactly — same
+     * unbounded buffer, same {@code Content-Length}-based initial capacity.
+     * <p>
+     * This cache stays unbounded on purpose: the activity-log aspect replays the cached body
+     * verbatim, so any limit would silently truncate the audit payload for larger requests.
+     * The wrapper never affects what the controller reads.
+     */
+    private static final int UNLIMITED_CONTENT_CACHE = -1;
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
 
-        var wrappedRequest = new ContentCachingRequestWrapper(request);
+        var wrappedRequest = new ContentCachingRequestWrapper(request, UNLIMITED_CONTENT_CACHE);
         filterChain.doFilter(wrappedRequest, response);
     }
 }
