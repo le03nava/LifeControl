@@ -4,11 +4,10 @@
 new scripts and their tests), the project-conventions skill (`references/labels.md`, `SKILL.md`,
 `references/index.md`), one section of root `AGENTS.md`, the two ODD records, plus one remote mutation of 328
 merged pull requests. No application code, no schema, no endpoint, no consumed contract.
-**Status**: implemented and verified; what remains is the delivery decision that belongs to the user — push the branch,
-open the PR(s) with `type:chore` (the mapping this very slice installs) and merge. The retro-label of the 328 merged
-PRs is **done** and read back from the remote (`L8`), and `## Delivery slices` marks where a reviewer can stop. No PR
-number, merge commit or date is asserted here: this record is written before the PR exists, exactly the rule
-`pr-type-labels`' `L9` states.
+**Status**: delivered for review as PR **#367** (`ci/pr-label-enforcement`, against `main` @ `b05b525`), 2026-10-17,
+closing issue **#366**; what remains is the merge, which is the user's decision. The retro-label of the merged history
+is **done** and read back from the remote (`L8`), the guard ran green on this very pull request (`L10`), and
+`## Delivery slices` marks where a reviewer can stop.
 **Created**: 2026-10-17 · **Base**: `main` @ `b05b525` · **Risk**: **item 5** (delivery pipeline: a workflow that
 gates every pull request) and, for the retro-label, a wide but reversible remote mutation of merged PRs. No stored
 data, no secret, no application contract, no concurrency. The guard also touches **item 3** in the narrow sense
@@ -179,3 +178,14 @@ flight and already carried `type:docs`, which is why the count is 342 and not 34
 the merge are the user's decisions, and the record asserts none of them. Two further things are deliberately **not**
 done here and are stated in `references/labels.md` under "Gaps": the guard is not a branch-protection required
 check, and Dependabot pull requests still need a human to add `type:chore`.
+
+**L10** *(delivery, 2026-10-17)*: the user authorized the delivery («ok, arma el PR»). Issue **#366** was created and
+read back carrying `status:approved` (`gh api repos/le03nava/LifeControl/issues/366` → `labels: [status:approved]`,
+`state: open`), per the `branch-pr` skill's Critical Rule 1; the branch was pushed at `b9f57db`; PR **#367** was opened
+against `main` with `type:chore` — the label this slice's own mapping assigns to a `ci`-typed change — and a body built
+from the template this slice adds, with `Closes #366`. `PR Label Guard` is the **only** workflow that ran on it (the
+other four filter by component and none of these paths match), and it **passed in 7 seconds** (`Exactly one type:*
+label`): the gate's first run on a real pull request is on the pull request that introduces it. Creating the PR with
+`--label` fired `opened` and `labeled`, so two runs were queued and `cancel-in-progress` kept the newer — the trigger
+set works as designed. What remains is the merge, a user decision, and the merge identity, which the house convention
+records in a follow-up slice (`pr-type-labels`' `L11` is the precedent).
