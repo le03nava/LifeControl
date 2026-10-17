@@ -3,15 +3,17 @@
 **Repository**: LifeControl — `docker/` only: `.env.template`, the three compose files, `scripts/setup-env.sh`,
 `scripts/deploy.sh`, a new static test, plus one section of the root `AGENTS.md`. No application code, no
 schema, no endpoint, no contract.
-**Status**: implemented, committed as **`f299b70`** (the code work unit) and **`353010b`** (this record), verified
-at runtime in dev, and **approved by the native review without a correction**: lineage
+**Status**: merged — PR **#357** (`chore/docker-infra-image-refresh` @ `ce2c15b`), 2026-10-17, so `main`
+carries the change. Verified before the merge: the five `docker/scripts/tests/` scripts pass (142 assertions), the
+stack ran on the new pins in dev, and the realm reconvergence plus the invitation flow end to end passed on
+Keycloak 26.8.1 / Postgres 18.6; the native review approved it without a correction — lineage
 `review-38fd76cfaa5efd61`, four lenses, tier **high**, receipt
-`sha256:81aede406b3e08904d2dad800d864e28a137d361bf00b2053787e171b81d95c1`, acknowledged (authority burned,
-`gentle-ai.review-acknowledged/v1`). Its six findings are advisory and non-blocking; none reopens this
-candidate (`L14`). What stays open is not work of this slice: the two follow-ups declared in `L14` and `L16` are
-new candidate work that needs its own authorization and review, and `.env.staging` / `.env.prod` are the
-operator's one-time re-materialization (`L7`). This header makes no claim about push or PR state; see the dated
-log.
+`sha256:81aede406b3e08904d2dad800d864e28a137d361bf00b2053787e171b81d95c1`, authority burned
+(`gentle-ai.review-acknowledged/v1`). Its six findings are advisory and non-blocking; none reopens this
+candidate (`L14`). What remains is not work of this slice: the two follow-ups declared in `L14` and `L16` (the
+host probe's coverage and `image-pins.test.sh` outside CI) are new candidate work that needs its own
+authorization and review, and `.env.staging` / `.env.prod` are the operator's one-time re-materialization
+(`L7`).
 **Created**: 2026-10-17 · **Risk**: **item 1 (data)** — Keycloak migrates its own DB schema on startup with no
 rollback, and the Loki change decides what is persisted and where; **item 5 (environment/dependencies)** — every
 pinned image of the infrastructure stack moves at once.
@@ -234,3 +236,23 @@ compose-profile), so `image-pins.test.sh` is covered by the workflow's `find doc
 shellcheck but **none of its 42 assertions runs in CI** — the pin set is frozen only for whoever runs the script
 by hand. Wiring it is about three lines in that workflow, and it is declared here rather than done, for the same
 reason as the probe follow-up: it would add bytes the receipt does not cover.
+
+**L17** *(the merge, 2026-10-17)*: PR #357 was merged into `main` as **`ce2c15bc1cd521876adc500b05599c921a2f7363`**
+at 14:55:08Z with `--merge` — a merge commit, like the rest of this repository's history, so the four commit ids
+this record cites stay reachable. CI, all measured:
+
+- On the PR's head `e854fb4`, the only check this change triggers passed: `Shell & Artifact Integrity`
+  (Docker Build Integrity), 15s, on a run whose `headSha` is that same head (`39042529395`).
+- On `ce2c15b` in `main`, Docker Build Integrity and Gateway CI passed, while **API CI and Angular CI first read
+  `cancelled`** — not a failure: every workflow declares `concurrency: group: <workflow>-${{ github.ref }}` with
+  `cancel-in-progress: true`, and the merge of **#358** (`6d2f357`) pushed to the same `main` ref two minutes
+  later, cancelling the in-progress runs of the previous head. Read as a failure, that would have been a false
+  alarm; the honest signal is the runs of the **current** head.
+- On the live head `6d2f357`, which contains this change, **all four workflows are green**: Docker Build Integrity
+  `39042982126`, Gateway CI `39042982169`, API CI `39042982148`, Angular CI `39042982140`.
+
+Cleanup after the merge: branch `chore/docker-infra-image-refresh` deleted locally with `git branch -d` (the
+commit was already merged, so the safe form succeeds) and on `origin` with `git push origin --delete`,
+remote-tracking refs pruned, and the anchor `~/workspace/LifeControl` fast-forwarded to `main`. This record's own
+update is the docs PR that carries this entry, in the worktree
+`~/workspace/LifeControl-worktrees/docs-docker-infra-merge-record`.
