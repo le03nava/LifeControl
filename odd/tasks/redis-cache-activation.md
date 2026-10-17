@@ -1,7 +1,7 @@
 # ODD feature: redis-cache-activation
 
 **Repository**: LifeControl — module `life-control-api/` (`config/cache`, `status/service`, `status/repository`, `AGENTS.md`)
-**Status**: resolved and verified — the cache manager is selected by `spring.cache.type` instead of by a bean-presence condition that could never match, the Redis path is exercised end to end for the first time, and a cache-hit defect that only activation could reveal is fixed and pinned by tests. The evidence is in the log (L3-L10). One decision is still open and needs the human: the Redis-outage failure policy (L9, D1). Nothing else is pending in this record.
+**Status**: merged — PR #371 (`fix/redis-cache-activation` @ `a402988`), 2026-10-17. The evidence is in the log (L3-L12). One decision is still open and needs the human: the Redis-outage failure policy (L9, D1). Two follow-ups this work found and deliberately did not take are recorded in L10.
 **Created**: 2026-10-17 · **Risk**: item 4 — the cache stops being per-JVM and becomes shared state across instances; independently verified by `gentle-ai-verify` (claims C1-C5 met, no blockers)
 **Antecedent**: `odd/tasks/spring-boot-4-1-migration.md`, Gap 1
 
@@ -111,3 +111,7 @@ Nothing configures `spring.data.redis.timeout`, so the Lettuce default (60s) bou
 **L11** (2026-10-17, delivery slicing — 894 authored changed lines, 820 insertions and 74 deletions, in two commits):
 
 Chaining this into two PRs was considered and rejected. The `statusTypes` payload fix is only *reachable* through the cache activation, and the activation is unsafe without it: the moment Redis is real, `GET /api/status-types` answers 500 on every cache hit. The two halves therefore cannot be reviewed as independent slices — the smaller half would be a knowingly broken intermediate state, and a stacked chain would have to carry that broken base. The slice boundary is stated in the PR body instead, so the reviewer can see where the volume is: four production files (153 lines, of which `CacheConfig` is 70) carry the behaviour, and three new suites plus the rewritten unit test (574 lines) carry the evidence. The split was also measured before rejecting it: the payload-fix half is 516 lines and the activation half 378, so chaining would not have brought either under the ~400-line slice the convention aims for.
+
+**L12** (2026-10-17, delivery):
+
+Merged as **PR #371** (`fix/redis-cache-activation` @ `a402988`), two commits: `06f53b3` (behaviour and tests) and `40179ff` (the records). CI on the PR: **API CI pass in 4m33s** (`spotlessCheck` + `spotbugsMain` + the suite) and the **`PR Label Guard` pass in 8s**; the label was `type:bug`, exactly one `type:*`, which the repository's own script confirms locally. Gates run before opening the PR: the full suite on the finished tree (3511 tests, 0 failures) and a differential against `main` at `31a15b8` (3498 tests, 0 failures) whose only delta is the new suites; `spotlessCheck` and `spotbugsMain` on the branch; the live end-to-end check on the final artifact; and an independent verification pass that met all five of its claims with no blockers. The native review was assessed and not due (`medium` risk, `under_budget`), so none was started. The branch and its worktree were removed after the merge and the anchor is clean on `main`.
