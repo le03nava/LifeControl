@@ -84,6 +84,19 @@ install_monitoring_configs() {
 			print_warning "  chown 1000:1000 '$vol_path/grafana/data'"
 		fi
 	fi
+
+	# Loki writes under /loki (common.path_prefix) and its distroless image runs as uid 10001,
+	# so the bind-mounted directory must be writable by it: Docker creates a missing
+	# bind-mount source as root, and Loki would fail to start against it.
+	if [ -d "$vol_path/loki/data" ]; then
+		mkdir -p "$vol_path/loki/data/rules" "$vol_path/loki/data/rules-temp"
+		if chown -R 10001:10001 "$vol_path/loki/data" 2>/dev/null; then
+			print_success "loki data dir owner set to 10001:10001"
+		else
+			print_warning "Could not chown '$vol_path/loki/data' to 10001:10001 — apply manually:"
+			print_warning "  chown -R 10001:10001 '$vol_path/loki/data'"
+		fi
+	fi
 }
 
 # Create volume directories from VOLUMES_ROOT and install reference configs

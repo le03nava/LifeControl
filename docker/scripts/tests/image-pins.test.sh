@@ -1,0 +1,243 @@
+#!/bin/bash
+# ============================================
+# LifeControl - infrastructure image pin tests
+# ============================================
+# The images of the infrastructure stack are pinned in exactly two versioned places:
+#
+#   - docker/.env.template (the only tracked env file; .env, .env.dev, .env.staging and
+#     .env.prod are gitignored materializations, so they are NOT a source of truth)
+#   - the ${VAR:-default} fallbacks in docker/docker-compose*.yml
+#
+# When they drift, one environment silently runs a different image from the other, which is
+# how a security bump disappears without anyone noticing. The expected set below is a
+# deliberate freeze: bumping an image means editing this table too, in the same commit, so
+# the version change is always a reviewed decision instead of an unnoticed drift.
+#
+# It also pins the two constraints that this stack learned the hard way:
+#
+#   1. Loki >= 3.6.0 and Tempo >= 3.0 are distroless images (gcr.io/distroless/static): no
+#      shell, no wget. A `CMD wget --spider ...` healthcheck inside those containers can
+#      never pass again, so the readiness signal has to be measured from the host.
+#   2. Loki writes under /loki (common.path_prefix of its bundled config), so the bind mount
+#      must target /loki and setup-env.sh must make that directory writable by uid 10001,
+#      the non-root user of the distroless image. Mounting anything else leaves every log in
+#      the container's ephemeral layer.
+#
+# No Docker daemon, no network, no Gradle: this is a static consistency check.
+#
+# Run: ./docker/scripts/tests/image-pins.test.sh
+# Exits 0 only when every check passes.
+
+set -u
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+DOCKER_DIR="$REPO_ROOT/docker"
+ENV_TEMPLATE="$DOCKER_DIR/.env.template"
+DEPLOY_SH="$DOCKER_DIR/scripts/deploy.sh"
+SETUP_ENV_SH="$DOCKER_DIR/scripts/setup-env.sh"
+
+PASS_COUNT=0
+FAIL_COUNT=0
+
+pass() {
+	printf 'PASS: %s\n' "$1"
+	PASS_COUNT=$((PASS_COUNT + 1))
+}
+
+fail() {
+	printf 'FAIL: %s\n' "$1"
+	FAIL_COUNT=$((FAIL_COUNT + 1))
+}
+
+# check_equal <description> <expected> <actual>
+check_equal() {
+	if [ "$2" = "$3" ]; then
+		pass "$1 ($3)"
+	else
+		fail "$1 (expected $2, got $3)"
+	fi
+}
+
+# read_env_var <file> <name>
+read_env_var() {
+	sed -n "s/^$2=//p" "$1" 2>/dev/null | tail -1
+}
+
+# Every default of ${VAR:-value} in the compose files, one per line.
+# The pattern keeps the `$` and the `{` separate (`\$` then `{`): a `\{` in a sed BRE opens an
+# interval expression, so the substitution silently matches nothing.
+compose_defaults_for() {
+	sed -n 's/.*\${'"$1"':-\([^}]*\)}.*/\1/p' "$DOCKER_DIR"/docker-compose*.yml 2>/dev/null
+}
+
+# service_block <compose file> <service name>
+service_block() {
+	awk -v svc="$2" '
+		$0 == "  " svc ":" { inside = 1; print; next }
+		inside && /^  [a-zA-Z0-9_-]+:$/ { inside = 0 }
+		inside { print }
+	' "$1"
+}
+
+# ------------------------------------------
+# 1. The tracked template declares every pin at the frozen version.
+# ------------------------------------------
+EXPECTED_PINS="POSTGRES_IMAGE=postgres:18.6
+KEYCLOAK_IMAGE=quay.io/keycloak/keycloak:26.8.1
+LOKI_IMAGE=grafana/loki:3.7.8
+PROMETHEUS_IMAGE=prom/prometheus:v3.15.0
+TEMPO_IMAGE=grafana/tempo:3.1.0
+GRAFANA_IMAGE=grafana/grafana:13.2.4
+REDIS_IMAGE=redis:8.10-alpine
+MAILPIT_IMAGE=axllent/mailpit:v1.31.6"
+
+if [ ! -f "$ENV_TEMPLATE" ]; then
+	fail "missing docker/.env.template"
+else
+	while IFS='=' read -r name expected; do
+		[ -n "$name" ] || continue
+		check_equal ".env.template $name" "$expected" "$(read_env_var "$ENV_TEMPLATE" "$name")"
+	done <<< "$EXPECTED_PINS"
+fi
+
+# ------------------------------------------
+# 2. Every compose default agrees with the template: a fallback that lags is an environment
+#    that runs the old image whenever the variable is not materialized in its env file.
+# ------------------------------------------
+while IFS='=' read -r name expected; do
+	[ -n "$name" ] || continue
+	defaults="$(compose_defaults_for "$name")"
+	count="$(printf '%s\n' "$defaults" | sed '/^$/d' | wc -l | tr -d ' ')"
+	if [ "$count" -eq 0 ]; then
+		fail "no compose default found for $name (expected at least one)"
+		continue
+	fi
+	index=0
+	while IFS= read -r value; do
+		[ -n "$value" ] || continue
+		index=$((index + 1))
+		check_equal "compose default #$index for $name" "$expected" "$value"
+	done <<< "$defaults"
+done <<< "$EXPECTED_PINS"
+
+# LIFECONTROL_POSTGRES_IMAGE is a prod-only variable with no template entry: it must still
+# name the same Postgres as POSTGRES_IMAGE.
+canonical_postgres="$(read_env_var "$ENV_TEMPLATE" POSTGRES_IMAGE)"
+lc_defaults="$(compose_defaults_for LIFECONTROL_POSTGRES_IMAGE)"
+if [ -z "$lc_defaults" ]; then
+	fail "no compose default found for LIFECONTROL_POSTGRES_IMAGE (expected at least one)"
+else
+	index=0
+	while IFS= read -r value; do
+		[ -n "$value" ] || continue
+		index=$((index + 1))
+		check_equal "compose default #$index for LIFECONTROL_POSTGRES_IMAGE" "$canonical_postgres" "$value"
+	done <<< "$lc_defaults"
+fi
+
+# ------------------------------------------
+# 3. No floating tag on the pinned services: `latest` or a bare major would defeat the freeze
+#    and make two environments disagree while both look "correct". A minor line with a variant
+#    suffix (`8.10-alpine`) is a pin; a bare `18` or `3` is not.
+# ------------------------------------------
+while IFS='=' read -r name value; do
+	[ -n "$name" ] || continue
+	case "$value" in
+	*:*)
+		tag="${value##*:}"
+		case "$tag" in
+		latest)
+			fail "$name is pinned to 'latest' ($value)"
+			;;
+		*.*)
+			pass "$name is pinned to a version ($tag)"
+			;;
+		*)
+			fail "$name uses a bare-major tag, which floats ($value)"
+			;;
+		esac
+		;;
+	*)
+		fail "$name has no tag at all, so it resolves to 'latest' ($value)"
+		;;
+	esac
+done <<< "$EXPECTED_PINS"
+
+# ------------------------------------------
+# 4. Loki and Tempo must not declare a healthcheck at all: their images are distroless, so the
+#    only binary inside is the service itself and any in-container probe reports a healthy
+#    service as unhealthy forever. Readiness is measured from the host (section 5).
+# ------------------------------------------
+for compose in "$DOCKER_DIR"/docker-compose*.yml; do
+	[ -f "$compose" ] || continue
+	for svc in loki tempo; do
+		block="$(service_block "$compose" "$svc")"
+		if [ -z "$block" ]; then
+			continue
+		fi
+		if printf '%s\n' "$block" | grep -qE '^[[:space:]]*healthcheck:'; then
+			fail "$(basename "$compose") $svc declares a healthcheck, but its image is distroless (no shell, no wget): it can never pass"
+		else
+			pass "$(basename "$compose") $svc declares no in-image healthcheck"
+		fi
+	done
+done
+
+# ------------------------------------------
+# 5. ... which is only acceptable because deploy.sh measures that readiness from the host, on
+#    the published port. Without these two probes the redesign would just delete the signal.
+# ------------------------------------------
+if [ ! -f "$DEPLOY_SH" ]; then
+	fail "missing docker/scripts/deploy.sh"
+else
+	for svc in LOKI TEMPO; do
+		if grep -q "get_env_var ${svc}_PORT)/ready" "$DEPLOY_SH"; then
+			pass "deploy.sh probes $svc readiness at /ready on the published port"
+		else
+			fail "deploy.sh does not probe $svc readiness (expected a /ready probe built from ${svc}_PORT)"
+		fi
+	done
+fi
+
+# ------------------------------------------
+# 6. Loki's bind mount targets /loki, and setup-env.sh prepares that directory for the image's
+#    uid. A mount at any other path silently discards every log on container recreation.
+# ------------------------------------------
+for compose in "$DOCKER_DIR"/docker-compose*.yml; do
+	[ -f "$compose" ] || continue
+	block="$(service_block "$compose" loki)"
+	[ -n "$block" ] || continue
+	if printf '%s\n' "$block" | grep -qE ':[[:space:]]*/loki/data$'; then
+		fail "$(basename "$compose") mounts Loki data at /loki/data, but its config writes to /loki"
+	elif printf '%s\n' "$block" | grep -qE ':[[:space:]]*/loki$'; then
+		pass "$(basename "$compose") mounts Loki data at /loki"
+	else
+		fail "$(basename "$compose") has no Loki data mount targeting /loki"
+	fi
+done
+
+if [ ! -f "$SETUP_ENV_SH" ]; then
+	fail "missing docker/scripts/setup-env.sh"
+else
+	if grep -q '10001:10001' "$SETUP_ENV_SH"; then
+		pass "setup-env.sh prepares the Loki data dir for uid 10001"
+	else
+		fail "setup-env.sh does not chown the Loki data dir to 10001:10001 (the distroless image runs as uid 10001)"
+	fi
+	if grep -q 'rules-temp' "$SETUP_ENV_SH"; then
+		pass "setup-env.sh creates the Loki rules directories"
+	else
+		fail "setup-env.sh does not create the Loki rules/rules-temp directories (Loki needs them under the mounted /loki)"
+	fi
+fi
+
+# ------------------------------------------
+# Summary
+# ------------------------------------------
+echo "------------------------------------------"
+printf 'image-pins: %s passed, %s failed\n' "$PASS_COUNT" "$FAIL_COUNT"
+if [ "$FAIL_COUNT" -ne 0 ]; then
+	exit 1
+fi
+exit 0

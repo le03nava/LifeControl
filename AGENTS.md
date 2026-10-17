@@ -224,6 +224,22 @@ curl -s -X POST "http://localhost:8181/realms/life-control-realm/protocol/openid
 
 > Un caller con solo `lc-department` o `lc-position` recibe **403** cuando el claim falta y **201** cuando está. Si ves 403 en un endpoint scoped, mirá primero el token y no los roles.
 
+### Imágenes de la stack: pins, healthchecks y volúmenes
+
+| Regla | Valor |
+|-------|-------|
+| Fuente versionada de los pins | `docker/.env.template` (los `.env*` están gitignoreados: son materialización local) **y** el default `${VAR:-…}` de los compose |
+| Chequeo | `./docker/scripts/tests/image-pins.test.sh`: falla si el template y los defaults divergen, y es el que fija la lista de versiones vigente. Bumpear una imagen es editar las dos cosas y su tabla, en el mismo commit |
+| Loki y Tempo no llevan `healthcheck` | Desde `grafana/loki` 3.6.0 y `grafana/tempo` 3.x las imágenes son distroless (`gcr.io/distroless/static`): sin shell ni `wget`, así que un `CMD wget …` queda `unhealthy` para siempre. La señal se mide desde el host en `deploy.sh health`, con `curl` |
+| Loki guarda en `/loki` | Es el `path_prefix` de su config empaquetada. El mount apunta a `/loki` y `setup-env.sh` deja ese directorio (más `rules/` y `rules-temp/`) con dueño `10001:10001`, el uid de la imagen distroless |
+| Volumen de Loki en prod | Es un named volume: si existe de antes (creado para `/loki/data`) hay que borrarlo una vez, porque Docker no lo repuebla desde la imagen y queda vacío y root-owned, que es justo lo que Loki no puede escribir |
+
+> **Subir una imagen**: editá `.env.template`, los defaults de `docker-compose*.yml` y la tabla de
+> `image-pins.test.sh`; corré los cinco tests de `docker/scripts/tests/`; en dev, `./docker/scripts/deploy.sh dev up`
+> y `./docker/scripts/deploy.sh dev health`. En staging/prod el cambio del template no toca nada hasta que el
+> entorno se re-materialice: un `.env.<env>` existente **no** se reescribe solo (`setup-env.sh` sólo lo crea si
+> falta), así que el operador lo actualiza a mano.
+
 ### Service URLs
 
 > **Source of truth**: Service URLs are defined by port variables in `docker/.env.<env>` files.
