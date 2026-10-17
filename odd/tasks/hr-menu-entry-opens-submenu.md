@@ -1,11 +1,9 @@
 # ODD feature: hr-menu-entry-opens-submenu
 
 **Repository**: LifeControl — frontend `life-control-app-angular/`
-**Status**: implemented — the change, its co-located spec and the navigation e2e are on
-`feat/hr-menu-entry-opens-submenu` at **`0966dae`**; what remains is the **delivery decision** (push,
-PR, merge), which is the maintainer's. Verification is closed for this range as far as the RDD plan
-closes it: `writerSelfVerification: true`, `independentVerifier: false`, `reviewDue: false` (L7).
-This header makes no claim about push or PR state; see the evidence log.
+**Status**: merged — PR **#358** (`feat/hr-menu-entry-opens-submenu` @ `6d2f357`), 2026-10-17. No
+work left in this unit; **G1** and **G2** stay declared. Verification closed with
+`writerSelfVerification: true`, `independentVerifier: false`, `reviewDue: false` (L7).
 **Created**: 2026-10-16 · **Risk**: item 3 — small diff, shared surface. It edits the markup and the
 item model that **every** header entry renders (`items()` + `li.nav-item`), so the failure mode with
 the best chance of going unnoticed is an unrequested change in a sibling entry (Companies,
@@ -71,7 +69,10 @@ and the three options are reached from the panel.
 | --- | --- |
 | Base | `8cde31a` (`main`) |
 | Work unit | `0966dae` — `feat(hr): open the Recursos Humanos submenu from its own label` (5 files, +171/−41) |
+| Record | `d892aa1` — `docs(odd): record the HR menu-only entry as a recovered work unit` (`odd/tasks/hr-menu-entry-opens-submenu.md`, 148 lines) |
 | Branch | `feat/hr-menu-entry-opens-submenu` |
+| PR | **#358** → `main` (6 files, +319 −41); `Lint, Build & Test` pass in 6m41s |
+| Merge | merge commit **`6d2f357`**, 2026-10-17T14:57:57Z; parents `ce2c15b` + `d892aa1` (identity in L8) |
 
 ### Verification evidence
 
@@ -132,6 +133,19 @@ and the three options are reached from the panel.
   verifier runs whatever the native tier. The risk line this record declares (item 3) was therefore
   not escalated, and **no native review was started** — `reviewDue` false is the entry rule's own
   condition for starting one.
+- **L8** — merged on 2026-10-17 as PR **#358**: merge commit **`6d2f357`**, `mergedAt
+  2026-10-17T14:57:57Z`, parents `ce2c15b` (the `main` tip captured with `git ls-remote` **before**
+  merging) + `d892aa1` (the head CI ran on, pinned with `gh pr merge --match-head-commit`). **The
+  proof that the merge added exactly this branch's diff** is `git diff --stat ce2c15b 6d2f357` →
+  6 files, **+319 −41**. The merge tree is **not** tree-identical to the head, and that is expected
+  and not a defect: `main` had moved (`PR #357`, `ce2c15b`) while this branch was open, so the
+  tree-identity check that holds on an unmoved base does not apply here. Post-merge CI on `main`
+  runs all four workflows, because the `push` trigger has no path filter. **Two repairs this row
+  carries**: (1) the PR body quoted **+306 −41**, a measurement taken before this record's own
+  amendment added 13 lines, corrected to **+319 −41** with `gh pr edit`; and (2) this record's
+  header carried *“what remains is the delivery decision (push, PR, merge)”*, a pending-delivery
+  claim the merge falsified — the shape invariant #2 forbids and the reason the repair is recorded
+  rather than silently applied — so the header now states the merge with its evidence.
 
 ## Gaps
 
@@ -143,6 +157,4 @@ and the three options are reached from the panel.
 
 ## Next step
 
-The **delivery decision** — push the branch, open the pull request, merge — is the maintainer's.
-Nothing else is open in this unit: the native assessment required no review and no separate
-verifier (L7), and every check in the evidence table was run against the committed bytes.
+None for this unit — merged (L8). **G1** and **G2** are declared follow-ups, not open work here.
