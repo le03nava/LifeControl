@@ -8,7 +8,9 @@ Shared repository references live here. Component-specific detail lives in `refe
 - `README.md` — monorepo overview and entry commands.
 - `life-control-api/AGENTS.md` — component governance for the Spring Boot API.
 - `life-control-app-angular/AGENTS.md` — component governance for the Angular app (RBAC, visibility, dual-mode guard).
-- Absent: `CONTRIBUTING.md`, `SECURITY.md`, `CODEOWNERS`, `docs/**` (see Gaps).
+- `CONTRIBUTING.md` — the contribution entry point: the issue-first flow, the one `type:*` label, the ~400-line review budget and chained slices, the worktree convention, the ODD evidence record, the CI gates and the branch-protection runbook.
+- `.github/CODEOWNERS` — review ownership for `life-control-api/`, `life-control-app-angular/`, `docker/` + `k8s/`, and `.github/` (`@le03nava`).
+- Absent: `SECURITY.md`, `docs/**` (see Gaps).
 
 ## Workflow
 
@@ -71,10 +73,10 @@ Run each gate command from the component directory.
 
 ## Gaps
 
-- `CONTRIBUTING.md`, `SECURITY.md`, `CODEOWNERS`, `docs/**` absent at root and component level.
+- `SECURITY.md`, `docs/**` absent at root and component level.
 - No secret-scanning configuration.
 - No SBOM configuration.
 - No CI check or repository setting prevents deleting a base branch that an open PR depends on.
 - No CI check inspects `odd/**` or any markdown: every workflow's `paths:` filter is scoped to its own component and nested under `pull_request`, so a records-only change runs no workflow at all.
 - No documented rollback plan or post-deploy checklist.
-- Provider-side settings (branch protection, required checks, review rules) are unverifiable from the repository.
+- Provider-side settings (branch protection, required checks, review rules) are unverifiable from the repository; `CONTRIBUTING.md` states the settings to apply, and applying them stays a repository-admin action.

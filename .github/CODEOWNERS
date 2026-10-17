@@ -1,0 +1,20 @@
+# Review ownership for LifeControl.
+#
+# GitHub uses this file to request a review from the owner of every changed path, and a
+# branch protection rule with "Require review from Code Owners" turns those requests into a
+# gate. Applying that rule is a repository-admin action; see `CONTRIBUTING.md`.
+#
+# One owner per area for now. The owner must have write access to the repository.
+#
+# Area                       Owner
+# -------------------------  ------------
+# life-control-api/          @le03nava
+# life-control-app-angular/  @le03nava
+# docker/ and k8s/           @le03nava
+# .github/                   @le03nava
+
+life-control-api/          @le03nava
+life-control-app-angular/  @le03nava
+docker/                    @le03nava
+k8s/                       @le03nava
+.github/                   @le03nava

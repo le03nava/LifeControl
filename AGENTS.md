@@ -336,6 +336,8 @@ Follow conventional-commit style: `<type>[scope]: <description>`
 
 **Types:** `feat`, `fix`, `docs`, `chore`, `perf`, `refactor`, `style`, `test`
 
+The full flow — issue-first with an approved issue, the one `type:*` label, the ~400-line review budget and chained slices, the worktree convention, the ODD evidence record, the CI gates and the branch-protection runbook — starts in [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ---
 
 ## Component-Specific Guidelines
