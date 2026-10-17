@@ -4,9 +4,9 @@
 class, the `Logbook` block of `application.properties`, the component `AGENTS.md`, the test logback
 configuration and three new test classes. **No endpoint, no schema, no contract, no dependency and no CI
 change.**
-**Status**: implemented — `fe376f5` (one code/configuration/test/documentation slice) plus this record on
-`fix/api-logbook-logging` off `main` @ `b8b82a6`. This header carries only dated local facts and makes no
-claim about push or PR state; see the evidence log.
+**Status**: **delivered** — `fe376f5` (one code/configuration/test/documentation slice) plus the record commit
+`6005b53` were merged to `main` as **PR #351 → `0e0bc69`** on 2026-10-17, tree-identical to the head that was
+gated (`6005b53^{tree}` == `0e0bc69^{tree}` == `54c5a75fc4157c8319b29db22c21280db4159379`).
 **Created**: 2026-10-16
 **Risk**: **medium.** Nothing irreversible and no contract: the change is one logger line, one bean and
 comments. What makes it more than cosmetic is that it **turns on** a stream that was previously dead —
@@ -145,7 +145,9 @@ unit, and the tests are what make the other 79 lines checkable.
   not configure at all. `build.gradle` (untouched since the `Inicial` commit) pins the Spring Boot plugin at
   `3.4.0` while `api-gateway/build.gradle` declares `4.1.1`, so any Gradle invocation from the root fails
   with *"the plugin is already on the classpath with a different version (3.4.0)"*. CI does not see it
-  because every workflow runs from a module directory. It belongs in its own issue.
+  because every workflow runs from a module directory. It belongs in its own issue. *(**Closed on 2026-10-17**
+  by its own unit, `chore/root-gradle-boot-pin`, delivered as PR #353 → `b0ba086`; the measurement and why CI
+  never saw it are in `L4`.)*
 
 ## Evidence log
 
@@ -165,3 +167,25 @@ unit, and the tests are what make the other 79 lines checkable.
   que el stash arregla.»
 - **L2** — the user then asked for the pull request, which is what moves `fe376f5` and this record onto a
   branch and into delivery. The delivery itself is recorded when it is known, not predicted here.
+- **L3** — *2026-10-17, the delivery.* PR **#351** (`fix/api-logbook-logging`, head **`6005b53`**) was merged to
+  `main` as **`0e0bc69f8023d8d2a9c56b95418cb6021399a679`**, `--merge` and never a squash, with **no
+  `--delete-branch`** (`delete_branch_on_merge` reads `false` in this repository): the branch stays in `origin` as
+  evidence. **The parents fix the order and the proof is tree identity, available because `main` had not moved
+  under the cut**: `0e0bc69` ← `b8b82a6` (the previous `main`, which is also the base the branch was cut from)
+  + `6005b53`, and `6005b53^{tree}` == `0e0bc69^{tree}` == `54c5a75fc4157c8319b29db22c21280db4159379`, so the
+  merge added the gated bytes and not one byte more. **The diff the merge added to `main`** is **9 files / +645
+  −12**, equal to the numbers the pull request itself reports.
+- **L4** — *2026-10-17, the defect this record declared belonged in its own issue was fixed in its own unit.* The
+  repository-root `build.gradle` — untouched since the `Inicial` commit, pinning `org.springframework.boot` at
+  `3.4.0` while `api-gateway/build.gradle` declares `4.1.1` — was aligned by the unit
+  `chore/root-gradle-boot-pin` (PR **#353**, head `686d22a`, merged as **`b0ba086`**): `org.springframework.boot`
+  **3.4.0 → 4.1.1** and `io.spring.dependency-management` **1.1.6 → 1.1.7**, 1 file / **+2 −2**. **RED was measured
+  before the change and GREEN after it**: `./gradlew projects --offline` answered **BUILD FAILED**, *"the plugin
+  is already on the classpath with a different version (3.4.0)"* pointing at `api-gateway/build.gradle:3`, and
+  after the pin `projects` answered **BUILD SUCCESSFUL in 2s** and `:api-gateway:compileJava --offline`
+  **BUILD SUCCESSFUL in 10s**. **Why it survived this long is the part worth keeping**: all four workflows run
+  with a `working-directory` of their own module, so none of them ever invoked the root build, and **no test pins
+  it** — the defect was real and invisible to CI at the same time, which is what this record's own bullet meant by
+  *belongs in its own issue*. Tree identity is not available for this merge — `main` had moved by #354's merge
+  before it landed — so the proof is content: the diff `b0ba086` added to its own previous `main` (`11275c4`) is
+  **1 file / +2 −2**, equal to the pull request's own numbers. **No source line of this record changed.**
