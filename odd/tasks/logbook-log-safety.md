@@ -49,10 +49,20 @@ was resolved from the tree rather than invented:
 | the app defaults to `dev` | `application.properties:2` → `spring.profiles.active=${SPRING_PROFILES_ACTIVE:dev}` |
 
 So "a deployment that forgot the variable" and "a developer relying on the default" are the *same* observable
-state (`dev` active, variable absent). The guard therefore closes on exactly that state: **the effective profile
-is `dev` while the variable was never declared → refuse to start**, naming the variable. `dev` logging becomes
-something that must be *declared*, never assumed; a deployment that forgets the variable no longer starts, and
-the compose fallback that manufactures a declared `dev` is removed in the same unit (T3).
+state (`dev` active, variable absent) — a laptop, a container and a pod all look alike. The guard therefore
+closes on exactly that state: **the effective profile is `dev` while the variable was never declared → refuse
+to start**, naming the variable. `dev` logging becomes something that must be *declared*, never assumed, and the
+compose fallback that manufactures a declared `dev` is removed in the same unit (T3).
+
+**The measured cost of that condition, and the second thing it forces.** A naive guard would fire inside the
+test JVM, because `src/main/resources/application.properties` is on the test classpath too. Measured on
+`main @ 0e0bc69` with the inheritance chain resolved rather than grepped per file: of **46** classes carrying
+`@SpringBootTest`, **10** have a profile (their own or inherited from `AbstractPostgresIntegrationTest`),
+**36 have none** — they resolve to `dev` today through the very default this unit is closing. So the guard as
+approved and the test harness cannot be separated: `tasks.named('test')` must pin `spring.profiles.active=test`
+(T2), and those 36 classes stop depending on the dev profile by accident. That migration is part of the change,
+and the full gate (T5) is its proof: if any of them was truly relying on dev, it fails and is declared instead of
+smoothed over.
 
 **S3** — **the dev flow is not lost, and the cost is declared.** The canonical dev flow is the compose dev
 environment, whose file declares `SPRING_PROFILES_ACTIVE=dev`, so it keeps working. What changes is a bare
@@ -70,8 +80,8 @@ threshold literal and a proxy stub has divergent fallbacks). The reliability len
 | ID | Task | Specs | Route | Commit |
 | --- | --- | --- | --- | --- |
 | **T1** | `SensitiveDataSanitizer`/`LogbookConfig`: outside `dev` the body filter answers a fixed redaction instead of the real body; `dev` keeps today's behaviour. RED first, both directions. | S1, S2 | inline/worker, test-first | pending |
-| **T2** | The fail-closed profile guard: the context refuses to start when the effective profile is `dev` and `SPRING_PROFILES_ACTIVE` was never declared, naming the variable. Tested both ways (declared `dev` boots; undeclared `dev` refuses). | S2, S3 | inline/worker, test-first | pending |
-| **T3** | `docker/docker-compose.yml`: stop manufacturing a `dev` default (`${SPRING_PROFILES_ACTIVE:?...}`), so a missing env file fails at compose time instead of silently logging bodies. | S2, S3 | inline | pending |
+| **T2** | The fail-closed profile guard: the context refuses to start when the effective profile is `dev` and `SPRING_PROFILES_ACTIVE` was never declared, naming the variable. Tested both ways (declared `dev` boots; undeclared `dev` refuses). Plus the harness half the measurement forces: `tasks.named('test')` pins `spring.profiles.active=test`, so the 36 profile-less classes stop inheriting `dev`. | S2, S3 | worker, test-first | pending |
+| **T3** | The deployment layer stops having a `dev` by default: `docker/docker-compose.yml` requires the variable (`${SPRING_PROFILES_ACTIVE:?...}`), and the k8s manifests — which today set it **nowhere** — declare it per environment. A shell-level or structural test pins both, the shape `docker/scripts/tests/keycloak-setup.test.sh` already uses. | S2, S3 | worker | pending |
 | **T4** | Docs that describe the change where the reader reaches it: the `Logbook` block of `application.properties`, the Logbook section of `life-control-api/AGENTS.md`, and the dev instruction the guard now requires. | S2, S3 | inline | pending |
 | **T5** | Full gate on the committed bytes of this worktree: `./gradlew test spotlessCheck spotbugsMain --rerun-tasks`, plus the repository's offline shell test for the compose line if one covers it. | S1, S2 | inline | pending |
 | **T6** | Independent verification of the high-risk claim (Risk item 2): that no non-dev profile can emit a request or response body, and that the guard cannot be satisfied by the state it exists to refuse. | S1, S2 | `gentle-ai-verify` | pending |
