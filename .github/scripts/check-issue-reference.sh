@@ -21,9 +21,15 @@
 # testable offline in `.github/scripts/tests/check-issue-reference.test.sh`.
 #
 # `Refs #N` is accepted only off the default branch, because GitHub interprets closing
-# keywords (`Closes|Fixes|Resolves #N`) only when the pull request targets the default branch:
-# a chained slice cannot close its issue from the child pull request, so requiring a closing
-# keyword there would make the chain impossible instead of making it correct.
+# keywords only when the pull request targets the default branch: a chained slice cannot close
+# its issue from the child pull request, so requiring a closing keyword there would make the
+# chain impossible instead of making it correct. The nine keywords GitHub honors are matched —
+# `close`, `closes`, `closed`, `fix`, `fixes`, `fixed`, `resolve`, `resolves`, `resolved` —
+# because a contributor who writes `Fix #12` means exactly what `Closes #12` means.
+#
+# A reference must appear in prose. Fenced blocks and inline code spans are removed before the body
+# is scanned, so a pull request that documents this gate — quoting `Closes #N` or `Fix #N` as an
+# example — is not read as referencing those numbers.
 #
 # `jq` is required for the JSON, as in check-pr-type-labels.sh.
 #
@@ -148,10 +154,32 @@ if [ -z "${body//[[:space:]]/}" ]; then
 	exit 1
 fi
 
+# strip_code drops fenced blocks and inline code spans, the forms a body uses to quote an example.
+# Measured: pull request #390 explained the corrected `Fix #12` case in its own description, a raw
+# scan read that quotation as a closing reference, and #12 is a pull request in this repository — so
+# the gate failed the pull request that fixes the gate. The number must be referenced in prose.
+strip_code() {
+	awk '
+		/^[[:space:]]*(```|~~~)/ { fence = !fence; next }
+		fence { next }
+		{
+			line = $0
+			out = ""
+			while (match(line, /`[^`]*`/)) {
+				out = out substr(line, 1, RSTART - 1)
+				line = substr(line, RSTART + RLENGTH)
+			}
+			print out line
+		}
+	'
+}
+
+scan_body="$(printf '%s' "$body" | strip_code)"
+
 # A reference to another repository cannot be verified with this repository's token, and
 # silently ignoring it would report a pass for a link nobody checked.
-if printf '%s' "$body" | grep -qiE '[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+[[:space:]]*#[0-9]+'; then
-	cross="$(printf '%s' "$body" | grep -oiE '[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+[[:space:]]*#[0-9]+' | head -1)"
+if printf '%s' "$scan_body" | grep -qiE '[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+[[:space:]]*#[0-9]+'; then
+	cross="$(printf '%s' "$scan_body" | grep -oiE '[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+[[:space:]]*#[0-9]+' | head -1)"
 	printf 'FAIL: cross-repository reference %s cannot be verified by this gate; reference an issue of this repository\n' \
 		"'$cross'" >&2
 	exit 1
@@ -168,7 +196,7 @@ while IFS= read -r match; do
 	*" $number "*) continue ;;
 	esac
 	closing_numbers="$closing_numbers $number"
-done < <(printf '%s' "$body" | grep -oiE '(closes|fixes|resolves)[[:space:]]*:?[[:space:]]*#[0-9]+' || true)
+done < <(printf '%s' "$scan_body" | grep -oiE '(close[sd]?|fix(es|ed)?|resolve[sd]?)[[:space:]]*:?[[:space:]]*#[0-9]+' || true)
 
 while IFS= read -r match; do
 	[ -n "$match" ] || continue
@@ -181,15 +209,15 @@ while IFS= read -r match; do
 	*" $number "*) continue ;;
 	esac
 	ref_numbers="$ref_numbers $number"
-done < <(printf '%s' "$body" | grep -oiE 'refs[[:space:]]*:?[[:space:]]*#[0-9]+' || true)
+done < <(printf '%s' "$scan_body" | grep -oiE 'refs[[:space:]]*:?[[:space:]]*#[0-9]+' || true)
 
 if [ -z "$closing_numbers" ] && [ -z "$ref_numbers" ]; then
-	printf 'FAIL: no issue reference in the pull request body; add a closing reference (Closes|Fixes|Resolves #N, or Refs #N off the default branch)\n' >&2
+	printf 'FAIL: no issue reference in the pull request body; add a closing keyword (Closes #N, or the close/closed, fix/fixed, resolve/resolved forms) or Refs #N off the default branch\n' >&2
 	exit 1
 fi
 
 if [ "$base_branch" = "$default_branch" ] && [ -z "$closing_numbers" ]; then
-	printf 'FAIL: this pull request targets the default branch %s: a closing reference (Closes|Fixes|Resolves #N) is required, because GitHub ignores closing keywords on any other base\n' \
+	printf 'FAIL: this pull request targets the default branch %s: a closing reference (Closes #N and the close/closed, fix/fixed, resolve/resolved forms) is required, because GitHub ignores closing keywords on any other base\n' \
 		"'$base_branch'" >&2
 	exit 1
 fi

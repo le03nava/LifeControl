@@ -39,7 +39,14 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GUARD="$SCRIPT_DIR/../check-issue-reference.sh"
-TMP="$(mktemp -d)"
+TMP="$(mktemp -d)" || {
+	printf 'FAIL: cannot create a scratch directory (TMPDIR=%s)\n' "${TMPDIR:-unset}" >&2
+	exit 1
+}
+[ -d "$TMP" ] || {
+	printf 'FAIL: the scratch directory is not usable: %s\n' "$TMP" >&2
+	exit 1
+}
 trap 'rm -rf "$TMP"' EXIT
 
 PASS_COUNT=0
@@ -118,6 +125,31 @@ check "a cross-repository reference fails" 1 - "cross-repository reference" \
 	"$GUARD" --body "Closes le03nava/other#3" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
 check "an uppercase keyword with a colon passes" 0 "PASS: #12 is open and carries status:approved" - \
 	"$GUARD" --body "CLOSES: #12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+# GitHub honors nine closing keywords, not three: a contributor who writes `Fix #12` or
+# `resolve #12` means the same thing as `Closes #12`, and rejecting it would block a valid
+# pull request over a conjugation.
+check "a single-word closing keyword passes" 0 "PASS: #12 is open and carries status:approved" - \
+	"$GUARD" --body "Fix #12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+check "a past-tense closing keyword passes" 0 "PASS: #12 is open and carries status:approved" - \
+	"$GUARD" --body "FIXED: #12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+check "the resolve family closes too" 0 "PASS: #12 is open and carries status:approved" - \
+	"$GUARD" --body "resolve #12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+check "a keyword GitHub does not honor is not a reference" 1 - "FAIL: no issue reference" \
+	"$GUARD" --body "Linked #12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+# A pull request that documents this gate quotes its own keywords. Pull request #390 did exactly
+# that: its body explained the corrected `Fix #12` case, the raw scan read the quotation as a
+# closing reference, #12 happens to be a pull request in this repository, and the gate failed the
+# pull request that fixes the gate. Only prose references count.
+check "a quoted keyword is documentation, not a reference" 1 - "FAIL: no issue reference" \
+	"$GUARD" --body 'The gate now accepts `Fix #12` as a closing keyword.' --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+check "a fenced keyword is documentation, not a reference" 1 - "FAIL: no issue reference" \
+	"$GUARD" --body '```
+Closes #12
+```' --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+check "a quoted example beside a real reference passes" 0 "PASS: #12 is open and carries status:approved" - \
+	"$GUARD" --body 'The old gate rejected `Fix #12`, which is a pull request here.
+
+Closes #12' --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
 
 echo "== the referenced issue =="
 check "an approved open issue passes" 0 "PASS: #12 is open and carries status:approved" - \
@@ -147,6 +179,10 @@ check "an unreadable --issues-json-file fails closed" 1 - "FAIL: cannot read --i
 echo "== extraction for the workflow =="
 check "--print-refs emits the closing reference" 0 "12" - \
 	"$GUARD" --body "Closes #12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --print-refs
+check "--print-refs ignores a quoted example" 0 "12" - \
+	"$GUARD" --body 'The old gate rejected `Fix #4` as a reference.
+
+Closes #12' --base-branch "$DEFAULT" --default-branch "$DEFAULT" --print-refs
 check "--print-refs emits every reference once, closing first" 0 "12
 4" - \
 	"$GUARD" --body "Closes #12

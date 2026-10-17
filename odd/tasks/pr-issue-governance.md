@@ -10,8 +10,9 @@ PR 2 = `S2`, PR 3 = `S4+S5`, PR 4 = `S6+S3`, PR 5 = `S7` (re-cut from the three-
 first slice was measured; see `L7`). Push, issue creation and merge are the user's decisions.
 **Test runner**: `.github/scripts/tests/*.test.sh` and `docker/scripts/tests/*.test.sh` — offline bash
 suites, run from the worktree; `shellcheck --severity=warning` on modified scripts.
-**Status**: no slice has landed yet — `## Tasks` states what remains, and this header makes no claim about
-push, PR, or merge state; delivery detail belongs in the dated evidence log below.
+**Status**: implemented and delivered as the chained pull requests **#385–#390**, each from an approved
+issue (**#379–#384**) — what remains is review, the retarget-and-merge protocol of the chain, and applying
+branch protection, all of them user decisions (see the evidence log).
 **Created**: 2026-10-17
 **Risk**: **high.** Two slices change what CI does at merge time (Task Size item 5: `S2` adds a merge-blocking
 gate and an `issues: read` token scope; `S7` changes workflow triggers) and `S3` decides who must review what.
@@ -81,27 +82,31 @@ PAT; `@le03nava` is the only code owner until the user names others.
 | --- | --- | --- | --- | --- |
 | T1 | S1 | inline | issue forms + `config.yml` + `issue-templates.test.sh` (RED 4/30 → GREEN 34/34) | `b560378` |
 | T2 | S2 | inline | `check-issue-reference.sh` + its suite + workflow wiring | — |
-| T3 | S4 | delegated (`gentle-ai-worker`) | `label-vocabulary.txt` + the guard reads it + `vocabulary-source.test.sh` (RED 8/16 → GREEN 17/17) | — |
-| T4 | S5 | delegated | Dependabot `labels:` + `label-artifacts.test.sh` extension (RED on the real config → GREEN 19/19) | — |
-| T5 | S6 | delegated | `CONTRIBUTING.md` + `AGENTS.md` link + the `index.md` registry | — |
-| T6 | S3 | delegated | `.github/CODEOWNERS` + the branch-protection runbook | — |
-| T7 | S7 | delegated | the four `push:` filters + `workflow-trigger-parity.test.sh` (RED 13/21 → GREEN 21/21) | — |
+| T3 | S4 | delegated (`gentle-ai-worker`) | `label-vocabulary.txt` + the guard reads it + `vocabulary-source.test.sh` (RED 8/16 → GREEN 17/17) | `b7a034a` |
+| T4 | S5 | delegated | Dependabot `labels:` + `label-artifacts.test.sh` extension (RED on the real config → GREEN 19/19) | `b7a034a` |
+| T5 | S6 | delegated | `CONTRIBUTING.md` + `AGENTS.md` link + the `index.md` registry | `5c382e6` |
+| T6 | S3 | delegated | `.github/CODEOWNERS` + the branch-protection runbook | `5c382e6` |
+| T7 | S7 | delegated | the four `push:` filters + `workflow-trigger-parity.test.sh` (RED 13/21 → GREEN 21/21) | `b385f35` |
 
 Delegated units arrived as one bounded writer each, with disjoint edit surfaces, and no writer committed or
 touched this record: the parent re-ran every suite, the shellcheck step and the differential before committing.
 
 ## Slice boundaries
 
-| PR | Specs | Commits on the tracker branch |
-| --- | --- | --- |
-| 1 | `S1` | `cd58c1e` (this record), `b560378` (forms + suite) |
-| 2 | `S2` | `9fa68f3` (gate + suite + workflow wiring) |
-| 3 | `S4+S5` | — |
-| 4 | `S6+S3` | — |
-| 5 | `S7` | — |
+| Slice | Specs | Commits on the tracker branch | Pull request | Diff |
+| --- | --- | --- | --- | --- |
+| 1 | `S1` | `cd58c1e` (this record), `b560378` (forms + suite) | #385 → `main` | 458 lines |
+| 2 | `S2` | `9fa68f3` (gate + suite + wiring) | #386 → `s1` | 586 |
+| 3 | `S4+S5` | `b7a034a` (vocabulary source, guard, Dependabot labels) | #387 → `s2` | 553 |
+| 4 | `S6+S3` | `5c382e6` (CONTRIBUTING.md, AGENTS link, CODEOWNERS, registry) | #388 → `s3` | 243 |
+| 5 | `S7` | `b385f35` (the four `push:` filters + the parity suite) | #389 → `s4` | 207 |
+| 6 | the verification corrections and the evidence | `2086aea`, `788fb45`, `7a890be`, `66fa69d`, `f630328` | #390 → `s5` | 134 |
 
-The record itself is touched by more than one slice: the Log grows with each unit, so the last slice
-carries the completed table. The tracker branch is never the review candidate — each slice is.
+The record itself is touched by more than one slice, so the last slice carries the completed table. The tracker
+branch is never the review candidate — each pull request is. Slice 6 exists because the two corrections were
+found by the verification that ran *after* the five slices were committed: joining them to the slices they
+belong to would rewrite refs that were already pushed, and the alternative — one 2109-line pull request — is
+what the chained delivery exists to avoid.
 
 ## Log
 
@@ -172,3 +177,60 @@ silently taken.
    reversible. `Dependabot` pull requests are exempt from the issue gate for the same reason their label is now
    declared in `dependabot.yml`: a machine cannot author an approved issue, and the weekly dependency policy is
    its approval model.
+
+**L11** *(independent verification, and the two defects it found, 2026-10-17)*: a read-only `gentle-ai-verify`
+pass re-ran every suite, validated all six workflow files with `actionlint` 1.7.12 (exit 0), replayed the
+workflow's run block against a mock `gh` for the fail-closed paths (unreadable payload, non-JSON, a pull
+request, a wrong number, a valid approved issue), and proved the `S7` diff adds only `paths:` lines under
+`push:` (`3/3/7/4` inserted, nothing removed). Verdicts: **verified** for both units, with no blocker. It also
+found two defects, both fixed and both pinned by a case that was red first:
+
+1. **The gate matched three of GitHub's nine closing keywords** (`788fb45`). A body saying `Fix #12` was
+   rejected as having no reference at all — a valid pull request blocked over a conjugation, by the gate whose
+   purpose is to make linking issues easy. The suite now pins one case per family plus a keyword GitHub does
+   not honor.
+2. **The parity suite could report a false pass** (`7a890be`). Its key rule matched only `[A-Za-z_]+` before the
+   colon, so `paths-ignore:` fell through and its entries were read as `paths:` entries: a push of `one/**` plus
+   `paths-ignore: two/**` compared equal to a pull-request list of both. A test that can pass wrongly is the
+   same defect class this repository's other suites exist to catch, which is why it is fixed rather than noted.
+
+Advisories accepted and documented, not fixed: a reference quoted inside a code fence is still read as a
+reference; the cross-repository rule also rejects a self-repository `owner/repo#N` reference; and the `issue`
+job checks out and runs the guard from the pull request itself, so a pull request that edits the guard decides
+its own verdict — inherent to the `pull_request` trigger, mitigated by `.github/CODEOWNERS` and by branch
+protection once it is applied.
+
+**L12** *(the incident this turn caused and repaired, 2026-10-17)*: cleaning up the leftover scratch of the
+delegated writers removed `/tmp/gpfNX1J8`, which was the session's `TMPDIR`. `mktemp -d` then failed inside
+every suite, and because the suites did not check it the result read as **all 7 suites failing**, including
+tests this feature never touched. The directory was recreated and every suite re-run green. The two suites
+this feature adds now fail loudly when their scratch directory cannot be created, and the lesson is recorded
+here because the same cleanup would mislead the next session in the same way.
+
+**L13** *(the receipt-driven review, 2026-10-17)*: `gentle_review` with `assess` over the committed range from
+the branch point reports `nativeRisk: high`, `reviewDue: true` (`high_risk`), writer profile `large` from the
+runtime evidence, 24 paths and 2109 changed lines; the risk signals are the new executable shell script
+(`executable_mode`, `process_boundary`, `shell_source`). The first attempt reported `unassessable` because the
+call ran with the session's own directory — `main`, clean — instead of the worktree; naming the worktree as the
+workspace root produced the assessment above. `inspect` then reports `status: ready`, `action: start`,
+`fresh_target_ready`, and offers exactly one route: `review.start` with `--base-ref=5b2c7ee --committed-only`
+over the whole tracker range.
+
+**The review was deliberately not started.** The offered candidate is the accumulated feature branch, and the
+lifecycle that governs this call states the candidate is a work-unit commit or a pull request slice and never
+the accumulated feature branch. The five slices exist as commits on the tracker, not yet as the branches the
+chain needs, and materializing those branches is part of the delivery the user has not authorized. The decision
+returned to the user with the outcome: which slice to review first (recommendation: `S2`'s gate, which is where
+the high-risk signal is), and whether to start the review at all.
+
+**L14** *(the delivery, 2026-10-17)*: authorized by the user («sigue con el 1»), after the outcome, the
+numbers and the four open decisions were reported to them. Six issues were opened through the repository's own
+flow — **#379–#384**, each stating the problem, the expected outcome and the acceptance criteria of its slice
+— and each was labelled `enhancement` and `status:approved`, the approval being the user's instruction
+recorded here rather than a conclusion of mine. Seven refs were pushed (`chore/pr-issue-governance` and the six
+slice branches), and six chained pull requests were opened: **#385** (`s1` → `main`, the only one on the
+default branch, so the only one that closes its issue from the body) followed by **#386–#390**, each targeting
+the previous slice and carrying `Refs #<issue>`, which is exactly the non-default-base case
+`check-issue-reference.sh` supports. The pull requests are the first live exercise of the gate this feature
+adds. What remains, and is deliberately not done here: the chain's retarget-and-merge protocol
+(`references/pr-chains.md`), the review, and applying branch protection.
