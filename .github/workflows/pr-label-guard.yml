@@ -77,7 +77,12 @@ jobs:
     # A Dependabot bump is opened by a machine that cannot author an approved issue and cannot
     # edit its own pull request body, and the weekly dependency policy is its approval model.
     # Every human-authored pull request goes through this gate.
-    if: github.actor != 'dependabot[bot]'
+    #
+    # The predicate is who AUTHORED the pull request, never who triggered the event. Measured on
+    # pull request #392 (2026-10-17): a maintainer toggling one label made `github.actor` the human,
+    # the job ran, and a dependency bump failed a gate it is exempt from. `label-artifacts.test.sh`
+    # fails if this comparison is ever simplified back to the actor.
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

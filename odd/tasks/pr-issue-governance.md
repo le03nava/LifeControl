@@ -11,8 +11,9 @@ verification corrections).
 **Test runner**: `.github/scripts/tests/*.test.sh` and `docker/scripts/tests/*.test.sh` — offline bash
 suites, run from the worktree; `shellcheck --severity=warning` on modified scripts.
 **Status**: merged — PRs **#385–#390** (`de408b3`, `ba56674`, `199155b`, `e64d9f0`, `55ad71f`, `9c7c4c9`),
-2026-10-17. No work left in the repository: the two decisions of `L10` (branch protection and the review)
-stay with the user, and nothing in the tree waits on them.
+2026-10-17, plus the follow-up defect found while applying branch protection and recorded in `L17`. No work
+left in the repository: the two decisions of `L10` (branch protection and the review) stay with the user, and
+nothing in the tree waits on them.
 **Created**: 2026-10-17
 **Risk**: **high.** Two slices change what CI does at merge time (Task Size item 5: `S2` adds a merge-blocking
 gate and an `issues: read` token scope; `S7` changes workflow triggers) and `S3` decides who must review what.
@@ -252,3 +253,16 @@ so a reference must appear in prose; the rule cuts both ways, since a reference 
 as the pull request's own reference either. Four cases pin it, one of them the real body that failed, and the
 chain resumed and completed. The worktree is removed after this slice through `herdr workspace close w3V` →
 `git worktree remove` → `git worktree prune`, in that order, now that every commit is in `main`.
+
+**L17** *(the third defect, found while applying branch protection, 2026-10-17)*: the `issue` job's Dependabot
+exemption tested `github.actor`, which is whoever **triggered the event**, not who **authored the pull
+request**. Measured on pull request #392: toggling one label made the actor a human, the job ran, and a
+dependency bump that cannot author an approved issue failed the gate it is exempt from — a false red on a
+legitimate pull request, produced by touching it. The predicate is now
+`github.event.pull_request.user.login != 'dependabot[bot]'`, with two cases in `label-artifacts.test.sh` so it
+cannot be simplified back to the actor. Two facts from the same investigation are worth keeping: a **skipped**
+job still registers as a check run with conclusion `SKIPPED`, which GitHub accepts for a required status check
+(so the exemption and the protection coexist, verified on #392 before requiring it), and the failing run was
+reported by `gh pr checks` as a clean `fail` while the run list called it a `failure` of the whole workflow —
+both readings agree here, but only the rollup names the job. This fix is a follow-up pull request rather than a
+rewrite of the merged slices.
