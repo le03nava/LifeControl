@@ -32,7 +32,14 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKFLOWS="$SCRIPT_DIR/../../workflows"
-TMP="$(mktemp -d)"
+TMP="$(mktemp -d)" || {
+	printf 'FAIL: cannot create a scratch directory (TMPDIR=%s)\n' "${TMPDIR:-unset}" >&2
+	exit 1
+}
+[ -d "$TMP" ] || {
+	printf 'FAIL: the scratch directory is not usable: %s\n' "$TMP" >&2
+	exit 1
+}
 trap 'rm -rf "$TMP"' EXIT
 
 PASS_COUNT=0
@@ -62,7 +69,10 @@ extract_paths() {
 			in_paths = 0
 			next
 		}
-		in_on && in_trigger && /^    [A-Za-z_]+:/ {
+		in_on && in_trigger && /^    [A-Za-z_-]+:/ {
+			# The hyphen matters: `paths-ignore:` and `branches-ignore:` sit at this same
+			# indentation and carry entries that look like `paths:` entries. Reading them as
+			# paths reports parity between two lists that differ.
 			in_paths = ($0 ~ "^    paths:")
 			next
 		}
@@ -185,6 +195,23 @@ on:
       - 'one/**'
 YAML
 expect_verdict "a workflow with no push block does not pass" "$TMP/no-push.yml" differ
+
+# A `paths-ignore:` (or `branches-ignore:`) block sits at the same indentation as `paths:` and
+# its entries look identical. Reading them as `paths` entries reports parity between two lists
+# that differ, which is a false pass in the one suite that exists to catch drift.
+cat >"$TMP/ignore.yml" <<'YAML'
+on:
+  push:
+    paths:
+      - 'one/**'
+    paths-ignore:
+      - 'two/**'
+  pull_request:
+    paths:
+      - 'one/**'
+      - 'two/**'
+YAML
+expect_verdict "paths-ignore entries are not read as paths entries" "$TMP/ignore.yml" differ
 
 printf '\n%d passed, %d failed\n' "$PASS_COUNT" "$FAIL_COUNT"
 [ "$FAIL_COUNT" -eq 0 ]
