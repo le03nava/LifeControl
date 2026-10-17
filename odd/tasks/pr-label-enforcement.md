@@ -8,7 +8,13 @@ merged pull requests. No application code, no schema, no endpoint, no consumed c
 **`48bda52da78b153276605c3f469ecf3f9946bc32`** on 2026-10-17T18:27:18Z, closing issue **#366**; `main` carries the
 change (`L11`) and the gate is live for every new pull request. What remains is not work of this slice: the two gaps
 this slice declared instead of closing (`references/labels.md`, "Gaps") — the guard is not yet a branch-protection
-required check, and a Dependabot pull request still needs a human to add `type:chore`.
+required check, and a Dependabot pull request still needs a human to add `type:chore`. (**Repair, 2026-10-17: the
+second clause is false in the landed tree, and its repair is a unit of its own, `odd/tasks/pr-label-guard-stale-payload.md`
+— `.github/dependabot.yml` declares `labels:` with `dependencies` and `type:chore` for every `updates[]` entry and
+Dependabot applies them by itself a beat after `opened` (`gh api repos/le03nava/LifeControl/issues/392/timeline`
+shows both `labeled` events by `dependabot[bot]`); what actually failed on pull request #392 was the guard computing
+its verdict from the event's snapshot instead of from the pull request. The sentence is kept as written and
+superseded here rather than erased, and the repair is recorded in L12**)
 **Created**: 2026-10-17 · **Base**: `main` @ `b05b525` · **Risk**: **item 5** (delivery pipeline: a workflow that
 gates every pull request) and, for the retro-label, a wide but reversible remote mutation of merged PRs. No stored
 data, no secret, no application contract, no concurrency. The guard also touches **item 3** in the narrow sense
@@ -225,3 +231,20 @@ two remote branches (`main` and that session's). The sibling then merged PR #368
 removed its worktree — and that commit is what made `odd/tasks/angular-22-upgrade.md` **tracked**, which is why the
 anchor now reads `83c94df` with a clean tree. This bookkeeping slice's own branch is the only extra worktree at the
 time of writing.
+
+**L12** *(repair, 2026-10-17 — the second declared gap was false, and what was broken was the gate's read; the unit that repaired it is `odd/tasks/pr-label-guard-stale-payload.md`, whose `S2` this entry is)*: measured, not
+argued. **The gap's premise is false in the landed tree**: `.github/dependabot.yml` declares
+`labels: [dependencies, type:chore]` for every `updates[]` entry, `label-artifacts.test.sh` fails if one drops them,
+and `gh api repos/le03nava/LifeControl/issues/392/timeline` shows both `labeled` events applied by
+`dependabot[bot]` — at 22:39:59Z and 22:40:00Z, one and two seconds after `opened` at 22:39:58Z — on a pull request
+that carried `["type:chore","dependencies"]` the whole time. **What failed was the gate**: its verdict came from
+`github.event.pull_request.labels.*.name`, the snapshot the triggering event carried, so the run that survived
+`cancel-in-progress` — the `opened` event's, runs `39075999612` and `39076000058` having been cancelled — read
+`PR_LABELS: []` at 22:40:14Z, **fourteen seconds after the labels existed**, and `gh run rerun` could not clear it
+because a re-run replays that snapshot. The repair therefore belongs to the other record: the job now reads
+`repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}` through the API, under the read-only `pull-requests: read` scope, so
+every run of every event computes the same verdict from the pull request's current state. **Nothing this slice
+delivered moves with the repair** — it edits this record's own `**Status**:` line (the sentence is kept as written
+and superseded in place, the shape this repository uses for a frozen narrative) and adds this entry — and **the first
+gap it declares stands exactly as written**: the guard still reports without being a branch-protection required
+check, which is a repository-admin action this change does not perform.
