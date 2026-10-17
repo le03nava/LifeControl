@@ -1,7 +1,7 @@
 # ODD feature: spring-boot-4-1-migration
 
 **Repository**: LifeControl — modules `life-control-api/` and `api-gateway/`; Gradle wrapper, `.github/workflows/{api,gateway}-ci.yml`, `docker/`, `k8s/`
-**Status**: authorized and not delivered. What remains: the whole migration (T1–T11). The decisions below are settled (S1–S3). This header makes no claim about branch, commit, PR or merge state.
+**Status**: source complete and verified; the delivery is two stacked PRs whose numbers and evidence are in the log (L14, L15). What remains: merging them, and the three unverified gaps recorded in the log. The decisions are settled (S1–S3). This header makes no claim about branch, commit, PR or merge state.
 **Created**: 2026-10-16 · **Antecedent**: `odd/tasks/spring-boot-4-migration.md` (decision record; PR #205 closed 2026-10-03) holds the measured evidence for E1–E4 and gaps G1–G4.
 
 ## Specs
@@ -215,3 +215,10 @@ plus two `[removal]` warnings: `GenericJackson2JsonRedisSerializer in org.spring
 - Consequence for this log, stated rather than hidden: the references written while the work happened (`0dfd20c`, `0dfd20c`, `fb7425c`, `0dfd20c`) name commits that now exist only in the pre-split branch. They were rewritten to `0dfd20c` and `fb7425c`, and the two statements that cited commit counts were corrected to the rebuilt commits' measured numbers. The pre-split branch is kept locally as `backup-boot41`, so nothing is lost.
 - Chain order and strategy: stacked onto `main` with the API slice first. The gateway PR's base is the API branch, so its diff shows only the gateway; it retargets to `main` once the API slice merges.
 - Context recorded for the reviewer: this repository has **no PR template** and **no open issues** (its tracker is empty by convention; the durable record lives in `odd/tasks/`). The branch-pr skill expects every PR to link an approved issue; that is impossible here, so the PR bodies say so instead of inventing a reference.
+
+**L15** (2026-10-17, delivery opened):
+
+- The two PRs exist: **#348** (`chore/boot-4-1-api` → `main`) and **#349** (`chore/boot-4-1-gateway` → `chore/boot-4-1-api`). Both carry the Spanish body this repository's convention uses, an English conventional-commit title, and the labels `type:chore` plus `java` (the label API was used rather than `gh pr edit --add-label`, which fails on this repository with a Projects-classic GraphQL error).
+- The record travels in **#349**, which is why this commit sits in the gateway slice.
+- Diff boundaries checked after opening, because a polluted diff is a base bug: #348 carries no `api-gateway` file, and #349 carries no `life-control-api` file. #349's base is the API branch, so when #348 merges it retargets to `main`.
+- Nothing is merged. The CI state of both PRs is reported with them, not assumed from the local gates: the same commands passed locally, but those workflows had never run on this branch.
