@@ -3,12 +3,11 @@
 **Repository**: LifeControl — Angular frontend (`life-control-app-angular/**`). One new shared module
 plus its spec, three list-page components, one existing spec. No template, no route, no contract, no
 build config, no CI change.
-**Status**: **implemented — 3 code commits plus this record on `refactor/mobile-viewport-observer` off
-`main` @ `89b4d9b`**, worktree `~/workspace/LifeControl-worktrees/refactor-mobile-viewport-observer`
-(herdr workspace `w12`): `eca52b3` (the helper + its spec), `8b8ede8` (the three consumers),
-`de5fd62` (the supplier-list coverage). 6 files, +~250 lines. Lint, build and the CI coverage gate pass
-on the committed tree, five times in a row; the leak regression was mutation-controlled twice,
-independently. **Merged as PR #167 (`07252376f`), 2026-09-24.**
+**Status**: merged — PR **#167** (`refactor/mobile-viewport-observer` @ `0725237`), 2026-09-24 — 3 code
+commits plus this record off `main` @ `89b4d9b`: `eca52b3` (the helper + its spec), `8b8ede8` (the three
+consumers), `de5fd62` (the supplier-list coverage). 6 files, +~250 lines. Lint, build and the CI coverage
+gate pass on the committed tree, five times in a row; the leak regression was mutation-controlled twice,
+independently. The follow-ups in `## Follow-ups` are separate work.
 **Created**: 2026-09-24
 **Risk**: **low, but not a pure refactor.** The extracted block is byte-identical in all three
 consumers, but two things change behaviour on purpose: (a) the listener is now removed on destroy —
@@ -206,3 +205,25 @@ From the independent verification round (adversarial, read-only), all claims ver
 - Unchanged from the previous inventory: the dead `zones-list`/`stores-list` components,
   `var(--bp-*)` having no consumer, the ODD record header drift, and
   `docker/scripts/_common.sh::verify_artifact_freshness` comparing mtimes.
+
+## Header repair (2026-10-17)
+
+The `**Status**:` line above was rewritten on 2026-10-17 by `odd/tasks/mobile-header-repair.md`, where the
+inventory and the verification live. It used to assert a **live** delivery state — «implemented — 3 code
+commits plus this record on `refactor/mobile-viewport-observer` off `main` @ `89b4d9b`, worktree
+`~/workspace/LifeControl-worktrees/refactor-mobile-viewport-observer` (herdr workspace `w12`)» — which the
+merge of **PR #167** (`0725237`, 2026-09-24T20:35:56Z) falsified, and the merge fact was parked at the
+**end** of the same overloaded line, where a reader had to reach the last clause to learn that the work
+had landed. Two things changed and nothing else in this record was touched: the line now leads with the
+merge identity, and the ephemeral working-copy location was removed (that worktree and that herdr
+workspace no longer exist — `git worktree list` and `herdr workspace list` both show only the anchor).
+Every fact below is unchanged: the named commits (`eca52b3`, `8b8ede8`, `de5fd62`) and the base `main` @
+`89b4d9b` are the merge's own ancestry, verified with `git rev-list --parents 0725237`.
+
+**Not repaired here, and reported instead:** `F1` below names the end-state defect as *two idioms for one
+boundary* and asks for all five consumers to move onto the CDK `BreakpointObserver` + `toSignal` idiom.
+The boundary was unified, but the other way: `unify-mobile-viewport-consumers` (**PR #168**, merge
+`12cef90`, 2026-09-24) moved `detail-table.ts` and `receipt-detail.ts` **onto this slice's helper**, so the
+repository now has one idiom — the helper's — rather than F1's. F1's premise is therefore stale, and this
+repair does not rewrite it: per the record convention, a frozen narrative is evidence, and only claims
+that are false are repaired. Whoever owns that row should correct it deliberately.

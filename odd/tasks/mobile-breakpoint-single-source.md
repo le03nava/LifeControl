@@ -3,12 +3,12 @@
 **Repository**: LifeControl — Angular frontend (`life-control-app-angular/**`). 6 TypeScript
 consumers, 2 SCSS consumers, 1 new constant module and its spec. No template, no contract, no build
 config, no route.
-**Status**: implemented — 4 commits on `fix/mobile-breakpoint-single-source` off `main` @ `4469cf7`,
-worktree `~/workspace/LifeControl-worktrees/fix-mobile-breakpoint-single-source`: `152db88` (constant
-+ guard), `4f82b06` (three list pages), `53a7ac6` (detail-table, receipt-detail, spec), `639d0b4` (two
-stylesheets). 10 files, +71 −17. Lint, build and the CI coverage gate pass on the committed tree; the
-falsification control was reproduced twice. Independently verified read-only — see `## Findings`.
-**Merged as PR #165 (`7f8ba11b9`), 2026-09-24.**
+**Status**: merged — PR **#165** (`fix/mobile-breakpoint-single-source` @ `7f8ba11`), 2026-09-24 — 4
+commits off `main` @ `4469cf7`: `152db88` (constant + guard), `4f82b06` (three list pages), `53a7ac6`
+(detail-table, receipt-detail, spec), `639d0b4` (two stylesheets). 10 files, +71 −17. Lint, build and the
+CI coverage gate pass on the committed tree; the falsification control was reproduced twice.
+Independently verified read-only — see `## Findings`. No work left in this slice; the follow-ups in
+`## Follow-ups` are separate work.
 **Created**: 2026-09-24
 **Risk**: **low, but not zero — and explicitly not a pure refactor.** Two of the eight call sites
 change the value they compare against (575px → 575.98px). Unlike the sibling feature
@@ -252,3 +252,18 @@ the mutation-control evidence cited in the delivery report was absent from the a
   covered solely by compilation.
 - The four off-scale hardcoded breakpoints and the two dead components remain from the previous
   inventory, untouched by this slice.
+
+## Header repair (2026-10-17)
+
+The `**Status**:` line above was rewritten on 2026-10-17 by `odd/tasks/mobile-header-repair.md`, where the
+inventory and the verification live. It used to assert a **live** delivery state — «implemented — 4
+commits on `fix/mobile-breakpoint-single-source` off `main` @ `4469cf7`, worktree
+`~/workspace/LifeControl-worktrees/fix-mobile-breakpoint-single-source`» — which the merge of **PR #165**
+(`7f8ba11`, 2026-09-24T17:36:37Z) falsified, and the merge fact itself sat two lines below in a separate
+`**Merged as PR #165 (`7f8ba11b9`), 2026-09-24.**` row, so the header carried the state in the one place
+that is never revisited. Three things changed and nothing else in this record was touched: the line now
+leads with the merge identity; the ephemeral working-copy location was removed (that worktree no longer
+exists — `git worktree list` shows only the anchor), and the now-redundant `**Merged as PR #165 …**` row
+was folded into it rather than left as a second source of truth. Every fact below is unchanged: the named
+commits (`152db88`, `4f82b06`, `53a7ac6`, `639d0b4`) and the base `main` @ `4469cf7` are the merge's own
+ancestry, verified with `git rev-list --parents 7f8ba11`.

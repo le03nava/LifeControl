@@ -3,12 +3,12 @@
 **Repository**: LifeControl — Angular frontend (`life-control-app-angular/**`). 11 SCSS media
 conditions across 11 files, plus one spec. No TypeScript production code, no template, no contract, no
 build config, no route, no CI change.
-**Status**: implemented — 3 commits on `fix/mobile-breakpoint-guard` off `main` @ `7f8ba11`, worktree
-`~/workspace/LifeControl-worktrees/fix-mobile-breakpoint-guard` (herdr workspace `w11`): `ea709a0` (the
-Eleven conditions), `d437db9` (the guard), `c3de16a` (the guard's two holes, found by the independent
-verification). 12 files, +295 −11. Lint, build and the CI coverage gate pass on the committed tree;
-eight external probes behave as specified. Independently verified read-only — see `## Findings`.
-**Merged as PR #166 (`89b4d9b76`), 2026-09-24.**
+**Status**: merged — PR **#166** (`fix/mobile-breakpoint-guard` @ `89b4d9b`), 2026-09-24 — 3 commits
+off `main` @ `7f8ba11`: `ea709a0` (the Eleven conditions), `d437db9` (the guard), `c3de16a` (the guard's
+two holes, found by the independent verification). 12 files, +295 −11. Lint, build and the CI coverage
+gate pass on the committed tree; eight external probes behave as specified. Independently verified
+read-only — see `## Findings`. No work left in this slice; the follow-ups in `## Follow-ups` are
+separate work.
 **Created**: 2026-09-24
 **Risk**: **low but not zero, and deliberately not a pure refactor.** Eleven rules move from
 `max-width: 576px` to `max-width: 575.98px`, so the compiled output must change and no byte-identical
@@ -318,3 +318,19 @@ corrections. C1 (the eleven fixes), C4 (zero exceptions), C6 (scope) and C8 (com
 - Unchanged from the previous inventory: the dead `zones-list`/`stores-list` components, the
   triplicated `matchMedia` block, `var(--bp-*)` having no consumer, the ODD record header drift, and
   `docker/scripts/_common.sh::verify_artifact_freshness`.
+
+## Header repair (2026-10-17)
+
+The `**Status**:` line above was rewritten on 2026-10-17 by `odd/tasks/mobile-header-repair.md`, where the
+inventory and the verification live. It used to assert a **live** delivery state — «implemented — 3
+commits on `fix/mobile-breakpoint-guard` off `main` @ `7f8ba11`, worktree
+`~/workspace/LifeControl-worktrees/fix-mobile-breakpoint-guard` (herdr workspace `w11`)» — which the
+merge of **PR #166** (`89b4d9b`, 2026-09-24T19:34:16Z) falsified, and the merge fact itself sat two lines
+below in a separate `**Merged as PR #166 (`89b4d9b76`), 2026-09-24.**` row, so the header carried the
+state in the one place that is never revisited. Three things changed and nothing else in this record was
+touched: the line now leads with the merge identity; the ephemeral working-copy locations were removed
+(that worktree and that herdr workspace no longer exist — `git worktree list` and `herdr workspace list`
+both show only the anchor), and the now-redundant `**Merged as PR #166 …**` row was folded into it rather
+than left as a second source of truth. Every fact below is unchanged: the named commits (`ea709a0`,
+`d437db9`, `c3de16a`) and the base `main` @ `7f8ba11` are the merge's own ancestry, verified with
+`git rev-list --parents 89b4d9b`.
