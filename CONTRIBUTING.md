@@ -140,6 +140,15 @@ markdown-only change would never merge. They still run when their paths match an
 name `Check`, so requiring that context would be ambiguous; neither is in the required set as long
 as the path filters stand.
 
+**A workflow change is not retroactive.** A check runs the workflow file from the tree of *that*
+run, so a pull request opened before a workflow changed keeps running the old one until its branch
+is updated. Measured on pull request #392 (2026-10-17): after the Dependabot exemption was fixed in
+`main`, toggling one label still failed the issue job, because the run's `head_sha` carried the
+pre-fix `if:` line and the pull request's merge ref was older than the fix. `strict` already
+requires an up-to-date branch, so the remedy is the same one that unblocks the merge: update the
+branch (`@dependabot rebase` for a machine-opened pull request), then read `gh pr checks` again
+instead of trusting a verdict produced before the change.
+
 ### Apply it in the GitHub UI
 
 - **Branch protection**: repository **Settings** → **Branches** → **Branch protection rules** → **Add

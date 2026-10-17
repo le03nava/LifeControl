@@ -266,3 +266,15 @@ job still registers as a check run with conclusion `SKIPPED`, which GitHub accep
 reported by `gh pr checks` as a clean `fail` while the run list called it a `failure` of the whole workflow —
 both readings agree here, but only the rollup names the job. This fix is a follow-up pull request rather than a
 rewrite of the merged slices.
+
+**L18** *(a workflow change is not retroactive, verified on #392, 2026-10-17)*: after the exemption fix landed
+in `main`, a label toggle on the Dependabot pull request **still failed the issue job**. The tree that ran was
+not `main`: the run's `head_sha` carried the *old* `if:` line, because pull request #392 was opened before the
+fix and its merge ref had not been recomputed — `git ls-remote origin refs/pull/392/merge` pointed at a commit
+older than the fix, and the pull request reported `BEHIND`. So a gate is only as current as the tree the run
+uses, and a pull request opened before a workflow change keeps running the old workflow until its branch is
+updated. The remedy is to update the branch — `@dependabot rebase` for a machine-opened one — which is also what
+`strict` already demands: after the rebase the head moved `8ee42c64` → `3f3c334d`, `A linked, approved issue`
+turned into `skipping`, `Exactly one type:* label` stayed `pass`, and the pull request went from `BEHIND` to
+`MERGEABLE` with `UNSTABLE`, which is the correct reading of a pending check that is **not** required.
+`CONTRIBUTING.md` §7 now records the rule and the remedy.
