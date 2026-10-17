@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -49,18 +51,35 @@ class DeploymentProfileConfigurationTest {
     }
 
     @Test
-    @DisplayName("no shared k8s manifest hands the cluster a dev profile")
-    void sharedK8sConfigDeclaresNoProfile() throws IOException {
-        var applications = repositoryRoot.resolve("k8s/manifests/applications");
-        var sharedConfig = Files.readString(applications.resolve("common-config.yml"));
+    @DisplayName("no image and no shared k8s manifest bakes a dev profile")
+    void noImageOrSharedManifestBakesAProfile() throws IOException {
+        for (var dockerfile : List.of("life-control-api/Dockerfile", "api-gateway/Dockerfile")) {
+            assertThat(Files.readString(repositoryRoot.resolve(dockerfile)))
+                    .as(
+                            "%s must not bake a `dev` profile: an image default is itself a declaration, so "
+                                    + "the fail-closed guard accepts it and a plain `docker run` logs every body",
+                            dockerfile)
+                    .doesNotContain("SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-dev}");
+        }
 
-        assertThat(sharedConfig)
-                .as("a profile declared in the shared ConfigMap is a shared default: it would hand every "
-                        + "environment the dev profile, which is the exposure this unit closes, and it would "
-                        + "make the fail-closed guard pass by supplying the very declaration the guard asks "
-                        + "for. The profile belongs to an environment-specific overlay, which this tree does "
-                        + "not have yet; until it exists the guard refusing to start is the correct behaviour.")
-                .doesNotContain("SPRING_PROFILES_ACTIVE");
+        try (Stream<Path> manifests = Files.walk(repositoryRoot.resolve("k8s"))) {
+            var files = manifests
+                    .filter(Files::isRegularFile)
+                    .filter(path ->
+                            path.toString().endsWith(".yml") || path.toString().endsWith(".yaml"))
+                    .toList();
+
+            assertThat(files).as("there must be k8s manifests to pin").isNotEmpty();
+            for (var manifest : files) {
+                assertThat(Files.readString(manifest))
+                        .as(
+                                "%s must not declare SPRING_PROFILES_ACTIVE: a shared manifest default hands "
+                                        + "every environment the profile that decides body logging, and it satisfies "
+                                        + "the guard instead of the operator",
+                                repositoryRoot.relativize(manifest))
+                        .doesNotContain("SPRING_PROFILES_ACTIVE");
+            }
+        }
     }
 
     private static Path findRepositoryRoot() {

@@ -21,7 +21,11 @@ ARG GIT_COMMIT=unknown
 
 ENV SERVER_PORT=${SERVER_PORT:-9000}
 ENV MANAGEMENT_PORT=${MANAGEMENT_PORT:-9000}
-ENV SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-dev}
+# No SPRING_PROFILES_ACTIVE default, for the same reason as life-control-api/Dockerfile: no image
+# bakes a `dev` profile. The gateway has no Logbook profile guard of its own, so this removal is
+# inert here today (compose declares the variable explicitly) and it is what keeps the two images
+# consistent; the gateway's own `dev` default lives in its application.properties and is not this
+# unit's subject.
 ENV JAVA_OPTS="-Xms256m -Xmx512m -XX:+UseG1GC -XX:+UseContainerSupport"
 
 EXPOSE ${SERVER_PORT}

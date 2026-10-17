@@ -20,7 +20,10 @@ ARG JAR_FILE=build/libs/life-control-api-${APP_VERSION}.jar
 ARG GIT_COMMIT=unknown
 
 ENV SERVER_PORT=${SERVER_PORT:-8082}
-ENV SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-dev}
+# No SPRING_PROFILES_ACTIVE default: an image must not bake a `dev` profile. The application
+# refuses to start when its effective profile would be `dev` without the variable being declared,
+# so a container started without it (plain `docker run`, or a compose service that stopped
+# requiring it) fails loudly instead of logging every HTTP request and response body.
 ENV JAVA_OPTS="-Xms256m -Xmx512m -XX:+UseG1GC -XX:+UseContainerSupport"
 
 EXPOSE ${SERVER_PORT}
