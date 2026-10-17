@@ -8,9 +8,10 @@ at runtime in dev, and **approved by the native review without a correction**: l
 `review-38fd76cfaa5efd61`, four lenses, tier **high**, receipt
 `sha256:81aede406b3e08904d2dad800d864e28a137d361bf00b2053787e171b81d95c1`, acknowledged (authority burned,
 `gentle-ai.review-acknowledged/v1`). Its six findings are advisory and non-blocking; none reopens this
-candidate (`L14`). What stays open is not work of this feature: delivery (push and PR) is the user's decision,
-the six advisory findings are separate later work, and `.env.staging` / `.env.prod` are the operator's one-time
-re-materialization (`L7`).
+candidate (`L14`). What stays open is not work of this slice: the two follow-ups declared in `L14` and `L16` are
+new candidate work that needs its own authorization and review, and `.env.staging` / `.env.prod` are the
+operator's one-time re-materialization (`L7`). This header makes no claim about push or PR state; see the dated
+log.
 **Created**: 2026-10-17 · **Risk**: **item 1 (data)** — Keycloak migrates its own DB schema on startup with no
 rollback, and the Loki change decides what is persisted and where; **item 5 (environment/dependencies)** — every
 pinned image of the infrastructure stack moves at once.
@@ -220,3 +221,16 @@ its own review.
 acknowledgement, in a commit that only touches this document: they add no behavior and are not covered by the
 receipt. The code slice is `f299b70` alone (399 authored lines, one reviewable slice); the two commits after it
 are the record (171 and 56 documentation lines), which is where the branch crosses the slice boundary.
+
+**L16** *(delivery and the third gap, 2026-10-17)*: the branch was pushed and **PR #357** opened
+(`chore/docker-infra-image-refresh` → `main`, https://github.com/le03nava/LifeControl/pull/357) with the
+nine-pin table, the measured evidence above, the rollback plan (Keycloak/Postgres migrate forward with no
+rollback, and prod's named Loki volume has to be deleted once) and the follow-ups. Label `type:chore`; `main` is
+not protected, so the only check the PR triggers is `docker-build-integrity.yml` (`paths: docker/**`).
+
+That run exposed the third gap, found while reading the workflow for this delivery: `docker-build-integrity.yml`
+runs four of the five test scripts **explicitly** (freshness-guard, version-consistency, keycloak-setup,
+compose-profile), so `image-pins.test.sh` is covered by the workflow's `find docker/scripts -name '*.sh'`
+shellcheck but **none of its 42 assertions runs in CI** — the pin set is frozen only for whoever runs the script
+by hand. Wiring it is about three lines in that workflow, and it is declared here rather than done, for the same
+reason as the probe follow-up: it would add bytes the receipt does not cover.
