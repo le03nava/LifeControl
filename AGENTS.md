@@ -103,6 +103,24 @@ completo, con la forma exacta del header, está en
 
 ---
 
+## Labels de PR
+
+Cada PR lleva **exactamente un** label `type:*`, elegido del vocabulario que declara el skill `branch-pr`
+de gentle-ai. El vocabulario completo, el modo de falla medido que obligó a crear estos labels y los
+anti-patrones están en
+[`references/labels.md`](.agents/skills/project-conventions/references/labels.md).
+
+| Regla | Valor |
+|-------|-------|
+| Cuántos | Exactamente uno por PR: ni cero ni dos. Los labels de área (ej. `java`) son ortogonales y pueden acompañarlo |
+| Vocabulario | `type:feature` (`feat`, `perf`) · `type:bug` (`fix`, `revert`) · `type:docs` (`docs`) · `type:refactor` (`refactor`) · `type:chore` (`chore`, `style`, `test`, `build`, `ci`) · `type:breaking-change` (`feat!`, `fix!`) |
+| Otros labels | Los defaults de GitHub (`bug`, `enhancement`, `documentation`) son vocabulario de triage de **issues**; `status:approved` aprueba el issue linkeado; `dependencies` lo pone Dependabot |
+| Cómo se aplica | `gh pr create --label type:docs ...`, o `gh pr edit <n> --add-label type:docs` sobre un PR ya abierto |
+| Qué no se crea | Sinónimos (`type:feat`, `type:fix`) ni `size:exception`, que es política de repos de Gentle, no de este repo |
+| Enforcement | Ninguno automático: ningún workflow lee labels y no hay PR template. Es una convención de review |
+
+---
+
 ## Project Overview
 
 LifeControl es un sistema de gestión consolidado en un monolito modular `life-control-api`.

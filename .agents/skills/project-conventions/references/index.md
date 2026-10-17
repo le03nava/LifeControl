@@ -15,9 +15,11 @@ Shared repository references live here. Component-specific detail lives in `refe
 - `references/worktrees.md` — isolation model for parallel work: invariants, path and naming, create and cleanup commands, the Pi trust requirement, and anti-patterns.
 - `references/pr-chains.md` — chained and stacked PRs: the base-branch deletion failure mode, invariants, the pre-merge guard, the order of operations, and anti-patterns.
 - `references/feature-records.md` — ODD feature records in `odd/tasks/`: the header invariant, the live-state failure mode, the permitted and forbidden status shapes, and anti-patterns.
+- `references/labels.md` — PR type labels: the exactly-one-`type:*` invariant, the vocabulary the machine-installed `branch-pr` skill declares, and the measured label history that produced it.
 - Absent: no automated guard enforces the ODD record header invariant; it is a writing-time convention, and the invariant removes the field that would go stale.
 - Absent: no automated guard enforces one-worktree-one-unit; it is a review-time convention.
 - Absent: no automated guard prevents deleting a base branch that an open PR depends on; it is a review-time convention.
+- Absent: no automated guard enforces exactly one `type:*` label per PR, and no PR template renders its checkbox; both are review-time conventions.
 
 ## Architecture
 
