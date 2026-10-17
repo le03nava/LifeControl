@@ -11,6 +11,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import com.lifecontrol.api.common.auth.CurrentUserContext;
@@ -149,11 +150,14 @@ class AccessProvisioningProducerTest {
     class MembershipChanged {
 
         @Test
-        @DisplayName("requests a RECONCILE for an employee who is already linked")
+        @DisplayName("requests exactly one RECONCILE for an employee who is already linked")
         void linkedEmployeeIsReconciled() {
             producer.onMembershipChanged(companyId, linked);
 
             verify(gateService).request(companyId, employeeId, RECONCILE, ACTOR_SUB);
+            // "Exactly one": a second intent, and in particular an ACTIVATE that would create an
+            // account and send an invitation nobody asked for, must not be reachable from this fact.
+            verifyNoMoreInteractions(gateService);
         }
 
         @Test
