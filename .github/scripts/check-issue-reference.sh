@@ -21,9 +21,11 @@
 # testable offline in `.github/scripts/tests/check-issue-reference.test.sh`.
 #
 # `Refs #N` is accepted only off the default branch, because GitHub interprets closing
-# keywords (`Closes|Fixes|Resolves #N`) only when the pull request targets the default branch:
-# a chained slice cannot close its issue from the child pull request, so requiring a closing
-# keyword there would make the chain impossible instead of making it correct.
+# keywords only when the pull request targets the default branch: a chained slice cannot close
+# its issue from the child pull request, so requiring a closing keyword there would make the
+# chain impossible instead of making it correct. The nine keywords GitHub honors are matched —
+# `close`, `closes`, `closed`, `fix`, `fixes`, `fixed`, `resolve`, `resolves`, `resolved` —
+# because a contributor who writes `Fix #12` means exactly what `Closes #12` means.
 #
 # `jq` is required for the JSON, as in check-pr-type-labels.sh.
 #
@@ -168,7 +170,7 @@ while IFS= read -r match; do
 	*" $number "*) continue ;;
 	esac
 	closing_numbers="$closing_numbers $number"
-done < <(printf '%s' "$body" | grep -oiE '(closes|fixes|resolves)[[:space:]]*:?[[:space:]]*#[0-9]+' || true)
+done < <(printf '%s' "$body" | grep -oiE '(close[sd]?|fix(es|ed)?|resolve[sd]?)[[:space:]]*:?[[:space:]]*#[0-9]+' || true)
 
 while IFS= read -r match; do
 	[ -n "$match" ] || continue
@@ -184,12 +186,12 @@ while IFS= read -r match; do
 done < <(printf '%s' "$body" | grep -oiE 'refs[[:space:]]*:?[[:space:]]*#[0-9]+' || true)
 
 if [ -z "$closing_numbers" ] && [ -z "$ref_numbers" ]; then
-	printf 'FAIL: no issue reference in the pull request body; add a closing reference (Closes|Fixes|Resolves #N, or Refs #N off the default branch)\n' >&2
+	printf 'FAIL: no issue reference in the pull request body; add a closing keyword (Closes #N, or the close/closed, fix/fixed, resolve/resolved forms) or Refs #N off the default branch\n' >&2
 	exit 1
 fi
 
 if [ "$base_branch" = "$default_branch" ] && [ -z "$closing_numbers" ]; then
-	printf 'FAIL: this pull request targets the default branch %s: a closing reference (Closes|Fixes|Resolves #N) is required, because GitHub ignores closing keywords on any other base\n' \
+	printf 'FAIL: this pull request targets the default branch %s: a closing reference (Closes #N and the close/closed, fix/fixed, resolve/resolved forms) is required, because GitHub ignores closing keywords on any other base\n' \
 		"'$base_branch'" >&2
 	exit 1
 fi

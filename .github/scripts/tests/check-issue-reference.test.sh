@@ -39,7 +39,14 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GUARD="$SCRIPT_DIR/../check-issue-reference.sh"
-TMP="$(mktemp -d)"
+TMP="$(mktemp -d)" || {
+	printf 'FAIL: cannot create a scratch directory (TMPDIR=%s)\n' "${TMPDIR:-unset}" >&2
+	exit 1
+}
+[ -d "$TMP" ] || {
+	printf 'FAIL: the scratch directory is not usable: %s\n' "$TMP" >&2
+	exit 1
+}
 trap 'rm -rf "$TMP"' EXIT
 
 PASS_COUNT=0
@@ -118,6 +125,17 @@ check "a cross-repository reference fails" 1 - "cross-repository reference" \
 	"$GUARD" --body "Closes le03nava/other#3" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
 check "an uppercase keyword with a colon passes" 0 "PASS: #12 is open and carries status:approved" - \
 	"$GUARD" --body "CLOSES: #12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+# GitHub honors nine closing keywords, not three: a contributor who writes `Fix #12` or
+# `resolve #12` means the same thing as `Closes #12`, and rejecting it would block a valid
+# pull request over a conjugation.
+check "a single-word closing keyword passes" 0 "PASS: #12 is open and carries status:approved" - \
+	"$GUARD" --body "Fix #12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+check "a past-tense closing keyword passes" 0 "PASS: #12 is open and carries status:approved" - \
+	"$GUARD" --body "FIXED: #12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+check "the resolve family closes too" 0 "PASS: #12 is open and carries status:approved" - \
+	"$GUARD" --body "resolve #12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+check "a keyword GitHub does not honor is not a reference" 1 - "FAIL: no issue reference" \
+	"$GUARD" --body "Linked #12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
 
 echo "== the referenced issue =="
 check "an approved open issue passes" 0 "PASS: #12 is open and carries status:approved" - \
