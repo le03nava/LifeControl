@@ -1,0 +1,53 @@
+name: Maintenance or tooling
+description: CI, scripts, dependencies, documentation or repository configuration
+title: "chore: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for work that does not change what LifeControl does for its users: CI, scripts,
+        dependencies, documentation, repository configuration.
+
+        Two repository rules apply before any code is written:
+
+        - The issue must carry `status:approved` before a pull request links it.
+        - The change lands through the worktree convention, in reviewable slices of about 400
+          authored lines, with the test that freezes the rule it introduces.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is wrong or missing today, and what it costs.
+      placeholder: |
+        The repository has no issue template, so "approved" approves free text and no two issues
+        carry the same fields.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Expected outcome
+      description: The state that has to be true once this lands, stated as an observable fact.
+      validations:
+        required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: |
+        One line per check, each phrased so someone else can verify it without asking you: the
+        command, the input, or the screen, and the result that proves it. "It works" is not a
+        criterion. For a rule that lives in more than one artifact, name the check that catches the
+        two drifting apart.
+      placeholder: |
+        - `bash .github/scripts/tests/vocabulary-source.test.sh` exits 0.
+        - A seventh label added to the file alone makes that suite fail.
+    validations:
+      required: true
+  - type: textarea
+    id: non_goals
+    attributes:
+      label: Non-goals
+      description: What this deliberately does not do.
+    validations:
+      required: false

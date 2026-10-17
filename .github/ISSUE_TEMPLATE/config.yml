@@ -1,0 +1,15 @@
+# Issue template chooser for LifeControl.
+#
+# Blank issues are disabled on purpose: the three forms are the only way into the issue
+# side of this repository's flow, so no issue arrives without a problem, an expected
+# outcome and acceptance criteria a reviewer can check. Maintainers with write access
+# still see a "Maintainers only" blank issue option; contributors do not.
+#
+# Read `.agents/skills/project-conventions/references/labels.md` before creating an issue
+# label: `status:approved` is a maintainer decision applied after approval, and the
+# `type:*` namespace belongs to pull requests, never to issues.
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/le03nava/LifeControl/security/advisories/new
+    about: Report a vulnerability privately instead of opening a public issue. Secret scanning and push protection are enabled on this repository.
