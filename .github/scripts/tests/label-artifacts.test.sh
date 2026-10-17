@@ -278,5 +278,21 @@ else
 	fail "two complete updates[] entries are accepted"
 fi
 
+echo "== the Dependabot exemption keys on the author, not the actor =="
+# Measured on pull request #392 (2026-10-17): a maintainer who adds or removes one label on a
+# Dependabot pull request becomes the event actor, so a `github.actor` test runs the issue job and a
+# dependency bump that cannot author an approved issue fails a gate it is exempt from. The predicate
+# has to be who authored the pull request.
+if grep -qF "github.event.pull_request.user.login != 'dependabot[bot]'" "$WORKFLOW"; then
+	pass "the exemption compares the pull request author"
+else
+	fail "the exemption compares the pull request author"
+fi
+if grep -qF "github.actor != 'dependabot[bot]'" "$WORKFLOW"; then
+	fail "the exemption does not compare the event actor"
+else
+	pass "the exemption does not compare the event actor"
+fi
+
 printf '\n%d passed, %d failed\n' "$PASS_COUNT" "$FAIL_COUNT"
 [ "$FAIL_COUNT" -eq 0 ]
