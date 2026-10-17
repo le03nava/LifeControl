@@ -3,7 +3,6 @@ package com.lifecontrol.api.status.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 import com.lifecontrol.api.status.dto.StatusTypeRequest;
@@ -20,13 +19,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("StatusTypeService Tests")
@@ -35,7 +34,7 @@ class StatusTypeServiceTest {
     @Mock
     private StatusTypeRepository statusTypeRepository;
 
-    @InjectMocks
+    private StatusTypeCatalog statusTypeCatalog;
     private StatusTypeService statusTypeService;
 
     private StatusType testStatusType;
@@ -53,6 +52,9 @@ class StatusTypeServiceTest {
                 .build();
 
         testStatusTypeRequest = new StatusTypeRequest("ORDER", true);
+
+        statusTypeCatalog = new StatusTypeCatalog(statusTypeRepository);
+        statusTypeService = new StatusTypeService(statusTypeRepository, statusTypeCatalog);
     }
 
     @Nested
@@ -60,48 +62,48 @@ class StatusTypeServiceTest {
     class GetAllStatusTypesTests {
 
         @Test
-        @DisplayName("should return paginated enabled status types")
-        void getAllStatusTypes_Default_ReturnsPage() {
-            Pageable pageable = PageRequest.of(0, 12);
-            Page<StatusType> page = new PageImpl<>(List.of(testStatusType), pageable, 1);
+        @DisplayName("should use the paged repository query and echo the request pageable, content and total")
+        void getAllStatusTypes_PagedQuery_EchoesPageableContentAndTotal() {
+            Pageable pageable = PageRequest.of(0, 2, Sort.by(Sort.Direction.ASC, "statusTypeName"));
+            Page<StatusType> page = new PageImpl<>(List.of(testStatusType), pageable, 5);
             when(statusTypeRepository.findByEnabledTrue(pageable)).thenReturn(page);
 
             var result = statusTypeService.getAllStatusTypes(pageable, null);
 
-            assertThat(result).isNotNull();
             assertThat(result.getContent()).hasSize(1);
             assertThat(result.getContent().get(0).statusTypeName()).isEqualTo("ORDER");
+            assertThat(result.getTotalElements()).isEqualTo(5);
+            assertThat(result.getPageable()).isEqualTo(pageable);
+            assertThat(result.getPageable().getSort()).isEqualTo(Sort.by(Sort.Direction.ASC, "statusTypeName"));
             verify(statusTypeRepository).findByEnabledTrue(pageable);
-            verify(statusTypeRepository, never())
-                    .findByEnabledTrueAndStatusTypeNameContainingIgnoreCase(anyString(), any());
         }
 
         @Test
-        @DisplayName("should filter by search term when provided")
-        void getAllStatusTypes_WithSearch_FiltersByName() {
+        @DisplayName("should pass the search term and pageable through to the paged repository query")
+        void getAllStatusTypes_WithSearch_PassesSearchAndPageableThrough() {
             Pageable pageable = PageRequest.of(0, 12);
             Page<StatusType> page = new PageImpl<>(List.of(testStatusType), pageable, 1);
-            when(statusTypeRepository.findByEnabledTrueAndStatusTypeNameContainingIgnoreCase(eq("ORD"), eq(pageable)))
+            when(statusTypeRepository.findByEnabledTrueAndStatusTypeNameContainingIgnoreCase("ORD", pageable))
                     .thenReturn(page);
 
             var result = statusTypeService.getAllStatusTypes(pageable, "ORD");
 
             assertThat(result.getContent()).hasSize(1);
             verify(statusTypeRepository).findByEnabledTrueAndStatusTypeNameContainingIgnoreCase("ORD", pageable);
+            verify(statusTypeRepository, never()).findByEnabledTrue(any());
         }
 
         @Test
-        @DisplayName("should return empty page when no results")
-        void getAllStatusTypes_EmptySearch_ReturnsEmptyPage() {
+        @DisplayName("should return an empty page with total zero when the query returns no rows")
+        void getAllStatusTypes_EmptyResult_ReturnsEmptyPageWithTotalZero() {
             Pageable pageable = PageRequest.of(0, 12);
-            Page<StatusType> emptyPage = new PageImpl<>(List.of(), pageable, 0);
-            when(statusTypeRepository.findByEnabledTrueAndStatusTypeNameContainingIgnoreCase(
-                            eq("NONEXISTENT"), eq(pageable)))
-                    .thenReturn(emptyPage);
+            when(statusTypeRepository.findByEnabledTrue(pageable)).thenReturn(Page.empty(pageable));
 
-            var result = statusTypeService.getAllStatusTypes(pageable, "NONEXISTENT");
+            var result = statusTypeService.getAllStatusTypes(pageable, null);
 
             assertThat(result.getContent()).isEmpty();
+            assertThat(result.getTotalElements()).isZero();
+            assertThat(result.getPageable()).isEqualTo(pageable);
         }
     }
 

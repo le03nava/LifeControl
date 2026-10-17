@@ -5,15 +5,14 @@ import java.time.Duration;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.cache.concurrent.ConcurrentMapCache;
+import org.springframework.cache.support.NoOpCacheManager;
 import org.springframework.cache.support.SimpleCacheManager;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Primary;
 import org.springframework.data.redis.cache.RedisCacheConfiguration;
 import org.springframework.data.redis.cache.RedisCacheManager;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
@@ -28,10 +27,28 @@ import tools.jackson.databind.jsontype.PolymorphicTypeValidator;
 import tools.jackson.databind.jsontype.impl.DefaultTypeResolverBuilder;
 
 /**
- * Configures Spring Cache abstraction for the application.
+ * Configures the application's {@link CacheManager} and the serializer its cached values use.
  * <p>
- * <b>Primary cache (Redis):</b> When Redis is available (via {@link RedisConnectionFactory}),
- * a {@link RedisCacheManager} is configured with a 1-hour TTL for all cache regions.
+ * <b>Selection is property-driven, and it happens here.</b> This module has no Spring Boot cache
+ * auto-configuration on its classpath (it declares no {@code spring-boot-starter-cache}), so
+ * nothing else supplies a {@link CacheManager} and {@code spring.cache.type} is read by this class
+ * rather than by Boot:
+ * <ul>
+ *   <li>{@code redis} — a {@link RedisCacheManager} with a 1-hour TTL, shared by every instance.
+ *       This is also what an absent property means, so a deployed environment ends up with the
+ *       shared cache instead of silently caching per JVM.</li>
+ *   <li>{@code simple} — an in-memory {@code ConcurrentHashMap} cache, per JVM and without TTL.
+ *       Selected by the {@code test} profile and available for a run with no Redis.</li>
+ *   <li>{@code none} — a {@link NoOpCacheManager}: every {@code @Cacheable} call reaches its method
+ *       and nothing is stored. Caching is off rather than absent, so no cached read can fail.</li>
+ * </ul>
+ * <p>
+ * <b>Why the conditions are on the property and not on a bean:</b> selecting the Redis manager with
+ * {@code @ConditionalOnBean(RedisConnectionFactory.class)} inside a user {@code @Configuration} is
+ * a trap. That condition is evaluated before {@code DataRedisAutoConfiguration} registers the
+ * factory, so it is false in every environment, the in-memory manager wins, and
+ * {@code spring.cache.type=redis} does nothing at all. That was the state of this class until the
+ * selection was fixed and pinned by {@code CacheManagerSelectionTest}.
  * <p>
  * <b>Serialization:</b> Cached values are serialized as JSON via
  * {@link GenericJacksonJsonRedisSerializer}, Spring Data Redis 4's Jackson 3 serializer.
@@ -41,16 +58,9 @@ import tools.jackson.databind.jsontype.impl.DefaultTypeResolverBuilder;
  * runtime with a {@code SerializationException}. Default typing is enabled so polymorphic
  * payloads (e.g. {@code List<CountryResponse>}) can be reconstructed on read.
  * <p>
- * <b>Fallback (Simple):</b> When no {@link RedisConnectionFactory} is present, a
- * {@link SimpleCacheManager} is used as an in-memory fallback. The application continues
- * without Redis, querying the database directly on every request.
- * <p>
- * To explicitly control the cache type, set {@code spring.cache.type} in application properties:
- * <ul>
- *   <li>{@code redis} — force Redis cache</li>
- *   <li>{@code simple} — use in-memory {@code ConcurrentHashMap} cache (good for tests/dev without Redis)</li>
- *   <li>{@code none} — disable caching entirely</li>
- * </ul>
+ * <b>Operational note:</b> when this class selects Redis it registers no fallback, so an unreachable
+ * Redis surfaces as an error on the first cached read rather than as a silent per-instance cache.
+ * Cached values are derived data with a 1-hour TTL, so they repopulate once Redis answers again.
  */
 @Configuration
 @EnableCaching
@@ -62,15 +72,14 @@ public class CacheConfig {
 
     /**
      * Configures Redis-based caching with a 1-hour TTL and JSON value serialization.
-     * Active only when a {@link RedisConnectionFactory} bean is available.
+     * Selected by {@code spring.cache.type=redis} and by an absent property, which is the deployed
+     * default; {@code spring.cache.type=simple} opts out.
      * <p>
      * {@link RedisCacheConfiguration} set via {@code cacheDefaults} applies to every
      * cache region requested through {@code @Cacheable}, so no per-region entries are needed.
      */
     @Bean
-    @ConditionalOnBean(RedisConnectionFactory.class)
-    @ConditionalOnMissingBean(CacheManager.class)
-    @Primary
+    @ConditionalOnProperty(name = "spring.cache.type", havingValue = "redis", matchIfMissing = true)
     public RedisCacheManager redisCacheManager(RedisConnectionFactory connectionFactory) {
         log.info("Initializing Redis cache manager with 1-hour TTL and JSON serialization");
 
@@ -81,6 +90,18 @@ public class CacheConfig {
         return RedisCacheManager.builder(connectionFactory)
                 .cacheDefaults(defaultConfig)
                 .build();
+    }
+
+    /**
+     * Cache manager that stores nothing, selected by {@code spring.cache.type=none}. It exists so
+     * that the property's "disable caching" value is a working configuration rather than a context
+     * with no {@link CacheManager} at all, which would fail on the first cached read.
+     */
+    @Bean
+    @ConditionalOnProperty(name = "spring.cache.type", havingValue = "none")
+    public CacheManager noOpCacheManager() {
+        log.info("Caching is disabled (spring.cache.type=none)");
+        return new NoOpCacheManager();
     }
 
     /**
@@ -147,15 +168,16 @@ public class CacheConfig {
     }
 
     /**
-     * Fallback cache manager used when Redis is not available.
+     * In-memory cache manager, selected by {@code spring.cache.type=simple} — the {@code test}
+     * profile sets it, and it is what a run with no Redis should set.
      * Uses a simple in-memory {@link java.util.concurrent.ConcurrentHashMap} backing
      * with pre-registered cache regions.
-     * Cached entries live for the duration of the application process.
+     * Cached entries live for the duration of the application process, in this JVM only.
      */
     @Bean
-    @ConditionalOnMissingBean(RedisConnectionFactory.class)
+    @ConditionalOnProperty(name = "spring.cache.type", havingValue = "simple")
     public CacheManager simpleCacheManager() {
-        log.info("Redis not available — using SimpleCacheManager fallback (in-memory, no TTL)");
+        log.info("Using the in-memory cache manager (spring.cache.type=simple): no TTL, not shared across instances");
         var cacheManager = new SimpleCacheManager();
         cacheManager.setCaches(Set.of(
                 new ConcurrentMapCache("countries"),

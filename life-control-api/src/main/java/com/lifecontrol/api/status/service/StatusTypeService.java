@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,20 +23,17 @@ public class StatusTypeService {
     private static final Logger logger = LoggerFactory.getLogger(StatusTypeService.class);
 
     private final StatusTypeRepository statusTypeRepository;
+    private final StatusTypeCatalog statusTypeCatalog;
 
-    public StatusTypeService(StatusTypeRepository statusTypeRepository) {
+    public StatusTypeService(StatusTypeRepository statusTypeRepository, StatusTypeCatalog statusTypeCatalog) {
         this.statusTypeRepository = statusTypeRepository;
+        this.statusTypeCatalog = statusTypeCatalog;
     }
 
-    @Cacheable(value = "statusTypes")
     @Transactional(readOnly = true)
     public Page<StatusTypeResponse> getAllStatusTypes(Pageable pageable, String search) {
-        if (search != null && !search.isBlank()) {
-            return statusTypeRepository
-                    .findByEnabledTrueAndStatusTypeNameContainingIgnoreCase(search, pageable)
-                    .map(this::toResponse);
-        }
-        return statusTypeRepository.findByEnabledTrue(pageable).map(this::toResponse);
+        StatusTypePage page = statusTypeCatalog.getPage(pageable, search);
+        return new PageImpl<>(page.content(), pageable, page.total());
     }
 
     @Cacheable(value = "statusTypes", key = "#id")
