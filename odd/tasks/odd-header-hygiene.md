@@ -1,9 +1,8 @@
 # ODD feature: odd-header-hygiene
 
-**Status**: implemented — 15 prescribed edits across 11 files on `docs/odd-header-hygiene`
+**Status**: merged — PR **#170**, merge `0106380`, 2026-09-25 (`1a75908` ⊂ `0106380`) — 15 prescribed edits across 11 files on `docs/odd-header-hygiene`
 off `main` @ `c49d296`, worktree `~/workspace/LifeControl-worktrees/docs-odd-header-hygiene` (herdr `w15`).
-Documentation only: no source, no test, no CI, no runtime behaviour. This header carries only dated local
-facts and makes no claim about push or PR state — see D2.
+Documentation only: no source, no test, no CI, no runtime behaviour.
 **Created**: 2026-09-24
 **Risk**: **low.** Every edit is prose that asserts a delivery state or a cross-reference. The only
 non-prose edit is a numeric coverage table, and its values come from a gate run recorded below, not from
@@ -355,3 +354,7 @@ AFTER
 | 2026-09-24 | T5 — work-unit commit | `1a75908` — 12 files, +377 −30 (the 11 edited records plus this one) |
 | 2026-09-24 | T6 — independent read-only verification | `gentle-ai-verify` over the committed range: C1–C6 upheld (right PRs, right merge commits, real archive, real PR #101 delivery, correct arithmetic, no new live-PR claim, nothing frozen rewritten, 15 hunks in 11 files); C7 partial, see F2 |
 | 2026-09-24 | T7 — correct the verification findings | the `docs(odd): correct this record's own evidence count and the margin figure` commit on this branch — F2 (a), (b), (c) and the `test-timeout-headroom.md:210` margin figure |
+
+## Header repair (2026-10-17)
+
+The `**Status**:` line above was rewritten on 2026-10-17 by `odd/tasks/odd-merged-header-reconciliation.md` (T4), where the inventory and the verification live. It used to decline the delivery state: «This header carries only dated local facts and makes no claim about push or PR state — see D2.». That state — the pull request and its merge commit — became known when the work landed, so the line now carries it. Nothing else in this record was touched.

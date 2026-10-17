@@ -4,12 +4,11 @@
 configuration only: the timeouts, the module that declares them, the guard that protects them, and a short
 testing note in the component `AGENTS.md`. **No production code, no template, no route, no contract, no
 build config, no CI change.**
-**Status**: **implemented — 2 code/documentation commits plus this record on
-`fix/test-timeout-headroom` off `main` @ `0725237`**, worktree
+**Status**: merged — PR **#169**, merge `c49d296`, 2026-09-24 (`7fe3729`, `cdfc9d4` ⊂ `c49d296`) — 2 code/documentation commits plus this record on
+`fix/test-timeout-headroom` off `main` @ `0725237`, worktree
 `~/workspace/LifeControl-worktrees/fix-test-timeout-headroom` (herdr workspace `w14`): `7fe3729` (the two
 budgets, their shared module and the guard), `cdfc9d4` (the `AGENTS.md` note). **4 files, 202 insertions /
-2 deletions** (the record is the fifth file and this commit). This header carries only dated local facts and
-makes no claim about push or PR state — see `unify-mobile-viewport-consumers.md` F11.
+2 deletions** (the record is the fifth file and this commit).
 **Created**: 2026-09-24
 **Risk**: **low.** Production behaviour cannot change: the only runtime file touched is a test setup file
 that no shipped bundle imports, verified by `npm run build` plus a grep of `dist/` for both constants. The
@@ -258,3 +257,7 @@ restated.
   in `mobile-breakpoint-guard.md` and `mobile-viewport-observer.md`, the dead `zones-list`/`stores-list`
   components, `var(--bp-*)` with no consumer, and
   `docker/scripts/_common.sh::verify_artifact_freshness` comparing mtimes.
+
+## Header repair (2026-10-17)
+
+The `**Status**:` line above was rewritten on 2026-10-17 by `odd/tasks/odd-merged-header-reconciliation.md` (T4), where the inventory and the verification live. It used to decline the delivery state: «This header carries only dated local facts and makes no claim about push or PR state — see `unify-mobile-viewport-consumers.md` F11.». That state — the pull request and its merge commit — became known when the work landed, so the line now carries it. Nothing else in this record was touched.

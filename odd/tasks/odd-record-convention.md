@@ -1,8 +1,7 @@
 # ODD feature: odd-record-convention
 
-**Status**: implemented — the header invariant is now documented in the root `AGENTS.md` and in
-`.agents/skills/project-conventions/references/feature-records.md`, and enforced by nothing. This
-header makes no claim about push or PR state; see the evidence log.
+**Status**: merged — PR **#171**, merge `6423256`, 2026-09-25 (`2ccddc8` ⊂ `6423256`): the header invariant is now documented in the root `AGENTS.md` and in
+`.agents/skills/project-conventions/references/feature-records.md`, and enforced by nothing — deliberately, see `## Gaps`.
 **Created**: 2026-09-24
 **Branch**: `docs/odd-record-convention` · **Base**: `main` @ `c49d296` · **Worktree**:
 `~/workspace/LifeControl-worktrees/docs-odd-record-convention` (herdr `w16`)
@@ -316,3 +315,7 @@ AFTER
 | 2026-09-24 | T5 — work-unit commit | `2ccddc8` — 5 files, +402 −0, pure insertions |
 | 2026-09-24 | T6 — independent read-only verification | `gentle-ai-verify` over `2ccddc8`: C1, C2, C4, C6, C7 upheld (the measured cause re-derived against the base commit; the four workflows' `paths:` filters; the 14 / D7 / #164–#167 history; both index locations and the balanced fences; the pure-insertion shape); C3 upheld with a note that the new text strengthens rather than weakens D2; **C5 partial, see F2** |
 | 2026-09-24 | T7 — correct the verification's findings | this second commit on the branch: F2 (the stale `I2` contract block, the two in-flight-state assertions, and the unverifiable "six body lines" figure this record had repeated into the reference). Gate: the `I2` block extracted from this record now diffs **empty** against `references/feature-records.md`, and every remaining hit for a forbidden phrase is either a quotation inside the prohibited-examples table or the description of the defect in F1/F2 — never an assertion by the document itself |
+
+## Header repair (2026-10-17)
+
+The `**Status**:` line above was rewritten on 2026-10-17 by `odd/tasks/odd-merged-header-reconciliation.md` (T4), where the inventory and the verification live. It used to decline the delivery state: «This header makes no claim about push or PR state; see the evidence log.». That state — the pull request and its merge commit — became known when the work landed, so the line now carries it. Nothing else in this record was touched.
