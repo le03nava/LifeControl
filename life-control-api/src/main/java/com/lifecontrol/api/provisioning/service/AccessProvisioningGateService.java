@@ -56,12 +56,19 @@ import org.springframework.transaction.annotation.Transactional;
  * task is returned to the gate and the frozen rows are replaced, so nothing is ever applied against
  * a superseded snapshot.</p>
  *
- * <p><b>The request path has no production caller yet.</b> The producer that finally calls
- * {@link #request(UUID, UUID, AccessProvisioningTaskKind, String)} — a contract activation, a
- * store-assignment change, a termination — lands in a later unit; until then that method is reached
- * by its tests. The decision methods {@link #approve(UUID, UUID, UUID)} and
- * {@link #reject(UUID, UUID, UUID, String)} <b>do</b> have a caller: the controller's approve and
- * reject endpoints.</p>
+ * <p><b>{@link #request(UUID, UUID, AccessProvisioningTaskKind, String)} is the single door into task
+ * creation.</b> The producer ({@code AccessProvisioningProducer}) and the explicit operator request
+ * path ({@code AccessProvisioningRequestService}'s {@code apply} and {@code deactivate}) all call this
+ * method, and it is the one place they share, so the concurrency guard belongs here: before the diff is
+ * derived and before any task row exists, the employee is loaded through
+ * {@code EmployeeRepository#findByIdAndCompanyIdForUpdate}, which takes a pessimistic write lock on the
+ * row inside the caller's transaction. Two requests for the same employee therefore serialize, and the
+ * loser re-reads the committed open task and is refused with the named
+ * {@link com.lifecontrol.api.provisioning.exception.AccessProvisioningTaskAlreadyOpenException} instead
+ * of colliding with {@code uq_access_provisioning_tasks_open} at commit. The lock is always taken
+ * <b>before</b> any task row, so the order stays employee &rarr; task for every writer. The decision
+ * methods {@link #approve(UUID, UUID, UUID)} and {@link #reject(UUID, UUID, UUID, String)} have their
+ * own caller: the controller's approve and reject endpoints.</p>
  */
 @Service
 public class AccessProvisioningGateService {
@@ -107,8 +114,11 @@ public class AccessProvisioningGateService {
      *
      * <ol>
      *   <li>The company access check is the <b>first</b> statement, before any load.</li>
-     *   <li>The employee is loaded through the company-scoped {@code findByIdAndCompanyId}, so a
-     *       foreign or unknown employee is an {@link EmployeeNotFoundException} and nothing is
+     *   <li>The employee is loaded through the company-scoped
+     *       {@code findByIdAndCompanyIdForUpdate}, which takes a pessimistic write lock on the row
+     *       <b>before</b> the diff is derived and before any task row is written, so two concurrent
+     *       requests for one employee cannot both reach {@code create} and the loser is refused by
+     *       name; a foreign or unknown employee is an {@link EmployeeNotFoundException} and nothing is
      *       written.</li>
      *   <li>The diff is composed exactly as the read path composes it: the required set from
      *       {@link AccessProvisioningRoleService#requiredRoles(com.lifecontrol.api.hr.model.Employee)},
@@ -135,8 +145,11 @@ public class AccessProvisioningGateService {
     public AccessProvisioningTask request(
             UUID companyId, UUID employeeId, AccessProvisioningTaskKind kind, String requestedBy) {
         currentUserContext.verifyCompanyAccess(companyId);
+        // The lock is the gate's half of the same guard the producer's enqueue takes: it precedes
+        // deriveReviewedDiff and any task row, so a second request re-reads the committed open set
+        // instead of racing uq_access_provisioning_tasks_open at commit. The order stays employee -> task.
         var employee = employeeRepository
-                .findByIdAndCompanyId(employeeId, companyId)
+                .findByIdAndCompanyIdForUpdate(employeeId, companyId)
                 .orElseThrow(() -> new EmployeeNotFoundException(employeeId));
 
         var diff = deriveReviewedDiff(employee);

@@ -2,6 +2,7 @@ package com.lifecontrol.api.provisioning.service;
 
 import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.hr.model.Employee;
+import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.hr.service.EmployeeStatuses;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTaskKind;
 import com.lifecontrol.api.provisioning.repository.AccessProvisioningTaskRepository;
@@ -37,9 +38,17 @@ import org.springframework.stereotype.Service;
  * failure mode strictly worse than the refusal it meant to swallow. Asking first keeps the common path
  * exception-free; the pre-check uses the landed
  * {@link AccessProvisioningTaskService#OPEN_STATUSES}, so "open" still has <b>one</b> definition and
- * the race remains the index's job. A genuine race — two facts for the same employee at the same
- * instant — propagates the landed conflict and rolls the fact back, which is declared rather than
- * hidden (record G39).</p>
+ * the race remains the index's job. But the pre-check alone is not enough: two facts for the same
+ * employee asserted at the same instant, from transactions that do not write the employee row (a
+ * contract insert, a store-assignment write), would both pass it and the second would be refused at
+ * commit, rolling the fact back. The decision is therefore <b>serialized on the employee row</b>:
+ * {@link #enqueue} takes a pessimistic write lock on that row
+ * ({@code EmployeeRepository#findByIdAndCompanyIdForUpdate}) <b>before</b> the first read of the open
+ * set, inside the caller's transaction, so the second transaction waits for the first to commit and
+ * then sees its open task instead of racing it. The index stays the guarantee; the lock is what
+ * stops a legitimate fact from being the one refused. The order is always employee &rarr; task for
+ * a given writer, and only that order: taking the lock after the read would still lose the race,
+ * and taking it after a task lock would deadlock against the facts this class serves.</p>
  *
  * <p><b>The kind is derived from the fact and the employee's own state</b>, and this is the reason the
  * class exists instead of the two callers naming a kind: a contract that starts covering a person with
@@ -69,16 +78,19 @@ public class AccessProvisioningProducer {
     private final AccessProvisioningGateService gateService;
     private final AccessProvisioningTaskRepository taskRepository;
     private final AccessProvisioningTaskService taskService;
+    private final EmployeeRepository employeeRepository;
 
     public AccessProvisioningProducer(
             CurrentUserContext currentUserContext,
             AccessProvisioningGateService gateService,
             AccessProvisioningTaskRepository taskRepository,
-            AccessProvisioningTaskService taskService) {
+            AccessProvisioningTaskService taskService,
+            EmployeeRepository employeeRepository) {
         this.currentUserContext = currentUserContext;
         this.gateService = gateService;
         this.taskRepository = taskRepository;
         this.taskService = taskService;
+        this.employeeRepository = employeeRepository;
     }
 
     /**
@@ -159,6 +171,12 @@ public class AccessProvisioningProducer {
     }
 
     private void enqueue(UUID companyId, Employee employee, AccessProvisioningTaskKind kind) {
+        // The lock precedes the read: two transactions that both reach the pre-check would otherwise
+        // both pass it and one would be refused by uq_access_provisioning_tasks_open at commit,
+        // losing the fact that produced it. Holding the employee row serializes the whole decision —
+        // read, suppress-or-supersede, create — for the rest of this transaction.
+        employeeRepository.findByIdAndCompanyIdForUpdate(employee.getId(), companyId);
+
         var open = taskRepository.findFirstByEmployeeIdAndStatusInOrderByRequestedAtDesc(
                 employee.getId(), AccessProvisioningTaskService.OPEN_STATUSES);
         if (open.isPresent() && open.get().getKind() == kind) {

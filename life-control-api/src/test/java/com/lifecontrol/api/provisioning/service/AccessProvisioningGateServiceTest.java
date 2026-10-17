@@ -138,6 +138,8 @@ class AccessProvisioningGateServiceTest {
 
     private void stubEmployee(Employee employee) {
         when(employeeRepository.findByIdAndCompanyId(employeeId, companyId)).thenReturn(Optional.of(employee));
+        when(employeeRepository.findByIdAndCompanyIdForUpdate(employeeId, companyId))
+                .thenReturn(Optional.of(employee));
     }
 
     private void stubRequiredFor(Employee employee, String... roles) {
@@ -220,7 +222,7 @@ class AccessProvisioningGateServiceTest {
 
         var inOrder = inOrder(currentUserContext, employeeRepository);
         inOrder.verify(currentUserContext).verifyCompanyAccess(companyId);
-        inOrder.verify(employeeRepository).findByIdAndCompanyId(employeeId, companyId);
+        inOrder.verify(employeeRepository).findByIdAndCompanyIdForUpdate(employeeId, companyId);
 
         verify(approvalPolicy).initialStatusFor(Set.of("lc-sales"));
         verify(taskService).create(companyId, employeeId, ACTIVATE, REQUESTED_BY, PENDING);
@@ -300,7 +302,8 @@ class AccessProvisioningGateServiceTest {
     @Test
     @DisplayName("a foreign or unknown employee is refused before anything is created or frozen")
     void foreignOrUnknownEmployeeIsRefused() {
-        when(employeeRepository.findByIdAndCompanyId(employeeId, companyId)).thenReturn(Optional.empty());
+        when(employeeRepository.findByIdAndCompanyIdForUpdate(employeeId, companyId))
+                .thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.request(companyId, employeeId, ACTIVATE, REQUESTED_BY))
                 .isInstanceOf(EmployeeNotFoundException.class);
