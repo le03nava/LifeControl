@@ -180,3 +180,63 @@ about 400. It is delivered as **one pull request declaring `size:exception` in i
 guard without the redaction would leave the exposure, and the redaction without the guard would leave the
 footgun, so the two halves close the three findings only together, and splitting them would hand a reviewer a
 part that fixes nothing on its own. The precedent is this repository's own (`#297` was opened the same way).
+
+**L6** — *2026-10-17, the independent verification (T6) and the four findings it forced, one of which it declared.*
+A read-only `gentle-ai-verify` pass attacked each claim of this record against the committed bytes and returned
+**VERIFIED** on three of them: that `dev` keeps the previous behaviour (`SensitiveDataSanitizer.java:89-90`, probe:
+dev → `{"username":"john","password":"[REDACTED]"}`, plain text unchanged); that the guard refuses exactly in the
+state it names **and actually runs** — it decompiled Boot 4.1.1's `SpringFactoriesEnvironmentPostProcessorsFactory`,
+confirmed it loads `org.springframework.boot.EnvironmentPostProcessor` from `META-INF/spring.factories`, and fired the
+guard from an independent `SpringApplication` probe, which matters because a silently ignored registration would have
+made the guard dead code with a passing test; and that compose now requires the variable, measured both ways
+(baseline resolved `SPRING_PROFILES_ACTIVE: dev` for both services; current exits non-zero with *"required variable
+SPRING_PROFILES_ACTIVE is missing a value"*). It returned **PARTIAL** on five, and the four it could pin as this
+unit's were fixed here.
+
+**F1, declared and not fixed — the route the unit cannot close.** With `logbook.enabled=false`, `LogbookConfig` is
+disabled by its own `@ConditionalOnProperty`, and the starter's auto-configuration — which has no `logbook.enabled`
+guard in either autoconfigure jar, and whose `logbook()` is `@ConditionalOnMissingBean` — builds its **own** bean on
+`BodyFilters.defaultValue()`, i.e. the partial filter, while `logback-spring.xml:42` still pins the logger at TRACE.
+Switching Logbook off therefore *widens* what reaches the log instead of silencing it. It is **pre-existing** (the
+baseline `LogbookConfig` carried the same conditional) and it is not this unit's subject: fixing it means deciding
+what `logbook.enabled=false` is supposed to mean, which is its own unit. Declared as a gap, with the evidence.
+
+**F2, fixed — the images baked the very declaration the guard accepts.** `life-control-api/Dockerfile:23` and
+`api-gateway/Dockerfile:24` carried `ENV SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-dev}`, so a container
+started with a plain `docker run` — no compose, no override — had the variable *declared*, the guard passed, and the
+API logged every request and response body in full. Both lines are gone, with the reason written where the reader
+finds it. Behaviour change declared: without the variable the API container now **fails closed** through the guard
+instead of running `dev`. For the gateway the removal is **inert today** — it has no guard, so its own
+`application.properties` still resolves `dev` for a bare `docker run`, and that is stated in the file rather than
+implied; the gateway's own default is not this unit's surface.
+
+**F3, fixed.** The properties block claimed *"the k8s ConfigMap declares it"*, which stopped being true when the
+shared ConfigMap was reverted in L5. It now says what is true: compose requires the variable, neither image bakes
+one, and in the cluster the refusal is the protection because no manifest declares a profile.
+
+**F4, fixed — the pin was vacuous and is not any more.** The k8s assertion it replaced held on the pre-change tree
+(no manifest declared the variable then either), so it pinned nothing. The replacement fails on the baseline and the
+measurement proves it: `git show main:life-control-api/Dockerfile` matches the baked default once, and
+`git show main:docker/docker-compose.yml` carries **2** runtime entries with a `:-dev` fallback and **0** `:?`. It
+grew a real offline harness, `docker/scripts/tests/compose-profile.test.sh`, run by
+`.github/workflows/docker-build-integrity.yml` beside the three shell suites that were already there: **6 passed, 0
+failed**, both directions of the compose interpolation included. Writing it caught a trap worth keeping: the script's
+own literal made the "no runtime fallback" check read **1**, so the rule is anchored to a `- SPRING_PROFILES_ACTIVE=`
+entry and restricted to YAML — and `BUILD_PROFILE: ${SPRING_PROFILES_ACTIVE:-dev}` is **declared, not changed**,
+because it is a build argument that reaches no running service: `deploy.sh` passes it to Gradle and to the Angular
+configuration, and no Dockerfile declares `ARG BUILD_PROFILE`, so Docker drops it.
+
+**F5, corrected with a measurement that finally holds.** The record's *"changes no existing test's profile"* was
+broader than its evidence. Measured properly this time (grep on the real declaration line, not a script that keeps
+one class name per file and captures prose words — which is how **46** and **36** were produced twice):
+**49** files carry `@SpringBootTest`; **39** declare no profile of their own and **all 39** extend
+`AbstractPostgresIntegrationTest`, whose `@ActiveProfiles("test")` has been there since `89ffede`; **10** declare it
+themselves. So **no `@SpringBootTest` class lost or gained a profile** — the pin changes the effective profile of
+**35 `@WebMvcTest` slice classes** instead: 36 carry `@WebMvcTest`, 35 declare no `@ActiveProfiles`, and **none**
+extends anything that carries one, so those 35 move from the built-in `dev` default to `test`. The full gate is the
+evidence that they are indifferent to it, which is the honest way to say it.
+
+**Slice boundary, final.** The unit is **866 authored changed lines over five commits** — three docs (this record),
+one code+test+docs, one closing the verification's findings — and it is delivered as **one pull request declaring
+`size:exception`**, for the reason L5 records: the guard without the redaction leaves the exposure and the redaction
+without the guard leaves the footgun.
