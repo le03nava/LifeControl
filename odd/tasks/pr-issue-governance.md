@@ -81,11 +81,27 @@ PAT; `@le03nava` is the only code owner until the user names others.
 | --- | --- | --- | --- | --- |
 | T1 | S1 | inline | issue forms + `config.yml` + `issue-templates.test.sh` (RED 4/30 → GREEN 34/34) | `b560378` |
 | T2 | S2 | inline | `check-issue-reference.sh` + its suite + workflow wiring | — |
-| T3 | S4 | inline | `label-vocabulary.txt` + guard reads it + `vocabulary-source.test.sh` | — |
-| T4 | S5 | inline | Dependabot `labels:` + `label-artifacts.test.sh` extension | — |
-| T5 | S6 | inline | `CONTRIBUTING.md` + `AGENTS.md` link | — |
-| T6 | S3 | inline | `.github/CODEOWNERS` + branch-protection runbook in `CONTRIBUTING.md` | — |
-| T7 | S7 | inline | the four `push:` filters + `workflow-trigger-parity.test.sh` | — |
+| T3 | S4 | delegated (`gentle-ai-worker`) | `label-vocabulary.txt` + the guard reads it + `vocabulary-source.test.sh` (RED 8/16 → GREEN 17/17) | — |
+| T4 | S5 | delegated | Dependabot `labels:` + `label-artifacts.test.sh` extension (RED on the real config → GREEN 19/19) | — |
+| T5 | S6 | delegated | `CONTRIBUTING.md` + `AGENTS.md` link + the `index.md` registry | — |
+| T6 | S3 | delegated | `.github/CODEOWNERS` + the branch-protection runbook | — |
+| T7 | S7 | delegated | the four `push:` filters + `workflow-trigger-parity.test.sh` (RED 13/21 → GREEN 21/21) | — |
+
+Delegated units arrived as one bounded writer each, with disjoint edit surfaces, and no writer committed or
+touched this record: the parent re-ran every suite, the shellcheck step and the differential before committing.
+
+## Slice boundaries
+
+| PR | Specs | Commits on the tracker branch |
+| --- | --- | --- |
+| 1 | `S1` | `cd58c1e` (this record), `b560378` (forms + suite) |
+| 2 | `S2` | `9fa68f3` (gate + suite + workflow wiring) |
+| 3 | `S4+S5` | — |
+| 4 | `S6+S3` | — |
+| 5 | `S7` | — |
+
+The record itself is touched by more than one slice: the Log grows with each unit, so the last slice
+carries the completed table. The tracker branch is never the review candidate — each slice is.
 
 ## Log
 
@@ -128,3 +144,31 @@ every pull request, and the gate would have been removed within a week. The fixt
 shape, one case keeps an upper-case state to pin the normalisation, and the suite is at **27/27** with the
 wiring proven end to end against real payloads: PR #367 (`Closes #366`) fails with `state=closed`, PR #372
 fails with `no issue reference`, and the same #366 payload patched to `open` + `status:approved` passes.
+
+**L9** *(verification of the three delegated units, 2026-10-17)*: the parent re-ran what each writer
+reported instead of trusting the report. All **7** suites pass (27 + 26 + 34 + 19 + 33 + 17 + 21 assertions) and
+`shellcheck --severity=warning` through the workflow's pinned image is clean over every script. The differential
+check that the change to `check-pr-type-labels.sh` requires was run against the base commit's copy in a scratch
+directory outside the repository, over nine inputs plus stdin mode: stdout, stderr and exit code are **identical**
+in every behavioural case, and the only two differences are the two intended ones — the usage text gained the
+vocabulary-source lines, and bash's own error line names a different file path and line number. The guard's new
+fail-closed branch was proven on a copy outside the repository: with the vocabulary source present it passes,
+with it removed it exits 1 naming the file.
+
+**L10** *(decisions this feature deliberately leaves to the user, 2026-10-17)*: three, each recorded rather than
+silently taken.
+
+1. **The required-check set is the two unfiltered gates** (`Exactly one type:* label`, `A linked, approved issue`),
+   not all six jobs. A required check whose workflow filters by `paths:` is reported as **expected** on every pull
+   request that does not touch those paths, so requiring the four component jobs would block every unrelated pull
+   request instead of protecting `main`. The four names are quoted in the runbook with that reason.
+2. **`api-ci.yml` and `gateway-ci.yml` both name their job `Check`**, so a required check cannot tell them apart.
+   Renaming a job changes the check name that reviewers and any existing protection rule reference, so it stays a
+   follow-up decision rather than a silent rename inside this feature.
+3. **`S7` changes what CI does at merge time.** Filtering `push` saves four component builds on every
+   markdown-only or unrelated merge, and costs the previous behaviour where every merge to `main` built every
+   component regardless of the diff. The filters cannot hide a real build — a component whose own paths did not
+   change is the only build that stops running — but the trade-off is real and this line is what makes it
+   reversible. `Dependabot` pull requests are exempt from the issue gate for the same reason their label is now
+   declared in `dependabot.yml`: a machine cannot author an approved issue, and the weekly dependency policy is
+   its approval model.
