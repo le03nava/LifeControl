@@ -5,8 +5,9 @@ vocabulary single source, Dependabot labels, `CONTRIBUTING.md`, `CODEOWNERS`, an
 No `life-control-api/` or `life-control-app-angular/` runtime source is touched.
 **Branch**: `chore/pr-issue-governance`, worktree `~/workspace/LifeControl-worktrees/chore-pr-issue-governance`
 (herdr workspace `w3V`), cut from `main` @ `5b2c7ee`; the anchor stays on `main` and clean.
-**Delivery**: `chain_strategy=feature-branch-chain` — one tracker branch, three PR slices: PR 1 = `S1+S2`,
-PR 2 = `S4+S5+S6`, PR 3 = `S3+S7`. Push, issue creation and merge are the user's decisions.
+**Delivery**: `chain_strategy=feature-branch-chain` — one tracker branch, five PR slices: PR 1 = `S1`,
+PR 2 = `S2`, PR 3 = `S4+S5`, PR 4 = `S6+S3`, PR 5 = `S7` (re-cut from the three-slice plan after the
+first slice was measured; see `L7`). Push, issue creation and merge are the user's decisions.
 **Test runner**: `.github/scripts/tests/*.test.sh` and `docker/scripts/tests/*.test.sh` — offline bash
 suites, run from the worktree; `shellcheck --severity=warning` on modified scripts.
 **Status**: no slice has landed yet — `## Tasks` states what remains, and this header makes no claim about
@@ -78,7 +79,7 @@ PAT; `@le03nava` is the only code owner until the user names others.
 
 | ID | `S#` | Route | Work | Commit |
 | --- | --- | --- | --- | --- |
-| T1 | S1 | inline | issue forms + `config.yml` + `issue-templates.test.sh` (RED → GREEN) | — |
+| T1 | S1 | inline | issue forms + `config.yml` + `issue-templates.test.sh` (RED 4/30 → GREEN 34/34) | `b560378` |
 | T2 | S2 | inline | `check-issue-reference.sh` + its suite + workflow wiring | — |
 | T3 | S4 | inline | `label-vocabulary.txt` + guard reads it + `vocabulary-source.test.sh` | — |
 | T4 | S5 | inline | Dependabot `labels:` + `label-artifacts.test.sh` extension | — |
@@ -111,3 +112,19 @@ Worktree `chore-pr-issue-governance` created with `herdr worktree create --base 
 `w3V`, and registered in the session. Baseline before any change: all **8** existing suites pass —
 `.github/scripts/tests/{check-pr-type-labels,label-artifacts,retro-label-prs}.test.sh` and
 `docker/scripts/tests/{compose-profile,freshness-guard,image-pins,keycloak-setup,version-consistency}.test.sh`.
+
+**L7** *(the slice re-cut, 2026-10-17)*: the first slice measured **458 authored changed lines** — the
+issue forms, their suite and this record — against a forecast of 458 for `S1` alone and about 890 for the
+feature. The approved three-slice composition (`S1+S2`, `S4+S5+S6`, `S3+S7`) would have put about 840 lines
+in PR 1, so the slices were re-cut to five, each inside the ~400-line review budget: `S1` | `S2` | `S4+S5` |
+`S6+S3` | `S7`. Same work, same order, smaller review units; the decision to chain on a tracker branch is
+unchanged.
+
+**L8** *(the defect the functional check found, 2026-10-17)*: the gate's first version compared the issue
+state literally against `OPEN`. All 26 offline fixtures used upper case and agreed with the bug; the live
+payload read back through the same path — `gh api repos/le03nava/LifeControl/issues/366` — returned
+`"state":"closed"` in lower case, so a genuinely open issue (`"state":"open"`) would have been rejected on
+every pull request, and the gate would have been removed within a week. The fixtures now use the API's own
+shape, one case keeps an upper-case state to pin the normalisation, and the suite is at **27/27** with the
+wiring proven end to end against real payloads: PR #367 (`Closes #366`) fails with `state=closed`, PR #372
+fails with `no issue reference`, and the same #366 payload patched to `open` + `status:approved` passes.

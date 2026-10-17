@@ -1,8 +1,15 @@
 name: PR Label Guard
 
-# Every pull request must carry exactly one `type:*` label, from the vocabulary the
-# machine-installed `branch-pr` skill declares and this repository mirrors in
-# `.agents/skills/project-conventions/references/labels.md`.
+# Two gates run here, because both answer "is this pull request allowed to merge?" from data
+# the event already carries, and both are cheap:
+#
+#   1. `guard` — every pull request carries exactly one `type:*` label, from the vocabulary the
+#      machine-installed `branch-pr` skill declares and this repository mirrors in
+#      `.agents/skills/project-conventions/references/labels.md`.
+#   2. `issue` — the body references an open issue carrying `status:approved`, which is what the
+#      PR template declares as REQUIRED and what `references/labels.md` states as invariant 4.
+#      Before this job existed the link was a review-time convention: 55 of the last 60 merged
+#      pull requests carried no reference at all.
 #
 # There is deliberately NO `paths:` filter here. The other four workflows all nest one
 # under `pull_request`, which is why a markdown-only PR runs zero jobs in this
@@ -12,13 +19,17 @@ name: PR Label Guard
 # job. The same reasoning is recorded in `references/labels.md`.
 #
 # `labeled` and `unlabeled` are part of the trigger set so that adding the missing label
-# clears the check without pushing an empty commit.
+# clears the check without pushing an empty commit; `edited` is there because the issue gate
+# in this same workflow reads the pull request body, so editing the body has to re-run it.
 on:
   pull_request:
-    types: [opened, reopened, synchronize, labeled, unlabeled]
+    types: [opened, reopened, synchronize, labeled, unlabeled, edited]
 
 permissions:
   contents: read
+  # The issue gate reads the referenced issue through this token: read-only, and the only
+  # scope this workflow adds. Nothing here writes anything.
+  issues: read
 
 concurrency:
   group: pr-label-guard-${{ github.ref }}
@@ -60,3 +71,50 @@ jobs:
           # call, no token, nothing to go stale between the event and the check.
           PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: .github/scripts/check-pr-type-labels.sh --labels-json "$PR_LABELS"
+
+  issue:
+    name: A linked, approved issue
+    # A Dependabot bump is opened by a machine that cannot author an approved issue and cannot
+    # edit its own pull request body, and the weekly dependency policy is its approval model.
+    # Every human-authored pull request goes through this gate.
+    if: github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Reference an open, approved issue
+        env:
+          # Event data reaches the script through the environment, never interpolated into
+          # the script text.
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_BRANCH: ${{ github.base_ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Mode 1 prints the numbers this pull request references and exits non-zero with the
+          # reason when there is nothing usable, so the gate itself never calls the network:
+          # every rule stays covered offline by .github/scripts/tests/check-issue-reference.test.sh,
+          # which the Self-tests step of the guard job already runs.
+          refs="$(.github/scripts/check-issue-reference.sh \
+            --body "$PR_BODY" \
+            --base-branch "$BASE_BRANCH" \
+            --default-branch "$DEFAULT_BRANCH" \
+            --print-refs)"
+
+          issues='[]'
+          for number in $refs; do
+            if ! fetched="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${number}" 2>/dev/null)"; then
+              printf 'FAIL: #%s could not be read as an issue of %s\n' "$number" "$GITHUB_REPOSITORY" >&2
+              exit 1
+            fi
+            issues="$(jq -c --argjson fetched "$fetched" '. + [$fetched]' <<<"$issues")"
+          done
+
+          .github/scripts/check-issue-reference.sh \
+            --body "$PR_BODY" \
+            --base-branch "$BASE_BRANCH" \
+            --default-branch "$DEFAULT_BRANCH" \
+            --issues-json "$issues"
