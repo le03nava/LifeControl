@@ -10,8 +10,10 @@ PR 2 = `S2`, PR 3 = `S4+S5`, PR 4 = `S6+S3`, PR 5 = `S7` (re-cut from the three-
 first slice was measured; see `L7`). Push, issue creation and merge are the user's decisions.
 **Test runner**: `.github/scripts/tests/*.test.sh` and `docker/scripts/tests/*.test.sh` — offline bash
 suites, run from the worktree; `shellcheck --severity=warning` on modified scripts.
-**Status**: no slice has landed yet — `## Tasks` states what remains, and this header makes no claim about
-push, PR, or merge state; delivery detail belongs in the dated evidence log below.
+**Status**: implemented on the tracker branch `chore/pr-issue-governance` — 6 commits in 5 slices, all
+7 suites green. What remains is the delivery: the issue that approves this work, the five pull requests and
+the merge, every one of them a user decision. This header makes no claim about push, PR or merge state; the
+`## Log` holds the evidence.
 **Created**: 2026-10-17
 **Risk**: **high.** Two slices change what CI does at merge time (Task Size item 5: `S2` adds a merge-blocking
 gate and an `issues: read` token scope; `S7` changes workflow triggers) and `S3` decides who must review what.
@@ -81,11 +83,11 @@ PAT; `@le03nava` is the only code owner until the user names others.
 | --- | --- | --- | --- | --- |
 | T1 | S1 | inline | issue forms + `config.yml` + `issue-templates.test.sh` (RED 4/30 → GREEN 34/34) | `b560378` |
 | T2 | S2 | inline | `check-issue-reference.sh` + its suite + workflow wiring | — |
-| T3 | S4 | delegated (`gentle-ai-worker`) | `label-vocabulary.txt` + the guard reads it + `vocabulary-source.test.sh` (RED 8/16 → GREEN 17/17) | — |
-| T4 | S5 | delegated | Dependabot `labels:` + `label-artifacts.test.sh` extension (RED on the real config → GREEN 19/19) | — |
-| T5 | S6 | delegated | `CONTRIBUTING.md` + `AGENTS.md` link + the `index.md` registry | — |
-| T6 | S3 | delegated | `.github/CODEOWNERS` + the branch-protection runbook | — |
-| T7 | S7 | delegated | the four `push:` filters + `workflow-trigger-parity.test.sh` (RED 13/21 → GREEN 21/21) | — |
+| T3 | S4 | delegated (`gentle-ai-worker`) | `label-vocabulary.txt` + the guard reads it + `vocabulary-source.test.sh` (RED 8/16 → GREEN 17/17) | `b7a034a` |
+| T4 | S5 | delegated | Dependabot `labels:` + `label-artifacts.test.sh` extension (RED on the real config → GREEN 19/19) | `b7a034a` |
+| T5 | S6 | delegated | `CONTRIBUTING.md` + `AGENTS.md` link + the `index.md` registry | `5c382e6` |
+| T6 | S3 | delegated | `.github/CODEOWNERS` + the branch-protection runbook | `5c382e6` |
+| T7 | S7 | delegated | the four `push:` filters + `workflow-trigger-parity.test.sh` (RED 13/21 → GREEN 21/21) | `b385f35` |
 
 Delegated units arrived as one bounded writer each, with disjoint edit surfaces, and no writer committed or
 touched this record: the parent re-ran every suite, the shellcheck step and the differential before committing.
@@ -96,9 +98,9 @@ touched this record: the parent re-ran every suite, the shellcheck step and the 
 | --- | --- | --- |
 | 1 | `S1` | `cd58c1e` (this record), `b560378` (forms + suite) |
 | 2 | `S2` | `9fa68f3` (gate + suite + workflow wiring) |
-| 3 | `S4+S5` | — |
-| 4 | `S6+S3` | — |
-| 5 | `S7` | — |
+| 3 | `S4+S5` | `b7a034a` (vocabulary source, guard, Dependabot labels, three suites) |
+| 4 | `S6+S3` | `5c382e6` (CONTRIBUTING.md, AGENTS link, CODEOWNERS, index registry) |
+| 5 | `S7` | `b385f35` (the four `push:` filters + the parity suite) |
 
 The record itself is touched by more than one slice: the Log grows with each unit, so the last slice
 carries the completed table. The tracker branch is never the review candidate — each slice is.
