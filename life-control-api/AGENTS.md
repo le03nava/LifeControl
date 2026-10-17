@@ -8,7 +8,7 @@
 | Language         | Java 21                                 |
 | Build Tool       | Gradle 9.x+                             |
 | Database         | PostgreSQL                              |
-| Cache            | Redis (with in-memory fallback)         |
+| Cache            | Redis (default; in-memory or none via `spring.cache.type`) |
 | Port             | 8082 (configurable via `SERVER_PORT`)   |
 | Package          | `com.lifecontrol.api`                   |
 
@@ -149,7 +149,7 @@ com.lifecontrol.api/
 │   │   ├── SecurityConfig.java
 │   │   └── JwtDecoderConfig.java
 │   ├── cache/
-│   │   └── CacheConfig.java                (Redis + fallback)
+│   │   └── CacheConfig.java                (manager selection + serializer)
 │   ├── ratelimit/
 │   │   ├── RateLimitConfig.java
 │   │   ├── RateLimitFilter.java            (Bucket4j)
@@ -685,8 +685,16 @@ app.rate-limit.endpoints./api/users-admin/users.duration=1m
 
 ### Caching (Spring Cache)
 
-- Redis when available, in-memory `ConcurrentMapCache` fallback
-- Cached regions: `countries`, `companyRegions` (1-hour TTL in Redis)
+- The manager is chosen by `spring.cache.type`, and this module declares no
+  `spring-boot-starter-cache`, so nothing else supplies one: `redis` (also what an absent value
+  means) is a `RedisCacheManager` with a 1-hour TTL, shared by every instance; `simple` is the
+  in-memory `SimpleCacheManager` the `test` profile selects; `none` disables caching.
+- Cached regions: `countries`, `companyRegions`, `companyZones`, `statusTypes`, `statuses`,
+  `measureUnits`, `paymentMethods`, `seniorityLevels`.
+- A cached value must be reconstructible by the Jackson 3 cache serializer, because a Redis read
+  has no declared type to fall back on: `CacheValueCodecTest` fails when a `@Cacheable` return type
+  has no registered representative. A cached `Page` cannot be deserialized — the `statusTypes`
+  region caches a `StatusTypePage` (content plus total) instead.
 
 ### Observability
 

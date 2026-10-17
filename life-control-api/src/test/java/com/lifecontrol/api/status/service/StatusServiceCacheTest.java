@@ -25,8 +25,8 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 /**
  * Integration tests for {@link StatusService} caching behavior.
  * <p>
- * Uses {@link SpringBootTest} with the {@code test} profile so that Redis is
- * excluded and {@code spring.cache.type=simple} applies. Spring AOP processes
+ * Uses {@link SpringBootTest} with the {@code test} profile, where
+ * {@code spring.cache.type=simple} selects the in-memory cache manager. Spring AOP processes
  * the {@code @Cacheable} annotations on {@link StatusService}, so these tests
  * verify the actual caching behavior, including cache-key isolation between
  * {@code getStatusById} and {@code getStatusByIdAndTypeId}.

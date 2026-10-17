@@ -28,8 +28,8 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
  * <p>A plain unit test cannot observe caching at all: the {@code @Cacheable}/{@code @CacheEvict}
  * annotations only take effect when the call travels through the Spring proxy. This test therefore
  * runs {@link PositionRoleService} through its proxy — {@code @SpringBootTest} with the {@code test}
- * profile, so Redis is excluded and {@code spring.cache.type=simple} supplies the simple in-memory
- * cache manager. It asserts that two identical {@code getRoles(companyId, id)} calls each reach
+ * profile, where {@code spring.cache.type=simple} supplies the simple in-memory cache manager.
+ * It asserts that two identical {@code getRoles(companyId, id)} calls each reach
  * {@link CurrentUserContext#verifyCompanyAccess(UUID)}.</p>
  *
  * <p>The assertion is load-bearing: a later {@code @Cacheable(value = "seniorityLevels", ...)} on

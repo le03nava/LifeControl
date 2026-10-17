@@ -23,9 +23,9 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 /**
  * Integration tests for CountryService caching behavior.
  * <p>
- * Uses {@link SpringBootTest} with the {@code test} profile so that
- * Redis auto-configuration is excluded and {@code spring.cache.type=simple}
- * applies. The {@link CacheManager} is a {@code SimpleCacheManager} backed by
+ * Uses {@link SpringBootTest} with the {@code test} profile, where
+ * {@code spring.cache.type=simple} selects the in-memory cache manager. The
+ * {@link CacheManager} is a {@code SimpleCacheManager} backed by
  * in-memory {@code ConcurrentHashMap}.
  * <p>
  * Spring AOP processes the {@code @Cacheable} and {@code @CacheEvict}
