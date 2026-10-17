@@ -15,5 +15,7 @@
         <appender-ref ref="CONSOLE"/>
     </root>
 
+    <!-- Logbook stays muted in the suite: its TRACE output is enabled per environment in
+         logback-spring.xml, and LogbookConfigTest pins the strategy without it. -->
     <logger name="org.zalando.logbook" level="WARN"/>
 </configuration>
