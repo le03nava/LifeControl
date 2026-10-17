@@ -16,6 +16,7 @@ import com.lifecontrol.api.hr.model.Employee;
 import com.lifecontrol.api.hr.model.EmployeeStoreAssignment;
 import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.hr.repository.EmployeeStoreAssignmentRepository;
+import com.lifecontrol.api.provisioning.service.AccessProvisioningProducer;
 import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.CompanyStoreRepository;
@@ -85,18 +86,21 @@ public class EmployeeStoreAssignmentService {
     private final CompanyRepository companyRepository;
     private final CompanyStoreRepository companyStoreRepository;
     private final CurrentUserContext currentUserContext;
+    private final AccessProvisioningProducer accessProvisioningProducer;
 
     public EmployeeStoreAssignmentService(
             EmployeeStoreAssignmentRepository employeeStoreAssignmentRepository,
             EmployeeRepository employeeRepository,
             CompanyRepository companyRepository,
             CompanyStoreRepository companyStoreRepository,
-            CurrentUserContext currentUserContext) {
+            CurrentUserContext currentUserContext,
+            AccessProvisioningProducer accessProvisioningProducer) {
         this.employeeStoreAssignmentRepository = employeeStoreAssignmentRepository;
         this.employeeRepository = employeeRepository;
         this.companyRepository = companyRepository;
         this.companyStoreRepository = companyStoreRepository;
         this.currentUserContext = currentUserContext;
+        this.accessProvisioningProducer = accessProvisioningProducer;
     }
 
     /**
@@ -234,6 +238,8 @@ public class EmployeeStoreAssignmentService {
                 store.getId(),
                 saved.getValidFrom());
 
+        accessProvisioningProducer.onMembershipChanged(companyId, employee);
+
         return toResponse(saved);
     }
 
@@ -252,7 +258,7 @@ public class EmployeeStoreAssignmentService {
     public StoreAssignmentResponse closeAssignment(
             UUID companyId, UUID employeeId, UUID id, CloseStoreAssignmentRequest request) {
         resolveCompany(companyId);
-        resolveEmployee(companyId, employeeId);
+        var employee = resolveEmployee(companyId, employeeId);
 
         var assignment = employeeStoreAssignmentRepository
                 .findByEmployeeIdAndId(employeeId, id)
@@ -277,6 +283,8 @@ public class EmployeeStoreAssignmentService {
                 companyId,
                 employeeId,
                 endDate);
+
+        accessProvisioningProducer.onMembershipChanged(companyId, employee);
 
         return toResponse(saved);
     }

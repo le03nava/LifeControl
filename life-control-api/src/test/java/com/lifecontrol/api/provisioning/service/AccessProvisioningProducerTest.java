@@ -5,6 +5,7 @@ import static com.lifecontrol.api.provisioning.model.AccessProvisioningTaskKind.
 import static com.lifecontrol.api.provisioning.model.AccessProvisioningTaskKind.RECONCILE;
 import static com.lifecontrol.api.provisioning.model.AccessProvisioningTaskStatus.PENDING;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -19,6 +20,7 @@ import com.lifecontrol.api.provisioning.exception.AmbiguousCurrentContractExcept
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTask;
 import com.lifecontrol.api.provisioning.model.AccessProvisioningTaskKind;
 import com.lifecontrol.api.provisioning.repository.AccessProvisioningTaskRepository;
+import com.lifecontrol.api.status.model.Status;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -137,6 +139,75 @@ class AccessProvisioningProducerTest {
         @DisplayName("records the JWT sub claim, never the username")
         void theActorIsTheSubjectClaim() {
             producer.onContractActivated(companyId, linked);
+
+            verify(currentUserContext, never()).getUsername();
+        }
+    }
+
+    @Nested
+    @DisplayName("onMembershipChanged")
+    class MembershipChanged {
+
+        @Test
+        @DisplayName("requests a RECONCILE for an employee who is already linked")
+        void linkedEmployeeIsReconciled() {
+            producer.onMembershipChanged(companyId, linked);
+
+            verify(gateService).request(companyId, employeeId, RECONCILE, ACTOR_SUB);
+        }
+
+        @Test
+        @DisplayName("an unlinked employee has no account to converge, so nothing is enqueued")
+        void unlinkedEmployeeEnqueuesNothing() {
+            producer.onMembershipChanged(companyId, unlinked);
+
+            verifyNoInteractions(gateService, taskRepository, taskService);
+        }
+
+        @Test
+        @DisplayName("a blank keycloak user id is not a linked account either")
+        void blankUserIdEnqueuesNothing() {
+            unlinked.linkKeycloakUser("   ");
+
+            producer.onMembershipChanged(companyId, unlinked);
+
+            verifyNoInteractions(gateService, taskRepository, taskService);
+        }
+
+        @Test
+        @DisplayName("a Terminated employee enqueues nothing and never supersedes the open revocation")
+        void terminatedEmployeeEnqueuesNothing() {
+            var terminated = Employee.builder()
+                    .id(employeeId)
+                    .company(linked.getCompany())
+                    .email("juan.perez@acme.com")
+                    .keycloakUserId("kc-user-1")
+                    .status(Status.builder()
+                            .statusName("Terminated")
+                            .enabled(true)
+                            .build())
+                    .build();
+            var openRevocation = AccessProvisioningTask.builder()
+                    .id(OPEN_TASK_ID)
+                    .employee(terminated)
+                    .kind(DEACTIVATE)
+                    .status(PENDING)
+                    .attempts(0)
+                    .build();
+            when(taskRepository.findFirstByEmployeeIdAndStatusInOrderByRequestedAtDesc(
+                            employeeId, AccessProvisioningTaskService.OPEN_STATUSES))
+                    .thenReturn(Optional.of(openRevocation));
+
+            producer.onMembershipChanged(companyId, terminated);
+
+            verifyNoInteractions(gateService);
+            verify(taskService, never()).supersede(any(), any(), any(), anyString());
+        }
+
+        @Test
+        @DisplayName("records the JWT sub claim, never the username")
+        void theActorIsTheSubjectClaim() {
+            producer.onMembershipChanged(companyId, linked);
 
             verify(currentUserContext, never()).getUsername();
         }
