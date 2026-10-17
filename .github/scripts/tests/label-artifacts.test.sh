@@ -294,5 +294,26 @@ else
 	pass "the exemption does not compare the event actor"
 fi
 
+echo "== the label set comes from the pull request, not from the payload =="
+# The trigger payload is a snapshot taken when the event fired. Dependabot applies its labels a
+# beat later, so that snapshot can legitimately carry `[]`, and `cancel-in-progress` can leave the
+# run holding it as the only survivor — a failure the pull request does not have, which no rerun can
+# clear because a rerun replays the stored payload. Measured on #392; issue #397.
+if grep -qF 'github.event.pull_request.labels' "$WORKFLOW"; then
+	fail "the label job does not read the label set from the trigger payload"
+else
+	pass "the label job does not read the label set from the trigger payload"
+fi
+if grep -qE 'gh api .*pulls/' "$WORKFLOW"; then
+	pass "the label job reads the label set from the pull request through the API"
+else
+	fail "the label job reads the label set from the pull request through the API"
+fi
+if grep -Eq '^  pull-requests: read' "$WORKFLOW"; then
+	pass "the workflow declares pull-requests: read"
+else
+	fail "the workflow declares pull-requests: read"
+fi
+
 printf '\n%d passed, %d failed\n' "$PASS_COUNT" "$FAIL_COUNT"
 [ "$FAIL_COUNT" -eq 0 ]

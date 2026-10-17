@@ -27,9 +27,11 @@ on:
 
 permissions:
   contents: read
-  # The issue gate reads the referenced issue through this token: read-only, and the only
-  # scope this workflow adds. Nothing here writes anything.
+  # The issue gate reads the referenced issue through this token, and the label gate reads the
+  # pull request's own label set: read-only, and the only scopes this workflow adds. Nothing here
+  # writes anything.
   issues: read
+  pull-requests: read
 
 concurrency:
   group: pr-label-guard-${{ github.ref }}
@@ -66,11 +68,20 @@ jobs:
           done
 
       - name: Exactly one type:* label
+        # The label set is read from the pull request **as it is when the job runs**, never from the
+        # trigger payload. The payload is a snapshot taken when the event fired: Dependabot applies
+        # its labels a beat later, so the snapshot can legitimately carry `[]`, and
+        # `cancel-in-progress` can leave the run holding it as the only survivor — a failure the pull
+        # request does not have, and one no rerun can clear, because a rerun replays the stored
+        # payload. Measured on pull request #392: the failing run executed 14 seconds after
+        # `["type:chore","dependencies"]` existed, and still saw `[]`.
         env:
-          # The label names of this pull request, straight from the event payload: no API
-          # call, no token, nothing to go stale between the event and the check.
-          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
-        run: .github/scripts/check-pr-type-labels.sh --labels-json "$PR_LABELS"
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          labels="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq '[.labels[].name]')"
+          .github/scripts/check-pr-type-labels.sh --labels-json "$labels"
 
   issue:
     name: A linked, approved issue
