@@ -1,7 +1,7 @@
 # ODD feature: spring-boot-4-1-migration
 
 **Repository**: LifeControl — modules `life-control-api/` and `api-gateway/`; Gradle wrapper, `.github/workflows/{api,gateway}-ci.yml`, `docker/`, `k8s/`
-**Status**: source complete and verified; the delivery is two stacked PRs whose numbers and evidence are in the log (L14, L15). What remains: merging them, and the three unverified gaps recorded in the log. The decisions are settled (S1–S3). This header makes no claim about branch, commit, PR or merge state.
+**Status**: merged and delivered — PR #348 (API) merged as `a67d1cb` and PR #349 (gateway) merged as `43b1a7e` on 2026-10-17, so `main` runs Spring Boot 4.1.1 in both services with native Jackson 3. Not part of this feature and still open: the three unverified gaps recorded in the log (the Redis cache path, `TRACING_ENABLED=false`, and the k8s manifests).
 **Created**: 2026-10-16 · **Antecedent**: `odd/tasks/spring-boot-4-migration.md` (decision record; PR #205 closed 2026-10-03) holds the measured evidence for E1–E4 and gaps G1–G4.
 
 ## Specs
@@ -222,3 +222,11 @@ plus two `[removal]` warnings: `GenericJackson2JsonRedisSerializer in org.spring
 - The record travels in **#349**, which is why this commit sits in the gateway slice.
 - Diff boundaries checked after opening, because a polluted diff is a base bug: #348 carries no `api-gateway` file, and #349 carries no `life-control-api` file. #349's base is the API branch, so when #348 merges it retargets to `main`.
 - Nothing is merged. The CI state of both PRs is reported with them, not assumed from the local gates: the same commands passed locally, but those workflows had never run on this branch.
+
+**L16** (2026-10-17, merged):
+
+- PR #348 merged as **`a67d1cb`** and PR #349 as **`43b1a7e`**. `main` now carries the whole feature: 120 files, 736 insertions, 361 deletions.
+- #349 was retargeted to `main` **after** #348 merged, never before — retargeting first would have moved its diff onto a base without the API and shown the reviewer all 100 API files again. Before trusting the retarget, the API branch's tree was compared with the merge commit's tree (`a065d87b…` in both): identical, which is what keeps the green checks that ran against the old base valid for the new one.
+- CI on `main` ran all four workflows on `43b1a7e` and all passed: API CI, Gateway CI, Angular CI and Docker Build Integrity. The focused test command for #348 finished in 5m0s on the PR and the gateway one in 1m12s. The `cancelled` runs visible on `a67d1cb` are the `cancel-in-progress` concurrency group of a push three minutes later, not failures.
+- Housekeeping: the worktree was closed and removed and both feature branches were deleted on `origin`, which now holds `main` alone. The pre-split history is preserved locally as `backup-boot41` and `chore/spring-boot-4-1-migration`.
+- The three gaps recorded in L13 are unchanged by this merge and remain open: the Redis cache path was never exercised end to end, `TRACING_ENABLED=false` was never exercised, and the k8s manifests were never applied. Docker's side of that third gap is now covered by Docker Build Integrity and by the real dev deploy.
