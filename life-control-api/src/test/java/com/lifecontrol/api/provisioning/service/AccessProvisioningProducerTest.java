@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -146,6 +147,25 @@ class AccessProvisioningProducerTest {
             producer.onContractActivated(companyId, linked);
 
             verify(currentUserContext, never()).getUsername();
+        }
+
+        @Test
+        @DisplayName("the employee row is locked before the open set is read, so the decision is serialized")
+        void theEmployeeRowIsLockedBeforeTheOpenSetRead() {
+            // The ORDER is the guard's whole content: taking the lock after the read would still lose
+            // the race (both transactions would have passed the pre-check already), and taking it after
+            // a task lock would deadlock against the facts this class serves. It is pinned here, at
+            // unit level and in milliseconds, because the suite that proves the behaviour needs real
+            // PostgreSQL and a latched two-transaction interleaving — the independent verification of
+            // this unit proposed exactly this probe and confirmed it fails when the call is removed.
+            var inOrder = inOrder(employeeRepository, taskRepository);
+
+            producer.onContractActivated(companyId, unlinked);
+
+            inOrder.verify(employeeRepository).findByIdAndCompanyIdForUpdate(employeeId, companyId);
+            inOrder.verify(taskRepository)
+                    .findFirstByEmployeeIdAndStatusInOrderByRequestedAtDesc(
+                            employeeId, AccessProvisioningTaskService.OPEN_STATUSES);
         }
     }
 
