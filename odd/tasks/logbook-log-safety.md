@@ -150,3 +150,33 @@ has no per-environment overlays and no `life-control-api` Deployment at all (`fi
 Rather than invent a deployment topology, the variable is declared in the shared `common-config` ConfigMap and
 consumed by the only Spring Deployment (`api-gateway`); a real per-environment k8s declaration stays open until a
 `life-control-api` manifest exists.
+
+**L5** — *2026-10-17, the parent's reviewing round: one rejected defect, one formatting round, and the gate.* The
+gate ran **on the committed bytes** (`ecc188e`, worktree clean, `--rerun-tasks`): `BUILD SUCCESSFUL in 2m 28s`,
+`8 actionable tasks: 8 executed`, **913 suites / 3491 tests / 0 failures / 0 errors / 0 skipped**, **105
+`*IntegrationTest*` suites (365 tests)**, **0 SpotBugs `BugInstance`** and `spotlessCheck` green. A first gate run
+**failed in `spotlessCheck`, not in behaviour**: two tests carried lines `palantir-java-format` rewraps
+(`DeploymentProfileConfigurationTest`'s throw and two `SensitiveDataSanitizerProfileTest` assertions).
+`spotlessApply` touched exactly those two test files and nothing else, and the commit was **amended** so the
+artifact the gate measured is the committed one — the same class the record of `spring-boot-4-1-migration`
+already carries.
+
+**The defect this round rejected, kept because the reasoning is the part worth keeping.** The unit as first
+written declared `SPRING_PROFILES_ACTIVE: "dev"` in the **shared** `k8s/manifests/applications/common-config.yml`
+and had `api-gateway.yml` consume that key, with a comment promising that *"staging/prod override this key in
+their own ConfigMap"* — an override that does not exist anywhere in the tree, as that same round's own report
+stated. The guard fires on a **missing** declaration, never on a wrong one, so a shared `dev` would pass the guard
+in every environment while handing each of them the full-body logging this unit exists to close: **R4-2
+reintroduced through the cluster, wearing the fix's clothes.** Both k8s files were reverted, the structural test
+was rewritten to pin the opposite — the shared ConfigMap declares **no** profile, asserted with that reason
+attached — and T3's row above was corrected instead of left claiming a declaration that must not exist. What
+protects the cluster is unchanged and is the approved guarantee: with no declaration the guard refuses to start,
+which is exactly what a fail-closed deployment should do, and a real per-environment k8s declaration stays open
+until an environment overlay and a `life-control-api` Deployment exist.
+
+**Slice boundary and delivery strategy, recorded before the next commit.** The unit is **663 authored changed
+lines over three commits** — two docs (this record) and one code+test+docs — which is past the reviewable slice of
+about 400. It is delivered as **one pull request declaring `size:exception` in its body**, not as a chain: the
+guard without the redaction would leave the exposure, and the redaction without the guard would leave the
+footgun, so the two halves close the three findings only together, and splitting them would hand a reviewer a
+part that fixes nothing on its own. The precedent is this repository's own (`#297` was opened the same way).
