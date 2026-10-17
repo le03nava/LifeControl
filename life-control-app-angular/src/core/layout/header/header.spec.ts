@@ -1,7 +1,7 @@
 import { provideLocationMocks } from '@angular/common/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { signal } from '@angular/core';
-import { TestBed } from '@angular/core/testing';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { KEYCLOAK_EVENT_SIGNAL, KeycloakEventType } from 'keycloak-angular';
 import { Header } from './header';
@@ -59,6 +59,12 @@ describe('Header', () => {
 
     return { fixture, component };
   };
+
+  /** The rendered `li.nav-item` whose text contains `text`, for DOM-level assertions. */
+  const findNavItem = (fixture: ComponentFixture<Header>, text: string) =>
+    Array.from(
+      fixture.nativeElement.querySelectorAll('li.nav-item') as NodeListOf<HTMLElement>,
+    ).find((li) => li.textContent?.includes(text));
 
   // ─── Menu items — basic structure ─────────────────────────────
 
@@ -189,12 +195,22 @@ describe('Header', () => {
       expect(companiesItem).toBeUndefined();
     });
 
-    it('should render the caret trigger only for items that have children', () => {
+    it('should render the caret trigger only for items whose label still navigates', () => {
       const { fixture } = setup(['lc-admin']);
       const triggers = fixture.nativeElement.querySelectorAll('.submenu-trigger');
-      // Companies, Calendario y citas and Recursos Humanos are the admin items that carry children.
-      expect(triggers).toHaveLength(3);
+      // Companies and Calendario y citas keep the navigating label plus its caret.
+      // Recursos Humanos is menu-only, so its label is the trigger and carries no
+      // caret of its own.
+      expect(triggers).toHaveLength(2);
       expect(triggers[0].getAttribute('aria-label')).toBe('Companies submenu');
+      expect(triggers[1].getAttribute('aria-label')).toBe('Calendario y citas submenu');
+    });
+
+    it('should keep the Companies label as a link to /companies', () => {
+      const { fixture } = setup(['lc-admin']);
+      const companies = findNavItem(fixture, 'Companies');
+
+      expect(companies?.querySelector('a')?.getAttribute('href')).toBe('/companies');
     });
 
     it('should NOT render a caret trigger when no item has children', () => {
@@ -756,6 +772,46 @@ describe('Header', () => {
   // ─── HR menu gating (lc-admin / lc-department / lc-position / lc-seniority-level / lc-employee) ───
 
   describe('human resources menu gating', () => {
+    it('should open the submenu with the three HR destinations from the Recursos Humanos label', async () => {
+      const { fixture } = setup(['lc-department']);
+      const parent = findNavItem(fixture, 'Recursos Humanos');
+      const trigger = parent?.querySelector('.nav-item-trigger') as HTMLElement | null;
+
+      expect(trigger).toBeTruthy();
+      trigger?.click();
+      await fixture.whenStable();
+
+      // The panel renders one item per child, in the children's order. The mat-icon's
+      // ligature name is part of the item's text, so each label is asserted with
+      // `toContain`.
+      const openedItems = Array.from(
+        document.querySelectorAll('.mat-mdc-menu-item') as NodeListOf<HTMLElement>,
+      ).map((item) => item.textContent ?? '');
+
+      expect(openedItems).toHaveLength(3);
+      expect(openedItems[0]).toContain('Departamentos');
+      expect(openedItems[1]).toContain('Puestos');
+      expect(openedItems[2]).toContain('Empleados');
+    });
+
+    it('should render the Recursos Humanos label as the submenu trigger, with no link of its own', () => {
+      const { fixture } = setup(['lc-department']);
+      const parent = findNavItem(fixture, 'Recursos Humanos');
+
+      expect(parent).toBeDefined();
+      // The label is no longer a destination: `Departamentos` (9-1) already carries
+      // `/hr/departments`, so the entry renders a button bound to its own menu.
+      expect(parent?.querySelector('a')).toBeNull();
+      const trigger = parent?.querySelector('.nav-item-trigger');
+      expect(trigger).toBeTruthy();
+      expect(trigger?.getAttribute('aria-label')).toBe('Recursos Humanos submenu');
+      // `aria-expanded` is written by the mat-menu trigger itself: the label is bound
+      // to the submenu, not a decorative button.
+      expect(trigger?.getAttribute('aria-expanded')).toBe('false');
+      // The label is the only trigger: the separate caret is gone.
+      expect(parent?.querySelector('.submenu-trigger')).toBeNull();
+    });
+
     it('should show the Recursos Humanos parent with its three children for a department user', () => {
       const { component } = setup(['lc-department']);
       const items = component.items();
@@ -763,11 +819,13 @@ describe('Header', () => {
       // A department-only user is in the HR write union and in nothing else, so
       // the HR parent is the whole menu.
       expect(items).toHaveLength(1);
+      // The entry is menu-only: `opensSubmenu` with no `routeLink` of its own, because
+      // clicking it opens the submenu instead of navigating.
       expect(items[0]).toEqual({
         id: '9',
-        routeLink: '/hr/departments',
         textLink: 'Recursos Humanos',
         icon: 'badge',
+        opensSubmenu: true,
         children: [
           {
             id: '9-1',
@@ -796,7 +854,7 @@ describe('Header', () => {
       (role) => {
         const { component } = setup([role]);
         expect(component.isHr()).toBe(true);
-        expect(component.items().some((i) => i.routeLink === '/hr/departments')).toBe(true);
+        expect(component.items().some((i) => i.id === '9')).toBe(true);
       },
     );
 
@@ -810,7 +868,7 @@ describe('Header', () => {
     it('should NOT show the Recursos Humanos parent for an unrelated role', () => {
       const { component } = setup(['lc-sales']);
       expect(component.isHr()).toBe(false);
-      expect(component.items().some((i) => i.routeLink === '/hr/departments')).toBe(false);
+      expect(component.items().some((i) => i.id === '9')).toBe(false);
     });
 
     it('should reset isHr on AuthLogout event', () => {
@@ -851,7 +909,7 @@ describe('Header', () => {
       fixture.detectChanges();
 
       expect(component.isHr()).toBe(false);
-      expect(component.items().some((i) => i.routeLink === '/hr/departments')).toBe(false);
+      expect(component.items().some((i) => i.id === '9')).toBe(false);
     });
   });
 
