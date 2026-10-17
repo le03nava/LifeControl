@@ -9,6 +9,7 @@ import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.springframework.security.core.authority.FactorGrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
@@ -39,10 +40,30 @@ class JwtDecoderConfigTest {
                 .build();
     }
 
+    /**
+     * Returns the role authorities the converter derives from the token claims.
+     * <p>
+     * Spring Security 7 appends {@link FactorGrantedAuthority#BEARER_AUTHORITY}
+     * ({@code FACTOR_BEARER}) to every JWT authentication, so the role assertions below
+     * filter the authorities down to the {@link SimpleGrantedAuthority} instances the
+     * converter itself produces; {@link #addsBearerFactorAuthority()} pins that factor
+     * authority separately instead of silently dropping it from the contract.
+     */
     private List<SimpleGrantedAuthority> extractRoles(Jwt jwt) {
         return converter.convert(jwt).getAuthorities().stream()
-                .map(a -> (SimpleGrantedAuthority) a)
+                .filter(SimpleGrantedAuthority.class::isInstance)
+                .map(SimpleGrantedAuthority.class::cast)
                 .toList();
+    }
+
+    @Test
+    @DisplayName("adds the bearer factor authority that Spring Security 7 appends")
+    void addsBearerFactorAuthority() {
+        var jwt = jwtWithClaims(Map.of("realm_access", Map.of("roles", List.of("admin"))));
+
+        assertThat(converter.convert(jwt).getAuthorities())
+                .anySatisfy(authority ->
+                        assertThat(authority.getAuthority()).isEqualTo(FactorGrantedAuthority.BEARER_AUTHORITY));
     }
 
     // ─── Happy Path ──────────────────────────────────────────

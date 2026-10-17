@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.GenericJacksonJsonRedisSerializer;
 
 /**
  * Tests for the cache value serializer.
@@ -25,7 +25,7 @@ import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSeriali
 @DisplayName("Cache value serializer Tests")
 class CacheValueSerializerTest {
 
-    private final GenericJackson2JsonRedisSerializer serializer = CacheConfig.valueSerializer();
+    private final GenericJacksonJsonRedisSerializer serializer = CacheConfig.valueSerializer();
 
     @Test
     @DisplayName("round-trips a single cached record (CountryResponse)")

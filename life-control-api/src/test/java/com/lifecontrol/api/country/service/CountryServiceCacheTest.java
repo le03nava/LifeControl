@@ -16,9 +16,9 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.cache.CacheManager;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
  * Integration tests for CountryService caching behavior.
@@ -41,7 +41,7 @@ class CountryServiceCacheTest {
     @Autowired
     private CountryService countryService;
 
-    @MockBean
+    @MockitoBean
     private CountryRepository countryRepository;
 
     @Autowired

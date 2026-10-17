@@ -347,7 +347,7 @@ class GlobalExceptionHandlerTest {
         @DisplayName("should return 400 for malformed JSON")
         void handleUnreadableBody_Returns400() {
             // Arrange
-            var exception = new HttpMessageNotReadableException("Unexpected end-of-input");
+            var exception = new HttpMessageNotReadableException("Unexpected end-of-input", null);
 
             // Act
             ResponseEntity<GlobalExceptionHandler.ErrorResponse> response =

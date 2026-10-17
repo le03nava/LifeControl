@@ -8,9 +8,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifecontrol.api.config.ratelimit.RateLimitProperties;
 import com.lifecontrol.api.measureunit.dto.MeasureUnitRequest;
 import com.lifecontrol.api.measureunit.dto.MeasureUnitResponse;
@@ -22,9 +22,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -35,8 +36,10 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import tools.jackson.databind.ObjectMapper;
 
 @WebMvcTest(MeasureUnitController.class)
+@Import(MeasureUnitControllerSecurityTest.TestSecurityConfig.class)
 @DisplayName("MeasureUnit Controller Security — @PreAuthorize method-level authorization")
 class MeasureUnitControllerSecurityTest {
 
@@ -142,6 +145,22 @@ class MeasureUnitControllerSecurityTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(buildRequest())))
                     .andExpect(status().isCreated());
+        }
+
+        @Test
+        @WithMockUser(roles = {"lc-admin"})
+        @DisplayName("returns 400 Bad Request when the payload carries a field the DTO does not declare")
+        void unknownFieldInBodyIsRejected() throws Exception {
+            when(measureUnitService.createMeasureUnit(any(MeasureUnitRequest.class)))
+                    .thenReturn(buildResponse());
+
+            mockMvc.perform(post("/api/measure-units")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"measureUnitName\":\"Kilogramo\",\"measureUnitShortName\":\"kg\","
+                                    + "\"unitType\":\"PRODUCT\",\"satCode\":\"KGM\",\"description\":\"Kilogramo\","
+                                    + "\"undeclaredField\":\"x\"}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value("Malformed or unreadable request body"));
         }
 
         @Test

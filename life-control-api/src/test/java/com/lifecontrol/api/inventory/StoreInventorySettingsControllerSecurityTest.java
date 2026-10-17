@@ -7,7 +7,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifecontrol.api.config.ratelimit.RateLimitProperties;
 import com.lifecontrol.api.exception.GlobalExceptionHandler;
 import com.lifecontrol.api.inventory.controller.StoreInventorySettingsController;
@@ -23,8 +22,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -36,13 +35,14 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Pins the {@code @PreAuthorize} role sets of both nested endpoints: read access adds
  * {@code lc-company-store-read}, write access does not.
  */
 @WebMvcTest({StoreInventorySettingsController.class, StoreLocationByStoreController.class})
-@Import(GlobalExceptionHandler.class)
+@Import({GlobalExceptionHandler.class, StoreInventorySettingsControllerSecurityTest.TestSecurityConfig.class})
 @DisplayName("Store inventory settings Security — @PreAuthorize method-level authorization")
 class StoreInventorySettingsControllerSecurityTest {
 

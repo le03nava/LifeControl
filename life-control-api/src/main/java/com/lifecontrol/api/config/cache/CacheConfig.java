@@ -1,10 +1,6 @@
 package com.lifecontrol.api.config.cache;
 
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.databind.jsontype.BasicPolymorphicTypeValidator;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.time.Duration;
 import java.util.Set;
 import org.slf4j.Logger;
@@ -21,8 +17,15 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.data.redis.cache.RedisCacheConfiguration;
 import org.springframework.data.redis.cache.RedisCacheManager;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
-import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.GenericJacksonJsonRedisSerializer;
 import org.springframework.data.redis.serializer.RedisSerializationContext;
+import tools.jackson.databind.DefaultTyping;
+import tools.jackson.databind.JavaType;
+import tools.jackson.databind.cfg.DateTimeFeature;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.jsontype.BasicPolymorphicTypeValidator;
+import tools.jackson.databind.jsontype.PolymorphicTypeValidator;
+import tools.jackson.databind.jsontype.impl.DefaultTypeResolverBuilder;
 
 /**
  * Configures Spring Cache abstraction for the application.
@@ -31,12 +34,12 @@ import org.springframework.data.redis.serializer.RedisSerializationContext;
  * a {@link RedisCacheManager} is configured with a 1-hour TTL for all cache regions.
  * <p>
  * <b>Serialization:</b> Cached values are serialized as JSON via
- * {@link GenericJackson2JsonRedisSerializer}. This is required because the cached
- * payloads are immutable Java records ({@code *Response} DTOs) that do <b>not</b>
- * implement {@link java.io.Serializable} — the JDK serialization used by
- * {@link RedisCacheConfiguration#defaultCacheConfig()} would fail at runtime with a
- * {@code SerializationException}. Default typing is enabled so polymorphic payloads
- * (e.g. {@code List<CountryResponse>}) can be reconstructed on read.
+ * {@link GenericJacksonJsonRedisSerializer}, Spring Data Redis 4's Jackson 3 serializer.
+ * This is required because the cached payloads are immutable Java records
+ * ({@code *Response} DTOs) that do <b>not</b> implement {@link java.io.Serializable} — the JDK
+ * serialization used by {@link RedisCacheConfiguration#defaultCacheConfig()} would fail at
+ * runtime with a {@code SerializationException}. Default typing is enabled so polymorphic
+ * payloads (e.g. {@code List<CountryResponse>}) can be reconstructed on read.
  * <p>
  * <b>Fallback (Simple):</b> When no {@link RedisConnectionFactory} is present, a
  * {@link SimpleCacheManager} is used as an in-memory fallback. The application continues
@@ -83,22 +86,64 @@ public class CacheConfig {
     /**
      * Builds the JSON serializer used for cache values.
      * <p>
-     * Registers {@link JavaTimeModule} so {@link java.time.LocalDateTime} fields
-     * serialize as ISO-8601 strings, and enables default typing so deserialization
-     * can restore concrete types (including final records) without prior knowledge
-     * of the cached payload's declared type.
+     * Jackson 3 has JSR-310 support built in, so no date module is registered:
+     * {@link java.time.LocalDateTime} fields serialize as ISO-8601 strings on their own.
+     * {@link DateTimeFeature#WRITE_DATES_AS_TIMESTAMPS} already defaults to {@code false} in
+     * Jackson 3 and is still set explicitly because these bytes are persisted for up to
+     * {@link #CACHE_TTL}, so the representation must not depend on a library default.
+     * <p>
+     * Default typing (a {@code @class} property carrying the type id) is required because values
+     * are read back without any knowledge of the declared type. Jackson 3 removed
+     * {@code DefaultTyping.EVERYTHING} (databind#4160) and <b>no remaining
+     * {@link DefaultTyping} constant is equivalent</b>: they all omit the type id for a final
+     * JDK class such as {@code java.util.ImmutableCollections$ListN}, which is exactly the shape
+     * {@link java.util.stream.Stream#toList()} produces — the resulting payload is written but
+     * cannot be read back. {@link CacheValueTypeResolver} restores the previous behaviour.
      */
-    static GenericJackson2JsonRedisSerializer valueSerializer() {
-        var mapper = new ObjectMapper();
-        mapper.registerModule(new JavaTimeModule());
-        mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
-        mapper.activateDefaultTyping(
-                BasicPolymorphicTypeValidator.builder()
-                        .allowIfBaseType(Object.class)
-                        .build(),
-                ObjectMapper.DefaultTyping.EVERYTHING,
-                JsonTypeInfo.As.PROPERTY);
-        return new GenericJackson2JsonRedisSerializer(mapper);
+    static GenericJacksonJsonRedisSerializer valueSerializer() {
+        var typeValidator = BasicPolymorphicTypeValidator.builder()
+                .allowIfBaseType(Object.class)
+                .build();
+
+        var mapper = JsonMapper.builder()
+                .disable(DateTimeFeature.WRITE_DATES_AS_TIMESTAMPS)
+                .setDefaultTyping(new CacheValueTypeResolver(typeValidator))
+                .build();
+
+        return new GenericJacksonJsonRedisSerializer(mapper);
+    }
+
+    /**
+     * Type resolver equivalent to Jackson 2's removed {@code DefaultTyping.EVERYTHING}: every
+     * non-primitive value carries its type id (scalar types are handled by Jackson's own scalar
+     * serializers, which ignore type ids). This is what lets final records and the final JDK
+     * collection classes returned by {@code Stream#toList()} round-trip, and it keeps the
+     * on-wire format byte-identical to the entries written before the Jackson 3 migration.
+     */
+    private static final class CacheValueTypeResolver extends DefaultTypeResolverBuilder {
+
+        private static final long serialVersionUID = 1L;
+
+        private CacheValueTypeResolver(PolymorphicTypeValidator typeValidator) {
+            // The DefaultTyping argument is required but inert: useForType is overridden below.
+            super(typeValidator, DefaultTyping.NON_FINAL, JsonTypeInfo.As.PROPERTY);
+        }
+
+        @Override
+        public boolean useForType(JavaType type) {
+            return !type.isPrimitive();
+        }
+
+        @Override
+        public DefaultTypeResolverBuilder withDefaultImpl(Class<?> defaultImpl) {
+            // Defensive mirror of Jackson 2's EVERYTHING builder, whose withDefaultImpl also
+            // returned this. Measured: MapperBuilder.setDefaultTyping stores this builder and does
+            // not call withDefaultImpl, so the override is inert in this configuration; it stays
+            // because delegating to the base implementation would return a plain
+            // DefaultTypeResolverBuilder and silently drop useForType above, were any path to call
+            // it (Spring Data Redis does the same for its own resolver).
+            return this;
+        }
     }
 
     /**

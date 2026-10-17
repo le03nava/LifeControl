@@ -7,8 +7,6 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.lifecontrol.api.exception.GlobalExceptionHandler;
 import com.lifecontrol.api.measureunit.dto.MeasureUnitRequest;
 import com.lifecontrol.api.measureunit.dto.MeasureUnitResponse;
@@ -29,6 +27,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("MeasureUnitController Tests")
@@ -51,8 +51,7 @@ class MeasureUnitControllerTest {
         mockMvc = MockMvcBuilders.standaloneSetup(measureUnitController)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
-        objectMapper = new ObjectMapper();
-        objectMapper.registerModule(new JavaTimeModule());
+        objectMapper = JsonMapper.builder().build();
 
         testId = UUID.randomUUID();
         testResponse = new MeasureUnitResponse(

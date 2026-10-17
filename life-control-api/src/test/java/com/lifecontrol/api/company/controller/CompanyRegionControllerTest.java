@@ -6,7 +6,6 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifecontrol.api.company.dto.CompanyRegionResponse;
 import com.lifecontrol.api.company.dto.CreateCompanyRegionRequest;
 import com.lifecontrol.api.company.dto.UpdateCompanyRegionRequest;
@@ -28,6 +27,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("CompanyRegionController Tests")
@@ -55,8 +56,7 @@ class CompanyRegionControllerTest {
         mockMvc = MockMvcBuilders.standaloneSetup(companyRegionController)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
-        objectMapper = new ObjectMapper();
-        objectMapper.findAndRegisterModules();
+        objectMapper = JsonMapper.builder().build();
 
         testCompanyId = UUID.randomUUID();
         testCountryId = UUID.randomUUID();

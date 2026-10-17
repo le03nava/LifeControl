@@ -69,9 +69,13 @@ public class SecurityConfig {
      * Allows actuator requests only when the resolved client address belongs to
      * one of the configured internal CIDRs. The client IP is resolved through
      * {@link ClientIpResolver}, so forwarded headers are only trusted from proxies.
+     * <p>
+     * Spring Security 7 replaced {@code AuthorizationManager#check(Supplier, T)} with
+     * {@code authorize(Supplier<? extends Authentication>, T)}, so this method reference
+     * must accept the wildcard supplier. The authentication supplier itself is not consulted.
      */
     private AuthorizationDecision isInternalClient(
-            Supplier<Authentication> authentication, RequestAuthorizationContext context) {
+            Supplier<? extends Authentication> authentication, RequestAuthorizationContext context) {
         var clientIp = ClientIpResolver.resolve(context.getRequest(), accessProperties.getTrustedProxies());
         var allowed = clientIp != null
                 && accessProperties.getActuatorAllowedCidrs().stream()

@@ -4,9 +4,9 @@
 
 | Component        | Technology                              |
 |------------------|-----------------------------------------|
-| Framework        | Spring Boot 3.5.16                     |
+| Framework        | Spring Boot 4.1.1                      |
 | Language         | Java 21                                 |
-| Build Tool       | Gradle 8.x+                             |
+| Build Tool       | Gradle 9.x+                             |
 | Database         | PostgreSQL                              |
 | Cache            | Redis (with in-memory fallback)         |
 | Port             | 8082 (configurable via `SERVER_PORT`)   |
@@ -724,8 +724,7 @@ class CompanyControllerTest {
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setCustomArgumentResolvers(new PageableHandlerMethodArgumentResolver())
                 .build();
-        objectMapper = new ObjectMapper();
-        objectMapper.findAndRegisterModules();
+        objectMapper = JsonMapper.builder().build();
     }
 
     @Nested

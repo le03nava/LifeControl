@@ -10,7 +10,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifecontrol.api.exception.GlobalExceptionHandler;
 import com.lifecontrol.api.provisioning.dto.AccessProvisioningQueueEntry;
 import com.lifecontrol.api.provisioning.service.AccessProvisioningQueryService;
@@ -29,6 +28,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Pins the <b>wire shape</b> of the company decision queue read: the path it answers on, the company id
@@ -120,7 +120,7 @@ class AccessProvisioningQueueControllerTest {
                 .getContentAsString();
 
         var fields = new TreeSet<String>();
-        new ObjectMapper().readTree(body).get(0).fieldNames().forEachRemaining(fields::add);
+        JsonMapper.builder().build().readTree(body).get(0).propertyNames().forEach(fields::add);
 
         assertThat(fields)
                 .as("the queue row is its own, narrower view (records T94/T95): the frozen set and both"
