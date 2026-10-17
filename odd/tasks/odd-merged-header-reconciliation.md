@@ -63,12 +63,12 @@ That is the reading this slice applies, and it is checkable in the diff: eight `
 
 | # | Spec | Route | Task | Commit |
 | --- | --- | --- | --- | --- |
-| T1 | S1 | inline | Inventory: every `odd/tasks/*.md` `**Status**:` line measured against `gh`/`git` truth, and every named merge commit confirmed an ancestor of `main` | (this record) |
-| T2 | S1 | inline | Drop the `logbook-logging` stash after proving `main` supersedes it, and record its SHA so it stays recoverable | (this record) |
-| T3 | — | inline | Incident: another agent was writing in the anchor and the anchor's HEAD was moved by the first attempt; restore `main`, delete the empty branch, and do the work in its own worktree (`w3E`) | (this record) |
-| T4 | S2 | inline | Apply the eight `**Status**:` repairs and append the dated repair block to each record | commit 1 |
-| T5 | S1 | inline | Record the stash drop, its SHA and why nothing was lost in `logbook-http-logging.md`'s evidence log | commit 2 |
-| T6 | S2 | inline | Verification: ancestry of every named commit, a forbidden-phrase sweep, and a diff review that only `**Status**:` lines and appended blocks changed | commit 1 / 2 |
+| T1 | S1 | inline | Inventory: every `odd/tasks/*.md` `**Status**:` line measured against `gh`/`git` truth, and every named merge commit confirmed an ancestor of `main` | `141cae8` (this record) |
+| T2 | S1 | inline | Drop the `logbook-logging` stash after proving `main` supersedes it, and record its SHA so it stays recoverable | `141cae8` / `6e166ec` |
+| T3 | — | inline | Incident: another agent was writing in the anchor and the anchor's HEAD was moved by the first attempt; restore `main`, delete the empty branch, and do the work in its own worktree (`w3E`) | `141cae8` |
+| T4 | S2 | inline | Apply the eight `**Status**:` repairs and append the dated repair block to each record | `141cae8` |
+| T5 | S1 | inline | Record the stash drop, its SHA and why nothing was lost in `logbook-http-logging.md`'s evidence log | `6e166ec` |
+| T6 | S2 | inline | Verification: ancestry of every named commit, a forbidden-phrase sweep, and a diff review that only `**Status**:` lines and appended blocks changed | `141cae8` / `6e166ec` |
 
 ## The dropped stash (T2)
 
@@ -98,9 +98,19 @@ So the stash was an earlier draft of exactly the lines `main` now carries more c
 
 - **L1** — *the user, 2026-10-17, verbatim*: «que esta pendiente?» — answered from a read-only measurement of the tree (`main` @ `fc20a15`: 0 open PRs, 0 open issues, review authority `clean`, one untracked ODD record), which is where "reconcile the stale headers" came from as a pending item: seven `odd/tasks/` records still read `implemented` while their branch no longer exists.
 - **L2** — *the user, 2026-10-17, verbatim*: «continua con la b» — authorizing option (b) exactly as offered: drop the stale stash, reconcile the stale headers. Option (a) (track `odd/tasks/angular-22-upgrade.md` and start its slice A) was **not** chosen and is not touched here.
+- **L4** — *2026-10-17, the delivery*: **`141cae8`** carries the eight repairs plus this record (9 files, **+160 −28**), and **`6e166ec`** carries the one dated row that records the dropped stash (1 file, **+1**). Measured by the runtime: **189 authored changed lines on the branch since `origin/main`**, inside the 400-line budget. **Nothing was pushed and no pull request was opened** — that belongs to the user, and this record claims no state about it.
 - **L3** — *2026-10-17, this pass*: **the reconciliation turned out to be smaller and the incident larger than the offer assumed, and both are recorded rather than smoothed over.** The first sweep's list was wrong in one direction and right in another: three of its seven candidate records already carried `**Merged as PR #…**` and needed nothing, while two records the sweep had not flagged (`employee-registry`, `keycloak-adapter-error-contract`) belonged in the repair list, and the truth for every row had to come from `gh`/`git` rather than from the header being repaired. The incident: the anchor `~/workspace/LifeControl` is **not clean** — another session (advertised as `01a14a86-…`, same workspace and clone) was mid-implementation on the PR-type labels at 09:55, with `AGENTS.md`, `.agents/skills/project-conventions/SKILL.md`, `references/index.md`, a new `references/labels.md` and a new `odd/tasks/pr-type-labels.md` uncommitted. Creating the branch in the anchor **moved that session's HEAD** for about a minute; it was restored to `main` the moment `git status` showed the foreign changes, no commit was made in the window (`docs/odd-merged-header-reconciliation` pointed at `fc20a15` and had zero commits of its own), and this slice now runs in its own worktree per `references/worktrees.md` invariants 1–5. **No file outside `odd/tasks/` is touched by this slice**, and no file belonging to the other session was modified, staged or committed.
 
 ## Needs your decision
 
 - **`odd/tasks/angular-22-upgrade.md` is untracked.** It is the only record in `odd/tasks/` that Git does not track, which makes it invisible to any clone, to CI and to the next session that reads the directory — and it is also the untracked path that made a native `assess` answer `nativeRisk: unassessable` on 2026-10-17. Tracking it is a one-line commit; starting its slice A is the separate decision option (a) left open.
-- **This slice's delivery.** Push, PR and merge are the user's call, as always; the branch is ready for review when the two commits are in.
+- **This slice's delivery.** Push, PR and merge are the user's call, as always; the branch carries two commits and is ready for review.
+
+## Delivery
+
+| Commit | Lines | What it carries |
+| --- | --- | --- |
+| `141cae8` | 160 (+)/28 (−) over 9 files | The eight `**Status**:` repairs, their eight dated `## Header repair (2026-10-17)` blocks, and this record |
+| `6e166ec` | 1 (+) over 1 file | The dated row recording the dropped stash in `logbook-http-logging.md` |
+
+The slice measures **189 authored changed lines on the branch since `origin/main`**, against the repository's 400-line review budget, so no size exception is owed. Nothing was pushed and no pull request was opened: that is the user's decision, as always.
