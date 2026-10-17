@@ -3,11 +3,14 @@
 **Repository**: LifeControl — `docker/` only: `.env.template`, the three compose files, `scripts/setup-env.sh`,
 `scripts/deploy.sh`, a new static test, plus one section of the root `AGENTS.md`. No application code, no
 schema, no endpoint, no contract.
-**Status**: implemented, committed as **`f299b70`** and verified at runtime in dev (the evidence is in the log
-below): the five `docker/scripts/tests/` scripts pass, the stack runs on the new pins, and the realm
-reconvergence plus the invitation flow end to end pass on Keycloak 26.8.1 / Postgres 18.6. What stays open is
-not work of this feature: delivery (push and PR) is the user's decision, the native review of `f299b70` under
-RDD is `T6`, and `.env.staging` / `.env.prod` are the operator's one-time re-materialization (`L7`).
+**Status**: implemented, committed as **`f299b70`** (the code work unit) and **`353010b`** (this record), verified
+at runtime in dev, and **approved by the native review without a correction**: lineage
+`review-38fd76cfaa5efd61`, four lenses, tier **high**, receipt
+`sha256:81aede406b3e08904d2dad800d864e28a137d361bf00b2053787e171b81d95c1`, acknowledged (authority burned,
+`gentle-ai.review-acknowledged/v1`). Its six findings are advisory and non-blocking; none reopens this
+candidate (`L14`). What stays open is not work of this feature: delivery (push and PR) is the user's decision,
+the six advisory findings are separate later work, and `.env.staging` / `.env.prod` are the operator's one-time
+re-materialization (`L7`).
 **Created**: 2026-10-17 · **Risk**: **item 1 (data)** — Keycloak migrates its own DB schema on startup with no
 rollback, and the Loki change decides what is persisted and where; **item 5 (environment/dependencies)** — every
 pinned image of the infrastructure stack moves at once.
@@ -67,7 +70,7 @@ again. Grafana is **not** affected: the default stage of `grafana/grafana` 13.2.
 | T3 | S5 | Remove the `wget` healthchecks Loki and Tempo can no longer run (base + prod) and measure their readiness from the host in `deploy.sh health`; document the rule in the root `AGENTS.md` | inline | `f299b70` |
 | T4 | S3 | Mount `${VOLUMES_ROOT}/loki/data` at `/loki` (base + prod) and prepare it in `setup-env.sh` for uid `10001:10001` with `rules/` and `rules-temp/` | inline | `f299b70` |
 | T5 | S2 | Runtime verification in dev: recreate the stack on the new pins, probe every service, re-converge the realm, run the invitation flow end to end | inline | `L12`–`L13` |
-| T6 | S2 | Native review (RDD) of the candidate, per the returned plan | inline | evidence in the log |
+| T6 | S2 | Native review (RDD) of the candidate, per the returned plan | inline | `L14` — `review-38fd76cfaa5efd61`, approved + acknowledged |
 
 `T1`–`T4` land as **one commit** (`f299b70`, 399 authored lines) instead of the three the plan named: the new
 test asserts the pin set, the absence of the two healthchecks and the Loki mount in one artifact, and the three
@@ -169,3 +172,51 @@ to re-init that local volume (or set the password) first. (2) `deploy.sh dev hea
 whose image has no healthcheck and whose probe port is unset: the `LOKI_PORT` / `TEMPO_PORT` defaults come from
 the env file, so an environment that removes them loses the signal silently — the test pins the probes in
 `deploy.sh`, not the env values.
+
+**L14** *(the native review, `T6`, all measured)*: **approved without a correction.** The four reviewer runs
+returned a receipt for the frozen candidate, `store_revision`
+`sha256:81aede406b3e08904d2dad800d864e28a137d361bf00b2053787e171b81d95c1`, and its acknowledgement burned the
+authority (`authority: burned`, `burn_evidence: gentle-ai.review-acknowledged/v1`, `delivery:
+ordinary-repository-policy`). Tier **high** (Pi derived it from the executable-mode change, the shell process
+boundary and the shell sourcing in `deploy.sh`, and this record's Risk line was escalated as item 1 as well),
+four lenses (`review-risk`, `review-resilience`, `review-readability`, `review-reliability`), 9 changed files,
+570 changed lines, correction budget 200 — unused.
+
+Two provider-issued facts about the run worth keeping, because they cost a step each:
+
+- A `lensesReason` of ~700 characters is rejected with `native-start-input-invalid` / `lenses-invalid`
+  (`lineage_created: false`, nothing burned); the same request with the reason under ~450 characters passes.
+  The first START of this feature died exactly there.
+- The readability reviewer's first payload was **refused at admission**
+  (`evidence_path_out_of_scope`, preserved at
+  `.git/gentle-ai/rejected-results/review-38fd76cfaa5efd61/review-readability-1-c7731d75ee98.json`); the slot was
+  not consumed, and re-running the same binding produced a payload that was admitted. Two of the four reviewers
+  had already been admitted by then (`mutation_outcome: partial`), so the group is resumed per slot, never
+  replayed.
+
+All six findings are **advisory and informational**; the closure states in its own words that none is blocking,
+none opened a correction and none reopens this candidate:
+
+| finding | lens | location | severity | theme |
+| --- | --- | --- | --- | --- |
+| `R1-image-probe-coverage` | risk | `docker/scripts/deploy.sh:252-257` | WARNING | the host probe skips a service when its port variable is empty while compose keeps the fallback |
+| `R4-READY-PROBE-SKIP` | resilience | `docker/scripts/deploy.sh:252-257` | WARNING | the same skip, seen as a lost readiness signal |
+| `R3-001` | reliability | `docker/scripts/deploy.sh:252` | WARNING | the same skip, seen as behavior no test pins |
+| `R4-LOKI-PROD-VOLUME` | resilience | `docker/docker-compose.prod.yml:119` | WARNING | the prod named volume exists from the old `/loki/data` mount and is not repopulated by Docker |
+| `R2-001` | readability | `docker/scripts/deploy.sh:248-256` | SUGGESTION | the port is read twice (guard vs. URL), and neither the function comment nor `AGENTS.md` says the probe is best-effort |
+| `R3-002` | reliability | `docker/scripts/tests/image-pins.test.sh:195` | SUGGESTION | a test suggestion (section 4's healthcheck assertion) |
+
+The first three and the readability one are `L13` (2) seen from three angles, so the record and the review agree
+on the gap. They are **not** fixed here: the review's own closure says to treat them as separate later work and
+never as a reason to re-run this candidate, and changing the candidate now would invalidate the receipt for the
+bytes that were reviewed. The bounded follow-up they justify is one unit: on an empty `LOKI_PORT` / `TEMPO_PORT`,
+probe the published fallback port (`3100` / `3110`) instead of skipping, and say in the function comment and in
+`AGENTS.md` that the probe is best-effort. It needs its own authorization because it is new candidate work with
+its own review.
+
+**L15** *(the record boundary)*: `f299b70` and `353010b` are the bytes the receipt covers
+(`target_identity sha256:70314bd1792d1fc5274d123f01fa61c5e2e578680624990d7f7041dbd82da257`,
+`candidate_tree 02956cf4ef0b3fa564a30e02b51a63c01f7a1446`). `L14` and this entry were written **after** the
+acknowledgement, in a commit that only touches this document: they add no behavior and are not covered by the
+receipt. The code slice is `f299b70` alone (399 authored lines, one reviewable slice); the two commits after it
+are the record (171 and 56 documentation lines), which is where the branch crosses the slice boundary.
