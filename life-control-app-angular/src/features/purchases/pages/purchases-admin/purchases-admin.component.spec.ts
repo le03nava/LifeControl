@@ -1,6 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { By } from '@angular/platform-browser';
 import Keycloak from 'keycloak-js';
 import { PurchasesAdminComponent } from './purchases-admin.component';
@@ -30,7 +29,7 @@ describe('PurchasesAdminComponent', () => {
     };
 
     TestBed.configureTestingModule({
-      imports: [PurchasesAdminComponent, NoopAnimationsModule],
+      imports: [PurchasesAdminComponent],
       providers: [provideRouter([]), { provide: Keycloak, useValue: keycloakMock }],
     });
 

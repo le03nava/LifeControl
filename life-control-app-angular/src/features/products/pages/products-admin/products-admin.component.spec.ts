@@ -3,7 +3,6 @@ import { provideRouter, RouterLink } from '@angular/router';
 import { PageHeader } from '@shared/ui';
 import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { By } from '@angular/platform-browser';
 import { ProductsAdminComponent } from './products-admin.component';
 
@@ -13,13 +12,7 @@ describe('ProductsAdminComponent', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [
-        ProductsAdminComponent,
-        PageHeader,
-        MatCardModule,
-        MatIconModule,
-        NoopAnimationsModule,
-      ],
+      imports: [ProductsAdminComponent, PageHeader, MatCardModule, MatIconModule],
       providers: [provideRouter([])],
     }).compileComponents();
 

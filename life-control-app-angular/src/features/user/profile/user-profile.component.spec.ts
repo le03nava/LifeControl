@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import type { ComponentFixture } from '@angular/core/testing';
 import { provideRouter, withRouterConfig, ActivatedRoute, Router } from '@angular/router';
-import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClient, withXhr } from '@angular/common/http';
 import { provideLocationMocks } from '@angular/common/testing';
 import { By } from '@angular/platform-browser';
 import { signal } from '@angular/core';
@@ -248,7 +248,7 @@ describe('UserProfileComponent', () => {
       providers: [
         provideRouter([], withRouterConfig({ resolveNavigationPromiseOnError: true })),
         provideLocationMocks(),
-        provideHttpClient(),
+        provideHttpClient(withXhr()),
         {
           provide: ActivatedRoute,
           useValue: {
@@ -525,7 +525,7 @@ describe('UserProfileComponent', () => {
         providers: [
           provideRouter([], withRouterConfig({ resolveNavigationPromiseOnError: true })),
           provideLocationMocks(),
-          provideHttpClient(),
+          provideHttpClient(withXhr()),
           {
             provide: ActivatedRoute,
             useValue: {

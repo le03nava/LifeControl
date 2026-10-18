@@ -1,5 +1,4 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { RegionsForm } from './regions-form';
 import { Company } from '../../../companies/models/company.models';
 import { CompanyCountry } from '../../../countries/models/country.models';
@@ -75,7 +74,7 @@ describe('RegionsForm', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [RegionsForm, NoopAnimationsModule],
+      imports: [RegionsForm],
     }).compileComponents();
 
     fixture = TestBed.createComponent(RegionsForm);

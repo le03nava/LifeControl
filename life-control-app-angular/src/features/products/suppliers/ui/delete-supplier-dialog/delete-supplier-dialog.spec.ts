@@ -1,6 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { DeleteSupplierDialogComponent } from './delete-supplier-dialog';
 
 describe('DeleteSupplierDialogComponent', () => {
@@ -14,7 +13,7 @@ describe('DeleteSupplierDialogComponent', () => {
     dialogRef = { close: vi.fn() };
 
     await TestBed.configureTestingModule({
-      imports: [DeleteSupplierDialogComponent, NoopAnimationsModule],
+      imports: [DeleteSupplierDialogComponent],
       providers: [
         { provide: MatDialogRef, useValue: dialogRef },
         { provide: MAT_DIALOG_DATA, useValue: mockData },

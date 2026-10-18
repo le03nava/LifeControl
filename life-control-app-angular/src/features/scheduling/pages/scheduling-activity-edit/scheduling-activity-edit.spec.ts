@@ -1,6 +1,5 @@
 /// <reference types="vitest/globals" />
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Observable, of, throwError } from 'rxjs';
@@ -113,7 +112,7 @@ describe('SchedulingActivityEdit', () => {
 
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
-      imports: [SchedulingActivityEdit, NoopAnimationsModule],
+      imports: [SchedulingActivityEdit],
       providers: [
         { provide: SchedulingActivityService, useValue: activityService },
         { provide: Router, useValue: router },

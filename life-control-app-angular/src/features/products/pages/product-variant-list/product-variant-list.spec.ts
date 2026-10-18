@@ -1,6 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { By } from '@angular/platform-browser';
 import { ActivatedRoute, Router } from '@angular/router';
 import { MatDialog } from '@angular/material/dialog';
@@ -185,7 +184,7 @@ describe('ProductVariantList', () => {
     dialogMock = { open: vi.fn().mockReturnValue({ afterClosed: () => of(false) }) };
 
     TestBed.configureTestingModule({
-      imports: [ProductVariantList, NoopAnimationsModule],
+      imports: [ProductVariantList],
       providers: [
         { provide: ProductVariantService, useValue: variantServiceMock },
         { provide: ProfileService, useValue: profileServiceMock },
@@ -1477,15 +1476,34 @@ describe('ProductVariantList', () => {
       // list re-issues its read and drops the loaded page while the new read is in flight.
       // The template unmounts the table and destroys the open panel; the expansion and the
       // dirty flag must follow it (D37).
+      //
+      // The response is held open on purpose. `@angular/core` 22 runs the loader inside the
+      // same reactive flush that applies the new params, so a synchronous response refills
+      // the page before change detection can observe the empty state — the assertion would
+      // then be pinning the scheduler's ordering instead of the rule.
+      const inFlight = new Subject<Page<ProductVariant>>();
+      variantServiceMock.getVariants.mockReturnValue(inFlight.asObservable());
       profileServiceMock.getProfile.mockReturnValue(of(profileResponse('store-2')));
       component.retryStore();
-      await settle();
-      await settle();
+      // Deliberately not `settle()`: an open read registers a pending task, so
+      // `fixture.whenStable()` would never resolve while the response hangs unanswered.
+      // Two synchronous passes are enough to apply the new params and let the effect run.
+      fixture.detectChanges();
+      fixture.detectChanges();
 
+      expect(component.variants()).toBeUndefined();
       expect(component.expandedVariantId()).toBeNull();
       expect(component.panelDirty()).toBe(false);
       expect(emitted).toContain(false);
       expect(renderedPanel()).toBeUndefined();
+
+      // The response landing afterwards must not bring the panel back.
+      inFlight.next(createPage([createVariant(1), createVariant(2)]));
+      inFlight.complete();
+      await settle();
+
+      expect(component.expandedVariantId()).toBeNull();
+      expect(component.panelDirty()).toBe(false);
     });
 
     it('should not emit dirtyChange when a request change drops the page with no panel open', async () => {

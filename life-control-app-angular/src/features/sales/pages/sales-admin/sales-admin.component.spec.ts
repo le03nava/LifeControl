@@ -1,6 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { By } from '@angular/platform-browser';
 import SalesAdminComponent from './sales-admin.component';
 
@@ -10,7 +9,7 @@ describe('SalesAdminComponent', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [SalesAdminComponent, NoopAnimationsModule],
+      imports: [SalesAdminComponent],
       providers: [provideRouter([])],
     }).compileComponents();
 

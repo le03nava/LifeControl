@@ -1,5 +1,4 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { CUSTOM_ELEMENTS_SCHEMA } from '@angular/core';
 import { SalesOrderItemTable, type ItemTableRow } from './sales-order-item-table';
 
@@ -17,7 +16,7 @@ function createItem(overrides: Partial<ItemTableRow> = {}): ItemTableRow {
 describe('SalesOrderItemTable', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [SalesOrderItemTable, NoopAnimationsModule],
+      imports: [SalesOrderItemTable],
       schemas: [CUSTOM_ELEMENTS_SCHEMA],
     }).compileComponents();
   });

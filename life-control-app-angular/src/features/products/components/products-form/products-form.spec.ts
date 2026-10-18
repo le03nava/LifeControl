@@ -1,5 +1,4 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { FormControl, FormGroup, Validators } from '@angular/forms';
 import { ProductsForm } from './products-form';
 import { ProductControl } from '../../models/product.models';
@@ -29,7 +28,7 @@ describe('ProductsForm', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [ProductsForm, NoopAnimationsModule],
+      imports: [ProductsForm],
     }).compileComponents();
 
     fixture = TestBed.createComponent(ProductsForm);

@@ -1,6 +1,5 @@
 /// <reference types="vitest/globals" />
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { SchedulingAgendaSelection, SchedulingDayAgenda } from './scheduling-day-agenda';
 import { SchedulingCalendarEntry } from '../../models/scheduling-calendar.models';
 
@@ -40,7 +39,7 @@ describe('SchedulingDayAgenda', () => {
   function setup(entries: SchedulingCalendarEntry[], date = '2026-09-30', canManage = false): void {
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
-      imports: [SchedulingDayAgenda, NoopAnimationsModule],
+      imports: [SchedulingDayAgenda],
     });
     fixture = TestBed.createComponent(SchedulingDayAgenda);
     component = fixture.componentInstance;

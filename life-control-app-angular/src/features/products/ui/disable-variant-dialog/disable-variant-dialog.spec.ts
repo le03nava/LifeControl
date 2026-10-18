@@ -1,6 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { DisableVariantDialogComponent } from './disable-variant-dialog';
 import { ProductVariant } from '../../models/product-variant.models';
 
@@ -28,7 +27,7 @@ describe('DisableVariantDialogComponent', () => {
     dialogRef = { close: vi.fn() };
 
     await TestBed.configureTestingModule({
-      imports: [DisableVariantDialogComponent, NoopAnimationsModule],
+      imports: [DisableVariantDialogComponent],
       providers: [
         { provide: MatDialogRef, useValue: dialogRef },
         { provide: MAT_DIALOG_DATA, useValue: mockData },

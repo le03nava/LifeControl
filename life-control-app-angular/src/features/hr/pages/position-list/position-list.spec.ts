@@ -1,6 +1,5 @@
 /// <reference types="vitest/globals" />
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Signal, WritableSignal, signal } from '@angular/core';
@@ -162,7 +161,7 @@ describe('PositionList', () => {
 
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
-      imports: [PositionList, NoopAnimationsModule],
+      imports: [PositionList],
       providers: [
         provideRouter([]),
         { provide: PositionService, useValue: positionService },
@@ -216,9 +215,7 @@ describe('PositionList', () => {
   }
 
   function rows(): HTMLElement[] {
-    return Array.from(
-      (fixture.nativeElement as HTMLElement).querySelectorAll('tr.mat-mdc-row'),
-    );
+    return Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('tr.mat-mdc-row'));
   }
 
   function actionButton(label: string): HTMLButtonElement | null {
@@ -455,7 +452,9 @@ describe('PositionList', () => {
 
     // The positions still render; the failure is named rather than read as
     // "this company has no departments".
-    expect(component.catalogueError()).toBe('No se pudieron cargar los departamentos de la empresa');
+    expect(component.catalogueError()).toBe(
+      'No se pudieron cargar los departamentos de la empresa',
+    );
     expect(text()).toContain('No se pudieron cargar los departamentos de la empresa');
     expect(text()).toContain('OPR');
   });

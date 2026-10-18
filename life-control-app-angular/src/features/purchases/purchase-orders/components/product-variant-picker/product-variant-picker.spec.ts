@@ -1,5 +1,4 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { of, Subject, throwError } from 'rxjs';
 import { ProductVariantPicker } from './product-variant-picker';
 import { ProductVariantService } from '@features/products/data/product-variant.service';
@@ -59,7 +58,7 @@ describe('ProductVariantPicker', () => {
     };
 
     await TestBed.configureTestingModule({
-      imports: [ProductVariantPicker, NoopAnimationsModule],
+      imports: [ProductVariantPicker],
       providers: [{ provide: ProductVariantService, useValue: variantService }],
     }).compileComponents();
 

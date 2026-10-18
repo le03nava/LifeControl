@@ -1,5 +1,4 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { By } from '@angular/platform-browser';
 import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 import { provideRouter, Router, ActivatedRoute } from '@angular/router';
@@ -167,7 +166,7 @@ describe('SalesOrderEdit', () => {
   describe('create mode', () => {
     beforeEach(async () => {
       await TestBed.configureTestingModule({
-        imports: [SalesOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
+        imports: [SalesOrderEdit, HttpClientTestingModule],
         providers: baseProviders(null),
       }).compileComponents();
 
@@ -565,7 +564,7 @@ describe('SalesOrderEdit', () => {
   describe('edit mode', () => {
     beforeEach(async () => {
       await TestBed.configureTestingModule({
-        imports: [SalesOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
+        imports: [SalesOrderEdit, HttpClientTestingModule],
         providers: baseProviders('so-1'),
       }).compileComponents();
 
@@ -628,8 +627,7 @@ describe('SalesOrderEdit', () => {
     });
 
     it('should hand the line table the same gate, so the first scanned line does not lock it', () => {
-      const table = fixture.debugElement.query(By.directive(SalesOrderItemTable))
-        .componentInstance;
+      const table = fixture.debugElement.query(By.directive(SalesOrderItemTable)).componentInstance;
       expect(table.isModifiable()).toBe(true);
 
       component.loadedOrder.set({ ...mockOrder, statusName: 'Active' });
@@ -727,7 +725,7 @@ describe('SalesOrderEdit', () => {
   describe('line items', () => {
     beforeEach(async () => {
       await TestBed.configureTestingModule({
-        imports: [SalesOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
+        imports: [SalesOrderEdit, HttpClientTestingModule],
         providers: baseProviders('so-1'),
       }).compileComponents();
 
@@ -754,7 +752,7 @@ describe('SalesOrderEdit', () => {
   describe('cancel navigation', () => {
     it('should have a Back button linking to order list', async () => {
       await TestBed.configureTestingModule({
-        imports: [SalesOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
+        imports: [SalesOrderEdit, HttpClientTestingModule],
         providers: baseProviders(null),
       }).compileComponents();
 
@@ -774,7 +772,7 @@ describe('SalesOrderEdit', () => {
   describe('conflict handling', () => {
     beforeEach(async () => {
       await TestBed.configureTestingModule({
-        imports: [SalesOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
+        imports: [SalesOrderEdit, HttpClientTestingModule],
         providers: baseProviders('so-1'),
       }).compileComponents();
 
@@ -810,7 +808,7 @@ describe('SalesOrderEdit', () => {
   describe('variant selection', () => {
     beforeEach(async () => {
       await TestBed.configureTestingModule({
-        imports: [SalesOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
+        imports: [SalesOrderEdit, HttpClientTestingModule],
         providers: baseProviders('so-1'),
       }).compileComponents();
 
@@ -982,7 +980,7 @@ describe('SalesOrderEdit', () => {
   describe('item operations', () => {
     beforeEach(async () => {
       await TestBed.configureTestingModule({
-        imports: [SalesOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
+        imports: [SalesOrderEdit, HttpClientTestingModule],
         providers: baseProviders('so-1'),
       }).compileComponents();
 
@@ -1274,7 +1272,7 @@ describe('SalesOrderEdit', () => {
     describe('edit mode', () => {
       beforeEach(async () => {
         await TestBed.configureTestingModule({
-          imports: [SalesOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
+          imports: [SalesOrderEdit, HttpClientTestingModule],
           providers: baseProviders('so-1'),
         }).compileComponents();
 
@@ -1350,7 +1348,7 @@ describe('SalesOrderEdit', () => {
     describe('create mode', () => {
       beforeEach(async () => {
         await TestBed.configureTestingModule({
-          imports: [SalesOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
+          imports: [SalesOrderEdit, HttpClientTestingModule],
           providers: baseProviders(null),
         }).compileComponents();
 
@@ -1394,7 +1392,7 @@ describe('SalesOrderEdit', () => {
       mocks.getSalesOrder = vi.fn().mockReturnValue(orderSubject.asObservable());
 
       await TestBed.configureTestingModule({
-        imports: [SalesOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
+        imports: [SalesOrderEdit, HttpClientTestingModule],
         providers: [...baseProviders('so-1'), { provide: SalesOrderService, useValue: mocks }],
       }).compileComponents();
 
@@ -1421,7 +1419,7 @@ describe('SalesOrderEdit', () => {
       mocks.getSalesOrder = vi.fn().mockReturnValue(orderSubject.asObservable());
 
       await TestBed.configureTestingModule({
-        imports: [SalesOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
+        imports: [SalesOrderEdit, HttpClientTestingModule],
         providers: [...baseProviders('so-1'), { provide: SalesOrderService, useValue: mocks }],
       }).compileComponents();
 
@@ -1439,7 +1437,7 @@ describe('SalesOrderEdit', () => {
 
     it('should NOT be in the bootstrap loading state in create mode', async () => {
       await TestBed.configureTestingModule({
-        imports: [SalesOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
+        imports: [SalesOrderEdit, HttpClientTestingModule],
         providers: baseProviders(null),
       }).compileComponents();
 
@@ -1452,7 +1450,7 @@ describe('SalesOrderEdit', () => {
 
     it('should not re-arm the page gate when a line item is added', async () => {
       await TestBed.configureTestingModule({
-        imports: [SalesOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
+        imports: [SalesOrderEdit, HttpClientTestingModule],
         providers: baseProviders('so-1'),
       }).compileComponents();
 
@@ -1513,7 +1511,7 @@ describe('SalesOrderEdit', () => {
   describe('scan mode', () => {
     beforeEach(async () => {
       await TestBed.configureTestingModule({
-        imports: [SalesOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
+        imports: [SalesOrderEdit, HttpClientTestingModule],
         providers: baseProviders('so-1'),
       }).compileComponents();
 
@@ -1566,7 +1564,7 @@ describe('SalesOrderEdit', () => {
   describe('charge / cobrar', () => {
     beforeEach(async () => {
       await TestBed.configureTestingModule({
-        imports: [SalesOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
+        imports: [SalesOrderEdit, HttpClientTestingModule],
         providers: baseProviders('so-1'),
       }).compileComponents();
 

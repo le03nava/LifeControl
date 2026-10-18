@@ -1,7 +1,6 @@
 /// <reference types="vitest/globals" />
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { By } from '@angular/platform-browser';
 import { NonNullableFormBuilder, Validators } from '@angular/forms';
 import { SchedulingActivityForm } from './scheduling-activity-form';
@@ -55,7 +54,7 @@ describe('SchedulingActivityForm', () => {
   let form: SchedulingActivityForm;
 
   beforeEach(() => {
-    TestBed.configureTestingModule({ imports: [HostComponent, NoopAnimationsModule] });
+    TestBed.configureTestingModule({ imports: [HostComponent] });
     fixture = TestBed.createComponent(HostComponent);
     host = fixture.componentInstance;
     fixture.detectChanges();

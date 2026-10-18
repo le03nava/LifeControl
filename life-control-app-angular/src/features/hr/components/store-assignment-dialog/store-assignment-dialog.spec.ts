@@ -1,7 +1,6 @@
 /// <reference types="vitest/globals" />
 import { HttpErrorResponse } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { MAT_DIALOG_DATA, MatDialogRef } from '@angular/material/dialog';
 import { of, Subject, throwError } from 'rxjs';
 import { CompanyCountry } from '@features/companies/countries/models/country.models';
@@ -172,7 +171,7 @@ describe('StoreAssignmentDialog', () => {
 
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
-      imports: [StoreAssignmentDialog, NoopAnimationsModule],
+      imports: [StoreAssignmentDialog],
       providers: [
         { provide: MatDialogRef, useValue: dialogRef },
         { provide: MAT_DIALOG_DATA, useValue: data },

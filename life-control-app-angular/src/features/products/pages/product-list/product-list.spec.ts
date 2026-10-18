@@ -3,7 +3,6 @@ import { provideRouter, Router } from '@angular/router';
 import { MatIconModule } from '@angular/material/icon';
 import { MatPaginatorModule } from '@angular/material/paginator';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { ProductList } from './product-list';
 import { ProductService } from '../../data/product.service';
 import { Product, Page } from '../../models/product.models';
@@ -45,13 +44,7 @@ describe('ProductList', () => {
     };
 
     await TestBed.configureTestingModule({
-      imports: [
-        ProductList,
-        MatIconModule,
-        MatPaginatorModule,
-        MatDialogModule,
-        NoopAnimationsModule,
-      ],
+      imports: [ProductList, MatIconModule, MatPaginatorModule, MatDialogModule],
       providers: [
         provideRouter([]),
         { provide: ProductService, useValue: productService },

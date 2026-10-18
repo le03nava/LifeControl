@@ -1,6 +1,5 @@
 /// <reference types="vitest/globals" />
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Signal, WritableSignal, signal } from '@angular/core';
@@ -135,7 +134,7 @@ describe('PositionEdit', () => {
 
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
-      imports: [PositionEdit, NoopAnimationsModule],
+      imports: [PositionEdit],
       providers: [
         provideRouter([]),
         { provide: PositionService, useValue: positionService },
@@ -366,7 +365,9 @@ describe('PositionEdit', () => {
 
     // The form stays usable; the failure is named rather than read as
     // "this company has no departments".
-    expect(component.catalogueError()).toBe('No se pudieron cargar los departamentos de la empresa');
+    expect(component.catalogueError()).toBe(
+      'No se pudieron cargar los departamentos de la empresa',
+    );
     expect(text()).toContain('No se pudieron cargar los departamentos de la empresa');
     expect(text()).toContain('Nuevo Puesto');
   });

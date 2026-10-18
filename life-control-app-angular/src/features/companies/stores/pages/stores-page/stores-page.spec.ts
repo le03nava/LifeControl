@@ -1,5 +1,4 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { signal, WritableSignal } from '@angular/core';
 import { NEVER, of, throwError } from 'rxjs';
@@ -218,7 +217,7 @@ describe('StoresPage', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [StoresPage, NoopAnimationsModule, HttpClientTestingModule],
+      imports: [StoresPage, HttpClientTestingModule],
       providers: [
         { provide: CompanyService, useClass: MockCompanyService },
         { provide: CompanyCountryService, useClass: MockCompanyCountryService },
@@ -841,7 +840,7 @@ describe('StoresPage', () => {
       fixture.destroy();
       TestBed.resetTestingModule();
       await TestBed.configureTestingModule({
-        imports: [StoresPage, NoopAnimationsModule, HttpClientTestingModule],
+        imports: [StoresPage, HttpClientTestingModule],
         providers: [
           { provide: CompanyService, useClass: MockCompanyService },
           { provide: CompanyCountryService, useClass: MockCompanyCountryService },

@@ -1,5 +1,4 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { OrderHeaderForm } from './order-header-form';
 import type { SalesOrder } from '../../models/sales-order.models';
 
@@ -32,7 +31,7 @@ describe('OrderHeaderForm', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [OrderHeaderForm, NoopAnimationsModule],
+      imports: [OrderHeaderForm],
     }).compileComponents();
 
     fixture = TestBed.createComponent(OrderHeaderForm);

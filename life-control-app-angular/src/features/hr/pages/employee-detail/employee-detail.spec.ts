@@ -1,7 +1,6 @@
 /// <reference types="vitest/globals" />
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
 import { of, throwError } from 'rxjs';
@@ -310,7 +309,7 @@ describe('EmployeeDetail', () => {
 
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
-      imports: [EmployeeDetail, NoopAnimationsModule],
+      imports: [EmployeeDetail],
       providers: [
         provideRouter([]),
         { provide: EmployeeService, useValue: employeeService },
@@ -1194,7 +1193,11 @@ describe('EmployeeDetail', () => {
         companyId: 'company-1',
         sub: CALLER_SUB,
         accessOverview: accessOverview({
-          openTask: accessTask({ id: 'task-9', status: 'APPROVAL_PENDING', requestedBy: 'requester-sub' }),
+          openTask: accessTask({
+            id: 'task-9',
+            status: 'APPROVAL_PENDING',
+            requestedBy: 'requester-sub',
+          }),
         }),
       });
       await settle();
@@ -1209,7 +1212,11 @@ describe('EmployeeDetail', () => {
         sub: CALLER_SUB,
         accessDialogResult: { decision: 'approve' },
         accessOverview: accessOverview({
-          openTask: accessTask({ id: 'task-9', status: 'APPROVAL_PENDING', requestedBy: 'requester-sub' }),
+          openTask: accessTask({
+            id: 'task-9',
+            status: 'APPROVAL_PENDING',
+            requestedBy: 'requester-sub',
+          }),
         }),
       });
       await settle();
@@ -1237,7 +1244,11 @@ describe('EmployeeDetail', () => {
         accessDialogResult: { decision: 'approve' },
         accessWriteOverview: accessOverview({ requiredRoles: ['lc-employee', 'lc-salary'] }),
         accessOverview: accessOverview({
-          openTask: accessTask({ id: 'task-9', status: 'APPROVAL_PENDING', requestedBy: 'requester-sub' }),
+          openTask: accessTask({
+            id: 'task-9',
+            status: 'APPROVAL_PENDING',
+            requestedBy: 'requester-sub',
+          }),
         }),
       });
       await settle();
@@ -1259,7 +1270,11 @@ describe('EmployeeDetail', () => {
         sub: CALLER_SUB,
         accessDialogResult: { decision: 'reject', reason: 'El puesto no corresponde' },
         accessOverview: accessOverview({
-          openTask: accessTask({ id: 'task-9', status: 'APPROVAL_PENDING', requestedBy: 'requester-sub' }),
+          openTask: accessTask({
+            id: 'task-9',
+            status: 'APPROVAL_PENDING',
+            requestedBy: 'requester-sub',
+          }),
         }),
       });
       await settle();
@@ -1280,7 +1295,11 @@ describe('EmployeeDetail', () => {
         sub: CALLER_SUB,
         accessDialogResult: undefined,
         accessOverview: accessOverview({
-          openTask: accessTask({ id: 'task-9', status: 'APPROVAL_PENDING', requestedBy: 'requester-sub' }),
+          openTask: accessTask({
+            id: 'task-9',
+            status: 'APPROVAL_PENDING',
+            requestedBy: 'requester-sub',
+          }),
         }),
       });
       await settle();
@@ -1303,7 +1322,11 @@ describe('EmployeeDetail', () => {
           error: { message: 'No podés aprobar tu propia solicitud' },
         }),
         accessOverview: accessOverview({
-          openTask: accessTask({ id: 'task-9', status: 'APPROVAL_PENDING', requestedBy: 'requester-sub' }),
+          openTask: accessTask({
+            id: 'task-9',
+            status: 'APPROVAL_PENDING',
+            requestedBy: 'requester-sub',
+          }),
         }),
       });
       await settle();
@@ -1321,9 +1344,14 @@ describe('EmployeeDetail', () => {
         companyId: 'company-1',
         accessDialogResult: { decision: 'approve' },
         accessWriteError: new HttpErrorResponse({ status: 409 }),
-        accessServiceError: 'No podés aprobar tu propia solicitud o la solicitud no espera aprobación',
+        accessServiceError:
+          'No podés aprobar tu propia solicitud o la solicitud no espera aprobación',
         accessOverview: accessOverview({
-          openTask: accessTask({ id: 'task-9', status: 'APPROVAL_PENDING', requestedBy: 'requester-sub' }),
+          openTask: accessTask({
+            id: 'task-9',
+            status: 'APPROVAL_PENDING',
+            requestedBy: 'requester-sub',
+          }),
         }),
       });
       await settle();

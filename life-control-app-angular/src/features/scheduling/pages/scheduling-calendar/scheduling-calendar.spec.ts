@@ -1,6 +1,5 @@
 /// <reference types="vitest/globals" />
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { By } from '@angular/platform-browser';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
@@ -174,7 +173,7 @@ describe('SchedulingCalendar', () => {
 
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
-      imports: [SchedulingCalendar, NoopAnimationsModule],
+      imports: [SchedulingCalendar],
       providers: [
         { provide: Router, useValue: router },
         { provide: SchedulingCalendarService, useValue: calendarService },

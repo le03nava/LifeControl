@@ -1,7 +1,6 @@
 import { OutputEmitterRef, Type } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { FormGroup } from '@angular/forms';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 // Imported explicitly (instead of relying on vitest globals) because this file is not a
 // `*.spec.ts`, so the app build's TS program type-checks it without the test globals.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -69,7 +68,7 @@ export async function createLeafFormFixture<TRequest>(
   componentClass: Type<LeafFormHarness<TRequest>>,
 ): Promise<LeafFormFixture<TRequest>> {
   await TestBed.configureTestingModule({
-    imports: [componentClass, NoopAnimationsModule],
+    imports: [componentClass],
   }).compileComponents();
 
   const fixture = TestBed.createComponent(componentClass);

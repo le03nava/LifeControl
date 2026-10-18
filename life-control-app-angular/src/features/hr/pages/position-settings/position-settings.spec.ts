@@ -1,6 +1,5 @@
 /// <reference types="vitest/globals" />
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
 import { of, throwError } from 'rxjs';
@@ -170,7 +169,7 @@ describe('PositionSettings', () => {
 
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
-      imports: [PositionSettings, NoopAnimationsModule],
+      imports: [PositionSettings],
       providers: [
         provideRouter([]),
         { provide: PositionService, useValue: positionService },
@@ -294,7 +293,9 @@ describe('PositionSettings', () => {
   });
 
   it('should prefill an enabled stored band with its amounts', async () => {
-    setup({ bands: [band({ seniorityLevelId: 'lvl-2', minimumSalary: 2000, maximumSalary: 2500 })] });
+    setup({
+      bands: [band({ seniorityLevelId: 'lvl-2', minimumSalary: 2000, maximumSalary: 2500 })],
+    });
     await settle();
 
     expect(amountInputs('minimumSalary')[1].value).toBe('2000');
@@ -305,7 +306,12 @@ describe('PositionSettings', () => {
   it('should not prefill a disabled stored band, and should offer its amounts as placeholders', async () => {
     setup({
       bands: [
-        band({ seniorityLevelId: 'lvl-2', minimumSalary: 2000, maximumSalary: 2500, enabled: false }),
+        band({
+          seniorityLevelId: 'lvl-2',
+          minimumSalary: 2000,
+          maximumSalary: 2500,
+          enabled: false,
+        }),
       ],
     });
     await settle();

@@ -1,6 +1,5 @@
 /// <reference types="vitest/globals" />
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { By } from '@angular/platform-browser';
 import { Subject, of, throwError } from 'rxjs';
@@ -64,7 +63,7 @@ describe('StoreLocationsEdit', () => {
     roles: string[] = ['lc-admin'],
   ): Promise<void> {
     await TestBed.configureTestingModule({
-      imports: [StoreLocationsEdit, NoopAnimationsModule, HttpClientTestingModule],
+      imports: [StoreLocationsEdit, HttpClientTestingModule],
       providers: [
         { provide: StoreLocationService, useClass: MockStoreLocationService },
         { provide: Router, useValue: routerMock },
@@ -586,7 +585,7 @@ describe('StoreLocationsEdit', () => {
       const pending = new Subject<StoreLocation>();
 
       await TestBed.configureTestingModule({
-        imports: [StoreLocationsEdit, NoopAnimationsModule, HttpClientTestingModule],
+        imports: [StoreLocationsEdit, HttpClientTestingModule],
         providers: [
           { provide: StoreLocationService, useClass: MockStoreLocationService },
           { provide: Router, useValue: routerMock },
@@ -632,7 +631,7 @@ describe('StoreLocationsEdit', () => {
   describe('edit mode fetch failure', () => {
     beforeEach(async () => {
       await TestBed.configureTestingModule({
-        imports: [StoreLocationsEdit, NoopAnimationsModule, HttpClientTestingModule],
+        imports: [StoreLocationsEdit, HttpClientTestingModule],
         providers: [
           { provide: StoreLocationService, useClass: MockStoreLocationService },
           { provide: Router, useValue: routerMock },
@@ -680,7 +679,7 @@ describe('StoreLocationsEdit', () => {
   describe('edit mode with version 0', () => {
     beforeEach(async () => {
       await TestBed.configureTestingModule({
-        imports: [StoreLocationsEdit, NoopAnimationsModule, HttpClientTestingModule],
+        imports: [StoreLocationsEdit, HttpClientTestingModule],
         providers: [
           { provide: StoreLocationService, useClass: MockStoreLocationService },
           { provide: Router, useValue: routerMock },

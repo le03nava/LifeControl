@@ -1,6 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter, Router, ActivatedRoute } from '@angular/router';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { By } from '@angular/platform-browser';
 import { of, throwError } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
@@ -188,7 +187,7 @@ describe('ReceiptCreate', () => {
     notificationService = { showSuccess: vi.fn() };
 
     await TestBed.configureTestingModule({
-      imports: [ReceiptCreate, NoopAnimationsModule],
+      imports: [ReceiptCreate],
       providers: [
         provideRouter([]),
         {
