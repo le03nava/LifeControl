@@ -1,7 +1,6 @@
 {
   "compileOnSave": false,
   "compilerOptions": {
-    "baseUrl": "./",
     "outDir": "./dist/out-tsc",
     "forceConsistentCasingInFileNames": true,
     "strict": true,
@@ -21,10 +20,10 @@
     "module": "ES2022",
     "useDefineForClassFields": false,
     "paths": {
-      "@shared/*": ["src/shared/*"],
-      "@features/*": ["src/features/*"],
-      "@core/*": ["src/core/*"],
-      "@app/*": ["src/app/*"]
+      "@shared/*": ["./src/shared/*"],
+      "@features/*": ["./src/features/*"],
+      "@core/*": ["./src/core/*"],
+      "@app/*": ["./src/app/*"]
     }
   },
   "angularCompilerOptions": {

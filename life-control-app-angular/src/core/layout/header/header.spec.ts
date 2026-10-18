@@ -1,5 +1,5 @@
 import { provideLocationMocks } from '@angular/common/testing';
-import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClient, withXhr } from '@angular/common/http';
 import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
@@ -46,7 +46,7 @@ describe('Header', () => {
       providers: [
         provideRouter([]),
         provideLocationMocks(),
-        provideHttpClient(),
+        provideHttpClient(withXhr()),
         { provide: Keycloak, useValue: keycloakMock },
         { provide: KEYCLOAK_EVENT_SIGNAL, useValue: keycloakEventSignal },
       ],
@@ -319,7 +319,7 @@ describe('Header', () => {
         providers: [
           provideRouter([]),
           provideLocationMocks(),
-          provideHttpClient(),
+          provideHttpClient(withXhr()),
           {
             provide: Keycloak,
             useValue: {
@@ -391,7 +391,7 @@ describe('Header', () => {
         providers: [
           provideRouter([]),
           provideLocationMocks(),
-          provideHttpClient(),
+          provideHttpClient(withXhr()),
           {
             provide: Keycloak,
             useValue: {
@@ -549,7 +549,7 @@ describe('Header', () => {
         providers: [
           provideRouter([]),
           provideLocationMocks(),
-          provideHttpClient(),
+          provideHttpClient(withXhr()),
           {
             provide: Keycloak,
             useValue: {
@@ -659,7 +659,7 @@ describe('Header', () => {
         providers: [
           provideRouter([]),
           provideLocationMocks(),
-          provideHttpClient(),
+          provideHttpClient(withXhr()),
           {
             provide: Keycloak,
             useValue: {
@@ -881,7 +881,7 @@ describe('Header', () => {
         providers: [
           provideRouter([]),
           provideLocationMocks(),
-          provideHttpClient(),
+          provideHttpClient(withXhr()),
           {
             provide: Keycloak,
             useValue: {

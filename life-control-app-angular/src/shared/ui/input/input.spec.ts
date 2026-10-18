@@ -1,13 +1,18 @@
-import { Component } from '@angular/core';
+import { Component, ChangeDetectionStrategy } from '@angular/core';
 import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { By } from '@angular/platform-browser';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Input } from './input';
 
-/* eslint-disable-next-line @angular-eslint/prefer-on-push-component-change-detection -- test host */
 @Component({
   standalone: true,
   imports: [ReactiveFormsModule, Input],
+  // The v22 default is OnPush; this host keeps the pre-v22 eager strategy because these
+  // specs mutate plain host properties and then assert the child's rendered value.
+  // Measured: without this property 15 of these specs fail. The official v22
+  // `change-detection-eager` migration added it for exactly that reason.
+  // eslint-disable-next-line @angular-eslint/prefer-on-push-component-change-detection -- test host keeps pre-v22 eager CD
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <form [formGroup]="form">
       <app-input
