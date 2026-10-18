@@ -141,6 +141,10 @@ describe('Input', () => {
   describe('validation states', () => {
     it('should set aria-invalid to true when hasError is true', () => {
       host.hasError = true;
+      // Zoneless change detection only refreshes a view marked dirty; assigning a plain
+      // host property does not mark it, so `detectChanges()` would skip the refresh and
+      // the dev-mode check would trip NG0100.
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
       expect(nativeInput().getAttribute('aria-invalid')).toBe('true');
     });
@@ -150,36 +154,42 @@ describe('Input', () => {
   describe('HTML attributes', () => {
     it('should render the type attribute', () => {
       host.type = 'email';
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
       expect(nativeInput().getAttribute('type')).toBe('email');
     });
 
     it('should render the placeholder attribute', () => {
       host.placeholder = 'Ingrese email';
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
       expect(nativeInput().getAttribute('placeholder')).toBe('Ingrese email');
     });
 
     it('should render the autocomplete attribute', () => {
       host.autocomplete = 'on';
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
       expect(nativeInput().getAttribute('autocomplete')).toBe('on');
     });
 
     it('should render the id attribute when provided', () => {
       host.id = 'email-field';
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
       expect(nativeInput().getAttribute('id')).toBe('email-field');
     });
 
     it('should render the name attribute when provided', () => {
       host.name = 'email';
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
       expect(nativeInput().getAttribute('name')).toBe('email');
     });
 
     it('should render aria-describedby when provided', () => {
       host.ariaDescribedBy = 'help-text';
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
       expect(nativeInput().getAttribute('aria-describedby')).toBe('help-text');
     });
@@ -190,6 +200,7 @@ describe('Input', () => {
     it('should render the value input over internalValue', () => {
       component.writeValue('internal');
       host.value = 'input-value';
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
       expect(nativeInput().value).toBe('input-value');
     });
