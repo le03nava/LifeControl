@@ -136,6 +136,22 @@ check "the resolve family closes too" 0 "PASS: #12 is open and carries status:ap
 	"$GUARD" --body "resolve #12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
 check "a keyword GitHub does not honor is not a reference" 1 - "FAIL: no issue reference" \
 	"$GUARD" --body "Linked #12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+# A keyword is a word, not a fragment. Without a boundary the pattern matches `fix` inside
+# `prefix`, `resolve` inside `unresolved` and `close` inside `enclosed`, so a body that says
+# "unresolved #12" is read as a closing reference: it blocks a valid pull request when #12 is not
+# approved, and it accepts one whose only "reference" is an accident. Found by the reliability lens
+# of the reviewed range (finding R3-002); `\b` is not portable across greps, so the boundary is a
+# character class.
+check "a keyword inside another word is not a reference" 1 - "FAIL: no issue reference" \
+	"$GUARD" --body "This stays unresolved #12 for now." --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+check "a prefix is not a closing keyword" 1 - "FAIL: no issue reference" \
+	"$GUARD" --body "The prefix #12 changed." --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+check "an enclosed fragment is not a closing keyword" 1 - "FAIL: no issue reference" \
+	"$GUARD" --body "The item stays enclosed #12 in the list." --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+check "an unfixed fragment is not a closing keyword" 1 - "FAIL: no issue reference" \
+	"$GUARD" --body "This remains unfixed #12." --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+check "a preference is not a Refs reference" 1 - "FAIL: no issue reference" \
+	"$GUARD" --body "The prefs #12 are defaults." --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
 # A pull request that documents this gate quotes its own keywords. Pull request #390 did exactly
 # that: its body explained the corrected `Fix #12` case, the raw scan read the quotation as a
 # closing reference, #12 happens to be a pull request in this repository, and the gate failed the
