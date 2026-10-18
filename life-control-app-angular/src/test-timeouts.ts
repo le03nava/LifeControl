@@ -51,11 +51,21 @@ export const HOOK_TIMEOUT_MS = 20_000;
  * environment across the files a worker runs leaked `window.history` (the three
  * `*-edit` specs that call `window.history.replaceState` in `beforeEach` failed as a
  * whole file when it happened). A fresh environment per file removes the shared state.
+ *
+ * `coverage.reportsDirectory` is pinned to `coverage` because the builder's default is
+ * `coverage/<projectName>` — under @angular/build 21 that moved the summary to
+ * `coverage/life-control-app-angular/coverage-summary.json` while
+ * `scripts/check-coverage.mjs` and the CI artifact path both read `coverage/`. The
+ * failure is invisible on a machine that still holds the previous run's file there,
+ * and fatal on a clean checkout. `src/build-environment.spec.ts` guards the hand-off.
  */
 export default {
   test: {
     testTimeout: TEST_TIMEOUT_MS,
     hookTimeout: HOOK_TIMEOUT_MS,
     isolate: true,
+    coverage: {
+      reportsDirectory: 'coverage',
+    },
   },
 };

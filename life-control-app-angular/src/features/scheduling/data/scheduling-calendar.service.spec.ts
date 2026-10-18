@@ -114,8 +114,8 @@ describe('SchedulingCalendarService', () => {
 
   /**
    * Lets the materialization chain settle from `mergeMap` into the projection
-   * read. The hand-off is deferred by a microtask under zone.js, so the calendar
-   * request does not exist in the same tick the last `GET /slots` is flushed.
+   * read. The hand-off is deferred by a microtask, so the calendar request does not
+   * exist in the same tick the last `GET /slots` is flushed.
    */
   const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
 

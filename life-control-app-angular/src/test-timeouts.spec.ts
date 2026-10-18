@@ -54,9 +54,8 @@ import { HOOK_TIMEOUT_MS, TEST_TIMEOUT_MS } from './test-timeouts';
  * re-prove a property that only changes when these two files change.
  *
  * Deliberately NOT guarded: the `setupFiles` wiring in `angular.json`. Dropping
- * `src/test-setup.ts` from it removes `zone.js`, the `TestBed` environment and the
- * `matchMedia` mock at once, so it fails thousands of tests loudly and cannot
- * regress silently.
+ * `src/test-setup.ts` from it removes the `matchMedia` mock and the `vi.setConfig`
+ * wiring at once, so it fails thousands of tests loudly and cannot regress silently.
  *
  * Load-bearing mechanism details match `src/shared/constants/breakpoints.spec.ts`:
  * the filesystem is reached through `process.getBuiltinModule` because a static

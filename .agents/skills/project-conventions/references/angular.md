@@ -41,7 +41,7 @@ Component reference for the Angular frontend. Run every gate command from `life-
 
 ## CI/CD & Release
 
-- `.github/workflows/angular-ci.yml` — the CI steps (Node toolchain, `npm ci --legacy-peer-deps`, lint, build, `test:coverage:check`) and the `coverage-lcov` artifact. Read it for the toolchain version.
+- `.github/workflows/angular-ci.yml` — the CI steps (Node toolchain, `npm ci`, lint, build, `test:coverage:check`) and the `coverage-lcov` artifact. Read it for the toolchain version.
 - `docker/scripts/deploy.sh`, `docker/scripts/setup-env.sh` — deploy path.
 - Gap: no dependency automation for this component, because the npm ecosystem is not configured in `.github/dependabot.yml`; no documented rollback plan or post-deploy checklist.
 
