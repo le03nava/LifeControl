@@ -161,3 +161,33 @@ purpose: `references/labels.md` invariant 4 and `.github/ISSUE_TEMPLATE/config.y
 `status:approved` is a **maintainer decision applied after approval**, and the guard reads the label
 name only (invariant 6) — so the decision was the human's, and this record names it as the human's
 rather than presenting it as an independent approval it was not.
+
+**L11** (2026-10-17, the PR's CI, and one citation of mine that was wrong):
+
+- All three checks pass on `a092642`, the pre-merge head: **`API CI` in 4m41s** (`spotlessCheck` +
+  `spotbugsMain` + the suite), **`Exactly one type:* label`** in 11s and **`A linked, approved issue`**
+  in 6s. The two guard jobs are the only **required** status checks on `main` and the only workflows
+  without a `paths:` filter — re-verified against `origin/main`'s `pr-label-guard.yml`, whose trigger
+  set is `[opened, reopened, synchronize, labeled, unlabeled, edited]` — so they re-run on every push
+  and keep the branch mergeable without `API CI` having to run again.
+- **Repair to L8's citation, caught by checking `main` before pushing anything else**: L8 records the
+  baseline as "the anchor at `main @ 135cdbe`". That is the commit this work branched from, but it is
+  **not** the commit the anchor held when the run started. `git reflog show main` dates the moves: the
+  anchor was at `135cdbe` until 18:58, at `ee1ca8f` from 20:14:50, and at `58cec5e` from 20:53:18,
+  while the baseline suite ran at 20:23-20:28 — so the baseline was measured on **`ee1ca8f`**. The count
+  itself is unaffected and stays valid: `git diff --stat 135cdbe..58cec5e -- life-control-api/` is
+  empty, so the Java tree and its test count are identical on all three commits. L8 is left standing
+  rather than rewritten, the same discipline the antecedent's L13 applied to its own header, and the
+  pull request body carries the correction.
+- The branch was then updated onto `main`, which branch protection's `strict: true` requires before a
+  merge: merge commit **`2e32676`**, no conflicts, and none of main's eight commits touches
+  `life-control-api/**`. Two of them do touch what this slice depends on —
+  `.github/workflows/pr-label-guard.yml` (the `synchronize` trigger and the queued-second-event fix,
+  PR #412) and the root `AGENTS.md` — which is why the guard jobs, and not `API CI`, are what a
+  records-only push has to satisfy.
+- **A divergence this record measured and deliberately did not resolve**: `CONTRIBUTING.md`'s table
+  reads "Required approving reviews | 1", while the live branch protection on `main` reports
+  `required_approving_review_count: 0` — alongside `strict: true`, `dismiss_stale: true`,
+  `conversation_resolution: true` and the two guard jobs as the only required checks. No record under
+  `odd/tasks/` documents the applied value. Whichever is right, the merge is the human's decision, so
+  this record keeps the measurement instead of acting on it.
