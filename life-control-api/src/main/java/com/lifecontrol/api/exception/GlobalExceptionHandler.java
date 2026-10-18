@@ -25,6 +25,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
  * Translates exceptions into the standard error envelope
@@ -44,6 +46,21 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleNotFound(ResourceNotFoundException ex) {
         return buildErrorResponse(HttpStatus.NOT_FOUND, ex.getMessage());
+    }
+
+    /**
+     * Handles a path no handler maps. Spring MVC raises {@link NoResourceFoundException} from the
+     * resource handler that owns {@code /**} (and {@link NoHandlerFoundException} when no resource
+     * handling is registered); both describe a client mistake and both carry a 404 of their own, so
+     * the catch-all fallback below must not answer them with a 500.
+     *
+     * <p>Logged at DEBUG rather than ERROR: an unmapped path is not an unhandled failure, and this
+     * repository alerts on 5xx.
+     */
+    @ExceptionHandler({NoResourceFoundException.class, NoHandlerFoundException.class})
+    public ResponseEntity<ErrorResponse> handleUnmappedPath(Exception ex) {
+        logger.debug("No handler or resource for this path", ex);
+        return buildErrorResponse(HttpStatus.NOT_FOUND, "No handler or resource found for this path");
     }
 
     // ─── Duplicate / Conflict (409) ─────────────────────────────────────

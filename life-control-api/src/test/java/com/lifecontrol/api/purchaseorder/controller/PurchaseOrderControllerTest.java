@@ -425,10 +425,11 @@ class PurchaseOrderControllerTest {
             var result = mockMvc.perform(patch("/api/purchase-orders/{id}/details/{did}/status", poId, detailId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(statusReq)))
+                    .andExpect(status().isNotFound())
                     .andReturn();
 
-            // The route is gone, so the dispatcher raises NoHandlerFoundException. The global
-            // catch-all maps it to 500; asserting the exception proves no handler is registered.
+            // The route is gone, so the dispatcher raises NoHandlerFoundException, which the advice
+            // answers with 404; asserting the exception proves no handler is registered.
             assertThat(result.getResolvedException()).isInstanceOf(NoHandlerFoundException.class);
         }
     }
