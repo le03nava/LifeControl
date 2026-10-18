@@ -20,38 +20,23 @@
         @for (item of items(); track item.id) {
           <li class="nav-item">
             @if (item.children) {
-              @if (item.opensSubmenu) {
-                <!-- Menu-only entry: the label itself opens the submenu, so it renders as a
-                     button with no routerLink and no separate caret next to it. -->
-                <button
-                  type="button"
-                  class="nav-item-trigger"
-                  [matMenuTriggerFor]="submenu"
-                  [attr.aria-label]="item.textLink + ' submenu'"
-                >
-                  <mat-icon class="menu-icon">{{ item.icon }}</mat-icon>
-                  <span class="nav-item-text">{{ item.textLink }}</span>
-                  <mat-icon class="menu-caret">expand_more</mat-icon>
-                </button>
-              } @else {
-                <a app-hyperlink [routerLink]="item.routeLink" size="large">
-                  <mat-icon class="menu-icon">{{ item.icon }}</mat-icon>
-                  <span class="nav-item-text">{{ item.textLink }}</span>
-                </a>
-                <button
-                  type="button"
-                  class="submenu-trigger"
-                  [matMenuTriggerFor]="submenu"
-                  [attr.aria-label]="item.textLink + ' submenu'"
-                  aria-haspopup="true"
-                >
-                  <mat-icon>expand_more</mat-icon>
-                </button>
-              }
-              <!-- Declared after the label on purpose: the entries that keep navigating
-                   (Companies, Calendario y citas) must render their elements in the same
-                   order as before this change — label, caret, menu — because the menu
-                   placeholder is a zero-width flex item of `.nav-item`. -->
+              <a app-hyperlink [routerLink]="item.routeLink" size="large">
+                <mat-icon class="menu-icon">{{ item.icon }}</mat-icon>
+                <span class="nav-item-text">{{ item.textLink }}</span>
+              </a>
+              <button
+                type="button"
+                class="submenu-trigger"
+                [matMenuTriggerFor]="submenu"
+                [attr.aria-label]="item.textLink + ' submenu'"
+                aria-haspopup="true"
+              >
+                <mat-icon>expand_more</mat-icon>
+              </button>
+              <!-- Declared after the label on purpose: the entries that carry children
+                   (Companies, Calendario y citas) render their elements in the same
+                   order as before, because the menu placeholder is a zero-width flex
+                   item of `.nav-item`. -->
               <mat-menu #submenu="matMenu">
                 @for (child of item.children; track child.id) {
                   <button mat-menu-item [routerLink]="child.routeLink">
