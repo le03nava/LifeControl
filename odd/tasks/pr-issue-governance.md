@@ -14,6 +14,10 @@ suites, run from the worktree; `shellcheck --severity=warning` on modified scrip
 2026-10-17, plus the follow-ups the work produced: the record slice #394, the Dependabot-exemption fix #396, the
 retroactivity note #399, the closing-keyword boundary #402 and the label-set fix #403. Branch protection is
 applied (`L20`) and the native review of the merged range ran (`L19`). No work left in the repository.
+**(Repair, 2026-10-17: that last sentence was false the moment it was written — this chain's own `S7` left
+`AGENTS.md` and the parity suite's header comment asserting the trigger asymmetry `S7` had just removed, and
+nothing read either against the workflows. Repaired by the unit recorded in `L21`; the sentence is kept as
+written and superseded here rather than erased.)**
 **Created**: 2026-10-17
 **Risk**: **high.** Two slices change what CI does at merge time (Task Size item 5: `S2` adds a merge-blocking
 gate and an `issues: read` token scope; `S7` changes workflow triggers) and `S3` decides who must review what.
@@ -322,3 +326,29 @@ job registers as a check run with conclusion `SKIPPED`, which GitHub accepts for
 Dependabot's exemption and the protection coexist, measured on #392. The operational cost is real and stated:
 with `strict`, every merge to `main` leaves the other open pull requests `BEHIND` until their branches are
 updated.
+
+**L21** *(the prose asymmetry this chain left behind, issue **#406**, 2026-10-17)*: the header's last sentence — *no work left
+in the repository* — was false the moment it was written, and the artifact that falsified it is this chain's own
+`S7`. `S7` (`b385f35`, merged by **#389**) gave `push` and `pull_request` the same `paths:` list in all four
+component workflows, and the suite written for it, `.github/scripts/tests/workflow-trigger-parity.test.sh`,
+asserted that parity from the day it landed. Two artifacts went on saying the opposite, and nothing read either
+against the workflows:
+
+- `AGENTS.md`'s CI note stated *"el de `push` a `main` **no** filtra, así que todo merge a `main` corre el
+  workflow completo aunque el diff sea un solo `.md`"* — the pre-`S7` behaviour, measured false on all four
+  workflows: `angular-ci.yml:4-13` and its three siblings each carry a `paths:` block under both triggers.
+- the parity suite's own header comment described the asymmetry as current — *"(AGENTS.md documents the
+  asymmetry)"* — nine lines above the assertions that had already made it stale.
+
+Measured before the fix: `bash .github/scripts/tests/workflow-trigger-parity.test.sh` answered **22 passed,
+1 failed**, and the failing case did not exist yet — which is the point. The suite froze the workflows and never
+the prose, so a green run said nothing about the sentence a contributor reads first.
+
+The repair is one reviewable slice of three edits: the note in `AGENTS.md` now states the invariant, names the
+suite as its source and inverts its practical consequence (an empty `gh pr checks` *does* mean the merge will not
+run a component workflow; the label guard, deliberately unfiltered, is the only check that always runs), the
+suite's header comment describes the asymmetry as the behaviour the suite removed, and the suite gains the reader
+that was missing — one case that fails while `AGENTS.md` still carries the `**no** filtra` claim. That case was
+observed **RED** first (**22 passed, 1 failed**, `exit 1`) and the suite answers **23 passed, 0 failed**
+(`exit 0`) once the note was corrected. Only the absence of the claim is asserted, because the workflows — never
+the prose — are the source: a later rewrite passes without pinning its own wording here.
