@@ -1,6 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { By } from '@angular/platform-browser';
 import { ActivatedRoute, Router } from '@angular/router';
 import { of, throwError } from 'rxjs';
@@ -84,7 +83,7 @@ describe('ProductVariantStockSearch', () => {
     routerMock = { navigate: vi.fn() };
 
     TestBed.configureTestingModule({
-      imports: [ProductVariantStockSearch, NoopAnimationsModule],
+      imports: [ProductVariantStockSearch],
       providers: [
         { provide: ProductVariantService, useValue: variantServiceMock },
         { provide: ProfileService, useValue: profileServiceMock },

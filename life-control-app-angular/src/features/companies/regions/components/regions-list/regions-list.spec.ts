@@ -1,5 +1,4 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { signal } from '@angular/core';
 import { of } from 'rxjs';
 import { RegionsList } from './regions-list';
@@ -131,7 +130,7 @@ describe('RegionsList', () => {
     mockGetRegions.mockReturnValue(of([] as CompanyRegion[]));
 
     await TestBed.configureTestingModule({
-      imports: [RegionsList, NoopAnimationsModule],
+      imports: [RegionsList],
       providers: [{ provide: CompanyRegionService, useValue: mockService }],
     }).compileComponents();
 

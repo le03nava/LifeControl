@@ -4,7 +4,6 @@ import { provideRouter } from '@angular/router';
 import { PageHeader } from '@shared/ui';
 import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { By } from '@angular/platform-browser';
 import { KEYCLOAK_EVENT_SIGNAL, KeycloakEventType } from 'keycloak-angular';
 import Keycloak from 'keycloak-js';
@@ -40,13 +39,7 @@ describe('CompaniesAdminComponent', () => {
     });
 
     TestBed.configureTestingModule({
-      imports: [
-        CompaniesAdminComponent,
-        PageHeader,
-        MatCardModule,
-        MatIconModule,
-        NoopAnimationsModule,
-      ],
+      imports: [CompaniesAdminComponent, PageHeader, MatCardModule, MatIconModule],
       providers: [
         provideRouter([]),
         { provide: Keycloak, useValue: keycloakMock },

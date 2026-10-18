@@ -1,5 +1,4 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { By } from '@angular/platform-browser';
 import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 import { MatSelect } from '@angular/material/select';
@@ -73,7 +72,7 @@ describe('StatusTransition', () => {
     };
 
     await TestBed.configureTestingModule({
-      imports: [StatusTransition, NoopAnimationsModule, HttpClientTestingModule],
+      imports: [StatusTransition, HttpClientTestingModule],
       providers: [
         { provide: ConfigService, useValue: { apiUrl: TEST_API } },
         { provide: SalesOrderService, useValue: salesOrderService },

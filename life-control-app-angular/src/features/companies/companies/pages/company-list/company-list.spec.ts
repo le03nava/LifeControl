@@ -3,7 +3,6 @@ import { provideRouter, Router } from '@angular/router';
 import { MatIconModule } from '@angular/material/icon';
 import { MatPaginatorModule } from '@angular/material/paginator';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { CompanyList } from './company-list';
 import { CompanyService } from '@features/companies/companies/data/company.service';
 import { Company, Page } from '@features/companies/companies/models/company.models';
@@ -81,13 +80,7 @@ describe('CompanyList', () => {
     };
 
     await TestBed.configureTestingModule({
-      imports: [
-        CompanyList,
-        MatIconModule,
-        MatPaginatorModule,
-        MatDialogModule,
-        NoopAnimationsModule,
-      ],
+      imports: [CompanyList, MatIconModule, MatPaginatorModule, MatDialogModule],
       providers: [
         provideRouter([]),
         { provide: CompanyService, useValue: companyService },

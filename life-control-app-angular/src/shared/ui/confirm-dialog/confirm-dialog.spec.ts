@@ -1,6 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { MAT_DIALOG_DATA } from '@angular/material/dialog';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { ConfirmDialog, type ConfirmDialogData } from './confirm-dialog';
 
 describe('ConfirmDialog', () => {
@@ -14,7 +13,7 @@ describe('ConfirmDialog', () => {
 
   async function setup(data: ConfirmDialogData): Promise<void> {
     await TestBed.configureTestingModule({
-      imports: [ConfirmDialog, NoopAnimationsModule],
+      imports: [ConfirmDialog],
       providers: [{ provide: MAT_DIALOG_DATA, useValue: data }],
     }).compileComponents();
 

@@ -1,5 +1,4 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { FormControl, FormGroup, Validators } from '@angular/forms';
 import { CompaniesForm } from './companies-form';
 import { Company, CompanyControl } from '../../models/company.models';
@@ -57,7 +56,7 @@ describe('CompaniesForm', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [CompaniesForm, NoopAnimationsModule],
+      imports: [CompaniesForm],
     }).compileComponents();
 
     fixture = TestBed.createComponent(CompaniesForm);

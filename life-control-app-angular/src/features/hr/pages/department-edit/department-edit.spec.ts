@@ -1,6 +1,5 @@
 /// <reference types="vitest/globals" />
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { By } from '@angular/platform-browser';
 import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
@@ -85,7 +84,7 @@ describe('DepartmentEdit', () => {
 
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
-      imports: [DepartmentEdit, NoopAnimationsModule],
+      imports: [DepartmentEdit],
       providers: [
         provideRouter([]),
         { provide: DepartmentService, useValue: departmentService },

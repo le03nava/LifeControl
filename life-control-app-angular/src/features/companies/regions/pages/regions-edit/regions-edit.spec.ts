@@ -3,7 +3,6 @@ import { signal } from '@angular/core';
 import { of, throwError } from 'rxjs';
 import { ActivatedRoute, Router } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { RegionsEdit } from './regions-edit';
 import { CompanyService } from '../../../companies/data/company.service';
 import { CompanyCountryService } from '../../../countries/data/company-country.service';
@@ -102,7 +101,7 @@ describe('RegionsEdit', () => {
     };
 
     await TestBed.configureTestingModule({
-      imports: [RegionsEdit, NoopAnimationsModule],
+      imports: [RegionsEdit],
       providers: [
         {
           provide: CompanyService,

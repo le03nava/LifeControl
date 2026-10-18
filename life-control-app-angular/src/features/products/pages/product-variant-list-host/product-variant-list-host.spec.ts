@@ -1,6 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { By } from '@angular/platform-browser';
 import { ActivatedRoute, Router } from '@angular/router';
 import { MatDialog } from '@angular/material/dialog';
@@ -102,7 +101,7 @@ describe('ProductVariantListHost', () => {
     };
 
     TestBed.configureTestingModule({
-      imports: [ProductVariantListHost, NoopAnimationsModule],
+      imports: [ProductVariantListHost],
       providers: [
         { provide: ProductService, useValue: productServiceMock },
         { provide: ProductVariantService, useValue: variantServiceMock },

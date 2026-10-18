@@ -1,5 +1,5 @@
+import { ANIMATION_MODULE_TYPE } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { By } from '@angular/platform-browser';
 import { ActivatedRoute, ParamMap, Router, convertToParamMap } from '@angular/router';
 import { ReactiveFormsModule } from '@angular/forms';
@@ -187,8 +187,13 @@ describe('ProductEdit', () => {
 
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
-      imports: [ProductEdit, NoopAnimationsModule, ReactiveFormsModule],
+      imports: [ProductEdit, ReactiveFormsModule],
       providers: [
+        // `NoopAnimationsModule` went away with `@angular/animations` in v22, and what it did for
+        // Material's tab group was set this token to `NoopAnimations`. Without it `MatTabBody`
+        // waits for a real CSS `transitionstart` (with a 100ms fallback timer) before it attaches
+        // the selected tab's content, and jsdom never fires one, so the tab body stayed empty.
+        { provide: ANIMATION_MODULE_TYPE, useValue: 'NoopAnimations' },
         { provide: ProductService, useValue: productServiceMock },
         { provide: ProductSupplierService, useValue: supplierServiceMock },
         { provide: ProductVariantService, useValue: variantServiceMock },

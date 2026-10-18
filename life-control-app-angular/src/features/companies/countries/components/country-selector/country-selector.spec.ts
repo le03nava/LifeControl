@@ -1,5 +1,4 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { CountrySelector } from './country-selector';
 import { Country, CompanyCountry, CompanyCountryRequest } from '../../models/country.models';
 
@@ -59,7 +58,7 @@ describe('CountrySelector', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [CountrySelector, NoopAnimationsModule],
+      imports: [CountrySelector],
     }).compileComponents();
 
     fixture = TestBed.createComponent(CountrySelector);

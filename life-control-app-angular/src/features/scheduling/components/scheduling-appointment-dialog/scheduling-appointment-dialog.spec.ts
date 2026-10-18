@@ -1,7 +1,6 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { MAT_DIALOG_DATA, MatDialog, MatDialogRef } from '@angular/material/dialog';
 import { MatSelect } from '@angular/material/select';
 import { of, Observable, Subject, throwError } from 'rxjs';
@@ -135,7 +134,7 @@ describe('SchedulingAppointmentDialog', () => {
     };
 
     TestBed.configureTestingModule({
-      imports: [SchedulingAppointmentDialog, NoopAnimationsModule],
+      imports: [SchedulingAppointmentDialog],
       providers: [
         { provide: MatDialogRef, useValue: dialogRef },
         { provide: MatDialog, useValue: dialogMock },

@@ -3,7 +3,6 @@ import { signal } from '@angular/core';
 import { of, throwError } from 'rxjs';
 import { ActivatedRoute, Router } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { CountriesEdit } from './countries-edit';
 import { CompanyService } from '../../../companies/data/company.service';
 import { CompanyCountryService } from '../../data/company-country.service';
@@ -126,7 +125,7 @@ describe('CountriesEdit', () => {
     companyCountryServiceMock = new MockCompanyCountryService();
 
     await TestBed.configureTestingModule({
-      imports: [CountriesEdit, NoopAnimationsModule],
+      imports: [CountriesEdit],
       providers: [
         {
           provide: CompanyService,

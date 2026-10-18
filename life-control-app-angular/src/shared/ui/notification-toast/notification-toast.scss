@@ -18,6 +18,9 @@
   max-width: 400px;
   overflow: hidden;
   position: relative;
+  // The toast rests shifted up by half its own height; the enter/leave keyframes below
+  // start and end on this exact transform so removing the animation class is seamless.
+  transform: translateX(0) translateY(-50%);
 
   &.success {
     border-left-color: #28a745;
@@ -46,6 +49,39 @@
       color: #17a2b8;
     }
   }
+}
+
+@keyframes notification-enter {
+  from {
+    opacity: 0;
+    transform: translateX(100%) translateY(-50%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) translateY(-50%);
+  }
+}
+
+@keyframes notification-leave {
+  from {
+    opacity: 1;
+    transform: translateX(0) translateY(-50%);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(100%) translateY(-50%);
+  }
+}
+
+// The class names are the ones the template passes to `animate.enter` / `animate.leave`.
+// They replace the `@angular/animations` trigger the toast used to carry, which v22
+// deprecated along with the whole package.
+.notification-enter {
+  animation: notification-enter 300ms ease-out;
+}
+
+.notification-leave {
+  animation: notification-leave 300ms ease-in;
 }
 
 .notification-content {

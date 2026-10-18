@@ -1,5 +1,4 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { By } from '@angular/platform-browser';
 import { of } from 'rxjs';
 import { DetailTable, type DetailTableRow } from './detail-table';
@@ -77,7 +76,7 @@ describe('DetailTable', () => {
     };
 
     await TestBed.configureTestingModule({
-      imports: [DetailTable, NoopAnimationsModule],
+      imports: [DetailTable],
       providers: [{ provide: ProductVariantService, useValue: variantService }],
     }).compileComponents();
   });
@@ -445,7 +444,7 @@ describe('DetailTable (mobile)', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [DetailTable, NoopAnimationsModule],
+      imports: [DetailTable],
       providers: [
         {
           provide: ProductVariantService,

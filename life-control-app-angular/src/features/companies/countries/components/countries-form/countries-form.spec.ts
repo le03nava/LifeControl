@@ -1,5 +1,4 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { signal } from '@angular/core';
 import { of } from 'rxjs';
 import { CountriesForm } from './countries-form';
@@ -78,7 +77,7 @@ describe('CountriesForm', () => {
     };
 
     await TestBed.configureTestingModule({
-      imports: [CountriesForm, NoopAnimationsModule],
+      imports: [CountriesForm],
       providers: [{ provide: CountryService, useValue: countryServiceMock }],
     }).compileComponents();
 

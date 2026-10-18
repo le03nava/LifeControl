@@ -1,5 +1,4 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { By } from '@angular/platform-browser';
 import { AbstractControl, FormControl, FormGroup, Validators } from '@angular/forms';
 import { MatAutocompleteTrigger } from '@angular/material/autocomplete';
@@ -46,7 +45,7 @@ describe('ProductSupplierForm', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [ProductSupplierForm, NoopAnimationsModule],
+      imports: [ProductSupplierForm],
     }).compileComponents();
 
     fixture = TestBed.createComponent(ProductSupplierForm);

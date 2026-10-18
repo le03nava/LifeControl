@@ -1,5 +1,4 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 import { CustomerSelector } from './customer-selector';
 import { ConfigService } from '@app/services/config.service';
@@ -26,7 +25,7 @@ describe('CustomerSelector', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [CustomerSelector, NoopAnimationsModule, HttpClientTestingModule],
+      imports: [CustomerSelector, HttpClientTestingModule],
       providers: [{ provide: ConfigService, useValue: { apiUrl: TEST_API } }],
     }).compileComponents();
 

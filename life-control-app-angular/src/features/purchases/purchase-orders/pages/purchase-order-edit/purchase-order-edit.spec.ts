@@ -1,5 +1,4 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
 import {
   provideRouter,
@@ -239,7 +238,7 @@ describe('PurchaseOrderEdit', () => {
   describe('create mode', () => {
     beforeEach(async () => {
       await TestBed.configureTestingModule({
-        imports: [PurchaseOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
+        imports: [PurchaseOrderEdit, HttpClientTestingModule],
         providers: baseProviders(null),
       }).compileComponents();
 
@@ -427,7 +426,7 @@ describe('PurchaseOrderEdit', () => {
   describe('edit mode', () => {
     beforeEach(async () => {
       await TestBed.configureTestingModule({
-        imports: [PurchaseOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
+        imports: [PurchaseOrderEdit, HttpClientTestingModule],
         providers: baseProviders('po-1'),
       }).compileComponents();
 
@@ -700,7 +699,7 @@ describe('PurchaseOrderEdit', () => {
   describe('line items', () => {
     beforeEach(async () => {
       await TestBed.configureTestingModule({
-        imports: [PurchaseOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
+        imports: [PurchaseOrderEdit, HttpClientTestingModule],
         providers: baseProviders('po-1'),
       }).compileComponents();
 
@@ -815,7 +814,7 @@ describe('PurchaseOrderEdit', () => {
       // profile data, so the store is applied with `emitEvent: false` — exactly
       // the path `companyStoreId.valueChanges` cannot see.
       await TestBed.configureTestingModule({
-        imports: [PurchaseOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
+        imports: [PurchaseOrderEdit, HttpClientTestingModule],
         providers: [
           ...baseProviders(null),
           {
@@ -942,7 +941,7 @@ describe('PurchaseOrderEdit', () => {
   describe('onCancel', () => {
     it('should navigate back to order list', async () => {
       await TestBed.configureTestingModule({
-        imports: [PurchaseOrderEdit, NoopAnimationsModule, HttpClientTestingModule],
+        imports: [PurchaseOrderEdit, HttpClientTestingModule],
         providers: baseProviders(null),
       }).compileComponents();
 

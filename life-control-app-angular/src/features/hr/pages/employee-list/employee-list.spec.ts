@@ -1,9 +1,8 @@
 /// <reference types="vitest/globals" />
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Signal, WritableSignal, signal } from '@angular/core';
+import { ANIMATION_MODULE_TYPE, Signal, WritableSignal, signal } from '@angular/core';
 import { MatDialog } from '@angular/material/dialog';
 import { Observable, of, throwError } from 'rxjs';
 import Keycloak from 'keycloak-js';
@@ -255,9 +254,14 @@ describe('EmployeeList', () => {
 
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
-      imports: [EmployeeList, NoopAnimationsModule],
+      imports: [EmployeeList],
       providers: [
         provideRouter([]),
+        // `NoopAnimationsModule` went away with `@angular/animations` in v22, and what it did for
+        // Material's tab group was set this token to `NoopAnimations`. Without it `MatTabBody`
+        // waits for a real CSS `transitionstart` (with a 100ms fallback timer) before it attaches
+        // the selected tab's content, and jsdom never fires one, so the tab body stayed empty.
+        { provide: ANIMATION_MODULE_TYPE, useValue: 'NoopAnimations' },
         { provide: EmployeeService, useValue: employeeService },
         { provide: EmployeeStatusService, useValue: statusService },
         { provide: AccessProvisioningService, useValue: accessService },

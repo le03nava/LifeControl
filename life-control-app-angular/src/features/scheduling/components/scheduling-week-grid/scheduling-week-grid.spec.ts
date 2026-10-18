@@ -1,6 +1,5 @@
 /// <reference types="vitest/globals" />
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { SchedulingWeekGrid } from './scheduling-week-grid';
 import { buildWeek, SchedulingWeekDay } from '../../data/scheduling-calendar-week';
 import { SchedulingCalendarEntry } from '../../models/scheduling-calendar.models';
@@ -33,7 +32,7 @@ describe('SchedulingWeekGrid', () => {
   ): void {
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
-      imports: [SchedulingWeekGrid, NoopAnimationsModule],
+      imports: [SchedulingWeekGrid],
     });
     fixture = TestBed.createComponent(SchedulingWeekGrid);
     component = fixture.componentInstance;

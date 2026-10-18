@@ -1,6 +1,5 @@
 /// <reference types="vitest/globals" />
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Signal, signal } from '@angular/core';
@@ -92,7 +91,7 @@ describe('EmployeeEdit', () => {
 
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
-      imports: [EmployeeEdit, NoopAnimationsModule],
+      imports: [EmployeeEdit],
       providers: [
         provideRouter([]),
         { provide: EmployeeService, useValue: employeeService },

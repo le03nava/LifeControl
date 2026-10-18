@@ -1,5 +1,4 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { signal } from '@angular/core';
 import { of, throwError } from 'rxjs';
@@ -165,7 +164,7 @@ describe('StoresEdit', () => {
   describe('create mode', () => {
     beforeEach(async () => {
       await TestBed.configureTestingModule({
-        imports: [StoresEdit, NoopAnimationsModule, HttpClientTestingModule],
+        imports: [StoresEdit, HttpClientTestingModule],
         providers: [
           { provide: CompanyService, useClass: MockCompanyService },
           { provide: CompanyCountryService, useClass: MockCompanyCountryService },
@@ -381,7 +380,7 @@ describe('StoresEdit', () => {
   describe('create mode without query params', () => {
     beforeEach(async () => {
       await TestBed.configureTestingModule({
-        imports: [StoresEdit, NoopAnimationsModule, HttpClientTestingModule],
+        imports: [StoresEdit, HttpClientTestingModule],
         providers: [
           { provide: CompanyService, useClass: MockCompanyService },
           { provide: CompanyCountryService, useClass: MockCompanyCountryService },
@@ -419,7 +418,7 @@ describe('StoresEdit', () => {
       };
 
       await TestBed.configureTestingModule({
-        imports: [StoresEdit, NoopAnimationsModule, HttpClientTestingModule],
+        imports: [StoresEdit, HttpClientTestingModule],
         providers: [
           { provide: CompanyService, useClass: MockCompanyService },
           { provide: CompanyCountryService, useClass: MockCompanyCountryService },
@@ -629,7 +628,7 @@ describe('StoresEdit', () => {
   describe('onCancelForm', () => {
     it('should navigate back with query params from storeToEdit when in edit mode', () => {
       TestBed.configureTestingModule({
-        imports: [StoresEdit, NoopAnimationsModule, HttpClientTestingModule],
+        imports: [StoresEdit, HttpClientTestingModule],
         providers: [
           { provide: CompanyService, useClass: MockCompanyService },
           { provide: CompanyCountryService, useClass: MockCompanyCountryService },
@@ -662,7 +661,7 @@ describe('StoresEdit', () => {
 
     it('should navigate back with initial query params when in create mode', () => {
       TestBed.configureTestingModule({
-        imports: [StoresEdit, NoopAnimationsModule, HttpClientTestingModule],
+        imports: [StoresEdit, HttpClientTestingModule],
         providers: [
           { provide: CompanyService, useClass: MockCompanyService },
           { provide: CompanyCountryService, useClass: MockCompanyCountryService },
@@ -697,7 +696,7 @@ describe('StoresEdit', () => {
 
     it('should navigate without query params when no context exists', () => {
       TestBed.configureTestingModule({
-        imports: [StoresEdit, NoopAnimationsModule, HttpClientTestingModule],
+        imports: [StoresEdit, HttpClientTestingModule],
         providers: [
           { provide: CompanyService, useClass: MockCompanyService },
           { provide: CompanyCountryService, useClass: MockCompanyCountryService },

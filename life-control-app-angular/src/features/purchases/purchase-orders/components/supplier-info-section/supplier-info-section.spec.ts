@@ -1,5 +1,4 @@
 import { TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { of } from 'rxjs';
 import { SupplierInfoSection } from './supplier-info-section';
 import { SupplierService } from '@features/products/suppliers/data/supplier.service';
@@ -139,7 +138,7 @@ describe('SupplierInfoSection', () => {
     };
 
     await TestBed.configureTestingModule({
-      imports: [SupplierInfoSection, NoopAnimationsModule],
+      imports: [SupplierInfoSection],
       providers: [
         { provide: SupplierService, useValue: supplierServiceMock },
         { provide: PaymentMethodService, useValue: paymentMethodServiceMock },

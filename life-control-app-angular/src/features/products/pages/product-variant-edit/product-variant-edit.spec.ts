@@ -1,6 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { ActivatedRoute, Router } from '@angular/router';
 import { MatDialog } from '@angular/material/dialog';
 import { of, throwError } from 'rxjs';
@@ -117,7 +116,7 @@ describe('ProductVariantEdit', () => {
     dialogMock = { open: vi.fn().mockReturnValue({ afterClosed: () => of(null) }) };
 
     await TestBed.configureTestingModule({
-      imports: [ProductVariantEdit, NoopAnimationsModule],
+      imports: [ProductVariantEdit],
       providers: [
         { provide: ProductService, useValue: productServiceMock },
         { provide: ProductVariantService, useValue: productVariantServiceMock },

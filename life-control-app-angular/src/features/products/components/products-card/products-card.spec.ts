@@ -1,5 +1,4 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { ProductsCard } from './products-card';
 import { Product } from '../../models/product.models';
 
@@ -21,7 +20,7 @@ describe('ProductsCard', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [ProductsCard, NoopAnimationsModule],
+      imports: [ProductsCard],
     }).compileComponents();
 
     fixture = TestBed.createComponent(ProductsCard);

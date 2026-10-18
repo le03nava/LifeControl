@@ -1,6 +1,5 @@
 /// <reference types="vitest/globals" />
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { By } from '@angular/platform-browser';
 import { HttpErrorResponse } from '@angular/common/http';
@@ -135,7 +134,7 @@ describe('StoreInventorySettings', () => {
     configure?.({ settings: settingsService, locations: locationService });
 
     await TestBed.configureTestingModule({
-      imports: [StoreInventorySettings, NoopAnimationsModule, HttpClientTestingModule],
+      imports: [StoreInventorySettings, HttpClientTestingModule],
       providers: [
         provideRouter([]),
         { provide: StoreInventorySettingsService, useValue: settingsService },

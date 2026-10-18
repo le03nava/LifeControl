@@ -1,5 +1,4 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 import { ProductVariantSelector } from './product-variant-selector';
 import { ConfigService } from '@app/services/config.service';
@@ -34,7 +33,7 @@ describe('ProductVariantSelector', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [ProductVariantSelector, NoopAnimationsModule, HttpClientTestingModule],
+      imports: [ProductVariantSelector, HttpClientTestingModule],
       providers: [{ provide: ConfigService, useValue: { apiUrl: TEST_API } }],
     }).compileComponents();
 
