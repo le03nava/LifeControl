@@ -352,3 +352,33 @@ that was missing — one case that fails while `AGENTS.md` still carries the `**
 observed **RED** first (**22 passed, 1 failed**, `exit 1`) and the suite answers **23 passed, 0 failed**
 (`exit 0`) once the note was corrected. Only the absence of the claim is asserted, because the workflows — never
 the prose — are the source: a later rewrite passes without pinning its own wording here.
+
+**L22** *(the delivery `L21` designed, 2026-10-18)*: the repair landed as pull request **#407**,
+`chore(conventions): stop documenting the CI trigger asymmetry the workflows removed`, closing issue **#406**.
+Merged into `main` as merge commit **`ee1ca8fc217a24ea744cc30523bee26d250e5409`** on **2026-10-18T02:14:27Z**,
+parents `135cdbeafdcf4b158f5a32b37dc1eddc99390a9f` (the previous `main`) and
+`905fd03e362375a7c09f0d5627752e1156436725` (the gated branch tip). The merge commit's tree is
+**`58b7e24dd9efeae2cb7b8955fe9df6d6529e014d`** (`git show -s --format='%T'`), byte-identical to the tree of
+`905fd03`: what merged is exactly what CI validated, with no rebase or post-validation commit between the run
+and the merge.
+
+CI on the pull request, run **`39089284605`**: `success`. Both required checks pass — `A linked, approved issue`
+(7s) and `Exactly one type:* label` (11s) — `shellcheck --severity=warning` is clean over the **10** scripts, and
+the seven offline suites are green: `40/26/34/24/33/17/23 passed, 0 failed`. The pull request carried the
+`type:chore` label, exactly one `type:*`. The acceptance the pull request adds is the parity suite's new case,
+and its tally is the last of the seven: `workflow-trigger-parity.test.sh` answers **23 passed, 0 failed** — the
+same case `L21` observed **RED** at **22 passed, 1 failed** before the note was corrected.
+
+Measured after the merge, and the corrected note's own consequence: `gh run list --commit
+ee1ca8fc217a24ea744cc30523bee26d250e5409` answers **0 runs**. The merge triggered no workflow at all: its three
+changed paths — `AGENTS.md`, `.github/scripts/tests/workflow-trigger-parity.test.sh` and
+`odd/tasks/pr-issue-governance.md` — match no component `paths:` filter, and `pr-label-guard.yml` carries no
+`push` trigger (only `pull_request`). That is the invariant the corrected `AGENTS.md` note states and the parity
+suite freezes, measured on the delivery of the repair itself: a markdown-only merge to `main` runs zero jobs, and
+an empty `gh pr checks` is what predicts it.
+
+The pull request reported `mergeStateStatus` `CLEAN` before the merge, and the branch and its worktree were
+deleted after it. This entry reaches no further: it records no reviewer outcome for #407, and claims no
+post-merge CI run on `main` for the merge commit beyond the zero runs measured above. It does not claim the
+defect's absence anywhere it was not measured — the only such measurement is the parity suite's new case passing
+on the gated tree, which asserts the absence of the claim in `AGENTS.md`, not of any other artifact.
