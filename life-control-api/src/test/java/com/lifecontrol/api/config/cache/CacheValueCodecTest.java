@@ -2,8 +2,6 @@ package com.lifecontrol.api.config.cache;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.lifecontrol.api.company.dto.CompanyRegionResponse;
-import com.lifecontrol.api.company.dto.CompanyZoneResponse;
 import com.lifecontrol.api.country.dto.CountryResponse;
 import com.lifecontrol.api.hr.dto.SeniorityLevelResponse;
 import com.lifecontrol.api.measureunit.dto.MeasureUnitResponse;
@@ -116,15 +114,7 @@ class CacheValueCodecTest {
 
         assertThat(regions)
                 .as("the scan must reach every cached region, or it is silently passing")
-                .contains(
-                        "countries",
-                        "companyRegions",
-                        "companyZones",
-                        "statusTypes",
-                        "statuses",
-                        "measureUnits",
-                        "paymentMethods",
-                        "seniorityLevels");
+                .contains("countries", "statusTypes", "statuses", "measureUnits", "paymentMethods", "seniorityLevels");
         assertThat(missing)
                 .as("register a representative in REPRESENTATIVES for every @Cacheable return type")
                 .isEmpty();
@@ -167,35 +157,6 @@ class CacheValueCodecTest {
                 LocalDateTime.of(2026, 9, 14, 11, 0));
         values.put(CountryResponse.class.getName(), country);
         values.put(listOf(CountryResponse.class), List.of(country));
-
-        var region = new CompanyRegionResponse(
-                UUID.randomUUID(),
-                UUID.randomUUID(),
-                UUID.randomUUID(),
-                UUID.randomUUID(),
-                "R-01",
-                "Norte",
-                true,
-                LocalDateTime.now(),
-                LocalDateTime.now());
-        values.put(CompanyRegionResponse.class.getName(), region);
-        values.put(listOf(CompanyRegionResponse.class), List.of(region));
-
-        var zone = new CompanyZoneResponse(
-                UUID.randomUUID(),
-                UUID.randomUUID(),
-                UUID.randomUUID(),
-                UUID.randomUUID(),
-                UUID.randomUUID(),
-                "Z-01",
-                "Centro",
-                "desc",
-                1,
-                true,
-                LocalDateTime.now(),
-                LocalDateTime.now());
-        values.put(CompanyZoneResponse.class.getName(), zone);
-        values.put(listOf(CompanyZoneResponse.class), List.of(zone));
 
         var statusType =
                 new StatusTypeResponse(UUID.randomUUID(), "ORDER", true, LocalDateTime.now(), LocalDateTime.now());

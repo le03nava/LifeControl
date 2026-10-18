@@ -33,7 +33,7 @@ import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactor
  * Redis outage from invisible into a measured one. With nothing bounding the wait, a cached read
  * answered {@code 500 after 60.15s} — the Lettuce default — on <b>every</b> request, and
  * {@code GET /actuator/health} stopped answering at all, which in an orchestrated environment is a
- * timed-out probe. Only eight cache regions exist, so the outage was taking down endpoints that
+ * timed-out probe. Only six cache regions exist, so the outage was taking down endpoints that
  * never touch the cache. Two settings fix that, and neither is visible in normal operation: a
  * bounded command timeout, and removing Redis from the health endpoint the container probe reads.
  *

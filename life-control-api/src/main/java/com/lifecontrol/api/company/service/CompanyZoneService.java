@@ -20,13 +20,22 @@ import java.util.List;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Company-scoped company-zone reads and writes.
+ *
+ * <p>The reads are deliberately <b>not</b> cached, for the reason its sibling
+ * {@link CompanyRegionService} documents in full (record G12 of
+ * {@code odd/tasks/hr-org-structure.md}): one {@code @Cacheable} stored the claim-filtered list for
+ * a caller holding {@code lc-company-zone} and the whole region for a caller holding
+ * {@code lc-company-region} or broader under a key that named neither the company nor the caller,
+ * and a cache <b>hit</b> skipped {@link CurrentUserContext#verifyCompanyZoneAccess} entirely.
+ * {@code CompanyZoneServiceScopedReadCacheTest} pins it.</p>
+ */
 @Service
 public class CompanyZoneService {
 
@@ -63,7 +72,6 @@ public class CompanyZoneService {
                 .orElseThrow(() -> new CompanyRegionNotFoundException("Company region not found with id: " + regionId));
     }
 
-    @Cacheable(value = "companyZones", key = "'all-' + #regionId + '-' + #includeDisabled")
     @Transactional(readOnly = true)
     public List<CompanyZoneResponse> getAllZones(
             UUID companyId, UUID companyCountryId, UUID regionId, boolean includeDisabled) {
@@ -89,7 +97,6 @@ public class CompanyZoneService {
                 .toList();
     }
 
-    @Cacheable(value = "companyZones", key = "#id")
     @Transactional(readOnly = true)
     public CompanyZoneResponse getZoneById(UUID companyId, UUID companyCountryId, UUID regionId, UUID id) {
         currentUserContext.verifyCompanyZoneAccess(companyId, companyCountryId, regionId, id);
@@ -100,7 +107,6 @@ public class CompanyZoneService {
         return toResponse(zone);
     }
 
-    @CacheEvict(value = "companyZones", allEntries = true)
     @Transactional
     public CompanyZoneResponse createZone(
             UUID companyId, UUID companyCountryId, UUID regionId, CreateCompanyZoneRequest request) {
@@ -133,7 +139,6 @@ public class CompanyZoneService {
         return toResponse(saved);
     }
 
-    @CacheEvict(value = "companyZones", allEntries = true)
     @Transactional
     public CompanyZoneResponse updateZone(
             UUID companyId, UUID companyCountryId, UUID regionId, UUID id, UpdateCompanyZoneRequest request) {
@@ -164,7 +169,6 @@ public class CompanyZoneService {
         return toResponse(saved);
     }
 
-    @CacheEvict(value = "companyZones", allEntries = true)
     @Transactional
     public void deleteZone(UUID companyId, UUID companyCountryId, UUID regionId, UUID id) {
         currentUserContext.verifyCompanyZoneAccess(companyId, companyCountryId, regionId, id);
@@ -182,7 +186,6 @@ public class CompanyZoneService {
         logger.info("CompanyZone soft-deleted: id={}, code={}", id, zone.getZoneCode());
     }
 
-    @CacheEvict(value = "companyZones", allEntries = true)
     @Transactional
     public CompanyZoneResponse enableZone(UUID companyId, UUID companyCountryId, UUID regionId, UUID id) {
         currentUserContext.verifyCompanyZoneAccess(companyId, companyCountryId, regionId, id);

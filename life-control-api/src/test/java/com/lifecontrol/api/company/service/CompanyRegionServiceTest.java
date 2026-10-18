@@ -616,8 +616,8 @@ class CompanyRegionServiceTest {
         }
 
         @Test
-        @DisplayName("should use cached query when user does NOT have company-region role")
-        void nonRegionRoleUsesCachedQuery() {
+        @DisplayName("should use the unscoped name-ordered query when user does NOT have company-region role")
+        void nonRegionRoleUsesUnscopedNameOrderedQuery() {
             when(currentUserContext.hasCompanyRegionRole()).thenReturn(false);
 
             var companyCountry = CompanyCountry.builder()
