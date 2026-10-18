@@ -8,7 +8,7 @@ import {
 } from '@angular/core';
 import { registerLocaleData } from '@angular/common';
 import localeEsMx from '@angular/common/locales/es-MX';
-import { provideHttpClient, withInterceptors, withFetch } from '@angular/common/http';
+import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { provideRouter, withComponentInputBinding } from '@angular/router';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { provideKeycloak } from '@core/config/keycloak';
@@ -37,8 +37,8 @@ export const appConfig: ApplicationConfig = {
     provideAnimationsAsync(),
 
     // 1. Core providers - HttpClient con interceptores personalizados
+    // No `withFetch()`: desde v22 fetch es el backend por defecto de HttpClient.
     provideHttpClient(
-      withFetch(),
       withInterceptors([loadingInterceptor, bearerTokenInterceptor, errorInterceptor]),
     ),
 

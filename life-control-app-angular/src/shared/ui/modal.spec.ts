@@ -1,12 +1,16 @@
-import { Component } from '@angular/core';
+import { Component, ChangeDetectionStrategy } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Modal } from './modal';
 import { Button } from './button/button';
 
-/* eslint-disable-next-line @angular-eslint/prefer-on-push-component-change-detection -- test host */
 @Component({
   standalone: true,
   imports: [Modal, Button],
+  // The v22 default is OnPush; this host keeps the pre-v22 eager strategy because these
+  // specs mutate plain host properties and then assert the child's rendered output.
+  // Added by the official v22 `change-detection-eager` migration.
+  // eslint-disable-next-line @angular-eslint/prefer-on-push-component-change-detection -- test host keeps pre-v22 eager CD
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <app-modal
       [isOpen]="isOpen"

@@ -1,4 +1,4 @@
-import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
+import { HttpErrorResponse, provideHttpClient, withXhr } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { ProductSupplierList } from './product-supplier-list';
@@ -71,7 +71,7 @@ describe('ProductSupplierList', () => {
     TestBed.configureTestingModule({
       imports: [ProductSupplierList, NoopAnimationsModule],
       providers: [
-        provideHttpClient(),
+        provideHttpClient(withXhr()),
         { provide: ProductSupplierService, useValue: serviceMock },
         { provide: MatDialog, useValue: dialogMock },
       ],
