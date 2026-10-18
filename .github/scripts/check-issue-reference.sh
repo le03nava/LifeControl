@@ -27,6 +27,12 @@
 # `close`, `closes`, `closed`, `fix`, `fixes`, `fixed`, `resolve`, `resolves`, `resolved` —
 # because a contributor who writes `Fix #12` means exactly what `Closes #12` means.
 #
+# Each keyword must start a word. Without that boundary the pattern matches `fix` inside `prefix`,
+# `resolve` inside `unresolved` and `close` inside `enclosed`, so a body saying "unresolved #12"
+# reads as a closing reference: it blocks a valid pull request when #12 is not approved, and it
+# accepts one whose only "reference" is an accident (finding R3-002 of the reviewed range). The
+# boundary is a character class rather than `\b`, which is not portable across greps.
+#
 # A reference must appear in prose. Fenced blocks and inline code spans are removed before the body
 # is scanned, so a pull request that documents this gate — quoting `Closes #N` or `Fix #N` as an
 # example — is not read as referencing those numbers.
@@ -196,7 +202,7 @@ while IFS= read -r match; do
 	*" $number "*) continue ;;
 	esac
 	closing_numbers="$closing_numbers $number"
-done < <(printf '%s' "$scan_body" | grep -oiE '(close[sd]?|fix(es|ed)?|resolve[sd]?)[[:space:]]*:?[[:space:]]*#[0-9]+' || true)
+done < <(printf '%s' "$scan_body" | grep -oiE '(^|[^[:alnum:]_])(close[sd]?|fix(es|ed)?|resolve[sd]?)[[:space:]]*:?[[:space:]]*#[0-9]+' || true)
 
 while IFS= read -r match; do
 	[ -n "$match" ] || continue
@@ -209,7 +215,7 @@ while IFS= read -r match; do
 	*" $number "*) continue ;;
 	esac
 	ref_numbers="$ref_numbers $number"
-done < <(printf '%s' "$scan_body" | grep -oiE 'refs[[:space:]]*:?[[:space:]]*#[0-9]+' || true)
+done < <(printf '%s' "$scan_body" | grep -oiE '(^|[^[:alnum:]_])refs[[:space:]]*:?[[:space:]]*#[0-9]+' || true)
 
 if [ -z "$closing_numbers" ] && [ -z "$ref_numbers" ]; then
 	printf 'FAIL: no issue reference in the pull request body; add a closing keyword (Closes #N, or the close/closed, fix/fixed, resolve/resolved forms) or Refs #N off the default branch\n' >&2

@@ -24,6 +24,13 @@
 #      requests, cannot author the approved issue the issue gate needs, and cannot edit its
 #      own labels after opening: the `labels:` block in `.github/dependabot.yml` is the whole
 #      of what lets its pull requests through the gate.
+#   4. A guard that reads the label set from the triggering event payload instead of from the
+#      pull request. The payload is a snapshot: Dependabot applies the labels its config
+#      declares a beat after `opened`, so on that event the payload reads `[]` while the pull
+#      request is allowed to merge — and because the workflow cancels a run in favour of the
+#      newest one, that stale snapshot can be the only surviving verdict. It is also the one
+#      failure a re-run cannot clear: `gh run rerun` replays the stored payload. Measured on
+#      pull request #392, which carried `type:chore` and failed the guard on `[]`.
 #
 # No network, no `gh`, no Docker, no YAML library.
 #
@@ -101,6 +108,23 @@ if [ -r "$WORKFLOW" ]; then
 		pass "adding the missing label clears the check, with no extra commit"
 	else
 		fail "adding the missing label clears the check, with no extra commit"
+	fi
+	# The label set comes from the pull request, never from the event payload: see failure 4 in
+	# this suite's header for the measurement that made this a case of its own.
+	if grep -q 'github.event.pull_request.labels' "$WORKFLOW"; then
+		fail "the guard reads the label set from the pull request, not from the event payload"
+	else
+		pass "the guard reads the label set from the pull request, not from the event payload"
+	fi
+	if grep -q 'pulls/${PR_NUMBER}' "$WORKFLOW"; then
+		pass "the guard reads the label set through the API, from the pull request's current labels"
+	else
+		fail "the guard reads the label set through the API, from the pull request's current labels"
+	fi
+	if grep -Eq '^[[:space:]]+pull-requests:[[:space:]]+read' "$WORKFLOW"; then
+		pass "the guard declares pull-requests: read, and nothing more than read"
+	else
+		fail "the guard declares pull-requests: read, and nothing more than read"
 	fi
 else
 	fail "the guard workflow exists ($WORKFLOW)"

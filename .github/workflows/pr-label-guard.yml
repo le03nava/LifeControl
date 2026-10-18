@@ -27,12 +27,18 @@ on:
 
 permissions:
   contents: read
-  # The issue gate reads the referenced issue through this token: read-only, and the only
-  # scope this workflow adds. Nothing here writes anything.
+  # Both gates read through this token and neither writes anything: the label gate reads the
+  # pull request's labels and the issue gate reads the issue the body references. Read-only,
+  # and the only scopes this workflow adds.
   issues: read
+  pull-requests: read
 
 concurrency:
   group: pr-label-guard-${{ github.ref }}
+  # One verdict per pull request, not one per event: the newest event supersedes the older
+  # ones. That is only safe because the verdict below is read from the pull request itself —
+  # when it was read from the event payload, this line is what let a snapshot taken before the
+  # labels existed outlive the events that carried them.
   cancel-in-progress: true
 
 jobs:
@@ -67,10 +73,19 @@ jobs:
 
       - name: Exactly one type:* label
         env:
-          # The label names of this pull request, straight from the event payload: no API
-          # call, no token, nothing to go stale between the event and the check.
-          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
-        run: .github/scripts/check-pr-type-labels.sh --labels-json "$PR_LABELS"
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          # The labels of this pull request as they are now, never the snapshot the triggering
+          # event carried. `.github/dependabot.yml` declares `labels:` and Dependabot applies
+          # them a beat after `opened`, so on that event the payload legitimately reads `[]`
+          # while the pull request is allowed to merge; `cancel-in-progress` above could then
+          # leave exactly that run as the survivor, and no re-run clears it, because a re-run
+          # replays the stored payload. Measured on pull request #392, which carried
+          # `type:chore` and failed this check on `[]`.
+          labels="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq '[.labels[].name]')"
+          .github/scripts/check-pr-type-labels.sh --labels-json "$labels"
 
   issue:
     name: A linked, approved issue

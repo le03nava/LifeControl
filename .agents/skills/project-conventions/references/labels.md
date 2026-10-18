@@ -124,7 +124,7 @@ Four pieces, added 2026-10-17, close the gaps this file used to carry:
 | --- | --- | --- |
 | Vocabulary | `.github/label-vocabulary.txt` | The one machine-readable source: the six names, one per line. The guard reads it, and `vocabulary-source.test.sh` freezes it against the template and this file's table. |
 | Template | `.github/PULL_REQUEST_TEMPLATE.md` | Carries the six checkboxes, each paired with its label, plus the linked issue, summary, changes table and test plan. It is the in-repo widget the `branch-pr` skill's "check exactly ONE in the template" step needs. |
-| Guard | `.github/workflows/pr-label-guard.yml` -> `.github/scripts/check-pr-type-labels.sh` | Fails the pull request when the label set has zero `type:*` labels, more than one, or one whose name is not in the vocabulary. |
+| Guard | `.github/workflows/pr-label-guard.yml` -> `.github/scripts/check-pr-type-labels.sh` | Fails the pull request when the label set — read from the pull request itself when the job runs, never from the triggering event's snapshot — has zero `type:*` labels, more than one, or one whose name is not in the vocabulary. |
 | Planner | `.github/scripts/retro-label-prs.sh` | Applies the commit-type mapping to an existing history, dry-run by default and idempotent. |
 
 The four suites under `.github/scripts/tests/` run inside the guard workflow, all offline:
@@ -134,7 +134,8 @@ file's table declare the same six names, and a missing or empty source fails clo
 `retro-label-prs.test.sh` (the whole mapping, the `!` marker, the fail-closed case and idempotency)
 and `label-artifacts.test.sh` (the template offers exactly the vocabulary the guard accepts, every
 Dependabot `updates[]` entry carries `dependencies` and one `type:*`, and the workflow keeps no
-`paths:` filter).
+`paths:` filter, reads the label set from the pull request rather than from the event payload, and
+declares the read-only scope that read needs).
 
 The workflow carries **no `paths:` filter**, and that is the point: every other workflow here filters
 by component, so a markdown-only pull request runs no job at all — which is precisely the pull request
@@ -174,8 +175,11 @@ which is the idempotency the tests assert offline. The one title carrying `!` (`
   because it lives outside the repository.
 - A contributor who runs no gentle-ai skill still has to find this file; the template links to it, which is one
   hop closer than before.
-- Dependabot's pull requests now satisfy the gate at open time: every `updates[]` entry in
+- Dependabot's pull requests satisfy the gate at open time: every `updates[]` entry in
   `.github/dependabot.yml` declares `labels:` with `dependencies` and `type:chore`, and
   `label-artifacts.test.sh` parses the file and fails on a missing, doubled or off-vocabulary label.
-  Auto-labelling a hand-authored PR is still out of scope: it would need a token with `issues: write`,
-  and this gate runs with `permissions: contents: read`.
+  Dependabot applies those labels itself a beat **after** `opened`, which is why the guard reads the
+  pull request's current labels instead of the event's snapshot: on 2026-10-17 pull request #392
+  carried `type:chore` and failed the check on an empty snapshot, and the failure was permanent
+  because a re-run replays that snapshot. Auto-labelling a hand-authored PR is still out of scope: it
+  would need a token with `issues: write`, and the gate's token is read-only.
