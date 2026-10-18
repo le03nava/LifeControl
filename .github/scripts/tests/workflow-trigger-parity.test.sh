@@ -7,9 +7,11 @@
 #
 # Before this suite existed, angular-ci, api-ci, docker-build-integrity and gateway-ci each
 # nested their `paths:` filter under `pull_request` and none under `push`, so every merge to
-# `main` ran four component builds even when the merged paths matched no filter (AGENTS.md
-# documents the asymmetry). A paths-filtered push job that no changed path matches cannot
-# start, so the filter is a saving, never a way to skip a real build.
+# `main` ran four component builds even when the merged paths matched no filter. AGENTS.md said
+# the same thing, and went on saying it after the workflows changed: the parity below held while
+# the prose asserted the opposite, because nothing read both. The section before the fixtures is
+# that reader — the prose is asserted here, not trusted. A paths-filtered push job that no changed
+# path matches cannot start, so the filter is a saving, never a way to skip a real build.
 #
 # The suite reads the trigger blocks with awk rather than a YAML library: the shape is small
 # and regular, and the fixtures below are what keep the parser honest —
@@ -212,6 +214,22 @@ on:
       - 'two/**'
 YAML
 expect_verdict "paths-ignore entries are not read as paths entries" "$TMP/ignore.yml" differ
+
+echo "== the documented claim matches the workflows =="
+# AGENTS.md carries the human-readable version of this rule, and it kept the pre-repair claim
+# ("el de `push` a `main` **no** filtra") after all four workflows had started filtering the
+# same paths: the parity above was green, the prose was wrong, and no check read both. This is
+# that check. Only the absence of the claim is asserted, because the workflows — never the prose
+# — are the source: a rewrite that no longer claims the asymmetry passes without this suite
+# pinning its new wording into place.
+AGENTS_MD="$SCRIPT_DIR/../../../AGENTS.md"
+if [ ! -r "$AGENTS_MD" ]; then
+	fail "AGENTS.md exists ($AGENTS_MD)"
+elif grep -Eq '\*\*no\*\* filtra' "$AGENTS_MD"; then
+	fail "AGENTS.md still claims the push trigger is unfiltered"
+else
+	pass "AGENTS.md claims no push-trigger asymmetry"
+fi
 
 printf '\n%d passed, %d failed\n' "$PASS_COUNT" "$FAIL_COUNT"
 [ "$FAIL_COUNT" -eq 0 ]
