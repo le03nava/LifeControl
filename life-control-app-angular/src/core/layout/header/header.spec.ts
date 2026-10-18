@@ -195,15 +195,23 @@ describe('Header', () => {
       expect(companiesItem).toBeUndefined();
     });
 
-    it('should render the caret trigger only for items whose label still navigates', () => {
+    it('should render the caret trigger only for the two items whose label navigates and has children', () => {
       const { fixture } = setup(['lc-admin']);
       const triggers = fixture.nativeElement.querySelectorAll('.submenu-trigger');
-      // Companies and Calendario y citas keep the navigating label plus its caret.
-      // Recursos Humanos is menu-only, so its label is the trigger and carries no
-      // caret of its own.
+      // Companies and Calendario y citas are the menu's only entries with children, so
+      // both keep the navigating label plus its caret. Recursos Humanos is a plain link
+      // to its landing page, like Compras, so it renders neither.
       expect(triggers).toHaveLength(2);
       expect(triggers[0].getAttribute('aria-label')).toBe('Companies submenu');
       expect(triggers[1].getAttribute('aria-label')).toBe('Calendario y citas submenu');
+    });
+
+    it('should render no item whose own label opens a submenu', () => {
+      // The label-as-trigger markup (`opensSubmenu`) existed only for the HR entry and
+      // was removed with it. `lc-admin` renders every entry the menu can hold, so this
+      // instance covers them all.
+      const { fixture } = setup(['lc-admin']);
+      expect(fixture.nativeElement.querySelectorAll('.nav-item-trigger')).toHaveLength(0);
     });
 
     it('should keep the Companies label as a link to /companies', () => {
@@ -771,104 +779,66 @@ describe('Header', () => {
 
   // ─── HR menu gating (lc-admin / lc-department / lc-position / lc-seniority-level / lc-employee) ───
 
-  describe('human resources menu gating', () => {
-    it('should open the submenu with the three HR destinations from the Recursos Humanos label', async () => {
-      const { fixture } = setup(['lc-department']);
-      const parent = findNavItem(fixture, 'Recursos Humanos');
-      const trigger = parent?.querySelector('.nav-item-trigger') as HTMLElement | null;
-
-      expect(trigger).toBeTruthy();
-      trigger?.click();
-      await fixture.whenStable();
-
-      // The panel renders one item per child, in the children's order. The mat-icon's
-      // ligature name is part of the item's text, so each label is asserted with
-      // `toContain`.
-      const openedItems = Array.from(
-        document.querySelectorAll('.mat-mdc-menu-item') as NodeListOf<HTMLElement>,
-      ).map((item) => item.textContent ?? '');
-
-      expect(openedItems).toHaveLength(3);
-      expect(openedItems[0]).toContain('Departamentos');
-      expect(openedItems[1]).toContain('Puestos');
-      expect(openedItems[2]).toContain('Empleados');
-    });
-
-    it('should render the Recursos Humanos label as the submenu trigger, with no link of its own', () => {
+  describe('human resources menu entry', () => {
+    it('should render the Recursos Humanos label as a link to /hr, like Compras', () => {
       const { fixture } = setup(['lc-department']);
       const parent = findNavItem(fixture, 'Recursos Humanos');
 
       expect(parent).toBeDefined();
-      // The label is no longer a destination: `Departamentos` (9-1) already carries
-      // `/hr/departments`, so the entry renders a button bound to its own menu.
-      expect(parent?.querySelector('a')).toBeNull();
-      const trigger = parent?.querySelector('.nav-item-trigger');
-      expect(trigger).toBeTruthy();
-      expect(trigger?.getAttribute('aria-label')).toBe('Recursos Humanos submenu');
-      // `aria-expanded` is written by the mat-menu trigger itself: the label is bound
-      // to the submenu, not a decorative button.
-      expect(trigger?.getAttribute('aria-expanded')).toBe('false');
-      // The label is the only trigger: the separate caret is gone.
+      // The label navigates to the landing page that lists the three destinations, the
+      // way `Compras` navigates to `/purchases`: no caret and no panel of its own.
+      expect(parent?.querySelector('a')?.getAttribute('href')).toBe('/hr');
       expect(parent?.querySelector('.submenu-trigger')).toBeNull();
+      expect(parent?.querySelector('.nav-item-trigger')).toBeNull();
+      expect(parent?.querySelector('mat-menu')).toBeNull();
     });
 
-    it('should show the Recursos Humanos parent with its three children for a department user', () => {
+    it('should show the Recursos Humanos link for a department user, as the whole menu', () => {
       const { component } = setup(['lc-department']);
       const items = component.items();
 
       // A department-only user is in the HR write union and in nothing else, so
-      // the HR parent is the whole menu.
+      // the HR entry is the whole menu. It carries no children: the three
+      // destinations are reached from `/hr`, which is the entry's destination.
       expect(items).toHaveLength(1);
-      // The entry is menu-only: `opensSubmenu` with no `routeLink` of its own, because
-      // clicking it opens the submenu instead of navigating.
       expect(items[0]).toEqual({
         id: '9',
+        routeLink: '/hr',
         textLink: 'Recursos Humanos',
         icon: 'badge',
-        opensSubmenu: true,
-        children: [
-          {
-            id: '9-1',
-            routeLink: '/hr/departments',
-            textLink: 'Departamentos',
-            icon: 'account_tree',
-          },
-          {
-            id: '9-2',
-            routeLink: '/hr/positions',
-            textLink: 'Puestos',
-            icon: 'badge',
-          },
-          {
-            id: '9-3',
-            routeLink: '/hr/employees',
-            textLink: 'Empleados',
-            icon: 'groups',
-          },
-        ],
       });
     });
 
     it.each(['lc-department', 'lc-position', 'lc-seniority-level', 'lc-employee', 'lc-admin'])(
-      'should show the Recursos Humanos parent for %s',
+      'should show the Recursos Humanos link for %s',
       (role) => {
         const { component } = setup([role]);
         expect(component.isHr()).toBe(true);
-        expect(component.items().some((i) => i.id === '9')).toBe(true);
+        expect(component.items().some((i) => i.routeLink === '/hr')).toBe(true);
       },
     );
 
-    it('should expose the Empleados child to an employee-only user', () => {
+    it('should NOT carry HR children in the menu for an employee-only user', () => {
       const { component } = setup(['lc-employee']);
       expect(component.isHr()).toBe(true);
+
       const hrItem = component.items().find((item) => item.id === '9');
-      expect(hrItem?.children?.some((child) => child.routeLink === '/hr/employees')).toBe(true);
+      expect(hrItem?.children).toBeUndefined();
+      // The three destinations are not menu children any more: the landing page owns
+      // them, and no menu entry points at them directly.
+      expect(component.items().some((i) => i.routeLink === '/hr/employees')).toBe(false);
+    });
+
+    it('should give every rendered entry a destination', () => {
+      // `routeLink` is required again: no entry is menu-only, so every entry navigates.
+      const { component } = setup(['lc-admin']);
+      expect(component.items().every((item) => typeof item.routeLink === 'string')).toBe(true);
     });
 
     it('should NOT show the Recursos Humanos parent for an unrelated role', () => {
       const { component } = setup(['lc-sales']);
       expect(component.isHr()).toBe(false);
-      expect(component.items().some((i) => i.id === '9')).toBe(false);
+      expect(component.items().some((i) => i.routeLink === '/hr')).toBe(false);
     });
 
     it('should reset isHr on AuthLogout event', () => {
@@ -909,7 +879,7 @@ describe('Header', () => {
       fixture.detectChanges();
 
       expect(component.isHr()).toBe(false);
-      expect(component.items().some((i) => i.id === '9')).toBe(false);
+      expect(component.items().some((i) => i.routeLink === '/hr')).toBe(false);
     });
   });
 
