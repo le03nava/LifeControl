@@ -18,13 +18,24 @@ import java.util.List;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Company-scoped company-region reads and writes.
+ *
+ * <p>The reads are deliberately <b>not</b> cached, and that is a decision rather than an omission
+ * (record G12 of {@code odd/tasks/hr-org-structure.md}). A {@code @Cacheable} here stored a value
+ * computed for <em>one</em> caller under a key that named no caller: this read returns the
+ * claim-filtered list to a caller holding {@code lc-company-region} and the whole country to one
+ * holding {@code lc-company-country} or {@code lc-admin}, so whichever caller warmed the entry
+ * decided what every later caller saw — and a cache <b>hit</b> skipped
+ * {@link CurrentUserContext#verifyCompanyRegionAccess(UUID, UUID, UUID)} entirely, because the
+ * annotation wraps the whole method. {@code DepartmentService} documents the same rule, and
+ * {@code CompanyRegionServiceScopedReadCacheTest} pins it.</p>
+ */
 @Service
 public class CompanyRegionService {
 
@@ -55,7 +66,6 @@ public class CompanyRegionService {
                 .orElseThrow(() -> new CompanyCountryNotFoundException(companyCountryId));
     }
 
-    @Cacheable(value = "companyRegions", key = "'all-' + #companyCountryId + '-' + #includeDisabled")
     @Transactional(readOnly = true)
     public List<CompanyRegionResponse> getAllRegions(UUID companyId, UUID companyCountryId, boolean includeDisabled) {
         currentUserContext.verifyCompanyRegionAccess(companyId, companyCountryId, null);
@@ -82,7 +92,6 @@ public class CompanyRegionService {
                 .toList();
     }
 
-    @Cacheable(value = "companyRegions", key = "#id")
     @Transactional(readOnly = true)
     public CompanyRegionResponse getRegionById(UUID companyId, UUID companyCountryId, UUID id) {
         currentUserContext.verifyCompanyRegionAccess(companyId, companyCountryId, id);
@@ -93,7 +102,6 @@ public class CompanyRegionService {
         return toResponse(region);
     }
 
-    @CacheEvict(value = "companyRegions", allEntries = true)
     @Transactional
     public CompanyRegionResponse createRegion(
             UUID companyId, UUID companyCountryId, CreateCompanyRegionRequest request) {
@@ -132,7 +140,6 @@ public class CompanyRegionService {
         return toResponse(saved);
     }
 
-    @CacheEvict(value = "companyRegions", allEntries = true)
     @Transactional
     public CompanyRegionResponse updateRegion(
             UUID companyId, UUID companyCountryId, UUID id, UpdateCompanyRegionRequest request) {
@@ -161,7 +168,6 @@ public class CompanyRegionService {
         return toResponse(saved);
     }
 
-    @CacheEvict(value = "companyRegions", allEntries = true)
     @Transactional
     public void deleteRegion(UUID companyId, UUID companyCountryId, UUID id) {
         currentUserContext.verifyCompanyRegionAccess(companyId, companyCountryId, id);
@@ -179,7 +185,6 @@ public class CompanyRegionService {
         logger.info("CompanyRegion soft-deleted: id={}, code={}", id, region.getRegionCode());
     }
 
-    @CacheEvict(value = "companyRegions", allEntries = true)
     @Transactional
     public CompanyRegionResponse enableRegion(UUID companyId, UUID companyCountryId, UUID id) {
         currentUserContext.verifyCompanyRegionAccess(companyId, companyCountryId, id);
