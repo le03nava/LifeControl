@@ -73,9 +73,8 @@ same surface: that unit *added* a branch and an element order, this one deletes 
 | Work unit 1 | `72331cc` — `feat(hr): add the /hr landing page with the three catalogs` (6 files, +319) |
 | Work unit 2 | `4b40203` — `refactor(header): make the Recursos Humanos entry a link to /hr` (5 files, +87/−183) |
 | Record | the closing commit of the branch, `docs(odd): record the HR entry's return to a navigating label` (this file) |
-| Branch | `feat/hr-menu-landing-page` — **589 authored changed lines in two commits**; the slice
-boundary is commit 1 | commit 2, which is where a chained delivery would cut (the repository's
-~400-line review budget is passed by the branch as a whole, not by either commit) |
+| Branch | `feat/hr-menu-landing-page` — **738 authored changed lines in two commits**; the slice boundary is commit 1 (`72331cc`) → commit 2 (`4b40203`), which is where a chained delivery would cut (the repository's ~400-line review budget is passed by the branch as a whole, not by either commit) |
+| PR | **#430** → `main`, 2026-10-18, `Closes #429` — the issue was approved with `status:approved` before the pull request was opened — and one `type:*` label. The three checks pass on `0e6c986`: `A linked, approved issue` (6 s), `Exactly one type:* label` (14 s) and `Lint, Build & Test` (4 m 14 s). The maintainer chose a **single** pull request over a chain |
 
 ### Verification evidence
 
@@ -147,3 +146,10 @@ boundary is commit 1 | commit 2, which is where a chained delivery would cut (th
   unassessable one, which would have been an unknown masquerading as a result. The first real reading
   covered the two code commits (11 paths / 589 lines) and the re-read on the final bytes repeats it
   with this record included (12 paths / 736 lines); the row above carries the final one.
+- **L8** — 2026-10-18, delivery: **issue #429** was opened from the feature template (problem, expected
+  outcome, acceptance criteria, non-goals) and approved by the maintainer before the pull request, and
+  **PR #430** opened against `main` with `Closes #429`, one `type:*` label (`type:feature`) and the
+  template's sections. The three checks pass on `0e6c986` — `A linked, approved issue` 6 s,
+  `Exactly one type:* label` 14 s, `Lint, Build & Test` 4 m 14 s. The maintainer chose a **single** pull
+  request for the branch's 738 authored lines over a chain, with the slice boundary recorded in L6; the
+  merge is the maintainer's decision and is the only thing this unit still waits on.
