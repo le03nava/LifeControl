@@ -147,3 +147,17 @@ decides is the review unit's: 398. The records commit is named by its content ra
 commit id for the same reason: it holds this file, so any later amend of it would falsify the id
 written here. The repository's own precedent splits the same way — the antecedent's L12 records
 `06f53b3` for behaviour and tests and `40179ff` for the records.
+
+**L10** (2026-10-17, delivery): **PR #413**, `fix/scoped-catalog-cache-bypass` → `main`, carrying the
+two commits above (`8be0436` behaviour, tests and docs; `4f62e7f` the records) and labelled `type:bug`,
+exactly one `type:*` as the repository's label guard requires.
+
+**The issue, and the one step this record did not take by itself.** The repository requires an
+approved issue before a pull request is opened — `CONTRIBUTING.md` §1, and the label guard's
+`A linked, approved issue` job is a required status check on `main` — so **#411** was opened from this
+review with the RED pasted as its evidence, and `status:approved` was then applied through the
+authenticated maintainer session on the maintainer's explicit instruction. Recorded that way on
+purpose: `references/labels.md` invariant 4 and `.github/ISSUE_TEMPLATE/config.yml` both state that
+`status:approved` is a **maintainer decision applied after approval**, and the guard reads the label
+name only (invariant 6) — so the decision was the human's, and this record names it as the human's
+rather than presenting it as an independent approval it was not.
