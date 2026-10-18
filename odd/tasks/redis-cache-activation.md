@@ -126,3 +126,17 @@ Redis out of `/actuator/health`, the endpoint the container healthcheck reads. T
 the decision "is still open and needs the human" is false now, so it is superseded in place: the
 original sentence is kept as written rather than erased, and this entry is the repair's record. L10's
 two follow-ups are untouched and remain open.
+
+**L14** (2026-10-17, half of L13's last sentence, falsified and repaired): L10's **second** bullet —
+G12 — is **closed**. It was taken as its own record on the user's decision,
+`odd/tasks/scoped-catalog-cache-bypass.md`: both services lost their four `@Cacheable` and their eight
+`@CacheEvict(allEntries = true)`, `simpleCacheManager` went from the eight regions L4 named to six, and
+two proxy-based tests pin the scope check running on every call (commit `8be0436`). L13's "L10's two
+follow-ups are untouched and remain open" is therefore true of the **first** bullet and false of the
+second, so it is superseded here rather than erased — the same repair discipline L13 applied to the
+header. The **first** bullet, `application-test.properties`' dead Boot 3 exclusion that L2 and L3.3
+measured, **is still open and still untouched**: no jar on `testRuntimeClasspath` carries
+`org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration` at Boot 4.1.1, whose registry
+offers `org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration` instead, so the
+line excludes nothing. L4's "the eight regions" is left alone on purpose: it is that entry's record of
+what that change did, frozen history rather than a live claim, and this L14 is where the count moves.
