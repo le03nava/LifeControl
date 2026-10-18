@@ -298,10 +298,12 @@ npm run test:e2e            # E2E con Playwright (mocks de Keycloak y API)
 ```
 
 > CI: `.github/workflows/angular-ci.yml` corre `lint` + `build` + `test:coverage:check`. Los dos triggers
-> no filtran igual: el de **PR** filtra por paths (`life-control-app-angular/**`), mientras que el de
-> `push` a `main` **no** filtra, así que todo merge a `main` corre el workflow completo aunque el diff sea
-> un solo `.md`. Lo mismo vale para los otros tres workflows, y tiene una consecuencia práctica:
-> `gh pr checks` **vacío** en un PR no significa que su merge a `main` no corra CI.
+> filtran por los **mismos** paths (`life-control-app-angular/**` y el archivo del propio workflow), y lo
+> mismo vale para `api-ci`, `gateway-ci` y `docker-build-integrity`: la fuente es el bloque `paths:` de
+> cada uno, y `.github/scripts/tests/workflow-trigger-parity.test.sh` falla si un `push` y un
+> `pull_request` dejan de listar lo mismo. En consecuencia, un PR que no toca ningún path listado no corre
+> ese workflow y su merge a `main` tampoco: un `gh pr checks` sin ningún check de componente significa que
+> el merge no los va a correr, y sólo el guard de labels —que a propósito no filtra— corre siempre.
 
 ### Docker
 
