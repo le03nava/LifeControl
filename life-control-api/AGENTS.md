@@ -689,8 +689,14 @@ app.rate-limit.endpoints./api/users-admin/users.duration=1m
   `spring-boot-starter-cache`, so nothing else supplies one: `redis` (also what an absent value
   means) is a `RedisCacheManager` with a 1-hour TTL, shared by every instance; `simple` is the
   in-memory `SimpleCacheManager` the `test` profile selects; `none` disables caching.
-- Cached regions: `countries`, `companyRegions`, `companyZones`, `statusTypes`, `statuses`,
-  `measureUnits`, `paymentMethods`, `seniorityLevels`.
+- Cached regions: `countries`, `statusTypes`, `statuses`, `measureUnits`, `paymentMethods`,
+  `seniorityLevels`. The company-scoped store-tree catalogs (`companyRegions`, `companyZones`) are
+  deliberately **not** cached: their reads run a scope check whose *result* depends on the caller —
+  the claim-filtered list for a region-scoped caller, the whole country for a broader one — so an
+  entry warmed by one caller was served to the other, and a cache hit skipped the check entirely
+  (record **G12** of `odd/tasks/hr-org-structure.md`). This is the same rule the company-scoped HR
+  reads apply, and `CompanyRegionServiceScopedReadCacheTest` / `CompanyZoneServiceScopedReadCacheTest`
+  pin it through the Spring proxy, which is where a cache annotation would take effect.
 - A cached value must be reconstructible by the Jackson 3 cache serializer, because a Redis read
   has no declared type to fall back on: `CacheValueCodecTest` fails when a `@Cacheable` return type
   has no registered representative. A cached `Page` cannot be deserialized — the `statusTypes`
@@ -699,7 +705,7 @@ app.rate-limit.endpoints./api/users-admin/users.duration=1m
   how long a cached read waits — unset, Lettuce waits 60s and every request fails that slowly.
   `management.health.redis.enabled=false` keeps Redis out of `/actuator/health`, which is what the
   container healthcheck reads: with the indicator on, a Redis outage marks the whole service
-  unhealthy and takes down the endpoints that never read the cache (only the eight regions above
+  unhealthy and takes down the endpoints that never read the cache (only the six regions above
   are cached). The cost is deliberate — the health endpoint no longer reports Redis, so that signal
   lives in the log and in the failing reads. `RedisOutagePolicyTest` pins both settings against the
   shipped `application.properties`.

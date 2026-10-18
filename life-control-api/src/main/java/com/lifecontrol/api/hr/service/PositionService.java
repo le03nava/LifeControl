@@ -53,8 +53,9 @@ import org.springframework.transaction.annotation.Transactional;
  * <b>every</b> call, and a {@code @Cacheable} on these methods would serve a cache hit without ever
  * reaching {@link CurrentUserContext#verifyCompanyAccess(UUID)}: a caller who knows a company id
  * could read that company's positions after any legitimate read warmed the entry. The neighbouring
- * {@code CompanyRegionService} is the pattern that <em>does</em> cache its company-scoped reads, so
- * the absence of caching here is a decision, not an omission (record T16). The global
+ * {@code CompanyRegionService} used to cache its company-scoped reads and stopped for the same reason
+ * this class never did (record G12 of {@code odd/tasks/hr-org-structure.md}), so the absence of
+ * caching here is a decision, not an omission (record T16). The global
  * {@code seniorityLevels} catalog keeps its cache because its reads contain no scope check.</p>
  */
 @Service

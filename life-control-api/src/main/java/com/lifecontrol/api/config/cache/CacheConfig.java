@@ -179,10 +179,12 @@ public class CacheConfig {
     public CacheManager simpleCacheManager() {
         log.info("Using the in-memory cache manager (spring.cache.type=simple): no TTL, not shared across instances");
         var cacheManager = new SimpleCacheManager();
+        // "companyRegions" and "companyZones" are deliberately absent: the company-scoped store-tree
+        // reads run a scope check whose result depends on the caller, and a cache hit would skip it
+        // (record G12 of odd/tasks/hr-org-structure.md). Re-adding either region reintroduces the
+        // defect, so the absence is pinned rather than accidental.
         cacheManager.setCaches(Set.of(
                 new ConcurrentMapCache("countries"),
-                new ConcurrentMapCache("companyRegions"),
-                new ConcurrentMapCache("companyZones"),
                 new ConcurrentMapCache("statusTypes"),
                 new ConcurrentMapCache("statuses"),
                 new ConcurrentMapCache("measureUnits"),
