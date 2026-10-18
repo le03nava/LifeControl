@@ -35,11 +35,19 @@ permissions:
 
 concurrency:
   group: pr-label-guard-${{ github.ref }}
-  # One verdict per pull request, not one per event: the newest event supersedes the older
-  # ones. That is only safe because the verdict below is read from the pull request itself —
-  # when it was read from the event payload, this line is what let a snapshot taken before the
-  # labels existed outlive the events that carried them.
-  cancel-in-progress: true
+  # One verdict per pull request, and the last run to complete carries it. That is safe because
+  # the verdict below is read from the pull request itself through the API at run time, not from
+  # the event payload, so an older run finishing late still reports the current label set. The
+  # cancellation that used to be here existed for the payload case: a snapshot taken before the
+  # labels existed could outlive the events that carried it. That reason is gone, and cancelling
+  # is now actively harmful — a pull request created with `--label` fires `opened` and `labeled`
+  # in the same second, and killing the running run leaves two `CANCELLED` check runs on the head
+  # commit for the two protected contexts of this workflow. The commit's rollup then reads
+  # `FAILURE` and the merge reads `BLOCKED` while `gh pr checks` shows both `pass`: measured on
+  # pull request #409, head `959df52`. Queued instead, the newer event waits its turn and no check
+  # run is ever cancelled. One limit, stated honestly: a pending run replaced by a newer pending
+  # run in this same group is not measured by this change.
+  cancel-in-progress: false
 
 jobs:
   guard:
@@ -80,10 +88,9 @@ jobs:
           # The labels of this pull request as they are now, never the snapshot the triggering
           # event carried. `.github/dependabot.yml` declares `labels:` and Dependabot applies
           # them a beat after `opened`, so on that event the payload legitimately reads `[]`
-          # while the pull request is allowed to merge; `cancel-in-progress` above could then
-          # leave exactly that run as the survivor, and no re-run clears it, because a re-run
-          # replays the stored payload. Measured on pull request #392, which carried
-          # `type:chore` and failed this check on `[]`.
+          # while the pull request is allowed to merge; and no re-run clears a stale verdict,
+          # because a re-run replays the stored payload. Measured on pull request #392, which
+          # carried `type:chore` and failed this check on `[]`.
           labels="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq '[.labels[].name]')"
           .github/scripts/check-pr-type-labels.sh --labels-json "$labels"
 
