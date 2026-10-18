@@ -5,10 +5,12 @@ import {
   CLIENT_ID,
   DEPARTMENT_WRITE_ROLES,
   EMPLOYEE_WRITE_ROLES,
+  HR_WRITE_ROLES,
   POSITION_WRITE_ROLES,
   SENIORITY_LEVEL_WRITE_ROLES,
 } from '@core/security/roles';
 import { hrRoutes } from './hr.routes';
+import { HrAdmin } from './pages/hr-admin/hr-admin';
 import { EmployeeDetail } from './pages/employee-detail/employee-detail';
 import { EmployeeEdit } from './pages/employee-edit/employee-edit';
 import { EmployeeList } from './pages/employee-list/employee-list';
@@ -242,6 +244,42 @@ describe('hr.routes', () => {
         const loaded = await writeChild.loadComponent!();
         expect(loaded).toBe(EmployeeEdit);
       }
+    });
+  });
+
+  describe('the landing page of /hr', () => {
+    /** The empty-path child, i.e. the route that resolves `/hr` itself. */
+    function landing(): Route {
+      return routeAt(routeAt(hrRoutes, '').children, '');
+    }
+
+    it('should re-declare the HR write union on the empty-path child', () => {
+      // The parent admits **any** authenticated caller (its `requiredRoles.length === 0`
+      // branch); the landing page re-declares the guard and the same union the header
+      // gates the entry on, so the page is visible exactly where the entry is shown.
+      const child = landing();
+
+      expect(child.canActivate).toContain(keycloakRoleGuard);
+      expect(child.data?.['roles']).toEqual(HR_WRITE_ROLES);
+      expect(child.data?.['clientId']).toBe(CLIENT_ID);
+    });
+
+    it('should resolve the lazy import of the landing page to HrAdmin', async () => {
+      const child = landing();
+      expect(typeof child.loadComponent).toBe('function');
+
+      const loaded = await child.loadComponent!();
+      expect(loaded).toBe(HrAdmin);
+    });
+
+    it('should keep the three catalog destinations it links to registered', () => {
+      // The landing page is the only rendered control that reaches them now that the
+      // header entry lost its children, so a missing route would be a dead card.
+      const paths = (routeAt(hrRoutes, '').children ?? []).map((route) => route.path);
+
+      expect(paths).toContain('departments');
+      expect(paths).toContain('positions');
+      expect(paths).toContain('employees');
     });
   });
 });
