@@ -1,9 +1,11 @@
 # ODD feature: hr-menu-entry-navigates-to-hr-landing
 
 **Repository**: LifeControl — frontend `life-control-app-angular/`
-**Status**: implemented — the entry navigates again and `/hr` renders a landing page with the three
-HR destinations, which reverses **D1** of `hr-menu-entry-opens-submenu` (PR #358). Nothing remains
-open in this unit. This header makes no claim about push, PR or merge state; see the delivery table.
+**Status**: merged — PR **#430** (`feat/hr-menu-landing-page` @ `4dd662e`), 2026-10-18. No work left in
+this unit: the `Recursos Humanos` entry navigates to `/hr`, which lists the three catalogs, which is
+what reverses **D1** of `hr-menu-entry-opens-submenu` (PR #358); that record is left as it was, because
+its frozen narrative is the evidence of the earlier decision. The delivery table carries the whole
+chain: the two work units, the record commit, the merge and its gate.
 **Created**: 2026-10-18 · **Risk**: none — the diff adds a page and a route, and removes a template
 branch that had become unreachable. The one surface that could have gone unnoticed is the *sibling*
 header entries, and it was measured rather than argued: a temporary DOM probe rendered the header for
@@ -75,6 +77,7 @@ same surface: that unit *added* a branch and an element order, this one deletes 
 | Record | the closing commit of the branch, `docs(odd): record the HR entry's return to a navigating label` (this file) |
 | Branch | `feat/hr-menu-landing-page` — **738 authored changed lines in two commits**; the slice boundary is commit 1 (`72331cc`) → commit 2 (`4b40203`), which is where a chained delivery would cut (the repository's ~400-line review budget is passed by the branch as a whole, not by either commit) |
 | PR | **#430** → `main`, 2026-10-18, `Closes #429` — the issue was approved with `status:approved` before the pull request was opened — and one `type:*` label. The three checks pass on `0e6c986`: `A linked, approved issue` (6 s), `Exactly one type:* label` (14 s) and `Lint, Build & Test` (4 m 14 s). The maintainer chose a **single** pull request over a chain |
+| Merge | merge commit **`4dd662e`** (`4dd662e3ff1d4badc8f3b88339d7ebe76cd99f2a`), 2026-10-18T23:08:30Z, merged by `le03nava`; the merge closed issue #429. The `Lint, Build & Test` gate re-ran on the head `a434c8e` and passed (4 m 4 s), and the merge commit's tree is that head's tree |
 
 ### Verification evidence
 
@@ -153,3 +156,10 @@ same surface: that unit *added* a branch and an element order, this one deletes 
   `Exactly one type:* label` 14 s, `Lint, Build & Test` 4 m 14 s. The maintainer chose a **single** pull
   request for the branch's 738 authored lines over a chain, with the slice boundary recorded in L6; the
   merge is the maintainer's decision and is the only thing this unit still waits on.
+- **L9** — 2026-10-18, merged: the maintainer instructed the merge, and PR #430 was merged with a
+  **merge commit** (`4dd662e`) at 23:08:30Z — the repository disables squash and rebase on purpose, so
+  the two work units and their record stay in the history a record can cite. The merge closed issue
+  #429 through its `Closes` keyword. The header was rewritten from the pre-merge form (which made no
+  claim about the delivery state) to the terminal form this convention asks for, in the follow-up and
+  docs-only pull request `docs/hr-landing-record-merged`: a merge commit cannot be named before it
+  exists, which is exactly why the pre-merge header is written without a delivery claim.
