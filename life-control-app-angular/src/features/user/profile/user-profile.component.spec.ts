@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import type { ComponentFixture } from '@angular/core/testing';
-import { provideRouter, ActivatedRoute, Router } from '@angular/router';
+import { provideRouter, withRouterConfig, ActivatedRoute, Router } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
 import { provideLocationMocks } from '@angular/common/testing';
 import { By } from '@angular/platform-browser';
@@ -246,7 +246,7 @@ describe('UserProfileComponent', () => {
     TestBed.configureTestingModule({
       imports: [UserProfileComponent],
       providers: [
-        provideRouter([]),
+        provideRouter([], withRouterConfig({ resolveNavigationPromiseOnError: true })),
         provideLocationMocks(),
         provideHttpClient(),
         {
@@ -523,7 +523,7 @@ describe('UserProfileComponent', () => {
       TestBed.configureTestingModule({
         imports: [UserProfileComponent],
         providers: [
-          provideRouter([]),
+          provideRouter([], withRouterConfig({ resolveNavigationPromiseOnError: true })),
           provideLocationMocks(),
           provideHttpClient(),
           {

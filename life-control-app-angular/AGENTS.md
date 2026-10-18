@@ -796,7 +796,7 @@ Todas las páginas de listado implementan estos estados con clases consistentes:
 - **Builder**: `@angular/build:unit-test` (en `angular.json`)
 - **Runner**: Vitest
 - **Spec files**: Co-locados (`*.spec.ts`)
-- **Setup**: `src/test-setup.ts` (zone.js, matchMedia mock, timeouts vía `vi.setConfig`)
+- **Setup**: `src/test-setup.ts` (matchMedia mock, timeouts vía `vi.setConfig`; el entorno de TestBed lo crea el builder y zone.js ya no se usa)
 - **Coverage**: `@vitest/coverage-v8`
 
 ```bash
