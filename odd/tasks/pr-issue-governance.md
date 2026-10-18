@@ -11,9 +11,9 @@ verification corrections).
 **Test runner**: `.github/scripts/tests/*.test.sh` and `docker/scripts/tests/*.test.sh` — offline bash
 suites, run from the worktree; `shellcheck --severity=warning` on modified scripts.
 **Status**: merged — PRs **#385–#390** (`de408b3`, `ba56674`, `199155b`, `e64d9f0`, `55ad71f`, `9c7c4c9`),
-2026-10-17, plus the follow-up defect found while applying branch protection and recorded in `L17`. No work
-left in the repository: the two decisions of `L10` (branch protection and the review) stay with the user, and
-nothing in the tree waits on them.
+2026-10-17, plus the follow-ups the work produced: the record slice #394, the Dependabot-exemption fix #396, the
+retroactivity note #399, the closing-keyword boundary #402 and the label-set fix #403. Branch protection is
+applied (`L20`) and the native review of the merged range ran (`L19`). No work left in the repository.
 **Created**: 2026-10-17
 **Risk**: **high.** Two slices change what CI does at merge time (Task Size item 5: `S2` adds a merge-blocking
 gate and an `issues: read` token scope; `S7` changes workflow triggers) and `S3` decides who must review what.
@@ -278,3 +278,47 @@ updated. The remedy is to update the branch — `@dependabot rebase` for a machi
 turned into `skipping`, `Exactly one type:* label` stayed `pass`, and the pull request went from `BEHIND` to
 `MERGEABLE` with `UNSTABLE`, which is the correct reading of a pending check that is **not** required.
 `CONTRIBUTING.md` §7 now records the rule and the remedy.
+
+**L19** *(the native review of the merged range, 2026-10-17)*: lineage `review-34f9d631b3e17f3f`, tier
+**high**, 29 changed paths and 2740 lines over `5b2c7ee..45ce36a` — a range that also contains two merges from a
+sibling session (`redis-cache-activation`, `redis-outage-failure-policy`), so the candidate is wider than this
+feature. The provider selected all four lenses; the four reviewers and the refuter ran, and the refuter closed
+with two CRITICAL findings, both marked `causal_disposition: introduced`.
+
+- **R3-002, real and mine.** The closing-keyword pattern had no word boundary, so `fix` inside `prefix`,
+  `resolve` inside `unresolved` and `close` inside `enclosed` were read as closing keywords; the same held for
+  `prefs #12` against the `Refs` pattern. Reproduced before the fix: `--body "This stays unresolved #12 for
+  now."` printed `12`. Fixed in **#402** with five cases that were red first, and the boundary is a character
+  class because `\b` is not portable across greps (measured: the local grep matched nothing at all with it).
+- **R3-001, refuted.** The lens claimed the redis test's assertion fails at runtime because
+  `LettuceConnectionFactory.getTimeout()` returns `Duration`. Running it refutes the claim:
+  `./gradlew test --tests '*RedisOutagePolicyTest*' --no-daemon` reports **BUILD SUCCESSFUL**. Two green
+  full-suite `API CI` runs on `main` said the same before that. Nothing was changed for it, and a passing test
+  is not made worse to satisfy an inference.
+
+**The provider's correction route is broken, and nothing was burnt.** The lineage closed in
+`correction_required` with a bounded plan request. The plan was submitted twice with `correctionLines=26`
+(measured: 24 insertions and 2 deletions), and both times the provider's own validator answered
+`collectBinding is missing or stale for current STATUS` — the binding it had just issued, taken verbatim from a
+fresh STATUS, including as an unformatted serialized string. No mutation, no lineage burn, no invented value:
+submitting was stopped and the state left consistent. The documented continuations are maintainer inspection or
+`D`; the correction itself never depended on that route, because it landed as **#402** through the ordinary
+pull-request path.
+
+**#400 was closed as redundant.** Before the review finished, a sibling session opened **#403**
+(`fix/pr-label-guard-stale-payload`) for the same defect, and it merged first — the label set is read from the
+pull request through the API at run time, with `pull-requests: read`, and `label-artifacts.test.sh` in `main`
+already asserts the three things my branch asserted. Diffing the branch against `main` left only a duplicate
+implementation and duplicate coverage, and the issue it referenced was already closed by #403, so the pull
+request was closed with that reason instead of merged twice.
+
+**L20** *(branch protection applied, 2026-10-17)*: the settings `L10` left to the user were applied to `main`
+and read back from the API: `enforce_admins` **true**, `strict` **true**, required status checks
+`Exactly one type:* label` and `A linked, approved issue` bound to the GitHub Actions app, 0 required approving
+reviews with stale-review dismissal, required conversation resolution, force pushes and branch deletions off,
+and only merge commits allowed (`squash` and `rebase` disabled). Two verifications came with it: **#399** was
+the first pull request to merge through it (`CLEAN/MERGEABLE`, both required checks `pass`), and a **skipped**
+job registers as a check run with conclusion `SKIPPED`, which GitHub accepts for a required check — so
+Dependabot's exemption and the protection coexist, measured on #392. The operational cost is real and stated:
+with `strict`, every merge to `main` leaves the other open pull requests `BEHIND` until their branches are
+updated.
