@@ -24,6 +24,11 @@ export default defineConfig({
   ],
   webServer: {
     command: `npm start -- --port ${E2E_PORT}`,
+    // `@angular/cli` 22 gives the `PORT` environment variable priority over `ng serve
+    // --port`. With an ambient `PORT` the server would bind somewhere other than the URL
+    // this config waits on and the run would hang until the timeout, so both are pinned to
+    // E2E_PORT: the server the specs hit is the one this config started.
+    env: { ...(process.env as Record<string, string>), PORT: E2E_PORT },
     url: BASE_URL,
     reuseExistingServer: !CI,
     timeout: 180_000,
