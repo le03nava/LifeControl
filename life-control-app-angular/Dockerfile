@@ -9,10 +9,8 @@ FROM node:24.15-alpine AS build
 WORKDIR /app
 
 # Cache dependencies layer.
-# --legacy-peer-deps: el proyecto fija zone.js ^0.16.2, fuera del peerOptional
-# ~0.15.0 de @angular/core, así que el resolver estricto de npm fallaría.
 COPY package.json package-lock.json ./
-RUN npm ci --legacy-peer-deps
+RUN npm ci
 
 # Build (defaultConfiguration es production)
 COPY . .

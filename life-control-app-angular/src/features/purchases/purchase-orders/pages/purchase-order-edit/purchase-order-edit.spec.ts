@@ -1,7 +1,13 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
-import { provideRouter, Router, RouterLink, ActivatedRoute } from '@angular/router';
+import {
+  provideRouter,
+  withRouterConfig,
+  Router,
+  RouterLink,
+  ActivatedRoute,
+} from '@angular/router';
 import { By } from '@angular/platform-browser';
 import { of, throwError } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
@@ -107,7 +113,7 @@ describe('PurchaseOrderEdit', () => {
   });
 
   const baseProviders = (routeId: string | null) => [
-    provideRouter([]),
+    provideRouter([], withRouterConfig({ resolveNavigationPromiseOnError: true })),
     { provide: ConfigService, useValue: { apiUrl: TEST_API } },
     {
       provide: PurchaseOrderService,

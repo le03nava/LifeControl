@@ -33,3 +33,29 @@ export const TEST_TIMEOUT_MS = 20_000;
 
 /** Per-hook budget. Vitest's default is 10000ms; raised with the test budget. */
 export const HOOK_TIMEOUT_MS = 20_000;
+
+/**
+ * The same budgets, exposed as the Vitest configuration object that `angular.json`
+ * hands to the runner through `runnerConfig`, plus the per-file isolation the suite
+ * needs under Vitest 4.
+ *
+ * The budgets belong in the base config, not only in `vi.setConfig`: the builder's
+ * default `isolate: false` evaluates the setup module once per worker and Vitest 4
+ * calls `vi.resetConfig()` after every file, so a `vi.setConfig` override only reaches
+ * the first file a worker runs (measured: 5 of 24 identical 6s specs fell back to the
+ * 5000ms default). The base config also reaches the builder's own cleanup hooks, which
+ * are registered before `src/test-setup.ts` runs. Keeping `vi.setConfig` as well is
+ * harmless; `src/test-timeouts.spec.ts` guards that wiring.
+ *
+ * `isolate: true` overrides the builder's `isolate: false`: sharing one jsdom
+ * environment across the files a worker runs leaked `window.history` (the three
+ * `*-edit` specs that call `window.history.replaceState` in `beforeEach` failed as a
+ * whole file when it happened). A fresh environment per file removes the shared state.
+ */
+export default {
+  test: {
+    testTimeout: TEST_TIMEOUT_MS,
+    hookTimeout: HOOK_TIMEOUT_MS,
+    isolate: true,
+  },
+};

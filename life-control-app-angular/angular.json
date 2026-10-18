@@ -87,9 +87,10 @@
             "tsConfig": "tsconfig.spec.json",
             "buildTarget": "life-control-app-angular:build:development",
             "runner": "vitest",
+            "runnerConfig": "src/test-timeouts.ts",
             "include": ["src/**/*.spec.ts"],
-            "codeCoverage": true,
-            "codeCoverageReporters": ["text", "lcov", "json-summary"],
+            "coverage": true,
+            "coverageReporters": ["text", "lcov", "json-summary"],
             "setupFiles": ["src/test-setup.ts"]
           }
         },
@@ -103,6 +104,7 @@
     }
   },
   "cli": {
-    "schematicCollections": ["angular-eslint"]
+    "schematicCollections": ["angular-eslint"],
+    "packageManager": "npm"
   }
 }

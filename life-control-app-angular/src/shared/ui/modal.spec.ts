@@ -64,6 +64,10 @@ describe('Modal', () => {
   describe('open / close', () => {
     it('should not render the dialog when isOpen is false', () => {
       host.isOpen = false;
+      // Zoneless change detection only refreshes a view marked dirty; assigning a plain
+      // host property does not mark it, so `detectChanges()` would skip the refresh and
+      // the dev-mode check would trip NG0100.
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
       expect(dialog()).toBeNull();
       expect(backdrop()).toBeNull();
@@ -91,6 +95,7 @@ describe('Modal', () => {
 
     it('should not render footer slot content when showFooter is false', () => {
       host.showFooter = false;
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
       expect(fixture.nativeElement.querySelector('.modal-footer')).toBeNull();
       expect(fixture.nativeElement.querySelector('.footer-content')).toBeNull();
@@ -111,6 +116,7 @@ describe('Modal', () => {
 
     it('should not render title or header when no title is provided', () => {
       host.title = '';
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
       expect(fixture.nativeElement.querySelector('.modal-header')).toBeNull();
       expect(dialog()?.getAttribute('aria-labelledby')).toBeNull();
@@ -128,6 +134,7 @@ describe('Modal', () => {
 
     it('should not render the close button when showCloseButton is false', () => {
       host.showCloseButton = false;
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
       expect(fixture.nativeElement.querySelector('.modal-header button[app-button]')).toBeNull();
     });
@@ -155,6 +162,7 @@ describe('Modal', () => {
 
     it('should NOT emit modalClose on backdrop click when closeOnBackdrop is false', () => {
       host.closeOnBackdrop = false;
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
       backdrop()?.click();
       expect(host.closeCount).toBe(0);
@@ -169,12 +177,14 @@ describe('Modal', () => {
 
     it('should add the small class on the host when size is small', () => {
       host.size = 'small';
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
       expect(modalHost().classList.contains('small')).toBe(true);
     });
 
     it('should add the large class on the host when size is large', () => {
       host.size = 'large';
+      fixture.changeDetectorRef.markForCheck();
       fixture.detectChanges();
       expect(modalHost().classList.contains('large')).toBe(true);
     });
