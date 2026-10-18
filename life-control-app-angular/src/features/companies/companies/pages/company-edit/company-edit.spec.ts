@@ -1,5 +1,4 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { signal } from '@angular/core';
 import { CompanyEdit } from './company-edit';
 import { Company } from '@features/companies/companies/models/company.models';
@@ -94,7 +93,7 @@ describe('CompanyEdit', () => {
     };
 
     await TestBed.configureTestingModule({
-      imports: [CompanyEdit, NoopAnimationsModule, ReactiveFormsModule],
+      imports: [CompanyEdit, ReactiveFormsModule],
       providers: [
         { provide: CompanyService, useValue: companyServiceMock },
         {

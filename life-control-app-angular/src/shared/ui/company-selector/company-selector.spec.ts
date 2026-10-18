@@ -1,6 +1,5 @@
 import { signal, WritableSignal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { CompanySelector } from './company-selector';
 import { CompanyContextService } from '../../data/company-context.service';
 import { Company } from '@features/companies/companies/models/company.models';
@@ -38,7 +37,7 @@ describe('CompanySelector', () => {
     setCurrentCompany = vi.fn();
 
     await TestBed.configureTestingModule({
-      imports: [CompanySelector, NoopAnimationsModule],
+      imports: [CompanySelector],
       providers: [
         {
           provide: CompanyContextService,

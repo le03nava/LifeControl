@@ -1,6 +1,5 @@
 /// <reference types="vitest/globals" />
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { By } from '@angular/platform-browser';
 import { signal, Type, WritableSignal } from '@angular/core';
@@ -387,7 +386,7 @@ describe('StoreLocationsPage', () => {
     roles: string[] = ['lc-admin'],
   ): Promise<void> {
     TestBed.configureTestingModule({
-      imports: [StoreLocationsPage, NoopAnimationsModule, HttpClientTestingModule],
+      imports: [StoreLocationsPage, HttpClientTestingModule],
       providers: [
         { provide: CompanyService, useClass: MockCompanyService },
         { provide: CompanyCountryService, useClass: MockCompanyCountryService },

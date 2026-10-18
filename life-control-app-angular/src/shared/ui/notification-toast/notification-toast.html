@@ -1,6 +1,11 @@
 <div class="notification-container">
   @for (notification of notifications(); track notification.id) {
-    <div class="notification" [class]="notification.type" [@notificationAnimation]>
+    <div
+      class="notification"
+      [class]="notification.type"
+      animate.enter="notification-enter"
+      animate.leave="notification-leave"
+    >
       <div class="notification-content">
         <span class="notification-icon">{{ getNotificationIcon(notification.type) }}</span>
         <span class="notification-message">{{ notification.message }}</span>

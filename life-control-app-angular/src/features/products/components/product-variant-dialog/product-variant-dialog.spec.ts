@@ -1,6 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { MAT_DIALOG_DATA, MatDialog, MatDialogRef } from '@angular/material/dialog';
 import { of, Subject, throwError } from 'rxjs';
 import { ProductVariantDialog, ProductVariantDialogData } from './product-variant-dialog';
@@ -43,7 +42,7 @@ describe('ProductVariantDialog', () => {
     };
 
     TestBed.configureTestingModule({
-      imports: [ProductVariantDialog, NoopAnimationsModule],
+      imports: [ProductVariantDialog],
       providers: [
         { provide: MatDialogRef, useValue: dialogRef },
         { provide: MatDialog, useValue: dialogMock },

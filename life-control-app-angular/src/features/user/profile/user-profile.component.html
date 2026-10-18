@@ -138,7 +138,7 @@
                     </mat-select>
                   } @else {
                     <mat-select
-                      [value]="form().get('companyStoreId')?.value"
+                      [value]="$safeNavigationMigration(form().get('companyStoreId')?.value)"
                       (selectionChange)="onAssignedStoreChange($event.value)"
                     >
                       <mat-option [value]="null">— None —</mat-option>
@@ -160,7 +160,7 @@
                 <mat-form-field appearance="outline" class="form-field form-field--full">
                   <mat-label>Company</mat-label>
                   <mat-select
-                    [value]="form().get('companyId')?.value"
+                    [value]="$safeNavigationMigration(form().get('companyId')?.value)"
                     (selectionChange)="onCompanyChange($event.value)"
                   >
                     @if (loadingCompanies()) {
@@ -179,7 +179,7 @@
                 <mat-form-field appearance="outline" class="form-field form-field--full">
                   <mat-label>Country</mat-label>
                   <mat-select
-                    [value]="form().get('companyCountryId')?.value"
+                    [value]="$safeNavigationMigration(form().get('companyCountryId')?.value)"
                     (selectionChange)="onCountryChange($event.value)"
                     [disabled]="!form().get('companyId')?.value"
                   >
@@ -200,7 +200,7 @@
                 <mat-form-field appearance="outline" class="form-field form-field--full">
                   <mat-label>Region</mat-label>
                   <mat-select
-                    [value]="form().get('companyRegionId')?.value"
+                    [value]="$safeNavigationMigration(form().get('companyRegionId')?.value)"
                     (selectionChange)="onRegionChange($event.value)"
                     [disabled]="!form().get('companyCountryId')?.value"
                   >
@@ -221,7 +221,7 @@
                 <mat-form-field appearance="outline" class="form-field form-field--full">
                   <mat-label>Zone</mat-label>
                   <mat-select
-                    [value]="form().get('companyZoneId')?.value"
+                    [value]="$safeNavigationMigration(form().get('companyZoneId')?.value)"
                     (selectionChange)="onZoneChange($event.value)"
                     [disabled]="!form().get('companyRegionId')?.value"
                   >
@@ -242,7 +242,7 @@
                 <mat-form-field appearance="outline" class="form-field form-field--full">
                   <mat-label>Store</mat-label>
                   <mat-select
-                    [value]="form().get('companyStoreId')?.value"
+                    [value]="$safeNavigationMigration(form().get('companyStoreId')?.value)"
                     (selectionChange)="onStoreChange($event.value)"
                     [disabled]="!form().get('companyZoneId')?.value"
                   >

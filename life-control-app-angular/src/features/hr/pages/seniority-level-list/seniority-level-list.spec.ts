@@ -1,6 +1,5 @@
 /// <reference types="vitest/globals" />
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { Router, provideRouter } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Signal, WritableSignal, signal } from '@angular/core';
@@ -84,7 +83,7 @@ describe('SeniorityLevelList', () => {
 
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
-      imports: [SeniorityLevelList, NoopAnimationsModule],
+      imports: [SeniorityLevelList],
       providers: [
         provideRouter([]),
         { provide: SeniorityLevelService, useValue: seniorityLevelService },

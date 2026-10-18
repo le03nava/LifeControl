@@ -1,6 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { By } from '@angular/platform-browser';
 import { of, Observable, throwError } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
@@ -74,7 +73,7 @@ describe('SalesOrderList', () => {
     };
 
     await TestBed.configureTestingModule({
-      imports: [SalesOrderList, NoopAnimationsModule],
+      imports: [SalesOrderList],
       providers: [
         provideRouter([]),
         {

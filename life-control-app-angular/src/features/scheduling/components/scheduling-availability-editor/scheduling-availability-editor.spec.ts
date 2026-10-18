@@ -1,6 +1,5 @@
 /// <reference types="vitest/globals" />
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { FormGroup, NonNullableFormBuilder, Validators } from '@angular/forms';
 import { SchedulingAvailabilityEditor } from './scheduling-availability-editor';
 import {
@@ -37,7 +36,7 @@ describe('SchedulingAvailabilityEditor', () => {
   ): void {
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
-      imports: [SchedulingAvailabilityEditor, NoopAnimationsModule],
+      imports: [SchedulingAvailabilityEditor],
     });
     fixture = TestBed.createComponent(SchedulingAvailabilityEditor);
     component = fixture.componentInstance;

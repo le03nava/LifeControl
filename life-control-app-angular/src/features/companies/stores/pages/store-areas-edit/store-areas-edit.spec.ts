@@ -1,6 +1,5 @@
 /// <reference types="vitest/globals" />
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { By } from '@angular/platform-browser';
 import { Subject, of, throwError } from 'rxjs';
@@ -62,7 +61,7 @@ describe('StoreAreasEdit', () => {
     roles: string[] = ['lc-admin'],
   ): Promise<void> {
     await TestBed.configureTestingModule({
-      imports: [StoreAreasEdit, NoopAnimationsModule, HttpClientTestingModule],
+      imports: [StoreAreasEdit, HttpClientTestingModule],
       providers: [
         { provide: StoreAreaService, useClass: MockStoreAreaService },
         { provide: Router, useValue: routerMock },
@@ -434,7 +433,7 @@ describe('StoreAreasEdit', () => {
       const pending = new Subject<StoreArea>();
 
       await TestBed.configureTestingModule({
-        imports: [StoreAreasEdit, NoopAnimationsModule, HttpClientTestingModule],
+        imports: [StoreAreasEdit, HttpClientTestingModule],
         providers: [
           { provide: StoreAreaService, useClass: MockStoreAreaService },
           { provide: Router, useValue: routerMock },
@@ -476,7 +475,7 @@ describe('StoreAreasEdit', () => {
   describe('edit mode fetch failure', () => {
     beforeEach(async () => {
       await TestBed.configureTestingModule({
-        imports: [StoreAreasEdit, NoopAnimationsModule, HttpClientTestingModule],
+        imports: [StoreAreasEdit, HttpClientTestingModule],
         providers: [
           { provide: StoreAreaService, useClass: MockStoreAreaService },
           { provide: Router, useValue: routerMock },
@@ -522,7 +521,7 @@ describe('StoreAreasEdit', () => {
   describe('edit mode with version 0', () => {
     beforeEach(async () => {
       await TestBed.configureTestingModule({
-        imports: [StoreAreasEdit, NoopAnimationsModule, HttpClientTestingModule],
+        imports: [StoreAreasEdit, HttpClientTestingModule],
         providers: [
           { provide: StoreAreaService, useClass: MockStoreAreaService },
           { provide: Router, useValue: routerMock },

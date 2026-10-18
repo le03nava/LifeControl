@@ -1,5 +1,4 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { of, throwError } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
 import { StatusSelector } from './status-selector';
@@ -71,7 +70,7 @@ describe('StatusSelector', () => {
     };
 
     await TestBed.configureTestingModule({
-      imports: [StatusSelector, NoopAnimationsModule],
+      imports: [StatusSelector],
       providers: [
         { provide: PurchaseOrderService, useValue: purchaseOrderService },
         { provide: StatusService, useValue: statusService },

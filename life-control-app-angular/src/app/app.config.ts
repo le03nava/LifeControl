@@ -10,7 +10,6 @@ import { registerLocaleData } from '@angular/common';
 import localeEsMx from '@angular/common/locales/es-MX';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { provideRouter, withComponentInputBinding } from '@angular/router';
-import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { provideKeycloak } from '@core/config/keycloak';
 import { errorInterceptor } from '@shared/data/error-interceptor';
 import { loadingInterceptor } from '@shared/data/loading-interceptor';
@@ -32,9 +31,6 @@ export const appConfig: ApplicationConfig = {
     // 0. Localización (MXN / es-MX)
     { provide: LOCALE_ID, useValue: 'es-MX' },
     { provide: DEFAULT_CURRENCY_CODE, useValue: 'MXN' },
-
-    // Animaciones (requerido por Angular Material)
-    provideAnimationsAsync(),
 
     // 1. Core providers - HttpClient con interceptores personalizados
     // No `withFetch()`: desde v22 fetch es el backend por defecto de HttpClient.

@@ -1,6 +1,5 @@
 import { By } from '@angular/platform-browser';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { signal } from '@angular/core';
 import { NEVER, of } from 'rxjs';
@@ -155,7 +154,7 @@ describe('RegionsPage', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [RegionsPage, NoopAnimationsModule, HttpClientTestingModule],
+      imports: [RegionsPage, HttpClientTestingModule],
       providers: [
         { provide: CompanyService, useClass: MockCompanyService },
         { provide: CompanyCountryService, useClass: MockCompanyCountryService },

@@ -1,6 +1,5 @@
 import { HttpErrorResponse, provideHttpClient, withXhr } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { ProductSupplierList } from './product-supplier-list';
 import { ProductSupplierDialog } from '../../components/product-supplier-dialog/product-supplier-dialog';
 import { ProductSupplierService } from '../../data/product-supplier.service';
@@ -69,7 +68,7 @@ describe('ProductSupplierList', () => {
     };
 
     TestBed.configureTestingModule({
-      imports: [ProductSupplierList, NoopAnimationsModule],
+      imports: [ProductSupplierList],
       providers: [
         provideHttpClient(withXhr()),
         { provide: ProductSupplierService, useValue: serviceMock },

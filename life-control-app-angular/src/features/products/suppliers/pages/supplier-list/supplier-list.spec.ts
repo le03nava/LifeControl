@@ -2,7 +2,6 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { MatDialog } from '@angular/material/dialog';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { of, throwError } from 'rxjs';
 import { SupplierList } from './supplier-list';
 import { SupplierService } from '../../data/supplier.service';
@@ -50,7 +49,7 @@ describe('SupplierList', () => {
     };
 
     await TestBed.configureTestingModule({
-      imports: [SupplierList, NoopAnimationsModule],
+      imports: [SupplierList],
       providers: [
         provideRouter([]),
         { provide: SupplierService, useValue: supplierService },

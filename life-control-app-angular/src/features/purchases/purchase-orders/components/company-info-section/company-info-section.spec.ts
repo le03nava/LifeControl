@@ -1,5 +1,4 @@
 import { TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { of } from 'rxjs';
 import { CompanyInfoSection } from './company-info-section';
@@ -238,7 +237,7 @@ describe('CompanyInfoSection', () => {
     };
 
     await TestBed.configureTestingModule({
-      imports: [CompanyInfoSection, NoopAnimationsModule, HttpClientTestingModule],
+      imports: [CompanyInfoSection, HttpClientTestingModule],
       providers: [
         { provide: ConfigService, useValue: { apiUrl: TEST_API } },
         { provide: CompanyService, useValue: companyServiceMock },

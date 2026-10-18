@@ -1,6 +1,5 @@
 /// <reference types="vitest/globals" />
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { MAT_DIALOG_DATA, MatDialogRef } from '@angular/material/dialog';
 import { AccessReviewDialog, AccessReviewDialogData } from './access-review-dialog';
 import {
@@ -14,7 +13,9 @@ describe('AccessReviewDialog', () => {
   let component: AccessReviewDialog;
   let dialogRef: { close: ReturnType<typeof vi.fn> };
 
-  const task = (overrides: Partial<AccessProvisioningTaskView> = {}): AccessProvisioningTaskView => ({
+  const task = (
+    overrides: Partial<AccessProvisioningTaskView> = {},
+  ): AccessProvisioningTaskView => ({
     id: 'task-1',
     kind: 'ACTIVATE',
     status: 'APPROVAL_PENDING',
@@ -31,7 +32,9 @@ describe('AccessReviewDialog', () => {
     ...overrides,
   });
 
-  const overview = (overrides: Partial<AccessProvisioningOverview> = {}): AccessProvisioningOverview => ({
+  const overview = (
+    overrides: Partial<AccessProvisioningOverview> = {},
+  ): AccessProvisioningOverview => ({
     keycloakUserId: null,
     accountLinked: false,
     requiredRoles: ['lc-employee', 'lc-salary'],
@@ -71,7 +74,7 @@ describe('AccessReviewDialog', () => {
 
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
-      imports: [AccessReviewDialog, NoopAnimationsModule],
+      imports: [AccessReviewDialog],
       providers: [
         { provide: MatDialogRef, useValue: dialogRef },
         { provide: MAT_DIALOG_DATA, useValue: data },
@@ -137,13 +140,19 @@ describe('AccessReviewDialog', () => {
   });
 
   it('should offer Aprobar when the requester is somebody else (O3/T95)', () => {
-    setup({ overview: { openTask: task({ requestedBy: 'requester-sub' }) }, currentUserId: 'other-sub' });
+    setup({
+      overview: { openTask: task({ requestedBy: 'requester-sub' }) },
+      currentUserId: 'other-sub',
+    });
 
     expect(button('Aprobar')).toBeDefined();
   });
 
   it('should hide Aprobar and state why when the caller requested the task (O3/T95)', () => {
-    setup({ overview: { openTask: task({ requestedBy: 'my-own-sub' }) }, currentUserId: 'my-own-sub' });
+    setup({
+      overview: { openTask: task({ requestedBy: 'my-own-sub' }) },
+      currentUserId: 'my-own-sub',
+    });
 
     expect(button('Aprobar')).toBeUndefined();
     expect(text()).toContain('No podés aprobar tu propia solicitud');

@@ -1,5 +1,4 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { FormControl, FormGroup } from '@angular/forms';
 import { AddressFormComponent } from './address-form';
 import { AddressControl } from '../../models/address.models';
@@ -45,7 +44,7 @@ describe('AddressFormComponent', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [AddressFormComponent, NoopAnimationsModule],
+      imports: [AddressFormComponent],
     }).compileComponents();
 
     fixture = TestBed.createComponent(AddressFormComponent);
