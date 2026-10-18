@@ -22,9 +22,15 @@
 # The startup log said it plainly (`endpoint=127.0.0.1:4317`), but nothing in the repository read
 # that log, and the trace store simply stayed empty. The mode of failure is silent, so the pin has
 # to be a command: this suite fails when any receiver under `distributor.receivers` lacks an
-# explicit, non-loopback endpoint, and when the endpoints stop matching the expected table below.
-# The table is a deliberate freeze: changing a receiver's socket, or dropping one, means editing
-# this table in the same commit, so it is a reviewed decision instead of a drift.
+# explicit, non-loopback endpoint, or when the endpoints stop matching the expected table below.
+# The table is a deliberate freeze: changing a receiver's socket means editing this table in the
+# same commit, so it is a reviewed decision instead of a drift.
+#
+# It also pins the removal of the Zipkin receiver, which the same image bump made worth deciding
+# explicitly: the compose file publishes 9411 on the host, nothing in this stack sends Zipkin, and
+# a declared receiver would make that published port an unauthenticated ingestion endpoint. A
+# review of this change raised that as a CRITICAL finding; re-adding the receiver means editing
+# this file deliberately, not by accident.
 #
 # No Docker daemon, no network: this is a static consistency check.
 #
@@ -37,7 +43,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 DOCKER_DIR="$REPO_ROOT/docker"
 TEMPO_CONFIG="$DOCKER_DIR/config/tempo/tempo.yml"
-COMPOSE_FILE="$DOCKER_DIR/docker-compose.yml"
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -135,11 +140,18 @@ parse_receivers() {
 }
 
 # Expected sockets, frozen. `otlp.grpc` and `otlp.http` are the receivers the API and the gateway
-# export to; `zipkin` is kept because the compose file publishes its port -- see the record
-# odd/tasks/tempo-receiver-endpoints.md.
+# export to.
 EXPECTED_ENDPOINTS="otlp.grpc=0.0.0.0:4317
-otlp.http=0.0.0.0:4318
-zipkin=0.0.0.0:9411"
+otlp.http=0.0.0.0:4318"
+
+# Receivers that must not come back without a deliberate decision. The Zipkin receiver is the one:
+# nothing in this stack sends Zipkin and the compose file publishes its port on the host, so
+# declaring it would expose an unauthenticated ingestion endpoint.
+FORBIDDEN_RECEIVERS="zipkin"
+
+is_forbidden() {
+	printf '%s\n' "$FORBIDDEN_RECEIVERS" | grep -qx "${1%%.*}"
+}
 
 if [ ! -f "$TEMPO_CONFIG" ]; then
 	fail "missing docker/config/tempo/tempo.yml"
@@ -155,6 +167,10 @@ else
 				continue
 				;;
 		esac
+		if is_forbidden "$leaf"; then
+			fail "receiver '$leaf' must not be declared: nothing sends Zipkin and the compose file publishes its port on the host, so it would be an unauthenticated ingestion endpoint"
+			continue
+		fi
 		if [ "$endpoint" = "-" ]; then
 			fail "receiver '$leaf' declares no explicit endpoint (Tempo 3.x would bind it to localhost)"
 			continue
@@ -185,6 +201,7 @@ else
 		case "$leaf" in
 			@unparsed) continue ;;
 		esac
+		is_forbidden "$leaf" && continue
 		if ! printf '%s\n' "$EXPECTED_ENDPOINTS" | awk -F= -v leaf="$leaf" '$1 == leaf { found = 1 } END { exit !found }'; then
 			fail "receiver '$leaf' is not in the expected table: add it (and its endpoint) to this suite"
 		fi
@@ -192,13 +209,13 @@ else
 fi
 
 # ------------------------------------------
-# 2. The Zipkin port stays published, because the receiver is kept.
-#    Dropping the receiver means editing this check too, in the same commit.
+# 2. The Zipkin receiver is absent, and the published port stays as it was.
+#    Re-adding the receiver means editing section 1's forbidden list in the same commit.
 # ------------------------------------------
-if grep -q '"\${TEMPO_ZIPKIN_PORT:-9411}:9411"' "$COMPOSE_FILE" 2>/dev/null; then
-	pass "compose still publishes the Zipkin port (TEMPO_ZIPKIN_PORT -> 9411)"
+if grep -qE '^[[:space:]]+zipkin:' "$TEMPO_CONFIG" 2>/dev/null; then
+	fail "docker/config/tempo/tempo.yml declares the Zipkin receiver again; decide the host exposure first"
 else
-	fail "compose no longer publishes ${TEMPO_ZIPKIN_PORT:-9411}:9411; the receiver and this check must move together"
+	pass "the Zipkin receiver is not declared (its published host port accepts nothing)"
 fi
 
 printf '\n%d passed, %d failed\n' "$PASS_COUNT" "$FAIL_COUNT"
