@@ -32,7 +32,9 @@ zero-blast-radius pin."
 `origin/main` passes, so the stricter class is satisfiable rather than unsatisfiable."
 
 **S5** — "`bash .github/scripts/tests/odd-status-headers.test.sh` exits 0, asserts every fixture, and
-the real-tree assertion still reports the same record count and its 115 claimed merge commits."
+the real-tree assertion reports every record the tree holds — **79** before this unit's record was
+added and **80** with it, since the record is audited like any other — with its 115 claimed merge
+commits."
 
 **S6** — "The `ci-speed-shape` fixture and the four quotation-carrying records stay green, and so do
 `docker-images-rebuild` and `project-conventions-skill`."
@@ -83,9 +85,12 @@ the old rule, which is the defect restated as a test.
 **L5 — the verification this record rests on, run by the parent rather than accepted on report**:
 
 - The same tree, two rules: the suite at `origin/main` prints `10 fixture(s) asserted` / `20 passed, 0
-  failed` and the changed one prints `14 fixture(s) asserted` / `25 passed, 0 failed`, with the
-  **identical** real-tree verdict — `checked 79 record(s); 115 claimed merge commit(s); ancestry: ran`,
-  no `PROBLEM` line. That is the differential: the delta is the four new fixtures and nothing else.
+  failed` and the changed one prints `14 fixture(s) asserted` / `25 passed, 0 failed`, both reporting
+  the same real-tree verdict — `checked 79 record(s); 115 claimed merge commit(s); ancestry: ran`, no
+  `PROBLEM` line. That measurement predates this record, and adding the record is the only thing that
+  moves the count: over the final tree the changed suite reports `80 record(s)` with the same 115
+  claims and still no `PROBLEM`, because this unit's own record is audited like any other. The delta
+  the two rules produce on any single record is zero, which is what the claim is about.
 - The **real** incident text, not a synthesized fixture: `git show 7dbd3aa:odd/tasks/access-provisioning-worker-repairs.md`
   into a scratch record tree, audited by both rules. The base rule printed `READ 1 / DELIVERY 0 /
   ancestry: ran` and exited **0** — the measured hole; the new rule printed
@@ -135,3 +140,13 @@ records that legitimately quote the forbidden phrases keep them outside the firs
 header is a verdict, not a discussion. The paragraph now names the change without asserting the
 phrase, and the explanation lives here. Kept because it is the only measured case of the cost the
 split accepts, and because a later reader deserves to know the failure mode before writing a header.
+
+**L10 — the native review found the arithmetic, and it was mine** (2026-10-19, finding `R3-1`, one
+bounded correction). The reliability reviewer and the refuter agreed on one CRITICAL, candidate-caused
+finding: `L5` claimed the changed suite still reported `79 records` over the real tree, while the
+candidate adds **this** record to `odd/tasks/` and the suite audits that path, so the final output
+reports `80`. The number was measured before the record existed and then published as if it described
+the candidate — the defect this unit exists to catch, committed inside its own record. Both states are
+stated now, `S5` in issue #472 was corrected to count the record it audits, and the claim about
+**verdicts** — no record changes verdict under either rule — stands untouched, because that is what the
+measurement actually supports.
