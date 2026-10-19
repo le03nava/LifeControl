@@ -63,6 +63,12 @@ public class KeycloakIdentityProvider implements IdentityProvider {
                 var path = location.getPath();
                 return path.substring(path.lastIndexOf('/') + 1);
             }
+            // The response-returning overload does not throw on a client error, so a 409 arrives here
+            // as a status and never reaches the catch below: without this branch the address-taken
+            // conflict would be reported as retryable and the linker's catch would never see it.
+            if (response.getStatus() == 409) {
+                throw new IdentityProviderConflictException("User already exists: " + user.getUsername());
+            }
             throw new IdentityProviderConnectionException("Unexpected response creating user: " + response.getStatus());
         } catch (WebApplicationException | ProcessingException e) {
             var message = "Failed to create user: " + user.getUsername();

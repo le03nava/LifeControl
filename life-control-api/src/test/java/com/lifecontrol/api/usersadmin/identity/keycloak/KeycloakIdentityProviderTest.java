@@ -234,6 +234,19 @@ class KeycloakIdentityProviderTest {
         }
 
         @Test
+        @DisplayName("should map a returned 409 response to IdentityProviderConflictException")
+        void shouldMapReturned409ResponseToConflictException() {
+            when(realmResource.users()).thenReturn(usersResource);
+            var conflict = mock(Response.class);
+            when(conflict.getStatus()).thenReturn(409);
+            when(usersResource.create(any(UserRepresentation.class))).thenReturn(conflict);
+
+            assertThatThrownBy(() -> provider.createUser(buildUser()))
+                    .isInstanceOf(IdentityProviderConflictException.class)
+                    .hasMessageContaining("User already exists");
+        }
+
+        @Test
         @DisplayName("should map ProcessingException to IdentityProviderConnectionException")
         void shouldMapProcessingExceptionToConnectionException() {
             when(realmResource.users()).thenReturn(usersResource);
