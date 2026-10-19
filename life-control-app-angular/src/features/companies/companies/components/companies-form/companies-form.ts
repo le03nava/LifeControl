@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, effect, input, output } from '@angular/core';
 import { AbstractControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
-import { Company, CompanyControl } from '../../models/company.models';
+import { CompanyControl, CompanyFormValue } from '../../models/company.models';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
@@ -33,7 +33,7 @@ export class CompaniesForm {
   serverErrors = input<Record<string, string>>({});
   addressServerErrors = input<Record<string, string>>({});
   countries = input<Country[]>([]);
-  saveCompany = output<Company>();
+  saveCompany = output<CompanyFormValue>();
   cancelForm = output<void>();
 
   readonly personaTypes = [
@@ -139,7 +139,7 @@ export class CompaniesForm {
           raw.address.city ||
           raw.address.state ||
           raw.address.countryId);
-      const companyData: Company = {
+      const companyData: CompanyFormValue = {
         id: raw.id,
         companyKey: raw.companyKey ?? '',
         companyName: raw.companyName,
@@ -150,8 +150,6 @@ export class CompaniesForm {
         emailDomain: raw.emailDomain ?? '',
         phone: raw.phone,
         enabled: raw.enabled,
-        createdAt: '',
-        updatedAt: '',
         ...(hasAddress ? { address: raw.address } : {}),
       };
       this.saveCompany.emit(companyData);
