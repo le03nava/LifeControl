@@ -6,8 +6,8 @@ workflow, no edit to any record's narrative.**
 **Status**: the two holes of issue **#472** are closed in the suite and checked: the delivery-state
 class now requires a merge commit the ancestry half can verify, the bare pending-delivery phrase became
 vocabulary (the `yet` is gone), and the real pre-repair header of
-`access-provisioning-worker-repairs.md` — the case that passed green — fails the new rule. The delivery
-is recorded in the log below. This header makes no claim about push or PR state.
+`access-provisioning-worker-repairs.md` — the case that passed green — fails the new rule. This header
+makes no claim about push or PR state.
 **Created**: 2026-10-19 · **Branch**: `chore/odd-status-headers-split` · **Base**: `main` @ `d7870b1`
 · **Worktree**: `~/workspace/LifeControl-worktrees/chore-odd-status-headers-split` (herdr `w4Z`)
 · **Issue**: **#472** · **Risk**: **item 5 (CI)** — this file is a gate: `pr-label-guard` runs every
@@ -106,6 +106,23 @@ guard enforces this"* was found while writing this and is **not** fixed here; it
 longer say `awaiting review` and back it with only a pull request number. `references/feature-records.md`
 already forbids every phrase of that class in a header, and fixture `delivery-state-with-merge-commit`
 pins that the class is satisfiable rather than impossible.
+
+**L9 — the independent verification found one defect, in this record, and two advisories**: measured
+by `gentle-ai-verify` over commit `b70db9f`, which confirmed the nine checks it was given (the suite
+against the same tree under both rules, the `7dbd3aa` incident failing now and passing before, the
+`declines_its_delivery` ⊆ `declining_phrases` invariant extracted mechanically, no fixture loosened,
+shellcheck, the workflow wiring, and the L3 measurement recomputed) and then failed this record's own
+header: it said *"The delivery is recorded in the log below"* while no delivery row existed. That is
+a durable claim with no evidence — the class rule 1 of `references/feature-records.md` forbids — and
+this suite **cannot** see it, because its vocabulary has no phrase for a self-referential delivery
+claim. The sentence is gone; the delivery entry lands here with the pull request, as `T5` says. Two
+advisories were accepted without a correction round, with the reason recorded rather than implied:
+(i) another unit's merge commit still closes a delivery-state decline, because hash ownership is as
+undecidable offline as number ownership — the file's header comment now says that instead of implying
+the opposite, and it is not a regression against `d7870b1`, where a bare number sufficed; (ii) a
+`merged — commit \`<hash>\`` without a delivery marker fires, and the failure message now names the
+marker requirement (*behind a delivery marker*), so an author is not told they wrote no merge commit
+when they wrote one.
 
 **L8 — this unit's own record was the rule's first catch, and the header was corrected instead of the
 rule** (2026-10-19). The first draft of the `**Status**:` paragraph above *explained* the change in

@@ -36,7 +36,10 @@
 #     pull request in an unrelated clause while this suite reported
 #     `PASS: no record on the tree declines a delivery that landed`. So this class requires a MERGE
 #     COMMIT: a hash a delivery marker introduces, which the ancestry half can check against
-#     `origin/main`. Fixture `decline-with-foreign-number` is that incident.
+#     `origin/main`. Fixture `decline-with-foreign-number` is that incident. The hash is not proof of
+#     ownership either -- nothing offline is -- but citing another unit's merge commit by accident is
+#     a far narrower error than citing a number, and the ancestry half at least proves the commit
+#     exists and landed.
 #   - The SOFT class makes no claim about this unit's delivery: `implemented`, and the hedge
 #     `makes no claim about ... push`. For these the rule is unchanged -- `has_delivery_evidence`,
 #     which a `#<number>` satisfies -- because `implemented` says the work exists, not that the unit
@@ -254,7 +257,7 @@ audit() {
 		if [ -n "$declining" ]; then
 			if declines_its_delivery "$para"; then
 				if [ -z "$(delivery_hashes "$para")" ]; then
-					printf 'PROBLEM: %s: declines its own delivery with no merge commit in its Status paragraph (phrases: %s)\n' \
+					printf 'PROBLEM: %s: declines its own delivery with no merge commit behind a delivery marker in its Status paragraph (phrases: %s)\n' \
 						"$rel" "$(printf '%s' "$declining" | tr '\n' ',' | sed 's/,$//; s/,/, /g')"
 					problems=$((problems + 1))
 				fi
