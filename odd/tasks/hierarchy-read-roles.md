@@ -38,11 +38,17 @@ en las pantallas operativas (read model angosto / consumo de UI) queda fuera de 
 
 | ID | Task | Spec | Route | Commit |
 | --- | --- | --- | --- | --- |
-| T1 | `ScopeLevel.COMPANY` acepta `Roles.COMPANY_READ` y `GrantablePositionRoles.FROZEN` acepta `lc-company-read`, con los dos pins verdes | S1, S3 | inline | — |
-| T2 | `GET /api/companies/selector` filtrado por el claim `company_id`, con gate `isAuthenticated()` y su matriz de seguridad | S2 | inline | — |
-| T3 | Los `-read` de los ancestros entran en los GET de lista y detalle de los niveles descendientes, con su matriz de seguridad por controller | S1 | inline | — |
-| T4 | Los consumidores del frontend dejan de usar `getCompanies(0, 1000)` como selector y pasan al selector nuevo | S2 | inline | — |
+| T1 | `ScopeLevel.COMPANY` acepta `Roles.COMPANY_READ` y `GrantablePositionRoles.FROZEN` acepta `lc-company-read`, con los dos pins verdes | S1, S3 | inline | `6df7654` |
+| T2 | `GET /api/companies/selector` filtrado por el claim `company_id`, con gate `isAuthenticated()` y su matriz de seguridad | S2 | inline | `0ac9e6c` |
+| T3 | Los `-read` de los ancestros entran en los GET de lista y detalle de los niveles descendientes, con su matriz de seguridad por controller | S1 | delegado (`gentle-ai-worker`) | — |
+| T4 | Los consumidores del frontend dejan de usar `getCompanies(0, 1000)` como selector y pasan al selector nuevo | S2 | delegado (`gentle-ai-worker`) | — |
 | T5 | Pin de S3: `lc-company-read` no entra en `isCompanyRole` ni en las rutas de Companies | S3 | inline | — |
+
+**Fuera de alcance de T4, con razón**: `company-context.service.ts`, `user-profile.component.ts`,
+`company-list.ts` y `company-edit.ts` siguen sobre la lectura completa. `currentCompany()` se consume
+sólo en `company-edit.ts:76`, que necesita el modelo entero; migrarlos exige mover esa pantalla a su
+propia lectura, que es otro cambio con su propio riesgo. Queda como trabajo posterior con nombre
+propio en vez de colarse en esta migración.
 
 **Por qué todo inline y no delegado**: una sola unidad de comportamiento con dependencias entre
 slices (T4 depende de T2; T3 comparte el módulo Gradle con T1 y T2), así que dos writers en el mismo
@@ -66,3 +72,20 @@ los roles de **escritura** de todos sus ancestros más el `-read` de **su propio
 necesitan roles. **Cero roles nuevos hacen falta**: los cinco `-read` existen en `Roles.java`, en
 `roles.ts` y en Keycloak; el único huérfano es `lc-company-read`, que no es grantable, no muestra menú
 y está subsumido por `lc-company` en todos los endpoints que lo aceptan.
+
+**L5** — 2026-02-21 · **T1 y T2 entregados**, cada uno en su commit porque cada uno toca superficie de
+autorización. `6df7654` hace `lc-company-read` grantable: `ScopeLevel.COMPANY` pasa a declarar
+`Roles.COMPANY_READ` junto a `Roles.COMPANY`, `Roles.DEPARTMENT` y `Roles.POSITION`, y la allowlist
+congelada pasa a dieciséis literales. Los dos pins del `GrantablePositionRolesTest` quedaron verdes en
+la misma corrida (2 tests, 0 fallas), que es la prueba de que ambos lados se movieron juntos; los tres
+javadocs que decían "fifteen" ahora dicen "sixteen". `0ac9e6c` agrega `GET /api/companies/selector`
+con gate `isAuthenticated()`: el `getAllCompanies` se refactorizó sobre un `findCompaniesForCurrentUser`
+privado que ambos comparten, así que el filtro por claim tiene **una** copia y los siete tests que ya
+existían para `getAllCompanies` siguen verdes sin tocarlos — esa es la evidencia de que el
+comportamiento previo se mantuvo (S2). El modelo `CompanySelectorResponse` lleva `id`, `companyKey` y
+`companyName` y nada más. La matriz nueva: 4 tests de seguridad (una persona de tienda con `lc-sales`
+y sin ningún rol de compañía recibe 200, un autenticado sin roles recibe 200, un anónimo es rechazado,
+y `/selector` no colisiona con `/{id}`) más 3 tests de servicio (proyección, filtro compartido por
+claim, claim vacío sin lecturas). Total de la corrida enfocada: **54 tests, 0 fallas**, con
+`CompanyServiceTest$GetCompanySelectorTests` 3 y `CompanyControllerSecurityTest$CompanySelectorAccess`
+4.
