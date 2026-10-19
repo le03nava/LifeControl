@@ -90,6 +90,126 @@ get_env_var() {
 }
 
 # ------------------------------------------
+# Declared-key report (read-only)
+# ------------------------------------------
+
+# Keys a tracked env template declares, one per line, in file order.
+#
+# Only a `KEY=value` line at column 0 declares a key: the `# KEY=` lines document a
+# materialized secret (SMTP_USER) and are not declarations, so they are not reported.
+template_declared_keys() {
+	local template="$1"
+	grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$template" 2>/dev/null | cut -d= -f1
+}
+
+# The compose files a report consults, one absolute path per line.
+#
+# COMPOSE_FILES (set by resolve_compose_env) names the files actually in force, so a dev
+# report can say 'true' for WORKER_ENABLED while a prod report says 'false'. Without it
+# every compose file is consulted, base first, so the report still works standalone.
+compose_report_files() {
+	if [ -n "${COMPOSE_FILES+set}" ] && [ "${#COMPOSE_FILES[@]}" -gt 0 ]; then
+		local arg
+		for arg in "${COMPOSE_FILES[@]}"; do
+			case "$arg" in
+			-f) continue ;;
+			esac
+			printf '%s\n' "$arg"
+		done
+		return 0
+	fi
+	printf '%s\n' "$DOCKER_DIR/docker-compose.yml" \
+		"$DOCKER_DIR/docker-compose.override.yml" \
+		"$DOCKER_DIR/docker-compose.prod.yml"
+}
+
+# The value compose falls back to for ${KEY:-value}, last file wins (the order compose
+# merges them). Prints nothing when there is no `:-` fallback, which includes the
+# ${KEY:?message} form: that one makes compose refuse to start instead of defaulting.
+compose_default_for_key() {
+	local key="$1"
+	local file hit default=""
+	while IFS= read -r file; do
+		[ -f "$file" ] || continue
+		hit="$(grep -hoE '\$\{'"$key"':-[^}]*\}' "$file" 2>/dev/null | tail -1)"
+		if [ -n "$hit" ]; then
+			hit="${hit#*:-}"
+			default="${hit%\}}"
+		fi
+	done < <(compose_report_files)
+	printf '%s' "$default"
+}
+
+# 0 when a compose file declares ${KEY:?message} for the key: compose then refuses to start
+# without it, so there is no default to report -- the operator is told by compose itself.
+compose_key_is_required() {
+	local key="$1"
+	local file
+	while IFS= read -r file; do
+		[ -f "$file" ] || continue
+		if grep -qE '\$\{'"$key"':\?' "$file" 2>/dev/null; then
+			return 0
+		fi
+	done < <(compose_report_files)
+	return 1
+}
+
+# Report the keys a template declares that an env file does not carry.
+#
+# Read-only by contract: it never writes to the env file, and it always returns 0. A
+# missing key is legal -- compose supplies a default -- so this is a report, never a gate.
+# validate-env.sh is the **production start gate** (deploy.sh refuses to start prod when it
+# exits non-zero), so a missing key must never be able to stop a production start; and
+# rewriting the env file would destroy the distinction between an operator's declared value
+# and a template default, with no commit to audit.
+#
+# Usage: report_missing_env_keys <env_file> <template_file>
+report_missing_env_keys() {
+	local env_file="$1"
+	local template="$2"
+
+	if [ ! -f "$template" ]; then
+		print_warning "Cannot report missing keys: $template not found"
+		return 0
+	fi
+	if [ ! -f "$env_file" ]; then
+		print_warning "Cannot report missing keys: $env_file not found (create it with setup-env.sh)"
+		return 0
+	fi
+
+	# A key declared with an empty value counts as declared: that is an operator decision,
+	# and this function never rewrites it.
+	local key
+	local -a missing=()
+	while IFS= read -r key; do
+		[ -n "$key" ] || continue
+		if ! grep -qE "^${key}=" "$env_file" 2>/dev/null; then
+			missing+=("$key")
+		fi
+	done < <(template_declared_keys "$template")
+
+	if [ "${#missing[@]}" -eq 0 ]; then
+		print_success "$env_file declares every key $template defines"
+		return 0
+	fi
+
+	print_warning "$env_file is missing ${#missing[@]} key(s) declared in $template: the stack runs on compose defaults for them"
+	local default
+	for key in "${missing[@]}"; do
+		default="$(compose_default_for_key "$key")"
+		if [ -n "$default" ]; then
+			print_warning "  ${key} is not declared: falls back to the compose default '${default}'"
+		elif compose_key_is_required "$key"; then
+			print_warning "  ${key} is not declared: a compose file requires it (\${${key}:?}), so compose refuses to start without it"
+		else
+			print_warning "  ${key} is not declared: no compose default, its own consumer reads it directly"
+		fi
+	done
+	print_status "This is a report, not a failure: copy the missing key into $env_file to declare its value."
+	return 0
+}
+
+# ------------------------------------------
 # URL printing
 # ------------------------------------------
 

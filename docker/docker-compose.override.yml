@@ -41,6 +41,21 @@ services:
     container_name: ${COMPOSE_PROJECT_NAME:-lifecontrol}-life-control-app-angular
 
   # ============================================
+  # Development LifeControl API Override
+  # ============================================
+  # The access-provisioning worker runs ON by default in dev, and only here. Dev is the one
+  # environment whose data is disposable and whose mail lands in Mailpit (SMTP_HOST=mailpit,
+  # see .env.template), so leaving the worker off has no upside there: with it off, a
+  # provisioning task is enqueued and never applied, which is exactly the state that made a
+  # PENDING access request look like a request that would advance on its own. It stays OFF in
+  # the base compose and in staging/prod, because it mutates another system (Keycloak) with
+  # nobody watching, so switching it on there stays an explicit operator decision.
+  # A dev env file that declares WORKER_ENABLED wins over this default in either direction.
+  lifecontrol-api:
+    environment:
+      - WORKER_ENABLED=${WORKER_ENABLED:-true}
+
+  # ============================================
   # Development Mailpit - invitation email sink
   # ============================================
   # Dev-only: it lives in this override (dev), never in the base compose or in

@@ -50,6 +50,15 @@ check_required_vars() {
 	done
 }
 
+check_declared_vars() {
+	print_status "Checking keys declared in .env.template..."
+	# Report only, never a gate: a key absent from the env file is legal, because compose
+	# supplies its default. deploy.sh runs this script as the production start gate and
+	# aborts the deploy when it exits non-zero, so a missing key must never be able to stop
+	# a production start. The report is also read-only: it never rewrites the env file.
+	report_missing_env_keys "$ENV_FILE" "$DOCKER_DIR/.env.template"
+}
+
 check_docker() {
 	print_status "Checking Docker..."
 	if docker info >/dev/null 2>&1; then
@@ -160,6 +169,7 @@ main() {
 
 	check_env_file || exit 1
 	check_required_vars
+	check_declared_vars
 	check_docker
 	check_ports
 	check_secret_files
