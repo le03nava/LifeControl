@@ -25,6 +25,37 @@
 # has three. Fixture `ci-speed-shape` is that pass case, and it is the fixture the issue names by
 # name.
 #
+# The vocabulary is split in two classes, because one kind of evidence is enough for one and not
+# for the other:
+#
+#   - The DELIVERY-STATE class asserts that this unit's own delivery is still pending: `not pushed`,
+#     `no PR is open`, `not merged`, `yet to land`, `awaiting review`, `pending review`,
+#     `in progress`, `unstarted`, `what remains is the delivery`. For these, `#<number>` proves
+#     nothing. Who owns a number is not decidable offline -- no `gh`, no token, no network, by
+#     design -- and a header that declined its own landed delivery passed by citing ANOTHER unit's
+#     pull request in an unrelated clause while this suite reported
+#     `PASS: no record on the tree declines a delivery that landed`. So this class requires a MERGE
+#     COMMIT: a hash a delivery marker introduces, which the ancestry half can check against
+#     `origin/main`. Fixture `decline-with-foreign-number` is that incident.
+#   - The SOFT class makes no claim about this unit's delivery: `implemented`, and the hedge
+#     `makes no claim about ... push`. For these the rule is unchanged -- `has_delivery_evidence`,
+#     which a `#<number>` satisfies -- because `implemented` says the work exists, not that the unit
+#     has landed. Four records on the tree have that shape and stay green (fixture
+#     `soft-phrase-with-number`).
+#
+# The split also closed a blind spot: the vocabulary listed `not merged yet`, so a bare `not merged`
+# matched NOTHING and a header opening with "delivered on the branch, not merged" was invisible
+# rather than wrongly satisfied (fixture `decline-bare-not-merged`). The phrase is now `not merged`,
+# a superset.
+#
+# The cost, accepted deliberately: a genuinely mid-flight unit cannot say `awaiting review` and
+# back it with only a pull request number -- it must name the merge commit, i.e. wait for the merge,
+# or state what is not delivered without a delivery-state phrase. That is not a new obligation in
+# practice: `.agents/skills/project-conventions/references/feature-records.md` already forbids every
+# phrase of the delivery-state class in a record header, because the header has to state a verdict
+# rather than a live state. Fixture `delivery-state-with-merge-commit` pins that the stricter class
+# is satisfiable and not the impossible "never say awaiting review".
+#
 # The second half verifies the evidence a header claims. A merge commit it names must be an
 # ancestor of `origin/main`; when `origin/main` does not resolve -- a shallow CI checkout has no
 # such ref -- the half says `ancestry: skipped` out loud, because a silent skip is
@@ -122,17 +153,29 @@ status_paragraph() {
 }
 
 # declining_phrases <paragraph>
-# Prints, one per line and deduplicated, every declining phrase the paragraph carries. All of them,
-# not the first by position: a header that is merely `implemented` and also hedges about the live
-# push state carries two, and the hedge is the one a reader needs to see. `implemented` is in the
-# list because a record that is merely implemented has no delivery to claim yet, so its header must
-# either say what is missing or carry the delivery evidence that closes it. That choice has one
-# consequence, recorded as D1 in the record: a header written before its pull request exists cannot
-# pass this guard, and must name the pull request before the merge.
+# Prints, one per line and deduplicated, every declining phrase the paragraph carries -- from BOTH
+# classes the header comment describes. All of them, not the first by position: a header that is
+# merely `implemented` and also hedges about the live push state carries two, and the hedge is the
+# one a reader needs to see. `implemented` is in the list because a record that is merely
+# implemented has no delivery to claim yet, so its header must either say what is missing or carry
+# the delivery evidence that closes it. That choice has one consequence, recorded as D1 in the
+# record: a header written before its pull request exists cannot pass this guard, and must name the
+# pull request before the merge. This function feeds the failure messages; the RULE is
+# `declines_its_delivery` plus `has_delivery_evidence` below.
 declining_phrases() {
 	printf '%s' "$1" | grep -oiE \
-		'not pushed|no PR is open|not merged yet|yet to land|awaiting review|pending review|in progress|unstarted|what remains is the delivery|makes no claim about [^.]{0,60}push|implemented' \
+		'not pushed|no PR is open|not merged|yet to land|awaiting review|pending review|in progress|unstarted|what remains is the delivery|makes no claim about [^.]{0,60}push|implemented' \
 		2>/dev/null | sort -u || true
+}
+
+# declines_its_delivery <paragraph>
+# Answers whether the paragraph carries a phrase of the DELIVERY-STATE class: a claim that this
+# unit's own delivery is still pending. Those phrases are the ones a bare `#<number>` cannot close,
+# because nothing offline can say whose pull request a number is -- see the header comment.
+declines_its_delivery() {
+	printf '%s' "$1" | grep -qiE \
+		'not pushed|no PR is open|not merged|yet to land|awaiting review|pending review|in progress|unstarted|what remains is the delivery' \
+		2>/dev/null
 }
 
 # has_delivery_evidence <paragraph>
@@ -202,12 +245,20 @@ audit() {
 			continue
 		fi
 
-		# The rule: declining vocabulary with no delivery evidence in the same paragraph. The
-		# emptiness test is load-bearing: `grep` in a pipeline reports the last command's status, so
-		# testing the assignment's status would enter this branch on every record.
+		# The rule, in two classes. A DELIVERY-STATE phrase needs a merge commit -- a bare number is not
+		# ownership, and the guard is offline -- while a SOFT phrase keeps the older rule, a number or a
+		# terminal word with an identity, because it never claimed this unit's delivery. The emptiness
+		# tests are load-bearing: `grep` in a pipeline reports the last command's status, so testing an
+		# assignment's status would enter the branch on every record.
 		declining="$(declining_phrases "$para")"
 		if [ -n "$declining" ]; then
-			if ! has_delivery_evidence "$para"; then
+			if declines_its_delivery "$para"; then
+				if [ -z "$(delivery_hashes "$para")" ]; then
+					printf 'PROBLEM: %s: declines its own delivery with no merge commit in its Status paragraph (phrases: %s)\n' \
+						"$rel" "$(printf '%s' "$declining" | tr '\n' ',' | sed 's/,$//; s/,/, /g')"
+					problems=$((problems + 1))
+				fi
+			elif ! has_delivery_evidence "$para"; then
 				printf 'PROBLEM: %s: declines the delivery with no delivery evidence in its Status paragraph (phrases: %s)\n' \
 					"$rel" "$(printf '%s' "$declining" | tr '\n' ',' | sed 's/,$//; s/,/, /g')"
 				problems=$((problems + 1))
@@ -476,6 +527,60 @@ expect_audit_mentions "the missing paragraph is named" "$FX" "has no **Status**:
 FX="$TMP/fixtures/zero-records"
 mkdir -p "$FX/odd/tasks"
 expect_audit "a tree with no records fails rather than passing vacuously" "$FX" fail
+
+# (j) The incident, and the reason a bare number stopped counting for one class of phrase: a header
+# that declines its OWN delivery and cites a number that belongs to another unit. Offline nothing
+# can decide who owns `#N` -- there is no `gh`, no token and no network -- so `#460` here says only
+# that some pull request exists somewhere. This fixture passed before the split, which is the whole
+# defect: it reported `PASS: no record on the tree declines a delivery that landed`.
+FX="$(new_fixture decline-with-foreign-number)"
+cat >"$FX/odd/tasks/foreign-number.md" <<'MD'
+# ODD feature: foreign number
+
+**Status**: the guard and its fixtures are written, and what remains is the delivery. The vocabulary
+this header borrows is the one pull request #460 settled.
+**Created**: 2026-10-19
+MD
+expect_audit "a declined delivery backed only by another unit's number fails" "$FX" fail
+expect_audit_mentions "the missing merge commit is named" "$FX" "declines its own delivery with no merge commit"
+
+# (k) `not merged yet` was in the vocabulary and a bare `not merged` matched nothing, so the second
+# hole was invisible rather than wrongly satisfied: this header opened with a pending delivery and a
+# pull request number and the guard never looked at it. It also passed before the split.
+FX="$(new_fixture decline-bare-not-merged)"
+cat >"$FX/odd/tasks/bare-not-merged.md" <<'MD'
+# ODD feature: not merged
+
+**Status**: delivered on the branch, not merged, and opened as pull request #466 on 2026-10-19.
+**Created**: 2026-10-19
+MD
+expect_audit "a bare not merged with only a pull request number fails" "$FX" fail
+
+# (l) The mirror of (j) in the direction the split must not break: `implemented` makes no claim about
+# this unit's delivery, so a pull request number is still enough for it. The tree carries four
+# records of exactly this shape, and a split that demanded a hash here would fail them all.
+FX="$(new_fixture soft-phrase-with-number)"
+cat >"$FX/odd/tasks/soft.md" <<'MD'
+# ODD feature: soft claim
+
+**Status**: implemented -- pull request #467 carries the guard and its fixtures, 2026-10-19.
+**Created**: 2026-10-19
+MD
+expect_audit "implemented with only a pull request number passes" "$FX" pass
+
+# (m) And the stricter class has to be satisfiable, or the rule would just be "never say awaiting
+# review": the same delivery-state phrase with the merge commit the ancestry half can check against
+# `origin/main` passes. The fixture is a real repository so the hash resolves AND is an ancestor.
+FX="$(new_git_fixture delivery-state-with-merge-commit)"
+BASE_SHA="$(git -C "$FX" rev-parse refs/remotes/origin/main)"
+cat >"$FX/odd/tasks/merge-commit.md" <<MD
+# ODD feature: delivery state with the merge commit
+
+**Status**: merged as pull request #9004 (merge commit \`$BASE_SHA\`), 2026-10-19; the follow-up guard is
+awaiting review.
+**Created**: 2026-10-19
+MD
+expect_audit "a delivery-state phrase with a merge commit in origin/main passes" "$FX" pass
 
 printf '\nchecked %s record(s); %s claimed merge commit(s); ancestry: %s\n' "$REAL_RECORDS" "$REAL_DELIVERY" "$REAL_ANCESTRY"
 printf '%d fixture(s) asserted\n' "$(find "$TMP/fixtures" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')"
