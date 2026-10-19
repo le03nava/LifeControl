@@ -1,0 +1,55 @@
+// ============================================================
+// Measurement-only init script for the maxParallelForks probe (issue #439)
+// ============================================================
+// This file exists so that ONE measurement can be taken without touching the production build:
+// `life-control-api/build.gradle` must stay clean until the number produced on the runner decides
+// whether parallel forks land. Nothing in the build reads this script; only a `./gradlew`
+// invocation that passes `-I <this file>` does, and even then it changes nothing unless `-Dforks=N`
+// is also passed. Load this script without the property and the settings below are not applied.
+//
+//   ./gradlew test --no-daemon -I ../.github/probe-forks.init.gradle -Dforks=4
+//
+// Why the heap is capped too: the local A/B on the dev host measured `maxHeapSize = '1g'` as worth
+// roughly 10% on its own, because 4 parallel test JVMs with Gradle's default heap over-commit the
+// runner's memory and the OS starts reclaiming. Both settings are applied together here so the
+// runner measurement reproduces the configuration that the local A/B actually measured.
+//
+// The applied values are printed by a `doFirst` on the test task, in a line whose shape is fixed:
+//
+//   PROBE FORKS=<maxParallelForks> HEAP=<maxHeapSize>
+//
+// The line reports the values the task will really run with — the defaults when the property is
+// absent — so a run that silently ignored the flag is visible in the log instead of being assumed
+// correct. `HEAP=512m` with `FORKS=1` is Gradle's own default for a `Test` task, which is exactly
+// what "the setting was not applied" looks like.
+
+import org.gradle.api.tasks.testing.Test
+
+// The property is read from the build JVM, so `-Dforks=4` on the `./gradlew` command line is what
+// this sees. Absent, empty or blank means "not asked for", and the build keeps its own defaults.
+def rawForks = System.getProperty('forks')
+def forks = null
+if (rawForks != null && rawForks.trim() != '') {
+    forks = rawForks.trim() as Integer
+    if (forks < 1) {
+        // Fail loudly rather than measure quietly: a probe run that fell back to the defaults would
+        // be counted as a `forks` run in the results while having measured the serial configuration.
+        throw new GradleException("probe-forks.init.gradle: -Dforks=${rawForks} is not a fork count >= 1")
+    }
+}
+
+gradle.allprojects { project ->
+    project.tasks.withType(Test).configureEach { testTask ->
+        if (forks != null) {
+            testTask.maxParallelForks = forks
+            testTask.maxHeapSize = '1g'
+        }
+        testTask.doFirst {
+            // Read back from the task rather than echoing the property: the point of the line is to
+            // report what this task will actually run with, not what it was asked for.
+            def appliedForks = testTask.maxParallelForks
+            def appliedHeap = testTask.maxHeapSize
+            println "PROBE FORKS=${appliedForks} HEAP=${appliedHeap}"
+        }
+    }
+}

@@ -42,7 +42,27 @@ jobs:
 
   test:
     name: Test
+    # PROBE (issue #439) — this job is a measurement harness, not a shippable change. `mode: serial`
+    # runs the suite exactly as it ran before; `mode: forks` adds the init script that sets
+    # `maxParallelForks = 4` and `maxHeapSize = '1g'`. The matrix fans the same commit content into
+    # four independent runs of each mode, because the serial command measured 169s and then 184s on
+    # one host (~9% noise) and a single run cannot decide anything.
+    #
+    # `fail-fast: false` is load-bearing: with the default (`true`) the first failing cell cancels
+    # the other seven and the spread is lost. Each cell is a separate job on the same commit and the
+    # same runner class (`ubuntu-latest`), which is what makes the eight numbers comparable.
+    #
+    # `name: Test` stays exactly as declared: the matrix suffix (`Test (serial, 1)`) is applied by
+    # GitHub at runtime, while `.github/scripts/tests/contributing-job-names.test.sh` compares the
+    # declared name against CONTRIBUTING.md §6. The toggle lives in
+    # `.github/probe-forks.init.gradle` rather than in `life-control-api/build.gradle` so the
+    # production build stays clean until the measurement decides whether the setting lands.
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [serial, forks]
+        run: [1, 2, 3, 4]
     defaults:
       run:
         working-directory: life-control-api
@@ -57,13 +77,34 @@ jobs:
           distribution: temurin
           cache: gradle
 
+      # The clock starts after Checkout and Setup Java so the reported number is the test task's own
+      # cost and nothing else. It is read with `date +%s` rather than taken from the step duration
+      # because the step duration would include the shell's own overhead and is not greppable.
+      #
+      # The PROBE line is printed whether Gradle passes or fails, and the step then exits with
+      # Gradle's own code: a failing cell that swallowed its timing would leave a hole in the
+      # measurement exactly when the failing run is the interesting one.
       - name: Run tests
-        run: ./gradlew test --no-daemon
+        run: |
+          set -uo pipefail
+          gradle_args=()
+          if [ '${{ matrix.mode }}' = 'forks' ]; then
+            gradle_args+=(-I "${GITHUB_WORKSPACE}/.github/probe-forks.init.gradle" -Dforks=4)
+          fi
+          start=$(date +%s)
+          status=0
+          ./gradlew test --no-daemon "${gradle_args[@]}" || status=$?
+          end=$(date +%s)
+          echo "PROBE mode=${{ matrix.mode }} run=${{ matrix.run }} test_seconds=$((end - start))"
+          exit "$status"
 
+      # One artifact per cell: `actions/upload-artifact` rejects two uploads under the same name, so
+      # a shared name would leave only one of the eight reports. `warn` stays as it was, because a
+      # missing report in a probe run is evidence to read, not a reason to fail the job.
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: api-test-results
+          name: api-test-results-${{ matrix.mode }}-${{ matrix.run }}
           path: life-control-api/build/reports/tests/test
           if-no-files-found: warn
