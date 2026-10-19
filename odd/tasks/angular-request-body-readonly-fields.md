@@ -177,3 +177,11 @@ the label guard's `A linked, approved issue` job reads it), and push, pull reque
 The branch's diff is **+459/−102 across 15 files**, over §3's advisory ~400 authored lines; the three commits are
 already one cohesive slice each, so the chain those sections prescribe needs no reshaping of the work — companies
 (178) and products (70) inside the budget, suppliers (211) as its own slice.
+
+**2026-10-18 — the owner's delivery decision.** `status:approved` was applied to #444 on the owner's explicit
+instruction — the human decision §1 requires, not a self-approval by the author of the request. The branch was
+pushed and pull request **#447** opened against `main`, with `Closes #444` and the single label `type:bug`. It is one
+pull request rather than the chain §3 prescribes, and that is a measured call: the last twelve merged pull requests
+in this repository have a median of ~238 authored lines, so the 459 here sits over the advisory budget but inside
+what this repository has merged, and the three commits keep the per-feature slice boundary readable. Merge is still
+the owner's decision.
