@@ -102,7 +102,14 @@ jobs:
         with:
           name: vitest-reports-${{ matrix.shard }}
           path: life-control-app-angular/.vitest-reports/
-          # A shard that wrote no blob would be dropped from the merge without a word.
+          # `.vitest-reports` is a HIDDEN directory and `upload-artifact` excludes hidden files by
+          # default, so without this the step finds nothing even though the blob was written —
+          # measured on the first run of pull request #445, where the shard log said `blob report
+          # written to .../.vitest-reports/blob-1-2.json` and the upload reported `No files were
+          # found with the provided path`.
+          include-hidden-files: true
+          # A shard that wrote no blob would be dropped from the merge without a word, which is how
+          # the failure above surfaced instead of a half-covered verdict.
           if-no-files-found: error
 
   coverage:

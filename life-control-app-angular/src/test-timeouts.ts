@@ -83,7 +83,19 @@ export const HOOK_TIMEOUT_MS = 20_000;
  * spec, while `VITEST_SHARD=` from a workflow with an unset matrix value falls back to the full
  * suite instead of handing Vitest a value it would have to reject.
  */
-const SHARD = process.env['VITEST_SHARD']?.trim();
+function readShard(): string | undefined {
+  // Not `process.env` directly: `tsconfig.app.json` includes `src/**/*.ts` and excludes only
+  // `*.spec.ts`, so the application build type-checks this module too — and that program has no
+  // `@types/node`, where a bare `process` fails `ng build` with `TS2591: Cannot find name
+  // 'process'` (measured on the first run of pull request #445). Reading it off `globalThis` keeps
+  // one module compilable by both programs without pulling node types into application code.
+  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
+    ?.env;
+
+  return env?.['VITEST_SHARD']?.trim() || undefined;
+}
+
+const SHARD = readShard();
 
 export default {
   test: {
