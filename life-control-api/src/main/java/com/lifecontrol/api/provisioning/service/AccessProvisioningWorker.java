@@ -186,9 +186,15 @@ public class AccessProvisioningWorker {
      * Claims and dispatches one due row, and ends every failure it can see in
      * {@code markFailed} rather than leaving the row {@code RUNNING}.
      *
-     * <p><b>The unlocked read only routes.</b> {@code findById} tells this method which employee owns
-     * the task and nothing more; a row that vanished between the query and this read is skipped
-     * without a claim, because there is nothing left to claim.</p>
+     * <p><b>The unlocked read only routes, but it must <em>initialize</em> what the capabilities
+     * read.</b> {@code findByIdWithCompanyAndStatus} tells this method which employee owns the task
+     * and nothing more, and a row that vanished between the query and this read is skipped without a
+     * claim, because there is nothing left to claim. It is deliberately not the inherited
+     * {@code findById}: this pass owns no transaction (records T44/T57), so the entity would arrive
+     * detached and the gate, the role convergence and the membership derivation would each throw
+     * {@code LazyInitializationException} on the first {@code getStatus()}/{@code getCompany()} — the
+     * defect gap G45 measured. The fetch belongs to the read because a {@code @Transactional}
+     * capability cannot reattach a detached entity.</p>
      *
      * <p><b>The claim is the authority and sits outside the recovery.</b>
      * {@link AccessProvisioningTaskService#claim} re-loads the row under its pessimistic write lock and
@@ -224,7 +230,8 @@ public class AccessProvisioningWorker {
         var employeeId = resolved.getEmployee().getId();
         var claimed = taskService.claim(employeeId, taskId);
         try {
-            var employee = employeeRepository.findById(employeeId).orElse(null);
+            var employee =
+                    employeeRepository.findByIdWithCompanyAndStatus(employeeId).orElse(null);
             if (employee == null) {
                 throw new EmployeeNotFoundException(employeeId);
             }

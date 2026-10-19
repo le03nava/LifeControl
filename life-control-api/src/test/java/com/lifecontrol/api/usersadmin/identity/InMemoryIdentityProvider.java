@@ -88,6 +88,15 @@ public class InMemoryIdentityProvider implements IdentityProvider {
                 .toList();
     }
 
+    /**
+     * How many execute-actions emails one account received, which is what "the invitation is sent once"
+     * is a statement about: {@link #actionsEmailRecipients()} answers <em>who</em> was invited, never
+     * <em>how often</em>, so a re-send would read as one recipient either way.
+     */
+    public int actionsEmailCount(String userId) {
+        return requireAccount(userId).sentActionsEmails.size();
+    }
+
     /** Seeds a client role directly, without going through the assignment port method. */
     public void seedClientRole(String userId, String clientId, String roleName) {
         rolesOf(requireAccount(userId), clientId).add(roleName);
