@@ -3,11 +3,11 @@
 **Repository**: LifeControl — `life-control-api/**` only (the provisioning services, the Keycloak
 adapter and their tests). One port method's classification, one invitation rule, one read. No schema,
 no migration, no gateway, no Angular change, no existing contract removed.
-**Status**: **delivered on the branch, not merged** — all three defects are fixed and checked on
-`fix/access-provisioning-worker-repairs` (5 commits, `9da8781`..`bb200f2`), and the end-to-end verdict
-script passes against the dev stack. **What remains is the delivery**: push, the pull request(s) and
-the merge are the user's decisions and were not taken. The fourth commit fixes three defects in the
-verdict script #460 shipped, which had never been run.
+**Status**: **merged** — the five chained pull requests **#465** (merge commit `76d9d7a`), **#466**
+(`abd9343`), **#467** (`dbb8f42`), **#468** (`e232b17`) and **#469** (`7dbd3aa`, this record),
+2026-10-19, so `main` carries all five commits and each slice's post-merge `push` run is green. The
+fourth commit fixes three defects in the verdict script #460 shipped, which had never been run, and
+that script's live run passes (`L8`). **No work left in this unit.**
 **Created**: 2026-10-19 · **Branch**: `fix/access-provisioning-worker-repairs` · **Base**: `main` @
 `7ebb21b` · **Worktree**: `~/workspace/LifeControl-worktrees/fix-access-provisioning-worker-repairs`
 · **Risk**: **item 1 and item 3** — the unit decides whether a person's account gets provisioned at
@@ -145,3 +145,24 @@ never been executed end to end before this unit.
 `docker/secrets/` were copied into this worktree because both are gitignored and the compose run needs
 them; neither is tracked. `main` in the anchor was fast-forwarded to `origin/main` @ `7ebb21b` before
 the worktree was cut.
+
+**L11 — delivery, 2026-10-19**. Published as five chained pull requests off `main` @ `7ebb21b`, each
+merged with a merge commit: **#465** (`fix/provisioning-409-classification` → `main`, `type:bug`,
+`76d9d7a`, 19:31Z) carrying `9da8781` + `dac6665`; **#466** (`fix/provisioning-invitation-once`,
+`type:bug`, `abd9343`, 19:42Z) carrying `bef0882`; **#467** (`fix/provisioning-worker-employee-read`,
+`type:bug`, `dbb8f42`, 19:48Z) carrying `0c820ae`; **#468** (`fix/verify-provisioning-script`,
+`type:bug`, `e232b17`, 19:50Z) carrying `bb200f2`; and **#469**
+(`docs/access-provisioning-worker-repairs`, `type:docs`, `7dbd3aa`, 20:31Z) carrying `ab34bad`, this
+record. Every pull request carried `Closes #464`, and the issue was reopened before each subsequent
+merge because the issue gate requires an **open**, approved issue at the run's `head_sha`. Post-merge
+`push` runs: `API CI` green on `76d9d7a`, `abd9343` and `dbb8f42`, `Docker Build Integrity` green on
+`e232b17`. Issue #464 is closed.
+
+**L12 — header repair, 2026-10-19**. The `**Status**:` paragraph above said *"delivered on the branch,
+not merged"* and *"What remains is the delivery"* while all five pull requests were already merged: it
+was written before `#469` was opened, and `#469` is the pull request that merged it, so the claim was
+falsified by a merge that never touched the file that made it. Repaired in issue **#470** to durable
+state plus evidence — merge commits and post-merge runs — as
+`.agents/skills/project-conventions/references/feature-records.md` requires, and recorded here so the
+repair is not repeated next cycle. The superseded sentence is kept in this log rather than erased, so
+the drift stays visible.

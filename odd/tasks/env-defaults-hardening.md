@@ -5,10 +5,13 @@
 component and one additive field in `life-control-api/**`, one banner in `life-control-app-angular/**`,
 and two documentation edits (`AGENTS.md`, `odd/tasks/employee-access-provisioning.md`). No schema, no
 migration, no gateway change, no existing contract removed or changed.
-**Status**: the work of `T1`–`T5`, `T7` and `T8` is delivered as the chained pull requests **#458**,
-**#459** and **#460**, and the evidence of each slice is recorded in the log below (`L9`–`L15`); `T6` and
-`T9` are the two tasks still open, both behind the worker defects `G45`–`G47` that
-`odd/tasks/employee-access-provisioning.md` now owns.
+**Status**: **merged** — `T1`–`T8` are on `main` as the chained pull requests **#458** (merge commit
+`af7807d`), **#459** (`c7460af`) and **#460** (`7ebb21b`), 2026-10-19, and the evidence of each slice is
+recorded in the log below (`L9`–`L15`). **`T6` is complete**: its live run was the one half still
+blocked, and it passes now that the worker defects `G45`–`G47` were closed by `#465`–`#467`
+(`odd/tasks/access-provisioning-worker-repairs.md`, `L8`). **`T9` remains open**, with the scope the
+closure left it: the independent verification is recorded for `PR1` only (`L10`), and none exists for
+`#459`'s and `#460`'s candidates (`L16` records the repair of the sentence this replaces).
 **Created**: 2026-10-19 · **Risk**: **item 5 (delivery/environment)** — `docker-compose.override.yml`,
 `.env.template` and `validate-env.sh` are consumed by all three environments, and `validate-env.sh` is
 the **prod start gate** (`deploy.sh:173-179` exits 1 when it fails), so a check added there can stop a
@@ -364,3 +367,25 @@ found by running the repository's own checks rather than by reading them: the is
 slices only `Refs`; and `odd-status-headers.test.sh` — a suite that landed on `main` after this branch was
 cut — rejects a `Status` paragraph that uses declining vocabulary (`implemented`, `makes no claim about …
 push`) without delivery evidence, which is why the header now names the pull requests instead.
+
+**L16** *(header repair, 2026-10-19 — issue `#470`)*. The `**Status**:` paragraph above asserted two things
+that stopped being true, and neither was falsified by a commit that touched this file:
+
+- *"the work of `T1`–`T5`, `T7` and `T8` is delivered as the chained pull requests `#458`, `#459` and
+  `#460`"* — a `delivered` claim with no merge commit is not evidence a reader can check with one
+  command: the three merges are `af7807d` (17:50Z), `c7460af` (18:10Z) and `7ebb21b` (18:10Z), all
+  2026-10-19, and the header above names them now.
+- *"`T6` and `T9` are the two tasks still open, both behind the worker defects `G45`–`G47`"* — those
+  three defects were closed and merged by `#465` (`76d9d7a`), `#466` (`abd9343`) and `#467`
+  (`dbb8f42`), and the run `T6` was waiting on now passes:
+  `odd/tasks/access-provisioning-worker-repairs.md` `L8` records
+  `./docker/scripts/verify-provisioning-flow.sh dev` printing *"Access-provisioning flow verified end
+  to end for dev"*, with the task at `APPLIED`, the invitation in Mailpit with its action-token link,
+  and all five `company_*` claims agreeing with the derivation.
+
+`T6`'s row and `T9`'s row in the task table above repeat the same expired blocker. They are **kept as
+written** and this entry is the correction they are to be read with, because repairing a false claim
+means superseding it on the record rather than rewriting the frozen narrative
+(`.agents/skills/project-conventions/references/feature-records.md`, rule 4). What survives `T9` is its
+real remainder: the independent verification of `#459`'s and `#460`'s candidates, which no entry in
+this log records — `L10` covers `PR1` alone.
