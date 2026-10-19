@@ -1,7 +1,9 @@
 # ODD feature: job-name-guard
 
 **Repository**: LifeControl — one new file, `.github/scripts/tests/contributing-job-names.test.sh`, plus this record. **No production code, no workflow change, no `CONTRIBUTING.md` change.** The suite is wired by the existing loop over `.github/scripts/tests/*.test.sh` inside `.github/workflows/pr-label-guard.yml`, so nothing had to be edited to activate it.
-**Status**: implemented — the guard and its fixtures are in `d8d50c1` on `chore/job-name-guard`, and nothing in this unit is deferred. This header makes no claim about push or PR state; see the evidence log.
+**Status**: **merged** — PR **#443** (`chore/job-name-guard` @ `b475231`), merge commit `e461af7`,
+2026-10-19, closing issue **#437**, so `main` carries the suite and its fixtures, wired by the existing loop
+over `.github/scripts/tests/*.test.sh`. No work left in this unit.
 **Created**: 2026-10-19
 **Risk**: **low.** The file is a test suite that nothing else imports and that mutates nothing: it reads `CONTRIBUTING.md` and `.github/workflows/*.yml` from the working tree and exits. Its failure mode is a false *negative* (a drift it does not catch), which is bounded by its fixtures, not by anything it can break. The one real risk is the opposite: a false *positive* that fails every pull request, which is why the real-tree audit is asserted to pass on `main` before the fixtures run.
 
@@ -58,3 +60,13 @@ L1. *"apruebalos y continua"* — approval of issue #437 among the four, and the
 L2. The unit was delegated under the context backstop; the writer returned the suite, the parent ran the checks that need `docker`, and the two are recorded separately above.
 
 L3. Slice-boundary decision recorded as D1 after the commit tripped the review-budget notice.
+
+## Header repair (2026-10-19)
+
+The `**Status**:` line above was rewritten on 2026-10-19 by the unit that carries issue **#454**, where the
+inventory, the normalized sweep and the verification live. It used to decline the delivery state: «the guard
+and its fixtures are in `d8d50c1` on `chore/job-name-guard`, and nothing in this unit is deferred. This header
+makes no claim about push or PR state; see the evidence log.» That state became known when the work merged —
+PR **#443**, merge `e461af7`, 2026-10-19, closing **#437** — so the line now carries it. `d8d50c1` is not
+lost: the evidence log already holds it as the commit that landed T1, which is what it was, while the branch's
+head at the merge was `b475231`. Nothing else in this record was touched.

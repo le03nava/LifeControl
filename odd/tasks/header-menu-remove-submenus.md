@@ -1,9 +1,8 @@
 # ODD feature: header-menu-remove-submenus
 
 **Repository**: LifeControl — frontend `life-control-app-angular/`
-**Status**: implemented — the request's two submenus are gone and their destinations stay reachable from
-the pages their labels navigate to. This header makes no claim about push or PR state; the delivery
-detail belongs to the dated log below (`references/feature-records.md` invariant 2).
+**Status**: **merged** — PR **#442** (`feat/header-menu-remove-submenus` @ `92f8eba`), merge commit
+`29334b4`, 2026-10-19, closing issue **#441**, so `main` carries the change. No work left in this unit.
 **Created**: 2026-10-18 · **Risk**: none — the diff deletes a template branch and an optional field in
 `items()`; of the eight header entries, only the two the request names changed, and the other six were
 **measured** identical against the base commit (T5). That is also why item 3 of the Task Size list does
@@ -155,3 +154,14 @@ in scope, so no entry the request did not mention changes behavior.
   `Lint, Build & Test` (4 m 10 s) — the same Node the `.nvmrc` pins, which is the one measurement this
   unit had not made locally (L3). The merge is the maintainer's decision and is the only step this
   unit still waits on.
+
+## Header repair (2026-10-19)
+
+The `**Status**:` line above was rewritten on 2026-10-19 by the unit that carries issue **#454**, where the
+inventory, the normalized sweep and the verification live. It used to decline the delivery state: «This header
+makes no claim about push or PR state; the delivery detail belongs to the dated log below
+(`references/feature-records.md` invariant 2).» That state became known when the work merged — PR **#442**,
+merge `29334b4`, 2026-10-19, closing **#441** — so the line now carries it. The dated log below is left
+exactly as written, `L10` included, which named the merge as the only step the unit was still waiting on; a
+dated row is evidence, and the repair supersedes it instead of rewriting it. Nothing else in this record was
+touched.
