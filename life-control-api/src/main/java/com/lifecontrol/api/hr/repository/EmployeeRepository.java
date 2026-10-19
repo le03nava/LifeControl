@@ -68,6 +68,26 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID> {
     Optional<Employee> findByKeycloakUserId(String keycloakUserId);
 
     /**
+     * The employee row with the two associations the access-provisioning pass reads — {@code company}
+     * and {@code status} — <b>initialized in the same query</b>.
+     *
+     * <p>Its consumer is {@code AccessProvisioningWorker.process}, which owns <b>no</b> transaction
+     * (records T44/T57), so an employee loaded with the inherited {@code findById} is detached by the
+     * time the capabilities read it and every {@code employee.getCompany()} or
+     * {@code employee.getStatus()} throws {@code LazyInitializationException} (gap G45). A
+     * {@code @Transactional} capability does not reattach a detached entity, so the initialization has
+     * to happen at the read, which is exactly what this finder does: both associations arrive fetched
+     * and the entity survives leaving the session.
+     *
+     * <p>The two paths are inner joins on purpose: both columns are {@code NOT NULL} in
+     * {@code employees}, so an inner join cannot drop a row that the inherited {@code findById} would
+     * have returned — the two finders agree on existence, and the caller's "vanished row" branch keeps
+     * meaning what it says.</p>
+     */
+    @Query("SELECT e FROM Employee e JOIN FETCH e.company JOIN FETCH e.status WHERE e.id = :id")
+    Optional<Employee> findByIdWithCompanyAndStatus(@Param("id") UUID id);
+
+    /**
      * Company-scoped list with optional {@code search}, {@code statusId} and {@code includeDisabled}
      * predicates, ordered deterministically by {@code employeeNumber}.
      *

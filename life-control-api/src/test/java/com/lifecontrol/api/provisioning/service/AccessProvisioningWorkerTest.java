@@ -311,7 +311,7 @@ class AccessProvisioningWorkerTest {
             when(taskRepository.findDueTaskIds(any(), any())).thenReturn(List.of(taskId));
             when(taskRepository.findById(taskId)).thenReturn(Optional.of(pendingTask(taskId, employeeId, ACTIVATE)));
             when(taskService.claim(employeeId, taskId)).thenReturn(claimedTask(taskId, employeeId, ACTIVATE, 1));
-            when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+            when(employeeRepository.findByIdWithCompanyAndStatus(employeeId)).thenReturn(Optional.of(employee));
             when(handler.apply(employee, ACTIVATE)).thenReturn(Set.of());
 
             worker.runPass();
@@ -353,7 +353,7 @@ class AccessProvisioningWorkerTest {
             // the claimed row, never from this snapshot (record T51 carries no authority).
             when(taskRepository.findById(taskId)).thenReturn(Optional.of(pendingTask(taskId, employeeId, RECONCILE)));
             when(taskService.claim(employeeId, taskId)).thenReturn(claimedTask(taskId, employeeId, ACTIVATE, 2));
-            when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+            when(employeeRepository.findByIdWithCompanyAndStatus(employeeId)).thenReturn(Optional.of(employee));
             when(handler.apply(employee, ACTIVATE)).thenReturn(touched);
 
             var report = worker.runPass();
@@ -380,7 +380,7 @@ class AccessProvisioningWorkerTest {
             when(taskRepository.findDueTaskIds(any(), any())).thenReturn(List.of(taskId));
             when(taskRepository.findById(taskId)).thenReturn(Optional.of(pendingTask(taskId, employeeId, ACTIVATE)));
             when(taskService.claim(employeeId, taskId)).thenReturn(claimedTask(taskId, employeeId, ACTIVATE, 1));
-            when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+            when(employeeRepository.findByIdWithCompanyAndStatus(employeeId)).thenReturn(Optional.of(employee));
             when(handler.apply(employee, ACTIVATE)).thenReturn(Set.of());
 
             worker.runPass();
@@ -401,7 +401,7 @@ class AccessProvisioningWorkerTest {
             when(taskRepository.findDueTaskIds(any(), any())).thenReturn(List.of(taskId));
             when(taskRepository.findById(taskId)).thenReturn(Optional.of(pendingTask(taskId, employeeId, ACTIVATE)));
             when(taskService.claim(employeeId, taskId)).thenReturn(claimed);
-            when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+            when(employeeRepository.findByIdWithCompanyAndStatus(employeeId)).thenReturn(Optional.of(employee));
             // The real gate service returns the task to the gate: the worker must then stop.
             when(gateService.reenterGateIfReviewedSetChanged(employee, taskId)).thenAnswer(invocation -> {
                 claimed.setStatus(APPROVAL_PENDING);
@@ -431,7 +431,7 @@ class AccessProvisioningWorkerTest {
             when(taskRepository.findById(taskId)).thenReturn(Optional.of(pendingTask(taskId, employeeId, ACTIVATE)));
             // attempts = 2 is the claimed, incremented count, not the unlocked row's 0.
             when(taskService.claim(employeeId, taskId)).thenReturn(claimedTask(taskId, employeeId, ACTIVATE, 2));
-            when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+            when(employeeRepository.findByIdWithCompanyAndStatus(employeeId)).thenReturn(Optional.of(employee));
             when(handler.apply(employee, ACTIVATE))
                     .thenThrow(new AccountLinkRefusedException("account link refused for an ambiguous email"));
 
@@ -464,7 +464,7 @@ class AccessProvisioningWorkerTest {
             when(taskRepository.findDueTaskIds(any(), any())).thenReturn(List.of(taskId));
             when(taskRepository.findById(taskId)).thenReturn(Optional.of(pendingTask(taskId, employeeId, ACTIVATE)));
             when(taskService.claim(employeeId, taskId)).thenReturn(claimedTask(taskId, employeeId, ACTIVATE, 1));
-            when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+            when(employeeRepository.findByIdWithCompanyAndStatus(employeeId)).thenReturn(Optional.of(employee));
             when(handler.apply(employee, ACTIVATE)).thenThrow(new IllegalStateException("   "));
 
             worker.runPass();
@@ -486,7 +486,7 @@ class AccessProvisioningWorkerTest {
             when(taskRepository.findById(taskId)).thenReturn(Optional.of(pendingTask(taskId, employeeId, ACTIVATE)));
             when(taskService.claim(employeeId, taskId))
                     .thenReturn(claimedTask(taskId, employeeId, ACTIVATE, MAX_ATTEMPTS));
-            when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+            when(employeeRepository.findByIdWithCompanyAndStatus(employeeId)).thenReturn(Optional.of(employee));
             when(handler.apply(employee, ACTIVATE)).thenThrow(new IllegalStateException("still failing"));
 
             worker.runPass();
@@ -508,7 +508,7 @@ class AccessProvisioningWorkerTest {
             when(taskRepository.findById(claimable))
                     .thenReturn(Optional.of(pendingTask(claimable, employeeId, ACTIVATE)));
             when(taskService.claim(employeeId, claimable)).thenReturn(claimedTask(claimable, employeeId, ACTIVATE, 1));
-            when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+            when(employeeRepository.findByIdWithCompanyAndStatus(employeeId)).thenReturn(Optional.of(employee));
             when(handler.apply(employee, ACTIVATE)).thenReturn(touched);
 
             var report = worker.runPass();
@@ -547,7 +547,7 @@ class AccessProvisioningWorkerTest {
             when(taskService.claim(employeeId, refused))
                     .thenThrow(new InvalidTaskStatusTransitionException("APPLIED", "RUNNING"));
             when(taskService.claim(employeeId, last)).thenReturn(claimedTask(last, employeeId, ACTIVATE, 1));
-            when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+            when(employeeRepository.findByIdWithCompanyAndStatus(employeeId)).thenReturn(Optional.of(employee));
             when(handler.apply(employee, ACTIVATE)).thenReturn(Set.of());
 
             var report = worker.runPass();
@@ -567,7 +567,7 @@ class AccessProvisioningWorkerTest {
             when(taskRepository.findDueTaskIds(any(), any())).thenReturn(List.of(taskId));
             when(taskRepository.findById(taskId)).thenReturn(Optional.of(pendingTask(taskId, employeeId, ACTIVATE)));
             when(taskService.claim(employeeId, taskId)).thenReturn(claimedTask(taskId, employeeId, ACTIVATE, 1));
-            when(employeeRepository.findById(employeeId)).thenReturn(Optional.empty());
+            when(employeeRepository.findByIdWithCompanyAndStatus(employeeId)).thenReturn(Optional.empty());
 
             worker.runPass();
 
@@ -590,7 +590,7 @@ class AccessProvisioningWorkerTest {
             when(taskRepository.findDueTaskIds(any(), any())).thenReturn(List.of(taskId));
             when(taskRepository.findById(taskId)).thenReturn(Optional.of(pendingTask(taskId, employeeId, ACTIVATE)));
             when(taskService.claim(employeeId, taskId)).thenReturn(claimedTask(taskId, employeeId, ACTIVATE, 1));
-            when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+            when(employeeRepository.findByIdWithCompanyAndStatus(employeeId)).thenReturn(Optional.of(employee));
             when(handler.apply(employee, ACTIVATE)).thenThrow(new IllegalStateException(longMessage));
 
             worker.runPass();
