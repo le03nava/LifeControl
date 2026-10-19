@@ -30,7 +30,7 @@ Component reference for the Angular frontend. Run every gate command from `life-
 
 ## Testing & Quality
 
-- Gate (declared in `life-control-app-angular/package.json` and `.github/workflows/angular-ci.yml`): `npm run lint`, `npm run build`, `npm run test:coverage:check`, `npm run test:e2e`.
+- Gate (declared in `life-control-app-angular/package.json`; CI enforces the same thresholds through `npm run test:coverage:merge:check`, which reads the merged shard reports instead of one run's): `npm run lint`, `npm run build`, `npm run test:coverage:check`, `npm run test:e2e`.
 - `life-control-app-angular/scripts/check-coverage.mjs` — the repo-defined coverage enforcement. Read it for the enforced thresholds and the summary file it consumes; it fails the run when a metric is missing or below its minimum. Do not restate the numbers.
 - `life-control-app-angular/angular.json` declares the build budgets (initial bundle and component-style limits). Read it rather than quoting a budget.
 - `life-control-app-angular/eslint.config.js` — the enforced lint conventions. Two are load-bearing and must hold: the `app` selector prefix and the template accessibility rules. Read the file for the rest.
@@ -41,7 +41,7 @@ Component reference for the Angular frontend. Run every gate command from `life-
 
 ## CI/CD & Release
 
-- `.github/workflows/angular-ci.yml` — the CI steps (Node toolchain, `npm ci`, lint, build, `test:coverage:check`) and the `coverage-lcov` artifact. Read it for the toolchain version.
+- `.github/workflows/angular-ci.yml` — three jobs: `Lint & Build`; `Unit tests`, a two-shard matrix that uploads each shard's `.vitest-reports/` blob; and `Coverage`, which downloads every shard's blob and runs the merge plus the verdict. It keeps the `coverage-lcov` artifact. Read it for the toolchain version and for how a shard reaches Vitest: `VITEST_SHARD`, read in `src/test-timeouts.ts`, because `ng test` rejects `--shard`.
 - `docker/scripts/deploy.sh`, `docker/scripts/setup-env.sh` — deploy path.
 - Gap: no dependency automation for this component, because the npm ecosystem is not configured in `.github/dependabot.yml`; no documented rollback plan or post-deploy checklist.
 

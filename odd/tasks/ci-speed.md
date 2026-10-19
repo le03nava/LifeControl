@@ -1,7 +1,7 @@
 # ODD feature: ci-speed
 
 **Repository**: LifeControl — the shape of the CI workflows that gate a pull request (`.github/workflows/api-ci.yml`, `.github/workflows/angular-ci.yml`) and the two documents that name those gates verbatim (`CONTRIBUTING.md` §6 and §7, `.agents/skills/project-conventions/references/index.md` → `## Dispatch`). **No production code, no test semantics, no timeouts, no isolation settings, no coverage threshold, and — after D1 — no Gradle build change either.**
-**Status**: implemented — U1 landed as `4cbe362` on `chore/ci-speed` (2 files, 41 authored changed lines), recorded in `457411d` and `564380c`, and **measured on the runner at 193s** against the 247–336s baseline of six runs. U2 (the forks measurement) and U3 (the Angular shards) remain, and U3's design is recorded below with the two hinges only a runner can settle. This header makes no claim about push or PR state; see the evidence log.
+**Status**: merged — U1 in pull request **#435** (`chore/ci-speed` @ `f16d7ae`), 2026-10-19, with its `CONTRIBUTING.md` §6 contract guarded by pull request **#443** (`chore/job-name-guard` @ `e461af7`), and the Angular shards in pull request **#445** (`chore/angular-shard` @ `d396d3a`), 2026-10-19. Measured on the runner: API CI **193s** against a 247–336s baseline, Angular CI **158s** against a 228–401s baseline. What remains: **U2**, the `maxParallelForks` measurement, as its own issue (#439). This header makes no claim about live push or PR state; see the evidence log.
 **Created**: 2026-10-18
 **Risk**: **medium.** Every file touched is CI-only, which is Task Size item 5 (delivery/environment). Two named risks, both argued rather than assumed: (1) dropping a gate, a `paths:` filter or a step would silently narrow what the four workflows cover, mitigated by `workflow-trigger-parity.test.sh` and by S2; (2) the Gradle configuration cache can fail inside spotless/spotbugs/asciidoctor in ways whose output does not name the cause, so it is validated locally first (F3) and removed from the slice if it does not hold. Everything here is revertible with one commit. The one change deliberately **not** taken — `org.gradle.caching` — is excluded in S7 because it would change what a green check proves, not merely how long it takes.
 
@@ -69,9 +69,9 @@ semantics, timeouts or isolation settings."*
 | --- | --- | --- | --- |
 | T1 | S1, S2, S3 | `gentle-ai-worker` (delegated under the context backstop) | **U1** — split `api-ci.yml` into `Static analysis` and `Test` jobs, and move `CONTRIBUTING.md` §6 plus the §7 drift the split created in the same commit. Landed as `4cbe362` |
 | T2 | S4, S6 | inline | **U1** verification — `workflow-trigger-parity.test.sh` (25 passed, 0 failed) and an independent YAML parse prove the job graph, the steps of each job, both `paths:` lists and `concurrency:` on this tree; the runner proved the rest on pull request #435, run `39195746631` (see the evidence log). Closed |
-| T3 | S7, S6 | inline | **U2** — measure `maxParallelForks` on the runner (4–5 runs of the same commit content). Verdict recorded either way; the code lands only if it wins |
-| T4 | S5 | inline | **U3** — merge the coverage report across shards. Prerequisite of T5 |
-| T5 | S1, S3 | inline | **U3** — shard the Angular `Test` step, after T4 |
+| T3 | S7, S6 | inline | **U2** — measure `maxParallelForks` on the runner (4–5 runs of the same commit content). Verdict recorded either way; the code lands only if it wins. **Remains**: its own issue, #439 |
+| T4 | S5 | inline | **U3** — merge the coverage report across shards, prerequisite of T5. Landed in pull request #445 (@ `d396d3a`) |
+| T5 | S1, S3 | inline | **U3** — shard the Angular `Test` step. Landed in the same pull request, measured in its run: 158s against 228–401s |
 
 ## Decisions
 
@@ -141,17 +141,33 @@ checkout's `node_modules` is 20.3.36 and predates `runnerConfig`, so it cannot a
    S5. The shard jobs must not run it: with `--coverage` each shard would write a partial summary,
    and a shared filesystem would also lose it to `clean()`'s `rm -rf`.
 
-**Two hinges only a runner can settle** — U3 is therefore not shippable on this design alone:
+**Both hinges were resolved on 2026-10-19, locally, with real runs** — a fresh worktree, `npm ci`, and a
+4-spec subset selected with the builder's own `include` option; the whole suite was never run:
 
-- Whether a root-level `shard: '1/2'` in `src/test-timeouts.ts` survives the builder's project
-  wrapper. The Angular plugin does not delete `shard`, so it may reach `ctx.config`, but that is
-  unverified. `NG_TEST_LOG=2` prints the resolved config in one run.
-- Whether `ng test` forwards `--shard` / `--reporters` / `--outputFile`. `schema.json` declares
-  `additionalProperties: false` and has no such options, so `angular.json` cannot carry `shard` and
-  the builder passes nothing to `startVitest`.
+- **`shard` IS honoured through the builder.** With `shard: '1/2'` in `src/test-timeouts.ts`, shard 1
+  ran 2 files / 34 tests and shard 2 the other 2 / 35 — disjoint sets, 34 + 35 = 69 unsharded. The
+  blob filename `blob-1-2.json` proves the value reaches the root config even though the builder folds
+  the `test` object into `test.projects[0]`.
+- **`ng test` rejects `--shard`**: `Error: Unknown argument: shard`, exit 1, and `schema.json` declares
+  `additionalProperties: false` with no such option. The per-shard value can therefore only travel in
+  the `runnerConfig`, read from an environment variable there — which is what the shipped slice does.
+- **The merge needs `name`, and this is the correction that matters.** The command as first written in
+  this section exits 1 with `No test files found` and reports 0 tests **while still writing a correct
+  union `coverage/coverage-summary.json`** — the blobs record `projectName:
+  'life-control-app-angular'` while a direct Vitest run's project is unnamed, so no spec resolves.
+  Adding `name: 'life-control-app-angular'` to the `runnerConfig` makes the same command exit 0 and
+  report every file and test. That the flag engages at all was proven separately: a missing directory
+  gives `ENOENT scandir`.
+- **`NG_TEST_LOG=2` does NOT print Vitest's resolved config** — it prints the builder's options and
+  the `startVitest` argument object. The earlier claim in this section was wrong; the hinge is settled
+  by the run counts and by the blob filenames, not by that log.
+- **The blob reporter must not live in `src/test-timeouts.ts`**: the merge loads that same file and
+  throws `Cannot merge reports when '--reporter=blob' is used`. It belongs to the shard invocation.
+- **The D4 trap is real and was observed**: the second shard's coverage `clean()` wiped the first
+  shard's `coverage/coverage-summary.json`.
 
-**Fallback if the hinge fails**: disjoint `include` sets per job — a real builder option, coarser than
-Vitest sharding, and fully verifiable.
+**Fallback, not needed**: disjoint `include` sets per job — a real builder option, coarser than Vitest
+sharding, would have been the answer had `shard` not survived the project wrapper.
 
 **Deliberately not taken here**: moving the thresholds to `coverageThresholds` in `angular.json` would
 enforce them **per shard** on partial maps, the exact defect S5 forbids. `scripts/check-coverage.mjs`
@@ -173,8 +189,14 @@ stays.
 | 2026-10-18 | U3 design verified read-only against the published `@angular/build@21.2.27` sources; the table under *U3 design* carries the `path` evidence. It corrects an earlier assumption of the parent's: `test.shard` as `{index, count}` in `runnerConfig` is **not** the mechanism — `shard` is a root-level string and a non-project option. |
 | 2026-10-18 | Two U3 hinges remain unverified and need a runner: shard selection through the builder's project wrapper, and whether `ng test` forwards `--shard`. Recorded rather than inferred. |
 | 2026-10-19 | **U1 measured on the runner** — pull request #435, run `39195746631`. `Test` and `Static analysis` started 1s apart (03:39:47 and 03:39:48), so they are genuinely concurrent; `Test` ran to 03:43:00 while `Static analysis` ended at 03:40:33. Workflow wall clock **193s** against the 247–336s baseline of six runs. `Test` job 193s (`Run tests` 182s), `Static analysis` job 45s (its step 35s). Both workflows' labels passed: `Exactly one type:* label` and `A linked, approved issue`. |
+| 2026-10-19 | **All three post-split API CI measurements**: `564380c` 193s, `dbebc5e` 159s, `f16d7ae` on `main` **~215s** — every one of them below the *best* baseline run (247s), against a 247–336s baseline whose median is 266s. The `Test` job went 193 / 159 / 212s (baseline 186–221s) and `Static analysis` **45 / 57 / 61s** (baseline 43–98s), so **the static-analysis gate did not get faster**: the win is that the two steps no longer sum, which is the prediction D2 made before the first run. |
 | 2026-10-19 | S4 verified from the same run: `Run tests` logs `> Task :test`, `BUILD SUCCESSFUL in 3m` and `5 actionable tasks: 5 executed` — nothing `UP-TO-DATE`, nothing `FROM-CACHE`. The `api-test-results` artifact's own report counts **3527 tests, 0 failures, 0 ignored**. |
 | 2026-10-19 | **S4 corrected**: it read 3524, counted from this host's `build/test-results` on a tree older than the one the runner ran. The spec now carries the runner's number, and the 3524 was corrected openly rather than overwritten. |
+| 2026-10-19 | **Delivery**: U1 landed in pull request **#435** (merge `f16d7ae`); the `CONTRIBUTING.md` §6 contract got its guard in pull request **#443** (`e461af7`); the Angular shards landed in pull request **#445** (`d396d3a`). |
+| 2026-10-19 | **U3 measured on the runner** — pull request #445, run `39204601681`, sha `07f5dbb`: workflow wall clock **158s** against the 228–401s baseline (median 312s). `Lint & Build` 33s, `Unit tests (1)` 134s and `Unit tests (2)` 135s starting together, `Coverage` 22s. Counts: shard 1 **1885 tests / 91 files**, shard 2 **1756 / 91**, and the merge reports **3641 tests / 182 files** — the halves add up exactly. The verdict read the merged report only: `statements 86.33%`, `branches 84.70%`, `functions 80.18%`, `lines 88.96%`, all OK, and no shard runs `check-coverage.mjs`. |
+| 2026-10-19 | **Two defects the first U3 run caught**, kept because the second is a shape worth recognising: (1) `ng build` failed with `TS2591: Cannot find name 'process'` — `tsconfig.app.json` includes `src/**/*.ts` and excludes only `*.spec.ts`, so the application program type-checks that module and has no `@types/node`; the shard is now read off `globalThis`. The real defect was the delegation brief, which omitted `npm run build` from its verification list. (2) `Upload shard report` reported `No files were found` while the shard log said the blob had been written there: `actions/upload-artifact` excludes hidden files by default (`include-hidden-files: false`, read from its own `action.yml` at v7.0.0) and `.vitest-reports` is hidden. The `if-no-files-found: error` is what turned a silently absent shard into a red job instead of a green verdict over half the suite. |
+| 2026-10-19 | **GitHub evaluates a workflow's `paths:` against the whole pull-request diff, not the last push.** A commit touching only `odd/**` re-ran `api-ci` inside pull request #435. The documented gap — *"a records-only change runs no workflow"* — applies to a records-only **pull request**, never to a record commit inside a component pull request. |
+| 2026-10-19 | **Open, not acted on**: `life-control-app-angular/AGENTS.md` states the current coverage line as `94.1/76.0/89.3/94.1` (measured 2026-09-24 @ `c49d296`), while CI now measures `86.33/84.70/80.18/88.96`. Not caused by this feature — on a 4-spec subset the merged totals were identical to the unsharded ones, and `branches` moved **up** 8.7 points while `lines` fell 5.1, the signature of code evolution rather than of a measurement change. The real margin on `lines` is 8.96 points, not the ~14–16 that file claims. Restating a target line is the owner's call. |
 
 ## Log
 
@@ -204,3 +226,8 @@ with `Closes #433` and the single `type:chore` label.
 L9. Measurement return on the runner: the workflow wall clock is **193s** against the 247–336s
 baseline of six runs. S4's test count was corrected from the runner's own report — it is 3527, not
 the 3524 this record first copied from a local results directory on an older tree.
+
+L10. Decision: **"Mergeá #445 y los que queden verdes"** — merge authority for this feature's remaining
+pull requests, under the green-checks gate and the repository's only allowed merge type, and
+explicitly **not** for direct pushes to `main`, force-push, or branch deletion. Under it, #445 merged
+as `d396d3a`; this record's closure (#440) and U2 (#439) follow.

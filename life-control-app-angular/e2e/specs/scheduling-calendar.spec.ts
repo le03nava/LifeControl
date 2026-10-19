@@ -37,17 +37,22 @@ async function ensureAuthenticated(page: Page): Promise<void> {
 }
 
 /**
- * Opens the calendar through the header submenu — the exact control the previous
- * work unit added. The header path is the thing under test, so this spec never
- * lands on `/scheduling/calendar` directly.
+ * Opens the calendar through the header entry: the `Calendario y citas` label
+ * navigates to the activities list, and that list owns the calendar control. The
+ * header path is the thing under test, so this spec never lands on
+ * `/scheduling/calendar` directly.
  */
 async function openCalendar(page: Page): Promise<void> {
   await ensureAuthenticated(page);
 
-  await page.getByRole('button', { name: 'Calendario y citas submenu' }).click();
-  await page.getByRole('menuitem', { name: 'Calendario', exact: true }).click();
+  await page.getByRole('link', { name: 'Calendario y citas' }).click();
+  await expect(page).toHaveURL(/\/scheduling\/list$/);
 
-  await expect(page).toHaveURL(/\/scheduling\/calendar$/);
+  await page.getByRole('button', { name: 'Calendario', exact: true }).click();
+
+  // The list carries the store it resolved into the calendar's query params, so the
+  // assertion accepts them instead of pinning the path alone.
+  await expect(page).toHaveURL(/\/scheduling\/calendar(\?.*)?$/);
   await expect(page.getByRole('heading', { level: 1, name: 'Calendario' })).toBeVisible();
 }
 

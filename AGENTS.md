@@ -293,11 +293,14 @@ npm start                   # dev server (localhost:4200)
 npm run build
 npm run lint                # ESLint + Prettier
 npm test                    # unit tests (Vitest)
-npm run test:coverage:check # unit + enforcement de umbrales de cobertura (CI)
+npm run test:coverage:check # unit + enforcement de umbrales de cobertura (local)
 npm run test:e2e            # E2E con Playwright (mocks de Keycloak y API)
 ```
 
-> CI: `.github/workflows/angular-ci.yml` corre `lint` + `build` + `test:coverage:check`. Los dos triggers
+> CI: `.github/workflows/angular-ci.yml` corre `Lint & Build` y, en dos shards en paralelo, los unit
+> tests; un tercer job (`Coverage`) recombina los reportes blob de los shards con
+> `npm run test:coverage:merge:check` y falla si el merge baja del umbral — el comando local
+> `test:coverage:check` sigue siendo el mismo gate, sin shardear. Los dos triggers
 > filtran por los **mismos** paths (`life-control-app-angular/**` y el archivo del propio workflow), y lo
 > mismo vale para `api-ci`, `gateway-ci` y `docker-build-integrity`: la fuente es el bloque `paths:` de
 > cada uno, y `.github/scripts/tests/workflow-trigger-parity.test.sh` falla si un `push` y un

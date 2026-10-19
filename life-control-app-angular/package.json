@@ -10,6 +10,7 @@
     "test:watch": "ng test --watch",
     "test:coverage": "ng test --coverage",
     "test:coverage:check": "ng test --no-watch --coverage && node scripts/check-coverage.mjs",
+    "test:coverage:merge:check": "vitest --config src/test-timeouts.ts --merge-reports --coverage --coverage.reporter=text --coverage.reporter=lcov --coverage.reporter=json-summary && node scripts/check-coverage.mjs",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
     "lint": "ng lint",

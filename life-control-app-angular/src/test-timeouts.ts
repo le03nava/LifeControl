@@ -39,6 +39,14 @@ export const HOOK_TIMEOUT_MS = 20_000;
  * hands to the runner through `runnerConfig`, plus the per-file isolation the suite
  * needs under Vitest 4.
  *
+ * `name` is the Vitest project identifier, and it is here for one consumer: the
+ * `vitest --merge-reports` run that recombines CI's shard blobs. That command loads this
+ * module directly, without the builder, and with no `name` it exits 1 with `No test files
+ * found` (measured) while, per the probe that shaped this change, still writing a
+ * correct-looking union `coverage/coverage-summary.json` — the silent shape that would let the
+ * coverage verdict pass on a report nobody produced. The builder overwrites the name with its
+ * project name for the sharded run itself, so the only effect of the line is on the merge.
+ *
  * The budgets belong in the base config, not only in `vi.setConfig`: the builder's
  * default `isolate: false` evaluates the setup module once per worker and Vitest 4
  * calls `vi.resetConfig()` after every file, so a `vi.setConfig` override only reaches
@@ -59,13 +67,45 @@ export const HOOK_TIMEOUT_MS = 20_000;
  * failure is invisible on a machine that still holds the previous run's file there,
  * and fatal on a clean checkout. `src/build-environment.spec.ts` guards the hand-off.
  */
+
+/**
+ * The shard this run should execute, as Vitest's `"<index>/<count>"`, or `undefined` for the
+ * whole suite.
+ *
+ * Why the shard is read from the environment instead of the command line: `ng test` rejects
+ * `--shard` (`Error: Unknown argument: shard`) and `angular.json` declares no such option, so
+ * `runnerConfig` is the only channel that reaches Vitest — the builder merges this `test`
+ * object into its own project config, and a `test.shard` set here survives that merge
+ * (measured on a fixed 4-file subset: `1/2` ran 26 tests over 2 files, `2/2` the other 15 over
+ * the other 2, and 41 unsharded — disjoint sets that add up).
+ *
+ * Opt-in, and empty reads as absent: a plain local `ng test` sets nothing and still runs every
+ * spec, while `VITEST_SHARD=` from a workflow with an unset matrix value falls back to the full
+ * suite instead of handing Vitest a value it would have to reject.
+ */
+function readShard(): string | undefined {
+  // Not `process.env` directly: `tsconfig.app.json` includes `src/**/*.ts` and excludes only
+  // `*.spec.ts`, so the application build type-checks this module too — and that program has no
+  // `@types/node`, where a bare `process` fails `ng build` with `TS2591: Cannot find name
+  // 'process'` (measured on the first run of pull request #445). Reading it off `globalThis` keeps
+  // one module compilable by both programs without pulling node types into application code.
+  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
+    ?.env;
+
+  return env?.['VITEST_SHARD']?.trim() || undefined;
+}
+
+const SHARD = readShard();
+
 export default {
   test: {
+    name: 'life-control-app-angular',
     testTimeout: TEST_TIMEOUT_MS,
     hookTimeout: HOOK_TIMEOUT_MS,
     isolate: true,
     coverage: {
       reportsDirectory: 'coverage',
     },
+    ...(SHARD ? { shard: SHARD } : {}),
   },
 };

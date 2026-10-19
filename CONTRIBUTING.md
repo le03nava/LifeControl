@@ -88,7 +88,7 @@ branch-protection runbook below names required checks by exactly those strings.
 | `.github/workflows/pr-label-guard.yml` | every pull request (no `paths:` filter) | `Exactly one type:* label`, `A linked, approved issue` |
 | `.github/workflows/api-ci.yml` | `life-control-api/**`, `.github/workflows/api-ci.yml` | `Static analysis`, `Test` |
 | `.github/workflows/gateway-ci.yml` | `api-gateway/**`, controllers under `life-control-api/**`, `.github/workflows/gateway-ci.yml` | `Check` |
-| `.github/workflows/angular-ci.yml` | `life-control-app-angular/**`, `.github/workflows/angular-ci.yml` | `Lint, Build & Test` |
+| `.github/workflows/angular-ci.yml` | `life-control-app-angular/**`, `.github/workflows/angular-ci.yml` | `Lint & Build`, `Unit tests`, `Coverage` |
 | `.github/workflows/docker-build-integrity.yml` | `docker/**`, the two `Dockerfile`s and `build.gradle`s, `.github/workflows/docker-build-integrity.yml` | `Shell & Artifact Integrity` |
 
 The label guard's self-tests run the offline suites in `.github/scripts/tests/` and `shellcheck
@@ -131,16 +131,16 @@ So today the gate jobs report on every pull request, but nothing makes the merge
 
 **Why the four component checks are not required.** `.github/workflows/api-ci.yml` (`Static analysis`,
 `Test`), `.github/workflows/gateway-ci.yml` (`Check`),
-`.github/workflows/angular-ci.yml` (`Lint, Build & Test`) and
+`.github/workflows/angular-ci.yml` (`Lint & Build`, `Unit tests`, `Coverage`) and
 `.github/workflows/docker-build-integrity.yml` (`Shell & Artifact Integrity`) filter by
 `paths:` under `pull_request`, so each check context reports only when a matching path changed. A
 required check that never reports stays *Pending* and blocks the pull request, so requiring a
 path-filtered job would block every pull request that does not touch its component — a
 markdown-only change would never merge. They still run when their paths match and on `push` to
 `main`. After the split, no two component workflows report a job with the same `name:` — `Static
-analysis` and `Test` for `api-ci.yml`, `Check` for `gateway-ci.yml`, `Lint, Build & Test` for
-`angular-ci.yml`, `Shell & Artifact Integrity` for `docker-build-integrity.yml` — and none of them
-is in the required set as long as the path filters stand.
+analysis` and `Test` for `api-ci.yml`, `Check` for `gateway-ci.yml`, `Lint & Build`, `Unit tests`
+and `Coverage` for `angular-ci.yml`, `Shell & Artifact Integrity` for `docker-build-integrity.yml`
+— and none of them is in the required set as long as the path filters stand.
 
 **A workflow change is not retroactive.** A check runs the workflow file from the tree of *that*
 run, so a pull request opened before a workflow changed keeps running the old one until its branch
