@@ -5,11 +5,10 @@
 component and one additive field in `life-control-api/**`, one banner in `life-control-app-angular/**`,
 and two documentation edits (`AGENTS.md`, `odd/tasks/employee-access-provisioning.md`). No schema, no
 migration, no gateway change, no existing contract removed or changed.
-**Status**: `T1`, `T2` and `T3` are implemented, verified and committed as **`fa7e2ed`** on this branch
-(the first slice, with the size exception `L9` records). `T4`–`T9` remain open: `T4`/`T5` are the API and
-screen half, `T6`/`T7` the verification script and the documentation, `T8` is local evidence and leaves
-no commit, and `T9` is the independent verification and native review of the three candidates. This
-header makes no claim about push or PR state; the delivery detail belongs to the evidence log.
+**Status**: the work of `T1`–`T5`, `T7` and `T8` is delivered as the chained pull requests **#458**,
+**#459** and **#460**, and the evidence of each slice is recorded in the log below (`L9`–`L15`); `T6` and
+`T9` are the two tasks still open, both behind the worker defects `G45`–`G47` that
+`odd/tasks/employee-access-provisioning.md` now owns.
 **Created**: 2026-10-19 · **Risk**: **item 5 (delivery/environment)** — `docker-compose.override.yml`,
 `.env.template` and `validate-env.sh` are consumed by all three environments, and `validate-env.sh` is
 the **prod start gate** (`deploy.sh:173-179` exits 1 when it fails), so a check added there can stop a
@@ -238,3 +237,14 @@ uses for `VOLUMES_ROOT` and prod's postgres port, and it is deliberately **one k
 a per-environment rewrite table would be the silent-rewrite defect `S6`-C2 rejects, re-entering through
 the other door. The two dev expressions of the switch (the fresh declaration and the override default)
 are now pinned against each other by the suite, so changing one alone fails a test.
+
+**L15** *(delivery, 2026-10-19)*. Published as issue **#457** (`bug` + `status:approved`) and three chained
+pull requests: **#458** (`fix/env-defaults-worker-default` → `main`, `type:bug`), **#459**
+(`feat/provisioning-worker-visibility` → slice 1, `type:feature`) and **#460**
+(`chore/provisioning-flow-verdict` → slice 2, `type:chore`). Two gate rules shaped the delivery and are
+recorded because both were found by running the repository's own checks rather than by reading them: the
+issue gate requires a **closing** keyword on the slice that targets the default branch
+(`.github/scripts/check-issue-reference.sh:225`), so the closing reference lives on **#458** and the later
+slices only `Refs`; and `odd-status-headers.test.sh` — a suite that landed on `main` after this branch was
+cut — rejects a `Status` paragraph that uses declining vocabulary (`implemented`, `makes no claim about …
+push`) without delivery evidence, which is why the header now names the pull requests instead.
