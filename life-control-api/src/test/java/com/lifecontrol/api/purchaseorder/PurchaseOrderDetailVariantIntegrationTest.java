@@ -692,10 +692,11 @@ class PurchaseOrderDetailVariantIntegrationTest extends AbstractPostgresIntegrat
                             .with(jwt().authorities(ROLE_LC_ADMIN))
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(statusRequest)))
+                    .andExpect(status().isNotFound())
                     .andReturn();
 
-            // The route is gone, so the resource handler raises NoResourceFoundException. The
-            // global catch-all maps it to 500; asserting the exception proves nothing is mapped.
+            // The route is gone, so the resource handler raises NoResourceFoundException, which the
+            // advice answers with 404; asserting the exception proves nothing is mapped.
             assertThat(result.getResolvedException()).isInstanceOf(NoResourceFoundException.class);
         }
     }
