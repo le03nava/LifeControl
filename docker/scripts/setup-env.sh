@@ -29,6 +29,19 @@ if [ ! -f "$ENV_FILE" ]; then
 	else
 		sed -i "s|^VOLUMES_ROOT=.*|VOLUMES_ROOT=./volumes-${ENV}|" "$ENV_FILE"
 	fi
+	# The access-provisioning worker ships OFF everywhere (it mutates Keycloak with nobody
+	# watching), but dev is the one environment where leaving it off has no upside and hides
+	# the truth: dev's data is disposable and its mail lands in Mailpit, so a provisioning
+	# task that nobody claims is just a pending task nobody will ever see advance. The fresh
+	# dev file therefore DECLARES it on, instead of relying on the compose override's
+	# default, because a declared value beats a default and the operator has to be able to
+	# read which value is in force. staging and prod keep the template's false: switching the
+	# worker on there stays an explicit operator decision.
+	# One key, one reason: this is the only per-environment rewrite of this switch, and no
+	# other key joins it (see docker/scripts/tests/env-defaults.test.sh).
+	if [ "$ENV" = "dev" ]; then
+		sed -i "s|^WORKER_ENABLED=.*|WORKER_ENABLED=true|" "$ENV_FILE"
+	fi
 	# Passwords come exclusively from docker/secrets/<name> files mounted at
 	# /run/secrets/<name> (see entrypoint wrappers) in ALL environments. Strip
 	# every password and client-secret related line so compose can never
