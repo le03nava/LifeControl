@@ -71,8 +71,8 @@ in scope, so no entry the request did not mention changes behavior.
 | Work unit 1 | `refactor(header): remove the Companies and Calendario y citas submenus` — 5 files, 47 insertions / 151 deletions |
 | Record | the closing commit of the branch, `docs(odd): record the header submenu removal` (this file) |
 | Branch | `feat/header-menu-remove-submenus` — **198 authored changed lines in one work unit**, inside the repository's ~400-line review budget, so no chain is needed |
-| PR | not recorded in this commit — the row is added with the delivery evidence, per `references/feature-records.md` invariant 3 |
-| Merge | not recorded in this commit — same reason |
+| PR | **#442** → `main`, 2026-10-18, `Closes #441` — the issue was approved with `status:approved` before the pull request was opened — and exactly one `type:*` label (`type:feature`). The three checks pass on `638a2ec`: `A linked, approved issue` (5 s), `Exactly one type:* label` (11 s) and `Lint, Build & Test` (4 m 10 s) |
+| Merge | not recorded in this commit — the merge is the maintainer's decision, per `references/feature-records.md` invariant 3 |
 
 ### Verification evidence
 
@@ -145,3 +145,13 @@ in scope, so no entry the request did not mention changes behavior.
   left clean on `main` @ `a6207fd`, and the branch pushed. The pull request waits on the maintainer's
   `status:approved` on #441, which no author may apply to its own issue
   (`references/labels.md` invariant 4).
+- **L10** — 2026-10-18, **PR #442 opened**, after the maintainer's approval was recorded on #441 as
+  `status:approved` (the approval is the human's; only the label write is the author's). One
+  `type:*` label, `type:feature`: the diff is a user-visible navigation change, and every earlier
+  pull request that touched a header menu entry carried that label (#107, #112, #315, #358, #430),
+  while `type:refactor`'s own description — "no behavior change" — would have been false. The commit
+  prefix stays `refactor(header)`, the shape #430 used for the same kind of header edit. All three
+  checks pass on `638a2ec`: `A linked, approved issue` (5 s), `Exactly one type:* label` (11 s) and
+  `Lint, Build & Test` (4 m 10 s) — the same Node the `.nvmrc` pins, which is the one measurement this
+  unit had not made locally (L3). The merge is the maintainer's decision and is the only step this
+  unit still waits on.
