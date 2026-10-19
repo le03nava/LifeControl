@@ -365,6 +365,7 @@ check_equal "report is read-only (env file unchanged)" "$report_before" "$(cksum
 
 # Prod: same absent key, but the base default is the one prod runs.
 PROD_OUT="$(
+	# shellcheck disable=SC2034  # read by compose_report_files, sourced from _common.sh
 	COMPOSE_FILES=(-f "$COMPOSE_BASE" -f "$COMPOSE_PROD")
 	report_missing_env_keys "$report_env" "$report_template" 2>&1
 )"

@@ -141,6 +141,7 @@ fi
 # same defect class this feature exists to remove, one level down.
 
 printf 'WORKER_ENABLED=false\n' >"$TMP_BASE/minimal.env"
+# shellcheck disable=SC2034  # read by compose_report_files, sourced from _common.sh
 COMPOSE_FILES=(-f "$DOCKER_DIR/docker-compose.yml")
 out="$(report_missing_env_keys "$TMP_BASE/minimal.env" "$DOCKER_DIR/.env.template" 2>&1)"
 unset COMPOSE_FILES
