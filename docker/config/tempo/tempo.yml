@@ -2,7 +2,21 @@
 # LifeControl - Tempo Configuration
 # ============================================
 # Installed by setup-env.sh into $VOLUMES_ROOT/tempo/config.
-# Receives Zipkin traces (Micrometer Tracing) and OTLP; local trace storage.
+# Receives OTLP traces (both applications export through Micrometer Tracing/OTLP); local trace
+# storage.
+#
+# Every receiver declares its endpoint explicitly, and never on the loopback interface. Tempo 3.x
+# hands an OTLP receiver declared without an `endpoint` to the OpenTelemetry Collector's default,
+# which is `localhost`: the socket then exists only inside this container, both applications fail
+# to export with `ConnectException: Connection refused` and the container still reports healthy.
+# docker/scripts/tests/tempo-receivers.test.sh pins the two sockets below.
+#
+# The Zipkin receiver is deliberately NOT declared. Nothing sends Zipkin here -- both services use
+# the OTLP exporter, and the OTLP migration record proves zero `brave`/`zipkin` on either runtime
+# classpath -- while the compose file publishes `${TEMPO_ZIPKIN_PORT}:9411` on the host. Declaring
+# the receiver would turn that published port into an unauthenticated trace-ingestion endpoint that
+# no one consumes. The publication itself is left alone: with no receiver behind it, it accepts
+# nothing.
 # ============================================
 server:
   http_listen_port: 3100
@@ -11,9 +25,10 @@ distributor:
   receivers:
     otlp:
       protocols:
-        grpc: {}
-        http: {}
-    zipkin: {}
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
 
 storage:
   trace:
