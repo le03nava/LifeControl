@@ -5,12 +5,14 @@
 component and one additive field in `life-control-api/**`, one banner in `life-control-app-angular/**`,
 and two documentation edits (`AGENTS.md`, `odd/tasks/employee-access-provisioning.md`). No schema, no
 migration, no gateway change, no existing contract removed or changed.
-**Status**: `T1`–`T3` are implemented, verified and committed as **`fa7e2ed`** and **`8a799a9`** (the first
-slice, with the size exception `L9` records), and `T4`–`T5` as **`2022492`** and **`6119d4c`** (`L11`).
-`T6`–`T9` remain open: `T6`/`T7` are the end-to-end verification script and the documentation, `T8` is
-local evidence and leaves no commit, and `T9` is the independent verification and native review of the
-remaining candidate. This header makes no claim about push or PR state; the delivery detail belongs to
-the evidence log.
+**Status**: `T1`–`T5` are implemented, verified and committed as **`fa7e2ed`**, **`8a799a9`**,
+**`2022492`** and **`6119d4c`** (two slices, `L9`–`L11`); `T6`/`T7` as **`84d3ab6`**; and `T8`'s live
+evidence is collected with a **negative outcome** (`L12`) — enabling the worker proved the switch, the
+dev default and the report, and exposed **three defects of the access-provisioning worker itself**,
+recorded as `G45`–`G47` in `odd/tasks/employee-access-provisioning.md` and outside this feature's scope.
+Because `G45` leaves `APPLIED` unreachable, `T6` ships with the verdict it would give rather than with a
+verified pass, and `T9`'s remaining candidates wait behind it. This header makes no claim about push or
+PR state; the delivery detail belongs to the evidence log.
 **Created**: 2026-10-19 · **Risk**: **item 5 (delivery/environment)** — `docker-compose.override.yml`,
 `.env.template` and `validate-env.sh` are consumed by all three environments, and `validate-env.sh` is
 the **prod start gate** (`deploy.sh:173-179` exits 1 when it fails), so a check added there can stop a
@@ -146,10 +148,10 @@ turned out not to mean "unused".
 | T3 | S3-C, S5.4, S5.5, S6-C5 | New `docker/scripts/tests/env-defaults.test.sh`: every `.env.template` key has a compose default **or** an allowlist entry naming its reader (`SMTP_*` → `keycloak-setup.sh`'s `get_env`; `ENVIRONMENT` → `validate-env.sh`'s `REQUIRED_VARS`; `CIRCUIT_BREAKER_*` → the gateway's Spring properties; `GF_AUTH_ANONYMOUS_ORG_ROLE` → the k8s manifests), and no compose interpolation names a key the template does not declare | delegated | `fa7e2ed`, `8a799a9` |
 | T4 | S3-D, S5.3, S6-C4 | `workerEnabled` on `AccessProvisioningOverview` plus a startup `WARN` from a component outside the `@ConditionalOnProperty`, so a disabled worker announces itself at boot | inline | `2022492`, `6119d4c` |
 | T5 | S3-D, S5.3 | The Access section shows the disabled worker: when `workerEnabled` is false, the open request says it will not be applied on its own | inline | `2022492` |
-| T6 | S3-E | New `docker/scripts/verify-provisioning-flow.sh`, the peer of `verify-invitation-flow.sh`: disposable employee + contract → the task reaches `APPLIED` → the mail is in Mailpit with its link → the Keycloak account carries its `requiredActions`, the template's roles and the five claims; cleans up on exit and exits non-zero on any failure | inline | `—` |
-| T7 | S3-F, S5.2 | Documentation: the `AGENTS.md` line that documents the no-rewrite behaviour **names its consequence** and points at the report; `odd/tasks/employee-access-provisioning.md` gains this defect as its own gap with its resolution | inline | `—` |
-| T8 | S4, S5.1 | Local evidence, no commit: reconcile `.env.dev` explicitly (never `S6`-C2 by script), then the end-to-end run — employee + contract, the task applying, the mail in Mailpit, the account in Keycloak with its roles and claims | inline | `L8`–`L9` |
-| T9 | S3, risk item 5 | Independent verification of the three candidates (the named high-risk item) and the native review the returned plan asks for | inline | `L10`–`L11` |
+| T6 | S3-E | New `docker/scripts/verify-provisioning-flow.sh`, the peer of `verify-invitation-flow.sh`: disposable employee + contract → the task reaches `APPLIED` → the mail is in Mailpit with its link → the Keycloak account carries its `requiredActions`, the template's roles and the five claims; cleans up on exit and exits non-zero on any failure. **Implemented in `84d3ab6`; its live run is blocked by `G45` of `odd/tasks/employee-access-provisioning.md`, so it ships with the verdict it would give rather than with a verified pass** (`L13`) | inline | `84d3ab6` |
+| T7 | S3-F, S5.2 | Documentation: the `AGENTS.md` line that documents the no-rewrite behaviour **names its consequence** and points at the report; `odd/tasks/employee-access-provisioning.md` gains this defect as its own gap with its resolution | inline | `84d3ab6` |
+| T8 | S4, S5.1 | Local evidence, no commit: reconcile `.env.dev` explicitly (never `S6`-C2 by script), then the end-to-end run — employee + contract, the task applying, the mail in Mailpit, the account in Keycloak with its roles and claims. **Executed, with a negative outcome** (`L12`): the switch, the dev default and the report were proven, and the flow itself did not complete | inline | `L12` |
+| T9 | S3, risk item 5 | Independent verification of the three candidates (the named high-risk item) and the native review the returned plan asks for. `PR1`'s candidate is done (`L10`); the rest waits with `T6`, behind the same `G45` | inline | `L10` |
 
 Slice plan, for the review budget: **PR1** = `T1`+`T2`+`T3` (`fix(docker)`); **PR2** = `T4`+`T5`
 (`feat(provisioning)`); **PR3** = `T6`+`T7` (`chore`). Each carries exactly one `type:*` label, and
@@ -166,7 +168,11 @@ commit is `L10`'s: one message correction and the two suites an independent veri
 closed at `6119d4c`** — `2022492` plus the coverage test its own review produced — **272 insertions and
 5 deletions across 11 files**, of which 160 lines are tests. It is the smallest of the three because the
 change is additive by construction (`S6-C4`): one appended field, one unconditional listener and one
-notice. The next boundary is recorded before the corresponding commit.
+notice. **The `PR3` boundary is closed at `84d3ab6`** — the verdict script, the `AGENTS.md` consequence and both
+records' gap work, **923 insertions and 1 deletion**, of which **900 lines are the script itself**. It
+takes the same declared exception for the same reason, and it is the last slice of this feature: nothing
+it changes is behaviour the application runs, which is why it is `chore` and not `fix`. The next boundary
+is recorded before the corresponding commit.
 
 Stated so it is not lost: this feature does **not** make `verify-invitation-flow.sh` part of CI, does
 not add a CI workflow, and does not touch the four existent workflows' `paths:` filters — a records-and
@@ -297,3 +303,46 @@ Three things this slice produced that the plan did not predict, each recorded ra
    that a request will not advance. The second is `S6-C4`'s fail-safe applied to the UI — a backend
    older than the additive field answers no `workerEnabled`, and the screen must not turn its own
    ignorance into the claim that the worker is off.
+
+**L12** *(the live run — `T8`, executed 2026-10-19, and its outcome is the most important thing in this
+record)*. The local `.env.dev` was reconciled by hand (backup `.env.dev.bak.20261019-0119`): the sixteen
+template keys it lacked were declared, `WORKER_ENABLED` as **`true`** and not the template's `false`, with
+**zero** password or client-secret lines reintroduced (measured). Compose then resolved `true`, the api
+container was recreated, and `WORKER_ENABLED=true` was read back **inside** it. Before: three `ACTIVATE`
+tasks `PENDING` with `attempts = 0`, three employees with `keycloak_user_id` NULL, and one message in
+Mailpit (the 2026-10-17 verification run). So the switch, the dev default and `T1`'s premise are proven at
+runtime, not only in tests.
+
+Then the flow ran, and **it does not complete**:
+
+| observed | meaning |
+| --- | --- |
+| all three tasks `FAILED` at `attempts = 5`, `last_error = "Could not initialize proxy [com.lifecontrol.api.status.model.Status#…] - no session"` (two of them) and `"Unexpected response creating user: 409"` (the third) | the worker is claimable, and it fails every attempt |
+| two employees now carry a `keycloak_user_id`; the two Keycloak users exist with `enabled=true`, `email_verified=false` | **the account half works** and commits |
+| `access_provisioning_applied_roles` is **empty** | the role convergence and the five claims **never run** |
+| **ten** invitation mails, five per person, one per attempt | the invitation **is sent** — and re-sent on every retry |
+| Keycloak holds `user1` with `email = leo3nava@gmail.com`, `email_verified = false` | the third task is exactly the single-match case `T5`/`T27` says to **link**, and it was not linked |
+
+The incident's own question therefore has a complete answer, and it is two-layered: **the mail was sent**,
+five times, and **the task never reached `APPLIED`**. Those are `G46`, `G45` and `G47` of
+`odd/tasks/employee-access-provisioning.md`, opened with this evidence; none of them was introduced by
+this feature, all three were invisible until the worker ran, and none is fixed here — repairing the
+worker's transaction and detached-entity design is a unit of that record with its own review, and doing it
+inside this one would have been an unrequested, unplanned high-risk change.
+
+Two limits of this run, stated so it is not read as more than it is: the deployed image predates `T4`/`T5`,
+so `workerEnabled` and the startup `WARN` were **not** observable here and rest on their unit tests; and
+`validate-env.sh` was not exercised against the anchor's file — the reconciliation it recommends was
+applied by hand instead, which is `S6`-C2 kept.
+
+**L13** *(the third slice — `T6`+`T7` as `84d3ab6`)*. The verdict script is the peer of
+`verify-invitation-flow.sh`, and its **route decision was measured**, not assumed: no dev token can be
+obtained from a script (measured — only two accounts carry the five `company_*` attributes, one of them has
+`lc-admin`, no credential is recorded anywhere in the repository or the secrets, and no impersonation role
+exists), so it provisions **its own disposable operator** and deletes it on exit, offering
+`PROVISIONING_VERIFY_TOKEN` for a human who prefers to supply one. It refuses to wait when the API reports
+the worker disabled — which is `T4`'s field doing work in the very first script that reads it. Its helper
+functions were driven RED/GREEN in a scratch harness and its mail half was exercised against the real
+Mailpit and realm payloads read-only; **it has not been run end to end**, and `L12` is why: it would reach
+`G45` and fail. It ships with that stated, because a script whose header claims a coverage it never
+exercised is the same defect class as a report that misdescribes a default.
