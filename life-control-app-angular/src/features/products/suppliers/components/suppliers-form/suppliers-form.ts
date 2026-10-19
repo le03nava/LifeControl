@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, effect, input, output } from '@angular/core';
 import { AbstractControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
-import { Supplier, SupplierControl } from '../../models/supplier.models';
+import { SupplierControl, SupplierFormValue } from '../../models/supplier.models';
 import { AddressFormComponent } from '@shared/ui/address-form';
 import { Country } from '@features/companies/countries/models/country.models';
 import { MatButtonModule } from '@angular/material/button';
@@ -32,7 +32,7 @@ export class SuppliersForm {
   editMode = input<boolean>(false);
   countries = input<Country[]>([]);
   addressServerErrors = input<Record<string, string>>({});
-  saveSupplier = output<Supplier>();
+  saveSupplier = output<SupplierFormValue>();
   cancelForm = output<void>();
 
   protected readonly rfcErrorMessages: Record<string, (error: unknown) => string> = {
@@ -108,7 +108,7 @@ export class SuppliersForm {
 
     if (this.formGroup().valid) {
       const raw = this.formGroup().getRawValue();
-      const supplierData: Supplier = {
+      const supplierData: SupplierFormValue = {
         id: raw.id,
         supplierName: raw.supplierName,
         razonSocial: raw.razonSocial,
@@ -118,8 +118,6 @@ export class SuppliersForm {
         internalNumber: raw.internalNumber || undefined,
         address: raw.address || undefined,
         enabled: raw.enabled ?? true,
-        createdAt: '',
-        updatedAt: '',
       };
       this.saveSupplier.emit(supplierData);
     }
