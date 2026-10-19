@@ -3,6 +3,7 @@ package com.lifecontrol.api.company.controller;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -18,6 +19,8 @@ import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -166,6 +169,18 @@ class CompanyZoneControllerSecurityTest {
             mockMvc.perform(get(BASE_URL, companyId, companyCountryId, regionId))
                     .andExpect(status().isOk());
         }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"lc-company-read", "lc-company-country-read", "lc-company-region-read"})
+        @DisplayName("returns 200 OK for every ancestor read role")
+        void ancestorReadRoleCanGetZones(String role) throws Exception {
+            when(companyZoneService.getAllZones(companyId, companyCountryId, regionId, false))
+                    .thenReturn(List.of(buildZoneResponse()));
+
+            mockMvc.perform(get(BASE_URL, companyId, companyCountryId, regionId)
+                            .with(user("hierarchy-reader").roles(role)))
+                    .andExpect(status().isOk());
+        }
     }
 
     // ─── GET /api/companies/{companyId}/countries/{companyCountryId}/regions/{regionId}/zones/{id} ──
@@ -226,6 +241,18 @@ class CompanyZoneControllerSecurityTest {
                     .thenReturn(buildZoneResponse());
 
             mockMvc.perform(get(BASE_URL + "/{id}", companyId, companyCountryId, regionId, zoneId))
+                    .andExpect(status().isOk());
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"lc-company-read", "lc-company-country-read", "lc-company-region-read"})
+        @DisplayName("returns 200 OK for every ancestor read role")
+        void ancestorReadRoleCanGetZoneById(String role) throws Exception {
+            when(companyZoneService.getZoneById(companyId, companyCountryId, regionId, zoneId))
+                    .thenReturn(buildZoneResponse());
+
+            mockMvc.perform(get(BASE_URL + "/{id}", companyId, companyCountryId, regionId, zoneId)
+                            .with(user("hierarchy-reader").roles(role)))
                     .andExpect(status().isOk());
         }
 

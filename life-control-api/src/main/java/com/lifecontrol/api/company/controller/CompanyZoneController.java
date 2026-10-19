@@ -3,7 +3,10 @@ package com.lifecontrol.api.company.controller;
 import static com.lifecontrol.api.common.security.Roles.ADMIN;
 import static com.lifecontrol.api.common.security.Roles.COMPANY;
 import static com.lifecontrol.api.common.security.Roles.COMPANY_COUNTRY;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_COUNTRY_READ;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_READ;
 import static com.lifecontrol.api.common.security.Roles.COMPANY_REGION;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_REGION_READ;
 import static com.lifecontrol.api.common.security.Roles.COMPANY_ZONE;
 import static com.lifecontrol.api.common.security.Roles.COMPANY_ZONE_READ;
 
@@ -35,7 +38,8 @@ public class CompanyZoneController {
 
     @GetMapping
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','"
-            + COMPANY_ZONE + "','" + COMPANY_ZONE_READ + "')")
+            + COMPANY_ZONE + "','" + COMPANY_ZONE_READ + "','" + COMPANY_READ + "','" + COMPANY_COUNTRY_READ + "','"
+            + COMPANY_REGION_READ + "')")
     @Operation(
             summary = "List all zones",
             description =
@@ -52,7 +56,8 @@ public class CompanyZoneController {
 
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','"
-            + COMPANY_ZONE + "','" + COMPANY_ZONE_READ + "')")
+            + COMPANY_ZONE + "','" + COMPANY_ZONE_READ + "','" + COMPANY_READ + "','" + COMPANY_COUNTRY_READ + "','"
+            + COMPANY_REGION_READ + "')")
     @Operation(
             summary = "Get a zone by ID",
             description =

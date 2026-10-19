@@ -3,6 +3,7 @@ package com.lifecontrol.api.company.controller;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -20,6 +21,8 @@ import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -144,6 +147,37 @@ class CompanyRegionControllerSecurityTest {
         @DisplayName("returns 403 for user with wrong role")
         void userWithWrongRoleGetsForbidden() throws Exception {
             mockMvc.perform(get(BASE_URL, companyId, companyCountryId)).andExpect(status().isForbidden());
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"lc-company-read", "lc-company-country-read"})
+        @DisplayName("returns 200 OK for every ancestor read role")
+        void ancestorReadRoleCanGetRegions(String role) throws Exception {
+            when(companyRegionService.getAllRegions(companyId, companyCountryId, false))
+                    .thenReturn(List.of(buildRegionResponse()));
+
+            mockMvc.perform(get(BASE_URL, companyId, companyCountryId)
+                            .with(user("hierarchy-reader").roles(role)))
+                    .andExpect(status().isOk());
+        }
+    }
+
+    // ─── GET /api/companies/{companyId}/countries/{companyCountryId}/regions/{id} ──
+
+    @Nested
+    @DisplayName("GET " + BASE_URL + "/{id}")
+    class GetRegionById {
+
+        @ParameterizedTest
+        @ValueSource(strings = {"lc-company-read", "lc-company-country-read"})
+        @DisplayName("returns 200 OK for every ancestor read role")
+        void ancestorReadRoleCanGetRegionById(String role) throws Exception {
+            when(companyRegionService.getRegionById(companyId, companyCountryId, regionId))
+                    .thenReturn(buildRegionResponse());
+
+            mockMvc.perform(get(BASE_URL + "/{id}", companyId, companyCountryId, regionId)
+                            .with(user("hierarchy-reader").roles(role)))
+                    .andExpect(status().isOk());
         }
     }
 

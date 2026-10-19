@@ -3,6 +3,7 @@ package com.lifecontrol.api.store.controller;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -18,6 +19,8 @@ import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -201,6 +204,25 @@ class StoreLocationControllerSecurityTest {
                     .thenReturn(List.of());
 
             mockMvc.perform(get(BASE_URL, companyId, companyCountryId, regionId, zoneId, storeId, areaId, storeZoneId))
+                    .andExpect(status().isOk());
+        }
+
+        @ParameterizedTest
+        @ValueSource(
+                strings = {
+                    "lc-company-read",
+                    "lc-company-country-read",
+                    "lc-company-region-read",
+                    "lc-company-zone-read"
+                })
+        @DisplayName("returns 200 OK for every ancestor read role")
+        void ancestorReadRoleCanList(String role) throws Exception {
+            when(storeLocationService.getAllLocations(
+                            companyId, companyCountryId, regionId, zoneId, storeId, areaId, storeZoneId, false))
+                    .thenReturn(List.of());
+
+            mockMvc.perform(get(BASE_URL, companyId, companyCountryId, regionId, zoneId, storeId, areaId, storeZoneId)
+                            .with(user("hierarchy-reader").roles(role)))
                     .andExpect(status().isOk());
         }
     }
@@ -436,6 +458,41 @@ class StoreLocationControllerSecurityTest {
                             areaId,
                             storeZoneId,
                             storeLocationId))
+                    .andExpect(status().isOk());
+        }
+
+        @ParameterizedTest
+        @ValueSource(
+                strings = {
+                    "lc-company-read",
+                    "lc-company-country-read",
+                    "lc-company-region-read",
+                    "lc-company-zone-read"
+                })
+        @DisplayName("returns 200 OK for every ancestor read role")
+        void ancestorReadRoleCanGetById(String role) throws Exception {
+            when(storeLocationService.getLocationById(
+                            companyId,
+                            companyCountryId,
+                            regionId,
+                            zoneId,
+                            storeId,
+                            areaId,
+                            storeZoneId,
+                            storeLocationId))
+                    .thenReturn(buildStoreLocationResponse());
+
+            mockMvc.perform(get(
+                                    BASE_URL + "/{storeLocationId}",
+                                    companyId,
+                                    companyCountryId,
+                                    regionId,
+                                    zoneId,
+                                    storeId,
+                                    areaId,
+                                    storeZoneId,
+                                    storeLocationId)
+                            .with(user("hierarchy-reader").roles(role)))
                     .andExpect(status().isOk());
         }
     }
@@ -1336,6 +1393,23 @@ class StoreLocationControllerSecurityTest {
             when(storeLocationService.getLocationById(storeLocationId)).thenReturn(buildStoreLocationResponse());
 
             mockMvc.perform(get(FLAT_URL + "/{storeLocationId}", storeLocationId))
+                    .andExpect(status().isOk());
+        }
+
+        @ParameterizedTest
+        @ValueSource(
+                strings = {
+                    "lc-company-read",
+                    "lc-company-country-read",
+                    "lc-company-region-read",
+                    "lc-company-zone-read"
+                })
+        @DisplayName("returns 200 OK for every ancestor read role")
+        void ancestorReadRoleCanGetById(String role) throws Exception {
+            when(storeLocationService.getLocationById(storeLocationId)).thenReturn(buildStoreLocationResponse());
+
+            mockMvc.perform(get(FLAT_URL + "/{storeLocationId}", storeLocationId)
+                            .with(user("hierarchy-reader").roles(role)))
                     .andExpect(status().isOk());
         }
     }

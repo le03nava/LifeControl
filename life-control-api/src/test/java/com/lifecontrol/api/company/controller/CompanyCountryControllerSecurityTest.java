@@ -130,9 +130,11 @@ class CompanyCountryControllerSecurityTest {
 
         @Test
         @WithMockUser(roles = {"lc-company-read"})
-        @DisplayName("returns 403 Forbidden for lc-company-read (no longer allowed)")
-        void lcCompanyReadGetIsDenied() throws Exception {
-            mockMvc.perform(get(BASE_URL, companyId)).andExpect(status().isForbidden());
+        @DisplayName("returns 200 OK for lc-company-read")
+        void lcCompanyReadCanGet() throws Exception {
+            when(companyCountryService.getCountriesByCompanyId(companyId)).thenReturn(List.of(buildCountryResponse()));
+
+            mockMvc.perform(get(BASE_URL, companyId)).andExpect(status().isOk());
         }
 
         @Test

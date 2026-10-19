@@ -4,6 +4,7 @@ import static com.lifecontrol.api.common.security.Roles.ADMIN;
 import static com.lifecontrol.api.common.security.Roles.COMPANY;
 import static com.lifecontrol.api.common.security.Roles.COMPANY_COUNTRY;
 import static com.lifecontrol.api.common.security.Roles.COMPANY_COUNTRY_READ;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_READ;
 
 import com.lifecontrol.api.company.dto.CompanyCountryRequest;
 import com.lifecontrol.api.company.dto.CompanyCountryResponse;
@@ -37,8 +38,8 @@ public class CompanyCountryController {
     }
 
     @GetMapping
-    @PreAuthorize(
-            "hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_COUNTRY_READ + "')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_COUNTRY_READ
+            + "','" + COMPANY_READ + "')")
     @Operation(
             summary = "Get countries by company",
             description =
