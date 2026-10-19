@@ -154,6 +154,16 @@ export interface AccessProvisioningOverview {
   /** Every task of the employee, newest first. */
   history: AccessProvisioningTaskView[];
   claims: AccessProvisioningClaims;
+  /**
+   * Whether the access-provisioning worker runs in this environment (record S3-D).
+   *
+   * Optional on purpose, and the one place this file's "absent is `null`" rule does not apply: the
+   * field is additive, so a backend deployed before it answers a payload with no `workerEnabled` at
+   * all. `undefined` therefore means **unknown** and must never be read as disabled — a screen that
+   * asserted "the worker is off" from a field it never received would be inventing the same silent
+   * default this notice exists to surface.
+   */
+  workerEnabled?: boolean;
 }
 
 /**

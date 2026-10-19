@@ -45,6 +45,7 @@ describe('AccessSection', () => {
       companyZoneId: ['zone-1'],
       companyStoreId: ['store-1'],
     },
+    workerEnabled: true,
     ...overrides,
   });
 
@@ -491,5 +492,37 @@ describe('AccessSection', () => {
     });
 
     expect(button('Revisar solicitud')).toBeDefined();
+  });
+
+  it('should show the disabled-worker notice when the API reports the worker off and no request is open (T5)', async () => {
+    await setup({ overview: overview({ workerEnabled: false }) });
+
+    // The notice is the section's own promise: with the worker off, a request it would enqueue
+    // is never applied, so it is stated before any request exists.
+    expect(blockText('.worker-off-notice')).toContain('deshabilitado');
+    expect(blockText('.worker-off-notice')).toContain('no se aplica por sí sola');
+    expect(blockText('.worker-off-notice')).toContain('WORKER_ENABLED=true');
+  });
+
+  it('should show the disabled-worker notice while a request is open too, because it will not advance on its own (T5)', async () => {
+    await setup({ overview: overview({ workerEnabled: false, openTask: task({ status: 'PENDING' }) }) });
+
+    // A `Pendiente` task and a task nobody will ever pick up look identical: the notice is what
+    // tells them apart, and it must not be gated on there being no open task.
+    expect(button('Solicitar acceso')).toBeUndefined();
+    expect(blockText('.worker-off-notice')).toContain('no se aplica por sí sola');
+  });
+
+  it('should not show the worker notice when the API reports the worker enabled', async () => {
+    await setup({ overview: overview({ workerEnabled: true }) });
+
+    expect(element().querySelector('.worker-off-notice')).toBeNull();
+  });
+
+  it('should treat an absent workerEnabled as unknown and show no notice', async () => {
+    // A backend older than the additive field answers no `workerEnabled`: unknown, never disabled.
+    await setup({ overview: overview({ workerEnabled: undefined }) });
+
+    expect(element().querySelector('.worker-off-notice')).toBeNull();
   });
 });

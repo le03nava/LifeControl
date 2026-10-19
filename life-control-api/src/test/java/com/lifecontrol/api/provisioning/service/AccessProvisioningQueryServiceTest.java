@@ -659,4 +659,32 @@ class AccessProvisioningQueryServiceTest {
         verify(identityProvider, times(1)).findUserDisplayName("actor-1");
         verify(identityProvider, times(1)).findUserDisplayName("actor-2");
     }
+
+    // --- the worker's own switch is reported, not re-derived (record S3-D) ---
+
+    @Test
+    @DisplayName("the overview reports the worker on, so the screen can tell the request will apply")
+    void reportsTheWorkerAsEnabled() {
+        stubEmployee(unlinked);
+        stubRequiredFor(unlinked, "lc-sales");
+        stubTasks();
+        when(provisioningWorkerProperties.enabled()).thenReturn(true);
+
+        var overview = service.getAccessOverview(companyId, employeeId);
+
+        assertThat(overview.workerEnabled()).isTrue();
+    }
+
+    @Test
+    @DisplayName("the overview reports the worker off, so the screen can say the request will not advance")
+    void reportsTheWorkerAsDisabled() {
+        stubEmployee(unlinked);
+        stubRequiredFor(unlinked, "lc-sales");
+        stubTasks();
+        when(provisioningWorkerProperties.enabled()).thenReturn(false);
+
+        var overview = service.getAccessOverview(companyId, employeeId);
+
+        assertThat(overview.workerEnabled()).isFalse();
+    }
 }

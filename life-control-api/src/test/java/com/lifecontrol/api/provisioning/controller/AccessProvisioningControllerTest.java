@@ -116,7 +116,8 @@ class AccessProvisioningControllerTest {
                 new AccessProvisioningRoleDiff(Set.of("lc-company"), Set.of("lc-receiving")),
                 openTask,
                 List.of(openTask),
-                claims);
+                claims,
+                true);
     }
 
     @Test
@@ -144,7 +145,8 @@ class AccessProvisioningControllerTest {
                 .andExpect(jsonPath("$.openTask.maxAttempts").value(5))
                 .andExpect(jsonPath("$.openTask.lastError").value("keycloak is unreachable"))
                 .andExpect(jsonPath("$.history[0].status").value("FAILED"))
-                .andExpect(jsonPath("$.claims.companyId[0]").value(companyId.toString()));
+                .andExpect(jsonPath("$.claims.companyId[0]").value(companyId.toString()))
+                .andExpect(jsonPath("$.workerEnabled").value(true));
     }
 
     @Test

@@ -34,6 +34,10 @@ import java.util.TreeSet;
  *   <li><b>What would the token carry?</b> {@code claims} is the five tenancy claim values the
  *       membership projection derives (records T1/T39), or five empty lists when the account is not
  *       linked.</li>
+ *   <li><b>Is the worker that applies the tasks even running?</b> {@code workerEnabled} is the
+ *       effective {@code app.provisioning.worker.enabled} value (record S3-D), so the section can say
+ *       that an open task will not advance on its own when the switch is off. It is the same property
+ *       the scheduler's own condition reads, not a second source of truth.</li>
  * </ul>
  *
  * <p>The role sets are normalized in the compact constructor to unmodifiable {@link TreeSet}s and the
@@ -52,6 +56,8 @@ import java.util.TreeSet;
  * @param openTask the newest task in an open status, or {@code null} when none is open
  * @param history every task of the employee, newest first
  * @param claims the five tenancy claim values the account would publish
+ * @param workerEnabled whether the access-provisioning worker pass runs in this environment (record
+ *     S3-D)
  */
 public record AccessProvisioningOverview(
         String keycloakUserId,
@@ -62,7 +68,8 @@ public record AccessProvisioningOverview(
         AccessProvisioningRoleDiff frozenRoleDiff,
         AccessProvisioningTaskView openTask,
         List<AccessProvisioningTaskView> history,
-        AccessProvisioningClaims claims) {
+        AccessProvisioningClaims claims,
+        boolean workerEnabled) {
 
     public AccessProvisioningOverview {
         requiredRoles = normalize(requiredRoles);

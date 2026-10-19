@@ -20,6 +20,19 @@
       }
     </div>
 
+    <!--
+      T5/S3-D: the worker's off state is a fact of the environment, not of the request, so this
+      notice is not gated on an open task. An absent `workerEnabled` means unknown and renders
+      nothing (see `workerDisabled`): a stale backend must not make the screen assert the off state.
+    -->
+    @if (workerDisabled()) {
+      <p class="worker-off-notice">
+        El worker de aprovisionamiento está deshabilitado en este ambiente: la solicitud queda
+        encolada y no se aplica por sí sola, así que no se crea la cuenta ni se envía la invitación.
+        Quien administra el ambiente debe definir WORKER_ENABLED=true para que el worker la aplique.
+      </p>
+    }
+
     @if (canWrite()) {
       <div class="actions-row">
         <!--

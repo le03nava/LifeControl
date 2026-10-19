@@ -84,6 +84,12 @@ import org.springframework.transaction.annotation.Transactional;
  *       {@link AccessProvisioningTaskService#OPEN_STATUSES} set the creation path uses, so there is
  *       one definition of "open" rather than a second literal outside the partial index's predicate.
  *       The history is the employee's tasks newest first.</li>
+ *   <li><b>The worker's own switch is reported, not re-derived</b> (record S3-D):
+ *       {@code workerEnabled} is the effective {@code app.provisioning.worker.enabled} value the
+ *       scheduler's condition evaluates, so the Access section can tell "this will advance" from
+ *       "this never will" while the switch is off. It is read from the same
+ *       {@link ProvisioningWorkerProperties} already used for the retry ceiling, so there is no
+ *       second source of truth for it.</li>
  *   <li><b>The claim values are the membership projection's derivation</b> —
  *       {@link AccessProvisioningMembershipService#deriveMembership(Employee)} — the same read-only
  *       accessor shape as the role set: one derivation, no duplication, no write (records
@@ -193,7 +199,8 @@ public class AccessProvisioningQueryService {
                 frozenDiffOf(openTaskRow),
                 openTask,
                 history,
-                claims);
+                claims,
+                provisioningWorkerProperties.enabled());
     }
 
     /**

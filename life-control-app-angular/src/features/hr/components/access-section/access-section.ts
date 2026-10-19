@@ -128,6 +128,15 @@ export class AccessSection {
     return null;
   });
 
+  /**
+   * Whether the API reports the access-provisioning worker as **disabled** (record S3-D / `T5`).
+   *
+   * `false` is the only value that fires the notice: an absent `workerEnabled` (a backend older
+   * than the additive field) means unknown, and asserting "the worker is off" from a field the
+   * section never received would be the silent default this notice exists to surface.
+   */
+  readonly workerDisabled = computed(() => this.overview()?.workerEnabled === false);
+
   /** Re-runs the overview read that failed. */
   readonly retry = output<void>();
 
