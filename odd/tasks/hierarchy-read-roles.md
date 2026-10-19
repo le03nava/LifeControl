@@ -40,7 +40,7 @@ en las pantallas operativas (read model angosto / consumo de UI) queda fuera de 
 | --- | --- | --- | --- | --- |
 | T1 | `ScopeLevel.COMPANY` acepta `Roles.COMPANY_READ` y `GrantablePositionRoles.FROZEN` acepta `lc-company-read`, con los dos pins verdes | S1, S3 | inline | `6df7654` |
 | T2 | `GET /api/companies/selector` filtrado por el claim `company_id`, con gate `isAuthenticated()` y su matriz de seguridad | S2 | inline | `0ac9e6c` |
-| T3 | Los `-read` de los ancestros entran en los GET de lista y detalle de los niveles descendientes, con su matriz de seguridad por controller | S1 | delegado (`gentle-ai-worker`) | — |
+| T3 | Los `-read` de los ancestros entran en los GET de lista y detalle de los niveles descendientes, con su matriz de seguridad por controller | S1 | delegado (`gentle-ai-worker`) + revisión inline | `5adf82d` |
 | T4 | Los consumidores del frontend dejan de usar `getCompanies(0, 1000)` como selector y pasan al selector nuevo | S2 | delegado (`gentle-ai-worker`) | — |
 | T5 | Pin de S3: `lc-company-read` no entra en `isCompanyRole` ni en las rutas de Companies | S3 | inline | — |
 
@@ -89,3 +89,44 @@ y `/selector` no colisiona con `/{id}`) más 3 tests de servicio (proyección, f
 claim, claim vacío sin lecturas). Total de la corrida enfocada: **54 tests, 0 fallas**, con
 `CompanyServiceTest$GetCompanySelectorTests` 3 y `CompanyControllerSecurityTest$CompanySelectorAccess`
 4.
+
+**L6** — 2026-02-21 · **T3 entregado** como `5adf82d`, con una exclusión deliberada. Doce controllers y
+sus hermanos planos ampliaron sólo sus `@GetMapping` para admitir los `-read` de todos los ancestros;
+cada `@PostMapping`/`@PutMapping`/`@PatchMapping`/`@DeleteMapping` quedó byte-idéntico. El aporte
+llegó de un writer delegado que probó el RED de verdad (368 tests, 71 fallas, una por cada caso
+ancestro nuevo) y después el GREEN (368/0). **Revisado inline, y el aporte traía un problema real**:
+
+- **`GoodsReceiptController` quedó revertido.** `GoodsReceiptService#getAllReceipts:338` filtra a
+  **todo** no-admin por `company_store_ids`, sin escalonar por rol. Un portador de `lc-company-read`,
+  `lc-company-country-read`, `lc-company-region-read` o `lc-company-zone-read` habría pasado la
+  anotación y recibido **200 con una página vacía** — un "no hay comprobantes" falso, en vez de un
+  403 diagnosticable, justo para las personas que S1 admite. Es una unidad aparte: hay que escalonar
+  el filtro por alcance, y eso **cambia lo que hoy ve `lc-company`**, que ya recibe 200-vacío. Se
+  revirtió el controller y su matriz al estado base, y queda como gap con nombre propio abajo.
+- **`CompanyStoreFlatControllerSecurityTest` es nuevo.** El propio writer marcó que el `GET
+  /api/stores/{id}` ampliado no tenía matriz que lo cubriera: el controller anidado tiene su
+  `@WebMvcTest` y el test plano corre en `standaloneSetup` sin method security. 13 tests: 11 roles
+  admitidos por 200, `lc-sales` por 403 y un anónimo rechazado.
+- Los otros cuatro servicios de lista **sí** escalonan su filtro por rol (`CompanyCountryService:56`,
+  `CompanyRegionService:75`, `CompanyZoneService:82`, `CompanyStoreService:105`): filtran por el claim
+  angosto sólo cuando el portador tiene el rol angosto, y si no caen a la consulta sin filtro. Por eso
+  la ampliación es correcta ahí y en goods receipts no.
+- `spotlessApply` corrido sobre el módulo: los cinco renglones de `@ValueSource` que el writer dejó en
+  123 columnas quedaron dentro del presupuesto.
+- Verificación post-revert: las nueve clases de seguridad y la nueva del flat store,
+  **BUILD SUCCESSFUL**.
+
+**G1 — el listado de comprobantes no honra el alcance (abierto, con nombre propio).**
+`GoodsReceiptService#getAllReceipts` no tiene escalón por rol: cualquier no-admin se filtra por
+`company_store_ids` y un conjunto vacío devuelve página vacía. Consecuencia medida: `lc-company`,
+`lc-company-read`, `lc-company-country-read`, `lc-company-region-read` y `lc-company-zone-read` reciben
+200 con cero filas. El arreglo es escalonar el filtro por el alcance más amplio otorgado, igual que
+los cuatro servicios hermanos, y con él se puede reabrir la anotación de las dos lecturas. Es un cambio
+de comportamiento de una consulta con rationale de tenancy (`W2-D10`), así que pide su propio registro
+y su propia verificación.
+
+**Frontera de slice.** `1db82e6..5adf82d` acumula **920 líneas autoradas** en 5 commits: registro,
+T1, T2, evidencia y T3. Está por encima del presupuesto de revisión de ~400 líneas, así que este es el
+corte: **slice 1 = `1db82e6..5adf82d`** (backend completo de S1/S2/S3 en la API), **slice 2 = T4 y T5**
+(la migración del frontend y su pin). Si esto se publica, son PRs encadenados, no un PR de 1.300
+líneas; la decisión de publicar es del mantenedor.
