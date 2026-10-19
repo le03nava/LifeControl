@@ -15,9 +15,30 @@ concurrency:
   group: angular-ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Three jobs rather than one, because the unit suite was 55-75% of this workflow (135-282s of a
+# 228-401s run) and it swung 2x on unchanged code: one runner, one Vitest process pool. The suite is
+# now split across two shards that start together, and the coverage gate runs once, in a third job,
+# over the merge of both shards' reports.
+#
+# Why the coverage verdict is a separate job and not a step of each shard: every shard writes a
+# coverage summary of its own subset only, so a threshold read from one shard compares half the suite
+# against numbers meant for all of it — and reports green while doing it. The builder's `clean()`
+# wipes the previous summary on each run, so only this job may write `coverage/` and only it may fail
+# the run on a threshold.
+#
+# The mechanism, and the three things that make it work rather than silently not:
+#   * `ng test` rejects `--shard` (`Error: Unknown argument: shard`), so the shard reaches Vitest
+#     through `VITEST_SHARD`, read by `runnerConfig` (`src/test-timeouts.ts`).
+#   * The blob reporter is passed here, on the shard command line, and never in `runnerConfig`:
+#     `vitest --merge-reports` loads that same config, and merging a blob-reporter config throws
+#     `Cannot merge reports when --reporter=blob is used`.
+#   * `src/test-timeouts.ts` carries `test.name` for the merge command alone. Without it the merge
+#     exits 1 with `No test files found` / 0 tests while still writing a correct-looking union
+#     `coverage/coverage-summary.json`.
+
 jobs:
-  ci:
-    name: Lint, Build & Test
+  lint-build:
+    name: Lint & Build
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -42,8 +63,85 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Test
-        run: npm run test:coverage:check
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    strategy:
+      # Not fail-fast: a red shard must not cancel its sibling, because the log of the other shard is
+      # what says whether the whole suite is broken or one file is.
+      fail-fast: false
+      matrix:
+        # The shard count lives here and in `VITEST_SHARD` below; adding a third runner means both.
+        shard: [1, 2]
+    env:
+      VITEST_SHARD: ${{ matrix.shard }}/2
+    defaults:
+      run:
+        working-directory: life-control-app-angular
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: life-control-app-angular/.nvmrc
+          cache: npm
+          cache-dependency-path: life-control-app-angular/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # `default` alongside `blob` keeps each shard's file and test counts in the run log, which is
+      # what proves the shards are disjoint and add up to the unsharded count.
+      - name: Test shard ${{ matrix.shard }}/2
+        run: npx ng test --no-watch --reporters=blob --reporters=default
+
+      - name: Upload shard report
+        uses: actions/upload-artifact@v7
+        with:
+          name: vitest-reports-${{ matrix.shard }}
+          path: life-control-app-angular/.vitest-reports/
+          # `.vitest-reports` is a HIDDEN directory and `upload-artifact` excludes hidden files by
+          # default, so without this the step finds nothing even though the blob was written —
+          # measured on the first run of pull request #445, where the shard log said `blob report
+          # written to .../.vitest-reports/blob-1-2.json` and the upload reported `No files were
+          # found with the provided path`.
+          include-hidden-files: true
+          # A shard that wrote no blob would be dropped from the merge without a word, which is how
+          # the failure above surfaced instead of a half-covered verdict.
+          if-no-files-found: error
+
+  coverage:
+    name: Coverage
+    needs: test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: life-control-app-angular
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: life-control-app-angular/.nvmrc
+          cache: npm
+          cache-dependency-path: life-control-app-angular/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download every shard report
+        uses: actions/download-artifact@v7
+        with:
+          pattern: vitest-reports-*
+          path: life-control-app-angular/.vitest-reports
+          merge-multiple: true
+
+      - name: Merge shard reports and enforce coverage
+        run: npm run test:coverage:merge:check
 
       - name: Upload coverage artifact
         if: always()
