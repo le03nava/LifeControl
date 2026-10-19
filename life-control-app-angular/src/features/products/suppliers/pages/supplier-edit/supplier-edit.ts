@@ -13,7 +13,7 @@ import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { catchError, of } from 'rxjs';
 import { SupplierService } from '../../data/supplier.service';
 import { ApiError } from '@shared/models';
-import { Supplier, SupplierControl } from '../../models/supplier.models';
+import { SupplierControl, SupplierFormValue, SupplierRequest } from '../../models/supplier.models';
 import { CountryService } from '@features/countries/data/country.service';
 import { Country } from '@features/companies/countries/models/country.models';
 import type { AddressControl } from '@shared/models/address.models';
@@ -147,25 +147,11 @@ export class SupplierEdit implements OnInit {
     });
   }
 
-  onSaveSupplier(supplierData: Supplier): void {
+  onSaveSupplier(supplierData: SupplierFormValue): void {
+    const request = this.buildSupplierRequest(supplierData);
     if (supplierData.id === '') {
-      const { id: _id, address, ...rest } = supplierData;
-      const hasAddress =
-        address &&
-        (address.street ||
-          address.streetNumber ||
-          address.internalNumber ||
-          address.neighborhood ||
-          address.zipCode ||
-          address.city ||
-          address.state ||
-          address.countryId);
-      const payload = {
-        ...rest,
-        ...(hasAddress ? { address } : {}),
-      };
       this.supplierService
-        .createSupplier(payload as unknown as Supplier)
+        .createSupplier(request)
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
           next: (createdSupplier) => {
@@ -176,23 +162,8 @@ export class SupplierEdit implements OnInit {
           },
         });
     } else {
-      const { id: _id, address, ...rest } = supplierData;
-      const hasAddress =
-        address &&
-        (address.street ||
-          address.streetNumber ||
-          address.internalNumber ||
-          address.neighborhood ||
-          address.zipCode ||
-          address.city ||
-          address.state ||
-          address.countryId);
-      const payload = {
-        ...rest,
-        ...(hasAddress ? { address } : {}),
-      };
       this.supplierService
-        .updateSupplier(supplierData.id, payload as unknown as Supplier)
+        .updateSupplier(supplierData.id, request)
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
           next: () => {
@@ -203,6 +174,36 @@ export class SupplierEdit implements OnInit {
           },
         });
     }
+  }
+
+  /**
+   * Builds the wire body explicitly against `SupplierRequest` (S4).
+   *
+   * The response model also carries `id`, `createdAt` and `updatedAt`, and the API rejects an
+   * undeclared key before validating any field, so the body is written out key by key.
+   */
+  private buildSupplierRequest(supplier: SupplierFormValue): SupplierRequest {
+    const address = supplier.address;
+    const hasAddress =
+      address &&
+      (address.street ||
+        address.streetNumber ||
+        address.internalNumber ||
+        address.neighborhood ||
+        address.zipCode ||
+        address.city ||
+        address.state ||
+        address.countryId);
+    return {
+      supplierName: supplier.supplierName,
+      razonSocial: supplier.razonSocial,
+      rfc: supplier.rfc,
+      email: supplier.email,
+      phoneNumber: supplier.phoneNumber,
+      internalNumber: supplier.internalNumber,
+      enabled: supplier.enabled,
+      ...(hasAddress ? { address } : {}),
+    };
   }
 
   private handleServerError(err: HttpErrorResponse): void {

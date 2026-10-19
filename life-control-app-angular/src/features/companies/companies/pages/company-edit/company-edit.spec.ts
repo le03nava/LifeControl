@@ -307,4 +307,108 @@ describe('CompanyEdit', () => {
       expect(control.hasError('maxlength')).toBe(true);
     });
   });
+
+  describe('request body', () => {
+    /**
+     * The API refuses the body *before* it validates any field — it is configured with
+     * `spring.jackson.deserialization.fail-on-unknown-properties=true` — and answers
+     * `400 Malformed or unreadable request body`. So the body has to carry exactly what
+     * `CompanyRequest` declares: this page must not put `id`, `createdAt` or `updatedAt`
+     * on the wire.
+     */
+    const requestFields = {
+      companyKey: 'KEY01',
+      companyName: 'Test Corp',
+      tipoPersonaId: 1,
+      razonSocial: 'Test Corp SA',
+      rfc: 'XAXX010101000',
+      phone: '555-0001',
+      email: 'corp@test.com',
+      emailDomain: 'test.com',
+      enabled: true,
+    };
+
+    it('sends only the fields CompanyRequest declares when creating, address included', () => {
+      let captured: unknown;
+      companyServiceMock.createCompany = vi.fn().mockImplementation((data: unknown) => {
+        captured = data;
+        return of(createCompanyWithAddress({ id: 'new-id' }));
+      });
+
+      component.onSaveCompany(createCompanyWithAddress({ id: '' }));
+
+      expect(captured).toStrictEqual({
+        ...requestFields,
+        address: { ...defaultAddress },
+      });
+    });
+
+    it('sends only the fields CompanyRequest declares when updating, address included', () => {
+      let captured: unknown;
+      companyServiceMock.updateCompany = vi.fn().mockImplementation((id: string, data: unknown) => {
+        captured = data;
+        return of(createCompanyWithAddress({ id: 'existing-id' }));
+      });
+
+      component.onSaveCompany(createCompanyWithAddress({ id: 'existing-id' }));
+
+      expect(captured).toStrictEqual({
+        ...requestFields,
+        address: { ...defaultAddress },
+      });
+    });
+
+    it('still sends emailDomain as an empty string when the company has none', () => {
+      let captured: unknown;
+      companyServiceMock.createCompany = vi.fn().mockImplementation((data: unknown) => {
+        captured = data;
+        return of(createCompanyData({ id: 'new-id' }));
+      });
+
+      component.onSaveCompany(createCompanyWithAddress({ id: '', emailDomain: undefined }));
+
+      // A PUT is a full replacement and the API normalizes `''` to null, so the key has to be
+      // present: dropping it would clear a configured domain by accident.
+      expect(captured).toStrictEqual({
+        ...requestFields,
+        emailDomain: '',
+        address: { ...defaultAddress },
+      });
+    });
+
+    it('omits the address when every one of its fields is empty', () => {
+      let captured: unknown;
+      companyServiceMock.createCompany = vi.fn().mockImplementation((data: unknown) => {
+        captured = data;
+        return of(createCompanyData({ id: 'new-id' }));
+      });
+
+      component.onSaveCompany(
+        createCompanyData({
+          address: {
+            street: null,
+            streetNumber: null,
+            internalNumber: null,
+            neighborhood: null,
+            zipCode: null,
+            city: null,
+            state: null,
+            countryId: null,
+          },
+        }),
+      );
+
+      expect(captured).toStrictEqual({
+        companyKey: '',
+        companyName: 'Test',
+        tipoPersonaId: 1,
+        razonSocial: 'Test SA',
+        rfc: 'RFC123456789',
+        phone: '5551234567',
+        email: 'test@test.com',
+        emailDomain: 'test.com',
+        enabled: true,
+      });
+    });
+  });
 });

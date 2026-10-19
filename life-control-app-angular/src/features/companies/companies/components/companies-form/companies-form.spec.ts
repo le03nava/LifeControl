@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { FormControl, FormGroup, Validators } from '@angular/forms';
 import { CompaniesForm } from './companies-form';
-import { Company, CompanyControl } from '../../models/company.models';
+import { CompanyControl, CompanyFormValue } from '../../models/company.models';
 import { AddressControl } from '@shared/models/address.models';
 
 describe('CompaniesForm', () => {
@@ -216,8 +216,8 @@ describe('CompaniesForm', () => {
       addressGroup.controls.state.setValue('CDMX');
       addressGroup.controls.countryId.setValue('MX');
 
-      let emitted: Company | undefined;
-      component.saveCompany.subscribe((c: Company) => {
+      let emitted: CompanyFormValue | undefined;
+      component.saveCompany.subscribe((c: CompanyFormValue) => {
         emitted = c;
       });
 
@@ -233,8 +233,8 @@ describe('CompaniesForm', () => {
     it('should emit Company without address object when all address fields empty', () => {
       fillRequiredFields();
 
-      let emitted: Company | undefined;
-      component.saveCompany.subscribe((c: Company) => {
+      let emitted: CompanyFormValue | undefined;
+      component.saveCompany.subscribe((c: CompanyFormValue) => {
         emitted = c;
       });
 
@@ -248,8 +248,8 @@ describe('CompaniesForm', () => {
       fillRequiredFields();
       component.formGroup().controls.emailDomain.setValue('acme.com');
 
-      let emitted: Company | undefined;
-      component.saveCompany.subscribe((c: Company) => {
+      let emitted: CompanyFormValue | undefined;
+      component.saveCompany.subscribe((c: CompanyFormValue) => {
         emitted = c;
       });
 

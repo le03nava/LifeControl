@@ -4,7 +4,7 @@ import type {
   CompanyCountry,
   CompanyCountryRequest,
 } from '../../countries/models/country.models';
-import type { AddressValue, AddressControl } from '@shared/models/address.models';
+import type { AddressValue, AddressRequest, AddressControl } from '@shared/models/address.models';
 
 export type { Country, CompanyCountry, CompanyCountryRequest };
 
@@ -24,6 +24,23 @@ export interface Company {
   updatedAt: string;
   countries?: CompanyCountry[];
 }
+
+export interface CompanyRequest {
+  companyKey: string;
+  companyName: string;
+  tipoPersonaId: number;
+  razonSocial: string;
+  rfc: string;
+  phone: string;
+  email: string;
+  /** Optional like the API DTO, but the page always sends it (`''` when blank, which the API normalizes to null). */
+  emailDomain?: string;
+  enabled: boolean;
+  address?: AddressRequest;
+}
+
+/** The form value the edit page consumes: the domain model minus the two server-owned keys. */
+export type CompanyFormValue = Omit<Company, 'createdAt' | 'updatedAt'>;
 
 export interface Page<T> {
   content: T[];

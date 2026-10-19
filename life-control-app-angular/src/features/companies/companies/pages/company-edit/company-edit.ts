@@ -14,7 +14,11 @@ import { catchError, of } from 'rxjs';
 import { CompanyService } from '@features/companies/companies/data/company.service';
 import { CompanyContextService } from '@shared/data/company-context.service';
 import { ApiError } from '@shared/models';
-import { Company, CompanyControl } from '@features/companies/companies/models/company.models';
+import {
+  CompanyControl,
+  CompanyFormValue,
+  CompanyRequest,
+} from '@features/companies/companies/models/company.models';
 import { CountryService } from '@features/countries/data/country.service';
 import { Country } from '@features/companies/countries/models/country.models';
 import type { AddressControl } from '@shared/models/address.models';
@@ -166,25 +170,10 @@ export class CompanyEdit implements OnInit {
     });
   }
 
-  onSaveCompany(companyData: Company): void {
+  onSaveCompany(companyData: CompanyFormValue): void {
     if (companyData.id === '') {
-      const { id: _id, address, ...rest } = companyData;
-      const hasAddress =
-        address &&
-        (address.street ||
-          address.streetNumber ||
-          address.internalNumber ||
-          address.neighborhood ||
-          address.zipCode ||
-          address.city ||
-          address.state ||
-          address.countryId);
-      const payload = {
-        ...rest,
-        ...(hasAddress ? { address } : {}),
-      };
       this.companyService
-        .createCompany(payload as unknown as Company)
+        .createCompany(this.buildCompanyRequest(companyData))
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
           next: (createdCompany) => {
@@ -195,23 +184,8 @@ export class CompanyEdit implements OnInit {
           },
         });
     } else {
-      const { id: _id, address, ...rest } = companyData;
-      const hasAddress =
-        address &&
-        (address.street ||
-          address.streetNumber ||
-          address.internalNumber ||
-          address.neighborhood ||
-          address.zipCode ||
-          address.city ||
-          address.state ||
-          address.countryId);
-      const payload = {
-        ...rest,
-        ...(hasAddress ? { address } : {}),
-      };
       this.companyService
-        .updateCompany(companyData.id, payload as unknown as Company)
+        .updateCompany(companyData.id, this.buildCompanyRequest(companyData))
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
           next: () => {
@@ -222,6 +196,41 @@ export class CompanyEdit implements OnInit {
           },
         });
     }
+  }
+
+  /**
+   * Builds the wire body explicitly against `CompanyRequest` (S4).
+   *
+   * Written out key by key on purpose: the response model carries `id`, `createdAt`,
+   * `updatedAt` and `countries`, none of which the API request DTO declares, and the API
+   * rejects an undeclared key before validating any field. A spread would put them back on
+   * the wire, so an extra key here is a compile error instead of a 400.
+   */
+  private buildCompanyRequest(company: CompanyFormValue): CompanyRequest {
+    const address = company.address;
+    const hasAddress =
+      address &&
+      (address.street ||
+        address.streetNumber ||
+        address.internalNumber ||
+        address.neighborhood ||
+        address.zipCode ||
+        address.city ||
+        address.state ||
+        address.countryId);
+    return {
+      companyKey: company.companyKey,
+      companyName: company.companyName,
+      tipoPersonaId: company.tipoPersonaId,
+      razonSocial: company.razonSocial,
+      rfc: company.rfc,
+      phone: company.phone,
+      email: company.email,
+      // Always present: the API normalizes `''` to `null`, and a PUT is a full replacement.
+      emailDomain: company.emailDomain ?? '',
+      enabled: company.enabled,
+      ...(hasAddress ? { address } : {}),
+    };
   }
 
   private handleServerError(err: HttpErrorResponse): void {

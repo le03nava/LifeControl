@@ -1,5 +1,5 @@
 import { inject, Injectable, signal } from '@angular/core';
-import { Product, Page } from '../models/product.models';
+import { Product, ProductRequest, Page } from '../models/product.models';
 import { Observable, throwError } from 'rxjs';
 import { catchError, finalize } from 'rxjs/operators';
 import { HttpClient, HttpParams } from '@angular/common/http';
@@ -54,7 +54,7 @@ export class ProductService {
     return this.http.get<SupplierProduct[]>(`${this.apiUrl}/by-supplier/${supplierId}`, { params });
   }
 
-  createProduct(data: Product): Observable<Product> {
+  createProduct(data: ProductRequest): Observable<Product> {
     this._loading.set(true);
     this._error.set(null);
 
@@ -67,7 +67,7 @@ export class ProductService {
     );
   }
 
-  updateProduct(id: string, data: Product): Observable<Product> {
+  updateProduct(id: string, data: ProductRequest): Observable<Product> {
     this._loading.set(true);
     this._error.set(null);
 

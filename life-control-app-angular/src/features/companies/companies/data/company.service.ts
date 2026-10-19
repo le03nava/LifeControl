@@ -1,5 +1,5 @@
 import { inject, Injectable, signal } from '@angular/core';
-import { Company, Page } from '../models/company.models';
+import { Company, CompanyRequest, Page } from '../models/company.models';
 import { Observable, throwError } from 'rxjs';
 import { catchError, finalize } from 'rxjs/operators';
 import { HttpClient, HttpParams } from '@angular/common/http';
@@ -40,7 +40,7 @@ export class CompanyService {
     return this.http.get<Company>(`${this.apiUrl}/${id}`);
   }
 
-  createCompany(data: Company): Observable<Company> {
+  createCompany(data: CompanyRequest): Observable<Company> {
     this._loading.set(true);
     this._error.set(null);
 
@@ -53,7 +53,7 @@ export class CompanyService {
     );
   }
 
-  updateCompany(id: string, data: Company): Observable<Company> {
+  updateCompany(id: string, data: CompanyRequest): Observable<Company> {
     this._loading.set(true);
     this._error.set(null);
 
