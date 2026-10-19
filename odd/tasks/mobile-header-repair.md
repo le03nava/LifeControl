@@ -2,10 +2,10 @@
 
 **Repository**: LifeControl — documentation only (`odd/tasks/**`, four records). No source file, no test, no
 CI, no build config, no runtime behaviour.
-**Status**: repaired — the three `**Status**:` lines listed in `## Tasks` now carry their merge identity, and
-each of the three records quotes its own before-state in an appended `## Header repair` section. Nothing
-remains open in this slice; the follow-ups the three records declare are separate work. This header makes no
-claim about push or PR state; see the evidence log.
+**Status**: **merged** — PR **#370** (`docs/mobile-header-repair` @ `0ed5e33`), merge commit `6ee5752`,
+2026-10-17, so `main` carries the three repaired `**Status**:` lines, their appended `## Header repair`
+sections and this record. Nothing remains open in this slice; the follow-ups the three records declare are
+separate work.
 **Created**: 2026-10-17 · **Base**: `main` @ `31a15b8` · **Branch**: `docs/mobile-header-repair` ·
 **Worktree**: `~/workspace/LifeControl-worktrees/docs-mobile-header-repair` (herdr workspace `w3N`)
 **Risk**: **low.** Documentation only: three `**Status**:` lines and one appended section per record, plus
@@ -124,3 +124,15 @@ published and the fix lands as a further commit (T5). That is why the `## Tasks`
 original hashes rather than an amended one. The lesson is not about backticks: **this slice's only real gate
 is a human read**, so the verification that a markdown change gets has to include one — and a gate that cannot
 see the defect is not a gate for it.
+
+## Header repair (2026-10-19)
+
+The `**Status**:` line above was rewritten on 2026-10-19 by the unit that carries issue **#454**, where the
+inventory, the normalized sweep and the verification live. It used to decline the delivery state: «This header
+makes no claim about push or PR state; see the evidence log.» That state became known when the work merged —
+PR **#370**, merge `6ee5752`, 2026-10-17 — so the line now carries it. This record is the one the *previous*
+sweep missed while declaring the reason it could miss it: its own verification table names the line-oriented
+filter's blind spot, and this sentence is split by a line wrap, so `This header makes no` ends one line and
+`claim about push or PR state` starts the next. The follow-up `F1` this record reported rather than rewrote
+(`L5`, about `mobile-viewport-observer.md`) stays open and is not this unit's. Nothing else in this record was
+touched.
