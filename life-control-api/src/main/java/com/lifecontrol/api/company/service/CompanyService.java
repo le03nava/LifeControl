@@ -6,6 +6,7 @@ import com.lifecontrol.api.common.address.model.Address;
 import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.company.dto.CompanyRequest;
 import com.lifecontrol.api.company.dto.CompanyResponse;
+import com.lifecontrol.api.company.dto.CompanySelectorResponse;
 import com.lifecontrol.api.company.event.CompanyCreatedEvent;
 import com.lifecontrol.api.company.exception.CompanyNotFoundException;
 import com.lifecontrol.api.company.exception.DuplicateCompanyException;
@@ -49,8 +50,36 @@ public class CompanyService {
 
     @Transactional(readOnly = true)
     public Page<CompanyResponse> getAllCompanies(Pageable pageable, String search) {
-        Page<Company> companies;
+        return findCompaniesForCurrentUser(pageable, search).map(this::toResponse);
+    }
 
+    /**
+     * Returns the narrow company list a cascade selector needs, under the <b>same</b> claim filter as
+     * {@link #getAllCompanies}.
+     *
+     * <p>The filter is shared rather than re-implemented on purpose: the selector's whole
+     * authorization is the {@code company_id} claim, so a second copy of the branch below would be a
+     * second place where "what a non-admin may see" is decided. What changes between the two methods
+     * is only the projection — {@link CompanySelectorResponse} carries no fiscal data, no corporate
+     * email domain and no address, so the twelve screens that read this do not receive the
+     * administration contract to paint a {@code <mat-select>}.</p>
+     *
+     * @param pageable page request, resolved by the controller's {@code @PageableDefault}
+     * @param search   optional search term; whitespace-only is treated as absent, exactly as in
+     *                 {@link #getAllCompanies}
+     * @return the companies the caller belongs to (or every company for an admin), projected to the
+     *     selector read model
+     */
+    @Transactional(readOnly = true)
+    public Page<CompanySelectorResponse> getCompanySelector(Pageable pageable, String search) {
+        return findCompaniesForCurrentUser(pageable, search).map(this::toSelectorResponse);
+    }
+
+    /**
+     * Resolves the company page a caller may see: every company for an admin, and only the ids of the
+     * {@code company_id} claim otherwise.
+     */
+    private Page<Company> findCompaniesForCurrentUser(Pageable pageable, String search) {
         if (!currentUserContext.isAdmin()) {
             // Country-role user: filter by assigned company IDs
             Set<UUID> companyIds = currentUserContext.getCompanyIds();
@@ -58,17 +87,14 @@ public class CompanyService {
                 return Page.empty(pageable);
             }
             if (StringUtils.hasText(search)) {
-                companies = companyRepository.findBySearchTermAndIdIn(search.trim(), companyIds, pageable);
-            } else {
-                companies = companyRepository.findAllByIdIn(companyIds, pageable);
+                return companyRepository.findBySearchTermAndIdIn(search.trim(), companyIds, pageable);
             }
-        } else if (StringUtils.hasText(search)) {
-            companies = companyRepository.findBySearchTerm(search.trim(), pageable);
-        } else {
-            companies = companyRepository.findAll(pageable);
+            return companyRepository.findAllByIdIn(companyIds, pageable);
         }
-
-        return companies.map(this::toResponse);
+        if (StringUtils.hasText(search)) {
+            return companyRepository.findBySearchTerm(search.trim(), pageable);
+        }
+        return companyRepository.findAll(pageable);
     }
 
     @Transactional(readOnly = true)
@@ -182,6 +208,17 @@ public class CompanyService {
                 company.getCreatedAt(),
                 company.getUpdatedAt(),
                 buildAddressResponse(company));
+    }
+
+    /**
+     * Projects a company to the cascade-selector read model.
+     *
+     * <p>Three fields, deliberately: the id the caller sends back, the key some screens search by, and
+     * the name they render. The administration contract's fiscal and identity fields stay behind the
+     * role that admits the full read.
+     */
+    private CompanySelectorResponse toSelectorResponse(Company company) {
+        return new CompanySelectorResponse(company.getId(), company.getCompanyKey(), company.getCompanyName());
     }
 
     /**
