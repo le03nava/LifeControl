@@ -803,7 +803,7 @@ Todas las páginas de listado implementan estos estados con clases consistentes:
 npm test                # Ejecutar tests (coverage activo en angular.json)
 npm run test:watch      # Modo watch
 npm run test:coverage   # Con coverage
-npm run test:coverage:check  # Tests + enforcement de umbrales (CI)
+npm run test:coverage:check  # Tests + enforcement de umbrales (local)
 ```
 
 ### Timeouts
@@ -847,7 +847,7 @@ carga antes que del código: ver `odd/tasks/test-timeout-headroom.md`.
 **Meta objetivo:** mantener la cobertura ≥ la línea actual (94.1/76.0/89.3/94.1). Los umbrales son guardrails con ~14–16 pts de margen sobre el baseline para absorber variación legítima. La medición es de la corrida de `npm run test:coverage:check` en `main` @ `c49d296` (2026-09-24); `branches` varía en el segundo decimal entre corridas (75.93 / 75.98 / 75.99 observadas), así que el contrato es el floor, no el `Actual`.
 
 - Los umbrales se definen como constantes en `scripts/check-coverage.mjs`.
-- CI corre `npm run test:coverage:check`; si baja del umbral, el job falla.
+- CI corre los unit tests en dos shards (job `Unit tests`, matrix `shard: [1, 2]`) y el job `Coverage` recombina sus reportes blob con `npm run test:coverage:merge:check`: si el merge baja del umbral, ese job falla. El comando local `npm run test:coverage:check` sigue sin shardear y aplica los mismos umbrales.
 - Subir un umbral: actualizar la constante y (si el valor supera el actual) subir también la table de arriba.
 
 ### Tests E2E (Playwright)
