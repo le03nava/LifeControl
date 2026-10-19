@@ -6,14 +6,16 @@ failure mode), and the two documentation artifacts that describe the gate:
 `.agents/skills/project-conventions/references/labels.md` and the record this defect falsified,
 `odd/tasks/pr-label-enforcement.md`. No application code, no schema, no endpoint, no dependency, no consumed
 contract, no stored data.
-**Status**: implemented — the guard reads the label set from the pull request itself, through the API, at the moment
-the job runs, and the workflow declares the read-only `pull-requests: read` scope that read needs. The offline suite
-that freezes this answers **24 passed, 0 failed** (`exit 0`), and its three new cases answer **3 failed** against the
-previous workflow (**RED observed first**, `21 passed, 3 failed`, `exit 1`). No script changed, so `shellcheck
---severity=warning` over `.github/scripts/*.sh` is untouched. This header makes no claim about push, PR or merge
-state; the delivery detail belongs to the evidence log, and the clause in `pr-label-enforcement.md` that said a
-Dependabot pull request still needs a human to add `type:chore` is kept as written there and superseded by the repair
-that record carries.
+**Status**: **merged** — PR **#403** (`fix/pr-label-guard-stale-payload` @ `b2d2ec6`), merge commit
+`198b416`, 2026-10-18, closing issue **#397**. The fix: the guard reads the label set from the pull
+request itself, through the API, at the moment the job runs, and the workflow declares the read-only
+`pull-requests: read` scope that read needs. The offline suite that freezes this answers **24 passed, 0 failed**
+(`exit 0`), and its three new cases answer **3 failed** against the previous workflow (**RED observed first**,
+`21 passed, 3 failed`, `exit 1`). No script changed, so `shellcheck --severity=warning` over
+`.github/scripts/*.sh` is untouched. What this record leaves declared rather than closed is `S7`: the
+guard is still not a branch-protection required check. The clause in `pr-label-enforcement.md` that said
+a Dependabot pull request still needs a human to add `type:chore` is kept as written there and
+superseded by the repair that record carries.
 **Created**: 2026-10-17 · **Base**: `main` @ `e7ba78c` · **Branch**: `fix/pr-label-guard-stale-payload` ·
 **Worktree**: `~/workspace/LifeControl-worktrees/fix-pr-label-guard-stale-payload` (herdr workspace `w3Y`) ·
 **Issue**: **#397**
@@ -127,3 +129,7 @@ payload — all pass. `check-pr-type-labels.test.sh` and the other suites are un
 guard's own `Self-tests` step. `shellcheck --severity=warning` over `.github/scripts/*.sh` is unaffected: no `.sh`
 file changed. The behavioural acceptance criterion is the last one to be measured, on the pull request that carries
 this change and then on #392.
+
+## Header repair (2026-10-19)
+
+The `**Status**:` line above was rewritten on 2026-10-19 by `odd/tasks/odd-stale-header-reconciliation.md` (issue **#434**), where the inventory and the verification live. It used to decline the delivery state: «This header makes no claim about push, PR or merge state». That state became known when the work merged, so the line now carries it — PR **#403**, merge `198b416`, 2026-10-18 — and it names the issue the unit closed (**#397**). The rest of the sentence the clause belonged to survives in place: the clause in `pr-label-enforcement.md` is still kept as written there and superseded by the repair that record carries. Nothing else in this record was touched.

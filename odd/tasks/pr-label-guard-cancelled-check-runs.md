@@ -7,10 +7,11 @@ source is touched.
 **Branch**: `fix/cancelled-required-check-runs`, cut from `main` @ `ee1ca8f`.
 **Test runner**: `.github/scripts/tests/*.test.sh` — offline bash, no network, no `gh`, no token —
 plus `shellcheck --severity=warning` on the modified script.
-**Status**: implemented — the guard queues a newer event instead of cancelling the running run, so
-no check run is cancelled and the rollup can no longer read `FAILURE` for a commit whose protected
-contexts passed. One limit stays unmeasured and is declared in the workflow. This header makes no
-claim about push or PR state; see the evidence log.
+**Status**: **merged** — PR **#412** (`fix/cancelled-required-check-runs` @ `144592d`), merge commit
+`58cec5e`, 2026-10-18, closing issue **#410**: the guard queues a newer event instead of cancelling
+the running run, so no check run is cancelled and the rollup can no longer read `FAILURE` for a
+commit whose protected contexts passed. One limit stays unmeasured and is declared in the workflow —
+`L4` states the same limit in its own words — and closing it is not this unit's work.
 **Created**: 2026-10-18 · **Risk**: **item 5** (delivery pipeline: this workflow carries the two
 protected status contexts that gate every pull request)
 
@@ -75,3 +76,7 @@ explanation as a declaration. The other six suites exit `0`, and
 newer pending run in the same group is GitHub's own behaviour and is **not** measured here; the
 workflow comment says so in the same words. Closing it would need a run of its own, not an
 assertion this suite can make offline.
+
+## Header repair (2026-10-19)
+
+The `**Status**:` line above was rewritten on 2026-10-19 by `odd/tasks/odd-stale-header-reconciliation.md` (issue **#434**), where the inventory and the verification live. It used to decline the delivery state: «This header makes no claim about push or PR state; see the evidence log.». That state became known when the work merged, so the line now carries it — PR **#412**, merge `58cec5e`, 2026-10-18 — and it names the issue the unit closed (**#410**). Nothing else in this record was touched.
