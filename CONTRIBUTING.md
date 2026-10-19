@@ -105,14 +105,32 @@ with admin access to `le03nava/LifeControl` must apply them. Nothing in the repo
 its own protection rules, and a fresh checkout cannot prove the settings are in place — verify them
 with the command at the end of this section.
 
-Measured on 2026-10-17, `main` was **not protected** at all:
+Measured on 2026-10-19, `main` **is protected**, with the settings above applied:
 
 ```console
-$ gh api repos/le03nava/LifeControl/branches/main/protection
-gh: Branch not protected (HTTP 404)
+$ gh api repos/le03nava/LifeControl/branches/main/protection \
+  --jq '{strict: .required_status_checks.strict, contexts: .required_status_checks.contexts,
+         reviews: .required_pull_request_reviews.required_approving_review_count,
+         enforce_admins: .enforce_admins.enabled}'
+{"contexts":["Exactly one type:* label","A linked, approved issue"],"enforce_admins":true,"reviews":0,"strict":true}
 ```
 
-So today the gate jobs report on every pull request, but nothing makes the merge wait for them.
+The earlier measurement, on 2026-10-17, found it unprotected —
+`gh api repos/le03nava/LifeControl/branches/main/protection` answered
+`gh: Branch not protected (HTTP 404)` — and the runbook above was applied in between. Protection is
+provider state, not a repository fact, so re-measure before relying on either reading.
+
+Two consequences cost a delivery attempt each to discover, and both follow from that output:
+
+- **`strict: true` requires the head branch to be up to date with `main`.** A pull request whose branch
+  is behind is refused with `the head branch is not up to date with the base branch`, and the remedy is
+  to bring `main` into the branch with a **merge**, never a rebase: a rebase rewrites the commit ids an
+  ODD record cites (`references/feature-records.md`), leaving the record citing commits that no longer
+  exist. Budget for the check re-run that updating the branch triggers.
+- **`enforce_admins: true` leaves no bypass.** `gh pr merge --admin` cannot merge past the required
+  checks and contexts; the only path is to satisfy them. Since the required contexts are the two
+  `pr-label-guard.yml` jobs, a pull request missing the linked, approved issue or the single `type:*`
+  label cannot be merged at all, by anyone.
 
 ### Settings to apply to `main`
 
