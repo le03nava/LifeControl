@@ -202,7 +202,12 @@ report_missing_env_keys() {
 		elif compose_key_is_required "$key"; then
 			print_warning "  ${key} is not declared: a compose file requires it (\${${key}:?}), so compose refuses to start without it"
 		else
-			print_warning "  ${key} is not declared: no compose default, its own consumer reads it directly"
+			# Deliberately says only what this function measured. An earlier wording asserted
+			# "its own consumer reads it directly", which is false for the keys a dev-only
+			# compose file defaults (MAILPIT_PORT, MAILPIT_IMAGE): in this environment nothing
+			# reads them and they simply have no default in force. A report that misdescribes
+			# how a value is decided is the defect class this report exists to remove.
+			print_warning "  ${key} is not declared: no default in the compose files this environment loads"
 		fi
 	done
 	print_status "This is a report, not a failure: copy the missing key into $env_file to declare its value."

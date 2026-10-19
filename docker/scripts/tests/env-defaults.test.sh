@@ -355,8 +355,8 @@ assert_contains "report names that base default's value" \
 	"falls back to the compose default 'http://localhost:4200'" "$DEV_OUT"
 assert_contains "report names a key with no compose default" \
 	"CIRCUIT_BREAKER_WINDOW_SIZE is not declared" "$DEV_OUT"
-assert_contains "report says a key with no compose default is read by its consumer" \
-	"no compose default" "$DEV_OUT"
+assert_contains "report says a key with no default in the files in force is exactly that" \
+	"no default in the compose files this environment loads" "$DEV_OUT"
 assert_contains "report names the template it compared against" "$report_template" "$DEV_OUT"
 assert_not_contains "report never names a key the env file declares" \
 	"COMPOSE_PROJECT_NAME is not declared" "$DEV_OUT"
