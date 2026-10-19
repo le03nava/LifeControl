@@ -276,14 +276,11 @@ if [ -z "$ADMIN_TOKEN" ]; then
 fi
 print_success "Admin token obtained (${#ADMIN_TOKEN} chars)"
 
-# The app client's internal id is needed by the role assertion in both modes.
-APP_CID="$(kc_admin GET "/clients?clientId=$APP_CLIENT" | json_first_id)"
-if [ -z "$APP_CID" ]; then
-	print_error "Client $APP_CLIENT is absent from realm $REALM; run ./docker/scripts/keycloak-setup.sh $ENV"
-	exit 1
-fi
-
 # kc_admin <method> <path> [body] -> the Admin REST API, body on stdout.
+# It is defined before its first use on purpose: bash resolves a command at call
+# time, so an APP_CID read placed above this definition fails with
+# `kc_admin: command not found`, and the empty result then surfaces two lines
+# later as `$1: unbound variable` inside json_first_id.
 kc_admin() {
 	local method="$1"
 	local path="$2"
@@ -309,6 +306,14 @@ kc_admin_code() {
 			"$KC_BASE/admin/realms/$REALM$path"
 	fi
 }
+
+# The app client's internal id is needed by the role assertion in both modes. It is
+# read here, after kc_admin exists, for the reason that function's own comment gives.
+APP_CID="$(json_first_id "$(kc_admin GET "/clients?clientId=$APP_CLIENT")")"
+if [ -z "$APP_CID" ]; then
+	print_error "Client $APP_CLIENT is absent from realm $REALM; run ./docker/scripts/keycloak-setup.sh $ENV"
+	exit 1
+fi
 
 # obtain_operator_token <username> <password> -> an access token from the public
 # client's password grant (directAccessGrantsEnabled, which keycloak-setup.sh sets).
@@ -399,7 +404,7 @@ if [ -z "$OPERATOR_TOKEN" ]; then
 	# A leftover operator from a killed run is named rather than reused or
 	# deleted: deleting by name prefix would be this script destroying identities
 	# it cannot prove it created.
-	LEFTOVERS="$(kc_admin GET '/users?search=w6b-provision-ops-&max=20' | json_strings username)"
+	LEFTOVERS="$(json_strings username "$(kc_admin GET '/users?search=w6b-provision-ops-&max=20')")"
 	if [ -n "$LEFTOVERS" ]; then
 		print_warning "The realm already holds w6b-provision-ops-* users (a previous run may have been killed):"
 		while IFS= read -r leftover; do
@@ -409,10 +414,16 @@ if [ -z "$OPERATOR_TOKEN" ]; then
 	fi
 
 	print_status "Creating the disposable operator $OPERATOR_USERNAME..."
-	OPERATOR_BODY="{\"username\":\"$OPERATOR_USERNAME\",\"email\":\"$OPERATOR_EMAIL\",\"enabled\":true,\"emailVerified\":true}"
+	# firstName and lastName are not decoration: the realm's user profile declares email,
+	# firstName and lastName as required for the `user` role
+	# (`GET /admin/realms/<realm>/users/profile`), and a user missing one of them
+	# authenticates to `invalid_grant` / "Account is not fully set up" even with
+	# emailVerified=true and an empty requiredActions. Without them the password grant
+	# below cannot succeed in this realm.
+	OPERATOR_BODY="{\"username\":\"$OPERATOR_USERNAME\",\"email\":\"$OPERATOR_EMAIL\",\"firstName\":\"Provisioning\",\"lastName\":\"Verifier\",\"enabled\":true,\"emailVerified\":true}"
 	OP_CODE="$(kc_admin_code POST /users "$OPERATOR_BODY")"
 	expect_code 201 "$OP_CODE" "Creating the disposable operator" || exit 1
-	OPERATOR_ID="$(kc_admin GET "/users?username=$OPERATOR_USERNAME&exact=true" | json_first_id)"
+	OPERATOR_ID="$(json_first_id "$(kc_admin GET "/users?username=$OPERATOR_USERNAME&exact=true")")"
 	if [ -z "$OPERATOR_ID" ]; then
 		print_error "The disposable operator was created but its id could not be read back."
 		exit 1
@@ -420,7 +431,7 @@ if [ -z "$OPERATOR_TOKEN" ]; then
 	print_success "Disposable operator created ($OPERATOR_USERNAME, $OPERATOR_ID)"
 
 	print_status "Granting lc-admin to the disposable operator..."
-	ADMIN_ROLE_ID="$(kc_admin GET "/clients/$APP_CID/roles/lc-admin" | json_first_id)"
+	ADMIN_ROLE_ID="$(json_first_id "$(kc_admin GET "/clients/$APP_CID/roles/lc-admin")")"
 	if [ -z "$ADMIN_ROLE_ID" ]; then
 		print_error "Client role lc-admin is absent from client $APP_CLIENT; run ./docker/scripts/keycloak-setup.sh $ENV"
 		exit 1
@@ -523,13 +534,13 @@ print_success "Position $POSITION_ID, seniority level $SENIORITY_ID"
 if [ -n "$OPERATOR_ID" ]; then
 	print_status "Writing the disposable operator's company_id attribute and reading it back..."
 	ATTR_CODE="$(kc_admin_code PUT "/users/$OPERATOR_ID" \
-		"{\"username\":\"$OPERATOR_USERNAME\",\"email\":\"$OPERATOR_EMAIL\",\"enabled\":true,\"emailVerified\":true,\"attributes\":{\"company_id\":[\"$COMPANY_ID\"]}}")"
+		"{\"username\":\"$OPERATOR_USERNAME\",\"email\":\"$OPERATOR_EMAIL\",\"firstName\":\"Provisioning\",\"lastName\":\"Verifier\",\"enabled\":true,\"emailVerified\":true,\"attributes\":{\"company_id\":[\"$COMPANY_ID\"]}}")"
 	expect_code 204 "$ATTR_CODE" "Writing the disposable operator's attributes" || exit 1
 	# READ BACK, never trust the write: this is the trap AGENTS.md documents —
 	# with the default user-profile policy Keycloak answers 204 and stores nothing,
 	# so an attribute that did not stick is the difference between a scoped token
 	# and a 403 nobody can explain.
-	READ_BACK="$(kc_admin GET "/users/$OPERATOR_ID" | json_array company_id)"
+	READ_BACK="$(json_array company_id "$(kc_admin GET "/users/$OPERATOR_ID")")"
 	if [ "$READ_BACK" != "$COMPANY_ID" ]; then
 		print_error "The operator's company_id attribute did not persist (read back '${READ_BACK:-<empty>}')."
 		print_error "Keycloak discards unmanaged user attributes silently unless the realm's user profile allows them:"
