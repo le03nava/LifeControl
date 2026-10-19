@@ -1,7 +1,7 @@
 # ODD feature: odd-status-headers-guard
 
 **Repository**: LifeControl — one new file, `.github/scripts/tests/odd-status-headers.test.sh`, plus this record. **No production code, no workflow change, no edit to any existing record.** The suite is wired by the existing loop over `.github/scripts/tests/*.test.sh` inside `.github/workflows/pr-label-guard.yml`, so nothing had to be edited to activate it.
-**Status**: implemented — S1–S9 hold the guard, its six fixtures and its wiring by the existing glob; the delivery evidence belongs to the evidence log.
+**Status**: implemented — S1–S9 hold the guard, its ten fixtures and its wiring by the existing glob; the delivery evidence belongs to the evidence log.
 **Created**: 2026-10-19 · **Base**: `main` @ `ab649a5` · **Branch**: `chore/odd-status-headers` · **Worktree**: `~/workspace/LifeControl-worktrees/chore-odd-status-headers` (herdr `w4V`)
 **Issue**: **#456** (`status:approved` by the human on 2026-10-19), whose body carries the measurement this record implements.
 **Risk**: **low.** The file is a test suite that nothing else imports and that mutates nothing: it reads `odd/tasks/*.md` and local `git`, and writes only inside its own `mktemp -d`. Its failure mode is a false *negative* (a drift it does not catch); the one real risk is the opposite, a false *positive* that fails every pull request, which is why the real-tree audit is asserted to pass before any fixture runs (`Si`).
@@ -46,11 +46,15 @@ D4. **A delivery hash that resolves but is not an ancestor fails; one that does 
 
 D5. **The suite fails when it reads zero records.** A parser that finds no record would agree with everything vacuously, so the record count is asserted, not just printed.
 
+D6. **One commit, not a chain — over the advisory review budget, disclosed.** The slice is 549 authored lines against the repository's advisory ~400 (`CONTRIBUTING.md` §3): 483 in the suite and 66 in this record. It stays one unit because the artifact is a **single new file with one concern**, and the ten fixtures that push it over are the issue's **own acceptance criteria** — trimming them to fit the budget would trade a stated requirement for a line count. The reviewer is told the number here rather than discovering it in the diff.
+
+D7. **The count of claimed merge commits is asserted, not just printed.** A marker regex that matched nothing — a typo in `merge commit`, a stray backtick — would make the ancestry half report `ran` while having verified nothing, which is the same silent green S4 exists to prevent. `DELIVERY <n>` is therefore a third number in the audit's own score, and `> 0` is an assertion when the half ran.
+
 ## Tasks
 
 | ID | Spec | Route | Unit |
 | --- | --- | --- | --- |
-| T1 | S1, S2, S4, S5, S9 | inline | The suite, its six fixtures and its parser. |
+| T1 | S1, S2, S4, S5, S9 | inline | The suite, its ten fixtures and its parser. |
 | T2 | S3, S6, S7, S8 | inline | The ancestry half, the real-tree green run on the four quotation files, and the out-of-fixture probe on a scratch copy. |
 | T3 | D1 | inline | Update this header with `PR #<n>` before the merge, and record the delivery in the evidence log. |
 
@@ -60,6 +64,12 @@ D5. **The suite fails when it reads zero records.** A parser that finds no recor
 | --- | --- |
 | 2026-10-19 | Calibration before writing the suite, on `main` @ `ab649a5`: **75** records read; **one** carries declining vocabulary in its first `**Status**:` paragraph (`ci-speed.md`, `makes no claim about live push`) and that one carries `#435`/`#443`/`#445` in the same paragraph, which is S5(b)'s pass shape. The other 74 carry none, so the guard is born green for the right reason. |
 | 2026-10-19 | Same pass, ancestry: every hash behind a delivery marker resolves as a commit and is an ancestor of `origin/main`. The tokens that do **not** resolve are exactly the four object identities D3 names, none of them behind a delivery marker. |
+| 2026-10-19 | **S7/Si run on the anchor (`main` @ `ab649a5`, 75 records, this record absent): `20 passed, 0 failed`, `checked 75 record(s); 111 claimed merge commit(s); ancestry: ran`, `10 fixture(s) asserted`.** The real-tree audit is green before any fixture runs, so a false positive cannot be reported as a caught drift. |
+| 2026-10-19 | Run on this branch (76 records, this one included and still pre-PR): `19 passed, 1 failed`, and the only `PROBLEM` line is **this record** — `declines the delivery ... (phrases: implemented)`. That is D1 happening, not a defect: the guard caught a header written before its delivery exists. |
+| 2026-10-19 | Out-of-fixture probe, on a `mktemp -d` copy of the real `odd/tasks/` (no fixtures, no synthetic tree): the original decline of `mobile-header-repair.md` — *"the three header repairs are applied and nothing in this slice is open. This header makes no / claim about push or PR state"*, split by a line wrap exactly as #436 left it — was reintroduced, and the guard reported that record **by name**. Replacing this record's header with one naming `PR #9999` cleared it. The scratch tree was removed. |
+| 2026-10-19 | `docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:stable --severity=warning .github/scripts/tests/odd-status-headers.test.sh` → exit 0. `shellcheck` is not installed on the host; this is the same pinned container `.github/workflows/pr-label-guard.yml` uses. |
+| 2026-10-19 | **A defect in the rule's own first draft, found only by the real tree.** `declining_phrase` piped `grep` into `head`, so the condition tested `head`'s status and entered the branch on **every** record; two real records (`docker-images-rebuild.md`, `odd-stale-header-reconciliation.md`) were reported with an empty phrase. Every fixture passed while that was true, because each fixture is either clearly declining or clearly hedged. Fixed with an explicit non-emptiness test, and the two records are green now. This is the measured argument for S7: the fixtures could not see it. |
+| 2026-10-19 | `b5dc080` holds the suite (483 lines, mode 0755) and this record (66 lines). |
 
 ## Log
 
