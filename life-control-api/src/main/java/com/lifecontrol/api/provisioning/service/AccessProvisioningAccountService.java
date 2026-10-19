@@ -108,6 +108,15 @@ public class AccessProvisioningAccountService {
      * its employees existed still has people whose frozen address can receive mail, and the refusal
      * this method used to raise fired for exactly that case.</p>
      *
+     * <p><b>The invitation is sent once per activation, not once per attempt</b> (gap G46): the send
+     * happens only when this run established the link — {@link AccountProvisioningOutcome#CREATED} or
+     * {@link AccountProvisioningOutcome#LINKED}. A retry of a task that already linked the account
+     * answers {@link AccountProvisioningOutcome#ALREADY_LINKED} and sends nothing, because a failure
+     * <em>after</em> the account half (the role convergence, the membership projection) makes the task
+     * {@code FAILED} and retriable, and an unconditional send turned every retry into a second
+     * invitation for the same person. Sending on request is the resend endpoint's own job
+     * ({@link #resendInvitation(Employee)}, record T69).</p>
+     *
      * <p>The identity provider call carries the flow's parameters explicitly (record T21):
      * {@code clientId} from {@link ApplicationClientProperties}, and the redirect and lifespan from
      * {@link InvitationProperties}. The actions are exactly {@link #REQUIRED_ACTIONS}, in that
@@ -119,6 +128,9 @@ public class AccessProvisioningAccountService {
     @Transactional
     public AccountProvisioningResult activate(Employee employee) {
         var result = ensureAccount(employee);
+        if (result.outcome() == AccountProvisioningOutcome.ALREADY_LINKED) {
+            return result;
+        }
         identityProvider.sendActionsEmail(
                 result.keycloakUserId(),
                 applicationClientProperties.clientId(),
