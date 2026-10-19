@@ -1,7 +1,7 @@
 # Unmapped request paths answer 404 instead of 500
 
 **Repository**: LifeControl — component `life-control-api/` (`exception/GlobalExceptionHandler`), issue **#424**
-**Status**: implemented — the handler, its tests and the container verification are in commit `1b49985` on `fix/unmapped-path-404`; what remains is the delivery of this unit as its own PR. This header makes no claim about push or PR state.
+**Status**: **merged** — PR **#428** (`fix/unmapped-path-404` @ `1b49985`), merge commit `5f27d23`, 2026-10-19, closing issue **#424**: `main` carries the handler, its tests and the container verification, and no work of this unit is open.
 **Created**: 2026-10-18 · **Risk**: medium — the affected code is the shared catch-all advice that every endpoint's errors pass through
 
 ## Specs
@@ -67,3 +67,7 @@ Logs since the baseline (S4): `NoResourceFoundException` count **10** (≥1), `U
 `ResourceNotFoundException` → 404 and `ConflictException` → 409 and `MethodArgumentNotValidException` → 400: `GlobalExceptionHandlerTest` (`handleNotFound`, `handleConflict`, `handleValidationErrors`); `IdentityProviderNotFoundException` → 404: `GlobalExceptionHandlerTest` plus `UsersAdminControllerTest`/`RolesControllerTest`/`ProfileControllerTest`; `AccessDeniedException` → 403: the `*ControllerSecurityTest` classes; `HttpRequestMethodNotSupportedException` → 405: `GlobalExceptionHandlerTest` (`handleMethodNotSupported_Returns405`) and `isMethodNotAllowed` elsewhere. Plus the two updated purchase-order tests (404 for both unmapped-path exception types) and the container probes above. Docs: no component document enumerates the error contract (`grep -rln "GlobalExceptionHandler\|An unexpected error occurred" --include=*.md` finds only `odd/tasks/` records), so there is no help text or doc to update beyond this record.
 
 **L10 — Delivery.** T1–T4 land in `1b49985` (`fix(api): answer 404 for a path no handler maps`): the handler, `UnmappedPathErrorContractTest`, and the two refreshed purchase-order tests — 96 authored changed lines. This record is committed immediately after it on the same branch, so its own hash is not recorded here by construction. Header written in the "what remains" shape; nothing here claims push or PR state.
+
+## Header repair (2026-10-19)
+
+The `**Status**:` line above was rewritten on 2026-10-19 by `odd/tasks/odd-stale-header-reconciliation.md` (issue **#434**), where the inventory and the verification live. It used to decline the delivery state and name the delivery as the work that remained: «what remains is the delivery of this unit as its own PR. This header makes no claim about push or PR state.». That state became known when the work merged, so the line now carries it — PR **#428**, merge `5f27d23`, 2026-10-19 — and it names the issue the unit closed (**#424**). Nothing else in this record was touched.

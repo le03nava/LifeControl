@@ -1,7 +1,7 @@
 # ODD feature: e2e-keycloak-mock-ordering
 
 **Repository**: LifeControl — `life-control-app-angular/e2e/fixtures/app.ts` (the shared e2e fixture module), with the seven specs it silently starved treated as the symptom.
-**Status**: **fixed** — one root cause, one file. The mechanism, the RED and the two GREEN runs are in L2. What remains is the delivery of this unit, which is its own PR; the record makes no claim about push, PR or merge state. The seven specs were never the defect and no spec was edited.
+**Status**: **merged** — one root cause, one file: PR **#417** (`fix/e2e-role-mock-auth` @ `b579d69`), merge commit `8514610`, 2026-10-18, so `main` carries the fix. The mechanism, the RED and the two GREEN runs are in L2. No work is left in this unit: the seven specs were never the defect and no spec was edited.
 **Created**: 2026-10-18 · **Risk**: item 6 (no test would have caught this regression: the harness is what the tests run on, and the failure mode was "tests pass because they cannot reach the mock during the run", not a failing assertion in the touched file)
 **Antecedent**: `odd/tasks/angular-22-upgrade.md` (L11 measured the seven failures as pre-existing and out of that migration's scope)
 
@@ -51,3 +51,7 @@ S3 — no production change. The seven failures are a harness defect; the app's 
 **L1** (2026-10-18, the user's decision, verbatim): the option label quoted in S1. Context, so the scope is not over-read: it was chosen from a question stating that the seven failures are **pre-existing** — 12 passed / 7 failed on the pristine Angular 20 tree and the same seven names after the Angular 21 slice — and that `odd/tasks/angular-22-upgrade.md` S2 defines the upgrade as finished with `test:e2e` green. The answer, therefore, is "make that clause true as its own unit", not "fold it into the migration".
 
 **L2** (2026-10-18, delivery evidence). Everything in `## Evidence` was measured in the worktree named there, on Node v24.10.0 with `npm ci --legacy-peer-deps` (777 packages, `package-lock.json` byte-identical afterwards — verified, because this branch must not carry a lockfile change). No spec file was touched, no production file was touched, and the diff is one file. The two GREEN runs and the pre-fix baseline used the same command, `E2E_PORT=4201 npx playwright test --reporter=list`, three times in a row on the same host.
+
+## Header repair (2026-10-19)
+
+The `**Status**:` line above was rewritten on 2026-10-19 by `odd/tasks/odd-stale-header-reconciliation.md` (issue **#434**), the unit that repaired six other records in the same pass and records the inventory and the verification there. It used to decline the delivery state: «What remains is the delivery of this unit, which is its own PR; the record makes no claim about push, PR or merge state.». That state became known when the work merged, so the line now carries it — PR **#417**, merge `8514610`, 2026-10-18. Nothing else in this record was touched.
