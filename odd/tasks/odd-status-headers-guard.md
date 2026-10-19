@@ -1,7 +1,7 @@
 # ODD feature: odd-status-headers-guard
 
 **Repository**: LifeControl — one new file, `.github/scripts/tests/odd-status-headers.test.sh`, plus this record. **No production code, no workflow change, no edit to any existing record.** The suite is wired by the existing loop over `.github/scripts/tests/*.test.sh` inside `.github/workflows/pr-label-guard.yml`, so nothing had to be edited to activate it.
-**Status**: implemented — S1–S9 hold the guard, its ten fixtures and its wiring by the existing glob; the delivery evidence belongs to the evidence log.
+**Status**: implemented — **PR #461** carries the guard, its ten fixtures and its wiring by the existing glob; the delivery evidence belongs to the evidence log.
 **Created**: 2026-10-19 · **Base**: `main` @ `ab649a5` · **Branch**: `chore/odd-status-headers` · **Worktree**: `~/workspace/LifeControl-worktrees/chore-odd-status-headers` (herdr `w4V`)
 **Issue**: **#456** (`status:approved` by the human on 2026-10-19), whose body carries the measurement this record implements.
 **Risk**: **low.** The file is a test suite that nothing else imports and that mutates nothing: it reads `odd/tasks/*.md` and local `git`, and writes only inside its own `mktemp -d`. Its failure mode is a false *negative* (a drift it does not catch); the one real risk is the opposite, a false *positive* that fails every pull request, which is why the real-tree audit is asserted to pass before any fixture runs (`Si`).
@@ -74,3 +74,5 @@ D7. **The count of claimed merge commits is asserted, not just printed.** A mark
 ## Log
 
 L1. *"si"* — the human's authorization, answering the question *"¿Arranco #456 en un worktree propio?"* after the pending-work survey of the session. The unit is the implementation of issue **#456**, which the human had opened and approved earlier the same day; its body is the specification quoted in `## Specs`.
+
+L2. The delivery route was decided by the human in the same exchange: **push, pull request and merge while every check is green**, so the merge is authorized rather than assumed. T3 is the consequence — the header names `PR #461` in a second commit, because D1 makes a header written before its pull request exists unrepresentable in a green run.
