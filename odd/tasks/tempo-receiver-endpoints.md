@@ -1,7 +1,7 @@
 # The Tempo receivers answer again, and a test catches the drift
 
 **Repository**: LifeControl — `docker/config/tempo/tempo.yml` (+ `docker/scripts/tests/`), issue **#425**
-**Status**: implemented — `255dcb6` (explicit endpoints, drift suite, CI wiring) and `bc2984b` (the Zipkin receiver dropped after a CRITICAL finding, see L11); what remains is the delivery of this unit as its own PR and the review-authority decision recorded in L11. This header makes no claim about push or PR state.
+**Status**: **merged** — PR **#427** (`fix/tempo-receiver-endpoints` @ `bc2984b`), merge commit `61fb69ed`, 2026-10-19, closing issue **#425**: `main` carries `255dcb6` (explicit endpoints, drift suite, CI wiring) and `bc2984b` (the Zipkin receiver dropped after a CRITICAL finding, see L11). **One decision this unit opened is still open, and it is a maintainer's**: the review authority `L13` describes — lineage `review-13c5e43039050a37`, frozen on the pre-correction tree and left in `reviewing` — was never admitted and was never released, and this header does not settle it. `L4`'s k8s manifests still declare the same receivers without endpoints, so that follow-up stays declared rather than closed.
 **Created**: 2026-10-18 · **Risk**: medium — the change is confined to a dev/infra config file, but its failure mode is silent (nothing in the repo watched the receivers) and it touches the delivery workflow
 
 ## Specs
@@ -65,3 +65,7 @@ Verbatim from issue **#425** (`bug`, `status:approved`).
 **L13 — Review authority left in `reviewing`, decision needed.** The lineage `review-13c5e43039050a37` is frozen on the *pre-correction* tree (`sha256:a9864000…`) and never admitted a lens result: the risk slot is refused by the admission defect of L10, and the candidate has since changed (`bc2984b`), so its frozen target no longer describes the branch. Pi submits nothing further on its own: the lineage needs a maintainer decision (retry is pointless while the admission rejects that evidence shape; releasing it is an audited native operation, and disabling the review switch for this clone would let ordinary policy decide). This record makes no claim about that decision's outcome.
 
 **L14 — Delivery.** T1–T5 land in `255dcb6`, T6 plus this record's revision in `bc2984b` and the record commit that follows it; 306 authored changed lines in total on `fix/tempo-receiver-endpoints`, under the repository's ~400-line review budget. Header written in the "what remains" shape; nothing here claims push or PR state.
+
+## Header repair (2026-10-19)
+
+The `**Status**:` line above was rewritten on 2026-10-19 by `odd/tasks/odd-stale-header-reconciliation.md` (issue **#434**), where the inventory and the verification live. It used to decline the delivery state and name the delivery as the work that remained: «what remains is the delivery of this unit as its own PR and the review-authority decision recorded in L11. This header makes no claim about push or PR state.». The delivery half became known when the work merged, so the line now carries it — PR **#427**, merge `61fb69ed`, 2026-10-19, closing issue **#425**. The second half was **not** a delivery question and is **not** closed here: the review authority `L13` describes is still frozen and still needs a maintainer's decision, which the new line says in its own words. Nothing else in this record was touched.

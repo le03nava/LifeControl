@@ -1,7 +1,16 @@
 # ODD feature: spring-boot-4-migration
 
 **Repository**: LifeControl — module `life-control-api/` (`build.gradle`, Gradle wrapper); `.github/dependabot.yml` read as evidence only
-**Status**: deferred — not scheduled, and no source change was made. PR #205 was closed on 2026-10-03 (see the evidence log). What remains is the whole migration, unstarted; it is a major-version migration, not a dependency bump. This header makes no claim about branch or worktree state.
+**Status**: **superseded** — this record deferred the migration and never scheduled it; the migration
+itself landed as its own record, `odd/tasks/spring-boot-4-1-migration.md`, in PR **#348** (`a67d1cb`,
+`life-control-api`) and PR **#349** (`43b1a7e`, `api-gateway`) on 2026-10-17, so `main` runs Spring Boot
+**4.1.1** in both services with native Jackson 3. **T1–T4 are discharged rather than deferred**: the
+`-aop`→`-aspectj` rename, the dependency-management question and the springdoc line are what that unit's
+task table answers (`springdoc-openapi-starter-webmvc-ui:3.1.1`, `io.spring.dependency-management`
+1.1.7, plugin 4.1.1), and T4's "re-plan as its own ODD record" is that record itself. What stays true is
+what this record measured rather than migrated: `E1`–`E4` remain the evidence the 4.1 unit cites, `G1`–`G3`
+stay declared (Dependabot's own configuration holds an `ignore` that `.github/dependabot.yml` does not), and
+`G4` was resolved by that unit. PR #205 stays closed (2026-10-03).
 **Created**: 2026-10-03
 **Origin**: read-only audit of the five open Dependabot PRs against `main` (`77f7387`).
 
@@ -128,3 +137,7 @@ independent version updates and are not part of this record's work.
 
 Nothing, until the migration is scheduled. When it is, start at T1 in a worktree off the then-current
 `main`, then resolve G4 before scoping T4.
+
+## Header repair (2026-10-19)
+
+The `**Status**:` line above was rewritten on 2026-10-19 by `odd/tasks/odd-stale-header-reconciliation.md` (issue **#434**), where the inventory and the verification live. It used to assert a state the code has since falsified: «What remains is the whole migration, unstarted; it is a major-version migration, not a dependency bump. This header makes no claim about branch or worktree state.». The migration did get scheduled, scoped and landed — as its own record, `odd/tasks/spring-boot-4-1-migration.md` (PR **#348** `a67d1cb`, PR **#349** `43b1a7e`, 2026-10-17) — so the line now says so, maps `T1`–`T4` onto what that unit did and leaves this record's own measured contribution (`E1`–`E4`, `G1`–`G3`) standing as evidence rather than as pending work. Nothing else in this record was touched.
