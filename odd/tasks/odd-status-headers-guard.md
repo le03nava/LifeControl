@@ -1,7 +1,7 @@
 # ODD feature: odd-status-headers-guard
 
 **Repository**: LifeControl — one new file, `.github/scripts/tests/odd-status-headers.test.sh`, plus this record. **No production code, no workflow change, no edit to any existing record.** The suite is wired by the existing loop over `.github/scripts/tests/*.test.sh` inside `.github/workflows/pr-label-guard.yml`, so nothing had to be edited to activate it.
-**Status**: implemented — **PR #461** carries the guard, its ten fixtures and its wiring by the existing glob; the delivery evidence belongs to the evidence log.
+**Status**: **merged** — PR **#461** (`chore/odd-status-headers` @ `8e0eadd`, merge commit `8a53938`), 2026-10-19, closing issue **#456**, so `main` carries the suite, its ten fixtures and its wiring by the existing glob, which nothing had to edit. **No work left in this unit.**
 **Created**: 2026-10-19 · **Base**: `main` @ `ab649a5` · **Branch**: `chore/odd-status-headers` · **Worktree**: `~/workspace/LifeControl-worktrees/chore-odd-status-headers` (herdr `w4V`)
 **Issue**: **#456** (`status:approved` by the human on 2026-10-19), whose body carries the measurement this record implements.
 **Risk**: **low.** The file is a test suite that nothing else imports and that mutates nothing: it reads `odd/tasks/*.md` and local `git`, and writes only inside its own `mktemp -d`. Its failure mode is a false *negative* (a drift it does not catch); the one real risk is the opposite, a false *positive* that fails every pull request, which is why the real-tree audit is asserted to pass before any fixture runs (`Si`).
@@ -56,7 +56,7 @@ D7. **The count of claimed merge commits is asserted, not just printed.** A mark
 | --- | --- | --- | --- |
 | T1 | S1, S2, S4, S5, S9 | inline | The suite, its ten fixtures and its parser. |
 | T2 | S3, S6, S7, S8 | inline | The ancestry half, the real-tree green run on the four quotation files, and the out-of-fixture probe on a scratch copy. |
-| T3 | D1 | inline | Update this header with `PR #<n>` before the merge, and record the delivery in the evidence log. |
+| T3 | D1 | inline | Update this header with `PR #<n>` before the merge, and record the delivery in the evidence log. Landed: `8e0eadd` named `PR #461`, and `8a53938` carried it to `main`. |
 
 ## Evidence log
 
@@ -70,9 +70,14 @@ D7. **The count of claimed merge commits is asserted, not just printed.** A mark
 | 2026-10-19 | `docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:stable --severity=warning .github/scripts/tests/odd-status-headers.test.sh` → exit 0. `shellcheck` is not installed on the host; this is the same pinned container `.github/workflows/pr-label-guard.yml` uses. |
 | 2026-10-19 | **A defect in the rule's own first draft, found only by the real tree.** `declining_phrase` piped `grep` into `head`, so the condition tested `head`'s status and entered the branch on **every** record; two real records (`docker-images-rebuild.md`, `odd-stale-header-reconciliation.md`) were reported with an empty phrase. Every fixture passed while that was true, because each fixture is either clearly declining or clearly hedged. Fixed with an explicit non-emptiness test, and the two records are green now. This is the measured argument for S7: the fixtures could not see it. |
 | 2026-10-19 | `b5dc080` holds the suite (483 lines, mode 0755) and this record (66 lines). |
+| 2026-10-19 | **Delivered: PR #461 merged to `main` as `8a53938` at 16:44:11Z, and issue #456 closed as completed at 16:44:13Z.** Both required contexts of `main`'s protection — `Exactly one type:* label` and `A linked, approved issue`, the two jobs of `pr-label-guard.yml` — reported `completed/success` on the head `8e0eadd`, and the audit ran as part of that job's `Self-tests` step, because the existing glob is the wiring. |
+| 2026-10-19 | Post-merge run on `main` @ `8a53938`, the guard now auditing its own record: **`20 passed, 0 failed`**, `checked 76 record(s); 111 claimed merge commit(s); ancestry: ran`, `10 fixture(s) asserted`. The delivery did not change the numbers the guard reports except the record count, which is what S7 asks of it. |
+| 2026-10-19 | One platform defect, recorded because it cost a re-run and is not this diff's: the head's first successful run left the `A linked, approved issue` **check-run stuck `in_progress`** although the workflow run itself had completed `success`, so the pull request read `BLOCKED` with the check at `pending`. `gh run rerun` recreated both check-runs and they closed `completed/success`, after which the pull request read `MERGEABLE CLEAN`. No protection was bypassed. |
 
 ## Log
 
 L1. *"si"* — the human's authorization, answering the question *"¿Arranco #456 en un worktree propio?"* after the pending-work survey of the session. The unit is the implementation of issue **#456**, which the human had opened and approved earlier the same day; its body is the specification quoted in `## Specs`.
 
 L2. The delivery route was decided by the human in the same exchange: **push, pull request and merge while every check is green**, so the merge is authorized rather than assumed. T3 is the consequence — the header names `PR #461` in a second commit, because D1 makes a header written before its pull request exists unrepresentable in a green run.
+
+L3. The delivery closed on 2026-10-19: `8a53938` on `main`, issue #456 completed, and this header carrying the merge identity. It used to read *"implemented — PR #461 carries the guard … the delivery evidence belongs to the evidence log"*, which was true while the delivery was unknown and became a stale state the moment the merge commit existed. Moving it is the same repair #455 performed for four other records, and leaving it would be this guard's own failure mode applied to its own record.
