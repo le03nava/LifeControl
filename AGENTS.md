@@ -217,6 +217,8 @@ Provisión idempotente del realm `life-control-realm`, los clients (`life-contro
 > La credencial SMTP es `docker/secrets/smtp_password`, leída directo como `keycloak_admin_password` y **sólo requerida cuando `SMTP_AUTH=true`** (si falta, está vacía o conserva `CHANGEME`, aborta). No tiene `.template` a propósito: `setup-env.sh` materializa todo template y `validate-env.sh` rechaza `CHANGEME`.
 >
 > **Verificación end-to-end** (manual, nunca wired en CI): con el stack arriba y `keycloak-setup.sh` corrido, `./docker/scripts/verify-invitation-flow.sh dev` obtiene un token del service account admin, crea un user descartable, dispara `execute-actions-email` con `["VERIFY_EMAIL","UPDATE_PASSWORD"]` y comprueba por la API REST de Mailpit que el mail llegó. Después hace tres verificaciones reales: que la base del link sirva **Keycloak** (el discovery en `<link-base>/realms/<realm>/.well-known/openid-configuration` devuelve un `issuer` igual a esa base — en el origen de la app devuelve el HTML de la SPA), que el `issuer` del realm sea el que valida el stack (`KEYCLOAK_ISSUER_URI`), y que el claim `redirect_uri` del token de acción (emitido por Keycloak 26 como `reduri`) sea `WEB_APP_URL`. Borra el user al salir y sale distinto de cero ante cualquier fallo.
+>
+> **El flujo de provisioning tiene su propio veredicto de punta a punta**, hermano del anterior y con la misma forma (manual, dev-only, datos descartables, limpieza al salir, exit distinto de cero ante cualquier fallo): `./docker/scripts/verify-provisioning-flow.sh dev`. Es el que contesta la pregunta que originó la investigación del 2026-10-19 — *¿se mandó el correo de activación?* — en una corrida en vez de cuatro queries SQL y una mirada a Mailpit. Crea **su propio** empleado, contrato y store assignment por la API (el mismo `POST /api/companies/{id}/employees` y `.../contracts` que usan las pantallas), con un token de operador que lleva `lc-admin` y el claim `company_id`; espera a que el worker aplique la tarea hasta `APPLIED`; encuentra la invitación en Mailpit con su link y comprueba que la base del link sirva Keycloak; y verifica la cuenta de Keycloak: el id linkeado, sus `requiredActions`, los roles que declara el template de la posición y los cinco claims `company_*` (presentes exactamente en los niveles que la derivación sostiene, ausentes en los que no). Si el stack tiene el worker apagado **no espera**: lo dice y nombra `WORKER_ENABLED`, porque esperar una tarea que nadie va a reclamar es el estado silencioso que este script existe para eliminar. El operador es lo único que tiene que traer: por default el script crea un operador descartable (`lc-admin` + el atributo `company_id`, password aleatoria que nunca imprime y no escribe a disco) y lo borra al salir; con `PROVISIONING_VERIFY_TOKEN=<jwt>` usa un token que le pases y no escribe **ninguna** identidad en el realm. Lo que deja asentado y no cubre: las pantallas (maneja la API que ellas llaman), y un template de posición sin roles sólo prueba que la cuenta no tiene ninguno.
 
 ### Claims de tenancy (`company_*`) en el token
 
@@ -257,10 +259,22 @@ curl -s -X POST "http://localhost:8181/realms/life-control-realm/protocol/openid
 | Volumen de Loki en prod | Es un named volume: si existe de antes (creado para `/loki/data`) hay que borrarlo una vez, porque Docker no lo repuebla desde la imagen y queda vacío y root-owned, que es justo lo que Loki no puede escribir |
 
 > **Subir una imagen**: editá `.env.template`, los defaults de `docker-compose*.yml` y la tabla de
-> `image-pins.test.sh`; corré los cinco tests de `docker/scripts/tests/`; en dev, `./docker/scripts/deploy.sh dev up`
+> `image-pins.test.sh`; corré los tests de `docker/scripts/tests/`; en dev, `./docker/scripts/deploy.sh dev up`
 > y `./docker/scripts/deploy.sh dev health`. En staging/prod el cambio del template no toca nada hasta que el
 > entorno se re-materialice: un `.env.<env>` existente **no** se reescribe solo (`setup-env.sh` sólo lo crea si
 > falta), así que el operador lo actualiza a mano.
+>
+> **Esa comodidad tiene una consecuencia, y es la que hay que leer dos veces**: toda key que el `.env.<env>` no
+> declare corre **en silencio** con el default `${VAR:-…}` de los compose, así que el entorno no queda "sin" ese
+> ajuste — queda con el default, sin que nada lo diga. Es exactamente lo que dejó el worker de
+> provisioning apagado en dev sin que nadie lo viera (`WORKER_ENABLED=false` por el default del compose base):
+> el default era correcto y aun así una tarea `PENDING` y una tarea que nadie va a reclamar eran
+> indistinguibles. Para ver qué corre en lugar de qué, `./docker/scripts/validate-env.sh <env>` **reporta**
+> —warning, nunca `ERRORS`, porque el script es el gate del start de prod— cada key del template que el env
+> file no declara, con el default del compose al que cae; y las tres suites
+> `docker/scripts/tests/env-defaults.test.sh`, `env-report-robustness.test.sh` y `worker-dev-default.test.sh`
+> fijan que cada key del template tenga un consumidor declarado o un default, que el reporte no invente lo que
+> no midió, y que el default de dev del worker no se pueda apagar sin que un test lo diga.
 
 ### Service URLs
 
