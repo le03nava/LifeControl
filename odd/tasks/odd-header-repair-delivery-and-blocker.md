@@ -114,3 +114,11 @@ narrowed to the paragraph where the assertion lives:
 `awk '/^\*\*Status\*\*/{f=1} f&&/^$/{exit} f' <file> | grep -cE 'not merged|What remains is the delivery'`
 prints **0**. The issue body carries the corrected criterion, and it still fails if the record ever
 asserts the false state again, which is what the original was protecting.
+
+**L8 — delivery, 2026-10-19**. Published as issue **#470** — `status:approved` by the human decision
+recorded there, applied after the user chose to publish — and pull request **#471**
+(`chore/odd-header-repairs` → `main`, `type:docs`, `Closes #470`), carrying one commit and 180 authored
+changed lines. Its two required checks pass: `Exactly one type:* label` (18s) and `A linked, approved
+issue` (10s), with `mergeable=MERGEABLE` and `mergeStateStatus=CLEAN`. This entry is written **before**
+the merge on purpose: the header above makes no claim about the delivery state, so the merge does not
+falsify it and no follow-up commit is needed to keep this record true.
