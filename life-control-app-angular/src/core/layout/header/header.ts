@@ -71,33 +71,17 @@ export class Header implements OnInit {
       routeLink: string;
       textLink: string;
       icon: string;
-      /**
-       * The entry's extra destinations. The label keeps navigating and a caret next to
-       * it opens these as a menu, so a child never duplicates its parent's route.
-       */
-      children?: { id: string; routeLink: string; textLink: string; icon: string }[];
     }[] = [];
 
     if (this.isCompanyRole()) {
+      // A plain link, like Compras and Recursos Humanos: Store Zones and Store Locations
+      // used to hang from a caret here, and they are exactly the cards of the
+      // `/companies` landing page this label navigates to, so nothing is stranded.
       menuItems.push({
         id: '2',
         routeLink: '/companies',
         textLink: 'Companies',
         icon: 'business',
-        children: [
-          {
-            id: '2-1',
-            routeLink: '/companies/store-zones',
-            textLink: 'Store Zones',
-            icon: 'grid_view',
-          },
-          {
-            id: '2-2',
-            routeLink: '/companies/store-locations',
-            textLink: 'Store Locations',
-            icon: 'shelves',
-          },
-        ],
       });
     }
 
@@ -149,23 +133,17 @@ export class Header implements OnInit {
     }
 
     // The activities list and the week calendar are URL-only without an entry here, so a
-    // scheduling reader has no rendered control reaching `/scheduling`. The gate reuses the
-    // read roster constant as the single source of truth shared with the route data.
+    // scheduling reader has no rendered control reaching `/scheduling`. The entry is a
+    // plain link to the activities list, which owns the calendar control
+    // (`onOpenCalendar`), so the week calendar is one click further and the caret and its
+    // panel are gone. The gate reuses the read roster constant as the single source of
+    // truth shared with the route data.
     if (this.isSchedulingRead()) {
       menuItems.push({
         id: '8',
         routeLink: '/scheduling/list',
         textLink: 'Calendario y citas',
         icon: 'calendar_month',
-        children: [
-          { id: '8-1', routeLink: '/scheduling/list', textLink: 'Actividades', icon: 'list_alt' },
-          {
-            id: '8-2',
-            routeLink: '/scheduling/calendar',
-            textLink: 'Calendario',
-            icon: 'calendar_month',
-          },
-        ],
       });
     }
 
