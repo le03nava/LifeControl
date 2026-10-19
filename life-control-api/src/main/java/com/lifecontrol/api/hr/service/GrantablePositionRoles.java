@@ -16,12 +16,19 @@ import java.util.Set;
  * through {@code isAdmin()}, so granting it from a position template would be an escalation to full
  * admin across every company. Several roles in the allowlist are also granted by no scope level of
  * their own outside this union; the union is the normative source, and every entry here is one of
- * those fifteen literals and nothing else.</p>
+ * those sixteen literals and nothing else.</p>
+ *
+ * <p>{@code lc-company-read} arrived with the {@code hierarchy-read-roles} record: it is the read-only
+ * rung of the company scope, and it was the one {@code -read} role the union did not carry because
+ * {@code ScopeLevel.COMPANY} had been declared without it. It grants no write, and the Companies
+ * <b>screen</b> stays closed to it on purpose — the role reaches the API, not the administration
+ * route.</p>
  */
 public final class GrantablePositionRoles {
 
     private static final Set<String> FROZEN = Set.of(
             "lc-company",
+            "lc-company-read",
             "lc-department",
             "lc-position",
             "lc-company-country",

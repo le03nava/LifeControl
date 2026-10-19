@@ -16,7 +16,7 @@ import java.util.List;
  * <p>The {@code @Size} cap is 100, matching the salary-band sibling in the same package. It is the
  * sibling's number rather than the other list-body precedent's 50
  * ({@code SchedulingAvailabilityRequest}) because this resource is shaped file-for-file like the
- * bands, and the frozen allowlist already caps the meaningful set at fifteen names: the bound is a
+ * bands, and the frozen allowlist already caps the meaningful set at sixteen names: the bound is a
  * defensive limit on the payload, not a product constraint.</p>
  */
 public record PositionRolesRequest(
