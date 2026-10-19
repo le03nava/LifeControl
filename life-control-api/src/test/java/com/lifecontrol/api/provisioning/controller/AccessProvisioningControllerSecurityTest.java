@@ -120,7 +120,8 @@ class AccessProvisioningControllerSecurityTest {
                 null,
                 null,
                 List.of(),
-                AccessProvisioningClaims.empty());
+                AccessProvisioningClaims.empty(),
+                true);
     }
 
     @Nested
