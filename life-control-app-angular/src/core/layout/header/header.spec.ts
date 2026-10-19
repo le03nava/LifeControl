@@ -142,26 +142,16 @@ describe('Header', () => {
     });
   });
 
-  // ─── Companies submenu — Store Zones child ────────────────────
+  // ─── Companies menu entry — no children ──────────────────────
 
-  describe('companies submenu', () => {
-    it('should expose a Store Zones child on the Companies item', () => {
+  describe('companies menu entry', () => {
+    it('should expose the Companies entry with no children', () => {
       const { component } = setup(['lc-admin']);
       const companiesItem = component.items().find((i) => i.routeLink === '/companies');
-      expect(companiesItem?.children).toBeDefined();
-      expect(companiesItem?.children).toHaveLength(2);
-      expect(companiesItem?.children?.[0]).toEqual({
-        id: '2-1',
-        routeLink: '/companies/store-zones',
-        textLink: 'Store Zones',
-        icon: 'grid_view',
-      });
-      expect(companiesItem?.children?.[1]).toEqual({
-        id: '2-2',
-        routeLink: '/companies/store-locations',
-        textLink: 'Store Locations',
-        icon: 'shelves',
-      });
+      expect(companiesItem).toBeDefined();
+      // Store Zones and Store Locations are not menu children any more: the cards of
+      // the `/companies` landing page own them, which is where the label navigates.
+      expect(companiesItem).not.toHaveProperty('children');
     });
 
     it('should keep the Companies parent navigating to /companies (D7)', () => {
@@ -177,33 +167,28 @@ describe('Header', () => {
       'lc-company-region',
       'lc-company-zone',
       'lc-company-store',
-    ])('should expose the Store Zones child under company gating for %s', (role) => {
+    ])('should expose the Companies entry under company gating for %s', (role) => {
       const { component } = setup([role]);
       const companiesItem = component.items().find((i) => i.routeLink === '/companies');
       expect(companiesItem).toBeDefined();
-      expect(companiesItem?.children?.some((c) => c.routeLink === '/companies/store-zones')).toBe(
-        true,
-      );
-      expect(
-        companiesItem?.children?.some((c) => c.routeLink === '/companies/store-locations'),
-      ).toBe(true);
+      expect(companiesItem?.routeLink).toBe('/companies');
+      expect(companiesItem).not.toHaveProperty('children');
     });
 
-    it('should NOT expose the Store Zones child when user has no company role', () => {
+    it('should NOT expose the Companies entry when user has no company role', () => {
       const { component } = setup(['lc-sales']);
       const companiesItem = component.items().find((i) => i.routeLink === '/companies');
       expect(companiesItem).toBeUndefined();
     });
 
-    it('should render the caret trigger only for the two items whose label navigates and has children', () => {
+    it('should render no caret trigger for any entry', () => {
+      // `lc-admin` renders every entry the menu can hold, so this instance covers them
+      // all: no entry carries a caret or a panel of its own. Companies and Calendario y
+      // citas reach their extra destinations from the pages their labels navigate to
+      // (the `/companies` cards and the activities list).
       const { fixture } = setup(['lc-admin']);
       const triggers = fixture.nativeElement.querySelectorAll('.submenu-trigger');
-      // Companies and Calendario y citas are the menu's only entries with children, so
-      // both keep the navigating label plus its caret. Recursos Humanos is a plain link
-      // to its landing page, like Compras, so it renders neither.
-      expect(triggers).toHaveLength(2);
-      expect(triggers[0].getAttribute('aria-label')).toBe('Companies submenu');
-      expect(triggers[1].getAttribute('aria-label')).toBe('Calendario y citas submenu');
+      expect(triggers).toHaveLength(0);
     });
 
     it('should render no item whose own label opens a submenu', () => {
@@ -219,12 +204,6 @@ describe('Header', () => {
       const companies = findNavItem(fixture, 'Companies');
 
       expect(companies?.querySelector('a')?.getAttribute('href')).toBe('/companies');
-    });
-
-    it('should NOT render a caret trigger when no item has children', () => {
-      const { fixture } = setup(['lc-sales']);
-      const triggers = fixture.nativeElement.querySelectorAll('.submenu-trigger');
-      expect(triggers).toHaveLength(0);
     });
   });
 
@@ -705,28 +684,21 @@ describe('Header', () => {
   // ─── Scheduling menu gating (lc-admin / lc-scheduling / lc-scheduling-read) ───
 
   describe('scheduling menu gating', () => {
-    it('should show the Calendario y citas parent with its two children for a scheduling-read user', () => {
+    it('should show the Calendario y citas entry with no children for a read user', () => {
       const { component } = setup(['lc-scheduling-read']);
       const items = component.items();
 
       // A scheduling-read-only user is in the read roster and in nothing else, so the
-      // scheduling parent is the whole menu.
+      // scheduling entry is the whole menu. It carries no children: Actividades is the
+      // entry's own destination, and the calendar is reached from the activities list.
       expect(items).toHaveLength(1);
       expect(items[0]).toEqual({
         id: '8',
         routeLink: '/scheduling/list',
         textLink: 'Calendario y citas',
         icon: 'calendar_month',
-        children: [
-          { id: '8-1', routeLink: '/scheduling/list', textLink: 'Actividades', icon: 'list_alt' },
-          {
-            id: '8-2',
-            routeLink: '/scheduling/calendar',
-            textLink: 'Calendario',
-            icon: 'calendar_month',
-          },
-        ],
       });
+      expect(items[0]).not.toHaveProperty('children');
     });
 
     it('should render the Calendario y citas link for a scheduling-read user', () => {
@@ -763,17 +735,13 @@ describe('Header', () => {
       expect(component.items().some((i) => i.routeLink === '/scheduling/list')).toBe(false);
     });
 
-    it('should render the parent caret and no caret on a childless item', () => {
+    it('should render the Calendario y citas label as a plain link with no caret', () => {
       const { fixture } = setup(['lc-admin']);
-      const navItems = Array.from(
-        fixture.nativeElement.querySelectorAll('li.nav-item') as NodeListOf<HTMLElement>,
-      );
+      const parent = findNavItem(fixture, 'Calendario y citas');
 
-      const parent = navItems.find((li) => li.textContent?.includes('Calendario y citas'));
-      expect(parent?.querySelector('.submenu-trigger')).toBeTruthy();
-
-      const childless = navItems.find((li) => li.textContent?.includes('Products'));
-      expect(childless?.querySelector('.submenu-trigger')).toBeNull();
+      expect(parent?.querySelector('a')?.getAttribute('href')).toBe('/scheduling/list');
+      expect(parent?.querySelector('.submenu-trigger')).toBeNull();
+      expect(parent?.querySelector('mat-menu')).toBeNull();
     });
   });
 
@@ -823,7 +791,7 @@ describe('Header', () => {
       expect(component.isHr()).toBe(true);
 
       const hrItem = component.items().find((item) => item.id === '9');
-      expect(hrItem?.children).toBeUndefined();
+      expect(hrItem).not.toHaveProperty('children');
       // The three destinations are not menu children any more: the landing page owns
       // them, and no menu entry points at them directly.
       expect(component.items().some((i) => i.routeLink === '/hr/employees')).toBe(false);
