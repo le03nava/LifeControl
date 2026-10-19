@@ -214,7 +214,12 @@ class AccessProvisioningWorkerDeactivateCompositionTest {
 
             var touched = handler.apply(employee, ACTIVATE);
 
-            assertThat(identityProvider.actionsEmailRecipients()).containsExactly(userId);
+            // The account half is still reached; what it answers for an employee linked before the
+            // run is ALREADY_LINKED, and since gap G46 that outcome sends nothing (spec S3: the
+            // invitation goes out once per activation, which is the run that establishes the link).
+            // The send/no-send split itself is pinned by AccessProvisioningAccountServiceTest; here
+            // the witness is that this ACTIVATE, over the real services, invited nobody.
+            assertThat(identityProvider.actionsEmailRecipients()).isEmpty();
             assertThat(identityProvider.roleNames(userId, CLIENT_ID)).isEmpty();
             assertThat(identityProvider.attributes(userId)).containsKey(COMPANY_CLAIM);
             assertThat(touched).isEmpty();

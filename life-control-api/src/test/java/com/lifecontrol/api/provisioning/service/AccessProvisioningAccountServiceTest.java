@@ -248,13 +248,41 @@ class AccessProvisioningAccountServiceTest {
         }
 
         @Test
-        @DisplayName("should still send the invitation when the account was already linked")
-        void alreadyLinkedStillInvites() {
+        @DisplayName("should send exactly one invitation across a retried activation")
+        void sendsOneInvitationAcrossARetry() {
+            stubSave();
+            when(identityProvider.createUser(any(UserRepresentation.class))).thenReturn("kc-new");
+
+            // The first attempt is the one that linked the account and sent the mail; the second is
+            // the retry a FAILED task gets, and the account half answers ALREADY_LINKED.
+            service.activate(employee);
+            service.activate(employee);
+
+            verify(identityProvider, times(1))
+                    .sendActionsEmail("kc-new", CLIENT_ID, REDIRECT_URI, LIFESPAN_SECONDS, REQUIRED_ACTIONS);
+        }
+
+        @Test
+        @DisplayName("should not send an invitation when the account was already linked before the run")
+        void alreadyLinkedDoesNotInvite() {
             employee.linkKeycloakUser("kc-existing");
 
             var result = service.activate(employee);
 
             assertThat(result.outcome()).isEqualTo(ALREADY_LINKED);
+            verify(identityProvider, never()).sendActionsEmail(any(), any(), any(), any(Integer.class), any());
+        }
+
+        @Test
+        @DisplayName("should invite the account a run just linked from an existing address")
+        void linkedAccountIsInvited() {
+            stubSave();
+            stubConflict();
+            when(identityProvider.findUsersByEmail(EMAIL)).thenReturn(List.of(account("kc-existing", EMAIL)));
+
+            var result = service.activate(employee);
+
+            assertThat(result.outcome()).isEqualTo(LINKED);
             verify(identityProvider)
                     .sendActionsEmail("kc-existing", CLIENT_ID, REDIRECT_URI, LIFESPAN_SECONDS, REQUIRED_ACTIONS);
         }
