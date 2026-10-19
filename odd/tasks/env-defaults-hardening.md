@@ -5,11 +5,12 @@
 component and one additive field in `life-control-api/**`, one banner in `life-control-app-angular/**`,
 and two documentation edits (`AGENTS.md`, `odd/tasks/employee-access-provisioning.md`). No schema, no
 migration, no gateway change, no existing contract removed or changed.
-**Status**: `T1`, `T2` and `T3` are implemented, verified and committed as **`fa7e2ed`** on this branch
-(the first slice, with the size exception `L9` records). `T4`–`T9` remain open: `T4`/`T5` are the API and
-screen half, `T6`/`T7` the verification script and the documentation, `T8` is local evidence and leaves
-no commit, and `T9` is the independent verification and native review of the three candidates. This
-header makes no claim about push or PR state; the delivery detail belongs to the evidence log.
+**Status**: `T1`–`T3` are implemented, verified and committed as **`fa7e2ed`** and **`8a799a9`** (the first
+slice, with the size exception `L9` records), and `T4`–`T5` as **`2022492`** and **`6119d4c`** (`L11`).
+`T6`–`T9` remain open: `T6`/`T7` are the end-to-end verification script and the documentation, `T8` is
+local evidence and leaves no commit, and `T9` is the independent verification and native review of the
+remaining candidate. This header makes no claim about push or PR state; the delivery detail belongs to
+the evidence log.
 **Created**: 2026-10-19 · **Risk**: **item 5 (delivery/environment)** — `docker-compose.override.yml`,
 `.env.template` and `validate-env.sh` are consumed by all three environments, and `validate-env.sh` is
 the **prod start gate** (`deploy.sh:173-179` exits 1 when it fails), so a check added there can stop a
@@ -140,11 +141,11 @@ turned out not to mean "unused".
 
 | ID | Spec | Task | Route | Commit |
 | --- | --- | --- | --- | --- |
-| T1 | S1, S3-A, S5.2, S5.3, S6-C1, S6-C2 | The switch declares its own consequence and a stale env file says so: `.env.template`'s worker block names what `WORKER_ENABLED=false` means, and `validate-env.sh` **reports** (warning only, never `ERRORS`) every template key the env file lacks, naming the compose default each one falls back to. Covered by `T3`'s assertions | delegated | `fa7e2ed` |
-| T2 | S3-B, S5.2, S6-C3 | `docker-compose.override.yml`: `WORKER_ENABLED=${WORKER_ENABLED:-true}` — the worker is on in dev by default and off stays explicit everywhere else | delegated | `fa7e2ed` |
-| T3 | S3-C, S5.4, S5.5, S6-C5 | New `docker/scripts/tests/env-defaults.test.sh`: every `.env.template` key has a compose default **or** an allowlist entry naming its reader (`SMTP_*` → `keycloak-setup.sh`'s `get_env`; `ENVIRONMENT` → `validate-env.sh`'s `REQUIRED_VARS`; `CIRCUIT_BREAKER_*` → the gateway's Spring properties; `GF_AUTH_ANONYMOUS_ORG_ROLE` → the k8s manifests), and no compose interpolation names a key the template does not declare | delegated | `fa7e2ed` |
-| T4 | S3-D, S5.3, S6-C4 | `workerEnabled` on `AccessProvisioningOverview` plus a startup `WARN` from a component outside the `@ConditionalOnProperty`, so a disabled worker announces itself at boot | inline | `—` |
-| T5 | S3-D, S5.3 | The Access section shows the disabled worker: when `workerEnabled` is false, the open request says it will not be applied on its own | inline | `—` |
+| T1 | S1, S3-A, S5.2, S5.3, S6-C1, S6-C2 | The switch declares its own consequence and a stale env file says so: `.env.template`'s worker block names what `WORKER_ENABLED=false` means, and `validate-env.sh` **reports** (warning only, never `ERRORS`) every template key the env file lacks, naming the compose default each one falls back to. Covered by `T3`'s assertions | delegated | `fa7e2ed`, `8a799a9` |
+| T2 | S3-B, S5.2, S6-C3 | `docker-compose.override.yml`: `WORKER_ENABLED=${WORKER_ENABLED:-true}` — the worker is on in dev by default and off stays explicit everywhere else | delegated | `fa7e2ed`, `8a799a9` |
+| T3 | S3-C, S5.4, S5.5, S6-C5 | New `docker/scripts/tests/env-defaults.test.sh`: every `.env.template` key has a compose default **or** an allowlist entry naming its reader (`SMTP_*` → `keycloak-setup.sh`'s `get_env`; `ENVIRONMENT` → `validate-env.sh`'s `REQUIRED_VARS`; `CIRCUIT_BREAKER_*` → the gateway's Spring properties; `GF_AUTH_ANONYMOUS_ORG_ROLE` → the k8s manifests), and no compose interpolation names a key the template does not declare | delegated | `fa7e2ed`, `8a799a9` |
+| T4 | S3-D, S5.3, S6-C4 | `workerEnabled` on `AccessProvisioningOverview` plus a startup `WARN` from a component outside the `@ConditionalOnProperty`, so a disabled worker announces itself at boot | inline | `2022492`, `6119d4c` |
+| T5 | S3-D, S5.3 | The Access section shows the disabled worker: when `workerEnabled` is false, the open request says it will not be applied on its own | inline | `2022492` |
 | T6 | S3-E | New `docker/scripts/verify-provisioning-flow.sh`, the peer of `verify-invitation-flow.sh`: disposable employee + contract → the task reaches `APPLIED` → the mail is in Mailpit with its link → the Keycloak account carries its `requiredActions`, the template's roles and the five claims; cleans up on exit and exits non-zero on any failure | inline | `—` |
 | T7 | S3-F, S5.2 | Documentation: the `AGENTS.md` line that documents the no-rewrite behaviour **names its consequence** and points at the report; `odd/tasks/employee-access-provisioning.md` gains this defect as its own gap with its resolution | inline | `—` |
 | T8 | S4, S5.1 | Local evidence, no commit: reconcile `.env.dev` explicitly (never `S6`-C2 by script), then the end-to-end run — employee + contract, the task applying, the mail in Mailpit, the account in Keycloak with its roles and claims | inline | `L8`–`L9` |
@@ -155,12 +156,17 @@ Slice plan, for the review budget: **PR1** = `T1`+`T2`+`T3` (`fix(docker)`); **P
 `T8`/`T9` are the evidence and the gate of all three.
 
 **The first slice landed over the ~400-line budget and takes a declared size exception** (`L9`): `PR1`
-is one commit of **672** authored lines, of which **503** are the new `env-defaults.test.sh`. The
-boundary is real and it is not a convenience: the suite **is** the artifact that pins the two script
-changes it ships with, and splitting it from them would separate the assertions from what they assert
-— the same argument `employee-registry`'s `D9` used for `W1b`, and the precedent for declaring it
-rather than hiding it is that record's own size exception. The next slice boundary is recorded in `L9`
-before the next commit.
+is **two commits** — `fa7e2ed` and `8a799a9` — totalling **873 insertions and 3 deletions**, of which
+**696 lines are its three test suites**. The boundary is real and it is not a convenience: the suites
+**are** the artifacts that pin the code they ship with, and splitting them from it would separate the
+assertions from what they assert — the same argument `employee-registry`'s `D9` used for `W1b`, and
+the precedent for declaring it rather than hiding it is that record's own size exception. The second
+commit is `L10`'s: one message correction and the two suites an independent verification produced.
+**The `PR1` boundary is closed at `8a799a9`**; the next slice starts after it. **The `PR2` boundary is
+closed at `6119d4c`** — `2022492` plus the coverage test its own review produced — **272 insertions and
+5 deletions across 11 files**, of which 160 lines are tests. It is the smallest of the three because the
+change is additive by construction (`S6-C4`): one appended field, one unconditional listener and one
+notice. The next boundary is recorded before the corresponding commit.
 
 Stated so it is not lost: this feature does **not** make `verify-invitation-flow.sh` part of CI, does
 not add a CI workflow, and does not touch the four existent workflows' `paths:` filters — a records-and
@@ -213,7 +219,7 @@ deploy, and it is the reason risk item 5 is named in the header.
 
 **L8** *(the first slice, landed 2026-10-19 — `T1`+`T2`+`T3` as `fa7e2ed`)*. Implemented by a bounded
 `gentle-ai-worker` delegation and verified by the parent rather than accepted on report: the diffs of
-all five modified files were read, the whole suite was re-run (`env-defaults` 244/0 plus the six
+all six paths of the commit were read, the whole suite was re-run (`env-defaults` 244/0 plus the six
 pre-existing suites at 6/18/42/68/5/8, all rc=0 — **391 assertions, zero failures**), and `C1` was
 re-proved by hand against a hermetic env file missing keys (`validate-env.sh dev` exits **0** and
 prints the report). `shellcheck` is **not installed** on this machine, so its `--severity=warning` pass
@@ -238,3 +244,56 @@ uses for `VOLUMES_ROOT` and prod's postgres port, and it is deliberately **one k
 a per-environment rewrite table would be the silent-rewrite defect `S6`-C2 rejects, re-entering through
 the other door. The two dev expressions of the switch (the fresh declaration and the override default)
 are now pinned against each other by the suite, so changing one alone fails a test.
+
+**L10** *(the independent verification of the first candidate, and what it changed — 2026-10-19)*. A
+`gentle-ai-verify` pass over the **frozen candidate** `fa7e2ed` (not the working tree) confirmed **all
+twelve** claimed items — `S1`, `S3-A/B/C`, `S5.2`, `S5.3`, `S5.4`, `S5.5`, `S6-C1/C2/C3/C5` — with 0
+deletions in `git diff --numstat 81d0205..fa7e2ed`, a mutation on a scratch copy proving the suite
+fails when the invariant breaks (`243 passed, 2 failed`, rc=1) and passes again when restored, and an
+exit-code parity run of `validate-env.sh prod` between base and candidate that differed in no
+non-report line. It found **no blocker** and two advisories, both of which were acted on rather than
+filed:
+
+1. **The report asserted a consumer it never measured** — a real defect of the same class this feature
+   exists to remove, fixed in `8a799a9`. Its own `env-defaults` assertion pinned the old wording and
+   failed, which is that suite doing exactly what it was built for.
+2. `L8` said "five modified files"; the commit touches six paths. Corrected in that entry.
+
+It also handed over two regression suites, and **their delivery is the reason the parent ran them
+instead of committing them on report**: the first arrived with `DOCKER_DIR="$(cd "$SCRIPT_DIR/.." &&
+ pwd)"`, which resolves to `docker/scripts` in a file that lives in `docker/scripts/tests/` and made
+all seven of its assertions fail with `0 passed, 7 failed`. Fixed to `../..` and re-run to `7 passed`,
+it now drives the **real `docker compose config` merge** (`true, true, false, false` across the four
+cases) rather than the YAML text the invariant suite reads. The second suite is hermetic and covers the
+adversarial inputs the shipped suite did not: absent env file, absent template, empty-valued key, CRLF,
+non-identifier names, prefix keys, `COMPOSE_FILES` unset, and that the env file is byte-identical
+afterwards. Both are in `8a799a9`, and the parent re-ran the whole set: **409 assertions across nine
+suites, zero failures**.
+
+**L11** *(the second slice, landed 2026-10-19 — `T4`+`T5` as `2022492`+`6119d4c`)*. Verified by the
+parent, not accepted on report: the focused Java classes and the 48 Angular tests of the touched files
+were run **in this worktree** (which needed a `node_modules` symlink to the anchor — a gitignored local
+convenience, not a dependency change), then the **full** suites: `./gradlew spotlessCheck test` over the
+provisioning packages (`BUILD SUCCESSFUL`) and the whole Angular suite (**183 files, 3655 tests, 0
+failures**).
+
+Three things this slice produced that the plan did not predict, each recorded rather than smoothed over:
+
+1. **A premise in the parent's own delegation was false and the delegation measured it.** The handoff
+   claimed `ProvisioningWorkerProperties` is not a bean while the worker is disabled, and that
+   `ProvisioningWorkerSchedulerConfig` is the only class registering it. Measured: the unconditioned
+   `ProvisioningWorkerConfig:31-33` also declares `@EnableConfigurationProperties`, so the properties
+   bean exists either way and only the **scheduler** is gated. The constraint held for the right reason
+   — a warning inside a class that is not loaded when disabled cannot run — and the logger is outside
+   the condition, but the reasoning in the handoff was wrong and is corrected here. `S6-C4` and `S5.3`
+   as written in this record are unaffected: neither ever asserted the bean was absent.
+2. **The slice's first pass declared a coverage gap and the parent closed it instead of adopting it.**
+   `AccessProvisioningControllerTest` mocks the query service, so its `jsonPath("$.workerEnabled")`
+   proves only that the field serializes, and the test that owns the property-to-field mapping was not
+   in the delegation's edit surfaces. `6119d4c` pins it in both directions against the mocked
+   properties, so reporting the switch wrongly now fails a test rather than a screen.
+3. **The Angular notice is not gated on `canWrite()`** and **an absent field renders nothing.** The
+   first is a judgement the plan left open: a read-only caller is exactly the person who needs to know
+   that a request will not advance. The second is `S6-C4`'s fail-safe applied to the UI — a backend
+   older than the additive field answers no `workerEnabled`, and the screen must not turn its own
+   ignorance into the claim that the worker is off.
