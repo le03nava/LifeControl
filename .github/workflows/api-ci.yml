@@ -15,9 +15,13 @@ concurrency:
   group: api-ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Two jobs rather than two steps of one job: inside a single job the test step does not start
+# until static analysis has finished, so the two gates cannot overlap and the run costs the sum of
+# both. As separate jobs they start together, so the run costs the slower gate. Each job repeats
+# Checkout and Setup Java because a job cannot read another job's workspace or JDK.
 jobs:
-  ci:
-    name: Check
+  static-analysis:
+    name: Static analysis
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -35,6 +39,23 @@ jobs:
 
       - name: Static analysis
         run: ./gradlew spotlessCheck spotbugsMain --no-daemon
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: life-control-api
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Java
+        uses: actions/setup-java@v6
+        with:
+          java-version: 21
+          distribution: temurin
+          cache: gradle
 
       - name: Run tests
         run: ./gradlew test --no-daemon
