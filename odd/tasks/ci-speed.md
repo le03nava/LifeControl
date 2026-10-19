@@ -1,7 +1,7 @@
 # ODD feature: ci-speed
 
 **Repository**: LifeControl — the shape of the CI workflows that gate a pull request (`.github/workflows/api-ci.yml`, `.github/workflows/angular-ci.yml`) and the two documents that name those gates verbatim (`CONTRIBUTING.md` §6 and §7, `.agents/skills/project-conventions/references/index.md` → `## Dispatch`). **No production code, no test semantics, no timeouts, no isolation settings, no coverage threshold, and — after D1 — no Gradle build change either.**
-**Status**: implemented — U1 landed as `4cbe362` on `chore/ci-speed` (2 files, 41 authored changed lines); U2 (the forks measurement) and U3 (the Angular shards, which need the coverage merge first) remain. This header makes no claim about push or PR state; see the evidence log.
+**Status**: implemented — U1 landed as `4cbe362` on `chore/ci-speed` (2 files, 41 authored changed lines) and `457411d` records it; U2 (the forks measurement) and U3 (the Angular shards) remain, and U3's design is recorded below with the two hinges only a runner can settle. This header makes no claim about push or PR state; see the evidence log.
 **Created**: 2026-10-18
 **Risk**: **medium.** Every file touched is CI-only, which is Task Size item 5 (delivery/environment). Two named risks, both argued rather than assumed: (1) dropping a gate, a `paths:` filter or a step would silently narrow what the four workflows cover, mitigated by `workflow-trigger-parity.test.sh` and by S2; (2) the Gradle configuration cache can fail inside spotless/spotbugs/asciidoctor in ways whose output does not name the cause, so it is validated locally first (F3) and removed from the slice if it does not hold. Everything here is revertible with one commit. The one change deliberately **not** taken — `org.gradle.caching` — is excluded in S7 because it would change what a green check proves, not merely how long it takes.
 
@@ -107,6 +107,52 @@ touch and which asserted that `api-ci.yml` and `gateway-ci.yml` *"share the job 
 before T1, false after it. It was repaired in the same commit: a document that names the gate wrongly
 is the defect S3 exists to catch, not a follow-up.
 
+## U3 design — the coverage merge, verified against the published builder
+
+Verified read-only on 2026-10-18 against the published `@angular/build@21.2.27` sources. The
+checkout's `node_modules` is 20.3.36 and predates `runnerConfig`, so it cannot answer any of this.
+
+| Fact | Evidence |
+| --- | --- |
+| `runnerConfig` is handed to Vitest as its own `config:` | `runners/vitest/executor.js`: `const vitestConfig = { config: externalConfigPath, root: workspaceRoot, … }` → `startVitest('test', undefined, vitestConfig, …)` |
+| `shard` is a **string** (`"1/2"`) and a **non-project** option, read from the **root** config | `resolveConfig.ts`: `options.shard.split('/')`; `reporters.d.*.d.ts`: `shard?: string` and `NonProjectOptions = "shard" \| …`; `chunks/coverage.*.js`: `const { index, count } = config.shard` |
+| The builder folds the `runnerConfig` `test` object into `test.projects[0]` — **project** level | `runners/vitest/plugins.js`: `mergeConfig(projectDefaults, { test: testConfig })` → `projects: [projectConfig]` |
+| `coverageReporters` in `angular.json` **wins** over `coverage.reporter` in `runnerConfig` | `plugins.js` deletes `testConfig.coverage.reporter` and sets `reporter: optionsCoverage.reporters` |
+| `reportsDirectory` can only come from `runnerConfig` | the builder has no option for it: `reportsDirectory: configCoverage?.reportsDirectory ?? join('coverage', projectName)` |
+| `blob` is a **test** reporter, never a coverage reporter | the `coverageReporters` enum in `schema.json` is html/lcov/lcovonly/text/text-summary/cobertura/json/json-summary |
+| Blobs carry coverage | blob tuple `[version, files, errors, coverage, …]` |
+| Native thresholds are enforced on the map **that run measured** — per shard when they sit in `angular.json`, on the merged map when they sit on the merge command | `@vitest/coverage-v8/dist/provider.js` `generateReports(coverageMap, allTestsRun)` → `reportThresholds`; `chunks/coverage.*.js` `mergeReports(coverageMaps)` → `coverageMap.merge(…)` → `generateReports(coverageMap, true)` |
+| v8 coverage `clean()` **rm -rf** the reports directory at the start of a run | `chunks/coverage.*.js` |
+
+**The chain T5 would land**
+
+1. Each shard job: `ng test --no-watch --coverage --configuration shard`, where that `angular.json`
+   configuration sets a blob test reporter (`reporters: [["blob", {…}]]`) and uploads
+   `.vitest-reports/*` as an artifact. The blob directory defaults to `.vitest-reports`.
+2. One merge job, from `life-control-app-angular`, downloads every shard's blobs and merges **as a
+   direct Vitest invocation** — the builder never runs `merge-reports` (`executor.js` always calls
+   `startVitest('test', …)`):
+   `npx vitest --config src/test-timeouts.ts --merge-reports=.vitest-reports --coverage --coverage.reporter=json-summary`
+3. `node scripts/check-coverage.mjs` reads the **merged** `coverage/coverage-summary.json`, which is
+   S5. The shard jobs must not run it: with `--coverage` each shard would write a partial summary,
+   and a shared filesystem would also lose it to `clean()`'s `rm -rf`.
+
+**Two hinges only a runner can settle** — U3 is therefore not shippable on this design alone:
+
+- Whether a root-level `shard: '1/2'` in `src/test-timeouts.ts` survives the builder's project
+  wrapper. The Angular plugin does not delete `shard`, so it may reach `ctx.config`, but that is
+  unverified. `NG_TEST_LOG=2` prints the resolved config in one run.
+- Whether `ng test` forwards `--shard` / `--reporters` / `--outputFile`. `schema.json` declares
+  `additionalProperties: false` and has no such options, so `angular.json` cannot carry `shard` and
+  the builder passes nothing to `startVitest`.
+
+**Fallback if the hinge fails**: disjoint `include` sets per job — a real builder option, coarser than
+Vitest sharding, and fully verifiable.
+
+**Deliberately not taken here**: moving the thresholds to `coverageThresholds` in `angular.json` would
+enforce them **per shard** on partial maps, the exact defect S5 forbids. `scripts/check-coverage.mjs`
+stays.
+
 ## Evidence log
 
 | Date | Evidence |
@@ -120,6 +166,8 @@ is the defect S3 exists to catch, not a follow-up.
 | 2026-10-18 | Pre-existing and untouched: `./gradlew` reports `Deprecated Gradle features were used in this build, making it incompatible with Gradle 10` **with and without** the configuration cache, so it belongs to the build, not to this slice. Recorded so nobody attributes it here. |
 | 2026-10-18 | U1 committed as `4cbe362` (`.github/workflows/api-ci.yml`, `CONTRIBUTING.md`; 2 files, 32 insertions / 9 deletions, 41 authored changed lines). |
 | 2026-10-18 | U1 verification on this tree: `bash .github/scripts/tests/workflow-trigger-parity.test.sh` exit 0, `25 passed, 0 failed`; independent parse with `yaml@2.9.0` reports jobs `static-analysis`, `test`, names `Static analysis`, `Test`, steps `Checkout>Setup Java>Static analysis` and `Checkout>Setup Java>Run tests>Upload test report`, with both `paths:` lists and `concurrency:` byte-identical to the base commit. |
+| 2026-10-18 | U3 design verified read-only against the published `@angular/build@21.2.27` sources; the table under *U3 design* carries the `path` evidence. It corrects an earlier assumption of the parent's: `test.shard` as `{index, count}` in `runnerConfig` is **not** the mechanism — `shard` is a root-level string and a non-project option. |
+| 2026-10-18 | Two U3 hinges remain unverified and need a runner: shard selection through the builder's project wrapper, and whether `ng test` forwards `--shard`. Recorded rather than inferred. |
 
 ## Log
 
