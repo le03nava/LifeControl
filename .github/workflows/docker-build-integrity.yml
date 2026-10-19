@@ -52,3 +52,6 @@ jobs:
 
       - name: Compose runtime profile tests
         run: ./docker/scripts/tests/compose-profile.test.sh
+
+      - name: Tempo receiver reachability tests
+        run: ./docker/scripts/tests/tempo-receivers.test.sh

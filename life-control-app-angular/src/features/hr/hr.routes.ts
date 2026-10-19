@@ -4,6 +4,7 @@ import {
   CLIENT_ID,
   DEPARTMENT_WRITE_ROLES,
   EMPLOYEE_WRITE_ROLES,
+  HR_WRITE_ROLES,
   POSITION_WRITE_ROLES,
   SENIORITY_LEVEL_WRITE_ROLES,
 } from '@core/security/roles';
@@ -20,6 +21,12 @@ import {
  * The write children re-declare both the guard and their own `data`, because
  * `keycloakRoleGuard` only reads `route.data` when it is itself listed in
  * `canActivate`; a `data` block without its own guard would be inert.
+ *
+ * The **first** child is the landing page of `/hr` itself, the destination of the
+ * `Recursos Humanos` header entry: it lists the catalogs as cards, the way
+ * `/purchases` lists its own areas. It re-declares the guard and the HR write
+ * union, so the page is visible exactly where the header shows the entry, while
+ * the read children below keep the parent's authenticated-only contract.
  *
  * Both catalogs are registered here: `departments` with its read child and its
  * own write children, and `employees` with its read child and its own write
@@ -42,6 +49,12 @@ export const hrRoutes: Routes = [
     path: '',
     canActivate: [keycloakRoleGuard],
     children: [
+      {
+        path: '',
+        canActivate: [keycloakRoleGuard],
+        data: { roles: HR_WRITE_ROLES, clientId: CLIENT_ID },
+        loadComponent: () => import('./pages/hr-admin/hr-admin').then((m) => m.HrAdmin),
+      },
       {
         path: 'departments',
         children: [
