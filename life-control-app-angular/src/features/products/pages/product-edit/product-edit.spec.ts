@@ -837,6 +837,48 @@ describe('ProductEdit', () => {
     });
   });
 
+  describe('request body', () => {
+    /**
+     * The API refuses the body *before* it validates any field — it is configured with
+     * `spring.jackson.deserialization.fail-on-unknown-properties=true` — and answers
+     * `400 Malformed or unreadable request body`. So the body has to carry exactly what
+     * `ProductRequest` declares: never `id`, `enabled`, `createdAt` or `updatedAt`.
+     */
+    const requestFields = {
+      sku: 'SKU-777',
+      name: 'Zapatilla Runner',
+      shortName: 'Runner',
+      satCode: '12345678',
+      productType: 'PRODUCT',
+      attributes: { color: 'red' },
+    };
+
+    it('sends only the fields ProductRequest declares when creating', () => {
+      setup();
+      const response = createProductData({ id: 'new-id' });
+      productServiceMock.createProduct = vi.fn().mockReturnValue(of(response));
+
+      component.onSaveProduct(createProductData({ id: '', ...requestFields }));
+
+      expect(productServiceMock.createProduct).toHaveBeenCalledTimes(1);
+      expect(productServiceMock.createProduct.mock.calls[0][0]).toStrictEqual({ ...requestFields });
+    });
+
+    it('sends only the fields ProductRequest declares when updating', () => {
+      setup();
+      const response = createProductData({ id: 'existing-id' });
+      productServiceMock.updateProduct = vi.fn().mockReturnValue(of(response));
+
+      component.onSaveProduct(createProductData({ id: 'existing-id', ...requestFields }));
+
+      expect(productServiceMock.updateProduct).toHaveBeenCalledTimes(1);
+      // `updateProduct(id, data)` takes the id first, so the body is argument 1.
+      expect(productServiceMock.updateProduct.mock.calls[0][1]).toStrictEqual({
+        ...requestFields,
+      });
+    });
+  });
+
   describe('serverErrors handling', () => {
     it('should set serverErrors signal and clear generalError when apiError has field-level errors', () => {
       setup();

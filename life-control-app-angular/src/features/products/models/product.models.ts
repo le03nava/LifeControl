@@ -13,6 +13,9 @@ export interface Product {
   updatedAt: string;
 }
 
+/** The form value the edit page consumes: the domain model minus the two server-owned keys. */
+export type ProductFormValue = Omit<Product, 'createdAt' | 'updatedAt'>;
+
 export interface Page<T> {
   content: T[];
   totalElements: number;

@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, effect, input, output } from '@angular/core';
 import { AbstractControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
-import { Product, ProductControl } from '../../models/product.models';
+import { ProductControl, ProductFormValue } from '../../models/product.models';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
@@ -38,7 +38,7 @@ export class ProductsForm {
    */
   editMode = input<boolean | null>(null);
 
-  saveProduct = output<Product>();
+  saveProduct = output<ProductFormValue>();
   cancelForm = output<void>();
 
   readonly defaultErrorMessages: Record<string, (error: unknown) => string> = {
@@ -122,7 +122,7 @@ export class ProductsForm {
         }
       }
 
-      const productData: Product = {
+      const productData: ProductFormValue = {
         id: raw.id,
         sku: raw.sku,
         name: raw.name,
@@ -131,8 +131,6 @@ export class ProductsForm {
         productType: raw.productType ?? undefined,
         attributes: parsedAttributes,
         enabled: raw.enabled ?? true,
-        createdAt: '',
-        updatedAt: '',
       };
       this.saveProduct.emit(productData);
     }

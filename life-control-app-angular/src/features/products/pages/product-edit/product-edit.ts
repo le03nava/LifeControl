@@ -13,7 +13,12 @@ import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ProductService } from '../../data/product.service';
 import { ApiError } from '@shared/models';
-import { Product, ProductControl } from '../../models/product.models';
+import {
+  Product,
+  ProductControl,
+  ProductFormValue,
+  ProductRequest,
+} from '../../models/product.models';
 import { NonNullableFormBuilder, FormGroup, Validators } from '@angular/forms';
 import { ProductsForm } from '../../components/products-form/products-form';
 import { ErrorBanner, PageHeader } from '@shared/ui';
@@ -217,11 +222,20 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
     this.router.navigate([], { relativeTo: this.route, queryParams });
   }
 
-  onSaveProduct(productData: Product): void {
+  onSaveProduct(productData: ProductFormValue): void {
+    // The wire body is built explicitly against `ProductRequest` (S4): the response model also
+    // carries `id` and `enabled`, and the API rejects the body before validating any field.
+    const request: ProductRequest = {
+      sku: productData.sku,
+      name: productData.name,
+      shortName: productData.shortName,
+      satCode: productData.satCode,
+      productType: productData.productType,
+      attributes: productData.attributes,
+    };
     if (productData.id === '') {
-      const { id: _id, ...createData } = productData;
       this.productService
-        .createProduct(createData as Product)
+        .createProduct(request)
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
           next: (createdProduct) => {
@@ -245,7 +259,7 @@ export class ProductEdit implements OnInit, UnsavedChangesAware {
         });
     } else {
       this.productService
-        .updateProduct(productData.id, productData)
+        .updateProduct(productData.id, request)
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
           next: (updatedProduct) => {
