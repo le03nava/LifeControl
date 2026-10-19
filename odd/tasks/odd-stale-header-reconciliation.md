@@ -3,11 +3,11 @@
 **Repository**: LifeControl — `odd/tasks/` only: eight `**Status**:` paragraphs, their eight dated
 header-repair blocks, and this record. No code, no test, no script, no workflow, no dependency, no
 configuration.
-**Status**: implemented — the eight repairs and their eight dated blocks are in this commit. What
-remains is the delivery of this unit as its own pull request (issue **#434**), and this record
-deliberately does not name a PR number it cannot know before that pull request exists. Its own header
-is the one line this unit cannot repair in the commit that carries it, because the state it would carry
-does not exist yet; the shape for that is recorded in `## Delivery`.
+**Status**: **merged** — PR **#436** (`docs/odd-stale-header-reconciliation` @ `0322b49`), merge commit
+`a6207fd`, 2026-10-19, closing issue **#434**, so `main` carries the eight header repairs, their eight dated
+blocks and this record. Nothing in this unit is open. Its own `**Status**:` line was the one repair the commit
+could not perform on itself, and the unit that carries issue **#454** performs it now, with the block appended
+below.
 **Created**: 2026-10-19 · **Issue**: **#434** (`status:approved`) · **Base**: `main` @ `18de07d`
 **Branch**: `docs/odd-stale-header-reconciliation` · **Worktree**:
 `~/workspace/LifeControl-worktrees/docs-odd-stale-header-reconciliation` (herdr workspace `w4E`); the
@@ -156,3 +156,15 @@ and never a squash. This record's own `**Status**:` line is the one repair it ca
 the repository's answer is the one it has used twice already (`odd/tasks/angular-22-upgrade.md` for
 #418, `odd/tasks/hr-menu-entry-navigates-to-hr-landing.md` for #430): the merge identity is recorded
 afterwards, in the record that the delivery belongs to, by the next slice that touches it.
+
+## Header repair (2026-10-19)
+
+The `**Status**:` line above was rewritten on 2026-10-19 by the unit that carries issue **#454**, where the
+inventory, the normalized sweep and the verification live. It used to decline the delivery state: «What remains
+is the delivery of this unit as its own pull request (issue **#434**), and this record deliberately does not
+name a PR number it cannot know before that pull request exists. Its own header is the one line this unit
+cannot repair in the commit that carries it, because the state it would carry does not exist yet; the shape for
+that is recorded in `## Delivery`.» That state became known when the work merged — PR **#436**, merge
+`a6207fd`, 2026-10-19, closing **#434** — so the line now carries it. `## Delivery` is left exactly as
+written: it is the frozen narrative that prescribed this repair, and its closing sentence is the instruction
+this block obeys. Nothing else in this record was touched.
