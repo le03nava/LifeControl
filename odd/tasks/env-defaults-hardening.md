@@ -5,14 +5,10 @@
 component and one additive field in `life-control-api/**`, one banner in `life-control-app-angular/**`,
 and two documentation edits (`AGENTS.md`, `odd/tasks/employee-access-provisioning.md`). No schema, no
 migration, no gateway change, no existing contract removed or changed.
-**Status**: `T1`–`T5` are implemented, verified and committed as **`fa7e2ed`**, **`8a799a9`**,
-**`ae6b389`** and **`b0f21a4`** (two slices, `L9`–`L11`); `T6`/`T7` as **`fda95e6`**; and `T8`'s live
-evidence is collected with a **negative outcome** (`L12`) — enabling the worker proved the switch, the
-dev default and the report, and exposed **three defects of the access-provisioning worker itself**,
-recorded as `G45`–`G47` in `odd/tasks/employee-access-provisioning.md` and outside this feature's scope.
-Because `G45` leaves `APPLIED` unreachable, `T6` ships with the verdict it would give rather than with a
-verified pass, and `T9`'s remaining candidates wait behind it. This header makes no claim about push or
-PR state; the delivery detail belongs to the evidence log.
+**Status**: the work of `T1`–`T5`, `T7` and `T8` is delivered as the chained pull requests **#458**,
+**#459** and **#460**, and the evidence of each slice is recorded in the log below (`L9`–`L15`); `T6` and
+`T9` are the two tasks still open, both behind the worker defects `G45`–`G47` that
+`odd/tasks/employee-access-provisioning.md` now owns.
 **Created**: 2026-10-19 · **Risk**: **item 5 (delivery/environment)** — `docker-compose.override.yml`,
 `.env.template` and `validate-env.sh` are consumed by all three environments, and `validate-env.sh` is
 the **prod start gate** (`deploy.sh:173-179` exits 1 when it fails), so a check added there can stop a
@@ -358,3 +354,13 @@ identifiers. Every citation in this record and in `employee-access-provisioning.
 this commit, and the commit **messages** that named the old identifiers were not, because a commit message is
 immutable history: when this record and a `git log` disagree about a hash, this record is the corrected one.
 
+**L15** *(delivery, 2026-10-19)*. Published as issue **#457** (`bug` + `status:approved`) and three chained
+pull requests: **#458** (`fix/env-defaults-worker-default` → `main`, `type:bug`), **#459**
+(`feat/provisioning-worker-visibility` → slice 1, `type:feature`) and **#460**
+(`chore/provisioning-flow-verdict` → slice 2, `type:chore`). Two gate rules shaped the delivery and both were
+found by running the repository's own checks rather than by reading them: the issue gate requires a
+**closing** keyword on the slice that targets the default branch
+(`.github/scripts/check-issue-reference.sh:225`), so the closing reference lives on **#458** and the later
+slices only `Refs`; and `odd-status-headers.test.sh` — a suite that landed on `main` after this branch was
+cut — rejects a `Status` paragraph that uses declining vocabulary (`implemented`, `makes no claim about …
+push`) without delivery evidence, which is why the header now names the pull requests instead.
