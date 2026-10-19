@@ -6,10 +6,11 @@
 (`.../components/companies-form/`, `.../components/products-form/`, `.../components/suppliers-form/`), the three
 `models/` files and the parameter types of `company.service.ts` and `product.service.ts`. No API code, no schema,
 no endpoint, no dependency, no stored data.
-**Status**: **implemented** — the fix, its three page specs, the `supplier-edit.spec.ts` that did not exist and this
-record are the branch's content. This header makes no claim about push or PR state; see the evidence log.
+**Status**: **merged — PR #447** (`fix/angular-request-body-readonly-fields` @ `1d82f62`), merge commit `be5325e`,
+2026-10-19, closing issue **#444**. No work left in this slice.
 **Created**: 2026-10-18 · **Base**: `main` @ `f16d7ae` · **Branch**: `fix/angular-request-body-readonly-fields` ·
-**Worktree**: `~/workspace/LifeControl-worktrees/fix-angular-request-body-readonly-fields` (herdr workspace `w4J`) ·
+**Worktree**: `~/workspace/LifeControl-worktrees/fix-angular-request-body-readonly-fields` (herdr workspace `w4J`;
+removed after the merge, in the order `references/worktrees.md` requires) ·
 **Issue**: **#444**
 **Risk**: **none**. The wire contract does not move: `CompanyRequest`, `ProductRequest` and `SupplierRequest` already
 declare exactly the fields the fixed bodies carry, so this removes keys the API has rejected since `0dfd20c` — not
@@ -115,7 +116,7 @@ squash (§7).
 | T5 | S4, S5 | GREEN, products: the explicit body in `product-edit` + `product.service.ts` parameter type | `a301702` |
 | T6 | S4, S5 | GREEN, suppliers: the explicit body in `supplier-edit` and the removal of both `as unknown as` casts | `294c57c` |
 | T7 | S5, S7 | `npm run lint`, `npm run build` and the three specs green | `—` (checks, not a commit) |
-| T8 | S7 | This record, with the hashes it cites | `docs(odd)`, this commit |
+| T8 | S7 | This record, with the hashes it cites | `753e546` |
 
 ## Log
 
@@ -172,16 +173,45 @@ revision with the same result. The hook's change was formatting only — one lon
 **2026-10-18 — the commits.** `8dbd897` companies, `a301702` products, `294c57c` suppliers, each carrying its own
 feature's spec cases; this record is the fourth.
 
-**Open, and not this record's to close.** `status:approved` on **#444** is a human decision (`CONTRIBUTING.md` §1;
-the label guard's `A linked, approved issue` job reads it), and push, pull request and merge are separate decisions.
-The branch's diff is **+459/−102 across 15 files**, over §3's advisory ~400 authored lines; the three commits are
-already one cohesive slice each, so the chain those sections prescribe needs no reshaping of the work — companies
-(178) and products (70) inside the budget, suppliers (211) as its own slice.
+**2026-10-18 — the rules that governed the delivery, and the size it landed with.** `status:approved` on **#444**
+was a human decision (`CONTRIBUTING.md` §1; the label guard's `A linked, approved issue` job reads it), and push,
+pull request and merge were the owner's separate decisions. The branch's diff is **+459/−102 across 15 files**, over
+§3's advisory ~400 authored lines; the three commits are already one cohesive slice each, so the chain those sections
+prescribe needed no reshaping of the work — companies (178) and products (70) inside the budget, suppliers (211) as
+its own slice.
 
 **2026-10-18 — the owner's delivery decision.** `status:approved` was applied to #444 on the owner's explicit
 instruction — the human decision §1 requires, not a self-approval by the author of the request. The branch was
 pushed and pull request **#447** opened against `main`, with `Closes #444` and the single label `type:bug`. It is one
 pull request rather than the chain §3 prescribes, and that is a measured call: the last twelve merged pull requests
 in this repository have a median of ~238 authored lines, so the 459 here sits over the advisory budget but inside
-what this repository has merged, and the three commits keep the per-feature slice boundary readable. Merge is still
-the owner's decision.
+what this repository has merged, and the three commits keep the per-feature slice boundary readable. The merge that
+closed it is recorded below.
+
+**2026-10-19 — merged.** Pull request **#447** was merged into `main` as merge commit `be5325e` at
+2026-10-19T05:47:14Z, and the `Closes #444` reference closed issue **#444**. The first attempt was refused with
+*"the head branch is not up to date with the base branch"*: `main` is protected with `strict: true`,
+`enforce_admins: true`, no required approving review, and the two guard jobs as its required contexts. So the branch
+was brought up to date by **merging** `main` into it (`1d82f62`), never by rebasing — a rebase would have rewritten
+`8dbd897`, `a301702` and `294c57c`, the hashes this record cites. Nothing conflicted: the files `main` had moved in
+the meantime (the header submenu work, the CI sharding) and the files this branch touches do not intersect.
+
+**2026-10-19 — the checks, on the final head.** Both runs answered the same way: `A linked, approved issue` pass,
+`Exactly one type:* label` pass, `Lint & Build` pass, `Unit tests (1)` and `(2)` pass, `Coverage` pass. The second
+run is the one that matters here, because it is the one on `1d82f62` — the branch merged with `main`, which is the
+tree that landed.
+
+**2026-10-19 — the assess, and which candidate it measured.** With the review switch on, `assess` answered
+`nativeRisk: medium`, `reviewDue: false` (`under_budget`) and a plan of the writer's own verification with no
+independent verifier (no Task Size high-risk item was escalated). The first call measured the **wrong candidate**:
+without `workspaceRoot` it ran against the anchor's `HEAD`, which by then carried another session's merged work, and
+it reported 6 paths and an e2e spec this branch never touched. With `workspaceRoot` set to the worktree it measured
+this branch — 16 paths, 748 lines. A symbolic `baseRef` answered *"the review assess candidate has no pending
+changes"*; the full base id `f16d7ae916ad1f33301b23e444cfda0e1a063677` resolved it.
+
+**2026-10-19 — the cleanup, and this close.** The worktree was removed in the order `references/worktrees.md`
+requires — `herdr workspace close w4J`, then `git worktree remove`, then `git worktree prune` — and the local and
+remote branches were deleted afterwards. No `--delete-branch` was used at merge time on purpose: the branch was held
+by a linked worktree, and that command removes the worktree, which would have left an open Herdr workspace pointing
+at a path that no longer exists. This closing slice is issue **#449**, branch
+`chore/angular-request-body-record-close`; the delivery it records is `be5325e`.
