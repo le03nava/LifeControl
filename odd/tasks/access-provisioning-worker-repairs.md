@@ -3,9 +3,11 @@
 **Repository**: LifeControl — `life-control-api/**` only (the provisioning services, the Keycloak
 adapter and their tests). One port method's classification, one invitation rule, one read. No schema,
 no migration, no gateway, no Angular change, no existing contract removed.
-**Status**: **planned** — nothing implemented yet. Issue **#464** is the specification: it owns the
-three defects (**G45**, **G46**, **G47**) that the first live run of the worker with
-`WORKER_ENABLED=true` measured. This record is the unit that closes them.
+**Status**: **delivered on the branch, not merged** — all three defects are fixed and checked on
+`fix/access-provisioning-worker-repairs` (5 commits, `9da8781`..`bb200f2`), and the end-to-end verdict
+script passes against the dev stack. **What remains is the delivery**: push, the pull request(s) and
+the merge are the user's decisions and were not taken. The fourth commit fixes three defects in the
+verdict script #460 shipped, which had never been run.
 **Created**: 2026-10-19 · **Branch**: `fix/access-provisioning-worker-repairs` · **Base**: `main` @
 `7ebb21b` · **Worktree**: `~/workspace/LifeControl-worktrees/fix-access-provisioning-worker-repairs`
 · **Risk**: **item 1 and item 3** — the unit decides whether a person's account gets provisioned at
@@ -46,10 +48,10 @@ attributes) and a rehire still re-enables — the two directions `T99`/`T101` fi
 
 | ID | Task | Specs | Route | Commit |
 |----|------|-------|-------|--------|
-| T1 | **G47** — `KeycloakIdentityProvider.createUser` classifies the response's `409` as `IdentityProviderConflictException` instead of a retryable connection failure, so `createOrLink`'s catch actually links the single exact match and still refuses zero/many. RED first: a test that fails on the current tree with `"Unexpected response creating user: 409"`. | S4 | inline | `fix(provisioning): classify the create-user 409 as a conflict` |
-| T2 | **G46** — `AccessProvisioningAccountService.activate` sends the invitation only when the account half did not answer `ALREADY_LINKED`, so a retried `ACTIVATE` sends exactly one mail and the explicit resend endpoint keeps its own job. RED first: a test that fails on the current tree by counting two sends for one retry. | S3 | inline | `fix(provisioning): send the invitation once per activation` |
-| T3 | **G45** — the worker's employee read initializes `company` and `status`, the two lazy associations the gate, the role convergence and the membership derivation read, so the pass never touches a detached proxy. RED first: a PostgreSQL integration test that runs one `ACTIVATE` to `APPLIED` and fails on the current tree with the recorded `LazyInitializationException`. | S1, S2 | inline | `fix(provisioning): initialize the employee the worker applies` |
-| T4 | Gates over the final bytes (`spotlessCheck`, the provisioning suites, S7's two package filters), a live run of the verdict script (S6), then the record's close: G45–G47 statuses in `odd/tasks/employee-access-provisioning.md` plus this record's delivery row. | S5, S6, S7 | inline | `docs(odd): record the worker repairs and their delivery` |
+| T1 | **G47** — `KeycloakIdentityProvider.createUser` classifies the response's `409` as `IdentityProviderConflictException` instead of a retryable connection failure, so `createOrLink`'s catch actually links the single exact match and still refuses zero/many. RED first: a test that failed on the pre-fix tree with `"Unexpected response creating user: 409"`. | S4 | inline | `dac6665` |
+| T2 | **G46** — `AccessProvisioningAccountService.activate` sends the invitation only when the account half did not answer `ALREADY_LINKED`, so a retried `ACTIVATE` sends exactly one mail and the explicit resend endpoint keeps its own job. RED first: a test that failed on the pre-fix tree by counting two sends for one retry. | S3 | inline | `bef0882` |
+| T3 | **G45** — the worker's employee read initializes `company` and `status`, the two lazy associations the gate, the role convergence and the membership derivation read, so the pass never touches a detached proxy. RED first: a PostgreSQL integration test that failed on the pre-fix tree with the recorded `LazyInitializationException`. | S1, S2 | inline | `0c820ae` |
+| T4 | Gates over the final bytes (`spotlessCheck`, the provisioning suites, the full 3539-test suite), the record's close, and the **live run of the verdict script** (S6) — which forced a fifth commit, because the script #460 shipped could not run at all. | S5, S6, S7 | inline | `bb200f2` |
 
 ## Log
 
@@ -97,3 +99,49 @@ from the issue's prose):
 - **G47 is fixed in the adapter, not in `createOrLink`.** The port's own contract is "a 409 is a
   conflict"; widening the service's `catch` would leave the adapter still calling a conflict
   retryable and would hide the same defect on every future caller.
+
+**L6 — the RED/GREEN evidence of each fix, as observed**:
+
+- `T1` RED: `KeycloakIdentityProviderTest > createUser > should map a returned 409 response to
+  IdentityProviderConflictException` failed with `but was: IdentityProviderConnectionException:
+  Unexpected response creating user: 409`. The suite's pre-existing `shouldMap409ToConflictException`
+  mocked `create` as *throwing*, a shape the response-returning overload never produces, which is why
+  the gap survived a green suite. GREEN after the branch: the same class, 41 tests, 0 failures.
+- `T2` RED: `sendsOneInvitationAcrossARetry` and `alreadyLinkedDoesNotInvite` failed while the other
+  62 tests of the two classes passed. GREEN after the change.
+- `T3` RED (PostgreSQL, Testcontainers): all three tests failed, the decisive one with
+  `the pass must apply, not fail on a detached association: Could not initialize proxy
+  [com.lifecontrol.api.status.model.Status#810c5ce6-…] - no session` and status `PENDING`, i.e. the
+  recorded G45 message reproduced by a test for the first time. GREEN after the finder: 3 tests, 0
+  failures.
+- The first full-suite run after `T3` failed **12** tests, all of them Mockito suites stubbing the
+  inherited `findById` (`AccessProvisioningWorkerTest` ×11, `AccessProvisioningWorkerDeactivateCompositionTest`
+  ×1). Repointed to the new finder; the second of those failures was not a stale stub but the second
+  suite pinning G46's old behaviour, corrected there and reported as such.
+
+**L7 — the gates over the final bytes**: `spotlessCheck` clean; `./gradlew test` **3539 tests, 0
+failures, 0 errors, 0 skipped**; shellcheck (`koalaman/shellcheck:stable --severity=warning`) clean on
+the repaired script.
+
+**L8 — the live run (S6), measured**, after rebuilding only the dev API from this worktree's jar
+(`bootJar` → image `lifecontrol-dev-lifecontrol-api` → `up -d --no-deps`, project `lifecontrol-dev`,
+healthy in 50s): `./docker/scripts/verify-provisioning-flow.sh dev` printed **"Access-provisioning flow
+verified end to end for dev"** — employee + contract write (the real producer enqueued the ACTIVATE),
+the worker claimed it, **the task reached `APPLIED`**, the invitation arrived in Mailpit with its
+Keycloak action-token link, the account was linked with `requiredActions` exactly
+`VERIFY_EMAIL + UPDATE_PASSWORD`, and **all five `company_*` attributes agreed with the derivation**
+(company, country, region, zone and store all held). The dev position template declares no roles, so
+that run proves "grants none"; the roles half of S2 is the PostgreSQL integration test's job.
+
+**L9 — the three defects the live run found in the verdict script itself** (each is fixed in
+`bb200f2`, and none is a defect of the product): `kc_admin` was called seven lines before its
+definition; five `kc_admin … | json_*` sites fed the helpers on stdin while they read `$1`; and the
+disposable operator was written without `firstName`/`lastName`, which this realm's user profile
+requires, so the password grant answered `invalid_grant` / "Account is not fully set up". The script had
+never been executed end to end before this unit.
+
+**L10 — state the next reader needs**: the dev stack currently runs the **branch** build of
+`lifecontrol-api` (rebuilt from this worktree to make S6 measurable). `docker/.env.dev` and
+`docker/secrets/` were copied into this worktree because both are gitignored and the compose run needs
+them; neither is tracked. `main` in the anchor was fast-forwarded to `origin/main` @ `7ebb21b` before
+the worktree was cut.
