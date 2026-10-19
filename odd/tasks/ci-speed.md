@@ -1,7 +1,7 @@
 # ODD feature: ci-speed
 
 **Repository**: LifeControl — the shape of the CI workflows that gate a pull request (`.github/workflows/api-ci.yml`, `.github/workflows/angular-ci.yml`) and the two documents that name those gates verbatim (`CONTRIBUTING.md` §6 and §7, `.agents/skills/project-conventions/references/index.md` → `## Dispatch`). **No production code, no test semantics, no timeouts, no isolation settings, no coverage threshold, and — after D1 — no Gradle build change either.**
-**Status**: implemented — U1 landed as `4cbe362` on `chore/ci-speed` (2 files, 41 authored changed lines) and `457411d` records it; U2 (the forks measurement) and U3 (the Angular shards) remain, and U3's design is recorded below with the two hinges only a runner can settle. This header makes no claim about push or PR state; see the evidence log.
+**Status**: implemented — U1 landed as `4cbe362` on `chore/ci-speed` (2 files, 41 authored changed lines), recorded in `457411d` and `564380c`, and **measured on the runner at 193s** against the 247–336s baseline of six runs. U2 (the forks measurement) and U3 (the Angular shards) remain, and U3's design is recorded below with the two hinges only a runner can settle. This header makes no claim about push or PR state; see the evidence log.
 **Created**: 2026-10-18
 **Risk**: **medium.** Every file touched is CI-only, which is Task Size item 5 (delivery/environment). Two named risks, both argued rather than assumed: (1) dropping a gate, a `paths:` filter or a step would silently narrow what the four workflows cover, mitigated by `workflow-trigger-parity.test.sh` and by S2; (2) the Gradle configuration cache can fail inside spotless/spotbugs/asciidoctor in ways whose output does not name the cause, so it is validated locally first (F3) and removed from the slice if it does not hold. Everything here is revertible with one commit. The one change deliberately **not** taken — `org.gradle.caching` — is excluded in S7 because it would change what a green check proves, not merely how long it takes.
 
@@ -44,9 +44,9 @@ name the same job `name:` strings and gate commands the workflows actually decla
 `name:` is quoted verbatim because the branch-protection runbook below names required checks by
 exactly those strings."*
 
-S4. `cd life-control-api && ./gradlew test --no-daemon` still executes all **3524** tests. A run that
-reports success with the `test` task `UP-TO-DATE` or `FROM-CACHE` while executing nothing fails this
-spec.
+S4. `cd life-control-api && ./gradlew test --no-daemon` still executes the whole suite — **3527**
+tests, as the runner's own report counts them. A run that reports success with the `test` task
+`UP-TO-DATE` or `FROM-CACHE` while executing nothing fails this spec.
 
 S5. With sharding enabled, a run in which one shard's own summary is below a threshold **cannot**
 produce a green `npm run test:coverage:check`, because the gate reads the merged report and never a
@@ -68,7 +68,7 @@ semantics, timeouts or isolation settings."*
 | ID | Spec | Route | Unit |
 | --- | --- | --- | --- |
 | T1 | S1, S2, S3 | `gentle-ai-worker` (delegated under the context backstop) | **U1** — split `api-ci.yml` into `Static analysis` and `Test` jobs, and move `CONTRIBUTING.md` §6 plus the §7 drift the split created in the same commit. Landed as `4cbe362` |
-| T2 | S4, S6 | inline | **U1** verification — `workflow-trigger-parity.test.sh` (25 passed, 0 failed) and an independent YAML parse prove the job graph, the steps of each job, both `paths:` lists and `concurrency:` on this tree. S6's step seconds and S4's 3524 executed tests can only come from a real run, so they stay open until the pull request produces one |
+| T2 | S4, S6 | inline | **U1** verification — `workflow-trigger-parity.test.sh` (25 passed, 0 failed) and an independent YAML parse prove the job graph, the steps of each job, both `paths:` lists and `concurrency:` on this tree; the runner proved the rest on pull request #435, run `39195746631` (see the evidence log). Closed |
 | T3 | S7, S6 | inline | **U2** — measure `maxParallelForks` on the runner (4–5 runs of the same commit content). Verdict recorded either way; the code lands only if it wins |
 | T4 | S5 | inline | **U3** — merge the coverage report across shards. Prerequisite of T5 |
 | T5 | S1, S3 | inline | **U3** — shard the Angular `Test` step, after T4 |
@@ -86,10 +86,14 @@ invocation that gave the cache its value. The **build cache** stays out on princ
 win is a re-run of an identical commit, which is exactly the case where the gate must prove the suite
 ran. `life-control-api/gradle.properties` was therefore not created.
 
-D2. **The split's win is ~45s, not the ~60s first estimated.** In one job `compileJava` is executed
-once and reused by the test step (`> Task :compileJava UP-TO-DATE` in the measured log). Split, the
-test job compiles `main` itself (~18s) before `compileTestJava`. Corrected arithmetic: 263s → ~215s,
-and ~200–215s with the configuration cache.
+D2. **The split's win is bounded by the test job, not by the sum.** In one job `compileJava` is
+executed once and reused by the test step (`> Task :compileJava UP-TO-DATE` in the measured log).
+Split, the test job compiles `main` itself before `compileTestJava` — and the runner confirms it
+did: the `Test` job's log carries `> Task :compileJava` with no `UP-TO-DATE`. Measured cost of the
+duplicate: `compileJava` + `processResources` + `classes` began at 03:40:15 and `compileTestJava` at
+03:40:22, so ~7s, not the ~18s first estimated. Measured outcome on pull request #435: workflow wall
+clock **193s** against the 247–336s baseline, `Run tests` 182s (baseline 186–221s), `Static analysis`
+35s (baseline 43–98s).
 
 D3. **`maxParallelForks` is a measurement, not a change** (S7). Local evidence is 1.27x with 2.7x
 per-class inflation; the runner is the only valid instrument, and 4–5 runs are needed to tell a win
@@ -168,6 +172,9 @@ stays.
 | 2026-10-18 | U1 verification on this tree: `bash .github/scripts/tests/workflow-trigger-parity.test.sh` exit 0, `25 passed, 0 failed`; independent parse with `yaml@2.9.0` reports jobs `static-analysis`, `test`, names `Static analysis`, `Test`, steps `Checkout>Setup Java>Static analysis` and `Checkout>Setup Java>Run tests>Upload test report`, with both `paths:` lists and `concurrency:` byte-identical to the base commit. |
 | 2026-10-18 | U3 design verified read-only against the published `@angular/build@21.2.27` sources; the table under *U3 design* carries the `path` evidence. It corrects an earlier assumption of the parent's: `test.shard` as `{index, count}` in `runnerConfig` is **not** the mechanism — `shard` is a root-level string and a non-project option. |
 | 2026-10-18 | Two U3 hinges remain unverified and need a runner: shard selection through the builder's project wrapper, and whether `ng test` forwards `--shard`. Recorded rather than inferred. |
+| 2026-10-19 | **U1 measured on the runner** — pull request #435, run `39195746631`. `Test` and `Static analysis` started 1s apart (03:39:47 and 03:39:48), so they are genuinely concurrent; `Test` ran to 03:43:00 while `Static analysis` ended at 03:40:33. Workflow wall clock **193s** against the 247–336s baseline of six runs. `Test` job 193s (`Run tests` 182s), `Static analysis` job 45s (its step 35s). Both workflows' labels passed: `Exactly one type:* label` and `A linked, approved issue`. |
+| 2026-10-19 | S4 verified from the same run: `Run tests` logs `> Task :test`, `BUILD SUCCESSFUL in 3m` and `5 actionable tasks: 5 executed` — nothing `UP-TO-DATE`, nothing `FROM-CACHE`. The `api-test-results` artifact's own report counts **3527 tests, 0 failures, 0 ignored**. |
+| 2026-10-19 | **S4 corrected**: it read 3524, counted from this host's `build/test-results` on a tree older than the one the runner ran. The spec now carries the runner's number, and the 3524 was corrected openly rather than overwritten. |
 
 ## Log
 
@@ -190,3 +197,10 @@ L6. Decision: **"que recomiendas?"** on the Gradle cache → D1.
 L7. Measurement correction, before U1 was committed: `--dry-run` put the configuration phase at
 3–4s per invocation, and the split T1 introduces removes the second invocation that made the cache
 worth storing. U1 became the split alone, with no `gradle.properties` and no Gradle build change.
+
+L8. *"listo ya esta aprobado"* — `status:approved` applied on #433, so pull request #435 was opened
+with `Closes #433` and the single `type:chore` label.
+
+L9. Measurement return on the runner: the workflow wall clock is **193s** against the 247–336s
+baseline of six runs. S4's test count was corrected from the runner's own report — it is 3527, not
+the 3524 this record first copied from a local results directory on an older tree.
