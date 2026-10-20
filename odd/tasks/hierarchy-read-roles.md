@@ -1,7 +1,7 @@
 # ODD feature: hierarchy-read-roles
 
 **Repository**: LifeControl — `life-control-api/` + `life-control-app-angular/`
-**Status**: open — S1, S2 y S3 quedaron implementadas y verificadas sobre `main @ d7870b1` en dos slices: el backend completo en `1db82e6..5de5d75` y la migración del frontend con su pin en `5de5d75..` los commits que le siguen. El trabajo restante de este registro es **G1**, que pide registro propio; la evidencia de entrega va en el log.
+**Status**: delivered — S1, S2 y S3 implementadas y verificadas. El backend entró por PR **#474** (merge `7ab89e90`, 2026-10-20) y la migración del frontend con sus pins por PR **#475**. El trabajo restante de este registro es **G1** —el listado de comprobantes no honra el alcance—, que pide registro propio.
 **Created**: 2026-02-21 · **Risk**: alto — superficie de autorización (item 2) y criterios de lectura por nivel.
 
 ## Objective
@@ -224,3 +224,12 @@ y `PositionRoleServiceTest > getGrantableRoles > returns the frozen allowlist so
   el conteo que la CI corre.
 - **Rangos finales**: slice 1 = `1db82e6..5de5d75` (**35 archivos, +928/−42**, 8 commits), slice 2 =
   `5de5d75..` (**45 archivos, +432/−105**, 5 commits contando el merge y esta evidencia).
+
+**L11** — 2026-10-20 · **Merge del slice backend.** PR **#474** mergeado como **`7ab89e90`**
+(`--merge`, nunca squash) con los 9 checks verdes, incluido `Test` con 3621 tests. El merge cerró el
+issue #473 por el `Closes` del body, y el issue **se reabre a mano antes del merge del hijo**: el gate
+`check-issue-reference.sh` exige un issue **abierto** con `status:approved` para cada PR de la cadena,
+así que el cierre temprano del padre deja al hijo sin referencia válida. Al escribir esta fila, #475
+sigue abierto con su base en la rama del padre: falta retargetearlo a `main` y cambiar el body de
+`Refs #473` a `Closes #473`, porque `Refs` se acepta **sólo fuera de la rama default** (el script lo
+dice en `:334-336`).
