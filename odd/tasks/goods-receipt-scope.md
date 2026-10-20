@@ -88,3 +88,39 @@ JPQL con joins y proyección de ids.
   y `lc-company-zone` pasan de **200 con página vacía** a ver los comprobantes de su alcance, y los
   cuatro `-read` de esos niveles pasan de **403** a 200 con la misma página. Un alcance efectivo vacío
   sigue devolviendo página vacía sin tocar la consulta sin filtro, y el `POST` no cambia para nadie.
+
+**L4** — 2026-10-20 · **La verificación independiente encontró un bloqueante real en S2**, sobre un
+candidato que la review nativa ya había aprobado.
+
+- **Lo que dijo el verificador, medido con sus propias sondas**: `CompanyStoreScopeResolver`
+  resolvía el alcance desde el claim del nivel más profundo **sólo**, mientras el detalle verifica
+  toda la cadena (`verifyLevelsUpTo`, con `company_id` y `company_country_id` obligatorios).
+  Reprodujo dos divergencias en la dirección insegura: un lector de país con `company_id` de otra
+  compañía y un lector de región sin claims de ancestros recibían la fila en la lista y
+  `AccessDeniedException` al abrirla. **Sobre `origin/main` la misma sonda devolvía página vacía**:
+  el defecto lo introdujo el arreglo, no venía de antes.
+- **Corrección (`3dd61a1`)**: las cinco proyecciones pasan a recibir **todas** las constraints de
+  ancestro y el resolver niega sin consultar cuando falta un claim requerido. Un portador de tienda
+  también queda constreñido por la cadena, así que el filtro de la lista y el del detalle son
+  literalmente la misma regla en vez de dos que coinciden por casualidad.
+- **Evidencia (`9bdfdb2`)**: `GoodsReceiptScopeAgreementTest` corre `Jwt` real → `CurrentUserContext`
+  real → resolver real → servicio, y cubre los dos casos que divergían más los controles de tienda y
+  de admin; `CompanyStoreScopeProjectionTest` corre las cinco proyecciones **contra una base** y fija
+  que un ancestro que no cubre la fila la excluye, que una tienda deshabilitada sigue alcanzable por
+  id y que nada se cruza entre compañías.
+- **Fallas propias, declaradas**: el primer resolver test verificaba `never()` sobre el mismo método
+  que sí se invoca — tres fallas del test, no del código (`3655 tests / 3 fallas`). Se corrigió a
+  verificación de argumentos exactos, que es justamente lo que hace visible la constraint de
+  ancestro.
+- **Advisorys cerrados**: la descripción de Swagger de la lista seguía prometiendo
+  `company_store_ids`; el `POST` tenía pins para dos de los cuatro roles de lectura nuevos y ahora
+  los tiene para los cuatro; el chequeo `claimIds == null` era código muerto y se fue con la
+  reescritura.
+- **Advisory declarado y no arreglado**: un portador de tienda que además tenga un rol de nivel
+  compañía (`lc-position`, `lc-department`) se amplía a toda la compañía. Es consistente con el
+  detalle, que ya autorizaba así, pero queda escrito acá en vez de descubrirse después.
+- **Gate del candidato corregido**: `spotlessCheck spotbugsMain test` → **`BUILD SUCCESSFUL in 2m
+  25s`, 3655 tests / 0 fallas / 0 errores**.
+- **Sobre las reviews**: el recibo aprobado (`review-927ba805be3b24ff`, 1 advisory R3-001 sobre las
+  queries) cubre el candidato de 556 líneas y se reconoció **antes** de tocar el código; el candidato
+  corregido se revisa aparte, porque un recibo no se hereda.
