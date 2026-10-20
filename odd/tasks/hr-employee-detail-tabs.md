@@ -1,7 +1,7 @@
 # ODD feature: hr-employee-detail-tabs
 
 **Repository**: LifeControl — `life-control-app-angular/`
-**Status**: implementado y entregado para revisión — el trabajo está en el PR **#488** (`feat/hr-employee-detail-tabs`, `main` como base) y el merge es una decisión del mantenedor. Este header no afirma estado de entrega: el detalle fechado está en el log de evidencia.
+**Status**: merged — PR **#488** (`feat/hr-employee-detail-tabs` @ `5fd86cf`), 2026-10-20. No work left.
 **Created**: 2026-10-20 · **Risk**: bajo — restructuración de una vista: no toca datos, endpoints ni contratos; los gates de rol (`EMPLOYEE_WRITE_ROLES`, `ACCESS_READ_ROLES`) se preservan y el comportamiento está cubierto por tests.
 
 ## Objective
@@ -94,3 +94,9 @@ con el label único `type:feature` y `Closes #485`. CI del PR, los seis checks e
 approved issue` (6s), `Exactly one type:* label` (10s), `Lint & Build` (45s), `Unit tests (1)` (2m22s),
 `Unit tests (2)` (2m9s) y `Coverage` (23s). El merge no lo hace este registro: es decisión del
 mantenedor.
+
+**L8** — El header de este registro afirmaba «entregado para revisión… el merge es una decisión del
+mantenedor»: cierto al escribirlo y superado por el merge `5fd86cf`. Pasó a la forma canónica, con el
+número de PR, la rama y el merge commit, y esta reparación queda registrada acá porque la regla del
+repo pide registrar la reparación y no sólo hacerla. Ningún identificador de esta reparación se
+escribe antes de que exista: su evidencia está en el historial de `main`.
