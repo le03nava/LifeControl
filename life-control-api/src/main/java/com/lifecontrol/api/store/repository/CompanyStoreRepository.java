@@ -1,12 +1,15 @@
 package com.lifecontrol.api.store.repository;
 
 import com.lifecontrol.api.store.model.CompanyStore;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -71,4 +74,27 @@ public interface CompanyStoreRepository extends JpaRepository<CompanyStore, UUID
                 "address"
             })
     List<CompanyStore> findByIdInAndCompanyZoneIdAndEnabledTrue(Set<UUID> storeIds, UUID companyZoneId);
+
+    /**
+     * Store ids of the given companies, for the list paths that scope by a hierarchy level instead
+     * of by an explicit store.
+     *
+     * <p>{@link com.lifecontrol.api.store.model.CompanyStore} carries no company/country/region
+     * column: it hangs off {@code companyZone -> companyRegion -> companyCountry -> company}, so
+     * each level below is the same walk reached from a different end. They project the id only —
+     * a list filter needs the set, never the entity — and they never filter by {@code enabled},
+     * because a disabled store's receipts stay readable to whoever could open them by id.</p>
+     */
+    @Query("select s.id from CompanyStore s where s.companyZone.companyRegion.companyCountry.company.id in :companyIds")
+    List<UUID> findIdsByCompanyIdIn(@Param("companyIds") Collection<UUID> companyIds);
+
+    @Query("select s.id from CompanyStore s "
+            + "where s.companyZone.companyRegion.companyCountry.id in :companyCountryIds")
+    List<UUID> findIdsByCompanyCountryIdIn(@Param("companyCountryIds") Collection<UUID> companyCountryIds);
+
+    @Query("select s.id from CompanyStore s where s.companyZone.companyRegion.id in :companyRegionIds")
+    List<UUID> findIdsByCompanyRegionIdIn(@Param("companyRegionIds") Collection<UUID> companyRegionIds);
+
+    @Query("select s.id from CompanyStore s where s.companyZone.id in :companyZoneIds")
+    List<UUID> findIdsByCompanyZoneIdIn(@Param("companyZoneIds") Collection<UUID> companyZoneIds);
 }

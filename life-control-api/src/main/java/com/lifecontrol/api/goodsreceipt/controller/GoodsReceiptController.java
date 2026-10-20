@@ -3,10 +3,14 @@ package com.lifecontrol.api.goodsreceipt.controller;
 import static com.lifecontrol.api.common.security.Roles.ADMIN;
 import static com.lifecontrol.api.common.security.Roles.COMPANY;
 import static com.lifecontrol.api.common.security.Roles.COMPANY_COUNTRY;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_COUNTRY_READ;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_READ;
 import static com.lifecontrol.api.common.security.Roles.COMPANY_REGION;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_REGION_READ;
 import static com.lifecontrol.api.common.security.Roles.COMPANY_STORE;
 import static com.lifecontrol.api.common.security.Roles.COMPANY_STORE_READ;
 import static com.lifecontrol.api.common.security.Roles.COMPANY_ZONE;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_ZONE_READ;
 import static com.lifecontrol.api.common.security.Roles.RECEIVING;
 
 import com.lifecontrol.api.goodsreceipt.dto.GoodsReceiptRequest;
@@ -41,8 +45,11 @@ import org.springframework.web.bind.annotation.RestController;
  * store-scoped role; {@link GoodsReceiptService} additionally scopes the list to the caller's
  * {@code company_store_ids} and authorizes each single receipt against its own store chain.</p>
  *
- * <p>Read endpoints additionally allow {@code lc-company-store-read}; the create does not. Both the
- * create and the reads allow {@code lc-receiving}.</p>
+ * <p>Read endpoints additionally allow the read-only role of every level — {@code lc-company-read},
+ * {@code lc-company-country-read}, {@code lc-company-region-read}, {@code lc-company-zone-read} and
+ * {@code lc-company-store-read} — because a read-only position has to be able to read what its own
+ * claim already bounds; the create allows none of them. Both the create and the reads allow
+ * {@code lc-receiving}.</p>
  */
 @RestController
 @RequestMapping("/api/goods-receipts")
@@ -75,8 +82,9 @@ public class GoodsReceiptController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','"
-            + COMPANY_ZONE + "','" + COMPANY_STORE + "','" + COMPANY_STORE_READ + "','" + RECEIVING + "')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_READ + "','" + COMPANY_COUNTRY
+            + "','" + COMPANY_COUNTRY_READ + "','" + COMPANY_REGION + "','" + COMPANY_REGION_READ + "','" + COMPANY_ZONE
+            + "','" + COMPANY_ZONE_READ + "','" + COMPANY_STORE + "','" + COMPANY_STORE_READ + "','" + RECEIVING + "')")
     @Operation(
             summary = "Get all goods receipts",
             description =
@@ -88,8 +96,9 @@ public class GoodsReceiptController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','"
-            + COMPANY_ZONE + "','" + COMPANY_STORE + "','" + COMPANY_STORE_READ + "','" + RECEIVING + "')")
+    @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_READ + "','" + COMPANY_COUNTRY
+            + "','" + COMPANY_COUNTRY_READ + "','" + COMPANY_REGION + "','" + COMPANY_REGION_READ + "','" + COMPANY_ZONE
+            + "','" + COMPANY_ZONE_READ + "','" + COMPANY_STORE + "','" + COMPANY_STORE_READ + "','" + RECEIVING + "')")
     @Operation(
             summary = "Get a goods receipt by ID",
             description =

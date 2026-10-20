@@ -124,7 +124,13 @@ ancestro nuevo) y después el GREEN (368/0). **Revisado inline, y el aporte tra�
 - Verificación post-revert: las nueve clases de seguridad y la nueva del flat store,
   **BUILD SUCCESSFUL**.
 
-**G1 — el listado de comprobantes no honra el alcance (abierto, con nombre propio).**
+**G1 — el listado de comprobantes no honra el alcance (arreglado en su propio registro).**
+
+> **Actualización 2026-10-20**: el arreglo vive en `odd/tasks/goods-receipt-scope.md` (rama
+> `fix/goods-receipt-scope`): el alcance efectivo se deriva del `ScopeLevel` más amplio otorgado y las
+> dos lecturas admiten los `-read` de los ancestros. La descripción de abajo es el diagnóstico
+> original y se conserva como evidencia de lo que estaba roto.
+
 `GoodsReceiptService#getAllReceipts` no tiene escalón por rol: cualquier no-admin se filtra por
 `company_store_ids` y un conjunto vacío devuelve página vacía. Consecuencia medida: `lc-company`,
 `lc-company-read`, `lc-company-country-read`, `lc-company-region-read` y `lc-company-zone-read` reciben

@@ -38,6 +38,7 @@ import com.lifecontrol.api.status.repository.StatusRepository;
 import com.lifecontrol.api.store.exception.StoreLocationNotFoundException;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.repository.StoreLocationRepository;
+import com.lifecontrol.api.store.service.CompanyStoreScopeResolver;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -94,6 +95,7 @@ public class GoodsReceiptService {
     private final ProductVariantStoreStockRepository productVariantStoreStockRepository;
     private final StatusRepository statusRepository;
     private final CurrentUserContext currentUserContext;
+    private final CompanyStoreScopeResolver storeScopeResolver;
 
     public GoodsReceiptService(
             PurchaseOrderRepository purchaseOrderRepository,
@@ -105,7 +107,8 @@ public class GoodsReceiptService {
             StoreLocationRepository storeLocationRepository,
             ProductVariantStoreStockRepository productVariantStoreStockRepository,
             StatusRepository statusRepository,
-            CurrentUserContext currentUserContext) {
+            CurrentUserContext currentUserContext,
+            CompanyStoreScopeResolver storeScopeResolver) {
         this.purchaseOrderRepository = purchaseOrderRepository;
         this.purchaseOrderDetailRepository = purchaseOrderDetailRepository;
         this.purchaseOrderService = purchaseOrderService;
@@ -116,6 +119,7 @@ public class GoodsReceiptService {
         this.productVariantStoreStockRepository = productVariantStoreStockRepository;
         this.statusRepository = statusRepository;
         this.currentUserContext = currentUserContext;
+        this.storeScopeResolver = storeScopeResolver;
     }
 
     /**
@@ -311,33 +315,39 @@ public class GoodsReceiptService {
     }
 
     /**
-     * Returns a page of receipts, scoped to the stores the caller may see (W2-D10).
+     * Returns a page of receipts, scoped to the stores the caller may read (W2-D10).
      *
      * <p>A flat list has no store in its path, so {@code @PreAuthorize} only proves the caller holds
-     * <em>some</em> store-scoped role; without this filter any store-level user would see every
-     * store's receipts, contradicting the store-scoped receiving role this slice introduces. Admins
-     * are exempt and see the unscoped page. A non-admin is restricted to its
-     * {@code company_store_ids}; an <strong>empty</strong> set yields an empty page and never the
-     * unscoped query, because an empty set means the caller is scoped to no store at all.</p>
+     * <em>some</em> role in the hierarchy, never which part of it the caller may read. The scope
+     * comes from {@link CompanyStoreScopeResolver}, which walks the hierarchy from the caller's
+     * broadest granted scope exactly as {@code verifyCompanyStoreAccess} does for the id-addressed
+     * read: company, country, region and zone claims resolve to the stores underneath them, and a
+     * store-scoped caller reads its {@code company_store_ids}. Reading the raw claim here instead
+     * — which is what this method used to do — gave every broader caller an empty page while the
+     * detail of the same rows admitted them.</p>
+     *
+     * <p>Admins are exempt and see the unscoped page. A non-admin with an <strong>empty</strong>
+     * scope yields an empty page and never the unscoped query, because an empty scope means the
+     * caller may read no store at all.</p>
      */
     @Transactional(readOnly = true)
     public Page<GoodsReceiptResponse> getAllReceipts(Pageable pageable, String search) {
         var normalizedSearch = StringUtils.hasText(search) ? search.trim() : null;
 
-        // W2-D10 tenant scoping: a flat list has no store in its path, so @PreAuthorize only proves
-        // the caller holds SOME store-scoped role. Without this filter any store-level user would see
-        // every store's receipts, contradicting the store-scoped receiving role. Admins are exempt
-        // and read the unscoped page.
-        if (currentUserContext.isAdmin()) {
+        // W2-D10 tenant scoping, resolved from the caller's broadest granted scope (see the method
+        // javadoc): the list filter and verifyCompanyStoreAccess share one rule, so a page never
+        // contains a row its own detail would deny, and never omits one it admits.
+        var scope = storeScopeResolver.scopeForCurrentUser();
+        if (scope.unscoped()) {
             var page = normalizedSearch == null
                     ? goodsReceiptRepository.findByEnabledTrueOrderByReceivedAtDesc(pageable)
                     : goodsReceiptRepository.findBySearchTerm(normalizedSearch, pageable);
             return page.map(this::toResponse);
         }
 
-        var storeIds = currentUserContext.getCompanyStoreIds();
-        // An empty company_store_ids set means the caller is not scoped to any store: return an empty
-        // page. Never fall through to the unscoped query, which would leak every store's receipts.
+        var storeIds = scope.storeIds();
+        // An empty scope means the caller may read no store: return an empty page. Never fall
+        // through to the unscoped query, which would leak every store's receipts.
         if (storeIds.isEmpty()) {
             return Page.empty(pageable);
         }

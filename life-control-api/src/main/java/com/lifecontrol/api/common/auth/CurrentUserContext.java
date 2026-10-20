@@ -8,6 +8,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -323,15 +324,28 @@ public class CurrentUserContext {
      * Throws when no role in range grants access.
      */
     private void verifyBroadestGranted(ScopeLevel maxScope, UUID[] ids, ScopeLevel failureTarget) {
-        ScopeLevel granted = broadestGrantedScope(maxScope);
+        ScopeLevel granted = broadestGrantedScopeOrNull(maxScope);
         if (granted == null) {
             throw insufficientRole(failureTarget);
         }
         verifyLevelsUpTo(granted, ids);
     }
 
+    /**
+     * The broadest scope at which the caller holds a role, within {@code [COMPANY..maxScope]}.
+     *
+     * <p>This is the same rule {@link #verifyCompanyStoreAccess} applies to a single entity, exposed
+     * so a <em>list</em> can scope itself exactly the way the detail authorizes. A caller that reads
+     * a page and cannot open one of its rows — or the reverse, an empty page for a caller the detail
+     * admits — is a defect this accessor exists to prevent. Empty means the caller holds no role in
+     * range, so a list must return nothing instead of falling back to an unscoped query.</p>
+     */
+    public Optional<ScopeLevel> broadestGrantedScope(ScopeLevel maxScope) {
+        return Optional.ofNullable(broadestGrantedScopeOrNull(maxScope));
+    }
+
     /** Returns the broadest role granted within {@code [COMPANY..maxScope]}, or {@code null}. */
-    private ScopeLevel broadestGrantedScope(ScopeLevel maxScope) {
+    private ScopeLevel broadestGrantedScopeOrNull(ScopeLevel maxScope) {
         for (ScopeLevel level : ScopeLevel.companyTo(maxScope)) {
             if (hasAnyRole(level)) {
                 return level;

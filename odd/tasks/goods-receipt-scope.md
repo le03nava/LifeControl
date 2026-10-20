@@ -1,0 +1,90 @@
+# ODD feature: goods-receipt-scope
+
+**Repository**: LifeControl — `life-control-api/`
+**Status**: open — arregla el gap **G1** de `odd/tasks/hierarchy-read-roles.md` y está implementado y verificado en la rama `fix/goods-receipt-scope` (`9551c4c`, `5c1aa57`). Trabajo restante de este registro: la entrega (issue aprobado + PR), que es decisión del mantenedor. Riesgo: alto — superficie de autorización y rationale de tenancy (`W2-D10`).
+**Created**: 2026-10-20 · **Risk**: alto — superficie de autorización (item 2).
+
+## Objective
+
+Que `GET /api/goods-receipts` devuelva exactamente los comprobantes que el **detalle**
+(`GET /api/goods-receipts/{id}`) ya autoriza, para todo alcance de la jerarquía
+compañía → tienda, y que las dos lecturas admitan los roles de lectura de los niveles ancestros.
+
+## Specs
+
+**S1 — el listado honra el alcance, y no responde 200 con página vacía a quien tiene alcance.**
+Gap G1, verbatim del registro que lo abrió (`odd/tasks/hierarchy-read-roles.md`):
+`GoodsReceiptService#getAllReceipts` no tiene escalón por rol: cualquier no-admin se filtra por
+`company_store_ids` y un conjunto vacío devuelve página vacía. Consecuencia medida allí: `lc-company`,
+`lc-company-read`, `lc-company-country-read`, `lc-company-region-read` y `lc-company-zone-read`
+reciben 200 con cero filas.
+
+El arreglo, verbatim de la misma fila: `El arreglo es escalonar el filtro por el alcance más amplio
+otorgado, igual que los cuatro servicios hermanos, y con él se puede reabrir la anotación de las dos
+lecturas.`
+
+**S2 — el alcance efectivo se deriva del `ScopeLevel` más amplio otorgado, con la misma regla que el
+detalle.** Pedido del usuario, verbatim: `arregla G1`. El alcance efectivo es el de
+`CurrentUserContext#broadestGrantedScope`: COMPANY → todas las tiendas de los `company_id` del claim;
+COUNTRY → las de los `company_country_id`; REGION → las de los `company_region_id`; ZONE → las de los
+`company_zone_id`; STORE → los `company_store_ids`. Es la misma regla que
+`verifyCompanyStoreAccess` aplica al detalle, así que lista y detalle no pueden discrepar.
+
+**S3 — las dos lecturas admiten los `-read` de los ancestros; las escrituras no cambian.**
+`GET /api/goods-receipts` y `GET /api/goods-receipts/{id}` suman `lc-company-read`,
+`lc-company-country-read`, `lc-company-region-read` y `lc-company-zone-read` a lo que ya admitían
+(los roles de escritura de todos los niveles, `lc-company-store-read` y `lc-receiving`). El `POST`
+queda **byte-idéntico**: registrar un comprobante sigue siendo escritura.
+
+**S4 — el cambio de comportamiento es deliberado y se declara.** Un portador de `lc-company`,
+`lc-company-country`, `lc-company-region` o `lc-company-zone` que hoy recibe **200 con página vacía**
+pasa a ver los comprobantes de su alcance. Un alcance efectivo **vacío** sigue devolviendo página
+vacía y nunca cae a la consulta sin filtro; un admin sigue viendo la página sin alcance.
+
+## Tasks
+
+| ID | Task | Spec | Route | Commit |
+| --- | --- | --- | --- | --- |
+| T1 | Proyección de ids de tienda por compañía, país, región y zona en `CompanyStoreRepository`, y `CompanyStoreScopeResolver` que traduce el alcance más amplio otorgado a un conjunto de tiendas | S1, S2 | inline | `9551c4c` |
+| T2 | `GoodsReceiptService#getAllReceipts` filtra por el conjunto del resolver en vez de por `company_store_ids` crudo | S1, S2 | inline | `9551c4c` |
+| T3 | Las dos lecturas suman los `-read` de los ancestros, con su matriz de seguridad y el `POST` pinneado sin cambios | S3 | inline | `5c1aa57` |
+| T4 | Evidencia: rojo antes de verde, suite completa, spotless y spotbugs; y la fila de entrega | S1-S4 | inline | este commit |
+
+**Por qué todo inline**: una sola unidad de comportamiento en un módulo, con dependencia directa
+entre T1 → T2 → T3; dos writers en el mismo worktree competirían por el mismo build.
+
+## Log
+
+**L1** — Pedido del usuario, verbatim: `arregla G1`.
+
+**L2** — 2026-10-20 · Medición que funda las specs, leída del árbol. `GoodsReceiptService:338-356`
+filtra a todo no-admin por `currentUserContext.getCompanyStoreIds()` y devuelve `Page.empty` cuando
+ese conjunto está vacío; `GoodsReceiptController:76-83` admite en el listado los roles de escritura
+de los cinco niveles, `lc-company-store-read` y `lc-receiving`, y **ningún** `-read` de ancestro.
+`CurrentUserContext:334` ya tiene `broadestGrantedScope(ScopeLevel)` —privado—, que es exactamente la
+regla que `verifyCompanyStoreAccess` usa para el detalle, y `ScopeLevel.companyTo` la hace pública
+en forma de orden. `CompanyStore` no tiene columnas de país/región/compañía: cuelga de
+`companyZone → companyRegion → companyCountry → company`, así que resolver tiendas por alcance pide
+JPQL con joins y proyección de ids.
+
+**L3** — 2026-10-20 · **Implementado y verificado, con el rojo medido antes de la lógica.**
+
+- **RED**: 41 tests, **18 fallas**, escritas antes de que existiera la derivación de alcance — las cinco
+  derivaciones del resolver (COMPANY, COUNTRY, REGION, ZONE, STORE), los cuatro casos de scoping del
+  listado y los ocho casos nuevos de roles de ancestro en las dos lecturas. El primer `compileTestJava`
+  falló por el constructor nuevo, que también es rojo pero no prueba nada: el rojo que vale es el de
+  aserción, y es el que se midió después.
+- **GREEN**: las tres clases enfocadas en verde, y después el gate completo del módulo —
+  `spotlessCheck spotbugsMain test` → **`BUILD SUCCESSFUL in 2m 34s`, 3639 tests / 0 fallas / 0
+  errores** (los 3621 previos más los 18 nuevos). `spotlessApply` se corrió **antes** del gate, así
+  que los bytes verificados son los commiteados.
+- **La decisión de diseño que el registro tiene que dejar escrita**: el listado y el detalle aplican
+  ahora **la misma regla** (`broadestGrantedScope`), así que no pueden discrepar. Se descartaron dos
+  alternativas: filtrar siempre por `company_store_ids` (es el defecto: 200-vacío para todo alcance
+  más ancho) y filtrar sólo cuando el portador tiene el rol angosto y si no dejar pasar sin filtro
+  (lo que hacen los cuatro servicios hermanos, e imposible acá porque un listado plano sin `company`
+  en el path no tiene contra qué verificar antes de filtrar).
+- **Cambio de comportamiento declarado (S4)**: `lc-company`, `lc-company-country`, `lc-company-region`
+  y `lc-company-zone` pasan de **200 con página vacía** a ver los comprobantes de su alcance, y los
+  cuatro `-read` de esos niveles pasan de **403** a 200 con la misma página. Un alcance efectivo vacío
+  sigue devolviendo página vacía sin tocar la consulta sin filtro, y el `POST` no cambia para nadie.

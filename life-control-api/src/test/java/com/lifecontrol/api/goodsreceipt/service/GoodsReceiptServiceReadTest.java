@@ -29,6 +29,8 @@ import com.lifecontrol.api.status.repository.StatusRepository;
 import com.lifecontrol.api.store.model.CompanyStore;
 import com.lifecontrol.api.store.model.StoreLocation;
 import com.lifecontrol.api.store.repository.StoreLocationRepository;
+import com.lifecontrol.api.store.service.CompanyStoreScopeResolver;
+import com.lifecontrol.api.store.service.CompanyStoreScopeResolver.StoreScope;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -104,6 +106,9 @@ class GoodsReceiptServiceReadTest {
     @Mock
     private CurrentUserContext currentUserContext;
 
+    @Mock
+    private CompanyStoreScopeResolver storeScopeResolver;
+
     private GoodsReceiptService service;
 
     private GoodsReceipt receipt;
@@ -121,7 +126,8 @@ class GoodsReceiptServiceReadTest {
                 storeLocationRepository,
                 productVariantStoreStockRepository,
                 statusRepository,
-                currentUserContext);
+                currentUserContext,
+                storeScopeResolver);
 
         var company = Company.builder().id(COMPANY_ID).companyKey("GR-READ-KEY").build();
         var companyCountry =
@@ -181,7 +187,7 @@ class GoodsReceiptServiceReadTest {
         @Test
         @DisplayName("should query unscoped for an admin, without the store filter")
         void adminGetsUnscopedQuery() {
-            when(currentUserContext.isAdmin()).thenReturn(true);
+            when(storeScopeResolver.scopeForCurrentUser()).thenReturn(new StoreScope(true, Set.of()));
             when(goodsReceiptRepository.findByEnabledTrueOrderByReceivedAtDesc(pageable))
                     .thenReturn(pageOf(receipt));
 
@@ -199,7 +205,7 @@ class GoodsReceiptServiceReadTest {
         @Test
         @DisplayName("should use the unscoped search query for an admin with a search term")
         void adminGetsUnscopedSearchQuery() {
-            when(currentUserContext.isAdmin()).thenReturn(true);
+            when(storeScopeResolver.scopeForCurrentUser()).thenReturn(new StoreScope(true, Set.of()));
             when(goodsReceiptRepository.findBySearchTerm("PO-2026", pageable)).thenReturn(pageOf(receipt));
 
             service.getAllReceipts(pageable, "PO-2026");
@@ -211,10 +217,10 @@ class GoodsReceiptServiceReadTest {
         }
 
         @Test
-        @DisplayName("should filter a non-admin to exactly its company_store_ids with the unsearched store finder")
+        @DisplayName("should filter a non-admin to exactly the stores the scope resolver grants")
         void nonAdminGetsItsStoreIds() {
-            when(currentUserContext.isAdmin()).thenReturn(false);
-            when(currentUserContext.getCompanyStoreIds()).thenReturn(Set.of(STORE_ID, OTHER_STORE_ID));
+            when(storeScopeResolver.scopeForCurrentUser())
+                    .thenReturn(new StoreScope(false, Set.of(STORE_ID, OTHER_STORE_ID)));
             when(goodsReceiptRepository.findByEnabledTrueAndCompanyStoreIdInOrderByReceivedAtDesc(
                             Set.of(STORE_ID, OTHER_STORE_ID), pageable))
                     .thenReturn(pageOf(receipt));
@@ -228,13 +234,14 @@ class GoodsReceiptServiceReadTest {
             verify(goodsReceiptRepository, never()).findByCompanyStoreIdInAndSearchTerm(any(), any(), any());
             verify(goodsReceiptRepository, never()).findByEnabledTrueOrderByReceivedAtDesc(any());
             verify(goodsReceiptRepository, never()).findBySearchTerm(any(), any());
+            // The raw claim is no longer the filter: a hierarchy scope resolves to store ids first.
+            verify(currentUserContext, never()).getCompanyStoreIds();
         }
 
         @Test
         @DisplayName("should filter a non-admin with a search term to its store ids")
         void nonAdminWithSearchGetsItsStoreIds() {
-            when(currentUserContext.isAdmin()).thenReturn(false);
-            when(currentUserContext.getCompanyStoreIds()).thenReturn(Set.of(STORE_ID));
+            when(storeScopeResolver.scopeForCurrentUser()).thenReturn(new StoreScope(false, Set.of(STORE_ID)));
             when(goodsReceiptRepository.findByCompanyStoreIdInAndSearchTerm(Set.of(STORE_ID), "PO-2026", pageable))
                     .thenReturn(pageOf(receipt));
 
@@ -249,8 +256,7 @@ class GoodsReceiptServiceReadTest {
         @Test
         @DisplayName("should return an empty page and never touch the unscoped query when the store set is empty")
         void emptyStoreSetYieldsEmptyPageWithoutUnscopedQuery() {
-            when(currentUserContext.isAdmin()).thenReturn(false);
-            when(currentUserContext.getCompanyStoreIds()).thenReturn(Set.of());
+            when(storeScopeResolver.scopeForCurrentUser()).thenReturn(new StoreScope(false, Set.of()));
 
             var response = service.getAllReceipts(pageable, null);
 
@@ -267,8 +273,7 @@ class GoodsReceiptServiceReadTest {
         @Test
         @DisplayName("should return an empty page and never touch the unscoped search when the store set is empty")
         void emptyStoreSetWithSearchNeverCallsUnscopedSearch() {
-            when(currentUserContext.isAdmin()).thenReturn(false);
-            when(currentUserContext.getCompanyStoreIds()).thenReturn(Set.of());
+            when(storeScopeResolver.scopeForCurrentUser()).thenReturn(new StoreScope(false, Set.of()));
 
             var response = service.getAllReceipts(pageable, "PO-2026");
 
