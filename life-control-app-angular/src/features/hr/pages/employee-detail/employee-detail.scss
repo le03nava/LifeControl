@@ -10,6 +10,20 @@
   width: 100%;
 }
 
+// One tab per section: the content starts below the tab header, like employee-list's tabs.
+.tab-content {
+  padding-top: var(--space-md);
+}
+
+// The controls of a tab, above its content: every write action sits in the tab that owns the act.
+.tab-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
 .filters-section {
   display: flex;
   flex-wrap: wrap;

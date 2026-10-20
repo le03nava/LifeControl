@@ -1,4 +1,5 @@
 /// <reference types="vitest/globals" />
+import { ANIMATION_MODULE_TYPE } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
@@ -208,6 +209,8 @@ describe('EmployeeDetail', () => {
   interface SetupOptions {
     id?: string | null;
     companyId?: string | null;
+    /** The `?tab=` the deep link carries; absent models a bare `/hr/employees/:id`. */
+    tab?: string | null;
     employee?: Partial<Employee>;
     employeeError?: HttpErrorResponse;
     contracts?: Contract[];
@@ -333,6 +336,11 @@ describe('EmployeeDetail', () => {
       imports: [EmployeeDetail],
       providers: [
         provideRouter([]),
+        // `NoopAnimationsModule` went away with `@angular/animations` in v22, and what it did for
+        // Material's tab group was set this token to `NoopAnimations`. Without it `MatTabBody`
+        // waits for a real CSS `transitionstart` (with a 100ms fallback timer) before it attaches
+        // the selected tab's content, and jsdom never fires one, so the tab body stayed empty.
+        { provide: ANIMATION_MODULE_TYPE, useValue: 'NoopAnimations' },
         { provide: EmployeeService, useValue: employeeService },
         { provide: ContractService, useValue: contractService },
         { provide: StoreAssignmentService, useValue: assignmentService },
@@ -356,9 +364,10 @@ describe('EmployeeDetail', () => {
           useValue: {
             snapshot: {
               paramMap: convertToParamMap(options.id ? { id: options.id } : {}),
-              queryParamMap: convertToParamMap(
-                options.companyId ? { companyId: options.companyId } : {},
-              ),
+              queryParamMap: convertToParamMap({
+                ...(options.companyId ? { companyId: options.companyId } : {}),
+                ...(options.tab ? { tab: options.tab } : {}),
+              }),
             },
           },
         },
@@ -377,6 +386,26 @@ describe('EmployeeDetail', () => {
       await fixture.whenStable();
     }
     fixture.detectChanges();
+  }
+
+  /**
+   * Activates one tab the way the operator does.
+   *
+   * Material attaches a tab's body only while that tab is active, so a test that reads a section
+   * other than `Detalle` has to open it first: the page text of a closed tab is not in the DOM, and
+   * asserting it would read the active tab alone.
+   */
+  async function openTab(label: string): Promise<void> {
+    const header = Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLElement>('[role="tab"]'),
+    ).find(
+      (tab) => (tab.querySelector('.mdc-tab__text-label')?.textContent ?? '').trim() === label,
+    );
+    if (!header) {
+      throw new Error(`No tab labelled "${label}"`);
+    }
+    header.click();
+    await settle();
   }
 
   function text(): string {
@@ -487,6 +516,7 @@ describe('EmployeeDetail', () => {
     await settle();
 
     expect(positionValue()).toBe('—');
+    await openTab('Contratos');
     expect(text()).toContain('Programado');
   });
 
@@ -497,8 +527,8 @@ describe('EmployeeDetail', () => {
       contracts: [contract({ positionName: 'Analista Senior', seniorityLevelName: 'Senior' })],
     });
     await settle();
+    await openTab('Contratos');
 
-    expect(text()).toContain('Contratos');
     expect(text()).toContain('Analista Senior');
     expect(text()).toContain('Senior');
     expect(text()).toContain('Vigente');
@@ -507,6 +537,7 @@ describe('EmployeeDetail', () => {
   it('should render the empty contract history in Spanish', async () => {
     setup({ id: 'emp-1', companyId: 'company-1', contracts: [] });
     await settle();
+    await openTab('Contratos');
 
     expect(text()).toContain('No hay contratos registrados para este empleado');
   });
@@ -573,10 +604,14 @@ describe('EmployeeDetail', () => {
     });
     await settle();
 
+    // Detalle keeps the employee standing: the failed contracts read never reached it.
     expect(text()).toContain('Ana Gómez Ruiz');
+    expect(positionValue()).toBe('—');
+
+    // Contratos shows the failure and offers its own retry.
+    await openTab('Contratos');
     expect(text()).toContain('Ocurrió un error en el servidor');
     expect(text()).not.toContain('No se encontró el empleado');
-    expect(positionValue()).toBe('—');
     expect(retryButton()).not.toBeNull();
   });
 
@@ -592,6 +627,7 @@ describe('EmployeeDetail', () => {
     expect(contractService.getContracts).toHaveBeenCalledTimes(1);
 
     contractService.getContracts.mockImplementation(() => of([contract()]));
+    await openTab('Contratos');
     const button = retryButton();
     expect(button).not.toBeNull();
     button?.click();
@@ -617,6 +653,176 @@ describe('EmployeeDetail', () => {
     expect(employeeService.getEmployee).toHaveBeenLastCalledWith('company-2', 'emp-1');
   });
 
+  /**
+   * The tab layout: one tab per section, and every write control inside the tab that owns the act.
+   *
+   * Material attaches only the active tab's body, so each assertion opens the tab it reads and then
+   * checks that tab's own body — "the button is somewhere on the screen" would otherwise pass for a
+   * button parked in another tab.
+   */
+  describe('section tabs', () => {
+    function element(): HTMLElement {
+      return fixture.nativeElement as HTMLElement;
+    }
+
+    function tabHeaders(): HTMLElement[] {
+      return Array.from(element().querySelectorAll<HTMLElement>('[role="tab"]'));
+    }
+
+    function tabLabels(): string[] {
+      return tabHeaders().map((tab) =>
+        (tab.querySelector('.mdc-tab__text-label')?.textContent ?? '').trim(),
+      );
+    }
+
+    function activeTabLabel(): string | null {
+      const active = element().querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+      return active
+        ? (active.querySelector('.mdc-tab__text-label')?.textContent ?? '').trim()
+        : null;
+    }
+
+    /** The body of the tab at `index`, in tab order, whichever one is active. */
+    function tabBody(index: number): HTMLElement {
+      return Array.from(element().querySelectorAll<HTMLElement>('mat-tab-body'))[index]!;
+    }
+
+    function tabButton(index: number, label: string): HTMLButtonElement | undefined {
+      return Array.from(tabBody(index).querySelectorAll('button')).find(
+        (candidate) => candidate.textContent?.trim() === label,
+      );
+    }
+
+    const ACCESS_WRITER = [...WRITE_ROLES, ...ACCESS_ROLES];
+
+    it('should render the four section tabs in the order the page declares them', async () => {
+      setup({ id: 'emp-1', companyId: 'company-1', roles: ACCESS_WRITER });
+      await settle();
+
+      expect(tabLabels()).toEqual(['Detalle', 'Contratos', 'Tiendas', 'Accesos']);
+    });
+
+    it('should render each section inside its own tab', async () => {
+      setup({
+        id: 'emp-1',
+        companyId: 'company-1',
+        roles: ACCESS_WRITER,
+        assignments: [assignment()],
+        accessOverview: accessOverview(),
+      });
+      await settle();
+
+      expect(tabBody(0).querySelector('.employee-card')).not.toBeNull();
+      // The grid of employee data is not repeated across tabs: it lives in Detalle alone.
+      expect(tabBody(1).querySelector('.employee-card')).toBeNull();
+
+      await openTab('Contratos');
+      expect(tabBody(1).querySelector('app-contract-history')).not.toBeNull();
+
+      await openTab('Tiendas');
+      expect(tabBody(2).querySelector('app-store-assignments-section')).not.toBeNull();
+
+      await openTab('Accesos');
+      expect(tabBody(3).querySelector('app-access-section')).not.toBeNull();
+    });
+
+    it('should keep the contract write actions in the Contratos tab', async () => {
+      setup({
+        id: 'emp-1',
+        companyId: 'company-1',
+        roles: ACCESS_WRITER,
+        contracts: [contract({ endDate: null })],
+      });
+      await settle();
+      await openTab('Contratos');
+
+      expect(tabButton(1, 'Nuevo contrato')).toBeDefined();
+      expect(tabButton(1, 'Cerrar contrato vigente')).toBeDefined();
+      // The page header no longer carries the write actions: they follow the act into its tab.
+      const header = element().querySelector('app-page-header') as HTMLElement;
+      expect(Array.from(header.querySelectorAll('button'))).toHaveLength(0);
+    });
+
+    it('should offer Editar and Volver al registro in the Detalle tab', async () => {
+      setup({ id: 'emp-1', companyId: 'company-1', roles: WRITE_ROLES });
+      await settle();
+
+      expect(tabButton(0, 'Editar')).toBeDefined();
+      expect(tabButton(0, 'Volver al registro')).toBeDefined();
+    });
+
+    it('should not offer Editar to a caller without a write role, and keep Volver al registro', async () => {
+      setup({ id: 'emp-1', companyId: 'company-1', roles: READ_ROLES });
+      await settle();
+
+      expect(tabButton(0, 'Editar')).toBeUndefined();
+      expect(tabButton(0, 'Volver al registro')).toBeDefined();
+    });
+
+    it('should open the edit route carrying the company from the Detalle tab', async () => {
+      setup({ id: 'emp-7', companyId: 'company-1', roles: WRITE_ROLES });
+      await settle();
+
+      tabButton(0, 'Editar')?.click();
+      await settle();
+
+      expect(router.navigate).toHaveBeenCalledWith(['/hr/employees/edit', 'emp-7'], {
+        queryParams: { companyId: 'company-1' },
+      });
+    });
+
+    it('should render no Accesos tab and issue no access read without ACCESS_READ_ROLES', async () => {
+      setup({ id: 'emp-1', companyId: 'company-1', roles: READ_ROLES });
+      await settle();
+
+      expect(tabLabels()).toEqual(['Detalle', 'Contratos', 'Tiendas']);
+      expect(accessService.getOverview).not.toHaveBeenCalled();
+    });
+
+    it('should open the Detalle tab when no ?tab= is given', async () => {
+      setup({ id: 'emp-1', companyId: 'company-1' });
+      await settle();
+
+      expect(activeTabLabel()).toBe('Detalle');
+    });
+
+    it('should open the tab named by ?tab=', async () => {
+      setup({ id: 'emp-1', companyId: 'company-1', tab: 'tiendas' });
+      await settle();
+
+      expect(activeTabLabel()).toBe('Tiendas');
+    });
+
+    it('should fall back to Detalle for an unknown ?tab=', async () => {
+      setup({ id: 'emp-1', companyId: 'company-1', tab: 'no-existe' });
+      await settle();
+
+      expect(activeTabLabel()).toBe('Detalle');
+    });
+
+    it('should fall back to Detalle for ?tab=accesos without an access read role', async () => {
+      setup({ id: 'emp-1', companyId: 'company-1', roles: READ_ROLES, tab: 'accesos' });
+      await settle();
+
+      expect(activeTabLabel()).toBe('Detalle');
+    });
+
+    it('should write the selected tab into ?tab= and preserve the company', async () => {
+      setup({ id: 'emp-1', companyId: 'company-1' });
+      await settle();
+
+      tabHeaders()[1]?.click();
+      await settle();
+
+      expect(router.navigate).toHaveBeenCalledWith([], {
+        relativeTo: TestBed.inject(ActivatedRoute),
+        queryParams: { tab: 'contratos' },
+        queryParamsHandling: 'merge',
+        replaceUrl: true,
+      });
+    });
+  });
+
   it('should offer no write control and no dialog to a caller without a write role', async () => {
     setup({ id: 'emp-1', companyId: 'company-1', roles: READ_ROLES });
     await settle();
@@ -634,6 +840,7 @@ describe('EmployeeDetail', () => {
     await settle();
 
     expect(component.canWrite).toBe(true);
+    await openTab('Contratos');
     expect(text()).toContain('Nuevo contrato');
   });
 
@@ -717,6 +924,7 @@ describe('EmployeeDetail', () => {
 
     expect(contractService.getContracts).toHaveBeenCalledTimes(2);
     expect(assignmentService.getAssignments).toHaveBeenCalledTimes(2);
+    await openTab('Contratos');
     expect(text()).toContain('El contrato quedó creado');
     expect(text()).toContain('Ya existe una asignación en esa tienda que se superpone');
   });
@@ -776,9 +984,10 @@ describe('EmployeeDetail', () => {
     await settle();
     component.onNewContract();
     await settle();
+    await openTab('Contratos');
     expect(text()).toContain('El contrato quedó creado');
 
-    // The retry path D9 names: the assign dialog of the `Tiendas asignadas` section.
+    // The retry path D9 names: the assign dialog of the `Tiendas` tab.
     assignmentService.getAssignments.mockImplementation(() => of([assignment()]));
     dialog.open.mockImplementation((opened: unknown) => ({
       afterClosed: () => of(opened === ConfirmDialog ? false : { outcome: 'created' }),
@@ -799,6 +1008,7 @@ describe('EmployeeDetail', () => {
     await settle();
 
     expect(component.currentContract()).toBeNull();
+    await openTab('Contratos');
     expect(text()).not.toContain('Cerrar contrato vigente');
   });
 
@@ -811,6 +1021,7 @@ describe('EmployeeDetail', () => {
       dialogResult: null,
     });
     await settle();
+    await openTab('Contratos');
 
     expect(text()).toContain('Cerrar contrato vigente');
     component.onCloseContract();
@@ -824,8 +1035,8 @@ describe('EmployeeDetail', () => {
     it('should render the section with the store, the validity and the derived chain', async () => {
       setup({ id: 'emp-1', companyId: 'company-1', assignments: [assignment()] });
       await settle();
+      await openTab('Tiendas');
 
-      expect(text()).toContain('Tiendas asignadas');
       expect(text()).toContain('Tienda Centro');
       expect(text()).toContain('2024-01-01 – Sin fecha de fin');
       expect(text()).toContain('Acme Corp / México / Centro / Zona Norte');
@@ -835,6 +1046,7 @@ describe('EmployeeDetail', () => {
     it('should render the empty assignments state in Spanish', async () => {
       setup({ id: 'emp-1', companyId: 'company-1', assignments: [] });
       await settle();
+      await openTab('Tiendas');
 
       expect(text()).toContain('No hay tiendas asignadas para este empleado');
     });
@@ -847,8 +1059,13 @@ describe('EmployeeDetail', () => {
       });
       await settle();
 
+      // The other tabs still stand: the employee card and the contract history are untouched.
       expect(text()).toContain('Ana Gómez Ruiz');
+      await openTab('Contratos');
       expect(text()).toContain('Analista Senior');
+
+      // Tiendas shows the failure and offers its own retry.
+      await openTab('Tiendas');
       expect(text()).toContain('Ocurrió un error en el servidor');
       expect(retryButton()).not.toBeNull();
     });
@@ -866,6 +1083,7 @@ describe('EmployeeDetail', () => {
       expect(assignmentService.getAssignments).toHaveBeenCalledTimes(1);
 
       assignmentService.getAssignments.mockImplementation(() => of([assignment()]));
+      await openTab('Tiendas');
       retryButton()?.click();
       await settle();
 
@@ -895,6 +1113,7 @@ describe('EmployeeDetail', () => {
         assignmentDialogResult: null,
       });
       await settle();
+      await openTab('Tiendas');
 
       expect(text()).toContain('Asignar tienda');
       component.onAssign();
@@ -1004,6 +1223,7 @@ describe('EmployeeDetail', () => {
 
       component.onCloseAssignment(assignment());
       await settle();
+      await openTab('Tiendas');
 
       expect(text()).toContain('La asignación ya está cerrada');
       expect(assignmentService.getAssignments).toHaveBeenCalledTimes(1);
@@ -1026,6 +1246,7 @@ describe('EmployeeDetail', () => {
       await settle();
 
       expect(accessService.getOverview).toHaveBeenCalledWith('company-1', 'emp-1');
+      await openTab('Accesos');
       expect(has('app-access-section')).toBe(true);
       expect(text()).toContain('Cuenta vinculada');
     });
@@ -1038,9 +1259,15 @@ describe('EmployeeDetail', () => {
       });
       await settle();
 
+      // The other tabs still stand: the employee card, the contracts and the stores are untouched.
       expect(text()).toContain('Ana Gómez Ruiz');
+      await openTab('Contratos');
       expect(text()).toContain('Analista Senior');
+      await openTab('Tiendas');
       expect(text()).toContain('Tienda Centro');
+
+      // Accesos shows the failure and offers its own retry.
+      await openTab('Accesos');
       expect(text()).toContain('Ocurrió un error en el servidor');
       expect(retryButton()).not.toBeNull();
     });
@@ -1059,6 +1286,7 @@ describe('EmployeeDetail', () => {
       expect(accessService.getOverview).toHaveBeenCalledTimes(1);
 
       accessService.getOverview.mockImplementation(() => of(accessOverview()));
+      await openTab('Accesos');
       retryButton()?.click();
       await settle();
 
@@ -1076,6 +1304,7 @@ describe('EmployeeDetail', () => {
         accessWriteOverview: accessOverview({ requiredRoles: ['lc-employee', 'lc-salary'] }),
       });
       await settle();
+      await openTab('Accesos');
 
       button('Solicitar acceso')?.click();
       await settle();
@@ -1088,6 +1317,7 @@ describe('EmployeeDetail', () => {
     it('should confirm the revocation before revoking anything (destructive)', async () => {
       setup({ id: 'emp-1', companyId: 'company-1', dialogConfirmed: false });
       await settle();
+      await openTab('Accesos');
 
       button('Deshabilitar')?.click();
       await settle();
@@ -1104,6 +1334,7 @@ describe('EmployeeDetail', () => {
     it('should revoke only after the confirmation', async () => {
       setup({ id: 'emp-1', companyId: 'company-1', dialogConfirmed: true });
       await settle();
+      await openTab('Accesos');
 
       button('Deshabilitar')?.click();
       await settle();
@@ -1118,6 +1349,7 @@ describe('EmployeeDetail', () => {
         accessOverview: accessOverview({ openTask: accessTask({ status: 'FAILED' }) }),
       });
       await settle();
+      await openTab('Accesos');
 
       button('Reintentar solicitud')?.click();
       await settle();
@@ -1128,6 +1360,7 @@ describe('EmployeeDetail', () => {
     it('should re-send the invitation for a linked account', async () => {
       setup({ id: 'emp-1', companyId: 'company-1' });
       await settle();
+      await openTab('Accesos');
 
       button('Reenviar invitación')?.click();
       await settle();
@@ -1144,6 +1377,7 @@ describe('EmployeeDetail', () => {
         company: { emailDomain: 'acme.example' },
       });
       await settle();
+      await openTab('Accesos');
 
       const section = fixture.debugElement.query(By.directive(AccessSection))
         .componentInstance as AccessSection;
@@ -1159,6 +1393,7 @@ describe('EmployeeDetail', () => {
         employee: { statusName: 'Terminated' },
       });
       await settle();
+      await openTab('Accesos');
 
       expect(button('Solicitar acceso')).toBeUndefined();
       expect(button('Reenviar invitación')).toBeUndefined();
@@ -1173,6 +1408,7 @@ describe('EmployeeDetail', () => {
         company: { emailDomain: null as unknown as string },
       });
       await settle();
+      await openTab('Accesos');
 
       expect(button('Solicitar acceso')).toBeUndefined();
       expect(button('Reenviar invitación')).toBeUndefined();
@@ -1183,6 +1419,7 @@ describe('EmployeeDetail', () => {
     it('should read the selected company’s domain from the id-addressed company read', async () => {
       setup({ id: 'emp-1', companyId: 'company-1', roles: ACCESS_ROLES });
       await settle();
+      await openTab('Accesos');
 
       const section = fixture.debugElement.query(By.directive(AccessSection))
         .componentInstance as AccessSection;
@@ -1198,6 +1435,7 @@ describe('EmployeeDetail', () => {
         companyError: new HttpErrorResponse({ status: 403 }),
       });
       await settle();
+      await openTab('Accesos');
 
       // An unknown domain is not a missing one: the gate must not hide the controls.
       expect(button('Solicitar acceso')).toBeDefined();
@@ -1207,6 +1445,7 @@ describe('EmployeeDetail', () => {
     it('should offer apply and resend when the employee is active and the company has a domain', async () => {
       setup({ id: 'emp-1', companyId: 'company-1', roles: ACCESS_ROLES });
       await settle();
+      await openTab('Accesos');
 
       expect(button('Solicitar acceso')).toBeDefined();
       expect(button('Reenviar invitación')).toBeDefined();
@@ -1222,6 +1461,7 @@ describe('EmployeeDetail', () => {
         }),
       });
       await settle();
+      await openTab('Accesos');
 
       expect(button('Revisar solicitud')).toBeUndefined();
     });
@@ -1240,6 +1480,7 @@ describe('EmployeeDetail', () => {
         }),
       });
       await settle();
+      await openTab('Accesos');
 
       expect(button('Revisar solicitud')).toBeDefined();
     });
@@ -1259,6 +1500,7 @@ describe('EmployeeDetail', () => {
         }),
       });
       await settle();
+      await openTab('Accesos');
 
       button('Revisar solicitud')?.click();
       await settle();
@@ -1291,6 +1533,7 @@ describe('EmployeeDetail', () => {
         }),
       });
       await settle();
+      await openTab('Accesos');
 
       button('Revisar solicitud')?.click();
       await settle();
@@ -1317,6 +1560,7 @@ describe('EmployeeDetail', () => {
         }),
       });
       await settle();
+      await openTab('Accesos');
 
       button('Revisar solicitud')?.click();
       await settle();
@@ -1342,6 +1586,7 @@ describe('EmployeeDetail', () => {
         }),
       });
       await settle();
+      await openTab('Accesos');
 
       button('Revisar solicitud')?.click();
       await settle();
@@ -1369,6 +1614,7 @@ describe('EmployeeDetail', () => {
         }),
       });
       await settle();
+      await openTab('Accesos');
 
       button('Revisar solicitud')?.click();
       await settle();
@@ -1394,6 +1640,7 @@ describe('EmployeeDetail', () => {
         }),
       });
       await settle();
+      await openTab('Accesos');
 
       button('Revisar solicitud')?.click();
       await settle();

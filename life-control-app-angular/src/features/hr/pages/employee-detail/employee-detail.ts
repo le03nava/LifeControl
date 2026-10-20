@@ -13,6 +13,7 @@ import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatSelectModule } from '@angular/material/select';
+import { MatTabsModule } from '@angular/material/tabs';
 import { MatDialog } from '@angular/material/dialog';
 import { catchError, map } from 'rxjs/operators';
 import { Observable, of } from 'rxjs';
@@ -56,6 +57,19 @@ import {
 import { ACCESS_READ_ROLES, EMPLOYEE_WRITE_ROLES, hasAnyClientRole } from '@core/security/roles';
 
 /**
+ * The page's tabs, in the order they render, keyed by the values `?tab=` carries.
+ *
+ * `accesos` is conditional: a caller without `ACCESS_READ_ROLES` gets the first three and nothing
+ * else (record T96), so the array is resolved through {@link EmployeeDetail.visibleTabs} instead of
+ * used directly.
+ */
+const DETAIL_TABS = ['detalle', 'contratos', 'tiendas', 'accesos'] as const;
+type DetailTab = (typeof DETAIL_TABS)[number];
+
+/** The tabs every authenticated caller sees; `accesos` joins them behind its role gate. */
+const OPEN_TABS: readonly DetailTab[] = ['detalle', 'contratos', 'tiendas'];
+
+/**
  * Read-only detail screen of one employee: `/hr/employees/:id`.
  *
  * **The company is resolved exactly as `employee-list` resolves it** — an inline
@@ -69,26 +83,35 @@ import { ACCESS_READ_ROLES, EMPLOYEE_WRITE_ROLES, hasAnyClientRole } from '@core
  * makes a bare deep link (no `companyId`) recoverable instead of a dead end, and
  * no request is issued until a company is selected — the list's own rule.
  *
- * The page owns the three reads (`getEmployee` + `getContracts` + `getAssignments`)
- * **independently**, so a failure of one degrades only its half of the screen: the employee read
- * keeps the three states — loading, error and **not-found** (a 404 is told apart
- * from every other failure, because the employee may simply not exist in the
- * selected company) — while the contracts and store-assignment sections own their own error and
- * retry. Joining the reads would let a failed contracts call discard a successfully
- * read employee, which is the coupling this split removes.
+ * **The sections are tabs, one per concern** — `Detalle`, `Contratos`, `Tiendas` and `Accesos` —
+ * and each write control lives in the tab that owns the act it starts: `Editar` opens the edit form
+ * from `Detalle`, `Nuevo contrato` / `Cerrar contrato vigente` from `Contratos`, `Asignar tienda` /
+ * `Cerrar` come from the assignments section itself, and the access writes from `Accesos`. The tab
+ * is read once from `?tab=` (the same channel `companyId` travels on) and written back with
+ * `replaceUrl`, because a tab is a view of this page and not a history entry; an unrecognised or
+ * unrenderable value falls back to `Detalle`. The four reads are asked for by the page, not by a
+ * tab, so switching tabs costs no request: Material only attaches the body of the tab on screen.
  *
- * The header's **"Puesto actual"** is the `D15`/`G15` fact only this screen can
+ * The page owns the four reads (`getEmployee` + `getContracts` + `getAssignments` + the access
+ * overview) **independently**, so a failure of one degrades only its half of the screen: the
+ * employee read keeps the three states — loading, error and **not-found** (a 404 is told apart from
+ * every other failure, because the employee may simply not exist in the selected company) — while
+ * the contracts, store-assignment and access tabs own their own error and retry. Joining the reads
+ * would let a failed contracts call discard a successfully read employee, which is the coupling
+ * this split removes.
+ *
+ * The **"Puesto actual"** of the `Detalle` tab is the `D15`/`G15` fact only this screen can
  * show: the position comes from the employee's **current contract**, which the
  * list response does not carry. It resolves through the same
- * `isContractCurrent` predicate the history's validity chip uses, so the header
+ * `isContractCurrent` predicate the history's validity chip uses, so the card
  * and the table can never disagree.
  *
- * There are two contract write controls, both gated on `EMPLOYEE_WRITE_ROLES`: **"Nuevo
- * contrato"** opens the create mode of {@link ContractDialog}, and **"Cerrar
+ * There are two contract write controls, both gated on `EMPLOYEE_WRITE_ROLES` and both in the
+ * `Contratos` tab: **"Nuevo contrato"** opens the create mode of {@link ContractDialog}, and **"Cerrar
  * contrato vigente"** is offered only while the employee actually has a current
  * contract (`isContractCurrent`) and opens the dialog's close mode. The page does
  * not write: it opens the dialog (`D71`) and reloads the contracts read on a real outcome, which is
- * the read the header's "Puesto actual" also derives from. A **create** act can also carry a store
+ * the read the card's "Puesto actual" also derives from. A **create** act can also carry a store
  * assignment (`D8`), so it reloads the assignments read too and reports a failed second call as the
  * partial outcome it is (`D9`) instead of hiding it.
  *
@@ -98,9 +121,9 @@ import { ACCESS_READ_ROLES, EMPLOYEE_WRITE_ROLES, hasAnyClientRole } from '@core
  * assignments read. Both write actions gate on the very same `EMPLOYEE_WRITE_ROLES` the endpoints
  * require (`T17`), so the UI cannot offer a control whose call the API would refuse.
  *
- * The **Acceso** section (W5d-C) is the fourth read and it follows the same independence: it is
+ * The **Acceso** tab (W5d-C) is the fourth read and it follows the same independence: it is
  * keyed on the selected company and the route id and gated on `ACCESS_READ_ROLES`, so a caller
- * without `lc-admin`/`lc-employee-access` renders no section and issues no request (record T96). It
+ * without `lc-admin`/`lc-employee-access` renders no tab and issues no request (record T96). It
  * renders through {@link AccessSection} and the page owns its five intents: `apply`, `deactivate`
  * (confirmed through the shared `ConfirmDialog`), `retry` and `resend` call the service, and
  * `decisionRequested` opens the shared {@link AccessReviewDialog}. Every write **adopts the overview
@@ -118,6 +141,7 @@ import { ACCESS_READ_ROLES, EMPLOYEE_WRITE_ROLES, hasAnyClientRole } from '@core
     MatFormFieldModule,
     MatIconModule,
     MatSelectModule,
+    MatTabsModule,
     PageHeader,
     ErrorBanner,
     ContractHistory,
@@ -160,6 +184,34 @@ export class EmployeeDetail {
 
   /** The route's `:id`; the page reads exactly one employee. */
   readonly employeeId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
+
+  /**
+   * The tabs this caller actually sees: `Accesos` only exists behind `ACCESS_READ_ROLES`.
+   *
+   * Everything tab-related indexes into this list, never into {@link DETAIL_TABS}, so a caller
+   * without the access roles cannot land on a tab it does not render and the index Material is
+   * given always maps to a tab on screen.
+   */
+  readonly visibleTabs = computed<readonly DetailTab[]>(() =>
+    this.canReadAccess ? DETAIL_TABS : OPEN_TABS,
+  );
+
+  /**
+   * The active tab, seeded from `?tab=` and kept in the URL on every change (like `companyId`).
+   *
+   * An absent, unrecognised or unrenderable value falls back to `Detalle`: a stale link must land on
+   * the page, not on a blank tab. The selection is read once from the route snapshot, the same way
+   * `selectedCompanyId` is, and the change is written with `replaceUrl` — a tab is a view of the
+   * page, not a history entry, so Back leaves the detail instead of walking the tabs.
+   */
+  readonly activeTab = signal<DetailTab>(
+    this.readTab(this.route.snapshot.queryParamMap.get('tab')),
+  );
+
+  /** The index Material renders as selected; derived, so it can never disagree with the URL. */
+  readonly selectedTabIndex = computed(() =>
+    Math.max(0, this.visibleTabs().indexOf(this.activeTab())),
+  );
 
   /** The selector's options, the same read `employee-list` performs. */
   readonly companies = toSignal(
@@ -206,7 +258,7 @@ export class EmployeeDetail {
 
   /**
    * The store-assignment read, independent from the other two: a failure here leaves the employee
-   * card and the contracts standing and is shown by the `Tiendas asignadas` section alone.
+   * card and the contracts standing and is shown by the `Tiendas` tab alone.
    *
    * The whole history is asked for (`includeDisabled`): a soft-deleted assignment is part of the
    * record, and the section distinguishes it from a closed one.
@@ -341,7 +393,7 @@ export class EmployeeDetail {
    * store was not assigned.
    *
    * Named as two facts, because that is what happened — a banner implying nothing was saved would be
-   * false. The assign dialog of the `Tiendas asignadas` section is the retry path, so the message
+   * false. The assign dialog of the `Tiendas` tab is the retry path, so the message
    * points there; it clears once that retry succeeds (`onAssign`) or when a later activation act
    * starts from a clean slate.
    */
@@ -428,6 +480,47 @@ export class EmployeeDetail {
     });
   }
 
+  /**
+   * Switches tab and keeps the selection in `?tab=` (`companyId` is merged, never dropped).
+   *
+   * The equality check is the feedback-loop guard: `mat-tab-group` emits `selectedIndexChange` after
+   * `[selectedIndex]` moves, so writing a value the URL already carries would navigate into itself.
+   */
+  onTabChange(index: number): void {
+    const requested = this.visibleTabs()[index];
+    if (!requested || requested === this.activeTab()) {
+      return;
+    }
+    this.activeTab.set(requested);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { tab: requested },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  /** The tab `?tab=` asks for, or `Detalle` when it names none of the ones this caller renders. */
+  private readTab(requested: string | null): DetailTab {
+    const tab = (requested ?? '').trim();
+    return this.visibleTabs().find((candidate) => candidate === tab) ?? 'detalle';
+  }
+
+  /**
+   * Opens the edit form of this employee, carrying the selected company like the list's `Editar`.
+   *
+   * Gated on `EMPLOYEE_WRITE_ROLES`: the edit route and the update endpoint both require it, so the
+   * control is only offered where the destination would accept the caller.
+   */
+  onEdit(): void {
+    const employeeId = this.employeeId();
+    const companyId = this.selectedCompanyId();
+    if (!this.canWrite || !employeeId || !companyId) {
+      return;
+    }
+    void this.router.navigate(['/hr/employees/edit', employeeId], { queryParams: { companyId } });
+  }
+
   /** Re-runs the employee read that failed. */
   reload(): void {
     this.employeeResource.reload();
@@ -438,7 +531,7 @@ export class EmployeeDetail {
     this.contractsResource.reload();
   }
 
-  /** Re-runs only the assignments read, the `Tiendas asignadas` section's own retry. */
+  /** Re-runs only the assignments read, the `Tiendas` tab's own retry. */
   retryAssignments(): void {
     this.assignmentsResource.reload();
   }
@@ -743,7 +836,7 @@ export class EmployeeDetail {
     if (result.assignmentError) {
       this.partialAssignmentError.set(
         `El contrato quedó creado, pero la tienda no se asignó: ${result.assignmentError}. ` +
-          'Podés asignarla desde «Tiendas asignadas».',
+          'Podés asignarla desde la pestaña «Tiendas».',
       );
       this.assignmentsResource.reload();
       return;

@@ -1,24 +1,6 @@
 <div class="employee-detail-page">
-  <app-page-header title="Detalle del empleado" [subtitle]="subtitle()">
-    <!-- The two write actions, gated on EMPLOYEE_WRITE_ROLES; the page opens the dialog and reloads. -->
-    @if (canWrite) {
-      <button
-        mat-flat-button
-        color="primary"
-        type="button"
-        [disabled]="!selectedCompanyId()"
-        (click)="onNewContract()"
-      >
-        <mat-icon fontIcon="add" /> Nuevo contrato
-      </button>
-      <!-- Only offered while the employee actually has a current contract (isContractCurrent). -->
-      @if (currentContract()) {
-        <button mat-stroked-button type="button" (click)="onCloseContract()">
-          Cerrar contrato vigente
-        </button>
-      }
-    }
-  </app-page-header>
+  <!-- The page title is the employee's identity; the actions belong to the tab that owns them. -->
+  <app-page-header title="Detalle del empleado" [subtitle]="subtitle()" [showActions]="false" />
 
   <!-- Same company mechanism as the list: seeded from `companyId`, kept in the URL. -->
   <div class="filters-section">
@@ -50,111 +32,164 @@
       <button mat-stroked-button type="button" (click)="reload()">Reintentar</button>
     </div>
   } @else if (employee(); as emp) {
-    <mat-card appearance="outlined" class="employee-card">
-      <mat-card-content>
-        <div class="detail-grid">
-          <div class="detail-item">
-            <span class="detail-label">Número</span>
-            <span class="detail-value">{{ emp.employeeNumber }}</span>
-          </div>
-          <div class="detail-item">
-            <span class="detail-label">Nombre completo</span>
-            <span class="detail-value">{{ fullName(emp) }}</span>
-          </div>
-          <div class="detail-item">
-            <span class="detail-label">Correo</span>
-            <span class="detail-value">{{ emp.email }}</span>
-          </div>
-          <div class="detail-item">
-            <span class="detail-label">Estado</span>
-            <span class="badge status">{{ statusLabel() }}</span>
-          </div>
-          <div class="detail-item">
-            <span class="detail-label">Fecha de ingreso</span>
-            <span class="detail-value">{{ emp.hireDate }}</span>
-          </div>
-          <!-- The position of the current contract: the `D15`/`G15` fact no list response carries. -->
-          <div class="detail-item">
-            <span class="detail-label">Puesto actual</span>
-            <span class="detail-value position-value">{{ currentPositionName() }}</span>
-          </div>
-        </div>
-      </mat-card-content>
-    </mat-card>
-
-    <section class="contracts-section">
-      <h2 class="section-title">Contratos</h2>
-      @if (contractsLoading()) {
-        <p class="loading-text">Cargando contratos…</p>
-      } @else if (contractsError(); as contractsErr) {
-        <div class="error-state">
-          <mat-icon fontIcon="error" />
-          <p>{{ contractsErr }}</p>
-          <button mat-stroked-button type="button" (click)="retryContracts()">Reintentar</button>
-        </div>
-      } @else {
-        <app-contract-history [contracts]="contracts()" />
-      }
-    </section>
-
-    <section class="assignments-section">
-      <h2 class="section-title">Tiendas asignadas</h2>
-      <!-- A failed close write: the dialog reports its own failures, so this is the close's only. -->
-      @if (assignmentActionError(); as assignmentActionErr) {
-        <app-error-banner [message]="assignmentActionErr" />
-      }
-      <!-- The partial activation outcome (D9): the contract was created and the store was not. -->
-      @if (partialAssignmentError(); as partialErr) {
-        <app-error-banner [message]="partialErr" />
-      }
-      <!--
-        The section renders its own loading, error/retry and empty states; the page owns the read,
-        the dialogs and the reload. Both write actions are gated on EMPLOYEE_WRITE_ROLES (T17).
-      -->
-      <app-store-assignments-section
-        [assignments]="assignments()"
-        [loading]="assignmentsLoading()"
-        [error]="assignmentsError()"
-        [canWrite]="canWrite"
-        (retry)="retryAssignments()"
-        (assign)="onAssign()"
-        (closeRequested)="onCloseAssignment($event)"
-      />
-    </section>
-
     <!--
-      The Access section is gated on ACCESS_READ_ROLES (record T96): a caller without
-      lc-admin/lc-employee-access sees no section and issues no request, because the endpoint would
-      answer 403. Like the other sections, it degrades on its own — a failed read leaves the rest of
-      the page standing.
+      One tab per section, and `?tab=` drives the selection (`onTabChange` writes it back). The
+      Accesos tab exists only for `ACCESS_READ_ROLES` (record T96): a caller without
+      `lc-admin`/`lc-employee-access` sees three tabs and issues no access request, because the
+      endpoint would answer 403.
     -->
-    @if (canReadAccess) {
-      <section class="access-section">
-        <h2 class="section-title">Acceso</h2>
-        <!-- A failed access write: the section renders the read's own error, the page the write's. -->
-        @if (accessActionError(); as accessActionErr) {
-          <app-error-banner [message]="accessActionErr" />
-        }
-        <!--
-          The section renders the account state, the frozen set and the controls; the page owns the
-          read, the writes and the shared review dialog (record T95).
-        -->
-        <app-access-section
-          [overview]="access()"
-          [loading]="accessLoading()"
-          [error]="accessError()"
-          [canWrite]="canReadAccess"
-          [currentUserId]="currentUserId"
-          [employeeStatusName]="employeeStatusName()"
-          [companyEmailDomain]="selectedCompanyEmailDomain()"
-          (retry)="onAccessRetry()"
-          (apply)="onAccessApply()"
-          (deactivate)="onAccessDeactivate()"
-          (retryRequest)="onAccessRetryRequest()"
-          (resend)="onAccessResend()"
-          (decisionRequested)="onAccessDecision($event)"
-        />
-      </section>
-    }
+    <mat-tab-group [selectedIndex]="selectedTabIndex()" (selectedIndexChange)="onTabChange($event)">
+      <mat-tab label="Detalle">
+        <div class="tab-content">
+          <!--
+            The two read-side actions of this screen. "Editar" is gated on EMPLOYEE_WRITE_ROLES
+            because the `/hr/employees/edit/:id` route and the endpoints behind it are; "Volver al
+            registro" is a read and stays for every caller.
+          -->
+          <div class="tab-actions">
+            @if (canWrite) {
+              <button mat-flat-button color="primary" type="button" (click)="onEdit()">
+                <mat-icon fontIcon="edit" /> Editar
+              </button>
+            }
+            <button mat-stroked-button type="button" (click)="onBackToList()">
+              Volver al registro
+            </button>
+          </div>
+
+          <mat-card appearance="outlined" class="employee-card">
+            <mat-card-content>
+              <div class="detail-grid">
+                <div class="detail-item">
+                  <span class="detail-label">Número</span>
+                  <span class="detail-value">{{ emp.employeeNumber }}</span>
+                </div>
+                <div class="detail-item">
+                  <span class="detail-label">Nombre completo</span>
+                  <span class="detail-value">{{ fullName(emp) }}</span>
+                </div>
+                <div class="detail-item">
+                  <span class="detail-label">Correo</span>
+                  <span class="detail-value">{{ emp.email }}</span>
+                </div>
+                <div class="detail-item">
+                  <span class="detail-label">Estado</span>
+                  <span class="badge status">{{ statusLabel() }}</span>
+                </div>
+                <div class="detail-item">
+                  <span class="detail-label">Fecha de ingreso</span>
+                  <span class="detail-value">{{ emp.hireDate }}</span>
+                </div>
+                <!-- The position of the current contract: the `D15`/`G15` fact no list response carries. -->
+                <div class="detail-item">
+                  <span class="detail-label">Puesto actual</span>
+                  <span class="detail-value position-value">{{ currentPositionName() }}</span>
+                </div>
+              </div>
+            </mat-card-content>
+          </mat-card>
+        </div>
+      </mat-tab>
+
+      <mat-tab label="Contratos">
+        <div class="tab-content">
+          <!-- The two contract write actions, gated on EMPLOYEE_WRITE_ROLES; the page opens the dialog. -->
+          @if (canWrite) {
+            <div class="tab-actions">
+              <button mat-flat-button color="primary" type="button" (click)="onNewContract()">
+                <mat-icon fontIcon="add" /> Nuevo contrato
+              </button>
+              <!-- Only offered while the employee actually has a current contract (isContractCurrent). -->
+              @if (currentContract()) {
+                <button mat-stroked-button type="button" (click)="onCloseContract()">
+                  Cerrar contrato vigente
+                </button>
+              }
+            </div>
+          }
+
+          <!--
+            The partial activation outcome (D9): the contract was created and the store was not. It
+            is reported in the tab that owns the act, and it names the Tiendas tab as the retry path.
+          -->
+          @if (partialAssignmentError(); as partialErr) {
+            <app-error-banner [message]="partialErr" />
+          }
+
+          @if (contractsLoading()) {
+            <p class="loading-text">Cargando contratos…</p>
+          } @else if (contractsError(); as contractsErr) {
+            <div class="error-state">
+              <mat-icon fontIcon="error" />
+              <p>{{ contractsErr }}</p>
+              <button mat-stroked-button type="button" (click)="retryContracts()">
+                Reintentar
+              </button>
+            </div>
+          } @else {
+            <app-contract-history [contracts]="contracts()" />
+          }
+        </div>
+      </mat-tab>
+
+      <mat-tab label="Tiendas">
+        <div class="tab-content">
+          <!-- A failed close write: the dialog reports its own failures, so this is the close's only. -->
+          @if (assignmentActionError(); as assignmentActionErr) {
+            <app-error-banner [message]="assignmentActionErr" />
+          }
+          <!--
+            The section renders its own loading, error/retry and empty states plus its "Asignar
+            tienda" action; the page owns the read, the dialogs and the reload. Both write actions
+            are gated on EMPLOYEE_WRITE_ROLES (T17).
+          -->
+          <app-store-assignments-section
+            [assignments]="assignments()"
+            [loading]="assignmentsLoading()"
+            [error]="assignmentsError()"
+            [canWrite]="canWrite"
+            (retry)="retryAssignments()"
+            (assign)="onAssign()"
+            (closeRequested)="onCloseAssignment($event)"
+          />
+        </div>
+      </mat-tab>
+
+      <!--
+        The Access tab is gated on ACCESS_READ_ROLES (record T96): a caller without
+        lc-admin/lc-employee-access sees no tab and issues no request, because the endpoint would
+        answer 403. Like the other sections, it degrades on its own — a failed read leaves the rest
+        of the page standing.
+      -->
+      @if (canReadAccess) {
+        <mat-tab label="Accesos">
+          <div class="tab-content">
+            <!-- A failed access write: the section renders the read's own error, the page the write's. -->
+            @if (accessActionError(); as accessActionErr) {
+              <app-error-banner [message]="accessActionErr" />
+            }
+            <!--
+              The section renders the account state, the frozen set and the controls; the page owns
+              the read, the writes and the shared review dialog (record T95).
+            -->
+            <app-access-section
+              [overview]="access()"
+              [loading]="accessLoading()"
+              [error]="accessError()"
+              [canWrite]="canReadAccess"
+              [currentUserId]="currentUserId"
+              [employeeStatusName]="employeeStatusName()"
+              [companyEmailDomain]="selectedCompanyEmailDomain()"
+              (retry)="onAccessRetry()"
+              (apply)="onAccessApply()"
+              (deactivate)="onAccessDeactivate()"
+              (retryRequest)="onAccessRetryRequest()"
+              (resend)="onAccessResend()"
+              (decisionRequested)="onAccessDecision($event)"
+            />
+          </div>
+        </mat-tab>
+      }
+    </mat-tab-group>
   }
 </div>
