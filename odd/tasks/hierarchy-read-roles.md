@@ -1,7 +1,7 @@
 # ODD feature: hierarchy-read-roles
 
 **Repository**: LifeControl — `life-control-api/` + `life-control-app-angular/`
-**Status**: open — S1, S2 y S3 quedaron implementadas y verificadas sobre `main @ d7870b1` en dos slices: el backend completo en `1db82e6..721a45f` y la migración del frontend con su pin en los commits que le siguen. El trabajo restante de este registro es **G1**, que pide registro propio; la evidencia de entrega va en el log.
+**Status**: open — S1, S2 y S3 quedaron implementadas y verificadas sobre `main @ d7870b1` en dos slices: el backend completo en `1db82e6..18faf8c` y la migración del frontend con su pin en `18faf8c..f28a792`. El trabajo restante de este registro es **G1**, que pide registro propio; la evidencia de entrega va en el log.
 **Created**: 2026-02-21 · **Risk**: alto — superficie de autorización (item 2) y criterios de lectura por nivel.
 
 ## Objective
@@ -115,7 +115,12 @@ ancestro nuevo) y después el GREEN (368/0). **Revisado inline, y el aporte tra�
   angosto sólo cuando el portador tiene el rol angosto, y si no caen a la consulta sin filtro. Por eso
   la ampliación es correcta ahí y en goods receipts no.
 - `spotlessApply` corrido sobre el módulo: los cinco renglones de `@ValueSource` que el writer dejó en
-  123 columnas quedaron dentro del presupuesto.
+  123 columnas quedaron dentro del presupuesto. **Corregido el 2026-02-21 (L9): la afirmación era
+  incompleta.** `spotlessApply` sí se corrió, pero `spotlessCheck` fallaba después sobre los bytes
+  commiteados por un segundo archivo —`CompanyStoreFlatControllerSecurityTest`, con dos
+  `import static` desordenados y un `mockMvc.perform(...)` pasado de columna—, así que el módulo no
+  quedaba limpio: lo arregla `18faf8c`. La lección es que `spotlessApply` es una acción, no una
+  verificación; lo que prueba es `spotlessCheck` sobre el commit.
 - Verificación post-revert: las nueve clases de seguridad y la nueva del flat store,
   **BUILD SUCCESSFUL**.
 
@@ -168,13 +173,32 @@ llamada `create`, porque las hijas del CRUD no declaran roles propios — la pri
 matcheaba por nombre y por eso la aserción se ancla al ancestro que sí tiene el gate. La mitad del
 menú ya estaba pinnada en `header.spec.ts`.
 
-**Frontera de slice, medida después de los dos slices.** `1db82e6..721a45f` acumula **920 líneas
-autoradas** en 6 commits (registro, T1, T2, su evidencia, T3 **y la evidencia de T3**) y lo que le
-sigue otras **448** de código (+403 de T4 y 45 de T5), **1.368 en 8 commits** en total: los **dos**
-slices están por encima del presupuesto de revisión de ~400 líneas, así que si esto se publica son
-**PRs encadenados** — **slice 1 = `1db82e6..721a45f`** (backend completo de S1/S2/S3 en la API, con
-la evidencia de sus tres tasks adentro) y **slice 2 = `721a45f..`** lo que le sigue (migración del
-frontend, su pin y la evidencia de ambos)—, nunca un PR de 1.400 líneas. La evidencia de cada task
-viaja **en el mismo slice que la entrega**, que es la razón por la que la frontera se movió de
-`5adf82d` a `721a45f`: el commit de evidencia de T3 pertenece al slice que entrega T3. La decisión de
-publicar es del mantenedor.
+**Frontera de slice, medida después de los dos slices.** `1db82e6..18faf8c` acumula **922 líneas
+autoradas en 33 archivos** y 7 commits (registro, T1, T2, su evidencia, T3, la evidencia de T3 y el
+fix de spotless) y `18faf8c..f28a792` otras **413 en 47 archivos** y 3 commits (T4, T5 y su
+evidencia): **1.335 líneas de diff en 10 commits**. Los **dos** slices están por encima del
+presupuesto de revisión de ~400 líneas, así que se publicaron como **PRs encadenados** — **slice 1 =
+`1db82e6..18faf8c`** (backend completo de S1/S2/S3 en la API, con la evidencia de sus tres tasks
+adentro) y **slice 2 = `18faf8c..f28a792`** (migración del frontend, su pin y la evidencia de
+ambos)—, nunca un PR de 1.300 líneas. La evidencia de cada task viaja **en el mismo slice que la
+entrega**, que es la razón por la que la frontera se movió de `5adf82d` a `721a45f` y después a
+`18faf8c`: el commit de evidencia de T3 y el fix de formato de su test pertenecen al slice que
+entrega T3.
+
+**L9** — 2026-02-21 · **Entregado**: issue **#473** (`enhancement` + `status:approved`, con problema,
+resultado esperado, criterios verificables y non-goals) y **dos PRs encadenados** — **#474** (base
+`main`, `Closes #473`, 33 archivos, +922/−39) y **#475** (base `feat/hierarchy-read-roles-backend`,
+`Refs #473`, 47 archivos, +413/−107). Ramas: `feat/hierarchy-read-roles-backend` @ `18faf8c` y
+`feat/hierarchy-read-roles-frontend` @ `f28a792`.
+
+- **El gate de spotless falló sobre los bytes commiteados de T3** y no fue cosmético: `spotlessJavaCheck`
+  rechazaba `CompanyStoreFlatControllerSecurityTest`. `18faf8c` aplica el formateador y la corrida
+  medida después es `BUILD SUCCESSFUL in 47s` — 148 clases / **762 tests / 0 fallas / 0 errores**, con
+  `spotbugsMain` en la misma invocación. Esa es la evidencia del PR #474; la afirmación vieja de L6
+  quedó corregida arriba.
+- **`Refs #473` en #475 es obligatorio, no una elección**: el gate acepta `Refs` sólo fuera de la rama
+  default y exige keyword de cierre en ella, así que al retargetear #475 a `main` después del merge del
+  padre el body tiene que pasar a `Closes #473` o el job falla. El encabezado del PR lo dice.
+- **Residuo declarado**: la rama remota `feat/hierarchy-read-roles` quedó apuntando al pre-rebase
+  `aea74ee`. La política de seguridad bloqueó el force-push, así que el slice 2 se publicó bajo
+  `feat/hierarchy-read-roles-frontend`; esa ref vieja hay que borrarla al cerrar el ciclo.
