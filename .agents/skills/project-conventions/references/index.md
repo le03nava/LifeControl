@@ -18,10 +18,10 @@ Shared repository references live here. Component-specific detail lives in `refe
 - `references/pr-chains.md` — chained and stacked PRs: the base-branch deletion failure mode, invariants, the pre-merge guard, the order of operations, and anti-patterns.
 - `references/feature-records.md` — ODD feature records in `odd/tasks/`: the header invariant, the live-state failure mode, the permitted and forbidden status shapes, and anti-patterns.
 - `references/labels.md` — PR type labels: the exactly-one-`type:*` invariant, the vocabulary the machine-installed `branch-pr` skill declares, the measured label history that produced it, and the PR template, guard workflow and planner that now enforce it.
-- Absent: no automated guard enforces the ODD record header invariant; it is a writing-time convention, and the invariant removes the field that would go stale.
+- `.github/scripts/tests/odd-status-headers.test.sh` — enforces the ODD record header invariant on every `odd/tasks/*.md`: a record carries a `**Status**:` paragraph, and one that declines its own delivery must name a merge commit that resolves as an ancestor of `origin/main`. It runs in the `PR Label Guard` workflow, which keeps no `paths:` filter, so a records-only pull request is audited like any other.
 - Absent: no automated guard enforces one-worktree-one-unit; it is a review-time convention.
 - Absent: no automated guard prevents deleting a base branch that an open PR depends on; it is a review-time convention.
-- Absent: no automated guard enforces exactly one `type:*` label per PR, and no PR template renders its checkbox; both are review-time conventions.
+- `.github/scripts/check-pr-type-labels.sh`, run by the `guard` job of `.github/workflows/pr-label-guard.yml`, plus the six labelled checkboxes in `.github/PULL_REQUEST_TEMPLATE.md` — enforce exactly one `type:*` label per pull request, drawn from the six names `.github/label-vocabulary.txt` declares.
 
 ## Architecture
 
@@ -77,6 +77,6 @@ Run each gate command from the component directory.
 - No secret-scanning configuration.
 - No SBOM configuration.
 - No CI check or repository setting prevents deleting a base branch that an open PR depends on.
-- No CI check inspects `odd/**` or any markdown: every workflow's `paths:` filter is scoped to its own component and nested under `pull_request`, so a records-only change runs no workflow at all.
+- The ODD record audit is the only CI check that reads markdown, and it reads one paragraph per record: nothing verifies the rest of a record's narrative, and nothing rewrites a header at merge time.
 - No documented rollback plan or post-deploy checklist.
 - Provider-side settings (branch protection, required checks, review rules) are unverifiable from the repository; `CONTRIBUTING.md` states the settings to apply, and applying them stays a repository-admin action.

@@ -3,11 +3,11 @@
 **Repository**: LifeControl — one file, `.github/scripts/tests/odd-status-headers.test.sh` (its rule,
 its vocabulary, its header comment and four fixtures) plus this record. **No production code, no
 workflow, no edit to any record's narrative.**
-**Status**: the two holes of issue **#472** are closed in the suite and checked: the delivery-state
-class now requires a merge commit the ancestry half can verify, the bare pending-delivery phrase became
-vocabulary (the `yet` is gone), and the real pre-repair header of
-`access-provisioning-worker-repairs.md` — the case that passed green — fails the new rule. This header
-makes no claim about push or PR state.
+**Status**: merged — pull request **#480**, merge commit `4b7212c`, 2026-10-20. The two holes of issue
+**#472** are closed in the suite and checked: the delivery-state class now requires a merge commit the
+ancestry half can verify, the bare pending-delivery phrase became vocabulary (the `yet` is gone), and the
+real pre-repair header of `access-provisioning-worker-repairs.md` — the case that passed green — fails the
+new rule. No work left in this unit.
 **Created**: 2026-10-19 · **Branch**: `chore/odd-status-headers-split` · **Base**: `main` @ `d7870b1`
 · **Worktree**: `~/workspace/LifeControl-worktrees/chore-odd-status-headers-split` (herdr `w4Z`)
 · **Issue**: **#472** · **Risk**: **item 5 (CI)** — this file is a gate: `pr-label-guard` runs every
@@ -150,3 +150,18 @@ the candidate — the defect this unit exists to catch, committed inside its own
 stated now, `S5` in issue #472 was corrected to count the record it audits, and the claim about
 **verdicts** — no record changes verdict under either rule — stands untouched, because that is what the
 measurement actually supports.
+
+**L11 — la entrega, que este registro debía desde que existe** (2026-10-20): la unidad cerró el issue
+**#472** como pull request **#480**, merge commit **`4b7212c`**, mergeado el 2026-10-20. Hasta esta
+entrada el header decía *"This header makes no claim about push or PR state"*: la frase que el propio
+unit dejó escrita porque la entrega todavía no existía, y que dejaba al registro que documenta la regla
+del header sin la entrega que esa regla manda registrar. La regla 3 de `references/feature-records.md`
+pide la entrega en el log fechado con fecha, PR y commit, y acá no había ninguna fila. El header ahora
+declara el estado entregado con ese mismo merge commit, que es lo que la clase delivery-state exige a un
+header que afirma la entrega, y la suite de este unit audita este archivo como cualquier otro:
+`bash .github/scripts/tests/odd-status-headers.test.sh` sigue reportando los mismos `82 record(s)`, los
+mismos `25 passed, 0 failed` y ningún `PROBLEM`, ahora con **116** claims de merge commit en vez de 115 y
+con el header reparado dentro del conteo: el hash `4b7212c` de arriba es uno de los que la mitad de
+ancestry resuelve y verifica contra `origin/main`. Que el archivo no se salva por estar del lado del
+guard se midió, no se supuso: el mismo párrafo con la frase de espera y sólo `#480` — sin el hash
+detrás — hace fallar el audit real de la suite, que es el caso de `L8` con el signo al revés.
