@@ -6,10 +6,15 @@
 # *declining* delivery state over a delivery that already happened?
 #
 # That line is the only artifact every clone, every future session and every reviewer read, and
-# nothing read it back: no workflow filters `odd/tasks/**` or any markdown, so a header that
+# nothing read it back — no workflow filtered `odd/tasks/**` or any markdown — so a header that
 # declined a delivery that had landed was falsified by the next merge, silently, with no commit
 # touching the sentence that lied. Measured five times, each repaired by hand: pull requests #162
 # (14 headers), #170, #364 (8), #436 (8) and #455 (4, issue #454).
+#
+# This suite is the reader that was missing, and `PR Label Guard` is what runs it: that workflow
+# deliberately keeps no `paths:` filter, so a records-only pull request is audited like any other.
+# The `nothing read it back` above is therefore the pre-guard state, kept because it is the reason
+# this file exists — not a description of today.
 #
 # The fifth episode is the reason this guard reads a PARAGRAPH and not a line. The sweep that fed
 # #436 was line-oriented, and `odd/tasks/mobile-header-repair.md`'s decline was split by a line

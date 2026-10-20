@@ -99,7 +99,7 @@ completo, con la forma exacta del header, está en
 | Qué no lleva nunca | Estado vivo o pendiente: "sin pushear", "no hay PR abierto", "en progreso", "esperando review", "sin mergear" |
 | Dónde va la entrega | En el log de evidencia fechado del propio registro, con fecha, PR y commit |
 | Por qué | El header se escribe **antes** del merge y nadie lo revisita: un estado vivo queda falsificado por el próximo merge, sin que ningún commit toque la frase que mintió |
-| Enforcement | Ninguno automático: es una convención de escritura. Los registros anteriores a esta regla no se reescriben, porque su narrativa congelada es en sí misma evidencia |
+| Enforcement | **Automático**: `.github/scripts/tests/odd-status-headers.test.sh` corre en cada PR (el job `guard` de `PR Label Guard` levanta todas las suites de `.github/scripts/tests/`) y falla el registro que no tiene párrafo `**Status**:`, y el que declara una entrega pendiente de este mismo unit sin un merge commit que resuelva como ancestro de `origin/main`; una frase blanda como `implemented` todavía alcanza con un `#N`. Queda ausente que algo actualice el header en el merge. Los registros anteriores a esta regla no se reescriben, porque su narrativa congelada es en sí misma evidencia |
 
 ---
 
@@ -120,7 +120,7 @@ anti-patrones están en
 | Plantilla | `.github/PULL_REQUEST_TEMPLATE.md`: los seis checkboxes (uno por label), el issue linkeado, el resumen, la tabla de cambios y el test plan. El label se aplica igual: el guard lee labels, no checkboxes |
 | Enforcement | `PR Label Guard` (`.github/workflows/pr-label-guard.yml` → `.github/scripts/check-pr-type-labels.sh`) falla el PR si el set de labels no tiene exactamente un `type:*` del vocabulario — cero, dos o un nombre fuera del vocabulario son fallos. **No** lleva filtro `paths:`, a propósito: los otros cuatro workflows filtran por componente, así que un PR sólo-markdown no corre ningún job, que es justo donde esta regla se olvida |
 | Historial | `.github/scripts/retro-label-prs.sh` reconcilió los 341 PRs mergeados el 2026-10-17: 307 altas y 21 correcciones (`type:chore` sobre diffs que no eran chores). Es dry-run por defecto, idempotente, y **no** toca los labels de triage (`documentation`, `bug`, `enhancement`, `java`, `dependencies`) |
-| Suite del guard | `.github/scripts/tests/*.test.sh` (71 aserciones, offline: el mapeo completo, el marcador `!`, los cinco modos de falla del guard, la idempotencia y la coincidencia plantilla↔vocabulario). Corre en el mismo workflow, y shellcheck `--severity=warning` sobre los cinco scripts |
+| Suite del guard | `.github/scripts/tests/*.test.sh` (**9 suites, 245 aserciones**, offline: el mapeo completo, el marcador `!`, los cinco modos de falla del guard, la idempotencia y la coincidencia plantilla↔vocabulario, más el audit de headers de `odd/tasks/*.md`, la referencia al issue, los nombres de job, las plantillas de issue y la paridad de `paths:` entre workflows). Corre en el mismo workflow, y shellcheck `--severity=warning` sobre los **12** `.sh` de `.github/scripts/` — los tres scripts y las nueve suites, tomados por glob, así que una suite nueva queda cableada por existir |
 | Qué no hace | El guard **no** está en branch protection: reporta en cada PR, pero nada obliga a esperarlo antes de mergear hasta que las reglas de protección lo nombren. Tampoco valida el issue linkeado ni el cuerpo del PR |
 
 ---
