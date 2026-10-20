@@ -1,7 +1,7 @@
 # ODD feature: hierarchy-read-roles
 
 **Repository**: LifeControl — `life-control-api/` + `life-control-app-angular/`
-**Status**: open — queda por hacer S1 (`lc-company-read` otorgable), S2 (selector por claim), S3 (`-read` de ancestros en los GET de descendientes) y T4 (migración de los consumidores del frontend). Este header no afirma nada sobre push ni PR; ver el log.
+**Status**: open — S1, S2 y S3 quedaron implementadas y verificadas sobre `main @ d7870b1` en dos slices: el backend completo en `1db82e6..721a45f` y la migración del frontend con su pin en los commits que le siguen. El trabajo restante de este registro es **G1**, que pide registro propio; la evidencia de entrega va en el log.
 **Created**: 2026-02-21 · **Risk**: alto — superficie de autorización (item 2) y criterios de lectura por nivel.
 
 ## Objective
@@ -41,8 +41,8 @@ en las pantallas operativas (read model angosto / consumo de UI) queda fuera de 
 | T1 | `ScopeLevel.COMPANY` acepta `Roles.COMPANY_READ` y `GrantablePositionRoles.FROZEN` acepta `lc-company-read`, con los dos pins verdes | S1, S3 | inline | `6df7654` |
 | T2 | `GET /api/companies/selector` filtrado por el claim `company_id`, con gate `isAuthenticated()` y su matriz de seguridad | S2 | inline | `0ac9e6c` |
 | T3 | Los `-read` de los ancestros entran en los GET de lista y detalle de los niveles descendientes, con su matriz de seguridad por controller | S1 | delegado (`gentle-ai-worker`) + revisión inline | `5adf82d` |
-| T4 | Los consumidores del frontend dejan de usar `getCompanies(0, 1000)` como selector y pasan al selector nuevo | S2 | delegado (`gentle-ai-worker`) | — |
-| T5 | Pin de S3: `lc-company-read` no entra en `isCompanyRole` ni en las rutas de Companies | S3 | inline | — |
+| T4 | Los consumidores del frontend dejan de usar `getCompanies(0, 1000)` como selector y pasan al selector nuevo | S2 | delegado (`gentle-ai-worker`), cerrado inline | `6e80b3c` |
+| T5 | Pin de S3: `lc-company-read` no entra en `isCompanyRole` ni en las rutas de Companies | S3 | inline | `2e0e5d0` |
 
 **Fuera de alcance de T4, con razón**: `company-context.service.ts`, `user-profile.component.ts`,
 `company-list.ts` y `company-edit.ts` siguen sobre la lectura completa. `currentCompany()` se consume
@@ -50,9 +50,12 @@ sólo en `company-edit.ts:76`, que necesita el modelo entero; migrarlos exige mo
 propia lectura, que es otro cambio con su propio riesgo. Queda como trabajo posterior con nombre
 propio en vez de colarse en esta migración.
 
-**Por qué todo inline y no delegado**: una sola unidad de comportamiento con dependencias entre
-slices (T4 depende de T2; T3 comparte el módulo Gradle con T1 y T2), así que dos writers en el mismo
-worktree competirían por el mismo build. El tamaño no alcanza como razón para delegar por sí solo.
+**Delegación, medida.** T1, T2 y T5 fueron inline; T3 y T4 se delegaron a un `gentle-ai-worker` cada uno
+y el padre los revisó inline. La razón de planearlos inline al principio —una sola unidad de
+comportamiento con dependencias entre slices (T4 depende de T2; T3 comparte el módulo Gradle con T1 y
+T2), donde dos writers en el mismo worktree compiten por el mismo build— se sostuvo: **cada writer
+trabajó con el slice anterior ya commiteado**, nunca dos a la vez sobre el mismo árbol. El de T4 murió
+a mitad, sin veredicto (L7); el padre cerró el slice.
 
 ## Log
 
@@ -125,8 +128,53 @@ los cuatro servicios hermanos, y con él se puede reabrir la anotación de las d
 de comportamiento de una consulta con rationale de tenancy (`W2-D10`), así que pide su propio registro
 y su propia verificación.
 
-**Frontera de slice.** `1db82e6..5adf82d` acumula **920 líneas autoradas** en 5 commits: registro,
-T1, T2, evidencia y T3. Está por encima del presupuesto de revisión de ~400 líneas, así que este es el
-corte: **slice 1 = `1db82e6..5adf82d`** (backend completo de S1/S2/S3 en la API), **slice 2 = T4 y T5**
-(la migración del frontend y su pin). Si esto se publica, son PRs encadenados, no un PR de 1.300
-líneas; la decisión de publicar es del mantenedor.
+**L7** — 2026-02-21 · **T4 entregado** como `6e80b3c`: **45 archivos, +307/−96** sobre los bytes
+commiteados (+280/−76 antes de que `lint-staged` corriera `eslint --fix` y `prettier --write`, que
+reformatearon 47 líneas). Los doce consumidores del primer combo pasan a `getCompanySelector(0, 1000)`:
+las ocho pantallas de countries/regions/zones/stores (listado y edición), `store-cascade-page.ts:106`,
+el cascade de purchase orders (`company-cascade.service.ts:107`, que además conserva su búsqueda
+pasando `term`), las cuatro pantallas de HR que pedían la lista entera para un `<mat-select>`, y el
+tipo del input de `stores-form` (`Company[]` → `CompanySelectorOption[]`).
+
+- **El writer delegado murió a mitad** y no dejó veredicto: sí dejó los edits aplicados, un RED real
+  y dos corridas verdes aisladas (63 y 149 tests), y dos `bash` sin resultado al final de su
+transcript. El padre re-corrió la suite completa en vez de confiar en esas dos cifras.
+- **Veredicto de la suite completa: 184 archivos, 3664 tests, 0 fallas.** Los 184 archivos son
+  exactamente los `src/**/*.spec.ts` del árbol, o sea que el pin nuevo de T5 quedó incluido. La cifra
+  está medida **dos veces**: sobre el árbol previo al commit y **de nuevo sobre los bytes
+  commiteados** (los que dejó `lint-staged`), con `npm run lint` y `npm run build` también verdes en
+  las dos rondas — `TEST_EXIT=0`, `LINT_EXIT=0`, `BUILD_EXIT=0`.
+- **Dos trampas de medición, ambas pagadas en esta sesión.** (1) `npm test 2>&1 | tail -40` devuelve el
+  exit code de `tail`, no el de vitest: la primera corrida "salió 0" sin decir nada. La medición válida
+  es `set -o pipefail` (o redirección a archivo) con el log completo. (2) `npx vitest run <archivo>`
+  **no** resuelve los aliases: `companies.routes.ts:2` importa `@core/guards/auth-keycloak-guard` y la
+  corrida aislada muere con `Cannot find package` y "no tests" — porque el alias lo aporta la config
+  que genera `ng test`, no el `vitest.config` del proyecto. La invocación aislada correcta es
+  `npx ng test --include='<spec>'` (medido: 2/2 en el pin de T5).
+- **Consecuencia declarada de T4:** `employee-detail` derivaba el `emailDomain` de la empresa
+  seleccionada de la lista que ya no lee (el selector proyecta sólo `id`/`companyKey`/`companyName`),
+  así que ahora hace **una lectura id-addressed por selección** (`getCompanyById` dentro de un
+  `rxResource`) en vez de reusar una lista de mil filas. Una lectura fallida deja el dominio
+  **sin resolver**, no ausente, y por eso `apply`/`resend` siguen visibles — la misma semántica que
+  T68/T85 ya tenían ("sin resolver no dispara el gate"), ahora pinnada con dos tests. La alternativa
+  —extender la proyección del selector con `emailDomain`— se descartó porque ensancha el contrato de
+  las doce pantallas, que es justo lo que S2 evita.
+
+**L8** — 2026-02-21 · **T5 entregado** como `2e0e5d0` (`companies.routes.spec.ts`, 45 líneas): el pin
+de S3 en su mitad de rutas. Dos casos, sobre `companyRoutes` recorrido en profundidad: ninguna ruta
+del feature declara `lc-company-read` en `data.roles`, y el wrapper del CRUD conserva exactamente
+`['lc-admin','lc-company']`. El segundo caso camina **hacia el wrapper** en vez de buscar cada ruta
+llamada `create`, porque las hijas del CRUD no declaran roles propios — la primera versión del test
+matcheaba por nombre y por eso la aserción se ancla al ancestro que sí tiene el gate. La mitad del
+menú ya estaba pinnada en `header.spec.ts`.
+
+**Frontera de slice, medida después de los dos slices.** `1db82e6..721a45f` acumula **920 líneas
+autoradas** en 6 commits (registro, T1, T2, su evidencia, T3 **y la evidencia de T3**) y lo que le
+sigue otras **448** de código (+403 de T4 y 45 de T5), **1.368 en 8 commits** en total: los **dos**
+slices están por encima del presupuesto de revisión de ~400 líneas, así que si esto se publica son
+**PRs encadenados** — **slice 1 = `1db82e6..721a45f`** (backend completo de S1/S2/S3 en la API, con
+la evidencia de sus tres tasks adentro) y **slice 2 = `721a45f..`** lo que le sigue (migración del
+frontend, su pin y la evidencia de ambos)—, nunca un PR de 1.400 líneas. La evidencia de cada task
+viaja **en el mismo slice que la entrega**, que es la razón por la que la frontera se movió de
+`5adf82d` a `721a45f`: el commit de evidencia de T3 pertenece al slice que entrega T3. La decisión de
+publicar es del mantenedor.
