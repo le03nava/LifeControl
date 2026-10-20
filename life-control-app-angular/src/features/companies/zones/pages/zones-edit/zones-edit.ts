@@ -42,9 +42,12 @@ export class ZonesEdit implements OnInit {
   isEditMode = signal(false);
 
   // ─── Data signals ──────────────────────────────────────
-  companies = toSignal(this.companyService.getCompanies(0, 1000).pipe(map((p) => p.content)), {
-    initialValue: [],
-  });
+  companies = toSignal(
+    this.companyService.getCompanySelector(0, 1000).pipe(map((p) => p.content)),
+    {
+      initialValue: [],
+    },
+  );
   companyCountries = this.companyCountryService.assignedCountries;
 
   regionList = signal<CompanyRegion[]>([]);

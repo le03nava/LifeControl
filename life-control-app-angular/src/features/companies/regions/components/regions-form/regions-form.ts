@@ -21,7 +21,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatIconModule } from '@angular/material/icon';
-import { Company } from '../../../companies/models/company.models';
+import { CompanySelectorOption } from '../../../companies/models/company.models';
 import { CompanyCountry } from '../../../countries/models/country.models';
 import { CompanyRegion, RegionControl, RegionSaveEvent } from '../../models/region.models';
 
@@ -45,7 +45,7 @@ const REGION_CODE_PATTERN = /^[a-zA-Z0-9-]+$/;
 })
 export class RegionsForm {
   // ─── Inputs ─────────────────────────────────────────────────
-  companies = input.required<Company[]>();
+  companies = input.required<CompanySelectorOption[]>();
   companyCountries = input<CompanyCountry[]>([]);
   regionToEdit = input<CompanyRegion | null>(null);
   serverErrors = input<Record<string, string>>({});

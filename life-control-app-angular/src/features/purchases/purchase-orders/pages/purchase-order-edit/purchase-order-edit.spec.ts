@@ -159,7 +159,7 @@ describe('PurchaseOrderEdit', () => {
     {
       provide: CompanyService,
       useValue: {
-        getCompanies: vi.fn().mockReturnValue(of(emptyPage)),
+        getCompanySelector: vi.fn().mockReturnValue(of(emptyPage)),
         getCompanyById: vi.fn().mockReturnValue(of({})),
       },
     },
@@ -820,7 +820,7 @@ describe('PurchaseOrderEdit', () => {
           {
             provide: CompanyService,
             useValue: {
-              getCompanies: vi.fn().mockReturnValue(
+              getCompanySelector: vi.fn().mockReturnValue(
                 of({
                   ...emptyPage,
                   content: [{ id: 'comp-1', companyName: 'Empresa Uno', rfc: 'RFC-001' }],

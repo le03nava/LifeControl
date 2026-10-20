@@ -58,6 +58,10 @@ describe('EmployeeDetail', () => {
   let fixture: ComponentFixture<EmployeeDetail>;
   let component: EmployeeDetail;
   let employeeService: { getEmployee: ReturnType<typeof vi.fn> };
+  let companyService: {
+    getCompanySelector: ReturnType<typeof vi.fn>;
+    getCompanyById: ReturnType<typeof vi.fn>;
+  };
   let contractService: { getContracts: ReturnType<typeof vi.fn> };
   let assignmentService: {
     getAssignments: ReturnType<typeof vi.fn>;
@@ -234,13 +238,30 @@ describe('EmployeeDetail', () => {
     /** The caller's own `sub`; `null` models a token that carries none. */
     sub?: string | null;
     /**
-     * Overrides merged onto the single company the companies read returns. Used to model a company
-     * with no deliverable `emailDomain` (T68/T85); the default carries one.
+     * Overrides merged onto the single company the id-addressed company read returns. Used to model
+     * a company with no deliverable `emailDomain` (T68/T85); the default carries one.
      */
     company?: Partial<Company>;
+    /** The error the id-addressed company read fails with, leaving the domain unresolved. */
+    companyError?: HttpErrorResponse;
   }
 
   function setup(options: SetupOptions = {}): void {
+    companyService = {
+      getCompanySelector: vi.fn().mockReturnValue(
+        of({
+          ...companiesPage,
+          content: [
+            { id: company.id, companyKey: company.companyKey, companyName: company.companyName },
+          ],
+        }),
+      ),
+      getCompanyById: vi.fn(() =>
+        options.companyError
+          ? throwError(() => options.companyError)
+          : of({ ...company, ...options.company }),
+      ),
+    };
     employeeService = {
       getEmployee: vi.fn(() =>
         options.employeeError
@@ -328,13 +349,7 @@ describe('EmployeeDetail', () => {
         },
         {
           provide: CompanyService,
-          useValue: {
-            getCompanies: vi
-              .fn()
-              .mockReturnValue(
-                of({ ...companiesPage, content: [{ ...company, ...options.company }] }),
-              ),
-          },
+          useValue: companyService,
         },
         {
           provide: ActivatedRoute,
@@ -1163,6 +1178,30 @@ describe('EmployeeDetail', () => {
       expect(button('Reenviar invitación')).toBeUndefined();
       expect(button('Deshabilitar')).toBeDefined();
       expect(text()).toContain('dominio de correo');
+    });
+
+    it('should read the selected company’s domain from the id-addressed company read', async () => {
+      setup({ id: 'emp-1', companyId: 'company-1', roles: ACCESS_ROLES });
+      await settle();
+
+      const section = fixture.debugElement.query(By.directive(AccessSection))
+        .componentInstance as AccessSection;
+      expect(companyService.getCompanyById).toHaveBeenCalledWith('company-1');
+      expect(section.companyEmailDomain()).toBe('acme.example');
+    });
+
+    it('should keep apply and resend when the company read fails (domain unresolved)', async () => {
+      setup({
+        id: 'emp-1',
+        companyId: 'company-1',
+        roles: ACCESS_ROLES,
+        companyError: new HttpErrorResponse({ status: 403 }),
+      });
+      await settle();
+
+      // An unknown domain is not a missing one: the gate must not hide the controls.
+      expect(button('Solicitar acceso')).toBeDefined();
+      expect(button('Reenviar invitación')).toBeDefined();
     });
 
     it('should offer apply and resend when the employee is active and the company has a domain', async () => {

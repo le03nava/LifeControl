@@ -19,7 +19,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatIconModule } from '@angular/material/icon';
-import { Company } from '../../../companies/models/company.models';
+import { CompanySelectorOption } from '../../../companies/models/company.models';
 import { CompanyCountry } from '../../../countries/models/country.models';
 import { CompanyRegion } from '../../../regions/models/region.models';
 import { CompanyZone } from '../../../zones/models/zone.models';
@@ -54,7 +54,7 @@ export class StoresForm {
   private readonly countryService = inject(CountryService);
 
   // ─── Inputs ─────────────────────────────────────────────────
-  companies = input.required<Company[]>();
+  companies = input.required<CompanySelectorOption[]>();
   companyCountries = input<CompanyCountry[]>([]);
   regions = input<CompanyRegion[]>([]);
   storeToEdit = input<CompanyStore | null>(null);

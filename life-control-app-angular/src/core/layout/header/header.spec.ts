@@ -119,6 +119,17 @@ describe('Header', () => {
       expect(items.length).toBe(1); // Companies only
     });
 
+    it('should NOT show the Companies menu for lc-company-read alone (S3: API access, no screen)', () => {
+      // S3 of `odd/tasks/hierarchy-read-roles.md`: the role reaches the two
+      // company reads and must never reach the administration screen. This pin
+      // lives here because the menu is what makes the screen reachable; the
+      // matching pin over the route gates is in `companies.routes.spec.ts`.
+      const { component } = setup(['lc-company-read']);
+
+      expect(component.isCompanyRole()).toBe(false);
+      expect(component.items().some((i) => i.routeLink === '/companies')).toBe(false);
+    });
+
     it('should show Companies + admin menus when user has lc-admin + lc-company-country', () => {
       const { component } = setup(['lc-admin', 'lc-company-country']);
       expect(component.isCompanyRole()).toBe(true);

@@ -95,7 +95,7 @@ export class PositionList {
   readonly canWrite = hasAnyClientRole(POSITION_WRITE_ROLES);
 
   readonly companies = toSignal(
-    this.companyService.getCompanies(0, 1000).pipe(map((page) => page.content)),
+    this.companyService.getCompanySelector(0, 1000).pipe(map((page) => page.content)),
     { initialValue: [] },
   );
 
@@ -151,11 +151,7 @@ export class PositionList {
     },
     stream: ({ params }) =>
       this.positionService
-        .getPositions(
-          params.companyId,
-          params.departmentId || undefined,
-          params.includeDisabled,
-        )
+        .getPositions(params.companyId, params.departmentId || undefined, params.includeDisabled)
         .pipe(catchError(() => of([] as Position[]))),
     defaultValue: [] as Position[],
   });
@@ -186,7 +182,8 @@ export class PositionList {
   );
 
   readonly departmentNames = computed(
-    () => new Map(this.departments().map((department) => [department.id, department.departmentName])),
+    () =>
+      new Map(this.departments().map((department) => [department.id, department.departmentName])),
   );
 
   /** `reportsTo` is an id on the wire, so the label comes from the rows in hand. */

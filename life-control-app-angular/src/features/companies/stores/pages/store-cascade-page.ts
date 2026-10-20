@@ -103,7 +103,7 @@ export abstract class StoreCascadePage implements OnInit {
   private readonly queryParamMap = inject(ActivatedRoute).snapshot.queryParamMap;
 
   readonly companies = toSignal(
-    this.companyService.getCompanies(0, 1000).pipe(map((page) => page.content)),
+    this.companyService.getCompanySelector(0, 1000).pipe(map((page) => page.content)),
     { initialValue: [] },
   );
 

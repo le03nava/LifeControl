@@ -1,5 +1,6 @@
 import { By } from '@angular/platform-browser';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { MatSelect } from '@angular/material/select';
 import { signal, WritableSignal } from '@angular/core';
 import { of } from 'rxjs';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -83,7 +84,7 @@ describe('CountriesPage', () => {
   }
 
   class MockCompanyService {
-    getCompanies = vi.fn().mockReturnValue(of(mockCompaniesPage));
+    getCompanySelector = vi.fn().mockReturnValue(of(mockCompaniesPage));
   }
 
   let routerMock: { navigate: ReturnType<typeof vi.fn> };
@@ -126,6 +127,24 @@ describe('CountriesPage', () => {
 
   it('should have null selectedCompanyId initially', () => {
     expect(component.selectedCompanyId()).toBeNull();
+  });
+
+  it('should render one option per company from the selector read', () => {
+    // Material renders the options lazily, so open the panel to inspect the labels.
+    const select = fixture.debugElement.query(By.css('mat-form-field.company-selector mat-select'))
+      .componentInstance as MatSelect;
+    select.open();
+    fixture.detectChanges();
+
+    const labels = Array.from(document.querySelectorAll('mat-option') as NodeListOf<Element>).map(
+      (option) => option.textContent?.trim(),
+    );
+
+    // The placeholder row plus one row per company the selector read returned, labelled with `companyName`.
+    expect(labels).toEqual(['— Seleccionar empresa —', 'Test Company One']);
+
+    select.close();
+    fixture.detectChanges();
   });
 
   // ─── onCompanyChange ─────────────────────────────────────────
