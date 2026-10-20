@@ -1,10 +1,9 @@
 package com.lifecontrol.api.store.controller;
 
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.lifecontrol.api.config.ratelimit.RateLimitProperties;
@@ -121,7 +120,8 @@ class CompanyStoreFlatControllerSecurityTest {
         void admittedRolesCanReadTheStore(String role) throws Exception {
             when(companyStoreService.getStoreById(any())).thenReturn(buildStoreResponse());
 
-            mockMvc.perform(get(BASE_URL + "/{storeId}", storeId).with(user("subject").roles(role)))
+            mockMvc.perform(get(BASE_URL + "/{storeId}", storeId)
+                            .with(user("subject").roles(role)))
                     .andExpect(status().isOk());
         }
 
