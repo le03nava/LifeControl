@@ -88,7 +88,7 @@ public class GoodsReceiptController {
     @Operation(
             summary = "Get all goods receipts",
             description =
-                    "Returns a paginated list, optionally filtered by search term on the receipt number or the order number. Non-admin callers only see receipts of the stores in their company_store_ids; an empty set yields an empty page.")
+                    "Returns a paginated list, optionally filtered by search term on the receipt number or the order number. A non-admin caller only sees receipts of the stores its own scope reaches — the stores of the company, country, region or zone claim it holds, or its store claim — with the same rule the by-id read applies to a single receipt; an empty effective scope yields an empty page.")
     @ApiResponses({@ApiResponse(responseCode = "200", description = "Paginated list of goods receipts")})
     public ResponseEntity<Page<GoodsReceiptResponse>> getAllReceipts(
             @PageableDefault(size = 12) Pageable pageable, @RequestParam(required = false) String search) {

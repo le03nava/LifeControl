@@ -76,25 +76,65 @@ public interface CompanyStoreRepository extends JpaRepository<CompanyStore, UUID
     List<CompanyStore> findByIdInAndCompanyZoneIdAndEnabledTrue(Set<UUID> storeIds, UUID companyZoneId);
 
     /**
-     * Store ids of the given companies, for the list paths that scope by a hierarchy level instead
-     * of by an explicit store.
+     * Store ids within one level of the hierarchy, constrained by every ancestor claim.
      *
      * <p>{@link com.lifecontrol.api.store.model.CompanyStore} carries no company/country/region
      * column: it hangs off {@code companyZone -> companyRegion -> companyCountry -> company}, so
-     * each level below is the same walk reached from a different end. They project the id only —
-     * a list filter needs the set, never the entity — and they never filter by {@code enabled},
-     * because a disabled store's receipts stay readable to whoever could open them by id.</p>
+     * each finder below is the same walk reached from a different level.</p>
+     *
+     * <p>Every finder takes the <strong>whole</strong> claim path down from {@code company}, not
+     * just its own level, because that is what the id-addressed read verifies:
+     * {@code CurrentUserContext#verifyLevelsUpTo} walks from {@code company} into the caller's
+     * broadest granted scope. A finder that filtered by its own claim alone would hand the list a
+     * row the detail denies whenever an ancestor claim disagrees — a token minted out of band, a
+     * group attribute, or migration residue. Each level is also optional in the argument list in
+     * the sense that callers with a narrower scope never reach it; the resolver denies before
+     * calling when a required claim is missing, so no empty collection arrives here.</p>
+     *
+     * <p>The projections return ids only — a list filter needs the set, never the entity — and none
+     * of them filters by {@code enabled}: a disabled store's receipts stay readable to whoever can
+     * open them by id.</p>
      */
     @Query("select s.id from CompanyStore s where s.companyZone.companyRegion.companyCountry.company.id in :companyIds")
     List<UUID> findIdsByCompanyIdIn(@Param("companyIds") Collection<UUID> companyIds);
 
     @Query("select s.id from CompanyStore s "
-            + "where s.companyZone.companyRegion.companyCountry.id in :companyCountryIds")
-    List<UUID> findIdsByCompanyCountryIdIn(@Param("companyCountryIds") Collection<UUID> companyCountryIds);
+            + "where s.companyZone.companyRegion.companyCountry.id in :companyCountryIds "
+            + "and s.companyZone.companyRegion.companyCountry.company.id in :companyIds")
+    List<UUID> findIdsByCompanyCountryIdIn(
+            @Param("companyCountryIds") Collection<UUID> companyCountryIds,
+            @Param("companyIds") Collection<UUID> companyIds);
 
-    @Query("select s.id from CompanyStore s where s.companyZone.companyRegion.id in :companyRegionIds")
-    List<UUID> findIdsByCompanyRegionIdIn(@Param("companyRegionIds") Collection<UUID> companyRegionIds);
+    @Query("select s.id from CompanyStore s "
+            + "where s.companyZone.companyRegion.id in :companyRegionIds "
+            + "and s.companyZone.companyRegion.companyCountry.id in :companyCountryIds "
+            + "and s.companyZone.companyRegion.companyCountry.company.id in :companyIds")
+    List<UUID> findIdsByCompanyRegionIdIn(
+            @Param("companyRegionIds") Collection<UUID> companyRegionIds,
+            @Param("companyCountryIds") Collection<UUID> companyCountryIds,
+            @Param("companyIds") Collection<UUID> companyIds);
 
-    @Query("select s.id from CompanyStore s where s.companyZone.id in :companyZoneIds")
-    List<UUID> findIdsByCompanyZoneIdIn(@Param("companyZoneIds") Collection<UUID> companyZoneIds);
+    @Query("select s.id from CompanyStore s "
+            + "where s.companyZone.id in :companyZoneIds "
+            + "and s.companyZone.companyRegion.id in :companyRegionIds "
+            + "and s.companyZone.companyRegion.companyCountry.id in :companyCountryIds "
+            + "and s.companyZone.companyRegion.companyCountry.company.id in :companyIds")
+    List<UUID> findIdsByCompanyZoneIdIn(
+            @Param("companyZoneIds") Collection<UUID> companyZoneIds,
+            @Param("companyRegionIds") Collection<UUID> companyRegionIds,
+            @Param("companyCountryIds") Collection<UUID> companyCountryIds,
+            @Param("companyIds") Collection<UUID> companyIds);
+
+    @Query("select s.id from CompanyStore s "
+            + "where s.id in :storeIds "
+            + "and s.companyZone.id in :companyZoneIds "
+            + "and s.companyZone.companyRegion.id in :companyRegionIds "
+            + "and s.companyZone.companyRegion.companyCountry.id in :companyCountryIds "
+            + "and s.companyZone.companyRegion.companyCountry.company.id in :companyIds")
+    List<UUID> findIdsByStoreIdIn(
+            @Param("storeIds") Collection<UUID> storeIds,
+            @Param("companyZoneIds") Collection<UUID> companyZoneIds,
+            @Param("companyRegionIds") Collection<UUID> companyRegionIds,
+            @Param("companyCountryIds") Collection<UUID> companyCountryIds,
+            @Param("companyIds") Collection<UUID> companyIds);
 }

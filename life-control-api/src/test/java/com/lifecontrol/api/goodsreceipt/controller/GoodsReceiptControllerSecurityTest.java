@@ -173,6 +173,26 @@ class GoodsReceiptControllerSecurityTest {
         }
 
         @Test
+        @WithMockUser(roles = {"lc-company-country-read"})
+        @DisplayName("returns 403 for the read-only country role")
+        void readOnlyCountryRoleCannotWrite() throws Exception {
+            mockMvc.perform(post(BASE_URL)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isForbidden());
+        }
+
+        @Test
+        @WithMockUser(roles = {"lc-company-zone-read"})
+        @DisplayName("returns 403 for the read-only zone role")
+        void readOnlyZoneRoleCannotWrite() throws Exception {
+            mockMvc.perform(post(BASE_URL)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isForbidden());
+        }
+
+        @Test
         @WithMockUser(roles = {"lc-company-store"})
         @DisplayName("returns 201 for an authorized store role")
         void storeRoleCanWrite() throws Exception {

@@ -30,7 +30,8 @@ import org.mockito.quality.Strictness;
  * <p>It is the same rule {@code CurrentUserContext#verifyCompanyStoreAccess} applies to the
  * id-addressed reads, which is the point: the list filter and the detail check must agree, or a
  * caller sees either a false empty page or a row it cannot open. Every level is covered because a
- * level that silently falls through to another level's claim is a cross-tenant read.</p>
+ * level that silently falls through to another level's claim is a cross-tenant read — including the
+ * <em>ancestor</em> claims, which the detail verifies and which the finders therefore receive.</p>
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -56,6 +57,12 @@ class CompanyStoreScopeResolverTest {
     void setUp() {
         resolver = new CompanyStoreScopeResolver(currentUserContext, companyStoreRepository);
         when(currentUserContext.isAdmin()).thenReturn(false);
+        // A complete claim path by default; each case removes what it wants to be missing.
+        when(currentUserContext.getCompanyIds()).thenReturn(Set.of(COMPANY_ID));
+        when(currentUserContext.getCompanyCountryIds()).thenReturn(Set.of(COUNTRY_ID));
+        when(currentUserContext.getCompanyRegionIds()).thenReturn(Set.of(REGION_ID));
+        when(currentUserContext.getCompanyZoneIds()).thenReturn(Set.of(ZONE_ID));
+        when(currentUserContext.getCompanyStoreIds()).thenReturn(Set.of(STORE_ID, OTHER_STORE_ID));
     }
 
     private void grant(ScopeLevel level) {
@@ -85,10 +92,9 @@ class CompanyStoreScopeResolverTest {
     class BroadestGrantedScope {
 
         @Test
-        @DisplayName("COMPANY resolves every store of the caller's companies")
+        @DisplayName("COMPANY resolves the caller's companies with no ancestor constraint")
         void companyScope() {
             grant(ScopeLevel.COMPANY);
-            when(currentUserContext.getCompanyIds()).thenReturn(Set.of(COMPANY_ID));
             when(companyStoreRepository.findIdsByCompanyIdIn(Set.of(COMPANY_ID)))
                     .thenReturn(List.of(STORE_ID, OTHER_STORE_ID));
 
@@ -96,53 +102,59 @@ class CompanyStoreScopeResolverTest {
 
             assertThat(scope.unscoped()).isFalse();
             assertThat(scope.storeIds()).containsExactlyInAnyOrder(STORE_ID, OTHER_STORE_ID);
-            verify(companyStoreRepository, never()).findIdsByCompanyZoneIdIn(any());
         }
 
         @Test
-        @DisplayName("COUNTRY resolves the stores of the caller's countries")
+        @DisplayName("COUNTRY constrains the country claim by the company claim")
         void countryScope() {
             grant(ScopeLevel.COUNTRY);
-            when(currentUserContext.getCompanyCountryIds()).thenReturn(Set.of(COUNTRY_ID));
-            when(companyStoreRepository.findIdsByCompanyCountryIdIn(Set.of(COUNTRY_ID)))
+            when(companyStoreRepository.findIdsByCompanyCountryIdIn(Set.of(COUNTRY_ID), Set.of(COMPANY_ID)))
                     .thenReturn(List.of(STORE_ID));
 
             assertThat(resolver.scopeForCurrentUser().storeIds()).containsExactly(STORE_ID);
-            verify(companyStoreRepository, never()).findIdsByCompanyIdIn(any());
+            verify(companyStoreRepository).findIdsByCompanyCountryIdIn(Set.of(COUNTRY_ID), Set.of(COMPANY_ID));
         }
 
         @Test
-        @DisplayName("REGION resolves the stores of the caller's regions")
+        @DisplayName("REGION constrains the region claim by the country and company claims")
         void regionScope() {
             grant(ScopeLevel.REGION);
-            when(currentUserContext.getCompanyRegionIds()).thenReturn(Set.of(REGION_ID));
-            when(companyStoreRepository.findIdsByCompanyRegionIdIn(Set.of(REGION_ID)))
+            when(companyStoreRepository.findIdsByCompanyRegionIdIn(
+                            Set.of(REGION_ID), Set.of(COUNTRY_ID), Set.of(COMPANY_ID)))
                     .thenReturn(List.of(STORE_ID));
 
             assertThat(resolver.scopeForCurrentUser().storeIds()).containsExactly(STORE_ID);
-            verify(companyStoreRepository, never()).findIdsByCompanyCountryIdIn(any());
+            verify(companyStoreRepository)
+                    .findIdsByCompanyRegionIdIn(Set.of(REGION_ID), Set.of(COUNTRY_ID), Set.of(COMPANY_ID));
         }
 
         @Test
-        @DisplayName("ZONE resolves the stores of the caller's zones")
+        @DisplayName("ZONE constrains the zone claim by every ancestor claim")
         void zoneScope() {
             grant(ScopeLevel.ZONE);
-            when(currentUserContext.getCompanyZoneIds()).thenReturn(Set.of(ZONE_ID));
-            when(companyStoreRepository.findIdsByCompanyZoneIdIn(Set.of(ZONE_ID)))
+            when(companyStoreRepository.findIdsByCompanyZoneIdIn(
+                            Set.of(ZONE_ID), Set.of(REGION_ID), Set.of(COUNTRY_ID), Set.of(COMPANY_ID)))
                     .thenReturn(List.of(STORE_ID));
 
             assertThat(resolver.scopeForCurrentUser().storeIds()).containsExactly(STORE_ID);
-            verify(companyStoreRepository, never()).findIdsByCompanyRegionIdIn(any());
+            verify(companyStoreRepository)
+                    .findIdsByCompanyZoneIdIn(
+                            Set.of(ZONE_ID), Set.of(REGION_ID), Set.of(COUNTRY_ID), Set.of(COMPANY_ID));
         }
 
         @Test
-        @DisplayName("STORE reads the claim's store ids and queries no hierarchy")
+        @DisplayName("STORE constrains the store claim by the whole ancestor chain")
         void storeScope() {
             grant(ScopeLevel.STORE);
-            when(currentUserContext.getCompanyStoreIds()).thenReturn(Set.of(STORE_ID, OTHER_STORE_ID));
+            when(companyStoreRepository.findIdsByStoreIdIn(
+                            Set.of(STORE_ID, OTHER_STORE_ID),
+                            Set.of(ZONE_ID),
+                            Set.of(REGION_ID),
+                            Set.of(COUNTRY_ID),
+                            Set.of(COMPANY_ID)))
+                    .thenReturn(List.of(STORE_ID));
 
-            assertThat(resolver.scopeForCurrentUser().storeIds()).containsExactlyInAnyOrder(STORE_ID, OTHER_STORE_ID);
-            verifyNoInteractions(companyStoreRepository);
+            assertThat(resolver.scopeForCurrentUser().storeIds()).containsExactly(STORE_ID);
         }
     }
 
@@ -163,15 +175,53 @@ class CompanyStoreScopeResolverTest {
         }
 
         @Test
-        @DisplayName("should resolve nothing without querying when the broad scope's claim is empty")
-        void emptyClaimNeverQueries() {
+        @DisplayName("should resolve nothing without querying when the level's own claim is empty")
+        void emptyOwnClaimNeverQueries() {
             grant(ScopeLevel.REGION);
             when(currentUserContext.getCompanyRegionIds()).thenReturn(Set.of());
 
-            var scope = resolver.scopeForCurrentUser();
+            assertThat(resolver.scopeForCurrentUser().storeIds()).isEmpty();
+            verifyNoInteractions(companyStoreRepository);
+        }
 
-            assertThat(scope.storeIds()).isEmpty();
-            verify(companyStoreRepository, never()).findIdsByCompanyRegionIdIn(any());
+        @Test
+        @DisplayName("should resolve nothing when a region reader has no country claim, exactly as the detail denies")
+        void regionWithoutCountryClaimNeverQueries() {
+            grant(ScopeLevel.REGION);
+            when(currentUserContext.getCompanyCountryIds()).thenReturn(Set.of());
+
+            assertThat(resolver.scopeForCurrentUser().storeIds()).isEmpty();
+            verifyNoInteractions(companyStoreRepository);
+        }
+
+        @Test
+        @DisplayName("should resolve nothing when a country reader has no company claim")
+        void countryWithoutCompanyClaimNeverQueries() {
+            grant(ScopeLevel.COUNTRY);
+            when(currentUserContext.getCompanyIds()).thenReturn(Set.of());
+
+            assertThat(resolver.scopeForCurrentUser().storeIds()).isEmpty();
+            verifyNoInteractions(companyStoreRepository);
+        }
+
+        @Test
+        @DisplayName("should resolve nothing when a zone reader has no region claim")
+        void zoneWithoutRegionClaimNeverQueries() {
+            grant(ScopeLevel.ZONE);
+            when(currentUserContext.getCompanyRegionIds()).thenReturn(Set.of());
+
+            assertThat(resolver.scopeForCurrentUser().storeIds()).isEmpty();
+            verifyNoInteractions(companyStoreRepository);
+        }
+
+        @Test
+        @DisplayName("should resolve nothing when a store reader has no zone claim")
+        void storeWithoutAncestorClaimNeverQueries() {
+            grant(ScopeLevel.STORE);
+            when(currentUserContext.getCompanyZoneIds()).thenReturn(Set.of());
+
+            assertThat(resolver.scopeForCurrentUser().storeIds()).isEmpty();
+            verifyNoInteractions(companyStoreRepository);
         }
     }
 }

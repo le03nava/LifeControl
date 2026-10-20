@@ -1,7 +1,7 @@
 # ODD feature: goods-receipt-scope
 
 **Repository**: LifeControl — `life-control-api/`
-**Status**: open — arregla el gap **G1** de `odd/tasks/hierarchy-read-roles.md` y está implementado y verificado en la rama `fix/goods-receipt-scope` (`9551c4c`, `5c1aa57`). Trabajo restante de este registro: la entrega (issue aprobado + PR), que es decisión del mantenedor. Riesgo: alto — superficie de autorización y rationale de tenancy (`W2-D10`).
+**Status**: delivered — G1 está arreglado: el listado de comprobantes deriva su alcance del `ScopeLevel` más amplio otorgado y aplica la misma regla que el detalle, claims de ancestros incluidos. Entró por el issue **#477** y la cadena de PRs **#478** (merge `7cf8e77b`) y **#479**. El único advisory abierto es el de `enabled` (listado vs detalle), que es preexistente y pide su propio registro.
 **Created**: 2026-10-20 · **Risk**: alto — superficie de autorización (item 2).
 
 ## Objective
@@ -88,3 +88,86 @@ JPQL con joins y proyección de ids.
   y `lc-company-zone` pasan de **200 con página vacía** a ver los comprobantes de su alcance, y los
   cuatro `-read` de esos niveles pasan de **403** a 200 con la misma página. Un alcance efectivo vacío
   sigue devolviendo página vacía sin tocar la consulta sin filtro, y el `POST` no cambia para nadie.
+
+**L4** — 2026-10-20 · **La verificación independiente encontró un bloqueante real en S2**, sobre un
+candidato que la review nativa ya había aprobado.
+
+- **Lo que dijo el verificador, medido con sus propias sondas**: `CompanyStoreScopeResolver`
+  resolvía el alcance desde el claim del nivel más profundo **sólo**, mientras el detalle verifica
+  toda la cadena (`verifyLevelsUpTo`, con `company_id` y `company_country_id` obligatorios).
+  Reprodujo dos divergencias en la dirección insegura: un lector de país con `company_id` de otra
+  compañía y un lector de región sin claims de ancestros recibían la fila en la lista y
+  `AccessDeniedException` al abrirla. **Sobre `origin/main` la misma sonda devolvía página vacía**:
+  el defecto lo introdujo el arreglo, no venía de antes.
+- **Corrección (`3dd61a1`)**: las cinco proyecciones pasan a recibir **todas** las constraints de
+  ancestro y el resolver niega sin consultar cuando falta **cualquier claim de la cadena** —no
+  «cuando falta un claim requerido»: `isRequired()` no decide acá, la guarda exige los cinco niveles
+  que el alcance alcanza—. Un portador de tienda también queda constreñido por la cadena, así que el
+  filtro de la lista y el del detalle son literalmente la misma regla en vez de dos que coinciden por
+  casualidad.
+- **Evidencia (`9bdfdb2`)**: `GoodsReceiptScopeAgreementTest` corre `Jwt` real → `CurrentUserContext`
+  real → resolver real → servicio, y cubre los dos casos que divergían más los controles de tienda y
+  de admin; `CompanyStoreScopeProjectionTest` corre las proyecciones **contra una base** y fija que
+  un ancestro que no cubre la fila la excluye, que una tienda deshabilitada sigue alcanzable por id y
+  que nada se cruza entre compañías. **Corrección (L5): cuatro de las cinco proyecciones tenían pin
+  negativo, no las cinco** — el de `findIdsByStoreIdIn` faltaba y se agregó después.
+- **Fallas propias, declaradas**: el primer resolver test verificaba `never()` sobre el mismo método
+  que sí se invoca — tres fallas del test, no del código (`3655 tests / 3 fallas`). Se corrigió a
+  verificación de argumentos exactos, que es justamente lo que hace visible la constraint de
+  ancestro.
+- **Advisorys cerrados**: la descripción de Swagger de la lista seguía prometiendo
+  `company_store_ids`; el `POST` tenía pins para dos de los cuatro roles de lectura nuevos y ahora
+  los tiene para los cuatro; el chequeo `claimIds == null` era código muerto y se fue con la
+  reescritura.
+- **Advisory declarado y no arreglado**: un portador de tienda que además tenga un rol de nivel
+  compañía (`lc-position`, `lc-department`) se amplía a toda la compañía. Es consistente con el
+  detalle, que ya autorizaba así, pero queda escrito acá en vez de descubrirse después.
+- **Gate del candidato corregido**: `spotlessCheck spotbugsMain test` → **`BUILD SUCCESSFUL in 2m
+  25s`, 3655 tests / 0 fallas / 0 errores**.
+- **Sobre las reviews**: el recibo aprobado (`review-927ba805be3b24ff`, 1 advisory R3-001 sobre las
+  queries) cubre el candidato de 556 líneas y se reconoció **antes** de tocar el código; el candidato
+  corregido se revisa aparte, porque un recibo no se hereda.
+
+**L5** — 2026-10-20 · **Re-verificación independiente del candidato corregido: sin bloqueantes.**
+
+- **El bloqueante quedó arreglado a nivel de query**, no de mock: el verificador corrió el JPQL real
+  contra la base y comparó, para **nueve formas de token**, `list ∋ SA ⇔ detailAdmits(SA)`; las dos
+  que antes divergían (país con compañía extranjera, región sin ancestros) ahora coinciden, y las
+  siete restantes también. Sin bleed entre compañías.
+- **El camino de tienda no regresó y además se endureció**: un portador de tienda con la cadena
+  completa sigue leyendo su tienda; si le falta un ancestro, la lista queda vacía **y el detalle
+  niega** — coinciden. Respecto de `66c3555` (donde STORE usaba sólo el claim), una tienda cuyo claim
+  contradice a un ancestro ahora queda oculta, que es lo que el detalle ya hacía.
+- **A1 cerrado**: quitarle los predicados de ancestro a `findIdsByStoreIdIn` dejaba toda la suite en
+  verde (la mutación no la mataba nadie). `CompanyStoreScopeProjectionTest` gana los dos casos
+  negativos del finder de tienda — tienda correcta con zona ajena, y tienda correcta con compañía
+  ajena —, así que la mutación ahora falla.
+- **A2 declarado, no arreglado (preexistente en `main`)**: la lista filtra `enabled = true`
+  (`GoodsReceiptService:366-368`) mientras el detalle (`findById`) admite un comprobante
+  deshabilitado, así que un comprobante deshabilitado es invisible en la lista y abrible por id. Es
+  la misma asimetría que en `origin/main`: no la introdujo este arreglo, y corregirla cambia lo que ve
+  cualquier portador, así que pide su propio registro en vez de colarse acá.
+- **A3 cerrado**: el `claim == null` de `allows()` era inalcanzable (los getters de claim devuelven
+  siempre un set inmutable, vacío si el token no trae nada); se eliminó y el guard queda en
+  `isEmpty()`.
+- **Test durable sumado**: `CompanyStoreScopeAgreementTest` corre el JPQL real y resuelve el alcance
+  desde un `Jwt` real, comparando forma por forma con el veredicto del detalle. Es el único test que
+  rompe si un finder pierde un predicado de ancestro — los de repositorio mockeado no pueden verlo.
+
+**L6** — 2026-10-20 · **Entrega.** Issue **#477** (`bug` + `status:approved`) y **dos PRs encadenados**:
+**#478** (base `main`, `Closes #477`, `type:bug` + `java`, 11 archivos, 556 líneas de diff) mergeado
+como **`7cf8e77b`** con sus **7 checks verdes**, y **#479** (base `fix/goods-receipt-list-scope`,
+`Refs #477`, 9 archivos, 1.113 líneas) con los mismos 7 verdes.
+
+- **El cuerpo de #478 declara la advertencia de orden**, en vez de dejarla en una conversación: ese
+  slice deriva el alcance sólo del claim de su propio nivel, así que dejarlo solo en `main` amplía el
+  listado más allá de lo que el detalle autoriza para tokens cuyos claims de ancestro no coinciden con
+  la fila. Por eso el hijo se mergea inmediatamente después.
+- La mecánica del encadenado, medida otra vez: el merge del padre cierra el issue por el `Closes`, y
+  **hay que reabrirlo** antes del hijo —el gate exige un issue abierto con `status:approved` por cada
+  PR—; el hijo pasa a `Closes #477` al retargetearse a `main` porque `Refs` sólo se acepta fuera de la
+  rama default; y la protección tiene `strict: true`, así que la rama se pone al día con `main` antes
+  del merge.
+- **Este header decía «falta la entrega»** hasta este commit. Se reescribe acá, antes del merge del
+  hijo, porque el merge a `main` falsifica cualquier frase que hable de trabajo pendiente: el registro
+  describe el estado terminal y la entrega, no el trámite que la estaba produciendo.
