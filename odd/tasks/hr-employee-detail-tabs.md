@@ -1,7 +1,7 @@
 # ODD feature: hr-employee-detail-tabs
 
 **Repository**: LifeControl — `life-control-app-angular/`
-**Status**: implementado — queda la aprobación humana del issue **#485** (`status:approved`, CONTRIBUTING §1) antes de abrir el PR de `feat/hr-employee-detail-tabs`. El detalle de entrega vive en el log de evidencia, nunca en este header.
+**Status**: implementado y entregado para revisión — el trabajo está en el PR **#488** (`feat/hr-employee-detail-tabs`, `main` como base) y el merge es una decisión del mantenedor. Este header no afirma estado de entrega: el detalle fechado está en el log de evidencia.
 **Created**: 2026-10-20 · **Risk**: bajo — restructuración de una vista: no toca datos, endpoints ni contratos; los gates de rol (`EMPLOYEE_WRITE_ROLES`, `ACCESS_READ_ROLES`) se preservan y el comportamiento está cubierto por tests.
 
 ## Objective
@@ -87,3 +87,10 @@ cuerpo de las cuatro secciones se re-indentó al entrar en su `mat-tab`, así qu
 borradas y agregadas el mismo markup. La entrega va en un solo PR y el cuerpo del PR declara el
 tamaño para el revisor. La alternativa real, si el revisor la pide, es partir por comportamiento
 (`Editar` como slice propio, ~40 líneas), no por archivo.
+
+**L7** — Entrega, con la evidencia fechada. El issue **#485** recibió `status:approved` (aprobación
+humana, CONTRIBUTING §1), y el PR **#488** abrió contra `main` desde `feat/hr-employee-detail-tabs@bdfdd1e`
+con el label único `type:feature` y `Closes #485`. CI del PR, los seis checks en verde: `A linked,
+approved issue` (6s), `Exactly one type:* label` (10s), `Lint & Build` (45s), `Unit tests (1)` (2m22s),
+`Unit tests (2)` (2m9s) y `Coverage` (23s). El merge no lo hace este registro: es decisión del
+mantenedor.
