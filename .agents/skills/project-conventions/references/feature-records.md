@@ -67,14 +67,35 @@ A record whose work is still open, or whose delivery state is not yet known:
 
 ## Gaps
 
-- **No automated guard enforces this**, and that is a deliberate choice, not an oversight: the rule
-  removes the field that could go stale rather than watching it. A guard would need a stated
-  allowlist for the records that legitimately contain the forbidden phrases as quotations — the
-  audit record that documents the drift, and the frozen narrative that
-  `purchase-order-goods-receipt.md` D4 protects — and it would fire after the merge instead of
-  before it.
-- **No CI workflow inspects `odd/**` or any markdown.** Each workflow's `paths:` filter is nested
-  under `pull_request` and scoped to its own component, so a records-only change runs no automated
-  check at all; the four workflows only run on `push` to `main`.
+**Still absent.**
+
 - **Nothing updates the header at merge time.** The merge is a manual `gh pr merge`; no step hooks
-  it. Design the header so that it does not need updating.
+  it, so the header still has to be designed so that it does not need updating. A guard can catch a
+  claim that lost its evidence; it cannot write the evidence for you.
+
+**What exists now.**
+
+- **`odd-status-headers.test.sh` enforces the invariant over every record on the tree.**
+  `.github/scripts/tests/odd-status-headers.test.sh` audits every `odd/tasks/*.md`: a record must
+  carry a `**Status**:` paragraph, and a paragraph asserting the delivery-state class — `not merged`,
+  `not pushed`, `what remains is the delivery`, `awaiting review`, `in progress`, `unstarted` — must
+  name a **merge commit** behind a delivery marker, which the suite resolves as a commit and checks
+  is an ancestor of `origin/main`. A soft phrase such as `implemented` may still rest on a bare
+  `#<number>`, because it claims the work exists, not that the unit landed. The run reports
+  `checked N record(s); M claimed merge commit(s); ancestry: ran`, and where `origin/main` does not
+  resolve — a shallow CI checkout has no such ref — it says `ancestry: skipped` out loud instead of
+  passing silently.
+- **The audit reads the first `**Status**:` paragraph and nothing else.** That scoping is what
+  replaces the allowlist this section used to say a guard would need: the records that legitimately
+  quote the forbidden phrases (the audit record, and the frozen narrative
+  `purchase-order-goods-receipt.md` D4 protects) keep those quotations outside the first paragraph,
+  so no allowlist has to name them.
+- **`pr-label-guard.yml` is what makes a records-only change get audited.** It carries **no
+  `paths:` filter**, deliberately — the other workflows nest theirs under `pull_request` and scope
+  them to their own component, so a markdown-only pull request would run zero jobs — and its `guard`
+  job runs shellcheck over every `.github/scripts/**/*.sh` and then every suite under
+  `.github/scripts/tests/`, this one included.
+- **What the guard does not do.** It does not read past the first paragraph, so the rest of a
+  record's narrative stays unverified; and it cannot decide offline whose pull request a `#<number>`
+  is, which is why the delivery-state class asks for a merge commit — the narrower identity that is
+  at least checkable, not proof of ownership.

@@ -99,7 +99,7 @@ completo, con la forma exacta del header, está en
 | Qué no lleva nunca | Estado vivo o pendiente: "sin pushear", "no hay PR abierto", "en progreso", "esperando review", "sin mergear" |
 | Dónde va la entrega | En el log de evidencia fechado del propio registro, con fecha, PR y commit |
 | Por qué | El header se escribe **antes** del merge y nadie lo revisita: un estado vivo queda falsificado por el próximo merge, sin que ningún commit toque la frase que mintió |
-| Enforcement | Ninguno automático: es una convención de escritura. Los registros anteriores a esta regla no se reescriben, porque su narrativa congelada es en sí misma evidencia |
+| Enforcement | **Automático**: `.github/scripts/tests/odd-status-headers.test.sh` corre en cada PR (el job `guard` de `PR Label Guard` levanta todas las suites de `.github/scripts/tests/`) y falla el registro que no tiene párrafo `**Status**:`, y el que declara una entrega pendiente de este mismo unit sin un merge commit que resuelva como ancestro de `origin/main`; una frase blanda como `implemented` todavía alcanza con un `#N`. Queda ausente que algo actualice el header en el merge. Los registros anteriores a esta regla no se reescriben, porque su narrativa congelada es en sí misma evidencia |
 
 ---
 
