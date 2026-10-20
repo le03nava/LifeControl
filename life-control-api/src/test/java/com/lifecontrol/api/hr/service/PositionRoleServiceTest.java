@@ -275,8 +275,10 @@ class PositionRoleServiceTest {
             var result = positionRoleService.getGrantableRoles(companyId, positionId);
 
             // The same set the save validates against, in a stable order: the screen's
-            // checkboxes cannot offer what `replaceRoles` would refuse (D7/D14/D19).
-            assertThat(result.roles()).hasSize(15).isSorted();
+            // checkboxes cannot offer what `replaceRoles` would refuse (D7/D14/D19). The
+            // size keeps the widening visible: `lc-company-read` joined the company scope
+            // with `hierarchy-read-roles`, so a sixteenth literal is a decision, not drift.
+            assertThat(result.roles()).hasSize(16).isSorted();
             assertThat(result.roles())
                     .containsExactlyElementsOf(
                             GrantablePositionRoles.names().stream().sorted().toList());

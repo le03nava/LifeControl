@@ -6,6 +6,7 @@ import static com.lifecontrol.api.common.security.Roles.COMPANY_READ;
 
 import com.lifecontrol.api.company.dto.CompanyRequest;
 import com.lifecontrol.api.company.dto.CompanyResponse;
+import com.lifecontrol.api.company.dto.CompanySelectorResponse;
 import com.lifecontrol.api.company.service.CompanyService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -46,6 +47,21 @@ public class CompanyController {
     public ResponseEntity<Page<CompanyResponse>> getAllCompanies(
             @PageableDefault(size = 12) Pageable pageable, @RequestParam(required = false) String search) {
         return ResponseEntity.ok(companyService.getAllCompanies(pageable, search));
+    }
+
+    @GetMapping("/selector")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(
+            summary = "List companies for a cascade selector",
+            description =
+                    "Returns id, companyKey and companyName only — the narrow projection a cascade selector needs — "
+                            + "filtered by the company_id claim for every non-admin caller. Authorized by the claim and "
+                            + "not by a role: the selector lists exactly the companies the caller already belongs to, "
+                            + "which is what made it unreachable for every read-only role when it had to read the "
+                            + "administration contract instead.")
+    public ResponseEntity<Page<CompanySelectorResponse>> getCompanySelector(
+            @PageableDefault(size = 12) Pageable pageable, @RequestParam(required = false) String search) {
+        return ResponseEntity.ok(companyService.getCompanySelector(pageable, search));
     }
 
     @GetMapping("/{id}")

@@ -38,8 +38,24 @@ public enum ScopeLevel {
      * {@code company-scope-local-fallback} record. Until it lands, a caller holding only
      * {@code lc-department} or {@code lc-position} is denied whenever the token lacks the
      * claim.</p>
+     *
+     * <p>{@link Roles#COMPANY_READ} belongs in this list for the same reason every other level
+     * carries its {@code -read} pair: it is the read-only rung of the company scope, and leaving it
+     * out made it a role with no scope in range — grantable from no position template, accepted by
+     * {@code CompanyController}'s two reads and by nothing under them, so a read-only caller could
+     * not traverse the hierarchy their own claim already bounded. The pairing is load-bearing in
+     * both directions: {@code GrantablePositionRolesTest} fails if this level and the frozen
+     * position-role allowlist disagree, so the read tier of the company scope is a decision written
+     * in one place instead of an omission inherited from here.</p>
+     *
+     * <p>Adding it widens nothing horizontally — {@link
+     * com.lifecontrol.api.common.auth.CurrentUserContext#verifyCompanyAccess} verifies the claim and
+     * never the roles of this level, and every endpoint that must stay closed to a read-only caller
+     * keeps it out of its {@code @PreAuthorize}. What it does change is {@code broadestGrantedScope}:
+     * a holder of {@code lc-company-read} now has COMPANY as their broadest granted scope and can
+     * traverse the descendants whose annotations admit it, exactly as the level's write role does.</p>
      */
-    COMPANY("company_id", "company", true, Roles.COMPANY, Roles.DEPARTMENT, Roles.POSITION),
+    COMPANY("company_id", "company", true, Roles.COMPANY, Roles.COMPANY_READ, Roles.DEPARTMENT, Roles.POSITION),
 
     /** Company-country level, scoped by the {@code company_country_id} claim. */
     COUNTRY("company_country_id", "company country", true, Roles.COMPANY_COUNTRY, Roles.COMPANY_COUNTRY_READ),

@@ -3,6 +3,8 @@ package com.lifecontrol.api.company.controller;
 import static com.lifecontrol.api.common.security.Roles.ADMIN;
 import static com.lifecontrol.api.common.security.Roles.COMPANY;
 import static com.lifecontrol.api.common.security.Roles.COMPANY_COUNTRY;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_COUNTRY_READ;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_READ;
 import static com.lifecontrol.api.common.security.Roles.COMPANY_REGION;
 import static com.lifecontrol.api.common.security.Roles.COMPANY_REGION_READ;
 
@@ -34,7 +36,7 @@ public class CompanyRegionController {
 
     @GetMapping
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','"
-            + COMPANY_REGION_READ + "')")
+            + COMPANY_REGION_READ + "','" + COMPANY_READ + "','" + COMPANY_COUNTRY_READ + "')")
     @Operation(
             summary = "List all regions",
             description =
@@ -49,7 +51,7 @@ public class CompanyRegionController {
 
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','"
-            + COMPANY_REGION_READ + "')")
+            + COMPANY_REGION_READ + "','" + COMPANY_READ + "','" + COMPANY_COUNTRY_READ + "')")
     @Operation(
             summary = "Get a region by ID",
             description =

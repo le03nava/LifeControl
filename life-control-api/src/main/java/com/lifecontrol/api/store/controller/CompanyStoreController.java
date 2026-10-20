@@ -3,10 +3,14 @@ package com.lifecontrol.api.store.controller;
 import static com.lifecontrol.api.common.security.Roles.ADMIN;
 import static com.lifecontrol.api.common.security.Roles.COMPANY;
 import static com.lifecontrol.api.common.security.Roles.COMPANY_COUNTRY;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_COUNTRY_READ;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_READ;
 import static com.lifecontrol.api.common.security.Roles.COMPANY_REGION;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_REGION_READ;
 import static com.lifecontrol.api.common.security.Roles.COMPANY_STORE;
 import static com.lifecontrol.api.common.security.Roles.COMPANY_STORE_READ;
 import static com.lifecontrol.api.common.security.Roles.COMPANY_ZONE;
+import static com.lifecontrol.api.common.security.Roles.COMPANY_ZONE_READ;
 
 import com.lifecontrol.api.store.dto.CompanyStoreResponse;
 import com.lifecontrol.api.store.dto.CreateCompanyStoreRequest;
@@ -36,7 +40,8 @@ public class CompanyStoreController {
 
     @GetMapping
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','"
-            + COMPANY_ZONE + "','" + COMPANY_STORE + "','" + COMPANY_STORE_READ + "')")
+            + COMPANY_ZONE + "','" + COMPANY_STORE + "','" + COMPANY_STORE_READ + "','" + COMPANY_READ + "','"
+            + COMPANY_COUNTRY_READ + "','" + COMPANY_REGION_READ + "','" + COMPANY_ZONE_READ + "')")
     @Operation(
             summary = "List all stores",
             description =
@@ -54,7 +59,8 @@ public class CompanyStoreController {
 
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('" + ADMIN + "','" + COMPANY + "','" + COMPANY_COUNTRY + "','" + COMPANY_REGION + "','"
-            + COMPANY_ZONE + "','" + COMPANY_STORE + "','" + COMPANY_STORE_READ + "')")
+            + COMPANY_ZONE + "','" + COMPANY_STORE + "','" + COMPANY_STORE_READ + "','" + COMPANY_READ + "','"
+            + COMPANY_COUNTRY_READ + "','" + COMPANY_REGION_READ + "','" + COMPANY_ZONE_READ + "')")
     @Operation(
             summary = "Get a store by ID",
             description =

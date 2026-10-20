@@ -16,6 +16,7 @@ import com.lifecontrol.api.common.address.model.Address;
 import com.lifecontrol.api.common.auth.CurrentUserContext;
 import com.lifecontrol.api.company.dto.CompanyRequest;
 import com.lifecontrol.api.company.dto.CompanyResponse;
+import com.lifecontrol.api.company.dto.CompanySelectorResponse;
 import com.lifecontrol.api.company.event.CompanyCreatedEvent;
 import com.lifecontrol.api.company.exception.CompanyNotFoundException;
 import com.lifecontrol.api.company.exception.DuplicateCompanyException;
@@ -293,6 +294,68 @@ class CompanyServiceTest {
             assertThat(result).isNotNull();
             assertThat(result.getContent()).hasSize(1);
             verify(companyRepository).findBySearchTermAndIdIn("Test", ids, pageable);
+        }
+    }
+
+    @Nested
+    @DisplayName("getCompanySelector")
+    class GetCompanySelectorTests {
+
+        @Test
+        @DisplayName("getCompanySelector - admin sees every company, projected to the selector read model")
+        void getCompanySelector_AdminProjectsTheNarrowModel() {
+            // Arrange
+            Pageable pageable = PageRequest.of(0, 12);
+            when(companyRepository.findAll(pageable)).thenReturn(new PageImpl<>(List.of(testCompany), pageable, 1));
+
+            // Act
+            Page<CompanySelectorResponse> result = companyService.getCompanySelector(pageable, null);
+
+            // Assert
+            assertThat(result.getContent()).singleElement().satisfies(selector -> {
+                assertThat(selector.id()).isEqualTo(testCompanyId);
+                assertThat(selector.companyKey()).isEqualTo("1");
+                assertThat(selector.companyName()).isEqualTo("Test Company");
+            });
+        }
+
+        @Test
+        @DisplayName("getCompanySelector - shares the company_id claim filter with getAllCompanies")
+        void getCompanySelector_NonAdminIsFilteredByTheClaim() {
+            // Arrange
+            Pageable pageable = PageRequest.of(0, 12);
+            Set<UUID> ids = Set.of(testCompanyId);
+            when(currentUserContext.isAdmin()).thenReturn(false);
+            when(currentUserContext.getCompanyIds()).thenReturn(ids);
+            when(companyRepository.findAllByIdIn(ids, pageable))
+                    .thenReturn(new PageImpl<>(List.of(testCompany), pageable, 1));
+
+            // Act
+            Page<CompanySelectorResponse> result = companyService.getCompanySelector(pageable, null);
+
+            // Assert
+            assertThat(result.getContent())
+                    .singleElement()
+                    .extracting(CompanySelectorResponse::id)
+                    .isEqualTo(testCompanyId);
+            verify(companyRepository, never()).findAll(any(Pageable.class));
+        }
+
+        @Test
+        @DisplayName("getCompanySelector - an empty claim yields an empty page and reads nothing")
+        void getCompanySelector_EmptyClaimReturnsAnEmptyPage() {
+            // Arrange
+            Pageable pageable = PageRequest.of(0, 12);
+            when(currentUserContext.isAdmin()).thenReturn(false);
+            when(currentUserContext.getCompanyIds()).thenReturn(Set.of());
+
+            // Act
+            Page<CompanySelectorResponse> result = companyService.getCompanySelector(pageable, null);
+
+            // Assert
+            assertThat(result.getContent()).isEmpty();
+            verify(companyRepository, never()).findAll(any(Pageable.class));
+            verify(companyRepository, never()).findAllByIdIn(anySet(), any(Pageable.class));
         }
     }
 

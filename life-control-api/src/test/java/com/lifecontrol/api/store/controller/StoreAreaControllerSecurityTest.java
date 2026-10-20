@@ -3,6 +3,7 @@ package com.lifecontrol.api.store.controller;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -18,6 +19,8 @@ import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -190,6 +193,24 @@ class StoreAreaControllerSecurityTest {
             mockMvc.perform(get(BASE_URL, companyId, companyCountryId, regionId, zoneId, storeId))
                     .andExpect(status().isOk());
         }
+
+        @ParameterizedTest
+        @ValueSource(
+                strings = {
+                    "lc-company-read",
+                    "lc-company-country-read",
+                    "lc-company-region-read",
+                    "lc-company-zone-read"
+                })
+        @DisplayName("returns 200 OK for every ancestor read role")
+        void ancestorReadRoleCanList(String role) throws Exception {
+            when(storeAreaService.getAllAreas(companyId, companyCountryId, regionId, zoneId, storeId, false))
+                    .thenReturn(List.of());
+
+            mockMvc.perform(get(BASE_URL, companyId, companyCountryId, regionId, zoneId, storeId)
+                            .with(user("hierarchy-reader").roles(role)))
+                    .andExpect(status().isOk());
+        }
     }
 
     @Nested
@@ -242,6 +263,24 @@ class StoreAreaControllerSecurityTest {
                     .thenReturn(buildAreaResponse());
 
             mockMvc.perform(get(BASE_URL + "/{areaId}", companyId, companyCountryId, regionId, zoneId, storeId, areaId))
+                    .andExpect(status().isOk());
+        }
+
+        @ParameterizedTest
+        @ValueSource(
+                strings = {
+                    "lc-company-read",
+                    "lc-company-country-read",
+                    "lc-company-region-read",
+                    "lc-company-zone-read"
+                })
+        @DisplayName("returns 200 OK for every ancestor read role")
+        void ancestorReadRoleCanGetById(String role) throws Exception {
+            when(storeAreaService.getAreaById(companyId, companyCountryId, regionId, zoneId, storeId, areaId))
+                    .thenReturn(buildAreaResponse());
+
+            mockMvc.perform(get(BASE_URL + "/{areaId}", companyId, companyCountryId, regionId, zoneId, storeId, areaId)
+                            .with(user("hierarchy-reader").roles(role)))
                     .andExpect(status().isOk());
         }
     }
@@ -541,6 +580,23 @@ class StoreAreaControllerSecurityTest {
             when(storeAreaService.getAreaById(areaId)).thenReturn(buildAreaResponse());
 
             mockMvc.perform(get(FLAT_URL + "/{areaId}", areaId)).andExpect(status().isOk());
+        }
+
+        @ParameterizedTest
+        @ValueSource(
+                strings = {
+                    "lc-company-read",
+                    "lc-company-country-read",
+                    "lc-company-region-read",
+                    "lc-company-zone-read"
+                })
+        @DisplayName("returns 200 OK for every ancestor read role")
+        void ancestorReadRoleCanGetById(String role) throws Exception {
+            when(storeAreaService.getAreaById(areaId)).thenReturn(buildAreaResponse());
+
+            mockMvc.perform(get(FLAT_URL + "/{areaId}", areaId)
+                            .with(user("hierarchy-reader").roles(role)))
+                    .andExpect(status().isOk());
         }
     }
 }

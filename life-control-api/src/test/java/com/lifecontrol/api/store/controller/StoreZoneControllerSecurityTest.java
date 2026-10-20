@@ -3,6 +3,7 @@ package com.lifecontrol.api.store.controller;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -18,6 +19,8 @@ import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -192,6 +195,24 @@ class StoreZoneControllerSecurityTest {
             mockMvc.perform(get(BASE_URL, companyId, companyCountryId, regionId, zoneId, storeId, areaId))
                     .andExpect(status().isOk());
         }
+
+        @ParameterizedTest
+        @ValueSource(
+                strings = {
+                    "lc-company-read",
+                    "lc-company-country-read",
+                    "lc-company-region-read",
+                    "lc-company-zone-read"
+                })
+        @DisplayName("returns 200 OK for every ancestor read role")
+        void ancestorReadRoleCanList(String role) throws Exception {
+            when(storeZoneService.getAllZones(companyId, companyCountryId, regionId, zoneId, storeId, areaId, false))
+                    .thenReturn(List.of());
+
+            mockMvc.perform(get(BASE_URL, companyId, companyCountryId, regionId, zoneId, storeId, areaId)
+                            .with(user("hierarchy-reader").roles(role)))
+                    .andExpect(status().isOk());
+        }
     }
 
     @Nested
@@ -287,6 +308,33 @@ class StoreZoneControllerSecurityTest {
                             storeId,
                             areaId,
                             storeZoneId))
+                    .andExpect(status().isOk());
+        }
+
+        @ParameterizedTest
+        @ValueSource(
+                strings = {
+                    "lc-company-read",
+                    "lc-company-country-read",
+                    "lc-company-region-read",
+                    "lc-company-zone-read"
+                })
+        @DisplayName("returns 200 OK for every ancestor read role")
+        void ancestorReadRoleCanGetById(String role) throws Exception {
+            when(storeZoneService.getZoneById(
+                            companyId, companyCountryId, regionId, zoneId, storeId, areaId, storeZoneId))
+                    .thenReturn(buildStoreZoneResponse());
+
+            mockMvc.perform(get(
+                                    BASE_URL + "/{storeZoneId}",
+                                    companyId,
+                                    companyCountryId,
+                                    regionId,
+                                    zoneId,
+                                    storeId,
+                                    areaId,
+                                    storeZoneId)
+                            .with(user("hierarchy-reader").roles(role)))
                     .andExpect(status().isOk());
         }
     }
@@ -656,6 +704,23 @@ class StoreZoneControllerSecurityTest {
             when(storeZoneService.getZoneById(storeZoneId)).thenReturn(buildStoreZoneResponse());
 
             mockMvc.perform(get(FLAT_URL + "/{storeZoneId}", storeZoneId)).andExpect(status().isOk());
+        }
+
+        @ParameterizedTest
+        @ValueSource(
+                strings = {
+                    "lc-company-read",
+                    "lc-company-country-read",
+                    "lc-company-region-read",
+                    "lc-company-zone-read"
+                })
+        @DisplayName("returns 200 OK for every ancestor read role")
+        void ancestorReadRoleCanGetById(String role) throws Exception {
+            when(storeZoneService.getZoneById(storeZoneId)).thenReturn(buildStoreZoneResponse());
+
+            mockMvc.perform(get(FLAT_URL + "/{storeZoneId}", storeZoneId)
+                            .with(user("hierarchy-reader").roles(role)))
+                    .andExpect(status().isOk());
         }
     }
 }

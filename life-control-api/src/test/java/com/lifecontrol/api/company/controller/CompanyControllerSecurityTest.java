@@ -2,15 +2,19 @@ package com.lifecontrol.api.company.controller;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.lifecontrol.api.company.dto.CompanyRequest;
 import com.lifecontrol.api.company.dto.CompanyResponse;
+import com.lifecontrol.api.company.dto.CompanySelectorResponse;
 import com.lifecontrol.api.company.service.CompanyService;
 import com.lifecontrol.api.config.ratelimit.RateLimitProperties;
 import java.time.LocalDateTime;
@@ -24,6 +28,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.MediaType;
@@ -482,6 +487,54 @@ class CompanyControllerSecurityTest {
         @DisplayName("DELETE /api/companies/{id} returns 403 Forbidden")
         void readCannotDeleteCompany() throws Exception {
             mockMvc.perform(delete("/api/companies/{id}", UUID.randomUUID())).andExpect(status().isForbidden());
+        }
+    }
+
+    // ─── GET /api/companies/selector — authorized by the claim, not by a role ──
+
+    @Nested
+    @DisplayName("GET /api/companies/selector — claim-authorized, role-independent")
+    class CompanySelectorAccess {
+
+        private Page<CompanySelectorResponse> selectorPage() {
+            return new PageImpl<>(
+                    List.of(new CompanySelectorResponse(UUID.randomUUID(), "1", "Test")), PageRequest.of(0, 12), 1);
+        }
+
+        @Test
+        @WithMockUser(roles = {"lc-sales"})
+        @DisplayName("a store persona with no company role at all returns 200 OK")
+        void storePersonaCanPopulateTheSelector() throws Exception {
+            when(companyService.getCompanySelector(any(), eq(null))).thenReturn(selectorPage());
+
+            mockMvc.perform(get("/api/companies/selector")).andExpect(status().isOk());
+        }
+
+        @Test
+        @WithMockUser
+        @DisplayName("an authenticated caller holding no client role returns 200 OK")
+        void authenticatedCallerWithoutRolesReturnsOk() throws Exception {
+            when(companyService.getCompanySelector(any(), eq(null))).thenReturn(selectorPage());
+
+            mockMvc.perform(get("/api/companies/selector")).andExpect(status().isOk());
+        }
+
+        @Test
+        @DisplayName("an anonymous caller is refused")
+        void anonymousIsRefused() throws Exception {
+            mockMvc.perform(get("/api/companies/selector")).andExpect(status().isUnauthorized());
+        }
+
+        @Test
+        @WithMockUser(roles = {"lc-sales"})
+        @DisplayName("the selector path does not collide with GET /api/companies/{id}")
+        void selectorDoesNotResolveAsACompanyId() throws Exception {
+            when(companyService.getCompanySelector(any(), eq(null))).thenReturn(selectorPage());
+
+            mockMvc.perform(get("/api/companies/selector"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content[0].companyKey").value("1"));
+            verify(companyService, never()).getCompanyById(any());
         }
     }
 }

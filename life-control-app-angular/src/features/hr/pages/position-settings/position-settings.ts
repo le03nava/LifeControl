@@ -94,7 +94,7 @@ export function bandRowValidator(group: AbstractControl): ValidationErrors | nul
  * (D18) reviewable one at a time.
  *
  * The Roles section draws its candidate set from the **backend's allowlist** read
- * (D19) rather than a copy of the fifteen names, so the checkboxes cannot offer what
+ * (D19) rather than a copy of the sixteen names, so the checkboxes cannot offer what
  * the save would refuse, and it states in the UI what **D6** already decided: the
  * template is a provisioning **seed**, so changing it does not alter anyone's
  * current access.
