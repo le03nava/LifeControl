@@ -476,8 +476,8 @@ export class ContractDialog {
    * dialog open with its own banner and **never** reaches the assignment call; an assignment failure
    * still closes the dialog, carrying the created contract **and** the failure as two separate facts
    * (`D9`), because no rollback is expressible — assignments have no `PUT`/`DELETE` and a contract has
-   * none either — so the act reports instead of compensating, and the page's `Tiendas asignadas`
-   * section is the retry path.
+   * none either — so the act reports instead of compensating, and the page's `Tiendas` tab is the
+   * retry path.
    *
    * The assignment's `validFrom` is the created contract's `startDate`, verbatim (`T20`): one act,
    * one date, one control. The empty picker resolves to an {@link ActivationOutcome} with no
