@@ -1,7 +1,7 @@
 # ODD feature: goods-receipt-scope
 
 **Repository**: LifeControl — `life-control-api/`
-**Status**: open — arregla el gap **G1** de `odd/tasks/hierarchy-read-roles.md` y está implementado y verificado en la rama `fix/goods-receipt-scope` (`9551c4c`, `5c1aa57`). Trabajo restante de este registro: la entrega (issue aprobado + PR), que es decisión del mantenedor. Riesgo: alto — superficie de autorización y rationale de tenancy (`W2-D10`).
+**Status**: delivered — G1 está arreglado: el listado de comprobantes deriva su alcance del `ScopeLevel` más amplio otorgado y aplica la misma regla que el detalle, claims de ancestros incluidos. Entró por el issue **#477** y la cadena de PRs **#478** (merge `7cf8e77b`) y **#479**. El único advisory abierto es el de `enabled` (listado vs detalle), que es preexistente y pide su propio registro.
 **Created**: 2026-10-20 · **Risk**: alto — superficie de autorización (item 2).
 
 ## Objective
@@ -153,3 +153,21 @@ candidato que la review nativa ya había aprobado.
 - **Test durable sumado**: `CompanyStoreScopeAgreementTest` corre el JPQL real y resuelve el alcance
   desde un `Jwt` real, comparando forma por forma con el veredicto del detalle. Es el único test que
   rompe si un finder pierde un predicado de ancestro — los de repositorio mockeado no pueden verlo.
+
+**L6** — 2026-10-20 · **Entrega.** Issue **#477** (`bug` + `status:approved`) y **dos PRs encadenados**:
+**#478** (base `main`, `Closes #477`, `type:bug` + `java`, 11 archivos, 556 líneas de diff) mergeado
+como **`7cf8e77b`** con sus **7 checks verdes**, y **#479** (base `fix/goods-receipt-list-scope`,
+`Refs #477`, 9 archivos, 1.113 líneas) con los mismos 7 verdes.
+
+- **El cuerpo de #478 declara la advertencia de orden**, en vez de dejarla en una conversación: ese
+  slice deriva el alcance sólo del claim de su propio nivel, así que dejarlo solo en `main` amplía el
+  listado más allá de lo que el detalle autoriza para tokens cuyos claims de ancestro no coinciden con
+  la fila. Por eso el hijo se mergea inmediatamente después.
+- La mecánica del encadenado, medida otra vez: el merge del padre cierra el issue por el `Closes`, y
+  **hay que reabrirlo** antes del hijo —el gate exige un issue abierto con `status:approved` por cada
+  PR—; el hijo pasa a `Closes #477` al retargetearse a `main` porque `Refs` sólo se acepta fuera de la
+  rama default; y la protección tiene `strict: true`, así que la rama se pone al día con `main` antes
+  del merge.
+- **Este header decía «falta la entrega»** hasta este commit. Se reescribe acá, antes del merge del
+  hijo, porque el merge a `main` falsifica cualquier frase que hable de trabajo pendiente: el registro
+  describe el estado terminal y la entrega, no el trámite que la estaba produciendo.
