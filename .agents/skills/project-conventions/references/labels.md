@@ -127,7 +127,8 @@ Four pieces, added 2026-10-17, close the gaps this file used to carry:
 | Guard | `.github/workflows/pr-label-guard.yml` -> `.github/scripts/check-pr-type-labels.sh` | Fails the pull request when the label set — read from the pull request itself when the job runs, never from the triggering event's snapshot — has zero `type:*` labels, more than one, or one whose name is not in the vocabulary. |
 | Planner | `.github/scripts/retro-label-prs.sh` | Applies the commit-type mapping to an existing history, dry-run by default and idempotent. |
 
-The four suites under `.github/scripts/tests/` run inside the guard workflow, all offline:
+The `guard` job runs **every** suite under `.github/scripts/tests/` by glob, not by list — **nine**
+suites, **245** assertions as of 2026-10-20, all offline, so a new suite is wired by existing:
 `check-pr-type-labels.test.sh` (the guard's own failure modes — zero labels, two labels, a synonym,
 an unreadable or malformed set), `vocabulary-source.test.sh` (the source file, the template and this
 file's table declare the same six names, and a missing or empty source fails closed),
@@ -136,6 +137,14 @@ and `label-artifacts.test.sh` (the template offers exactly the vocabulary the gu
 Dependabot `updates[]` entry carries `dependencies` and one `type:*`, and the workflow keeps no
 `paths:` filter, reads the label set from the pull request rather than from the event payload, and
 declares the read-only scope that read needs).
+
+The other five came after the label rule and share the job because the job is the only one that every
+pull request runs: `check-issue-reference.test.sh` (the linked issue exists, is open and carries
+`status:approved`), `odd-status-headers.test.sh` (every record in `odd/tasks/` has a `**Status**:`
+paragraph, and one that declines its own delivery names a merge commit that resolves as an ancestor of
+`origin/main`), `contributing-job-names.test.sh`, `issue-templates.test.sh` and
+`workflow-trigger-parity.test.sh` (a workflow's `push` and `pull_request` triggers list the same paths,
+which is the failure mode that made this whole guard rule review-time only).
 
 The workflow carries **no `paths:` filter**, and that is the point: every other workflow here filters
 by component, so a markdown-only pull request runs no job at all — which is precisely the pull request
