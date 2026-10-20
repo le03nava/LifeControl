@@ -1113,6 +1113,91 @@ class GoodsReceiptIntegrationTest extends AbstractPostgresIntegrationTest {
                     .andExpect(status().isForbidden());
         }
 
+        /**
+         * Record S1 of advisory A2: the list hides a disabled receipt on every branch while the detail
+         * admits it. Both halves are asserted over real JWTs and PostgreSQL, because a mocked
+         * repository cannot see whether a JPQL predicate is still there.
+         *
+         * <p>The searched branch is a separate JPQL string with its own predicate, so it is asserted
+         * separately: searching for the disabled receipt's own order number has to find nothing.</p>
+         */
+        @Test
+        @DisplayName(
+                "should hide a disabled receipt from the unscoped list and its searched branch while an enabled sibling stays visible")
+        void disabledReceiptIsHiddenFromBothUnscopedListBranches() throws Exception {
+            var disabledOrder = persistedOrder(store, "PO-GR-DISABLED-A");
+            var disabled = receiptFor(store, disabledOrder, "GR-DISABLED-001");
+            disabled.setEnabled(false);
+            goodsReceiptRepository.saveAndFlush(disabled);
+            var enabledOrder = persistedOrder(store, "PO-GR-DISABLED-B");
+            goodsReceiptRepository.saveAndFlush(receiptFor(store, enabledOrder, "GR-DISABLED-002"));
+
+            mockMvc.perform(get("/api/goods-receipts").with(jwt().authorities(ROLE_LC_ADMIN)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.totalElements").value(1))
+                    .andExpect(jsonPath("$.content[0].receiptNumber").value("GR-DISABLED-002"));
+
+            // The disabled receipt settles PO-GR-DISABLED-A, so its own order number is the search
+            // term that would surface it if findBySearchTerm lost `gr.enabled = true`.
+            mockMvc.perform(get("/api/goods-receipts")
+                            .param("search", "PO-GR-DISABLED-A")
+                            .with(jwt().authorities(ROLE_LC_ADMIN)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.totalElements").value(0))
+                    .andExpect(jsonPath("$.content").isEmpty());
+        }
+
+        /**
+         * Record S1 of advisory A2 on the store-scoped side: the two derived/&#64;Query finders that
+         * carry {@code enabled = true} next to the store predicate. A store principal must not see the
+         * disabled receipt of its own store, searched or unsearched.
+         */
+        @Test
+        @DisplayName("should hide a disabled receipt from the store-scoped list branch, searched and unsearched")
+        void disabledReceiptIsHiddenFromTheStoreScopedBranch() throws Exception {
+            var disabledOrder = persistedOrder(store, "PO-GR-DISABLED-SCOPED-A");
+            var disabled = receiptFor(store, disabledOrder, "GR-SCOPED-DISABLED-001");
+            disabled.setEnabled(false);
+            goodsReceiptRepository.saveAndFlush(disabled);
+            var enabledOrder = persistedOrder(store, "PO-GR-DISABLED-SCOPED-B");
+            goodsReceiptRepository.saveAndFlush(receiptFor(store, enabledOrder, "GR-SCOPED-DISABLED-002"));
+
+            var chain = storeChain();
+            var storeScoped = storeScopedJwt(chain, chain.storeId());
+
+            mockMvc.perform(get("/api/goods-receipts").with(storeScoped))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.totalElements").value(1))
+                    .andExpect(jsonPath("$.content[0].receiptNumber").value("GR-SCOPED-DISABLED-002"));
+
+            mockMvc.perform(get("/api/goods-receipts")
+                            .param("search", "PO-GR-DISABLED-SCOPED-A")
+                            .with(storeScopedJwt(chain, chain.storeId())))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.totalElements").value(0))
+                    .andExpect(jsonPath("$.content").isEmpty());
+        }
+
+        /**
+         * The other half of the rule, and the reason the list filter is not a bug: a disabled receipt
+         * stays readable by id, with its flag in the body, exactly as {@code CustomerService} reads a
+         * soft-deleted customer. If this ever has to change, it changes as a decision, not by drift.
+         */
+        @Test
+        @DisplayName("should still admit a disabled receipt by id, with its enabled flag in the body")
+        void disabledReceiptRemainsReadableById() throws Exception {
+            var order = persistedOrder(store, "PO-GR-DISABLED-DETAIL");
+            var receipt = receiptFor(store, order, "GR-DISABLED-DETAIL-001");
+            receipt.setEnabled(false);
+            var disabled = goodsReceiptRepository.saveAndFlush(receipt);
+
+            mockMvc.perform(get("/api/goods-receipts/{id}", disabled.getId()).with(jwt().authorities(ROLE_LC_ADMIN)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.id").value(disabled.getId().toString()))
+                    .andExpect(jsonPath("$.receiptNumber").value("GR-DISABLED-DETAIL-001"))
+                    .andExpect(jsonPath("$.enabled").value(false));
+        }
+
         /** A store-scoped principal whose claims carry the real chain, with a chosen store id. */
         private org.springframework.test.web.servlet.request.RequestPostProcessor storeScopedJwt(
                 StoreChain chain, UUID storeId) {

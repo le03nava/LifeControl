@@ -292,6 +292,17 @@ public class GoodsReceiptService {
      * {@link CurrentUserContext#verifyCompanyStoreAccess}, the same shape
      * {@code StoreLocationService#getLocationById} relies on.</p>
      *
+     * <p><strong>This read does not filter {@code enabled}, while the list does.</strong> All four
+     * finders behind {@link #getAllReceipts} require {@code enabled = true}, so a receipt with
+     * {@code enabled = false} is absent from every list branch and still returned here, its flag
+     * included in the body. That pairing is the soft-delete idiom the rest of the API follows —
+     * {@code CustomerService#getCustomerById} reads a soft-deleted customer exactly this way, because
+     * a disabled row has to stay inspectable to be re-enabled. It is also unreachable today: the
+     * controller exposes only {@code POST} and the two {@code GET}s, and nothing in {@code src/main}
+     * calls {@code setEnabled} on a receipt, so no API path can produce the disabled row this method
+     * admits. The rule is pinned by {@code GoodsReceiptIntegrationTest}, which fails if a list finder
+     * loses its predicate.</p>
+     *
      * @throws GoodsReceiptNotFoundException when no receipt exists with the given id
      * @throws org.springframework.security.access.AccessDeniedException when the current user cannot
      *     access the receipt's store
