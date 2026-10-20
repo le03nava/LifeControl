@@ -100,14 +100,17 @@ candidato que la review nativa ya había aprobado.
   `AccessDeniedException` al abrirla. **Sobre `origin/main` la misma sonda devolvía página vacía**:
   el defecto lo introdujo el arreglo, no venía de antes.
 - **Corrección (`3dd61a1`)**: las cinco proyecciones pasan a recibir **todas** las constraints de
-  ancestro y el resolver niega sin consultar cuando falta un claim requerido. Un portador de tienda
-  también queda constreñido por la cadena, así que el filtro de la lista y el del detalle son
-  literalmente la misma regla en vez de dos que coinciden por casualidad.
+  ancestro y el resolver niega sin consultar cuando falta **cualquier claim de la cadena** —no
+  «cuando falta un claim requerido»: `isRequired()` no decide acá, la guarda exige los cinco niveles
+  que el alcance alcanza—. Un portador de tienda también queda constreñido por la cadena, así que el
+  filtro de la lista y el del detalle son literalmente la misma regla en vez de dos que coinciden por
+  casualidad.
 - **Evidencia (`9bdfdb2`)**: `GoodsReceiptScopeAgreementTest` corre `Jwt` real → `CurrentUserContext`
   real → resolver real → servicio, y cubre los dos casos que divergían más los controles de tienda y
-  de admin; `CompanyStoreScopeProjectionTest` corre las cinco proyecciones **contra una base** y fija
-  que un ancestro que no cubre la fila la excluye, que una tienda deshabilitada sigue alcanzable por
-  id y que nada se cruza entre compañías.
+  de admin; `CompanyStoreScopeProjectionTest` corre las proyecciones **contra una base** y fija que
+  un ancestro que no cubre la fila la excluye, que una tienda deshabilitada sigue alcanzable por id y
+  que nada se cruza entre compañías. **Corrección (L5): cuatro de las cinco proyecciones tenían pin
+  negativo, no las cinco** — el de `findIdsByStoreIdIn` faltaba y se agregó después.
 - **Fallas propias, declaradas**: el primer resolver test verificaba `never()` sobre el mismo método
   que sí se invoca — tres fallas del test, no del código (`3655 tests / 3 fallas`). Se corrigió a
   verificación de argumentos exactos, que es justamente lo que hace visible la constraint de
@@ -124,3 +127,29 @@ candidato que la review nativa ya había aprobado.
 - **Sobre las reviews**: el recibo aprobado (`review-927ba805be3b24ff`, 1 advisory R3-001 sobre las
   queries) cubre el candidato de 556 líneas y se reconoció **antes** de tocar el código; el candidato
   corregido se revisa aparte, porque un recibo no se hereda.
+
+**L5** — 2026-10-20 · **Re-verificación independiente del candidato corregido: sin bloqueantes.**
+
+- **El bloqueante quedó arreglado a nivel de query**, no de mock: el verificador corrió el JPQL real
+  contra la base y comparó, para **nueve formas de token**, `list ∋ SA ⇔ detailAdmits(SA)`; las dos
+  que antes divergían (país con compañía extranjera, región sin ancestros) ahora coinciden, y las
+  siete restantes también. Sin bleed entre compañías.
+- **El camino de tienda no regresó y además se endureció**: un portador de tienda con la cadena
+  completa sigue leyendo su tienda; si le falta un ancestro, la lista queda vacía **y el detalle
+  niega** — coinciden. Respecto de `66c3555` (donde STORE usaba sólo el claim), una tienda cuyo claim
+  contradice a un ancestro ahora queda oculta, que es lo que el detalle ya hacía.
+- **A1 cerrado**: quitarle los predicados de ancestro a `findIdsByStoreIdIn` dejaba toda la suite en
+  verde (la mutación no la mataba nadie). `CompanyStoreScopeProjectionTest` gana los dos casos
+  negativos del finder de tienda — tienda correcta con zona ajena, y tienda correcta con compañía
+  ajena —, así que la mutación ahora falla.
+- **A2 declarado, no arreglado (preexistente en `main`)**: la lista filtra `enabled = true`
+  (`GoodsReceiptService:366-368`) mientras el detalle (`findById`) admite un comprobante
+  deshabilitado, así que un comprobante deshabilitado es invisible en la lista y abrible por id. Es
+  la misma asimetría que en `origin/main`: no la introdujo este arreglo, y corregirla cambia lo que ve
+  cualquier portador, así que pide su propio registro en vez de colarse acá.
+- **A3 cerrado**: el `claim == null` de `allows()` era inalcanzable (los getters de claim devuelven
+  siempre un set inmutable, vacío si el token no trae nada); se eliminó y el guard queda en
+  `isEmpty()`.
+- **Test durable sumado**: `CompanyStoreScopeAgreementTest` corre el JPQL real y resuelve el alcance
+  desde un `Jwt` real, comparando forma por forma con el veredicto del detalle. Es el único test que
+  rompe si un finder pierde un predicado de ancestro — los de repositorio mockeado no pueden verlo.
