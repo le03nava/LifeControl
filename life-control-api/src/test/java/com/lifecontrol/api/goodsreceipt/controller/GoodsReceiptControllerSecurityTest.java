@@ -2,6 +2,7 @@ package com.lifecontrol.api.goodsreceipt.controller;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -21,6 +22,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -42,7 +45,8 @@ import tools.jackson.databind.ObjectMapper;
 
 /**
  * Pins the {@code @PreAuthorize} role sets of the goods receipt endpoints: the reads add
- * {@code lc-company-store-read}, the create does not, and both the create and the reads accept the
+ * {@code lc-company-store-read} and the read-only roles of every ancestor level, the create does
+ * not, and both the create and the reads accept the
  * {@code lc-receiving} warehouse role.
  */
 @WebMvcTest(GoodsReceiptController.class)
@@ -149,6 +153,26 @@ class GoodsReceiptControllerSecurityTest {
         }
 
         @Test
+        @WithMockUser(roles = {"lc-company-read"})
+        @DisplayName("returns 403 for the read-only company role")
+        void readOnlyCompanyRoleCannotWrite() throws Exception {
+            mockMvc.perform(post(BASE_URL)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isForbidden());
+        }
+
+        @Test
+        @WithMockUser(roles = {"lc-company-region-read"})
+        @DisplayName("returns 403 for the read-only region role")
+        void readOnlyRegionRoleCannotWrite() throws Exception {
+            mockMvc.perform(post(BASE_URL)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isForbidden());
+        }
+
+        @Test
         @WithMockUser(roles = {"lc-company-store"})
         @DisplayName("returns 201 for an authorized store role")
         void storeRoleCanWrite() throws Exception {
@@ -204,6 +228,19 @@ class GoodsReceiptControllerSecurityTest {
             mockMvc.perform(get(BASE_URL)).andExpect(status().isOk());
         }
 
+        @ParameterizedTest(name = "returns 200 for the read-only role of an ancestor level: {0}")
+        @ValueSource(
+                strings = {
+                    "lc-company-read",
+                    "lc-company-country-read",
+                    "lc-company-region-read",
+                    "lc-company-zone-read"
+                })
+        @DisplayName("returns 200 for the read-only roles of the ancestor levels")
+        void ancestorReadRolesCanRead(String role) throws Exception {
+            mockMvc.perform(get(BASE_URL).with(user("subject").roles(role))).andExpect(status().isOk());
+        }
+
         @Test
         @WithMockUser(roles = {"lc-receiving"})
         @DisplayName("returns 200 for the receiving role")
@@ -235,6 +272,21 @@ class GoodsReceiptControllerSecurityTest {
         @DisplayName("returns 200 for an authorized store role")
         void storeRoleCanRead() throws Exception {
             mockMvc.perform(get(BASE_URL + "/{id}", UUID.randomUUID())).andExpect(status().isOk());
+        }
+
+        @ParameterizedTest(name = "returns 200 for the read-only role of an ancestor level: {0}")
+        @ValueSource(
+                strings = {
+                    "lc-company-read",
+                    "lc-company-country-read",
+                    "lc-company-region-read",
+                    "lc-company-zone-read"
+                })
+        @DisplayName("returns 200 for the read-only roles of the ancestor levels")
+        void ancestorReadRolesCanRead(String role) throws Exception {
+            mockMvc.perform(get(BASE_URL + "/{id}", UUID.randomUUID())
+                            .with(user("subject").roles(role)))
+                    .andExpect(status().isOk());
         }
 
         @Test
