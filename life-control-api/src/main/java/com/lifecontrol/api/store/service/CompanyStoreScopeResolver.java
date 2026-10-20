@@ -118,10 +118,15 @@ public class CompanyStoreScopeResolver {
         };
     }
 
-    /** Whether every claim the scope needs is present: an absent one cannot authorize anything. */
+    /**
+     * Whether every claim the scope needs is present: an absent one cannot authorize anything.
+     *
+     * <p>{@code CurrentUserContext}'s claim getters always return an immutable set — empty when the
+     * token carries nothing — so "absent" is an empty set and there is no null to guard.</p>
+     */
     private static boolean allows(Set<UUID>... claims) {
         for (var claim : claims) {
-            if (claim == null || claim.isEmpty()) {
+            if (claim.isEmpty()) {
                 return false;
             }
         }

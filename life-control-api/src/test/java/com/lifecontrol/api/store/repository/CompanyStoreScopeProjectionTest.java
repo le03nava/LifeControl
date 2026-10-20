@@ -175,6 +175,13 @@ class CompanyStoreScopeProjectionTest {
         assertThat(companyStoreRepository.findIdsByCompanyZoneIdIn(
                         List.of(zoneA1), List.of(regionB), List.of(countryA), List.of(companyA)))
                 .isEmpty();
+        // The store level carries the same constraint: the store is right and an ancestor is not.
+        assertThat(companyStoreRepository.findIdsByStoreIdIn(
+                        List.of(storeA1), List.of(zoneB), List.of(regionA), List.of(countryA), List.of(companyA)))
+                .isEmpty();
+        assertThat(companyStoreRepository.findIdsByStoreIdIn(
+                        List.of(storeA1), List.of(zoneA1), List.of(regionA), List.of(countryA), List.of(companyB)))
+                .isEmpty();
     }
 
     @Test
