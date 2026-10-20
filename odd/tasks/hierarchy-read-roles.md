@@ -1,7 +1,7 @@
 # ODD feature: hierarchy-read-roles
 
 **Repository**: LifeControl — `life-control-api/` + `life-control-app-angular/`
-**Status**: open — S1, S2 y S3 quedaron implementadas y verificadas sobre `main @ d7870b1` en dos slices: el backend completo en `1db82e6..18faf8c` y la migración del frontend con su pin en `18faf8c..f28a792`. El trabajo restante de este registro es **G1**, que pide registro propio; la evidencia de entrega va en el log.
+**Status**: open — S1, S2 y S3 quedaron implementadas y verificadas sobre `main @ d7870b1` en dos slices: el backend completo en `1db82e6..5de5d75` y la migración del frontend con su pin en `5de5d75..` los commits que le siguen. El trabajo restante de este registro es **G1**, que pide registro propio; la evidencia de entrega va en el log.
 **Created**: 2026-02-21 · **Risk**: alto — superficie de autorización (item 2) y criterios de lectura por nivel.
 
 ## Objective
@@ -189,7 +189,7 @@ entrega T3.
 resultado esperado, criterios verificables y non-goals) y **dos PRs encadenados** — **#474** (base
 `main`, `Closes #473`, 33 archivos, +922/−39) y **#475** (base `feat/hierarchy-read-roles-backend`,
 `Refs #473`, 47 archivos, +413/−107). Ramas: `feat/hierarchy-read-roles-backend` @ `18faf8c` y
-`feat/hierarchy-read-roles-frontend` @ `f28a792`.
+`feat/hierarchy-read-roles-frontend` @ `4b6513a` (con un merge del padre).
 
 - **El gate de spotless falló sobre los bytes commiteados de T3** y no fue cosmético: `spotlessJavaCheck`
   rechazaba `CompanyStoreFlatControllerSecurityTest`. `18faf8c` aplica el formateador y la corrida
@@ -202,3 +202,25 @@ resultado esperado, criterios verificables y non-goals) y **dos PRs encadenados*
 - **Residuo declarado**: la rama remota `feat/hierarchy-read-roles` quedó apuntando al pre-rebase
   `aea74ee`. La política de seguridad bloqueó el force-push, así que el slice 2 se publicó bajo
   `feat/hierarchy-read-roles-frontend`; esa ref vieja hay que borrarla al cerrar el ciclo.
+
+**L10** — 2026-02-21 · **La CI rechazó #474 y el defecto era real: el slice 1 viajó sin los pins de
+T1.** El job `Test` de #474 falló con **3621 tests / 2 fallas**, y las dos son las aserciones que T1
+tenía que haber movido: `CurrentUserContextTest > ScopeLevel.COMPANY lists exactly the company roles`
+y `PositionRoleServiceTest > getGrantableRoles > returns the frozen allowlist sorted`.
+
+- **Causa, medida**: la sesión anterior dejó esos dos archivos modificados y sin commitear. Al armar el
+  commit de T4 se usó `git add -u`, que se lleva **todo el árbol**, así que los dos pins de T1 —ajenos
+  al slice del frontend— viajaron dentro del commit del frontend y el backend quedó con el
+  ensanchamiento **sin sus pins**. Es un error mío de staging, no del writer: `git add -u` en un
+  worktree con cambios de otra sesión arrastra lo que no corresponde; el staging va por superficie.
+- **Arreglo sin reescribir historia**: `5de5d75` mete los dos pins en la rama del backend, en el slice
+  al que pertenecen, con el comentario que explica por qué el número de la allowlist es dieciséis;
+  `4b6513a` mergea el padre en la rama del frontend, así el diff de #475 contra su base ya no
+  arrastra ningún test de Java (**45 archivos, +432/−105**) y el caso queda visible en la historia en
+  vez de esconderse tras un rebase. El force-push está bloqueado por política, así que el merge es la
+  ruta no destructiva.
+- **Verificación antes de volver a la CI**: suite **completa** de la API en local sobre el slice del
+  backend — `BUILD SUCCESSFUL in 2m 26s`, **3621 tests / 0 fallas / 0 errores**, que es exactamente
+  el conteo que la CI corre.
+- **Rangos finales**: slice 1 = `1db82e6..5de5d75` (**35 archivos, +928/−42**, 8 commits), slice 2 =
+  `5de5d75..` (**45 archivos, +432/−105**, 5 commits contando el merge y esta evidencia).
