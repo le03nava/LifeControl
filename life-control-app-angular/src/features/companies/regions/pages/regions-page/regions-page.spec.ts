@@ -149,7 +149,7 @@ describe('RegionsPage', () => {
   }
 
   class MockCompanyService {
-    getCompanies = vi.fn().mockReturnValue(of(mockCompaniesPage));
+    getCompanySelector = vi.fn().mockReturnValue(of(mockCompaniesPage));
   }
 
   beforeEach(async () => {

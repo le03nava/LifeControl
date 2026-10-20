@@ -229,7 +229,7 @@ describe('StoreZonesPage', () => {
   ];
 
   class MockCompanyService {
-    getCompanies = vi.fn().mockReturnValue(of(mockCompaniesPage));
+    getCompanySelector = vi.fn().mockReturnValue(of(mockCompaniesPage));
   }
 
   class MockCompanyCountryService {

@@ -171,7 +171,7 @@ const mockOrder: PurchaseOrder = {
 describe('CompanyInfoSection', () => {
   let headerForm: FormGroup<PurchaseOrderHeaderControl>;
   let companyServiceMock: {
-    getCompanies: ReturnType<typeof vi.fn>;
+    getCompanySelector: ReturnType<typeof vi.fn>;
     getCompanyById: ReturnType<typeof vi.fn>;
   };
   let companyCountryServiceMock: {
@@ -215,7 +215,7 @@ describe('CompanyInfoSection', () => {
 
   beforeEach(async () => {
     companyServiceMock = {
-      getCompanies: vi.fn().mockReturnValue(of(mockCompanies)),
+      getCompanySelector: vi.fn().mockReturnValue(of(mockCompanies)),
       getCompanyById: vi.fn().mockReturnValue(of(mockCompanyById)),
     };
     companyCountryServiceMock = {
@@ -263,14 +263,14 @@ describe('CompanyInfoSection', () => {
     it('should load companies (server-side search) and profile on init', () => {
       createFixture();
 
-      expect(companyServiceMock.getCompanies).toHaveBeenCalledWith(0, 20, undefined);
+      expect(companyServiceMock.getCompanySelector).toHaveBeenCalledWith(0, 20, undefined);
       expect(profileServiceMock.getProfile).toHaveBeenCalled();
     });
 
     it('should reconstruct cascade from profile when profile has companyId', () => {
       createFixture();
 
-      expect(companyServiceMock.getCompanies).toHaveBeenCalled();
+      expect(companyServiceMock.getCompanySelector).toHaveBeenCalled();
       expect(profileServiceMock.getProfile).toHaveBeenCalled();
 
       expect(companyCountryServiceMock.getCountries).toHaveBeenCalledWith('comp-1');
@@ -352,7 +352,7 @@ describe('CompanyInfoSection', () => {
     it('should reconstruct cascade from loadedOrder', () => {
       createEditFixture(mockOrder);
 
-      expect(companyServiceMock.getCompanies).toHaveBeenCalled();
+      expect(companyServiceMock.getCompanySelector).toHaveBeenCalled();
       expect(profileServiceMock.getProfile).not.toHaveBeenCalled();
 
       expect(companyControls().companyId.value).toBe('comp-1');

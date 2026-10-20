@@ -131,7 +131,7 @@ describe('ZonesEdit', () => {
         {
           provide: CompanyService,
           useValue: {
-            getCompanies: vi.fn().mockReturnValue(of(mockCompaniesPage)),
+            getCompanySelector: vi.fn().mockReturnValue(of(mockCompaniesPage)),
           },
         },
         {

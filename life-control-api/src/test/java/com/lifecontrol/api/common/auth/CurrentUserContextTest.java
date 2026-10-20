@@ -677,7 +677,8 @@ class CurrentUserContextTest {
         @Test
         @DisplayName("ScopeLevel.COMPANY lists exactly the company roles, including the HR catalog roles")
         void companyScopeListsCompanyRoles() {
-            assertThat(ScopeLevel.COMPANY.roleNames()).containsExactly(Roles.COMPANY, Roles.DEPARTMENT, Roles.POSITION);
+            assertThat(ScopeLevel.COMPANY.roleNames())
+                    .containsExactly(Roles.COMPANY, Roles.COMPANY_READ, Roles.DEPARTMENT, Roles.POSITION);
         }
     }
 

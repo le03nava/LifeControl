@@ -1,5 +1,5 @@
 import { inject, Injectable, signal } from '@angular/core';
-import { Company, CompanyRequest, Page } from '../models/company.models';
+import { Company, CompanyRequest, CompanySelectorOption, Page } from '../models/company.models';
 import { Observable, throwError } from 'rxjs';
 import { catchError, finalize } from 'rxjs/operators';
 import { HttpClient, HttpParams } from '@angular/common/http';
@@ -34,6 +34,27 @@ export class CompanyService {
     }
 
     return this.http.get<Page<Company>>(this.apiUrl, { params });
+  }
+
+  /**
+   * Paginated company options for a dropdown, from the claim-authorized selector read.
+   *
+   * Unlike {@link getCompanies}, this endpoint carries **no role gate**: it answers to any
+   * authenticated caller and filters by the JWT's `company_id` claim, which is what lets a
+   * read-only hierarchy role paint the first level of the cascade.
+   */
+  getCompanySelector(
+    page = 0,
+    size = 12,
+    search?: string,
+  ): Observable<Page<CompanySelectorOption>> {
+    let params = new HttpParams().set('page', page.toString()).set('size', size.toString());
+
+    if (search) {
+      params = params.set('search', search);
+    }
+
+    return this.http.get<Page<CompanySelectorOption>>(`${this.apiUrl}/selector`, { params });
   }
 
   getCompanyById(id: string): Observable<Company> {

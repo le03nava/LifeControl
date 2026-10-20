@@ -104,7 +104,7 @@ export class CompanyCascadeService {
   searchCompanies(term: string): void {
     this.companiesLoading.set(true);
     this.companyService
-      .getCompanies(0, COMPANY_PAGE_SIZE, term || undefined)
+      .getCompanySelector(0, COMPANY_PAGE_SIZE, term || undefined)
       .pipe(
         map((page) =>
           page.content.map((company) => ({ id: company.id, name: company.companyName })),

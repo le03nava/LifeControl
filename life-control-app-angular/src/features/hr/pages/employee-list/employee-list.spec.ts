@@ -267,7 +267,7 @@ describe('EmployeeList', () => {
         { provide: AccessProvisioningService, useValue: accessService },
         {
           provide: CompanyService,
-          useValue: { getCompanies: vi.fn().mockReturnValue(of(companiesPage)) },
+          useValue: { getCompanySelector: vi.fn().mockReturnValue(of(companiesPage)) },
         },
         { provide: NotificationService, useValue: notifications },
         { provide: MatDialog, useValue: dialog },

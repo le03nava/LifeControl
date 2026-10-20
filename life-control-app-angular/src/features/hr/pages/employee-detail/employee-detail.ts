@@ -14,8 +14,8 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatSelectModule } from '@angular/material/select';
 import { MatDialog } from '@angular/material/dialog';
-import { map } from 'rxjs/operators';
-import { Observable } from 'rxjs';
+import { catchError, map } from 'rxjs/operators';
+import { Observable, of } from 'rxjs';
 import { ConfirmDialog, ConfirmDialogData, ErrorBanner, PageHeader } from '@shared/ui';
 import { httpErrorMessage, unwrapHttpError } from '@shared/data';
 import { CompanyService } from '@features/companies/companies/data/company.service';
@@ -59,7 +59,8 @@ import { ACCESS_READ_ROLES, EMPLOYEE_WRITE_ROLES, hasAnyClientRole } from '@core
  * Read-only detail screen of one employee: `/hr/employees/:id`.
  *
  * **The company is resolved exactly as `employee-list` resolves it** — an inline
- * `mat-select` fed by `CompanyService.getCompanies(0, 1000)`, keyed by
+ * `mat-select` fed by `CompanyService.getCompanySelector(0, 1000)`, the claim-authorized selector
+ * read, keyed by
  * `company.id`, seeded from the `companyId` query parameter and written back to
  * the URL on change. That is the same mechanism, not a new one: the detail is
  * reached from a list row that already carries the company, and the employee read
@@ -162,7 +163,7 @@ export class EmployeeDetail {
 
   /** The selector's options, the same read `employee-list` performs. */
   readonly companies = toSignal(
-    this.companyService.getCompanies(0, 1000).pipe(map((page) => page.content)),
+    this.companyService.getCompanySelector(0, 1000).pipe(map((page) => page.content)),
     { initialValue: [] },
   );
 
@@ -287,22 +288,38 @@ export class EmployeeDetail {
   readonly employeeStatusName = computed<string | null>(() => this.employee()?.statusName ?? null);
 
   /**
-   * The selected company's `emailDomain`, as the companies read the page already performs carries
-   * it, or `undefined` while that company is not resolved yet.
+   * The selected company's `emailDomain`, read through the id-addressed company read.
+   *
+   * The selector projection carries only `{id, companyKey, companyName}` and the access overview
+   * carries no domain at all, so the page reads the one company it needs instead of keeping a
+   * thousand-row list — a read the read-only hierarchy roles are not allowed to ask for anyway.
+   * That is one id-addressed request per selection, the same call the purchase-order cascade
+   * already makes for its company detail panel.
+   *
+   * A failed read leaves the domain **unresolved** (`undefined`), which must not fire the gate:
+   * only `null`/blank is a company with no deliverable domain (record T68/T85).
+   */
+  private readonly selectedCompanyDomain = rxResource({
+    params: () => this.selectedCompanyId() || undefined,
+    stream: ({ params: companyId }) =>
+      this.companyService.getCompanyById(companyId).pipe(
+        map((company) => company.emailDomain ?? null),
+        catchError(() => of(undefined)),
+      ),
+    defaultValue: undefined as string | null | undefined,
+  });
+
+  /**
+   * The selected company's `emailDomain`, or `undefined` while that read has not resolved.
    *
    * The Access section needs it to hide `apply`/`resend` when the company has no deliverable domain
    * (record T68/T85); the access overview carries no domain, so the page supplies the fact from its
-   * own `getCompanies` read. `undefined` (unresolved) must not fire the gate, while `null`/blank is
-   * a missing domain and does.
+   * own id-addressed company read. `undefined` (unresolved) must not fire the gate, while
+   * `null`/blank is a missing domain and does.
    */
-  readonly selectedCompanyEmailDomain = computed<string | null | undefined>(() => {
-    const companyId = this.selectedCompanyId();
-    if (!companyId) {
-      return undefined;
-    }
-    const company = this.companies().find((candidate) => candidate.id === companyId);
-    return company ? (company.emailDomain ?? null) : undefined;
-  });
+  readonly selectedCompanyEmailDomain = computed<string | null | undefined>(() =>
+    this.selectedCompanyDomain.value(),
+  );
 
   /** The Access section's own loading flag. */
   readonly accessLoading = this.accessResource.isLoading;
@@ -504,9 +521,12 @@ export class EmployeeDetail {
       employeeName: this.fullName(employee),
     };
     this.dialog
-      .open<AccessReviewDialog, AccessReviewDialogData, AccessReviewDialogResult>(AccessReviewDialog, {
-        data,
-      })
+      .open<AccessReviewDialog, AccessReviewDialogData, AccessReviewDialogResult>(
+        AccessReviewDialog,
+        {
+          data,
+        },
+      )
       .afterClosed()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((result) => {
@@ -554,9 +574,7 @@ export class EmployeeDetail {
         next: (overview) => this.accessResource.set(overview),
         error: (error: unknown) =>
           this.accessActionError.set(
-            this.serverEnvelope(error) ??
-              this.accessService.error() ??
-              httpErrorMessage(error),
+            this.serverEnvelope(error) ?? this.accessService.error() ?? httpErrorMessage(error),
           ),
       });
   }

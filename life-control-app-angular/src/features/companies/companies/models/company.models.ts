@@ -8,6 +8,20 @@ import type { AddressValue, AddressRequest, AddressControl } from '@shared/model
 
 export type { Country, CompanyCountry, CompanyCountryRequest };
 
+/**
+ * The row shape of the company **selector** read (`GET /api/companies/selector`).
+ *
+ * Deliberately narrower than {@link Company}: that endpoint exists so a cascading dropdown can be
+ * painted by any authenticated caller, authorized by the JWT's `company_id` claim instead of a
+ * role, so it only projects the three fields a `mat-option` needs. A consumer that needs any other
+ * member — `emailDomain`, `rfc`, `address` — must stay on the full {@link Company} read.
+ */
+export interface CompanySelectorOption {
+  id: string;
+  companyKey: string;
+  companyName: string;
+}
+
 export interface Company {
   id: string;
   companyKey: string;

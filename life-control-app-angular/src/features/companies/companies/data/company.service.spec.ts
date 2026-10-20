@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 import { firstValueFrom } from 'rxjs';
 import { CompanyService } from './company.service';
-import { Company, Page } from '../models/company.models';
+import { Company, CompanySelectorOption, Page } from '../models/company.models';
 
 describe('CompanyService', () => {
   let service: CompanyService;
@@ -111,6 +111,83 @@ describe('CompanyService', () => {
       const page = await pagePromise;
       expect(page.number).toBe(2);
       expect(page.size).toBe(24);
+    });
+  });
+
+  describe('getCompanySelector', () => {
+    it('should fetch the selector page from the claim-authorized endpoint', async () => {
+      const mockPage: Page<CompanySelectorOption> = {
+        content: [{ id: '1', companyKey: 'COMP001', companyName: 'Company A' }],
+        totalElements: 1,
+        totalPages: 1,
+        size: 1000,
+        number: 0,
+        first: true,
+        last: true,
+        empty: false,
+      };
+
+      const pagePromise = firstValueFrom(service.getCompanySelector(0, 1000));
+
+      const req = httpMock.expectOne(
+        (r) => r.url === `${service.apiUrl}/selector` && r.method === 'GET',
+      );
+      expect(req.request.params.get('page')).toBe('0');
+      expect(req.request.params.get('size')).toBe('1000');
+      expect(req.request.params.has('search')).toBe(false);
+      req.flush(mockPage);
+
+      const page = await pagePromise;
+      expect(page).toEqual(mockPage);
+      expect(page.content[0]).toEqual({ id: '1', companyKey: 'COMP001', companyName: 'Company A' });
+    });
+
+    it('should include search param when provided', async () => {
+      const mockPage: Page<CompanySelectorOption> = {
+        content: [],
+        totalElements: 0,
+        totalPages: 0,
+        size: 20,
+        number: 0,
+        first: true,
+        last: true,
+        empty: true,
+      };
+
+      const pagePromise = firstValueFrom(service.getCompanySelector(0, 20, 'Alpha'));
+
+      const req = httpMock.expectOne(
+        (r) => r.url === `${service.apiUrl}/selector` && r.method === 'GET',
+      );
+      expect(req.request.params.get('search')).toBe('Alpha');
+      req.flush(mockPage);
+
+      const page = await pagePromise;
+      expect(page.empty).toBe(true);
+    });
+
+    it('should default to the first page of 12 rows', async () => {
+      const mockPage: Page<CompanySelectorOption> = {
+        content: [],
+        totalElements: 0,
+        totalPages: 0,
+        size: 12,
+        number: 0,
+        first: true,
+        last: true,
+        empty: true,
+      };
+
+      const pagePromise = firstValueFrom(service.getCompanySelector());
+
+      const req = httpMock.expectOne(
+        (r) => r.url === `${service.apiUrl}/selector` && r.method === 'GET',
+      );
+      expect(req.request.params.get('page')).toBe('0');
+      expect(req.request.params.get('size')).toBe('12');
+      req.flush(mockPage);
+
+      await pagePromise;
     });
   });
 

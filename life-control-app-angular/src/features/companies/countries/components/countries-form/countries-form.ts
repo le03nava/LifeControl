@@ -23,7 +23,7 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatIconModule } from '@angular/material/icon';
-import { Company } from '../../../companies/models/company.models';
+import { CompanySelectorOption } from '../../../companies/models/company.models';
 import {
   CompanyCountry,
   Country,
@@ -49,7 +49,7 @@ import { CountryService } from '@features/countries/data/country.service';
 })
 export class CountriesForm {
   // ─── Inputs ─────────────────────────────────────────────────
-  companies = input.required<Company[]>();
+  companies = input.required<CompanySelectorOption[]>();
   ccToEdit = input<CompanyCountry | null>(null);
   serverErrors = input<Record<string, string>>({});
   initialCompanyId = input<string | null>(null);

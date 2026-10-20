@@ -141,7 +141,7 @@ describe('PositionEdit', () => {
         { provide: DepartmentService, useValue: departmentService },
         {
           provide: CompanyService,
-          useValue: { getCompanies: vi.fn().mockReturnValue(of(companiesPage)) },
+          useValue: { getCompanySelector: vi.fn().mockReturnValue(of(companiesPage)) },
         },
         {
           provide: ActivatedRoute,
