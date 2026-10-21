@@ -78,3 +78,11 @@ read+write-form precedent. All three are false after the move; the guide now nam
 required `chain` input, `?tab=` and `preserveContent`, and records why a page spec must provide the
 panel's collaborators. Prettier reports that file unformatted on `origin/main` too, so it is
 hand-maintained and was left that way.
+
+L7 (delivery evidence, 2026-10-21): issue #513 carries `status:approved` and pull request #514
+(`feat(angular): the store inventory settings are a Configuración tab on the store edit screen`)
+delivers this branch with the single label `type:feature` and `Closes #513`. Required checks, all
+green on head `ea34303`: `Exactly one type:* label`, `A linked, approved issue`, `Lint & Build`,
+`Unit tests (1)`, `Unit tests (2)`, `Coverage`. The first guard run failed on a transient GitHub API
+body (`invalid character 'S' looking for beginning of value`, from `gh api` answering a 5xx); a
+re-run of the same workflow passed, and the labels were never wrong.
