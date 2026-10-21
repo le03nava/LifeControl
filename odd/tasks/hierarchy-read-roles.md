@@ -1,7 +1,7 @@
 # ODD feature: hierarchy-read-roles
 
 **Repository**: LifeControl — `life-control-api/` + `life-control-app-angular/`
-**Status**: delivered — S1, S2 y S3 implementadas y verificadas. El backend entró por PR **#474** (merge `7ab89e90`, 2026-10-20) y la migración del frontend con sus pins por PR **#475**. El trabajo restante de este registro es **G1** —el listado de comprobantes no honra el alcance—, que pide registro propio.
+**Status**: delivered — S1, S2 y S3 implementadas y verificadas. El backend entró por PR **#474** (merge `7ab89e90`, 2026-10-20) y la migración del frontend con sus pins por PR **#475**. **G1** —el listado de comprobantes no honraba el alcance— se cerró en su propio registro, `odd/tasks/goods-receipt-scope.md`, por el issue **#477** y los PRs **#478** (merge `7cf8e77b`) y **#479**, así que no queda trabajo abierto de este registro.
 **Created**: 2026-02-21 · **Risk**: alto — superficie de autorización (item 2) y criterios de lectura por nivel.
 
 ## Objective
@@ -239,3 +239,12 @@ así que el cierre temprano del padre deja al hijo sin referencia válida. Al es
 sigue abierto con su base en la rama del padre: falta retargetearlo a `main` y cambiar el body de
 `Refs #473` a `Closes #473`, porque `Refs` se acepta **sólo fuera de la rama default** (el script lo
 dice en `:334-336`).
+
+## Header repair (2026-10-21)
+
+Este `**Status**:` decía que el trabajo restante del registro era **G1** «que pide registro propio». No
+quedaba trabajo: G1 se tomó como registro propio —`odd/tasks/goods-receipt-scope.md`— y se cerró ahí por
+el issue **#477** y los PRs **#478** (merge `7cf8e77b`) y **#479**. La frase se reescribe para nombrar
+ese cierre; el resto del registro queda como estaba, incluida la evidencia de la entrega de S1–S3 y el
+trámite de retarget de #475 que la última fila describe. La línea que reemplaza no afirma estado de
+entrega —afirma que el registro no tiene trabajo abierto—, así que ningún merge posterior la falsifica.

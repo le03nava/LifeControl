@@ -1,7 +1,7 @@
 # ODD feature: goods-receipt-scope
 
 **Repository**: LifeControl — `life-control-api/`
-**Status**: delivered — G1 está arreglado: el listado de comprobantes deriva su alcance del `ScopeLevel` más amplio otorgado y aplica la misma regla que el detalle, claims de ancestros incluidos. Entró por el issue **#477** y la cadena de PRs **#478** (merge `7cf8e77b`) y **#479**. El único advisory abierto es el de `enabled` (listado vs detalle), que es preexistente y pide su propio registro.
+**Status**: delivered — G1 está arreglado: el listado de comprobantes deriva su alcance del `ScopeLevel` más amplio otorgado y aplica la misma regla que el detalle, claims de ancestros incluidos. Entró por el issue **#477** y la cadena de PRs **#478** (merge `7cf8e77b`) y **#479**. El advisory de `enabled` (listado vs detalle) quedó **fijado**, no abierto: lo investigó el issue **#483** y lo pineó el PR **#484** (merge `3c2f608`), que acreditó que la API no expone la escritura de ese campo y que listado-filtra/detalle-admite es la convención del repo, con tres tests de integración y su javadoc. Este registro no tiene trabajo abierto.
 **Created**: 2026-10-20 · **Risk**: alto — superficie de autorización (item 2).
 
 ## Objective
@@ -171,3 +171,12 @@ como **`7cf8e77b`** con sus **7 checks verdes**, y **#479** (base `fix/goods-rec
 - **Este header decía «falta la entrega»** hasta este commit. Se reescribe acá, antes del merge del
   hijo, porque el merge a `main` falsifica cualquier frase que hable de trabajo pendiente: el registro
   describe el estado terminal y la entrega, no el trámite que la estaba produciendo.
+
+## Header repair (2026-10-21)
+
+Este `**Status**:` cerraba diciendo que el único advisory abierto era el de `enabled`, «que pide su propio
+registro». Ese registro se hizo: issue **#483**, PR **#484** (merge `3c2f608`, `test(goods-receipts)`),
+que acreditó que la API no expone la escritura de ese campo y que listado-filtra/detalle-admite es la
+convención del repo, y lo fijó con tres tests de integración contra PostgreSQL más su javadoc. El párrafo
+nombra esa evidencia en lugar de pedir un registro que ya existe; el cuerpo y el log del registro no se
+tocan.
