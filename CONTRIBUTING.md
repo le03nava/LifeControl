@@ -63,11 +63,25 @@ The short version for a contributor, whose detail is in that reference:
 
 ## 4. Work in a worktree
 
-Parallel work needs isolation: one branch, one worktree, one unit of work, one agent per worktree.
+Every unit of work starts in its own worktree — one branch, one worktree, one unit of work, one agent
+per worktree — and **that is not a parallelism rule**: it holds when you are the only person and the only
+agent working, in sequence, which is the case that produces every anchor incident this repository has
+had. The anchor stays on `main` and clean, and it is never an edit target: it is the reference for
+`fetch`, `log` and `rebase`, and a change made there either cannot be committed or lands on a branch
+that can never be pushed.
+
+```bash
+cd ~/workspace/<repo> && git checkout main && git pull
+git config core.hooksPath .githooks      # once per clone; linked worktrees share it
+./.github/scripts/new-unit.sh <branch>   # branch = the unit; the directory slug is derived from it
+```
+
 The worktree directory is `~/workspace/<repo>-worktrees/<slug>`, a sibling of the repository, with
-`<slug>` equal to the branch name with `/` replaced by `-`. The anchor stays on `main` and clean.
-The full model — creation, verification, cleanup order, the Pi trust requirement and the
-anti-patterns — is in `.agents/skills/project-conventions/references/worktrees.md`.
+`<slug>` equal to the branch name with `/` replaced by `-`; the script derives it, so the two cannot
+disagree. `.githooks/pre-commit` refuses a commit on the default branch and prints the way out, with
+`ALLOW_MAIN_COMMIT=1` for a commit you decide is deliberate. The full model — creation, verification,
+cleanup order, the Pi trust requirement and the anti-patterns — is in
+`.agents/skills/project-conventions/references/worktrees.md`.
 
 ## 5. Leave an evidence record
 

@@ -1,0 +1,56 @@
+#!/bin/bash
+# ============================================
+# LifeControl - the anchor is never an edit target
+# ============================================
+# Refuses a commit on the default branch. The anchor checkout exists to be a read-only reference for
+# `fetch`, `log` and `rebase`; work that lands there either cannot be committed at all or is carried by a
+# branch that can never be pushed, because `main` requires a pull request with `enforce_admins: true`.
+# Both outcomes cost the same thing: the unit has to be moved out by hand.
+#
+# The rule is stated in `AGENTS.md`, `CONTRIBUTING.md` and the `project-conventions` skill, and until this
+# hook nothing made it bite: the rule was stated as a benefit of PARALLELISM, so a single sequential
+# writer read it as not applying to it. This is the local half of the guarantee. The server cannot see a
+# dirty checkout; a hook can, at the only moment that matters -- the first commit.
+#
+# Install once per clone (linked worktrees share the same config, so this covers all of them):
+#
+#   git config core.hooksPath .githooks
+#
+# Deliberate exception: `ALLOW_MAIN_COMMIT=1 git commit ...` says the commit on the default branch is the
+# human's decision rather than an accident. It exists so the guard can stay strict without becoming a
+# wall; it is not a step in any documented workflow.
+#
+# No network, no side effects: reads the branch, prints, exits.
+
+set -u
+
+# The default branch is RESOLVED, never assumed. A repository whose default branch is `trunk` gets the
+# same guard, and `.github/scripts/tests/worktree-anchor.test.sh` proves it by renaming it in a fixture.
+default_ref="$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null || true)"
+if [ -n "$default_ref" ]; then
+	default_branch="${default_ref#refs/remotes/origin/}"
+else
+	default_branch="$(git config --get init.defaultBranch 2>/dev/null || true)"
+	[ -n "$default_branch" ] || default_branch="main"
+fi
+
+# A detached HEAD is not a branch commit, and every branch that is not the default one is ordinary work.
+current_branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+[ -n "$current_branch" ] || exit 0
+[ "$current_branch" = "$default_branch" ] || exit 0
+[ "${ALLOW_MAIN_COMMIT:-}" = "1" ] && exit 0
+
+cat >&2 <<MSG
+refusing to commit on the default branch ($default_branch).
+
+The anchor is never an edit target: it is the read-only reference for fetch, log and rebase, and a unit
+of work starts in its own worktree — not only when the work is parallel.
+
+  create it:                  ./.github/scripts/new-unit.sh <branch> [--base <ref>]
+  move work already here:     git stash --include-untracked
+                              cd <repo>-worktrees/<slug> && git stash pop
+
+If this commit on $default_branch is deliberate:
+  ALLOW_MAIN_COMMIT=1 git commit ...
+MSG
+exit 1
