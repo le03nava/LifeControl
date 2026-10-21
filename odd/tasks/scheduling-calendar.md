@@ -1,6 +1,6 @@
 # ODD feature: scheduling-calendar
 
-**Status**: **W1–W7 delivered and merged.** W1–W3 were merged first (PR **#198** @ `a28f28d`, PR **#199** @
+**Status**: **merged — W1–W7.** W1–W3 were merged first (PR **#198** @ `a28f28d`, PR **#199** @
 `016cdd6`, 2026-09-28). **W4** (appointments and the calendar projection) landed as PR **#201** (merge
 `8a2f550`) and PR **#202** (merge `9ff0e16`): `V18` creates `scheduling_appointments` and the
 `APPOINTMENT` status family, booking locks the slot row and keeps `booked` equal to the appointments

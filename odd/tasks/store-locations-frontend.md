@@ -1,7 +1,7 @@
 # ODD feature: store-locations-frontend
 
 **Repository**: LifeControl — frontend `life-control-app-angular/`, with a prerequisite in `api-gateway/`
-**Status**: **delivered — the chain is merged into `main` @ `c0cb1f5` and independently verified. Nothing open.**
+**Status**: **merged — the chain is in `main` @ `c0cb1f5` and independently verified. Nothing open.**
 **Created**: 2026-09-18
 **Predecessors**: `odd/tasks/store-locations-backend.md` (merged, PR #108 @ `dd894a3`),
 `odd/tasks/store-zones-frontend.md` (merged, PRs #104–#107 @ `19faa3e` — the pattern this feature mirrors)

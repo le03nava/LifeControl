@@ -1,7 +1,7 @@
 # ODD feature: scoped-catalog-cache-bypass
 
 **Repository**: LifeControl — `life-control-api/` (`company/service/CompanyRegionService.java`, `company/service/CompanyZoneService.java`, `config/cache/CacheConfig.java`, `AGENTS.md`), closing **G12** of `odd/tasks/hr-org-structure.md`.
-**Status**: **closed** — the defect G12 declares is fixed: commit `8be0436` on `fix/scoped-catalog-cache-bypass` off `main @ 135cdbe`, with the RED in L6, the independent verification in L7 and the gates in L8. Nothing in this scope remains open. The other follow-up `odd/tasks/redis-cache-activation.md` declares in its own L10 (`application-test.properties`' dead Boot 3 exclusion) was never in scope here and stays open there.
+**Status**: **merged** — the defect G12 declares is fixed: commit `8be0436` on `fix/scoped-catalog-cache-bypass` off `main @ 135cdbe`, with the RED in L6, the independent verification in L7 and the gates in L8. Nothing in this scope remains open. The other follow-up `odd/tasks/redis-cache-activation.md` declares in its own L10 (`application-test.properties`' dead Boot 3 exclusion) was never in scope here and stays open there.
 **Created**: 2026-10-17 · **Risk**: item 2 (authorization) — the change closes a scope-check bypass on merged endpoints; to be independently verified by `gentle-ai-verify`
 **Antecedent**: `odd/tasks/hr-org-structure.md` (G12, T16), `odd/tasks/redis-cache-activation.md` (L3.1, L10)
 

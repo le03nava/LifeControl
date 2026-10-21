@@ -1,7 +1,7 @@
 # ODD feature: hierarchy-read-roles
 
 **Repository**: LifeControl — `life-control-api/` + `life-control-app-angular/`
-**Status**: delivered — S1, S2 y S3 implementadas y verificadas. El backend entró por PR **#474** (merge `7ab89e90`, 2026-10-20) y la migración del frontend con sus pins por PR **#475**. **G1** —el listado de comprobantes no honraba el alcance— se cerró en su propio registro, `odd/tasks/goods-receipt-scope.md`, por el issue **#477** y los PRs **#478** (merge `7cf8e77b`) y **#479**, así que no queda trabajo abierto de este registro.
+**Status**: merged — S1, S2 y S3 implementadas y verificadas. El backend entró por PR **#474** (merge `7ab89e90`, 2026-10-20) y la migración del frontend con sus pins por PR **#475**. **G1** —el listado de comprobantes no honraba el alcance— se cerró en su propio registro, `odd/tasks/goods-receipt-scope.md`, por el issue **#477** y los PRs **#478** (merge `7cf8e77b`) y **#479**, así que no queda trabajo abierto de este registro.
 **Created**: 2026-02-21 · **Risk**: alto — superficie de autorización (item 2) y criterios de lectura por nivel.
 
 ## Objective

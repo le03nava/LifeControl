@@ -2,7 +2,7 @@
 
 **Repository**: LifeControl — repo-level enterprise skill at `.agents/skills/project-conventions/`
 plus the governance references that point at it.
-**Status**: landed — PR #131 (`chore/project-conventions-rescue` @ `34fbe4cb4`) brought the skill to
+**Status**: merged — PR #131 (`chore/project-conventions-rescue` @ `34fbe4cb4`) brought the skill to
 `main` on 2026-09-21, with the ODD-document versioning and the worktree convention following in #130
 (`3aabfd0f3`) and #132 (`3c990062a`). This record's own PR #129 was **closed without merging** and its
 commit `cec4578` never reached `main`. **T5 is stale and is closed by this correction.** No work left.

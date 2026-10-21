@@ -2,7 +2,7 @@
 
 **Repository**: LifeControl — spans `life-control-api/**` (Spring Boot, Java 21) and
 `life-control-app-angular/**` (Angular 20). Four vertical slices, one per screen.
-**Status**: **Closed** — W0 closed and all four slices delivered: **W1 `stores`** — PR #183, merge
+**Status**: **merged** — W0 closed and all four slices delivered: **W1 `stores`** — PR #183, merge
 `50826e0`; **W2 `store-areas`** — PR #184, merge `ca873f7`; **W3 `store-zones`** — PR #185, merge
 `f2ca839`; **W4 `store-locations`** — PR #187, merge `2eab062`. All four edit screens of the store tree
 carry the version precondition, and each delivery was verified to carry exactly the bytes that passed the

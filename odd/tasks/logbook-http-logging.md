@@ -4,7 +4,7 @@
 class, the `Logbook` block of `application.properties`, the component `AGENTS.md`, the test logback
 configuration and three new test classes. **No endpoint, no schema, no contract, no dependency and no CI
 change.**
-**Status**: **delivered** — `fe376f5` (one code/configuration/test/documentation slice) plus the record commit
+**Status**: **merged** — `fe376f5` (one code/configuration/test/documentation slice) plus the record commit
 `6005b53` were merged to `main` as **PR #351 → `0e0bc69`** on 2026-10-17, tree-identical to the head that was
 gated (`6005b53^{tree}` == `0e0bc69^{tree}` == `54c5a75fc4157c8319b29db22c21280db4159379`).
 **Created**: 2026-10-16

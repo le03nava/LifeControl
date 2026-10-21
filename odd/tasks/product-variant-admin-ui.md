@@ -4,7 +4,7 @@
 **Branch (S1)**: `feat/variant-definitions-ui`
 **Worktree (S1)**: `~/workspace/LifeControl-worktrees/feat-variant-definitions-ui` (removed after merge)
 **Base (S1)**: `feat/variant-include-disabled` (the backend slice PR), itself `main` @ `7958dd0` (PR #136 merge)
-**Status**: **S1 delivered** — PRs #137/#138/#139 merged into `main` and the S1 branch/worktree cleaned
+**Status**: **implemented — S1 delivered and merged into `main`** (PRs #137/#138/#139), and the S1 branch/worktree cleaned
 up. **S2 complete (T9–T15)** on `feat/variant-store-stock-ui`: seven commits from `main` @ `2704a6e`,
 both gates green (see the evidence log). The S2 store source was resolved with evidence on 2026-09-22
 (see `### S2 store source`), which superseded the premise of the original T9.
