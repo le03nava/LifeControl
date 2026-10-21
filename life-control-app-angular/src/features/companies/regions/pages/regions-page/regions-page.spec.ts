@@ -138,10 +138,15 @@ describe('RegionsPage', () => {
     readonly loading = this._loading.asReadonly();
     readonly error = this._error.asReadonly();
 
-    getRegions = vi.fn().mockImplementation(() => {
-      this._regions.set(mockRegions);
-      return of(mockRegions);
-    });
+    getRegions = vi
+      .fn()
+      .mockImplementation((_companyId: string, _countryId: string, includeDisabled = false) => {
+        // Models the API: `includeDisabled` decides which rows come back
+        // (`CompanyRegionService` filters disabled rows out server-side).
+        const rows = includeDisabled ? mockRegions : mockRegions.filter((region) => region.enabled);
+        this._regions.set(rows);
+        return of(rows);
+      });
     addRegion = vi.fn().mockReturnValue(of(mockNewRegion));
     updateRegion = vi.fn().mockReturnValue(of(mockNewRegion));
     removeRegion = vi.fn().mockReturnValue(of(undefined));
@@ -271,7 +276,26 @@ describe('RegionsPage', () => {
     component.onSelectCountry(mockCC);
     fixture.detectChanges();
 
-    expect(companyRegionService.getRegions).toHaveBeenCalledWith(mockCC.companyId, mockCC.id);
+    expect(companyRegionService.getRegions).toHaveBeenCalledWith(
+      mockCC.companyId,
+      mockCC.id,
+      false,
+    );
+  });
+
+  it('should ask the API for disabled regions when the toggle is turned on', async () => {
+    const companyRegionService = TestBed.inject(
+      CompanyRegionService,
+    ) as unknown as MockCompanyRegionService;
+
+    component.onSelectCountry(mockAssignedCountries[0]);
+    await settle();
+    expect(companyRegionService.getRegions).toHaveBeenLastCalledWith('company-1', 'cc-1', false);
+
+    component.showDisabled.set(true);
+    await settle();
+
+    expect(companyRegionService.getRegions).toHaveBeenLastCalledWith('company-1', 'cc-1', true);
   });
 
   it('should switch selectedCountry when a different country is selected', () => {
@@ -287,7 +311,11 @@ describe('RegionsPage', () => {
     component.onSelectCountry(secondCC);
     fixture.detectChanges();
     expect(component.selectedCountry()).toBe(secondCC);
-    expect(companyRegionService.getRegions).toHaveBeenCalledWith(secondCC.companyId, secondCC.id);
+    expect(companyRegionService.getRegions).toHaveBeenCalledWith(
+      secondCC.companyId,
+      secondCC.id,
+      false,
+    );
   });
 
   // ─── onCreateRegion ──────────────────────────────────────────
@@ -429,6 +457,7 @@ describe('RegionsPage', () => {
     component.onSelectCountry(mockAssignedCountries[0]);
     await settle();
     component.showDisabled.set(true);
+    await settle();
     expect(component.filteredRegions().length).toBe(3);
   });
 
@@ -469,7 +498,7 @@ describe('RegionsPage', () => {
       component.onSelectCountry(mockAssignedCountries[0]);
       await settle();
       component.showDisabled.set(true);
-      fixture.detectChanges();
+      await settle();
 
       const cards = fixture.nativeElement.querySelectorAll('app-regions-card');
       expect(cards.length).toBe(3);
