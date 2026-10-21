@@ -139,6 +139,7 @@ export const companyRoutes: Routes = [
           {
             path: 'edit/:id',
             canActivate: [keycloakRoleGuard],
+            canDeactivate: [unsavedChangesGuard],
             data: { roles: STORE_WRITE_ROLES, clientId: CLIENT_ID },
             loadComponent: () =>
               import('./stores/pages/stores-edit/stores-edit').then((m) => m.StoresEdit),

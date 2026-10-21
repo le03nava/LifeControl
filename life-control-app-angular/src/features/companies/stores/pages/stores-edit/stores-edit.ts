@@ -1,37 +1,53 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   DestroyRef,
   effect,
   inject,
   signal,
+  viewChild,
   OnInit,
 } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
+import { MatTabsModule } from '@angular/material/tabs';
 import { CompanyService } from '../../../companies/data/company.service';
 import { CompanyCountryService } from '../../../countries/data/company-country.service';
 import { CompanyRegionService } from '../../../regions/data/company-region.service';
 import { CompanyZoneService } from '../../../zones/data/company-zone.service';
 import { CompanyStoreService } from '../../data/company-store.service';
 import { StoresForm } from '../../components/stores-form/stores-form';
+import { StoreInventorySettingsPanel } from '../../components/store-inventory-settings-panel/store-inventory-settings-panel';
 import { ErrorBanner } from '@shared/ui';
 import { CompanyStore, StoreSaveEvent } from '../../models/store.models';
 import { CompanyCountry } from '../../../countries/models/country.models';
 import { CompanyRegion } from '../../../regions/models/region.models';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ApiError } from '@shared/models';
+import type { UnsavedChangesAware } from '@core/guards/unsaved-changes.guard';
+import type { StoreChain } from '@features/inventory/models/store-location-summary.models';
 import { map } from 'rxjs/operators';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+
+/**
+ * The tabs the edit screen renders, in the order they appear, keyed by the values `?tab=` carries.
+ *
+ * There is no configuration tab while creating a store: the inventory settings hang off a store id,
+ * and a store that does not exist yet has nothing to configure.
+ */
+const EDIT_TABS = ['datos', 'configuracion'] as const;
+type EditTab = (typeof EDIT_TABS)[number];
 
 @Component({
   selector: 'app-stores-edit',
   standalone: true,
-  imports: [StoresForm, ErrorBanner],
+  imports: [NgTemplateOutlet, StoresForm, StoreInventorySettingsPanel, ErrorBanner, MatTabsModule],
   templateUrl: './stores-edit.html',
   styleUrl: './stores-edit.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class StoresEdit implements OnInit {
+export class StoresEdit implements OnInit, UnsavedChangesAware {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly companyService = inject(CompanyService);
@@ -44,6 +60,20 @@ export class StoresEdit implements OnInit {
   // ─── Route data ────────────────────────────────────────
   storeId = signal<string | null>(this.route.snapshot.paramMap.get('id'));
   isEditMode = signal(false);
+
+  // ─── Tabs ──────────────────────────────────────────────
+  /**
+   * The tab `?tab=` asks for, or `Datos` when it names none of the two the screen renders.
+   *
+   * Read once from the route snapshot, like the create-mode pre-selection below: a stale or unknown
+   * link must land on the store, not on a blank tab. `selectedTabIndex` is derived, so the selection
+   * Material paints can never disagree with the URL.
+   */
+  readonly activeTab = signal<EditTab>(this.readTab(this.route.snapshot.queryParamMap.get('tab')));
+
+  readonly selectedTabIndex = computed(() =>
+    Math.max(0, (EDIT_TABS as readonly string[]).indexOf(this.activeTab())),
+  );
 
   // ─── Data signals ──────────────────────────────────────
   companies = toSignal(
@@ -76,6 +106,32 @@ export class StoresEdit implements OnInit {
   initialCountryId = signal<string | null>(null);
   initialRegionId = signal<string | null>(null);
   initialZoneId = signal<string | null>(null);
+
+  /**
+   * The five-level chain the inventory settings panel needs, derived from the store being edited.
+   *
+   * `null` until the store is known, and the template renders the panel only when it is not: the
+   * panel is keyed on the chain, so it never asks the backend about a store the page cannot name.
+   */
+  readonly inventoryChain = computed<StoreChain | null>(() => {
+    const store = this.storeToEdit();
+    if (!store) return null;
+    return {
+      companyId: store.companyId,
+      companyCountryId: store.companyCountryId,
+      regionId: store.regionId,
+      zoneId: store.zoneId,
+      storeId: store.id,
+    };
+  });
+
+  /**
+   * The mounted configuration panel. A `viewChild` and not a template reference because the panel
+   * only exists once the page holds a store: until then it is `undefined` and there is no draft to
+   * report. Material mounts the tab bodies eagerly, so this resolves on page entry, not on the first
+   * visit to the tab.
+   */
+  private readonly inventoryPanel = viewChild(StoreInventorySettingsPanel);
 
   constructor() {
     // --- Server error mapping: extract address.* keys and strip prefix ---
@@ -234,6 +290,41 @@ export class StoresEdit implements OnInit {
     } else {
       this.router.navigate(['/companies/stores']);
     }
+  }
+
+  /**
+   * Keeps `?tab=` in step with the tab Material paints.
+   *
+   * The write merges, so the create-mode pre-selection parameters survive, and replaces the history
+   * entry: a tab is a view of the store, not a navigation, so Back leaves the screen instead of
+   * walking the tabs. The early return is the feedback-loop guard — `mat-tab-group` emits
+   * `selectedIndexChange` in a microtask, and writing a value the URL already carries would navigate
+   * into itself.
+   */
+  onTabChange(index: number): void {
+    const requested = EDIT_TABS[index];
+    if (!requested || requested === this.activeTab()) {
+      return;
+    }
+    this.activeTab.set(requested);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { tab: requested },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  /**
+   * Exposed to `unsavedChangesGuard` on the edit route: the configuration tab owns the only draft
+   * this screen can lose behind its back, so the answer is the panel's, never a guess here.
+   */
+  hasUnsavedChanges(): boolean {
+    return this.inventoryPanel()?.hasUnsavedChanges() ?? false;
+  }
+
+  private readTab(value: string | null): EditTab {
+    return (EDIT_TABS as readonly string[]).includes(value ?? '') ? (value as EditTab) : 'datos';
   }
 
   private handleError(err: HttpErrorResponse): void {
