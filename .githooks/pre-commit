@@ -20,10 +20,13 @@
 # human's decision rather than an accident. It exists so the guard can stay strict without becoming a
 # wall; it is not a step in any documented workflow.
 #
-# No network, no side effects: reads the branch, prints, exits.
+# No network, no side effects of its own: reads the branch, prints, exits. The one command it runs is
+# `lint-staged`, which formats and lints the files this commit is about to carry — see the second half
+# below for why that lives here instead of only in the husky hook.
 
 set -u
 
+# ---- the anchor guard ------------------------------------------------------------------------------
 # The default branch is RESOLVED, never assumed. A repository whose default branch is `trunk` gets the
 # same guard, and `.github/scripts/tests/worktree-anchor.test.sh` proves it by renaming it in a fixture.
 default_ref="$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null || true)"
@@ -35,12 +38,12 @@ else
 fi
 
 # A detached HEAD is not a branch commit, and every branch that is not the default one is ordinary work.
+# Both of those fall through to the formatting half instead of exiting here: a plain `exit 0` on the
+# allowed path is what made this hook and the app's husky hook mutually exclusive, because whichever
+# `core.hooksPath` won ran exactly one of the two guarantees.
 current_branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
-[ -n "$current_branch" ] || exit 0
-[ "$current_branch" = "$default_branch" ] || exit 0
-[ "${ALLOW_MAIN_COMMIT:-}" = "1" ] && exit 0
-
-cat >&2 <<MSG
+if [ -n "$current_branch" ] && [ "$current_branch" = "$default_branch" ] && [ "${ALLOW_MAIN_COMMIT:-}" != "1" ]; then
+	cat >&2 <<MSG
 refusing to commit on the default branch ($default_branch).
 
 The anchor is never an edit target: it is the read-only reference for fetch, log and rebase, and a unit
@@ -53,4 +56,34 @@ of work starts in its own worktree — not only when the work is parallel.
 If this commit on $default_branch is deliberate:
   ALLOW_MAIN_COMMIT=1 git commit ...
 MSG
-exit 1
+	exit 1
+fi
+
+# ---- formatting and lint, the half this hook did not have -------------------------------------------
+# Formatting used to be reachable through exactly one thing: `life-control-app-angular/.husky/pre-commit`
+# running `npx lint-staged`, which only ran while `core.hooksPath` pointed at the husky directory. The
+# documented setup of this repository sets it to `.githooks` instead, so obeying the docs silently turned
+# formatting off, and the app's `prepare` script turned it back on at the next `npm install`. Two hooks
+# competed for one config key and each one delivered one guarantee.
+#
+# Now both entry points deliver both. This one keeps the anchor guard and runs the app's lint-staged from
+# the app's own directory, because `lint-staged` reads its config (the `eslint --fix` + `prettier --write`
+# chain) from that `package.json`.
+#
+# It is SKIPPED when the app has no `node_modules`: a fresh worktree has not installed anything yet, and a
+# hook that cannot commit until an install finishes is a hook that blocks the first commit of every unit.
+# `npx` would also try to fetch a missing binary from the network, on every commit.
+app_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+app_dir="${app_root:+$app_root/life-control-app-angular}"
+if [ -n "$app_dir" ] && [ -d "$app_dir/node_modules" ]; then
+	if ! (cd "$app_dir" && npx lint-staged); then
+		cat >&2 <<'MSG'
+lint-staged failed: the staged Angular files were not formatted or linted.
+
+Fix what it printed, stage the result and commit again.
+MSG
+		exit 1
+	fi
+fi
+
+exit 0
