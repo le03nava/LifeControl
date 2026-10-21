@@ -19,7 +19,6 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
-import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatIconModule } from '@angular/material/icon';
 import { CompanySelectorOption } from '../../../companies/models/company.models';
 import { CompanyCountry } from '../../../countries/models/country.models';
@@ -37,7 +36,6 @@ const REGION_CODE_PATTERN = /^[a-zA-Z0-9-]+$/;
     MatInputModule,
     MatButtonModule,
     MatSelectModule,
-    MatSlideToggleModule,
     MatIconModule,
   ],
   templateUrl: './regions-form.html',
@@ -76,7 +74,6 @@ export class RegionsForm {
       nonNullable: true,
       validators: [Validators.required, Validators.maxLength(100)],
     }),
-    enabled: new FormControl(true, { nonNullable: true }),
   });
 
   // ─── Error messages ─────────────────────────────────────────
@@ -123,7 +120,6 @@ export class RegionsForm {
       this.formGroup.patchValue({
         regionCode: region.regionCode,
         regionName: region.regionName,
-        enabled: region.enabled,
       });
     });
 
@@ -214,7 +210,7 @@ export class RegionsForm {
 
     if (!companyId || !countryId) return;
 
-    const { regionCode, regionName, enabled } = this.formGroup.getRawValue();
+    const { regionCode, regionName } = this.formGroup.getRawValue();
 
     this.saveRegion.emit({
       companyId,
@@ -222,7 +218,6 @@ export class RegionsForm {
       request: {
         regionCode: regionCode.trim(),
         regionName: regionName.trim(),
-        enabled,
       },
     });
   }

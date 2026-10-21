@@ -108,10 +108,12 @@ describe('RegionsForm', () => {
       expect(nameInput).toBeTruthy();
     });
 
-    it('should render slide-toggle for enabled', () => {
+    // `enabled` is not part of the region request contract: the API controls it through
+    // DELETE (soft-disable) and PATCH (re-enable) on the resource, so the form must not
+    // offer a toggle that the wire rejects with 400.
+    it('should NOT render a slide-toggle for enabled', () => {
       const toggle = fixture.nativeElement.querySelector('mat-slide-toggle');
-      expect(toggle).toBeTruthy();
-      expect(toggle.textContent).toContain('Activo');
+      expect(toggle).toBeNull();
     });
   });
 
@@ -175,7 +177,6 @@ describe('RegionsForm', () => {
 
       expect(component.formGroup.controls.regionCode.value).toBe('US-CA');
       expect(component.formGroup.controls.regionName.value).toBe('California');
-      expect(component.formGroup.controls.enabled.value).toBe(true);
     });
 
     it('should pre-select company and country from regionToEdit', () => {
@@ -285,7 +286,6 @@ describe('RegionsForm', () => {
       component.formGroup.patchValue({
         regionCode: 'US-NY',
         regionName: 'New York',
-        enabled: false,
       });
 
       let emitted: RegionSaveEvent | undefined;
@@ -300,7 +300,23 @@ describe('RegionsForm', () => {
       expect(emitted!.countryId).toBe('cc-1');
       expect(emitted!.request.regionCode).toBe('US-NY');
       expect(emitted!.request.regionName).toBe('New York');
-      expect(emitted!.request.enabled).toBe(false);
+    });
+
+    // The request body is the wire contract of CreateCompanyRegionRequest /
+    // UpdateCompanyRegionRequest, which declare exactly these two keys. An extra key is
+    // rejected by the API with 400 "Malformed or unreadable request body" before field
+    // validation runs (spring.jackson.deserialization.fail-on-unknown-properties=true).
+    it('should emit a request body with exactly the keys the API DTO declares', () => {
+      component.formGroup.patchValue({ regionCode: 'US-NY', regionName: 'New York' });
+
+      let emitted: RegionSaveEvent | undefined;
+      component.saveRegion.subscribe((ev: RegionSaveEvent) => {
+        emitted = ev;
+      });
+
+      component.onSave();
+
+      expect(Object.keys(emitted!.request).sort()).toEqual(['regionCode', 'regionName']);
     });
 
     it('should trim whitespace from form values', () => {
@@ -316,7 +332,6 @@ describe('RegionsForm', () => {
       expect(emitted).toBeDefined();
       expect(emitted!.request.regionCode).toBe('US-NY');
       expect(emitted!.request.regionName).toBe('New York');
-      expect(emitted!.request.enabled).toBe(true);
     });
 
     it('should NOT emit saveRegion when form is invalid', () => {

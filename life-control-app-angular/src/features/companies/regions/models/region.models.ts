@@ -19,10 +19,17 @@ export interface CompanyRegion {
   updatedAt: string;
 }
 
+/**
+ * Body of POST/PUT .../regions.
+ *
+ * Mirrors CreateCompanyRegionRequest and UpdateCompanyRegionRequest on the API side, which
+ * declare exactly these two keys. `enabled` is deliberately absent: the region's state is owned
+ * by the server and changes only through DELETE (soft-disable) and PATCH (re-enable) on the
+ * resource. An extra key here is rejected with 400 before field validation runs.
+ */
 export interface CompanyRegionRequest {
   regionCode: string;
   regionName: string;
-  enabled?: boolean;
 }
 
 /**
@@ -44,5 +51,4 @@ export interface RegionSaveEvent {
 export interface RegionControl {
   regionCode: FormControl<string>;
   regionName: FormControl<string>;
-  enabled: FormControl<boolean>;
 }
