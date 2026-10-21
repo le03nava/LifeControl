@@ -57,6 +57,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Formatting is a gate here, not a side effect of a local commit hook. Until this step, the only
+      # thing that ran prettier was `life-control-app-angular/.husky/pre-commit`, reachable only while
+      # `core.hooksPath` pointed at the husky directory — and the documented setup sets it to
+      # `.githooks` instead, while `npm install` sets it back. Which of the two won depended on the
+      # order a developer happened to run two commands in, so the same tree passed or failed nothing in
+      # CI either way. The glob is the app's source glob: the same one `npx prettier --write` rewrites,
+      # so a locally formatted tree is exactly what this accepts.
+      - name: Check formatting
+        run: npx prettier --check "src/**/*.{ts,html,scss}"
+
       - name: Lint
         run: npm run lint
 
