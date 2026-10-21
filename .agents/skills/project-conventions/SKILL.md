@@ -17,7 +17,7 @@ Invoke when a change touches code, architecture, CI/CD, dependencies, security, 
 2. Do not introduce a new pattern when an internal standard already exists.
 3. Do not use external references when local documentation exists.
 4. A change without minimum evidence is non-conformant.
-5. An ODD feature record (`odd/tasks/*.md`) states durable state plus its evidence, or what remains, on its `**Status**:` line — never a live delivery state; delivery detail belongs in the record's dated evidence log. Read `references/feature-records.md` before creating or updating a record.
+5. An ODD feature record (`odd/tasks/*.md`) states on its `**Status**:` line what the work is and what remains — never a live delivery state, in either language — and travels in the pull request that carries the work, so its header is final there; delivery detail belongs to the record's dated evidence log, and naming the pull-request number or the merge commit is optional, never required. Read `references/feature-records.md` before creating or updating a record.
 6. A pull request carries exactly one `type:*` label from the vocabulary the `branch-pr` skill declares — never a synonym, and never a label whose own description misdescribes the diff. The label is applied beside the matching checkbox in `.github/PULL_REQUEST_TEMPLATE.md`, and `.github/scripts/check-pr-type-labels.sh` (run by the `PR Label Guard` workflow) fails the pull request when the set is empty, doubled or off-vocabulary. Read `references/labels.md` before opening a PR or creating a label.
 
 ## Decision Gates

@@ -1,7 +1,7 @@
 # ODD feature: ci-speed
 
 **Repository**: LifeControl — the shape of the CI workflows that gate a pull request (`.github/workflows/api-ci.yml`, `.github/workflows/angular-ci.yml`) and the two documents that name those gates verbatim (`CONTRIBUTING.md` §6 and §7, `.agents/skills/project-conventions/references/index.md` → `## Dispatch`). **No production code, no test semantics, no timeouts, no isolation settings, no coverage threshold, and — after D1 — no Gradle build change either.**
-**Status**: merged — U1 in pull request **#435** (`chore/ci-speed` @ `f16d7ae`), 2026-10-19, with its `CONTRIBUTING.md` §6 contract guarded by pull request **#443** (`chore/job-name-guard` @ `e461af7`), and the Angular shards in pull request **#445** (`chore/angular-shard` @ `d396d3a`), 2026-10-19. Measured on the runner: API CI **193s** against a 247–336s baseline, Angular CI **158s** against a 228–401s baseline. **U2 closed with its measurement, and the setting does not land**: on the runner, four parallel forks are **+21% on the median** (247s serial against 299.5s) and three times as unstable (100s spread against 33s), so `life-control-api/build.gradle` is unchanged. **No work left in this record.** This header makes no claim about live push or PR state; see the evidence log.
+**Status**: merged — U1 in pull request **#435** (`chore/ci-speed` @ `f16d7ae`), 2026-10-19, with its `CONTRIBUTING.md` §6 contract guarded by pull request **#443** (`chore/job-name-guard` @ `e461af7`), and the Angular shards in pull request **#445** (`chore/angular-shard` @ `d396d3a`), 2026-10-19. Measured on the runner: API CI **193s** against a 247–336s baseline, Angular CI **158s** against a 228–401s baseline. **U2 closed with its measurement, and the setting does not land**: on the runner, four parallel forks are **+21% on the median** (247s serial against 299.5s) and three times as unstable (100s spread against 33s), so `life-control-api/build.gradle` is unchanged. **No work left in this record.**
 **Created**: 2026-10-18
 **Risk**: **medium.** Every file touched is CI-only, which is Task Size item 5 (delivery/environment). Two named risks, both argued rather than assumed: (1) dropping a gate, a `paths:` filter or a step would silently narrow what the four workflows cover, mitigated by `workflow-trigger-parity.test.sh` and by S2; (2) the Gradle configuration cache can fail inside spotless/spotbugs/asciidoctor in ways whose output does not name the cause, so it is validated locally first (F3) and removed from the slice if it does not hold. Everything here is revertible with one commit. The one change deliberately **not** taken — `org.gradle.caching` — is excluded in S7 because it would change what a green check proves, not merely how long it takes.
 
@@ -237,3 +237,12 @@ L11. Decision: **U2 does not land.** The runner contradicts the dev host — med
 299.5s with forks, and a spread three times as wide — so `maxParallelForks` stays out of
 `build.gradle`. The probe pull request #448 was closed unmerged, which was its stated intent, and
 issue #439 closes with this measurement: exactly what that issue's own non-goals asked for.
+
+L12. **Header repair, 2026-10-20.** The `**Status**:` line above ended with *"This header makes no
+claim about live push or PR state; see the evidence log."* — a sentence that is false on its own
+terms, because the same paragraph names three pull requests and three merge commits. `#436` measured
+this exact shape and repaired it once already; `odd/tasks/odd-header-without-transport.md` turns that
+finding into a rule, and `odd-status-headers.test.sh` now refuses a transport disclaimer beside
+delivery evidence. Only the closing sentence was removed: the header still states its three
+deliveries, the measurements, and U2's remaining work as issue #439. Nothing else in this record
+changed.

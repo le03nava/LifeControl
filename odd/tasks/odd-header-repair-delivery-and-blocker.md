@@ -5,8 +5,7 @@
 edit to any other record's narrative.**
 **Status**: the repairs of issue **#470** are written and checked: both `**Status**:` paragraphs state
 merged state with their merge commits, the two superseded claims are recorded where they stood, and
-`odd-status-headers.test.sh` passes on this tree. The delivery is recorded in the log below. This
-header makes no claim about push or PR state.
+`odd-status-headers.test.sh` passes on this tree. The delivery is recorded in the log below.
 **Created**: 2026-10-19 · **Branch**: `chore/odd-header-repairs` · **Base**: `main` @ `7dbd3aa` ·
 **Worktree**: `~/workspace/LifeControl-worktrees/chore-odd-header-repairs` (herdr `w4Y`)
 · **Issue**: **#470** · **Risk**: **low** — markdown only, nothing imports it; the one executable
@@ -122,3 +121,11 @@ changed lines. Its two required checks pass: `Exactly one type:* label` (18s) an
 issue` (10s), with `mergeable=MERGEABLE` and `mergeStateStatus=CLEAN`. This entry is written **before**
 the merge on purpose: the header above makes no claim about the delivery state, so the merge does not
 falsify it and no follow-up commit is needed to keep this record true.
+
+**Header repair, 2026-10-20.** The `**Status**:` paragraph above ended with *"This header makes no
+claim about push or PR state."* One line earlier it names issue **#470** and the fact that the tree
+passes, so the sentence disclaimed a claim it was making. Removing the sentence is the whole repair:
+the header still says what the two repaired records now state, and this record's own finding — the
+paragraph that sits above the delivery is the one that survives the merge — is the rule
+`odd/tasks/odd-header-without-transport.md` generalises. Nothing else in this record changed, and the
+closure it narrates stands.

@@ -16,9 +16,9 @@ Shared repository references live here. Component-specific detail lives in `refe
 
 - `references/worktrees.md` — isolation model for parallel work: invariants, path and naming, create and cleanup commands, the Pi trust requirement, and anti-patterns.
 - `references/pr-chains.md` — chained and stacked PRs: the base-branch deletion failure mode, invariants, the pre-merge guard, the order of operations, and anti-patterns.
-- `references/feature-records.md` — ODD feature records in `odd/tasks/`: the header invariant, the live-state failure mode, the permitted and forbidden status shapes, and anti-patterns.
+- `references/feature-records.md` — ODD feature records in `odd/tasks/`: the header invariant, the live-state failure mode across four generations, why one pull request per unit is the rule, the permitted, optional and forbidden status shapes, and anti-patterns.
 - `references/labels.md` — PR type labels: the exactly-one-`type:*` invariant, the vocabulary the machine-installed `branch-pr` skill declares, the measured label history that produced it, and the PR template, guard workflow and planner that now enforce it.
-- `.github/scripts/tests/odd-status-headers.test.sh` — enforces the ODD record header invariant on every `odd/tasks/*.md`: a record carries a `**Status**:` paragraph, and one that declines its own delivery must name a merge commit that resolves as an ancestor of `origin/main`. It runs in the `PR Label Guard` workflow, which keeps no `paths:` filter, so a records-only pull request is audited like any other.
+- `.github/scripts/tests/odd-status-headers.test.sh` — enforces the ODD record header invariant on every `odd/tasks/*.md`: a record carries a `**Status**:` paragraph, and that paragraph never asserts a delivery state (`not merged`, `awaiting review`, `in progress`, `sin mergear`, `en progreso`, …) — the class fails unconditionally, whether or not a merge commit sits beside it. It also rejects a transport disclaimer next to delivery evidence, checks that any merge commit a header chooses to name is an ancestor of `origin/main`, and asserts that every phrase `AGENTS.md`'s forbidden row names is really caught. It runs in the `PR Label Guard` workflow, which keeps no `paths:` filter, so a records-only pull request is audited like any other.
 - Absent: no automated guard enforces one-worktree-one-unit; it is a review-time convention.
 - Absent: no automated guard prevents deleting a base branch that an open PR depends on; it is a review-time convention.
 - `.github/scripts/check-pr-type-labels.sh`, run by the `guard` job of `.github/workflows/pr-label-guard.yml`, plus the six labelled checkboxes in `.github/PULL_REQUEST_TEMPLATE.md` — enforce exactly one `type:*` label per pull request, drawn from the six names `.github/label-vocabulary.txt` declares.
@@ -77,6 +77,6 @@ Run each gate command from the component directory.
 - No secret-scanning configuration.
 - No SBOM configuration.
 - No CI check or repository setting prevents deleting a base branch that an open PR depends on.
-- The ODD record audit is the only CI check that reads markdown, and it reads one paragraph per record: nothing verifies the rest of a record's narrative, and nothing rewrites a header at merge time.
+- The ODD record audit is the only CI check that reads markdown, and it reads one paragraph per record: nothing verifies the rest of a record's narrative. Nothing updates a header at merge time by design, so it does not have to be updated — the delivery identity is derived (`git log -1 --format='%h' -- odd/tasks/<slug>.md`) rather than stored, which is what removed the follow-up `docs(odd)` pull request per unit.
 - No documented rollback plan or post-deploy checklist.
 - Provider-side settings (branch protection, required checks, review rules) are unverifiable from the repository; `CONTRIBUTING.md` states the settings to apply, and applying them stays a repository-admin action.
