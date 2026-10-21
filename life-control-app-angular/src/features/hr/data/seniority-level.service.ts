@@ -96,10 +96,7 @@ export class SeniorityLevelService {
     );
   }
 
-  updateSeniorityLevel(
-    id: string,
-    request: SeniorityLevelRequest,
-  ): Observable<SeniorityLevel> {
+  updateSeniorityLevel(id: string, request: SeniorityLevelRequest): Observable<SeniorityLevel> {
     this._loading.set(true);
     this._error.set(null);
     return this.http.put<SeniorityLevel>(`${this.levelsUrl()}/${id}`, request).pipe(
@@ -141,16 +138,18 @@ export class SeniorityLevelService {
   enableSeniorityLevel(id: string): Observable<SeniorityLevel> {
     this._loading.set(true);
     this._error.set(null);
-    return this.http.patch<SeniorityLevel>(`${this.levelsUrl()}/${id}/enable`, { enabled: true }).pipe(
-      tap((updated) => {
-        this._levels.set(this._levels().map((level) => (level.id === id ? updated : level)));
-      }),
-      catchError((err) => {
-        this._error.set('Error al reactivar el nivel de antigüedad');
-        return throwError(() => err);
-      }),
-      finalize(() => this._loading.set(false)),
-    );
+    return this.http
+      .patch<SeniorityLevel>(`${this.levelsUrl()}/${id}/enable`, { enabled: true })
+      .pipe(
+        tap((updated) => {
+          this._levels.set(this._levels().map((level) => (level.id === id ? updated : level)));
+        }),
+        catchError((err) => {
+          this._error.set('Error al reactivar el nivel de antigüedad');
+          return throwError(() => err);
+        }),
+        finalize(() => this._loading.set(false)),
+      );
   }
 
   clearError(): void {

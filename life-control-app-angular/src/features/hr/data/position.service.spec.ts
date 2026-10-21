@@ -226,7 +226,9 @@ describe('PositionService', () => {
       const updated: Position = { ...mockPositions[0], positionName: 'Operario senior' };
       const promise = firstValueFrom(service.updatePosition(companyId, 'pos-1', request));
 
-      const req = httpMock.expectOne((r) => r.url === `${positionsUrl}/pos-1` && r.method === 'PUT');
+      const req = httpMock.expectOne(
+        (r) => r.url === `${positionsUrl}/pos-1` && r.method === 'PUT',
+      );
       expect(req.request.body).toEqual(request);
       req.flush(updated);
 

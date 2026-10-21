@@ -126,7 +126,10 @@ export class AccessProvisioningService {
   /** Creates the `ACTIVATE` task; the API answers the reloaded overview. */
   apply(companyId: string, employeeId: string): Observable<AccessProvisioningOverview> {
     return this.reload(
-      this.http.post<AccessProvisioningOverview>(`${this.accessUrl(companyId, employeeId)}/apply`, null),
+      this.http.post<AccessProvisioningOverview>(
+        `${this.accessUrl(companyId, employeeId)}/apply`,
+        null,
+      ),
       APPLY_ERRORS,
       APPLY_FALLBACK,
     );
@@ -147,7 +150,10 @@ export class AccessProvisioningService {
   /** Returns the failed open task to the queue; the API answers the reloaded overview. */
   retry(companyId: string, employeeId: string): Observable<AccessProvisioningOverview> {
     return this.reload(
-      this.http.post<AccessProvisioningOverview>(`${this.accessUrl(companyId, employeeId)}/retry`, null),
+      this.http.post<AccessProvisioningOverview>(
+        `${this.accessUrl(companyId, employeeId)}/retry`,
+        null,
+      ),
       RETRY_ERRORS,
       RETRY_FALLBACK,
     );
