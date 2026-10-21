@@ -35,6 +35,7 @@ indistinguishable from a pass*.
 | Opening with `merged` | **59** | the sweep below |
 | Opening with `implemented` / `superseded` | **1** / **1** | same |
 | Opening with something else | **23** (`delivered` ×11, `closed` ×4, `done`, `landed`, `w1` ×2, `w1b`, `w0`, `s1`, `all` ×2, `the`) | same |
+| Records whose `**Status**:` paragraph the guard was reading **wrong** | **1** | the parser case (T3) below |
 | Phrases the denylist carries | **15** (8 English, 5 Spanish plus the two mirrors) | `live_claim_phrases` |
 | Distinct phrasings a denylist would have to imagine to close the same hole | unbounded — the reason this change does not extend the list | — |
 
@@ -77,18 +78,26 @@ The earlier estimate of *10* was measured against a laxer trial vocabulary that 
 - **S7 — Everything else about the contract is unchanged.** A live delivery claim still fails
   unconditionally, a transport disclaimer beside delivery evidence still fails, a named merge commit
   still has to be an ancestor of `origin/main`, and a record with no `**Status**:` paragraph still
-  fails. The new rule is additive: no existing fixture flips its expected verdict.
+  fails. The new rule is additive: no existing fixture flips its expected verdict, measured by running
+  the base commit's suite against this tree (56 passed, 0 failed).
+- **S8 — The paragraph the guard reads is the FIELD, never a mention of it.** `odd/tasks/odd-stale-header-reconciliation.md`
+  quotes `**Status**:` in backticks inside its `**Repository**:` field, one line above the real field,
+  and the parser started the paragraph at the quotation: every rule was being checked against the
+  sentence *“`` ` `` paragraphs, their dated repair blocks, and this record.”*. A mention inside another
+  field must not be able to choose which paragraph the guard reads. Found by the rule of S3, on its
+  first run over the tree — the finding named that record and the fault was the parser's, not the
+  header's.
 
 ## Tasks
 
 | ID | What | Specs | Route | Commit |
 | --- | --- | --- | --- | --- |
-| T1 | Document the closed vocabulary and normalise the 23 non-conforming headers' opening words | S1, S2 | inline | `f1c0a2d` |
-| T2 | Fixtures that assert a finding for an unrecognised token, in English, Spanish, a unit id and a bare word (RED) | S3, S4 | inline | `0b7e31a` |
-| T3 | The rule in `audit()`, the vocabulary helper and the doc-parity assertion | S3, S4, S5, S6 | inline | `0b7e31a` |
-| T4 | `AGENTS.md`: the token row and the measured suite counts | S1, S6 | inline | `0b7e31a` |
-| T5 | Every suite under `.github/scripts/tests/` plus shellcheck, and the differential check against the base commit | S5, S7 | inline | `0b7e31a` |
-| T6 | `PR Label Guard` green on this pull request, and the counts re-measured from the run | S6 | — | — |
+| T1 | Document the closed vocabulary and normalise the 23 non-conforming headers' opening words | S1, S2 | inline | `5d21267` |
+| T2 | Fixtures that assert a finding for an unrecognised token, in English, Spanish, a unit id, a sentence, a compound and a paragraph with no word at all (RED: 14 failures, 57 passed) | S3, S4 | inline | this commit |
+| T3 | The rule in `audit()`, `verdict_tokens`/`opening_verdict_token`/`is_verdict_token`, and the paragraph parser anchored to the field line | S3, S4, S5, S8 | inline | this commit |
+| T4 | `AGENTS.md`: the token row, the enforcement row and the counts measured from the run (9 suites, 312 assertions) | S1, S6 | inline | this commit |
+| T5 | The nine suites (78 assertions in this one) and the three-way differential check against `main` | S5, S7, S8 | inline | this commit |
+| T6 | `PR Label Guard` green on this pull request — **not yet run**: no pull request exists | S6 | — | — |
 
 ## Log
 
@@ -105,3 +114,17 @@ The earlier estimate of *10* was measured against a laxer trial vocabulary that 
   `AGENTS.md` names, the tree has **23** non-conforming headers, and the normalisation in T1 therefore
   covers 23, not 10. Same decision, larger count; recorded here because the number in the authorising
   answer was wrong.
+- **L4** — The rule of S3 found a second defect on its first run over the tree, and it was the guard's
+  own: `odd-stale-header-reconciliation.md` was being audited against its `**Repository**:` paragraph,
+  because that field quotes `**Status**:` in backticks one line above the real field. Measured, both
+  parsers on that record: old → `` ` `` paragraphs, their dated repair blocks, and this record.``; new →
+  `**merged** — PR **#436** …`. Every rule the suite already had was being checked against that wrong
+  text for that record, which is the same class of silence this unit exists to remove — a pass that
+  came from reading the wrong sentence. Recorded rather than folded into T3 silently, because it means
+  the guard's coverage before this unit was narrower than its own report claimed.
+- **L5** — The three-way differential check, all on isolated trees: the base commit's suite over the
+  base tree → 56 passed, 0 failed; **this** suite over the base tree → 23 record findings (exactly the
+  23 T1 normalised, no more and no fewer) plus the contract-parity finding; the base commit's suite over
+  **this** tree → 56 passed, 0 failed, so nothing that was green before is red now. `shellcheck` is not
+  installed on this machine, so it is not claimed: it runs in `PR Label Guard`, and this record does not
+  assert its result.

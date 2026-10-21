@@ -35,9 +35,12 @@ The pattern is structural, not careless: the header is written while the deliver
 
 ## Header shape
 
-The line the guard reads first: **Opening verdict token** — the `**Status**:` paragraph opens with
-exactly one of `merged`, `implemented`, `deferred`, `blocked`, `superseded`. Those five are the whole
-vocabulary; a sixth is a contract change, and the guard asserts this line and its own set stay equal.
+The line the guard reads first, and the whole vocabulary it enforces:
+
+**Opening verdict token**: `merged`, `implemented`, `deferred`, `blocked`, `superseded` — the
+`**Status**:` paragraph opens with exactly one of them, case-insensitive and with Markdown emphasis
+allowed. A sixth is a contract change, never a word a writer introduces; the guard asserts this line
+and its own set stay equal, so neither can drift.
 
 The canonical shape, and the one a pull request should arrive with — it is true before the merge and
 after it:
