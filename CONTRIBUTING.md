@@ -76,6 +76,19 @@ git config core.hooksPath .githooks      # once per clone; linked worktrees shar
 ./.github/scripts/new-unit.sh <branch>   # branch = the unit; the directory slug is derived from it
 ```
 
+Before anything else in a session, three reads in the anchor:
+
+```bash
+git fetch origin
+git status --short                 # must be empty; if it is not, stop and ask whose it is
+git log --oneline origin/main -1   # the base of the unit is origin/main, not the local main
+```
+
+A dirty anchor is somebody mid-unit, and nothing discards it. The anchor runs only reads and
+fast-forwards — `fetch`, `pull --ff-only`, `log`, `diff`, `status`, `worktree add/remove/prune` — and never
+`reset`, `stash`, `clean`, `checkout -b`, `rebase`, an edit or a commit. Refs are shared by every worktree
+of the clone, so moving `main` in the anchor also moves the base of any unit in flight.
+
 The worktree directory is `~/workspace/<repo>-worktrees/<slug>`, a sibling of the repository, with
 `<slug>` equal to the branch name with `/` replaced by `-`; the script derives it, so the two cannot
 disagree. `.githooks/pre-commit` refuses a commit on the default branch and prints the way out, with
