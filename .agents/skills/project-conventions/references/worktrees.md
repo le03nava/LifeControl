@@ -63,6 +63,48 @@ commands, and moving it is always cheaper than reasoning about it:
 git stash --include-untracked && cd ../<repo>-worktrees/<slug> && git stash pop
 ```
 
+## Starting a session
+
+Before anything else in a session, three reads — in the anchor, and again in a worktree after a long pause:
+
+```bash
+git fetch origin
+git status --short                 # must be empty; if it is not, stop and ask whose it is
+git log --oneline origin/main -1   # the base of a new unit is origin/main, never the local main
+```
+
+A non-empty `git status --short` is the whole signal: somebody is mid-unit here, and the one thing that
+must not happen is a discard. Ask. `git restore -- <path>` is the only way back and it names the path;
+`git clean`, `git reset --hard` and `git checkout -- .` would work, which is exactly why they are forbidden
+in the anchor — they take what nobody asked them to take.
+
+`origin/main` is the base for a new unit, not `main`: in a shared clone the local `main` is what another
+session has already moved, and branching from it silently changes the base of the work in flight.
+
+## What the anchor may run
+
+The anchor runs **reads and fast-forwards**. That is the whole list.
+
+| Allowed | Forbidden |
+| --- | --- |
+| `git fetch`, `git pull --ff-only` | `git reset` (any mode), `git stash`, `git clean` |
+| `git log`, `git diff`, `git show`, `git status`, `git branch --list` | editing any file, `git add`, `git commit` — the pre-commit hook refuses it |
+| `git worktree add/remove/prune`, `git worktree list` | `git checkout -b`, `git switch -c`, `git rebase`, `git cherry-pick` |
+| `git merge --ff-only` | `git merge` that would create a commit |
+
+A fast-forward cannot lose content: it only adopts history that already exists on the remote. Everything in
+the right-hand column can move a ref or a working tree in ways nothing records. A `reset` in the anchor is
+how a unit's only copy of its work disappears — measured: a session found five uncommitted files on this
+repository's anchor, ran `git reset` there, and only the merged pull request proved what the working tree
+had held. It is also how the base moves under somebody else's unit: refs are shared across every worktree
+of a clone, so the other session's `merge origin/main` in the anchor moved the base of a unit that was in
+flight and had never seen that merge.
+
+Git has no `pre-reset` hook — only `commit`, `checkout`, `merge` and `push` — so this half cannot be a
+program. It is stated here and restated in `AGENTS.md`, `CONTRIBUTING.md` and the skill, and
+`.github/scripts/tests/worktree-anchor.test.sh` asserts all four still carry it, because a rule nobody
+restates is a rule that quietly stops being true.
+
 ## Create
 
 Run from a clean anchor on the default branch, and prefer the script: it is the documented path, it needs
