@@ -3,6 +3,39 @@
     <app-error-banner [message]="errorMsg" />
   }
 
+  @if (isEditMode()) {
+    <!--
+      Two tabs, `?tab=` driving the selection and written back by `onTabChange`.
+      `preserveContent` is load-bearing, not cosmetic: the default detaches a tab body when it
+      stops being centred, which would destroy the store form's `FormGroup` and the panel's
+      selections the moment the operator looked at the other tab.
+    -->
+    <mat-tab-group
+      [selectedIndex]="selectedTabIndex()"
+      (selectedIndexChange)="onTabChange($event)"
+      [preserveContent]="true"
+    >
+      <mat-tab label="Datos">
+        <div class="tab-content">
+          <ng-container [ngTemplateOutlet]="storeForm" />
+        </div>
+      </mat-tab>
+
+      <mat-tab label="Configuración">
+        <div class="tab-content">
+          @if (inventoryChain(); as chain) {
+            <app-store-inventory-settings-panel [chain]="chain" />
+          }
+        </div>
+      </mat-tab>
+    </mat-tab-group>
+  } @else {
+    <ng-container [ngTemplateOutlet]="storeForm" />
+  }
+</div>
+
+<!-- One instance of the form: create mode renders it bare, edit mode hosts it in the first tab. -->
+<ng-template #storeForm>
   <app-stores-form
     [companies]="companies()"
     [companyCountries]="companyCountries()"
@@ -20,4 +53,4 @@
     (selectedCountryChange)="onSelectedCountryChange($event)"
     (selectedRegionChange)="onSelectedRegionChange($event)"
   />
-</div>
+</ng-template>

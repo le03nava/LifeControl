@@ -1021,8 +1021,12 @@ const STORE_ROLES = [...STORE_WRITE_ROLES, 'lc-company-store-read'];
 //   /companies/store-areas  → STORE_ROLES  (hijas create/edit → STORE_WRITE_ROLES)
 //   /companies/store-zones  → STORE_ROLES  (hijas create/edit → STORE_WRITE_ROLES)
 //   /companies/store-locations → STORE_ROLES (hijas create/edit → STORE_WRITE_ROLES)
-//   /companies/store-inventory-settings → STORE_ROLES (lectura + escritura en una sola ruta)
+//   /companies/stores/edit/:id → STORE_WRITE_ROLES + unsavedChangesGuard (pestañas Datos y
+//                                 Configuración; la de configuración es el inventario de la tienda)
 ```
+
+La pantalla suelta `/companies/store-inventory-settings` ya no existe: la configuración de inventario
+vive como **pestaña** de la edición de la tienda, no como destino propio.
 
 **Split lectura/escritura en las hojas de tienda.** Cada hoja de tienda —hermana de
 `/companies/stores` bajo `/companies`, no hija suya— se gatea con `STORE_ROLES`, que incluye el rol
@@ -1033,8 +1037,9 @@ mostrar**:
 readonly canWrite = hasAnyClientRole(STORE_WRITE_ROLES);
 ```
 
-La línea es idéntica en 7 archivos: las 4 páginas `store-areas-page.ts`, `store-zones-page.ts`,
-`store-locations-page.ts` y `store-inventory-settings.ts`, más los 3 `*-edit` de areas/zones/locations.
+La línea es idéntica en 7 archivos: las 3 páginas `store-areas-page.ts`, `store-zones-page.ts` y
+`store-locations-page.ts`, los 3 `*-edit` de areas/zones/locations, y el panel
+`store-inventory-settings-panel.ts` (que ya no es página, pero conserva su propio `canWrite`).
 
 Dos reglas que este repo ya sigue y conviene no romper:
 
@@ -1042,14 +1047,15 @@ Dos reglas que este repo ya sigue y conviene no romper:
    informativo**: un usuario de solo lectura necesita la información tanto como un escritor. El caso
    concreto que lo motivó es el aviso de location *stale* de la pantalla de settings, que sin el
    aviso deja un select en blanco indistinguible de "esta tienda no está configurada".
-2. Cuando una pantalla tiene **un solo formulario de lectura+escritura en la misma ruta** (no hay
-   `create`/`edit` separadas, como en `store-inventory-settings`), el `canSubmit()` del componente
+2. Cuando un componente tiene **un solo formulario de lectura+escritura, sin `create`/`edit`
+   separadas** —como el panel `store-inventory-settings-panel`—, el `canSubmit()` del componente
    incluye `!canWrite`. Así la escritura queda bloqueada **por construcción**, y no solo por el
    hecho de que el botón no se renderiza: cualquier refactor futuro que vuelva a mostrar el botón no
    puede emitir un PUT sin pasar por el servidor.
 
 Las rutas `create`/`edit/:id` de `store-areas`, `store-zones` y `store-locations` se gatean además
-con `STORE_WRITE_ROLES` y llevan `unsavedChangesGuard` (ver `Guard Pattern`).
+con `STORE_WRITE_ROLES` y llevan `unsavedChangesGuard` (ver `Guard Pattern`). La edición de la tienda
+sigue el mismo molde desde que hospeda la pestaña de configuración.
 
 ### Purchases Route Guards
 
@@ -1111,15 +1117,28 @@ Estado verificado del código, no del diseño pendiente:
   request con `SKIP_ERROR_NOTIFICATION`, para que ese 404 esperado no dispare el toast rojo global.
   `upsertSettings` es el PUT de la misma URL y **no** silencia el toast: un write rechazado no es
   parte del flujo normal, así que el operador tiene que verlo.
-- **Pantalla de configuración de inventario** (`/companies/store-inventory-settings`, hermana de
-  `store-areas`; ruta `STORE_ROLES` + `unsavedChangesGuard`). Es la **primera pantalla de settings del
-  repo**, así que fija el patrón:
-  - Es una **hoja**: la cadena de 5 niveles llega entera por query params (`companyId`, `countryId`,
-    `regionId`, `zoneId`, `storeId`; ojo con el mapeo `countryId` → `companyCountryId` del modelo).
-    Si falta cualquiera, la página **falla cerrada**: no emite request y ofrece volver a la lista.
-    La puerta de entrada es la card de la tienda, igual que la acción que abre `store-areas`. No hay
-    entrada propia en el menú del header: el menú de Companies lista `store-zones` y
-    `store-locations`, no esta pantalla.
+- **Panel de configuración de inventario** (`/companies/stores/edit/:id`, pestaña `Configuración`
+  hermana de `Datos`; la ruta es `STORE_WRITE_ROLES` + `unsavedChangesGuard`). Nació como pantalla
+  suelta y hoy es un **componente presentacional** (`components/store-inventory-settings-panel/`), así
+  que fija el molde del panel con identidad inyectada: es el settings del repo y lo sigue siendo.
+  - **La identidad llega por input, no por la ruta**: `chain = input.required<StoreChain>()`. La página
+    (`stores-edit.ts`) la deriva de la tienda que edita (`history.state.store`) y monta el panel solo
+    cuando esa tienda existe, con el mapeo `companyCountryId` → `countryId` incluido en el modelo. Un
+    componente que no puede nombrar su tienda no emite request: la garantía de "fallar cerrado" ya no
+    puede perderse en la página.
+  - **Las pestañas montan su contenido de forma ansiosa** (sin `<ng-template matTabContent>`, igual que
+    `product-edit`): el panel se construye al entrar a la pantalla aunque el operador esté en `Datos`,
+    así que las dos lecturas se disparan ahí. Es lo que permite que la página conteste el guard sin una
+    primera visita a la pestaña. Por eso mismo, un spec de la página tiene que proveer los
+    colaboradores del panel (`StoreInventorySettingsService`, `StoreLocationLookupService` y
+    `Keycloak`), o falla con `NG0201`.
+  - **`?tab=` es la única fuente de la pestaña activa**: se lee del snapshot, se escribe con
+    `queryParamsHandling: 'merge'` + `replaceUrl: true` (una pestaña es una vista, no una entrada de
+    historial) y un valor ausente o desconocido cae en `Datos`. El grupo lleva `[preserveContent]="true"`
+    porque el default `false` desmonta el cuerpo al deseleccionarlo y se llevaría el draft del
+    formulario de la tienda y las selecciones del panel.
+  - La puerta de entrada es el botón **Editar** de la card de la tienda; la acción `Configurar inventario`
+    que colgaba debajo de la card ya no existe, y tampoco hay entrada en el menú del header.
   - Un `getSettings` 404 es **el estado inicial normal**, no un error: la página renderiza un
     formulario vacío listo para crear, en silencio.
   - El listado de locations trae **solo las habilitadas**. Si la location configurada se deshabilitó,

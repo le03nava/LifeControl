@@ -1,17 +1,17 @@
 @use '../../../../../shared/styles/form-layout' as form;
-@use '../../../../../shared/styles/variables' as *;
 
 :host {
   display: block;
   width: 100%;
-  padding: 0 var(--space-md);
 }
 
-.store-inventory-settings-page {
-  width: 100%;
+.panel-hint {
+  margin: 0 0 var(--space-md);
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 0.875rem;
+  line-height: 1.5;
 }
 
-.blocking-state,
 .error-state,
 .empty-locations {
   display: flex;
@@ -77,11 +77,5 @@
 
   50% {
     opacity: 0.45;
-  }
-}
-
-@media (max-width: $bp-mobile-max) {
-  :host {
-    padding: 0 var(--space-sm);
   }
 }

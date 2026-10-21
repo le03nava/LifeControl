@@ -1,15 +1,22 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
+import { By } from '@angular/platform-browser';
 import { signal } from '@angular/core';
 import { of, throwError } from 'rxjs';
 import { ActivatedRoute, Router } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
+import { MatTabGroup } from '@angular/material/tabs';
+import Keycloak from 'keycloak-js';
 import { StoresEdit } from './stores-edit';
 import { CompanyService } from '../../../companies/data/company.service';
 import { CompanyCountryService } from '../../../countries/data/company-country.service';
 import { CompanyRegionService } from '../../../regions/data/company-region.service';
 import { CompanyZoneService } from '../../../zones/data/company-zone.service';
 import { CompanyStoreService } from '../../data/company-store.service';
+import { StoreInventorySettingsPanel } from '../../components/store-inventory-settings-panel/store-inventory-settings-panel';
+import { StoreInventorySettingsService } from '@features/inventory/data/store-inventory-settings.service';
+import { StoreLocationLookupService } from '@features/inventory/data/store-location-lookup.service';
+import type { StoreLocationSummary } from '@features/inventory/models/store-location-summary.models';
 import { CompanyStore, StoreSaveEvent } from '../../models/store.models';
 import { CompanyRegion } from '../../../regions/models/region.models';
 import { CompanyCountry } from '../../../countries/models/country.models';
@@ -148,6 +155,49 @@ describe('StoresEdit', () => {
     updateStore = vi.fn().mockReturnValue(of(mockStore));
   }
 
+  const mockStoreLocations: StoreLocationSummary[] = [
+    {
+      id: 'loc-1',
+      locationCode: 'REC-01',
+      locationName: 'Recepción',
+      storeZoneId: 'zone-a',
+      zoneCode: 'Z-A',
+      zoneName: 'Zona A',
+      storeAreaId: 'area-1',
+      areaCode: 'A-1',
+      areaName: 'Área Uno',
+    },
+    {
+      id: 'loc-2',
+      locationCode: 'VEN-01',
+      locationName: 'Venta',
+      storeZoneId: 'zone-b',
+      zoneCode: 'Z-B',
+      zoneName: 'Zona B',
+      storeAreaId: 'area-2',
+      areaCode: 'A-2',
+      areaName: 'Área Dos',
+    },
+  ];
+
+  class MockStoreInventorySettingsService {
+    getSettings = vi.fn().mockReturnValue(of(null));
+    upsertSettings = vi.fn().mockReturnValue(of(null));
+  }
+
+  class MockStoreLocationLookupService {
+    getStoreLocations = vi.fn().mockReturnValue(of(mockStoreLocations));
+  }
+
+  /** The chain the edit page derives from the store it is editing. */
+  const editChain = {
+    companyId: 'company-1',
+    companyCountryId: 'cc-1',
+    regionId: 'reg-1',
+    zoneId: 'zone-1',
+    storeId: 'store-1',
+  };
+
   function createActivatedRoute(params: { id?: string; queryParams?: Record<string, string> }) {
     return {
       snapshot: {
@@ -197,6 +247,11 @@ describe('StoresEdit', () => {
 
     it('should be in create mode (isEditMode = false)', () => {
       expect(component.isEditMode()).toBe(false);
+    });
+
+    it('should not render the tab bar before the store exists', () => {
+      expect(fixture.nativeElement.querySelectorAll('.mat-mdc-tab').length).toBe(0);
+      expect(fixture.nativeElement.querySelector('app-stores-form')).toBeTruthy();
     });
 
     it('should set initialCompanyId from query params', () => {
@@ -425,6 +480,28 @@ describe('StoresEdit', () => {
           { provide: CompanyRegionService, useClass: MockCompanyRegionService },
           { provide: CompanyZoneService, useClass: MockCompanyZoneService },
           { provide: CompanyStoreService, useClass: MockCompanyStoreService },
+          // Edit mode renders the tab group, and Material mounts both tab bodies eagerly, so the
+          // configuration panel is constructed even while `Datos` is selected: its collaborators
+          // have to be provided here too.
+          {
+            provide: StoreInventorySettingsService,
+            useValue: {
+              getSettings: vi.fn().mockReturnValue(of(null)),
+              upsertSettings: vi.fn().mockReturnValue(of(null)),
+            },
+          },
+          {
+            provide: StoreLocationLookupService,
+            useValue: { getStoreLocations: vi.fn().mockReturnValue(of(mockStoreLocations)) },
+          },
+          {
+            provide: Keycloak,
+            useValue: {
+              tokenParsed: {
+                resource_access: { 'life-control-client': { roles: ['lc-company-store'] } },
+              },
+            },
+          },
           { provide: Router, useValue: { navigate: vi.fn() } },
           {
             provide: ActivatedRoute,
@@ -620,6 +697,181 @@ describe('StoresEdit', () => {
       );
       expect(component.storeToEdit()).toEqual(storedBefore);
       expect(router.navigate).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── Configuración tab (inventory settings) ─────────────────
+
+  describe('Configuración tab', () => {
+    let settingsService: MockStoreInventorySettingsService;
+    let locationService: MockStoreLocationLookupService;
+    let router: { navigate: ReturnType<typeof vi.fn> };
+
+    /** Mounts the page in edit mode over the store in `history.state`. */
+    async function setupEdit(queryParams: Record<string, string> = {}): Promise<void> {
+      globalThis.history = {
+        ...globalThis.history,
+        state: { store: mockStore },
+      };
+      settingsService = new MockStoreInventorySettingsService();
+      locationService = new MockStoreLocationLookupService();
+      router = { navigate: vi.fn() };
+
+      await TestBed.configureTestingModule({
+        imports: [StoresEdit, HttpClientTestingModule],
+        providers: [
+          { provide: CompanyService, useClass: MockCompanyService },
+          { provide: CompanyCountryService, useClass: MockCompanyCountryService },
+          { provide: CompanyRegionService, useClass: MockCompanyRegionService },
+          { provide: CompanyZoneService, useClass: MockCompanyZoneService },
+          { provide: CompanyStoreService, useClass: MockCompanyStoreService },
+          { provide: StoreInventorySettingsService, useValue: settingsService },
+          { provide: StoreLocationLookupService, useValue: locationService },
+          {
+            provide: Keycloak,
+            useValue: {
+              tokenParsed: {
+                resource_access: { 'life-control-client': { roles: ['lc-company-store'] } },
+              },
+            },
+          },
+          { provide: Router, useValue: router },
+          {
+            provide: ActivatedRoute,
+            useValue: createActivatedRoute({ id: 'store-1', queryParams }),
+          },
+        ],
+      }).compileComponents();
+
+      fixture = TestBed.createComponent(StoresEdit);
+      component = fixture.componentInstance;
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+    }
+
+    afterEach(() => {
+      delete (globalThis.history as { state?: unknown }).state;
+    });
+
+    function panel(): StoreInventorySettingsPanel | null {
+      const debug = fixture.debugElement.query(By.directive(StoreInventorySettingsPanel));
+      return debug ? (debug.componentInstance as StoreInventorySettingsPanel) : null;
+    }
+
+    function tabLabels(): string[] {
+      return Array.from(
+        fixture.nativeElement.querySelectorAll('.mat-mdc-tab') as NodeListOf<HTMLElement>,
+      ).map((node) => (node.textContent ?? '').trim());
+    }
+
+    function tabGroup(): MatTabGroup {
+      return fixture.debugElement.query(By.directive(MatTabGroup)).componentInstance as MatTabGroup;
+    }
+
+    /** The rendered tab header of the given index — what the operator actually clicks. */
+    function tabHeader(index: number): HTMLElement {
+      const headers = Array.from(
+        fixture.nativeElement.querySelectorAll('.mat-mdc-tab') as NodeListOf<HTMLElement>,
+      );
+      return headers[index];
+    }
+
+    it('should offer the store data and its inventory configuration as tabs', async () => {
+      await setupEdit();
+
+      expect(tabLabels()).toEqual(['Datos', 'Configuración']);
+    });
+
+    it('should open on the store data tab with the panel already holding the chain', async () => {
+      await setupEdit();
+
+      expect(component.activeTab()).toBe('datos');
+      expect(component.selectedTabIndex()).toBe(0);
+      // Material mounts both tab bodies eagerly, so the panel is constructed — and reads with the
+      // chain the page derived from the store — while the operator is still looking at `Datos`.
+      // That is what lets the page answer the guard without a first visit to the tab.
+      expect(settingsService.getSettings).toHaveBeenCalledWith(editChain);
+      expect(locationService.getStoreLocations).toHaveBeenCalledWith(editChain);
+    });
+
+    it('should open the Configuración tab when ?tab=configuracion', async () => {
+      await setupEdit({ tab: 'configuracion' });
+
+      expect(component.activeTab()).toBe('configuracion');
+      expect(component.selectedTabIndex()).toBe(1);
+      expect(panel()).toBeTruthy();
+    });
+
+    it('should fall back to the data tab for an unknown ?tab value', async () => {
+      await setupEdit({ tab: 'inventario' });
+
+      expect(component.activeTab()).toBe('datos');
+      expect(component.selectedTabIndex()).toBe(0);
+    });
+
+    it('should hand the edited store chain to the panel', async () => {
+      await setupEdit({ tab: 'configuracion' });
+
+      expect(panel()?.chain()).toEqual(editChain);
+      expect(settingsService.getSettings).toHaveBeenCalledWith(editChain);
+      expect(locationService.getStoreLocations).toHaveBeenCalledWith(editChain);
+    });
+
+    it('should write the selected tab into the URL, replacing the history entry', async () => {
+      await setupEdit();
+
+      component.onTabChange(1);
+
+      expect(router.navigate).toHaveBeenCalledWith([], {
+        relativeTo: TestBed.inject(ActivatedRoute),
+        queryParams: { tab: 'configuracion' },
+        queryParamsHandling: 'merge',
+        replaceUrl: true,
+      });
+      expect(component.activeTab()).toBe('configuracion');
+    });
+
+    it('should not navigate when the tab does not change', async () => {
+      await setupEdit();
+
+      component.onTabChange(0);
+
+      expect(router.navigate).not.toHaveBeenCalled();
+    });
+
+    it('should keep the panel and its selection when the operator returns to the data tab', async () => {
+      await setupEdit({ tab: 'configuracion' });
+      const mounted = panel();
+      mounted?.onSelectReceiving('loc-1');
+
+      tabHeader(0).click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(component.activeTab()).toBe('datos');
+      // `preserveContent` is load-bearing, not cosmetic: without it Material detaches a tab body
+      // when it stops being centred, which would destroy the panel's selections.
+      expect(tabGroup().preserveContent).toBe(true);
+      expect(panel()).toBe(mounted);
+      expect(panel()?.receivingLocationId()).toBe('loc-1');
+    });
+
+    it('should report the panel unsaved changes through the page', async () => {
+      await setupEdit({ tab: 'configuracion' });
+
+      expect(component.hasUnsavedChanges()).toBe(false);
+
+      panel()?.onSelectReceiving('loc-1');
+
+      expect(component.hasUnsavedChanges()).toBe(true);
+    });
+
+    it('should report no unsaved changes before the operator edits anything', async () => {
+      await setupEdit();
+
+      expect(component.hasUnsavedChanges()).toBe(false);
     });
   });
 

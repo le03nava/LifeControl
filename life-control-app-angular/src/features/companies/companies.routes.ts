@@ -139,6 +139,7 @@ export const companyRoutes: Routes = [
           {
             path: 'edit/:id',
             canActivate: [keycloakRoleGuard],
+            canDeactivate: [unsavedChangesGuard],
             data: { roles: STORE_WRITE_ROLES, clientId: CLIENT_ID },
             loadComponent: () =>
               import('./stores/pages/stores-edit/stores-edit').then((m) => m.StoresEdit),
@@ -149,19 +150,6 @@ export const companyRoutes: Routes = [
               import('./stores/pages/stores-page/stores-page').then((m) => m.StoresPage),
           },
         ],
-      },
-      // Store inventory settings — the PUT is a store write, but this page is reached
-      // from the store list exactly like its siblings, so the gate stays at STORE_ROLES;
-      // the server still enforces write authority.
-      {
-        path: 'store-inventory-settings',
-        canActivate: [keycloakRoleGuard],
-        canDeactivate: [unsavedChangesGuard],
-        data: { roles: STORE_ROLES, clientId: CLIENT_ID },
-        loadComponent: () =>
-          import('./stores/pages/store-inventory-settings/store-inventory-settings').then(
-            (m) => m.StoreInventorySettings,
-          ),
       },
       // Store areas — all company roles
       {
