@@ -187,8 +187,10 @@ scan_body="$(printf '%s' "$body" | strip_code)"
 # one way — `owner/repo#N`, with the number attached — so the detector requires the attached form.
 # Anything looser reads a branch or a path beside an issue number (`feat/store-areas #7`,
 # `src/app.ts #7`) as a cross-repository link that does not exist, and blocks a valid pull request
-# (finding R3-004 of the reviewed range). The detached form `owner/repo #N` is not a GitHub
-# reference either, so it is not detected here: it fails as an unusable reference instead.
+# (finding R3-004 of the reviewed range). The detached form `owner/repo #N` is not a link GitHub
+# resolves either, so it is not detected here: on its own it fails as an unusable reference, and
+# beside a valid reference it does not block the pull request. Both shapes are pinned in the suite;
+# neither is a cross-repository failure.
 if printf '%s' "$scan_body" | grep -qiE '[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[0-9]+'; then
 	cross="$(printf '%s' "$scan_body" | grep -oiE '[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[0-9]+' | head -1)"
 	printf 'FAIL: cross-repository reference %s cannot be verified by this gate; reference an issue of this repository\n' \

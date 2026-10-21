@@ -342,5 +342,19 @@ else
 	pass "CONTRIBUTING.md claims no universal push trigger"
 fi
 
+# The claim is read through `tr '\n' ' '`; a sentence that wraps must still be found, so the
+# matcher is proven on both shapes instead of trusting the current file's layout.
+claim_matcher() { tr '\n' ' ' | grep -Eqi 'every workflow +also runs on `push` to `main`'; }
+if printf '%s\n%s\n' 'See AGENTS.md. Every workflow' 'also runs on `push` to `main`, so a merge re-runs the gate.' | claim_matcher; then
+	pass "the push-claim matcher reads a wrapped sentence"
+else
+	fail "the push-claim matcher reads a wrapped sentence"
+fi
+if printf '%s\n' 'Every workflow also runs on `push` to `main`.' | claim_matcher; then
+	pass "the push-claim matcher reads an unwrapped sentence"
+else
+	fail "the push-claim matcher reads an unwrapped sentence"
+fi
+
 printf '\n%d passed, %d failed\n' "$PASS_COUNT" "$FAIL_COUNT"
 [ "$FAIL_COUNT" -eq 0 ]

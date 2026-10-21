@@ -140,6 +140,19 @@ check "an attached owner/repo reference still fails" 1 - "cross-repository refer
 	"$GUARD" --body "Closes #12
 
 Upstream is le03nava/other#3." --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+# The detached form is prose on GitHub, so it must not block a body that also carries a valid
+# reference -- and it must fail on its own. Both shapes are pinned because the detector's own comment
+# claimed only the second one; measurement found the first (independent verification of #493).
+check "a detached owner/repo beside a number passes" 0 "PASS: #12 is open and carries status:approved" - \
+	"$GUARD" --body "Closes #12
+
+Upstream is le03nava/other #3." --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+check "a detached owner/repo alone is not a reference" 1 - "FAIL: no issue reference" \
+	"$GUARD" --body "See le03nava/other #3." --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+# S2 applies off the default branch too: a closed `Refs #N` beside an approved `Closes #N` fails.
+check "off the default branch a closed Refs beside an approved Closes fails" 1 - "FAIL: issue #12 is not open (state=closed)" \
+	"$GUARD" --body "Closes #13
+Refs #12" --base-branch "$TRACKER" --default-branch "$DEFAULT" --issues-json "$CLOSED_AND_APPROVED"
 check "an uppercase keyword with a colon passes" 0 "PASS: #12 is open and carries status:approved" - \
 	"$GUARD" --body "CLOSES: #12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
 # GitHub honors nine closing keywords, not three: a contributor who writes `Fix #12` or
@@ -261,6 +274,13 @@ else
 			fail "every option S2 names exists (missing:$missing_flags)"
 		else
 			pass "every option S2 names exists"
+		fi
+		# Whole-flag comparison: a substring match would let the stale `--print-ref` through on
+		# `--print-refs`, which is exactly how S2 drifted from the script (finding R2-003).
+		if printf '%s\n' "$help_flags" | grep -Fxq -- '--print-ref'; then
+			fail "the flag comparison matches whole flags (--print-ref is not --print-refs)"
+		else
+			pass "the flag comparison matches whole flags (--print-ref is not --print-refs)"
 		fi
 	fi
 fi
