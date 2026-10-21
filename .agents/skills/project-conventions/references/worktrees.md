@@ -20,13 +20,12 @@ A Herdr workspace can exist without being a worktree. That is fine for ephemeral
 | --- | --- | --- |
 | 1 | One branch, one worktree | Git enforces it; two checkouts of a branch corrupt each other's index |
 | 2 | One worktree, one unit of work | A reused worktree accumulates unrelated branches and its artifacts become unattributable |
-| 3 | The anchor stays on `main`, clean, with no writers | It is the reference for `fetch`, `log`, and `rebase`; uncommitted work there is one Git command away from loss |
+| 3 | **The anchor is never an edit target.** It stays on the default branch, clean, with no writers — **and that is not a parallelism rule**: it holds when one person and one agent work alone in sequence, which is the case that produced every anchor incident in this repository | It is the reference for `fetch`, `log`, and `rebase`; uncommitted work there is one Git command away from loss, and a commit there can never be pushed, because the default branch requires a pull request |
 | 4 | One worktree per Herdr workspace | Mixing worktrees in one workspace defeats the isolation |
 | 5 | One agent per pane, one pane per worktree | Two agents in one cwd overwrite each other at the filesystem level; Git cannot prevent it |
 | 6 | The worktrees directory lives outside the repository | Keeps the repo tree clean and needs no `.gitignore` entry |
 
 ## Path and naming
-
 | Item | Value |
 | --- | --- |
 | Directory | `~/workspace/<repo>-worktrees/<slug>` — sibling of the repository, never inside it |
@@ -35,9 +34,47 @@ A Herdr workspace can exist without being a worktree. That is fine for ephemeral
 
 The directory slug must equal the branch slug. A directory that does not name its branch is unreconstructable after a few weeks.
 
+## The anchor is never an edit target
+
+Every unit of work — a feature, a fix, a one-line docs change, a repair of a record header — starts in its own worktree, **whether or not the work is parallel**. The anchor is read, never written: `fetch`, `log`, `diff`, `worktree list`. The rule is not about collision between agents; it is about the reference every other operation is measured against, and it is stated in `AGENTS.md` and `CONTRIBUTING.md` for the same reason it lives here.
+
+Two mechanisms make obeying it cheaper than breaking it, and both are checked by
+`.github/scripts/tests/worktree-anchor.test.sh`:
+
+- **`./.github/scripts/new-unit.sh <branch>`** creates the worktree this page describes, with plain
+  `git worktree add` — no `herdr`, no improvisation. It derives the slug from the branch, so the two
+  cannot disagree, and refuses a branch whose directory already exists.
+- **`.githooks/pre-commit`** refuses a commit on the default branch, prints the way out, and comes off with
+  `ALLOW_MAIN_COMMIT=1` for a commit the human decides is deliberate. Install it once per clone; linked
+  worktrees share the same config, so one install covers all of them:
+
+  ```bash
+  git config core.hooksPath .githooks
+  ```
+
+  It resolves the default branch from `refs/remotes/origin/HEAD`, so a repository whose default branch is
+  not `main` is guarded the same way, and it leaves a detached `HEAD` and every other branch alone.
+
+**Work already sitting in the anchor** — the state this rule exists to prevent — moves out in two
+commands, and moving it is always cheaper than reasoning about it:
+
+```bash
+./.github/scripts/new-unit.sh <branch>
+git stash --include-untracked && cd ../<repo>-worktrees/<slug> && git stash pop
+```
+
 ## Create
 
-Run from a clean anchor on `main`:
+Run from a clean anchor on the default branch, and prefer the script: it is the documented path, it needs
+nothing but git, and it derives the slug instead of asking for it.
+
+```bash
+cd ~/workspace/<repo> && git checkout main && git pull
+./.github/scripts/new-unit.sh <branch>            # <- the default, and the one the hook points at
+```
+
+With Herdr, when it is installed and the workspace linkage is wanted, the same worktree plus a linked
+workspace:
 
 ```bash
 cd ~/workspace/<repo> && git checkout main && git pull
@@ -189,6 +226,8 @@ Prefer the parent entry. Trusting a project lets Pi load project settings, insta
 | Anti-pattern | Consequence |
 | --- | --- |
 | Two agents in one worktree | Filesystem-level overwrites; Git cannot recover them |
+| **Editing in the anchor** — any file, any size, "just this once" | The reference stops being a reference, and the edit either cannot be committed or is committed on a branch that can never be pushed; `worktree-anchor.test.sh` and the pre-commit hook exist because this happened |
+| Treating the worktree rule as a parallelism rule | A single sequential writer reads it as inapplicable — which is what this convention used to teach, back when it stated the rule as a benefit of parallel work. The two phrasings that did the teaching are named in `odd/tasks/anchor-is-never-an-edit-target.md`, so nobody has to rediscover why they are gone |
 | Anchor on a feature branch with uncommitted work | Any Git operation on the group can destroy it |
 | Worktrees directory inside the repository | Requires `.gitignore`; `git status` noise; accidental commits |
 | `herdr worktree remove` without a workspace ID | Fails: that command requires a linked workspace. Use `git worktree remove` |
