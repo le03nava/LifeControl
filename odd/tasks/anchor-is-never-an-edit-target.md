@@ -84,7 +84,7 @@ guard cannot: the server cannot see a dirty checkout.
 | T4 | The four artifacts: the rule without its conditional, the hook's one-line install, the script as the canonical command | S1, S5 | inline | `f4e762e` |
 | T5 | `pr-label-guard.yml`: the `ShellCheck` step also reaches `.githooks` | S8 | inline | `f4e762e` |
 | T6 | All ten suites, run and measured (335 assertions, 0 red) | S6, S7 | inline | `f4e762e` |
-| T7 | `PR Label Guard` on the pull request | S6, S8 | — | — |
+| T7 | `PR Label Guard` on pull request **#506**: `ShellCheck: success` — and its log prints `Checking 15 script(s)`, up from 14, which is the hook inside the glob — plus `Self-tests: success` (run `39552748637`) | S6, S8 | — | — |
 
 ## Log
 
@@ -117,6 +117,11 @@ guard cannot: the server cannot see a dirty checkout.
   is `git diff --cached --name-only` before every commit, not after. The foreign modifications are left
   exactly where they were, untouched — the same files that opened this unit are still uncommitted in the
   anchor, and the record deletion is not this unit's decision to make.
+- **L6** — Delivered as issue **#505** (`status:approved`) and pull request **#506**, one pull request.
+  `PR Label Guard` run `39552748637` answered `ShellCheck: success` and `Self-tests: success`, and the
+  shellcheck log prints **`Checking 15 script(s)`** where it printed 14 before: that number is the evidence
+  that the hook is inside the glob, which is stronger than the suite's assertion on the workflow text. The
+  record is final in this pull request, so no follow-up `docs(odd)` pull request moves it.
 - **L2** — Scope decision, verbatim: *«alcance completo: 1+2+3+4»* — the four texts, the local hook, the
   portable script and the parity suite. The earlier observation that a CI guard cannot see a dirty
   checkout, and that binding `checkout main` to a failure would break the anchor's own purpose, shaped the
