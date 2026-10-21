@@ -78,10 +78,18 @@ export class RegionsPage {
   });
 
   readonly regionsResource = rxResource({
-    params: () => this.selectedCountry() ?? undefined,
-    stream: ({ params: country }) =>
+    params: () => {
+      const country = this.selectedCountry();
+      if (!country) return undefined;
+      return {
+        companyId: country.companyId,
+        countryId: country.id,
+        includeDisabled: this.showDisabled(),
+      };
+    },
+    stream: ({ params }) =>
       this.companyRegionService
-        .getRegions(country.companyId, country.id)
+        .getRegions(params.companyId, params.countryId, params.includeDisabled)
         .pipe(catchError(() => of([] as CompanyRegion[]))),
     defaultValue: [] as CompanyRegion[],
   });
@@ -97,6 +105,12 @@ export class RegionsPage {
   /** Friendly error message owned by the service (set on load failure). */
   readonly regionsError = computed(() => this.companyRegionService.error());
 
+  /**
+   * `showDisabled` lives in the resource params, not in the stream: Angular runs the stream
+   * function untracked (`_resource-chunk.mjs`, `loadEffect`), so a signal read there would never
+   * re-trigger the request. The API applies `includeDisabled` server-side; this filter keeps a
+   * disabled row off the list while the toggle is off even if the response ignores the flag.
+   */
   readonly filteredRegions = computed(() => {
     const all = this.regions();
     if (this.showDisabled()) return all;

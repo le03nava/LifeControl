@@ -129,10 +129,15 @@ export abstract class StoreCascadePage implements OnInit {
     defaultValue: [] as CompanyCountry[],
   });
 
+  /**
+   * Filter levels, not the final list: both always request disabled rows too, so a region or zone
+   * pre-selected from the query params still resolves when it is disabled. Only the leaf level of
+   * each page respects the "mostrar deshabilitadas" toggle.
+   */
   readonly regionsResource = rxResource({
     params: () => this.selectedCountry() ?? undefined,
     stream: ({ params: country }) =>
-      this.companyRegionService.getRegions(country.companyId, country.id),
+      this.companyRegionService.getRegions(country.companyId, country.id, true),
     defaultValue: [] as CompanyRegion[],
   });
 
@@ -144,7 +149,7 @@ export abstract class StoreCascadePage implements OnInit {
       return { companyId: country.companyId, countryId: country.id, regionId: region.id };
     },
     stream: ({ params }) =>
-      this.companyZoneService.getZones(params.companyId, params.countryId, params.regionId),
+      this.companyZoneService.getZones(params.companyId, params.countryId, params.regionId, true),
     defaultValue: [] as CompanyZone[],
   });
 

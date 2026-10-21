@@ -101,11 +101,16 @@ export class StoresPage {
     defaultValue: [] as CompanyCountry[],
   });
 
+  /**
+   * Filter levels, not the final list: both always request disabled rows too, so a region or zone
+   * pre-selected from the query params still resolves when it is disabled. Only `storesResource`
+   * below respects the "mostrar deshabilitadas" toggle.
+   */
   readonly regionsResource = rxResource({
     params: () => this.selectedCountry() ?? undefined,
     stream: ({ params: country }) =>
       this.companyRegionService
-        .getRegions(country.companyId, country.id)
+        .getRegions(country.companyId, country.id, true)
         .pipe(catchError(() => of([] as CompanyRegion[]))),
     defaultValue: [] as CompanyRegion[],
   });
@@ -119,7 +124,7 @@ export class StoresPage {
     },
     stream: ({ params }) =>
       this.companyZoneService
-        .getZones(params.companyId, params.countryId, params.regionId)
+        .getZones(params.companyId, params.countryId, params.regionId, true)
         .pipe(catchError(() => of([] as CompanyZone[]))),
     defaultValue: [] as CompanyZone[],
   });
@@ -135,6 +140,7 @@ export class StoresPage {
         countryId: country.id,
         regionId: region.id,
         zoneId: zone.id,
+        includeDisabled: this.showDisabled(),
       };
     },
     stream: ({ params }) =>
@@ -144,7 +150,7 @@ export class StoresPage {
           params.countryId,
           params.regionId,
           params.zoneId,
-          this.showDisabled(),
+          params.includeDisabled,
         )
         .pipe(catchError(() => of([] as CompanyStore[]))),
     defaultValue: [] as CompanyStore[],
@@ -183,6 +189,13 @@ export class StoresPage {
     LC_COMPANY_ZONE,
   ]);
 
+  /**
+   * `showDisabled` lives in the resource params, not in the stream: Angular runs the stream
+   * function untracked (`_resource-chunk.mjs`, `loadEffect`), so a signal read there re-runs only
+   * when the selection changes and the toggle alone never reaches the API. The API applies
+   * `includeDisabled` server-side; this filter keeps a disabled row off the list while the toggle
+   * is off even if the response ignores the flag.
+   */
   readonly filteredStores = computed(() => {
     const all = this.stores();
     if (this.showDisabled()) return all;

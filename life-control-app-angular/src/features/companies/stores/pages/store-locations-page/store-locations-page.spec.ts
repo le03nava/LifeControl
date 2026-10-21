@@ -550,12 +550,13 @@ describe('StoreLocationsPage', () => {
 
       component.onSelectCountry(mockAssignedCountries[0]);
       await settle();
-      expect(regionService.getRegions).toHaveBeenCalledWith('company-1', 'cc-1');
+      // includeDisabled must be true so a pre-selected disabled ancestor still resolves.
+      expect(regionService.getRegions).toHaveBeenCalledWith('company-1', 'cc-1', true);
       expect(companyZoneService.getZones).not.toHaveBeenCalled();
 
       component.onSelectRegion(mockRegions[0]);
       await settle();
-      expect(companyZoneService.getZones).toHaveBeenCalledWith('company-1', 'cc-1', 'reg-1');
+      expect(companyZoneService.getZones).toHaveBeenCalledWith('company-1', 'cc-1', 'reg-1', true);
       expect(storeService.getStores).not.toHaveBeenCalled();
 
       component.onSelectCompanyZone(mockCompanyZones[0]);

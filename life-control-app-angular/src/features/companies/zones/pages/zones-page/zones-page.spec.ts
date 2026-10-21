@@ -166,10 +166,17 @@ describe('ZonesPage', () => {
     readonly loading = this._loading.asReadonly();
     readonly error = this._error.asReadonly();
 
-    getZones = vi.fn().mockImplementation(() => {
-      this._zones.set(mockZones);
-      return of(mockZones);
-    });
+    // Models the API: `includeDisabled` decides which rows come back
+    // (`CompanyZoneService.getAllZones` filters on `z.getEnabled()`).
+    getZones = vi
+      .fn()
+      .mockImplementation(
+        (_companyId: string, _countryId: string, _regionId: string, includeDisabled = false) => {
+          const rows = includeDisabled ? mockZones : mockZones.filter((zone) => zone.enabled);
+          this._zones.set(rows);
+          return of(rows);
+        },
+      );
     addZone = vi.fn().mockReturnValue(of(mockZones[0]));
     updateZone = vi.fn().mockReturnValue(of(mockZones[0]));
     removeZone = vi.fn().mockReturnValue(of(undefined));
@@ -337,7 +344,33 @@ describe('ZonesPage', () => {
     component.onSelectRegion(mockRegions[0]);
     fixture.detectChanges();
 
-    expect(companyZoneService.getZones).toHaveBeenCalledWith('company-1', 'cc-1', 'reg-1');
+    expect(companyZoneService.getZones).toHaveBeenCalledWith('company-1', 'cc-1', 'reg-1', false);
+  });
+
+  it('should ask the API for disabled zones when the toggle is turned on', async () => {
+    const companyZoneService = TestBed.inject(
+      CompanyZoneService,
+    ) as unknown as MockCompanyZoneService;
+
+    component.onSelectCountry(mockAssignedCountries[0]);
+    component.onSelectRegion(mockRegions[0]);
+    await settle();
+    expect(companyZoneService.getZones).toHaveBeenLastCalledWith(
+      'company-1',
+      'cc-1',
+      'reg-1',
+      false,
+    );
+
+    component.showDisabled.set(true);
+    await settle();
+
+    expect(companyZoneService.getZones).toHaveBeenLastCalledWith(
+      'company-1',
+      'cc-1',
+      'reg-1',
+      true,
+    );
   });
 
   // ─── onCreateZone ────────────────────────────────────────────
@@ -545,6 +578,7 @@ describe('ZonesPage', () => {
     component.onSelectRegion(mockRegions[0]);
     await settle();
     component.showDisabled.set(true);
+    await settle();
     expect(component.filteredZones().length).toBe(3);
   });
 
@@ -584,7 +618,7 @@ describe('ZonesPage', () => {
       component.onSelectRegion(mockRegions[0]);
       await settle();
       component.showDisabled.set(true);
-      fixture.detectChanges();
+      await settle();
 
       const cards = fixture.nativeElement.querySelectorAll('app-zones-card');
       expect(cards.length).toBe(3);

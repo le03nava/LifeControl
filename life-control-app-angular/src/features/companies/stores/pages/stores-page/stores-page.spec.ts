@@ -186,10 +186,16 @@ describe('StoresPage', () => {
     readonly zones = this._zones.asReadonly();
     readonly loading = this._loading.asReadonly();
     readonly error = this._error.asReadonly();
-    getZones = vi.fn().mockImplementation(() => {
-      this._zones.set(mockZones);
-      return of(mockZones);
-    });
+    getZones = vi
+      .fn()
+      .mockImplementation(
+        (_companyId: string, _countryId: string, _regionId: string, includeDisabled = false) => {
+          // Models the API: `includeDisabled` decides which rows come back.
+          const rows = includeDisabled ? mockZones : mockZones.filter((zone) => zone.enabled);
+          this._zones.set(rows);
+          return of(rows);
+        },
+      );
     addZone = vi.fn().mockReturnValue(of(mockZones[0]));
     updateZone = vi.fn().mockReturnValue(of(mockZones[0]));
   }
@@ -201,11 +207,24 @@ describe('StoresPage', () => {
     readonly stores = this._stores.asReadonly();
     readonly loading = this._loading.asReadonly();
     readonly error = this._error.asReadonly();
-    getStores = vi.fn().mockImplementation(() => {
-      this._stores.set(mockStores);
-      this._loading.set(false);
-      return of(mockStores);
-    });
+    // Models the API: `includeDisabled` decides which rows come back
+    // (`CompanyStoreService` filters disabled rows out server-side).
+    getStores = vi
+      .fn()
+      .mockImplementation(
+        (
+          _companyId: string,
+          _countryId: string,
+          _regionId: string,
+          _zoneId: string,
+          includeDisabled = false,
+        ) => {
+          const rows = includeDisabled ? mockStores : mockStores.filter((store) => store.enabled);
+          this._stores.set(rows);
+          this._loading.set(false);
+          return of(rows);
+        },
+      );
     removeStore = vi.fn().mockReturnValue(of(undefined));
     enableStore = vi.fn().mockReturnValue(of(mockStores[0]));
     addStore = vi.fn().mockReturnValue(of(mockStores[0]));
@@ -335,7 +354,8 @@ describe('StoresPage', () => {
     ) as unknown as MockCompanyRegionService;
     component.onSelectCountry(mockAssignedCountries[0]);
     fixture.detectChanges();
-    expect(regionService.getRegions).toHaveBeenCalledWith('company-1', 'cc-1');
+    // includeDisabled must be true so a pre-selected disabled ancestor still resolves.
+    expect(regionService.getRegions).toHaveBeenCalledWith('company-1', 'cc-1', true);
   });
 
   it('should clear selectedRegion and selectedZone when country changes', () => {
@@ -363,7 +383,7 @@ describe('StoresPage', () => {
     component.onSelectCountry(mockAssignedCountries[0]);
     component.onSelectRegion(mockRegions[0]);
     fixture.detectChanges();
-    expect(zoneService.getZones).toHaveBeenCalledWith('company-1', 'cc-1', 'reg-1');
+    expect(zoneService.getZones).toHaveBeenCalledWith('company-1', 'cc-1', 'reg-1', true);
   });
 
   it('should clear selectedZone when region changes', () => {
@@ -399,6 +419,33 @@ describe('StoresPage', () => {
       'reg-1',
       'zone-1',
       false,
+    );
+  });
+
+  it('should re-query the API for disabled stores when the toggle is turned on', async () => {
+    const storeService = TestBed.inject(CompanyStoreService) as unknown as MockCompanyStoreService;
+
+    component.onSelectCountry(mockAssignedCountries[0]);
+    component.onSelectRegion(mockRegions[0]);
+    component.onSelectZone(mockZones[0]);
+    await settle();
+    expect(storeService.getStores).toHaveBeenLastCalledWith(
+      'company-1',
+      'cc-1',
+      'reg-1',
+      'zone-1',
+      false,
+    );
+
+    component.showDisabled.set(true);
+    await settle();
+
+    expect(storeService.getStores).toHaveBeenLastCalledWith(
+      'company-1',
+      'cc-1',
+      'reg-1',
+      'zone-1',
+      true,
     );
   });
 
@@ -583,6 +630,7 @@ describe('StoresPage', () => {
     component.onSelectCountry(mockAssignedCountries[0]);
     component.onSelectRegion(mockRegions[0]);
     component.onSelectZone(mockZones[0]);
+    component.showDisabled.set(true);
     await settle();
 
     component.onToggleStore('store-2'); // enabled: false
@@ -632,6 +680,7 @@ describe('StoresPage', () => {
     component.onSelectCountry(mockAssignedCountries[0]);
     component.onSelectRegion(mockRegions[0]);
     component.onSelectZone(mockZones[0]);
+    component.showDisabled.set(true);
     await settle();
 
     component.onToggleStore('store-2'); // enabled: false
@@ -647,6 +696,7 @@ describe('StoresPage', () => {
     component.onSelectCountry(mockAssignedCountries[0]);
     component.onSelectRegion(mockRegions[0]);
     component.onSelectZone(mockZones[0]);
+    component.showDisabled.set(true);
     await settle();
 
     component.onToggleStore('store-2');
@@ -664,6 +714,7 @@ describe('StoresPage', () => {
     component.onSelectCountry(mockAssignedCountries[0]);
     component.onSelectRegion(mockRegions[0]);
     component.onSelectZone(mockZones[0]);
+    component.showDisabled.set(true);
     await settle();
 
     component.onToggleStore('store-2');
@@ -696,6 +747,7 @@ describe('StoresPage', () => {
     await settle();
 
     component.showDisabled.set(true);
+    await settle();
     expect(component.filteredStores().length).toBe(2);
   });
 
@@ -727,7 +779,7 @@ describe('StoresPage', () => {
       await settle();
 
       component.showDisabled.set(true);
-      fixture.detectChanges();
+      await settle();
 
       const cards = fixture.nativeElement.querySelectorAll('app-stores-card');
       expect(cards.length).toBe(2);
@@ -829,6 +881,70 @@ describe('StoresPage', () => {
       expect(component.zones()).toEqual([]);
       expect(component.stores()).toEqual([]);
       expect(component.filteredStores()).toEqual([]);
+    });
+  });
+
+  // ─── Query-param pre-selection ───────────────────────────────
+
+  describe('query-param pre-selection', () => {
+    /** Rebuilds the page with the query params a deep link would provide. */
+    async function setupWithQueryParams(params: Record<string, string>): Promise<void> {
+      fixture.destroy();
+      TestBed.resetTestingModule();
+      await TestBed.configureTestingModule({
+        imports: [StoresPage, HttpClientTestingModule],
+        providers: [
+          { provide: CompanyService, useClass: MockCompanyService },
+          { provide: CompanyCountryService, useClass: MockCompanyCountryService },
+          { provide: CompanyRegionService, useClass: MockCompanyRegionService },
+          { provide: CompanyZoneService, useClass: MockCompanyZoneService },
+          { provide: CompanyStoreService, useClass: MockCompanyStoreService },
+          { provide: Router, useValue: { navigate: vi.fn() } },
+          {
+            provide: Keycloak,
+            useValue: {
+              tokenParsed: { resource_access: { 'life-control-client': { roles: ['lc-admin'] } } },
+            },
+          },
+          {
+            provide: ActivatedRoute,
+            useValue: {
+              snapshot: {
+                queryParamMap: { get: vi.fn((key: string) => params[key] ?? null) },
+                paramMap: { get: vi.fn().mockReturnValue(null) },
+              },
+            },
+          },
+        ],
+      }).compileComponents();
+
+      fixture = TestBed.createComponent(StoresPage);
+      component = fixture.componentInstance;
+      fixture.detectChanges();
+    }
+
+    it('should resolve a pre-selected disabled zone and load its stores', async () => {
+      await setupWithQueryParams({
+        companyId: 'company-1',
+        countryId: 'cc-1',
+        regionId: 'reg-1',
+        zoneId: 'zone-2', // enabled: false
+      });
+      const storeService = TestBed.inject(
+        CompanyStoreService,
+      ) as unknown as MockCompanyStoreService;
+      await settle();
+
+      // The zone selector requests disabled zones too, so the deep link resolves instead of
+      // leaving the page on "seleccioná una empresa".
+      expect(component.selectedZone()?.id).toBe('zone-2');
+      expect(storeService.getStores).toHaveBeenCalledWith(
+        'company-1',
+        'cc-1',
+        'reg-1',
+        'zone-2',
+        false,
+      );
     });
   });
 

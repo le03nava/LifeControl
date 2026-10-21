@@ -98,11 +98,16 @@ export class ZonesPage {
       const country = this.selectedCountry();
       const region = this.selectedRegion();
       if (!country || !region) return undefined;
-      return { companyId: country.companyId, countryId: country.id, regionId: region.id };
+      return {
+        companyId: country.companyId,
+        countryId: country.id,
+        regionId: region.id,
+        includeDisabled: this.showDisabled(),
+      };
     },
     stream: ({ params }) =>
       this.companyZoneService
-        .getZones(params.companyId, params.countryId, params.regionId)
+        .getZones(params.companyId, params.countryId, params.regionId, params.includeDisabled)
         .pipe(catchError(() => of([] as CompanyZone[]))),
     defaultValue: [] as CompanyZone[],
   });
@@ -121,6 +126,12 @@ export class ZonesPage {
   /** Friendly error message owned by the service (set on load failure). */
   readonly zonesError = computed(() => this.companyZoneService.error());
 
+  /**
+   * `showDisabled` lives in the resource params, not in the stream: Angular runs the stream
+   * function untracked (`_resource-chunk.mjs`, `loadEffect`), so a signal read there would never
+   * re-trigger the request. The API applies `includeDisabled` server-side; this filter keeps a
+   * disabled row off the grid while the toggle is off even if the response ignores the flag.
+   */
   readonly filteredZones = computed(() => {
     const all = this.zones();
     if (this.showDisabled()) return all;
