@@ -18,7 +18,9 @@
     </div>
   }
 
-  <app-error-banner [message]="generalError()" />
+  @if (generalError(); as saveFailure) {
+    <app-error-banner [message]="saveFailure" />
+  }
 
   @if (!isEditMode()) {
     @if (storePending()) {

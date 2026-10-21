@@ -119,6 +119,13 @@ describe('StoreLocationsEdit', () => {
       expect(component.storeLocationId()).toBeNull();
     });
 
+    it('should not render the ErrorBanner while there is no general error', () => {
+      // The banner renders its own chrome unconditionally, so the page must not mount it
+      // until a message exists: an empty red alert on a fresh create page is a visible defect.
+      expect(component.generalError()).toBeNull();
+      expect(fixture.nativeElement.querySelector('app-error-banner')).toBeNull();
+    });
+
     it('should build the chain from the seven query params', () => {
       expect(component.chain()).toEqual({
         companyId: 'company-1',

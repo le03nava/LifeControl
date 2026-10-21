@@ -178,6 +178,17 @@ describe('SchedulingActivityEdit', () => {
   }
 
   describe('create', () => {
+    it('should not render an error banner while there is no error', async () => {
+      // `ErrorBanner` renders its own chrome (box, icon, span) unconditionally, so the page must
+      // not mount it until a message exists: an empty red alert on a fresh create page is the
+      // visible defect this pins.
+      setup({ queryStoreId: 'store-1' });
+      await settle();
+
+      expect(component.generalError()).toBeNull();
+      expect(fixture.nativeElement.querySelector('app-error-banner')).toBeNull();
+    });
+
     it('should send companyStoreId and never send enabled or version', async () => {
       setup({ queryStoreId: 'store-1' });
       await settle();
