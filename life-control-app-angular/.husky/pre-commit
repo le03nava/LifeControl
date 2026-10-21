@@ -1,4 +1,38 @@
 #!/usr/bin/env sh
+# ============================================
+# LifeControl - husky's entry point, chained behind the repository hook
+# ============================================
+# `life-control-app-angular/package.json`'s `prepare` sets `core.hooksPath` to `.husky/_`, which lands
+# here. The documented setup of this repository sets it to `.githooks`, which lands in the anchor guard
+# instead. While the two existed as alternatives, whichever key won decided which guarantee a commit
+# got: the anchor guard without formatting, or formatting without the anchor guard — and the tree was
+# measured carrying 20 unformatted files while every gate was green.
+#
+# So this hook no longer stands on its own. It runs `../../.githooks/pre-commit` first and stops on its
+# failure, which gives the anchor guard from here; the repository hook runs `npx lint-staged` itself
+# whenever `node_modules` exists, so the state this entry point covers carries formatting too. Nothing is
+# left for this file to do after a successful delegation: running `npx lint-staged` here as well would
+# repeat the same `eslint --fix` + `prettier --write` pass on every commit of this state, and would reach
+# the network for a binary `node_modules` does not have. The fallback below covers only the checkout where
+# the repository hook is missing.
+set -u
+
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$DIR" || exit 1
-npx lint-staged
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 1
+if [ -n "$REPO_ROOT" ] && [ -x "$REPO_ROOT/.githooks/pre-commit" ]; then
+	# `bash` explicitly: the repository hook is a bash script (`set -u`, `${var#pattern}`) and this entry
+	# point is POSIX `sh`, so it must not be sourced into a shell that cannot run it.
+	bash "$REPO_ROOT/.githooks/pre-commit" || {
+		echo "pre-commit: stopped by .githooks/pre-commit (messages above)" >&2
+		exit 1
+	}
+	exit 0
+fi
+
+# No repository hook in this checkout: keep the formatting guarantee on its own, and only when the app is
+# actually installed -- a fresh worktree must be able to commit before `node_modules` exists.
+if [ -d node_modules ]; then
+	npx lint-staged
+fi

@@ -35,7 +35,11 @@ import type {
 import type { ProductVariantOption } from '../../models/sales-order.models';
 import { NotificationService } from '@shared/data/notification';
 import type { SalesOrderHeaderControl } from '../../models/sales-order-control.models';
-import { SO_STATUS_COLORS, SO_STATUS_LABELS, isTerminalSalesOrderStatus } from '../../data/status-config';
+import {
+  SO_STATUS_COLORS,
+  SO_STATUS_LABELS,
+  isTerminalSalesOrderStatus,
+} from '../../data/status-config';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';

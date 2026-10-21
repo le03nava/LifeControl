@@ -96,7 +96,9 @@
             color="warn"
             (click)="removeItem(i)"
             [disabled]="!isModifiable() || isRowSaving(row.id)"
-            [matTooltip]="isModifiable() ? 'Remove item' : 'Items cannot be modified once the order is closed'"
+            [matTooltip]="
+              isModifiable() ? 'Remove item' : 'Items cannot be modified once the order is closed'
+            "
             [attr.aria-label]="'Remove ' + row.productVariantName"
           >
             <mat-icon>delete</mat-icon>

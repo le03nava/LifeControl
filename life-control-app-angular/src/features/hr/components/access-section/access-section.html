@@ -64,9 +64,7 @@
         }
         <!-- resend needs a linked account and a deliverable, non-terminated employee; otherwise 409. -->
         @if (view.accountLinked && !accessBlockedReason()) {
-          <button mat-stroked-button type="button" (click)="onResend()">
-            Reenviar invitación
-          </button>
+          <button mat-stroked-button type="button" (click)="onResend()">Reenviar invitación</button>
         }
       </div>
     }
@@ -103,7 +101,8 @@
       <h3 class="block-title">Conjunto congelado para la revisión</h3>
       @if (view.frozenRoleDiff; as frozen) {
         <p class="frozen-note">
-          Es el conjunto que decide el revisor; la diferencia en vivo de arriba puede haber cambiado.
+          Es el conjunto que decide el revisor; la diferencia en vivo de arriba puede haber
+          cambiado.
         </p>
         <span class="diff-added">Agregar: {{ roleList(frozen.added) }}</span>
         <span class="diff-removed">Quitar: {{ roleList(frozen.removed) }}</span>
@@ -146,7 +145,9 @@
         -->
         @if (isAwaitingDecision(task)) {
           @if (isSelfRequested(task)) {
-            <p class="decision-note">No podés decidir tu propia solicitud: la regla exige otra persona.</p>
+            <p class="decision-note">
+              No podés decidir tu propia solicitud: la regla exige otra persona.
+            </p>
           } @else if (canWrite()) {
             <button mat-flat-button color="primary" type="button" (click)="onDecide(task)">
               Revisar solicitud

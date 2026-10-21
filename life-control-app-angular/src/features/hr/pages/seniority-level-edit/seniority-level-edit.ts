@@ -25,10 +25,7 @@ import { ErrorBanner } from '@shared/ui';
 import { ApiError } from '@shared/models';
 import { httpErrorMessage } from '@shared/data';
 import { SeniorityLevelService } from '../../data/seniority-level.service';
-import {
-  SeniorityLevelControl,
-  SeniorityLevelRequest,
-} from '../../models/seniority-level.models';
+import { SeniorityLevelControl, SeniorityLevelRequest } from '../../models/seniority-level.models';
 
 /**
  * Create / edit screen of the **global** seniority-level catalog.

@@ -809,7 +809,9 @@ export class ContractDialog {
    */
   hasStoreCascadeSelection(): boolean {
     const value = this.createForm.getRawValue();
-    return Boolean(value.companyCountryId || value.regionId || value.zoneId || value.companyStoreId);
+    return Boolean(
+      value.companyCountryId || value.regionId || value.zoneId || value.companyStoreId,
+    );
   }
 
   /**

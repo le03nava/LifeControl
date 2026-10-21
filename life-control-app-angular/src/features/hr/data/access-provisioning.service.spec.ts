@@ -290,9 +290,7 @@ describe('AccessProvisioningService', () => {
         .flush({ status: 400 }, { status: 400, statusText: 'Bad Request' });
 
       await expect(promise).rejects.toMatchObject({ status: 400 });
-      expect(service.error()).toBe(
-        'La decisión no tiene un usuario que la tome o falta el motivo',
-      );
+      expect(service.error()).toBe('La decisión no tiene un usuario que la tome o falta el motivo');
     });
 
     it('should map a 409 to the not-awaiting message', async () => {

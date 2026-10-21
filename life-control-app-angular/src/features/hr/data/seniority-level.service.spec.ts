@@ -153,7 +153,9 @@ describe('SeniorityLevelService', () => {
         .flush({ status: 409 }, { status: 409, statusText: 'Conflict' });
 
       await expect(promise).rejects.toBeTruthy();
-      expect(service.error()).toBe('Ya existe un nivel de antigüedad con ese código, nombre o rango');
+      expect(service.error()).toBe(
+        'Ya existe un nivel de antigüedad con ese código, nombre o rango',
+      );
     });
 
     it('should put the request and replace the row in the list', async () => {

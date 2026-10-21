@@ -103,7 +103,11 @@
             <ng-container matColumnDef="reportsTo">
               <th mat-header-cell *matHeaderCellDef>Reporta a</th>
               <td mat-cell *matCellDef="let row">
-                {{ row.reportsToPositionId ? (positionLabels().get(row.reportsToPositionId) ?? '—') : '—' }}
+                {{
+                  row.reportsToPositionId
+                    ? (positionLabels().get(row.reportsToPositionId) ?? '—')
+                    : '—'
+                }}
               </td>
             </ng-container>
 
