@@ -1,7 +1,7 @@
 # ODD feature: purchase-order-goods-receipt
 
 **Repository**: LifeControl — `life-control-api/` (workstreams 1-2) + `life-control-app-angular/` (UI) + sales rework deferred (workstream 3)
-**Status**: **All slices are merged into `main`** — W1 #117 (`e846155`) and #118 (`56f76ac`); W2 #119
+**Status**: **merged — all slices**; W1 #117 (`e846155`) and #118 (`56f76ac`); W2 #119
 (`62184b4`), #120 (`55cfab3`) and #121 (`cd60b2f`); W2d1 #125 (`b3b58f5`); W2d2 #126 (`c9630ec`); W2d3
 #128 (`1b00cc33e`) — verified at `bcb8d10` on 2026-09-24. **The only work left is W3**, deferred by the
 user, plus the Keycloak protocol mappers the store-claim path needs. **Repair, 2026-10-15: that clause

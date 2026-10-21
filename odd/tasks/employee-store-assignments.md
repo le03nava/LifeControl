@@ -1,6 +1,6 @@
 # ODD feature: employee-store-assignments
 
-**Status**: **W1, W2, W3a and W3b delivered** — PR **#241** merged to `main` as **`ff04891`** on 2026-10-04
+**Status**: **merged — W1, W2, W3a and W3b**; PR **#241** merged to `main` as **`ff04891`** on 2026-10-04
 (2026-10-04T19:01:58Z), carrying the `V23` migration with its schema suite, the entity, the repository, the DTOs, the service and the store-scope
 derivation with its spec; PR **#243** merged as **`ae04294`** on 2026-10-05
 (2026-10-05T01:35:56Z), carrying the three HTTP endpoints, their role slice and their rejection

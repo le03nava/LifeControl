@@ -3,7 +3,7 @@
 **Repository**: LifeControl — two record headers under `odd/tasks/` (`access-provisioning-worker-repairs.md`,
 `env-defaults-hardening.md`) plus this record. **No production code, no workflow, no `.env*` file, no
 edit to any other record's narrative.**
-**Status**: the repairs of issue **#470** are written and checked: both `**Status**:` paragraphs state
+**Status**: implemented — the repairs of issue **#470** are written and checked: both `**Status**:` paragraphs state
 merged state with their merge commits, the two superseded claims are recorded where they stood, and
 `odd-status-headers.test.sh` passes on this tree. The delivery is recorded in the log below.
 **Created**: 2026-10-19 · **Branch**: `chore/odd-header-repairs` · **Base**: `main` @ `7dbd3aa` ·

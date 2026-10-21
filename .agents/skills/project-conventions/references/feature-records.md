@@ -30,9 +30,17 @@ The pattern is structural, not careless: the header is written while the deliver
 | 2 | Delivery detail belongs in the record's **dated evidence log** (`## Evidence log`, task log), not in the header. | A dated row with a commit hash stays true forever and is checkable with one command; the header is the one place nobody revisits. |
 | 3 | Naming the delivery identity in the header is **optional, and never required** — neither a pull-request number nor a merge commit. | Both are written after the record is, so demanding one forces a second pull request. That cost is the fourth generation above, and it bought nothing rule 1 does not already give. |
 | 4 | **One pull request per unit.** The record ships in the pull request that carries the work, and its header is final there. No follow-up pull request exists to move a header to a merged shape. | A header that needs a second pull request to become true is a header that was written to need one. |
-| 5 | Records written before this rule are **not rewritten**, and 75 headers that name a merge commit stay legal. | Their frozen narrative is itself evidence; rewriting it destroys the audit trail of the drift. Repair only claims that are false *now*, and record the repair. |
+| 5 | Records written before this rule are **not rewritten**, and the headers that name a merge commit stay legal. | Their frozen narrative is itself evidence; rewriting it destroys the audit trail of the drift. Repair only claims that are false *now*, and record the repair. **One exception, taken once:** when rule 6 introduced the closed opening vocabulary, the opening word of the 23 headers that did not use it was normalised in the pull request that carried the rule (`odd/tasks/odd-header-verdict-token.md`). Only the opening word and the words duplicating it changed — no sentence, no dated row, no decision row. |
+| 6 | The paragraph **opens with one of five verdict tokens**: `merged`, `implemented`, `deferred`, `blocked`, `superseded` — case-insensitive, Markdown emphasis allowed. A `**Status**:` paragraph that opens with anything else is a finding. | A denylist only rejects phrasings someone imagined, so *no forbidden phrase found* and *a decline written in words the list does not carry* printed the same green line — measured on PR #488, whose header read `implementado y entregado para revisión`. A closed set inverts the default: an unrecognised word is red in any language, and a unit id (`W1b merged`) or a progress word (`delivered`, `closed`, `done`, `landed`) is not a verdict. |
 
 ## Header shape
+
+The line the guard reads first, and the whole vocabulary it enforces:
+
+**Opening verdict token**: `merged`, `implemented`, `deferred`, `blocked`, `superseded` — the
+`**Status**:` paragraph opens with exactly one of them, case-insensitive and with Markdown emphasis
+allowed. A sixth is a contract change, never a word a writer introduces; the guard asserts this line
+and its own set stay equal, so neither can drift.
 
 The canonical shape, and the one a pull request should arrive with — it is true before the merge and
 after it:
@@ -43,7 +51,8 @@ sweep of the two contradicting headers is the last task. Nothing is deferred.
 **Created**: 2026-10-20 · **Risk**: <level> — <why>
 ```
 
-A record whose work is deferred or blocked says so, with the reason, and nothing about the transport:
+A record whose work is deferred or blocked says so, with the reason, and nothing about the transport.
+`deferred` and `blocked` are legal opening tokens for exactly that case:
 
 ```markdown
 **Status**: implemented — U1 and U2 are written; U3 is deferred to its own issue because the design
@@ -117,5 +126,9 @@ itself — so it is derived rather than stored, and stored only when a session a
   shellcheck over every `.github/scripts/**/*.sh` and then every suite under `.github/scripts/tests/`,
   this one included.
 - **What the guard does not do.** It does not read past the first paragraph, so the rest of a record's
-  narrative stays unverified; and it is a denylist, so a live claim phrased in words the list does not
-  carry still passes — the doctrine, not the regex, is what binds the writer.
+  narrative stays unverified. The denylist is a floor, not a guarantee: a live claim phrased in words
+  the list does not carry still passes *inside* the paragraph. What closed that half is the **opening
+  token** (rule 6): a paragraph whose first word is not one of the five verdicts is red whatever
+  language the rest is written in, so an unrecognised phrasing can no longer present itself as a
+  green one. The doctrine still binds the writer; the vocabulary is what stops an unknown word from
+  passing for a pass.

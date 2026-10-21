@@ -3,7 +3,7 @@
 **Repository**: LifeControl — `life-control-api/` only: `SensitiveDataSanitizer`, `LogbookConfig`, the
 `Logbook` block of `application.properties`, the component `AGENTS.md`, the new tests, plus one line of
 `docker/docker-compose.yml`. No endpoint, no schema, no contract, no dependency.
-**Status**: **delivered** — PR **#354** merged as **`11275c4`** on 2026-10-17, so `main` carries the change.
+**Status**: **merged** — PR **#354** as **`11275c4`**, 2026-10-17, so `main` carries the change.
 The three severe findings it closes are the ones the native refuter corroborated over the Logbook candidate
 (`review-2f26d3ab7e181a9a`, since quarantined), and their evidence lives in that lineage's
 `residue/review-state.json`. What stays open is not a unit of this feature: **F1** (`logbook.enabled=false`

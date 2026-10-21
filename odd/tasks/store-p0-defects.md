@@ -1,7 +1,7 @@
 # ODD feature: store-p0-defects
 
 **Repository**: LifeControl — frontend `life-control-app-angular/` only (no backend edits)
-**Status**: delivered — PR #113 (`feat/store-p0-defects` @ `73113c3`), based on `main` @ `c0cb1f5`
+**Status**: merged — PR #113 (`feat/store-p0-defects` @ `73113c3`), based on `main` @ `c0cb1f5`
 **Created**: 2026-09-17
 **Predecessor**: `odd/tasks/store-locations-frontend.md` (merged, PR #112)
 

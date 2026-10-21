@@ -1,6 +1,6 @@
 # ODD feature: sales-status-transition
 
-**Status**: **closed** — commit **`1e155da`** (tree **`ca4ceb38`**) on `fix/sales-status-transition`, based
+**Status**: **merged** — commit **`1e155da`** (tree **`ca4ceb38`**) on `fix/sales-status-transition`, based
 on `main` @ `450b741` after a fast-forward from `982fdd9`. Gates on the committed bytes: `npm run lint`
 clean, `npm run build` success, `npm run test:coverage:check` **130 files / 2539 tests / 0 failures /
 0 errors / 0 skipped**, coverage **94.08 / 76.01 / 89.32 / 94.08** against the enforced **80 / 60 / 75 /

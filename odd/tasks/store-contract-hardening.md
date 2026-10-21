@@ -1,7 +1,7 @@
 # ODD feature: store-contract-hardening
 
 **Repository**: LifeControl — module `life-control-api/` only (Slice 2, backend)
-**Status**: delivered — PR #114 (`feat/store-contract-hardening` @ `dff6626`), based on `main` @ `c0cb1f5`
+**Status**: merged — PR #114 (`feat/store-contract-hardening` @ `dff6626`), based on `main` @ `c0cb1f5`
 **Created**: 2026-09-18
 **Predecessor**: `odd/tasks/store-p0-defects.md` (Slice 1, frontend)
 

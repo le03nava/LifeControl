@@ -54,6 +54,17 @@
 # and the appended repair blocks of every repaired record) keep those quotations OUTSIDE the first
 # paragraph.
 #
+# The denylist has one hole a longer list cannot close, and it used to report it as a pass: a decline
+# phrased in words nobody imagined -- in Spanish, in a unit id, in a sentence -- matched no forbidden
+# phrase and printed the same green line as a clean header. Measured on PR #488, whose header read
+# `implementado y entregado para revisión ... el merge es una decisión del mantenedor`: the run said
+# `PASS: no record on the tree declines a delivery that landed`. So the paragraph must now OPEN with
+# one of five verdict tokens -- `merged`, `implemented`, `deferred`, `blocked`, `superseded` -- and any
+# other opening word is a finding, whatever language the rest of the sentence is in. That is the same
+# asymmetry the ancestry half refuses: `ancestry: skipped` is printed out loud because a silent skip is
+# indistinguishable from a pass. The vocabulary is closed on purpose, and a case below asserts it
+# equals the one `references/feature-records.md` documents, so neither side can add a sixth alone.
+#
 # The second half verifies the evidence a header CHOOSES to name. A merge commit it introduces behind a
 # delivery marker must resolve and be an ancestor of `origin/main`; when `origin/main` does not resolve
 # -- a shallow CI checkout has no such ref -- the half says `ancestry: skipped` out loud, because a
@@ -106,9 +117,9 @@ fail() {
 }
 
 # status_paragraph <record file>
-# Prints the first `**Status**:` paragraph with its whitespace collapsed to single spaces and its
-# leading/trailing spaces trimmed. The paragraph starts on the first line that carries the
-# `**Status**:` marker anywhere (a record may put `**Repository**:` above it) and ends at:
+# Prints the first `**Status**:` FIELD paragraph with its whitespace collapsed to single spaces and its
+# leading/trailing spaces trimmed. The paragraph starts on the line whose first token is the marker --
+# `**Status**:` after optional whitespace -- and ends at:
 #   - a blank line,
 #   - a Markdown heading (`#`),
 #   - the next `**Field**:` line -- asterisks, a field name, asterisks, a colon. That last rule is
@@ -116,14 +127,20 @@ fail() {
 #     so it is not a field line) while stopping at `**Created**:` and `**Risk**:`.
 # Collapsing is what makes a decline split across a line wrap decidable: without it, the fixture
 # that reproduces the #436 blind spot would pass.
+#
+# The marker must START the line. It used to be matched anywhere, and `odd-stale-header-reconciliation.md`
+# quotes `**Status**:` in backticks inside its `**Repository**:` field: the paragraph then began at the
+# quotation, the status field line closed it, and every rule was checked against a sentence about how
+# many paragraphs the unit repaired. A mention is not the field, and a record that mentions it must not
+# be able to choose which paragraph the guard reads.
 status_paragraph() {
 	awk '
 		BEGIN { started = 0; done = 0; para = "" }
 		done { next }
 		!started {
-			if ((at = index($0, "**Status**:")) > 0) {
+			if ($0 ~ /^[[:space:]]*\*\*Status\*\*:/) {
 				started = 1
-				para = substr($0, at + 11)
+				para = substr($0, index($0, "**Status**:") + 11)
 			}
 			next
 		}
@@ -157,6 +174,41 @@ live_claim_phrases() {
 	printf '%s' "$1" | grep -oiE \
 		'not pushed|no PR is open|not merged|yet to land|awaiting review|pending review|in progress|unstarted|what remains is the delivery|sin pushear|no hay PR abierto|en progreso|esperando review|sin mergear' \
 		2>/dev/null | sort -u || true
+}
+
+# verdict_tokens
+# The closed vocabulary a `**Status**:` paragraph opens with, as the single source for both the rule
+# and the contract-parity case. Exactly one of these five is the whole set: the durable outcomes
+# `AGENTS.md` names -- the work is in `main` (`merged`), the work exists and something of it remains
+# (`implemented`), or nothing was done because it was postponed, blocked on something outside the work,
+# or replaced (`deferred`, `blocked`, `superseded`). No future merge can falsify any of them.
+#
+# The delivery synonyms are deliberately absent. `delivered`, `closed`, `landed` and `done` were the
+# opening word of 18 headers on the tree, and none of them answers the only question the token exists
+# to answer: did this land, or does it still owe something? `implemented` is not a weaker `merged`; it
+# is the honest verdict for work that exists and has not landed.
+verdict_tokens() {
+	printf 'merged implemented deferred blocked superseded'
+}
+
+# opening_verdict_token <paragraph>
+# Prints the first word of the paragraph, case preserved, after dropping the Markdown emphasis and the
+# whitespace a header may put in front of it. Prints nothing when the paragraph opens with a character
+# that cannot start a word -- a backticked hash, a quote, an em dash.
+opening_verdict_token() {
+	printf '%s' "$1" | sed 's/^[*_[:space:]]*//' | grep -oE '^[A-Za-z0-9][A-Za-z0-9_-]*' 2>/dev/null || true
+}
+
+# is_verdict_token <word>
+# Whole-word membership, never a prefix: `merged-upstream` is not `merged`, and a rule that accepted it
+# would decay back into the prefix matching that a closed set replaces.
+is_verdict_token() {
+	local lowered allowed
+	lowered="$(printf '%s' "$1" | tr 'A-Z' 'a-z')"
+	for allowed in $(verdict_tokens); do
+		[ "$lowered" = "$allowed" ] && return 0
+	done
+	return 1
 }
 
 # disclaims_transport <paragraph>
@@ -206,6 +258,7 @@ audit() {
 	local root="$1"
 	local dir="$root/odd/tasks"
 	local main_sha file rel para claims disclaimers hash problems=0 records=0 ancestry=skipped deliveries=0
+	local token allowed
 
 	main_sha="$(origin_main "$root")"
 	if [ -n "$main_sha" ]; then
@@ -229,6 +282,22 @@ audit() {
 			printf 'PROBLEM: %s: has no **Status**: paragraph, so its durable state is unreadable\n' "$rel"
 			problems=$((problems + 1))
 			continue
+		fi
+
+		# The closed vocabulary, and the half a denylist cannot be. The paragraph opens with a verdict,
+		# so a word the guard has never seen -- another language, a unit id, a whole sentence -- is a
+		# finding rather than a silent pass. The two branches are separate because their messages are:
+		# naming an offending word and stating that no word is readable at all are different repairs.
+		token="$(opening_verdict_token "$para")"
+		allowed="$(verdict_tokens | sed 's/ /, /g')"
+		if [ -z "$token" ]; then
+			printf 'PROBLEM: %s: its Status paragraph opens with no verdict token (allowed: %s); open it with one of them, so a phrasing the guard does not know is a finding in any language instead of a pass\n' \
+				"$rel" "$allowed"
+			problems=$((problems + 1))
+		elif ! is_verdict_token "$token"; then
+			printf "PROBLEM: %s: its Status paragraph opens with '%s', which is not one of the five verdict tokens (allowed: %s); open it with one of them, so a phrasing the guard does not know is a finding in any language instead of a pass\n" \
+				"$rel" "$token" "$allowed"
+			problems=$((problems + 1))
 		fi
 
 		# The rule. A LIVE CLAIM fails unconditionally: the paragraph asserts a delivery state that a
@@ -348,9 +417,9 @@ REAL_DELIVERY="$(printf '%s\n' "$real_out" | awk '/^DELIVERY / { print $2 }')"
 REAL_DELIVERY="${REAL_DELIVERY:-0}"
 
 if [ "$real_code" -eq 0 ]; then
-	pass "no record on the tree asserts a live delivery state, names a disclaimer beside its own delivery evidence, or claims a merge commit that is not in origin/main ($REAL_RECORDS records, ancestry: $REAL_ANCESTRY)"
+	pass "no record on the tree opens its Status paragraph with a word outside the five verdict tokens, asserts a live delivery state, names a disclaimer beside its own delivery evidence, or claims a merge commit that is not in origin/main ($REAL_RECORDS records, ancestry: $REAL_ANCESTRY)"
 else
-	fail "a record on the tree asserts a live delivery state, contradicts itself with a transport disclaimer, or claims a merge commit that is not in origin/main"
+	fail "a record on the tree opens with a non-verdict word, asserts a live delivery state, contradicts itself with a transport disclaimer, or claims a merge commit that is not in origin/main"
 fi
 printf '%s\n' "$real_out" | grep '^PROBLEM' | sed 's/^/  /'
 
@@ -567,6 +636,153 @@ expect_audit_mentions "the missing paragraph is named" "$FX" "has no **Status**:
 FX="$TMP/fixtures/zero-records"
 mkdir -p "$FX/odd/tasks"
 expect_audit "a tree with no records fails rather than passing vacuously" "$FX" fail
+
+# ------------------------------------------------------------------------- the closed opening vocabulary
+# The defect this half closes is the one a denylist cannot: it rejects only the phrasings someone
+# imagined, so "no forbidden phrase found" and "a decline written in words the list does not carry"
+# printed the SAME pass. Measured on PR #488 -> #492: a header reading `implementado y entregado para
+# revisión ... el merge es una decisión del mantenedor` produced `PASS ... 83 records`, and was repaired
+# by hand afterwards. The asymmetry is exactly what the ancestry half already refuses -- `ancestry:
+# skipped` exists because a silent skip is indistinguishable from a pass.
+#
+# The remedy is not a longer list. The paragraph must OPEN with one of five verdicts, so a word the
+# guard has never seen -- in any language, or a unit id that names progress instead of an outcome --
+# is red instead of green.
+echo "== the closed opening vocabulary =="
+
+# (m) Each of the five is legal. A rule that rejected a legitimate shape would fail the records on the
+# tree, which is why the tree-wide assertion runs first and why every token is asserted here, not
+# merely the two the tree happens to use most.
+VERDICT_INDEX=0
+for token in $(verdict_tokens); do
+	VERDICT_INDEX=$((VERDICT_INDEX + 1))
+	FX="$(new_fixture "verdict-token-$VERDICT_INDEX")"
+	printf '# ODD feature: %s\n\n**Status**: %s — the work exists and what remains is stated here.\n**Created**: 2026-10-21\n' \
+		"$token" "$token" >"$FX/odd/tasks/token.md"
+	expect_audit "the verdict token '$token' passes" "$FX" pass
+done
+
+# A verdict token in capitals and behind Markdown emphasis is the same token: the tree carries both
+# shapes, and a case-sensitive reader would report a legitimate landed header as unreadable.
+FX="$(new_fixture verdict-token-case-and-emphasis)"
+cat >"$FX/odd/tasks/shout.md" <<'MD'
+# ODD feature: shout
+
+**Status**: **MERGED** — PR #9005 is in `main`; no work left.
+**Created**: 2026-10-21
+MD
+expect_audit "a verdict token in capitals and behind emphasis passes" "$FX" pass
+
+# (n) The delivery synonyms. `delivered` was the most common non-verdict opening word on the tree (11
+# headers) and says nothing a later merge cannot change: it neither claims the work reached `main` nor
+# states what remains. It is a finding now, not because the sentence is false but because the verdict
+# is unreadable.
+FX="$(new_fixture verdict-token-delivered)"
+cat >"$FX/odd/tasks/delivered.md" <<'MD'
+# ODD feature: delivered
+
+**Status**: delivered — the code half is one commit whose gates answered 908 suites; nothing open.
+**Created**: 2026-10-21
+MD
+expect_audit "the delivery synonym 'delivered' is a finding" "$FX" fail
+expect_audit_mentions "the offending token is named" "$FX" "opens with 'delivered'"
+expect_audit_mentions "the accepted vocabulary is named" "$FX" "merged, implemented, deferred, blocked, superseded"
+
+# (o) Spanish. The #492 header was a Spanish live claim an English denylist could not see; the closed
+# set is language-independent in exactly the way the denylist was not.
+FX="$(new_fixture verdict-token-spanish)"
+cat >"$FX/odd/tasks/spanish.md" <<'MD'
+# ODD feature: spanish
+
+**Status**: entregado — el trabajo está hecho y el merge es una decisión del mantenedor.
+**Created**: 2026-10-21
+MD
+expect_audit "an unrecognised Spanish opening word is a finding" "$FX" fail
+expect_audit_mentions "the Spanish token is named" "$FX" "opens with 'entregado'"
+
+# (p) A unit id is not a verdict: three headers on the tree opened with `W1b`, `w1` or `w0`, naming the
+# slice that landed rather than the state of the record.
+FX="$(new_fixture verdict-token-unit-id)"
+cat >"$FX/odd/tasks/unit.md" <<'MD'
+# ODD feature: unit id
+
+**Status**: W1b merged — PR #239 (`feat/employee-access-provisioning-w1b` @ `62706b0`), 2026-10-04.
+**Created**: 2026-10-21
+MD
+expect_audit "a unit id as the opening word is a finding" "$FX" fail
+expect_audit_mentions "the unit id is named" "$FX" "opens with 'W1b'"
+
+# (q) A sentence. `All five slices are merged` was a header on the tree: everything in it was true and
+# none of it was a verdict, so a reader -- human or machine -- had to parse prose to learn the state.
+FX="$(new_fixture verdict-token-sentence)"
+cat >"$FX/odd/tasks/sentence.md" <<'MD'
+# ODD feature: sentence
+
+**Status**: All five slices are merged into `main` — S1 #154, S2 #155; only T14 remains, blocked.
+**Created**: 2026-10-21
+MD
+expect_audit "an opening word that starts a sentence is a finding" "$FX" fail
+expect_audit_mentions "the sentence's first word is named" "$FX" "opens with 'All'"
+
+# (r) A word that merely STARTS with a verdict is not the verdict. A substring match would accept
+# `merged-upstream` and every future compound built on a legal word, which is how a closed set decays
+# back into a prefix rule.
+FX="$(new_fixture verdict-token-prefix)"
+cat >"$FX/odd/tasks/prefix.md" <<'MD'
+# ODD feature: prefix
+
+**Status**: merged-upstream — the change is written; nothing is open here.
+**Created**: 2026-10-21
+MD
+expect_audit "a compound starting with a verdict token is a finding" "$FX" fail
+expect_audit_mentions "the compound is named" "$FX" "opens with 'merged-upstream'"
+
+# (s) A paragraph that opens with no word at all: a hash, an em dash, a quote. There is no token to
+# name, so the finding says so instead of printing an empty quotation.
+FX="$(new_fixture verdict-token-none)"
+cat >"$FX/odd/tasks/none.md" <<'MD'
+# ODD feature: none
+
+**Status**: `1e155da` is the commit whose gates passed; no work left.
+**Created**: 2026-10-21
+MD
+expect_audit "a paragraph opening with no word at all is a finding" "$FX" fail
+expect_audit_mentions "the absence is named, not an empty token" "$FX" "opens with no verdict token"
+
+# (t) The paragraph is the FIELD, not a mention of it. `odd-stale-header-reconciliation.md` opens with a
+# `**Repository**:` line that quotes `**Status**:` in backticks before the real field, and the parser
+# started the paragraph at the quotation -- so it read a sentence about how many paragraphs the unit
+# repaired, and every rule above was checked against the wrong text. Measured when the verdict-token
+# rule was added: that record was the one finding it produced, and the finding was the parser's, not the
+# header's. A mention inside another field must never be the paragraph.
+FX="$(new_fixture verdict-token-behind-a-mention)"
+cat >"$FX/odd/tasks/mention.md" <<'MD'
+# ODD feature: mention
+
+**Repository**: eight `**Status**:` paragraphs, their dated repair blocks, and this record.
+**Status**: delivered — the repairs are written; nothing in this unit is open.
+**Created**: 2026-10-21
+MD
+expect_audit "a backticked mention before the field does not hide the real paragraph" "$FX" fail
+expect_audit_mentions "the real paragraph is the one read" "$FX" "opens with 'delivered'"
+
+# ------------------------------------------------------------------------- the contract and the guard
+# The set only stays closed if a token cannot be added on one side alone. Both directions matter: a
+# token the contract names and the guard ignores is a rule nobody enforces, and a token the guard
+# accepts without the contract naming it is undocumented behaviour a writer cannot predict.
+echo "== the vocabulary matches the contract =="
+CONTRACT_LINE="$(grep -m1 -E '^\*\*Opening verdict token\*\*:' \
+	"$ROOT/.agents/skills/project-conventions/references/feature-records.md" 2>/dev/null || true)"
+CONTRACT_TOKENS="$(printf '%s' "$CONTRACT_LINE" | grep -oE '`[a-z]+`' | tr -d '`' | sort -u | tr '\n' ' ' | sed 's/ *$//')"
+CONTRACT_SET="$(printf '%s' "$CONTRACT_TOKENS" | tr ' ' '\n' | sort -u | tr '\n' ' ' | sed 's/ *$//')"
+GUARD_SET="$(verdict_tokens | tr ' ' '\n' | sort -u | tr '\n' ' ' | sed 's/ *$//')"
+if [ -z "$CONTRACT_LINE" ] || [ -z "$CONTRACT_SET" ]; then
+	fail "the contract line '**Opening verdict token**:' is unreadable in references/feature-records.md, so this parity check would pass vacuously"
+elif [ "$CONTRACT_SET" = "$GUARD_SET" ]; then
+	pass "the contract and the guard name the same verdict tokens ($GUARD_SET)"
+else
+	fail "the contract names [$CONTRACT_SET] and the guard accepts [$GUARD_SET], so one of them is unreachable"
+fi
 
 # ------------------------------------------------------------------------- AGENTS.md parity
 # Every phrase the documentation's forbidden row names has to be caught by the code, or the two

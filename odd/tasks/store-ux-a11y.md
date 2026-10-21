@@ -1,7 +1,7 @@
 # ODD feature: store-ux-a11y (Slice 4 — UX, UI y accesibilidad)
 
 **Repository**: LifeControl — frontend `life-control-app-angular/` only (no backend edits)
-**Status**: delivered — PR #116 merged into `main` (`516348a`, 2026-09-19)
+**Status**: merged — PR #116 into `main` (`516348a`, 2026-09-19)
 **Created**: 2026-02-14
 **Predecessor**: `odd/tasks/store-contract-hardening.md` (merged, PR #114) and the
 `feat/store-frontend-dedup` refactor (PR #115, `788ef16`)

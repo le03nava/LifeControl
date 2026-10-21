@@ -1,6 +1,6 @@
 # ODD feature: company-scope-local-fallback
 
-**Status**: **W0 is merged to `main` as `3f56a0dd`** (PR **#222**, 2026-10-02 — see the evidence
+**Status**: **merged — W0, `3f56a0dd`** (PR **#222**, 2026-10-02 — see the evidence
 log), and it was verified against a live realm before merging; **W2 remains** — **Repair,
 2026-10-15: that clause is no longer current; W2 was never this record's own work and has landed in
 `employee-access-provisioning` (its W4b2a and W5c: `V22`'s `access_provisioning_tasks` plus
