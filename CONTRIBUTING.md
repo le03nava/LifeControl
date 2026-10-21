@@ -72,9 +72,12 @@ anti-patterns — is in `.agents/skills/project-conventions/references/worktrees
 ## 5. Leave an evidence record
 
 A substantial unit of work leaves a versioned record in `odd/tasks/`, named after its slug. The
-record's `**Status**:` line states durable state plus its evidence, or what remains — never a live
-delivery state such as "not pushed" or "awaiting review"; delivery detail belongs in the record's
-dated evidence log. The header shape and the failure mode that produced the rule are in
+record travels in the pull request that carries the work, and its `**Status**:` line is final there:
+it states what the work is and what remains — never a live delivery state such as "not pushed" or
+"awaiting review", and never a pull-request number or a merge commit that do not exist yet. Delivery
+detail belongs in the record's dated evidence log, and naming the delivery identity in the header is
+optional rather than required, which is what keeps the unit to **one** pull request. The header shape
+and the measured failure mode that produced the rule are in
 `.agents/skills/project-conventions/references/feature-records.md`, and `AGENTS.md` summarises the
 same convention under `## Registros ODD`.
 
