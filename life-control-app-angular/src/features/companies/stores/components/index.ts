@@ -4,3 +4,4 @@ export * from './stores-list/stores-list';
 export * from './store-area-form/store-area-form';
 export * from './store-zone-form/store-zone-form';
 export * from './store-location-form/store-location-form';
+export * from './store-inventory-settings-panel/store-inventory-settings-panel';

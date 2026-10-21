@@ -1,17 +1,10 @@
-<div class="store-inventory-settings-page">
-  <app-page-header
-    title="Configuración de inventario"
-    subtitle="Ubicaciones de recepción y venta de la tienda"
-    [showActions]="false"
-  />
+<div class="store-inventory-settings-panel">
+  <p class="panel-hint">
+    Ubicaciones de recepción y venta a las que la tienda apunta por defecto cuando recibe mercancía y
+    cuando vende.
+  </p>
 
-  @if (!chain) {
-    <div class="blocking-state">
-      <mat-icon fontIcon="info" />
-      <p>No se pudo determinar la tienda. Volvé a la lista de tiendas y elegí una.</p>
-      <a mat-stroked-button routerLink="/companies/stores">Ir a la lista de tiendas</a>
-    </div>
-  } @else if (isLoading()) {
+  @if (isLoading()) {
     <div class="loading-skeleton" aria-busy="true">
       @for (_ of [1, 2, 3]; track $index) {
         <div class="skeleton-line"></div>

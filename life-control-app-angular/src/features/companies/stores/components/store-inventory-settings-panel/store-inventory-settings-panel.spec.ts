@@ -3,34 +3,27 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { By } from '@angular/platform-browser';
 import { HttpErrorResponse } from '@angular/common/http';
-import { ActivatedRoute, provideRouter } from '@angular/router';
+import { provideRouter } from '@angular/router';
 import { MatSelect } from '@angular/material/select';
 import Keycloak from 'keycloak-js';
 import { of, ReplaySubject, throwError } from 'rxjs';
-import { StoreInventorySettings } from './store-inventory-settings';
+import { StoreInventorySettingsPanel } from './store-inventory-settings-panel';
 import { StoreInventorySettingsService } from '@features/inventory/data/store-inventory-settings.service';
 import { StoreLocationLookupService } from '@features/inventory/data/store-location-lookup.service';
 import { NotificationService } from '@shared/data/notification';
 import type {
+  StoreChain,
   StoreInventorySettings as StoreInventorySettingsModel,
   StoreLocationSummary,
 } from '@features/inventory/models/store-location-summary.models';
 
-describe('StoreInventorySettings', () => {
-  let component: StoreInventorySettings;
-  let fixture: ComponentFixture<StoreInventorySettings>;
+describe('StoreInventorySettingsPanel', () => {
+  let component: StoreInventorySettingsPanel;
+  let fixture: ComponentFixture<StoreInventorySettingsPanel>;
   let settingsService: MockStoreInventorySettingsService;
   let locationService: MockStoreLocationLookupService;
 
-  const chainQuery: Record<string, string> = {
-    companyId: 'company-1',
-    countryId: 'cc-1',
-    regionId: 'reg-1',
-    zoneId: 'zone-1',
-    storeId: 'store-1',
-  };
-
-  const expectedChain = {
+  const expectedChain: StoreChain = {
     companyId: 'company-1',
     companyCountryId: 'cc-1',
     regionId: 'reg-1',
@@ -110,19 +103,8 @@ describe('StoreInventorySettings', () => {
     showWarning: vi.fn(),
   };
 
-  function activatedRouteWith(queryParams: Record<string, string>): unknown {
-    return {
-      snapshot: {
-        paramMap: { get: vi.fn().mockReturnValue(null) },
-        queryParamMap: {
-          get: vi.fn().mockImplementation((key: string) => queryParams[key] ?? null),
-        },
-      },
-    };
-  }
-
   async function setup(
-    queryParams: Record<string, string> = chainQuery,
+    chain: StoreChain = expectedChain,
     configure?: (mocks: {
       settings: MockStoreInventorySettingsService;
       locations: MockStoreLocationLookupService;
@@ -134,7 +116,7 @@ describe('StoreInventorySettings', () => {
     configure?.({ settings: settingsService, locations: locationService });
 
     await TestBed.configureTestingModule({
-      imports: [StoreInventorySettings, HttpClientTestingModule],
+      imports: [StoreInventorySettingsPanel, HttpClientTestingModule],
       providers: [
         provideRouter([]),
         { provide: StoreInventorySettingsService, useValue: settingsService },
@@ -144,12 +126,12 @@ describe('StoreInventorySettings', () => {
           provide: Keycloak,
           useValue: { tokenParsed: { resource_access: { 'life-control-client': { roles } } } },
         },
-        { provide: ActivatedRoute, useValue: activatedRouteWith(queryParams) },
       ],
     }).compileComponents();
 
-    fixture = TestBed.createComponent(StoreInventorySettings);
+    fixture = TestBed.createComponent(StoreInventorySettingsPanel);
     component = fixture.componentInstance;
+    fixture.componentRef.setInput('chain', chain);
     fixture.detectChanges();
   }
 
@@ -176,44 +158,28 @@ describe('StoreInventorySettings', () => {
     notificationsMock.showWarning.mockClear();
   });
 
-  // ─── Missing chain: fail closed ─────────────────────────────
+  // ─── Chain input ──────────────────────────────────────────
 
-  describe('missing store chain', () => {
-    it('should not request anything when no query param is present', async () => {
-      await setup({});
+  describe('chain input', () => {
+    it('should read through the chain it is given and never guess a store', async () => {
+      await setup();
       await settle();
 
-      expect(settingsService.getSettings).not.toHaveBeenCalled();
-      expect(locationService.getStoreLocations).not.toHaveBeenCalled();
-      expect(component.chain).toBeNull();
+      expect(settingsService.getSettings).toHaveBeenCalledWith(expectedChain);
+      expect(locationService.getStoreLocations).toHaveBeenCalledWith(expectedChain);
     });
 
-    it.each(['companyId', 'countryId', 'regionId', 'zoneId', 'storeId'])(
-      'should not request anything when %s is missing',
-      async (missing) => {
-        const params = { ...chainQuery };
-        delete params[missing];
-
-        await setup(params);
-        await settle();
-
-        expect(settingsService.getSettings).not.toHaveBeenCalled();
-        expect(locationService.getStoreLocations).not.toHaveBeenCalled();
-        expect(component.chain).toBeNull();
-      },
-    );
-
-    it('should render the blocking state with a link back to the store list', async () => {
-      await setup({});
+    it('should re-read when the chain names a different store', async () => {
+      await setup();
       await settle();
 
-      const blocking = fixture.nativeElement.querySelector('.blocking-state');
-      expect(blocking).toBeTruthy();
-      expect(blocking.textContent).toContain('No se pudo determinar la tienda');
+      const otherStore: StoreChain = { ...expectedChain, storeId: 'store-2' };
+      fixture.componentRef.setInput('chain', otherStore);
+      await settle();
 
-      const link = blocking.querySelector('a');
-      expect(link).toBeTruthy();
-      expect(link.getAttribute('href')).toBe('/companies/stores');
+      expect(settingsService.getSettings).toHaveBeenLastCalledWith(otherStore);
+      expect(locationService.getStoreLocations).toHaveBeenLastCalledWith(otherStore);
+      expect(settingsService.getSettings).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -221,7 +187,7 @@ describe('StoreInventorySettings', () => {
 
   describe('unconfigured store', () => {
     beforeEach(async () => {
-      await setup(chainQuery, ({ settings }) => settings.getSettings.mockReturnValue(of(null)));
+      await setup(expectedChain, ({ settings }) => settings.getSettings.mockReturnValue(of(null)));
       await settle();
     });
 
@@ -323,7 +289,7 @@ describe('StoreInventorySettings', () => {
 
   describe('store without enabled locations', () => {
     beforeEach(async () => {
-      await setup(chainQuery, ({ locations }) =>
+      await setup(expectedChain, ({ locations }) =>
         locations.getStoreLocations.mockReturnValue(of([])),
       );
       await settle();
@@ -346,7 +312,7 @@ describe('StoreInventorySettings', () => {
 
   describe('stale configured location', () => {
     beforeEach(async () => {
-      await setup(chainQuery, ({ settings }) =>
+      await setup(expectedChain, ({ settings }) =>
         settings.getSettings.mockReturnValue(
           of({
             companyStoreId: 'store-1',
@@ -554,7 +520,7 @@ describe('StoreInventorySettings', () => {
 
   describe('read failure', () => {
     it('should render an error with retry when the settings read fails', async () => {
-      await setup(chainQuery, ({ settings }) =>
+      await setup(expectedChain, ({ settings }) =>
         settings.getSettings.mockReturnValue(
           throwError(
             () =>
@@ -581,7 +547,7 @@ describe('StoreInventorySettings', () => {
     });
 
     it('should render an error when the locations read fails', async () => {
-      await setup(chainQuery, ({ locations }) =>
+      await setup(expectedChain, ({ locations }) =>
         locations.getStoreLocations.mockReturnValue(
           throwError(
             () =>
@@ -605,7 +571,7 @@ describe('StoreInventorySettings', () => {
   describe('role gating', () => {
     describe('read-only user (lc-company-store-read)', () => {
       beforeEach(async () => {
-        await setup(chainQuery, undefined, ['lc-company-store-read']);
+        await setup(expectedChain, undefined, ['lc-company-store-read']);
         await settle();
       });
 
@@ -643,7 +609,7 @@ describe('StoreInventorySettings', () => {
 
     describe('store writer (lc-company-store)', () => {
       beforeEach(async () => {
-        await setup(chainQuery, undefined, ['lc-company-store']);
+        await setup(expectedChain, undefined, ['lc-company-store']);
         await settle();
       });
 
@@ -664,7 +630,7 @@ describe('StoreInventorySettings', () => {
     describe('read-only user with a stale configured location', () => {
       beforeEach(async () => {
         await setup(
-          chainQuery,
+          expectedChain,
           ({ settings }) =>
             settings.getSettings.mockReturnValue(
               of({

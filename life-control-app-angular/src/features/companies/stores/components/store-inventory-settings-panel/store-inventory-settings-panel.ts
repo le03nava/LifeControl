@@ -5,16 +5,16 @@ import {
   DestroyRef,
   effect,
   inject,
+  input,
   signal,
 } from '@angular/core';
 import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, RouterLink } from '@angular/router';
 import { finalize } from 'rxjs/operators';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatSelectModule } from '@angular/material/select';
-import { PageHeader, ErrorBanner } from '@shared/ui';
+import { ErrorBanner } from '@shared/ui';
 import { NotificationService } from '@shared/data/notification';
 import { httpErrorMessage, unwrapHttpError } from '@shared/data/http-error-message';
 import { ApiError } from '@shared/models';
@@ -31,53 +31,44 @@ import type {
  * Per-store inventory settings: the receiving and sales location the receipt
  * flow defaults to.
  *
- * The page is a leaf under the `stores` list: the whole chain arrives through
- * the five query params (`companyId`, `countryId`, `regionId`, `zoneId`,
- * `storeId`) and the page never cascades. When any of the five is missing it
- * fails closed — no request is issued and the operator is sent back to the store
- * list — instead of guessing a store.
+ * The panel is the `Configuración` tab of `/companies/stores/edit/:id`, so it is
+ * **presentational about identity**: the whole five-level chain arrives through the
+ * required {@link chain} input, derived by the page from the store it is editing, and
+ * this component never reads a route nor cascades. It therefore cannot guess a store:
+ * the page renders it only once it holds one.
  *
  * A `getSettings` 404 is a normal state (the store was never configured): the
  * read maps it to `null` and the page renders an empty form ready to create.
  */
 @Component({
-  selector: 'app-store-inventory-settings',
+  selector: 'app-store-inventory-settings-panel',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [
-    MatButtonModule,
-    MatFormFieldModule,
-    MatIconModule,
-    MatSelectModule,
-    PageHeader,
-    ErrorBanner,
-    RouterLink,
-  ],
-  templateUrl: './store-inventory-settings.html',
-  styleUrl: './store-inventory-settings.scss',
+  imports: [MatButtonModule, MatFormFieldModule, MatIconModule, MatSelectModule, ErrorBanner],
+  templateUrl: './store-inventory-settings-panel.html',
+  styleUrl: './store-inventory-settings-panel.scss',
 })
-export class StoreInventorySettings implements UnsavedChangesAware {
-  private readonly route = inject(ActivatedRoute);
+export class StoreInventorySettingsPanel implements UnsavedChangesAware {
   private readonly settingsService = inject(StoreInventorySettingsService);
   private readonly locationLookup = inject(StoreLocationLookupService);
   private readonly notifications = inject(NotificationService);
   private readonly destroyRef = inject(DestroyRef);
 
   /**
-   * The five-level store chain, read once from the query params. `null` when any
-   * level is missing; every read and write is gated on it.
+   * The five-level store chain of the store being edited. Required: both resources are
+   * keyed on it, so setting it is what triggers the first read and changing it reloads.
    */
-  readonly chain: StoreChain | null = this.buildChain();
+  readonly chain = input.required<StoreChain>();
 
   /** The store's persisted settings, or `null` when it was never configured (404). */
   readonly settingsResource = rxResource({
-    params: () => this.chain ?? undefined,
+    params: () => this.chain(),
     stream: ({ params }) => this.settingsService.getSettings(params),
   });
 
   /** The enabled locations of the store, the data source of both pickers. */
   readonly locationsResource = rxResource({
-    params: () => this.chain ?? undefined,
+    params: () => this.chain(),
     stream: ({ params }) => this.locationLookup.getStoreLocations(params),
   });
 
@@ -122,9 +113,10 @@ export class StoreInventorySettings implements UnsavedChangesAware {
 
   // ─── Derived state ─────────────────────────────────────
   /**
-   * `lc-company-store-read` reaches this page — its route accepts the read role — but the backend
-   * rejects the write. A read-only principal may view the configuration; it must never be offered
-   * the save control.
+   * Only a store writer may save: the backend rejects the write from a principal without
+   * `STORE_WRITE_ROLES`, so the control is never offered to a read-only one. The page that hosts
+   * this panel is already behind the write roles, which makes this defence in depth rather than
+   * the only gate.
    */
   readonly canWrite = hasAnyClientRole(STORE_WRITE_ROLES);
 
@@ -195,10 +187,10 @@ export class StoreInventorySettings implements UnsavedChangesAware {
   }
 
   onSave(): void {
-    const chain = this.chain;
     const receivingLocationId = this.receivingLocationId();
     const salesLocationId = this.salesLocationId();
-    if (!chain || !this.canSubmit() || !receivingLocationId || !salesLocationId) return;
+    if (!this.canSubmit() || !receivingLocationId || !salesLocationId) return;
+    const chain = this.chain();
 
     this.saveError.set(null);
     this.saveErrorDetail.set(null);
@@ -237,22 +229,6 @@ export class StoreInventorySettings implements UnsavedChangesAware {
   }
 
   // ─── Internals ─────────────────────────────────────────
-  private buildChain(): StoreChain | null {
-    const companyId = this.route.snapshot.queryParamMap.get('companyId');
-    const countryId = this.route.snapshot.queryParamMap.get('countryId');
-    const regionId = this.route.snapshot.queryParamMap.get('regionId');
-    const zoneId = this.route.snapshot.queryParamMap.get('zoneId');
-    const storeId = this.route.snapshot.queryParamMap.get('storeId');
-    if (!companyId || !countryId || !regionId || !zoneId || !storeId) return null;
-    return {
-      companyId,
-      companyCountryId: countryId,
-      regionId,
-      zoneId,
-      storeId,
-    };
-  }
-
   private handleSaveError(error: unknown): void {
     const httpError = unwrapHttpError(error);
     const apiError = httpError?.error as ApiError | undefined;
