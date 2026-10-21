@@ -329,5 +329,32 @@ else
 	pass "AGENTS.md claims no push-trigger asymmetry"
 fi
 
+# CONTRIBUTING.md carried the other half of the same claim, and `L21`'s repair read only AGENTS.md:
+# "Every workflow also runs on `push` to `main`, so a merge re-runs the gate even when the pull
+# request ran none of it" stayed true-looking beside four filtered push triggers and a label guard
+# with no push trigger. The sentence wraps, so the file is read as one line before matching.
+CONTRIBUTING_MD="$SCRIPT_DIR/../../../CONTRIBUTING.md"
+if [ ! -r "$CONTRIBUTING_MD" ]; then
+	fail "CONTRIBUTING.md exists ($CONTRIBUTING_MD)"
+elif tr '\n' ' ' <"$CONTRIBUTING_MD" | grep -Eqi 'every workflow +also runs on `push` to `main`'; then
+	fail "CONTRIBUTING.md still claims every workflow runs on push to main"
+else
+	pass "CONTRIBUTING.md claims no universal push trigger"
+fi
+
+# The claim is read through `tr '\n' ' '`; a sentence that wraps must still be found, so the
+# matcher is proven on both shapes instead of trusting the current file's layout.
+claim_matcher() { tr '\n' ' ' | grep -Eqi 'every workflow +also runs on `push` to `main`'; }
+if printf '%s\n%s\n' 'See AGENTS.md. Every workflow' 'also runs on `push` to `main`, so a merge re-runs the gate.' | claim_matcher; then
+	pass "the push-claim matcher reads a wrapped sentence"
+else
+	fail "the push-claim matcher reads a wrapped sentence"
+fi
+if printf '%s\n' 'Every workflow also runs on `push` to `main`.' | claim_matcher; then
+	pass "the push-claim matcher reads an unwrapped sentence"
+else
+	fail "the push-claim matcher reads an unwrapped sentence"
+fi
+
 printf '\n%d passed, %d failed\n' "$PASS_COUNT" "$FAIL_COUNT"
 [ "$FAIL_COUNT" -eq 0 ]

@@ -41,7 +41,7 @@ disabled; `secret_scanning` and `push_protection` are enabled.
   Check: `bash .github/scripts/tests/issue-templates.test.sh`.
 - **S2 — A pull request whose body does not reference an approved issue fails.** New
   `.github/scripts/check-issue-reference.sh` (`--body`/`--body-file`, `--base-branch`, `--default-branch`,
-  `--issue-json`, plus `--print-ref`) is wired into `.github/workflows/pr-label-guard.yml`. Rules: on the
+  `--issues-json`/`--issues-json-file`, plus `--print-refs`) is wired into `.github/workflows/pr-label-guard.yml`. Rules: on the
   default branch, a closing reference (`Closes|Fixes|Resolves #N`, case-insensitive, colon optional) to an
   **open** issue carrying `status:approved` is required; on a non-default base (chain) `Refs #N` is also
   accepted, because GitHub ignores closing keywords off the default branch; a reference to a number that is a
@@ -393,3 +393,28 @@ deleted after it. This entry reaches no further: it records no reviewer outcome 
 post-merge CI run on `main` for the merge commit beyond the zero runs measured above. It does not claim the
 defect's absence anywhere it was not measured — the only such measurement is the parity suite's new case passing
 on the gated tree, which asserts the absence of the claim in `AGENTS.md`, not of any other artifact.
+
+**L23** *(the gate's own interface and the prose tail of `L21`, issue **#493**, 2026-10-20)*: four findings of
+the native review `L19` describes were re-measured against `main` and acted on, because the transaction that
+raised them stalled in `correction_required` and nobody read them again. Its two CRITICAL findings were
+re-measured and closed without a code change: `R3-001` is a false positive (`javap` on
+`spring-data-redis-4.1.1` gives `public long getTimeout()`, and `RedisOutagePolicyTest` runs 6 cases green, so
+the assertion compares `long` to `long`), and `R3-002` was already fixed by the anchored keyword pattern. The
+four findings below were not.
+
+- `S2` named `--issue-json` and `--print-ref`; the script accepts `--issues-json`, `--issues-json-file` and
+  `--print-refs`. The spec now names the real surface (`R2-003`), and
+  `check-issue-reference.test.sh` fails if a documented option is absent from the script's `--help`, so the
+  record may describe less than the script offers but never more.
+- The cross-repository detector accepted any `word/word #N`, so `feat/store-areas #7` or `src/app.ts #7` beside
+  a valid reference failed the gate as an unverifiable link. It now requires GitHub's only form, `owner/repo#N`
+  with the number attached (`R3-004`).
+- The gate answered `PASS` on the first open approved number, before looking at the numbers it had rejected, so
+  `Closes #12` (closed) beside `Closes #13` (approved) was accepted — against the rule `S2` states. The rejects
+  are now answered first (`R3-003`).
+- `CONTRIBUTING.md` still claimed every workflow runs on `push` to `main`, the asymmetry `L21`/`L22` repaired in
+  `AGENTS.md` alone, and `workflow-trigger-parity.test.sh` pinned `AGENTS.md` alone. The sentence now states the
+  filtered truth and the suite reads both files (`R4-002`).
+
+Nothing here reopens a spec of this record, changes a workflow, or claims a delivery state: the changes are the
+gate's two rules, the record's own option string, one `CONTRIBUTING.md` sentence and the parity suite's coverage.

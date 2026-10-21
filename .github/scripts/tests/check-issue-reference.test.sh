@@ -95,6 +95,8 @@ CLOSED='[{"number":12,"state":"closed","labels":[{"name":"status:approved"}]}]'
 A_PULL_REQUEST='[{"number":12,"state":"open","labels":[{"name":"status:approved"}],"pull_request":{"url":"https://api.github.com/repos/le03nava/LifeControl/pulls/12"}}]'
 PULL_REQUEST_AND_APPROVED_ISSUE='[{"number":4,"state":"open","pull_request":{"url":"https://api.github.com/repos/le03nava/LifeControl/pulls/4"}},{"number":12,"state":"open","labels":[{"name":"status:approved"}]}]'
 UNEXPECTED_NUMBER='[{"number":99,"state":"open","labels":[{"name":"status:approved"}]}]'
+CLOSED_AND_APPROVED='[{"number":12,"state":"closed","labels":[{"name":"status:approved"}]},{"number":13,"state":"open","labels":[{"name":"status:approved"}]}]'
+UNAPPROVED_AND_APPROVED='[{"number":12,"state":"open","labels":[{"name":"bug"}]},{"number":13,"state":"open","labels":[{"name":"status:approved"}]}]'
 
 echo "== argument handling =="
 check "a missing --base-branch fails closed" 1 - "FAIL: --base-branch is required" \
@@ -123,6 +125,34 @@ check "Refs alone passes off the default branch" 0 "PASS: #12 is open and carrie
 	"$GUARD" --body "Refs #12" --base-branch "$TRACKER" --default-branch "$DEFAULT" --issues-json "$APPROVED"
 check "a cross-repository reference fails" 1 - "cross-repository reference" \
 	"$GUARD" --body "Closes le03nava/other#3" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+# A cross-repository reference has one shape on GitHub: `owner/repo#N`, with the number attached.
+# The detector used to accept any `word/word #N`, so naming a branch or a path beside an issue
+# number was unverifiable by construction and blocked a valid pull request (finding R3-004).
+check "a branch name beside a number is not a cross-repository reference" 0 "PASS: #12 is open and carries status:approved" - \
+	"$GUARD" --body "Closes #12
+
+Merged from feat/store-areas #7." --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+check "a file path beside a number is not a cross-repository reference" 0 "PASS: #12 is open and carries status:approved" - \
+	"$GUARD" --body "Closes #12
+
+Same contract as src/app.ts #7." --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+check "an attached owner/repo reference still fails" 1 - "cross-repository reference" \
+	"$GUARD" --body "Closes #12
+
+Upstream is le03nava/other#3." --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+# The detached form is prose on GitHub, so it must not block a body that also carries a valid
+# reference -- and it must fail on its own. Both shapes are pinned because the detector's own comment
+# claimed only the second one; measurement found the first (independent verification of #493).
+check "a detached owner/repo beside a number passes" 0 "PASS: #12 is open and carries status:approved" - \
+	"$GUARD" --body "Closes #12
+
+Upstream is le03nava/other #3." --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+check "a detached owner/repo alone is not a reference" 1 - "FAIL: no issue reference" \
+	"$GUARD" --body "See le03nava/other #3." --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
+# S2 applies off the default branch too: a closed `Refs #N` beside an approved `Closes #N` fails.
+check "off the default branch a closed Refs beside an approved Closes fails" 1 - "FAIL: issue #12 is not open (state=closed)" \
+	"$GUARD" --body "Closes #13
+Refs #12" --base-branch "$TRACKER" --default-branch "$DEFAULT" --issues-json "$CLOSED_AND_APPROVED"
 check "an uppercase keyword with a colon passes" 0 "PASS: #12 is open and carries status:approved" - \
 	"$GUARD" --body "CLOSES: #12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED"
 # GitHub honors nine closing keywords, not three: a contributor who writes `Fix #12` or
@@ -174,6 +204,15 @@ check "an issue without status:approved fails" 1 - "does not carry the status:ap
 	"$GUARD" --body "Closes #12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$UNAPPROVED"
 check "a closed issue fails" 1 - "FAIL: issue #12 is not open (state=closed)" \
 	"$GUARD" --body "Closes #12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$CLOSED"
+# The rule is about every reference the body makes, not about the first one that happens to be
+# valid: the gate used to exit PASS as soon as one referenced number was an open approved issue,
+# so a closed issue in the same body was accepted (finding R3-003).
+check "a closed issue beside an approved one fails" 1 - "FAIL: issue #12 is not open (state=closed)" \
+	"$GUARD" --body "Closes #12
+Closes #13" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$CLOSED_AND_APPROVED"
+check "an unapproved issue beside an approved one fails" 1 - "does not carry the status:approved label" \
+	"$GUARD" --body "Closes #12
+Closes #13" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$UNAPPROVED_AND_APPROVED"
 check "an upper-case state is still read as open" 0 "PASS: #12 is open and carries status:approved" - \
 	"$GUARD" --body "Closes #12" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --issues-json "$APPROVED_UPPER"
 check "a closing keyword naming a pull request fails" 1 - "is a pull request" \
@@ -208,6 +247,43 @@ check "--print-refs with no reference fails" 1 - "FAIL: no issue reference in th
 	"$GUARD" --body "no reference here" --base-branch "$DEFAULT" --default-branch "$DEFAULT" --print-refs
 check "--print-refs reads a body file" 0 "12" - \
 	"$GUARD" --body-file <(printf 'Closes #12\n') --base-branch "$DEFAULT" --default-branch "$DEFAULT" --print-refs
+
+echo "== the record documents the interface the script has =="
+# The record is the only place a maintainer reads this gate's surface before reproducing it, so an
+# option it names and the script does not accept is a dead end: reproducing S2 verbatim hit the
+# script's `unknown argument` failure (finding R2-003). Only one direction is pinned -- every option
+# the record names must exist -- so the record may describe less than the script offers, never more.
+RECORD="$SCRIPT_DIR/../../../odd/tasks/pr-issue-governance.md"
+if [ ! -r "$RECORD" ]; then
+	fail "the governance record is readable at $RECORD"
+else
+	pass "the governance record is readable"
+	s2_flags="$(awk '/^- \*\*S2/{f=1} f{print} f&&/^- \*\*S3/{exit}' "$RECORD" |
+		grep -oE '\-\-[a-z][a-z-]*' | sort -u)"
+	help_flags="$("$GUARD" --help | grep -oE '\-\-[a-z][a-z-]*' | sort -u)"
+	if [ -z "$s2_flags" ]; then
+		fail "S2 names the gate's options (none were found in the record)"
+	else
+		missing_flags=""
+		for flag in $s2_flags; do
+			if ! printf '%s\n' "$help_flags" | grep -Fxq -- "$flag"; then
+				missing_flags="$missing_flags $flag"
+			fi
+		done
+		if [ -n "$missing_flags" ]; then
+			fail "every option S2 names exists (missing:$missing_flags)"
+		else
+			pass "every option S2 names exists"
+		fi
+		# Whole-flag comparison: a substring match would let the stale `--print-ref` through on
+		# `--print-refs`, which is exactly how S2 drifted from the script (finding R2-003).
+		if printf '%s\n' "$help_flags" | grep -Fxq -- '--print-ref'; then
+			fail "the flag comparison matches whole flags (--print-ref is not --print-refs)"
+		else
+			pass "the flag comparison matches whole flags (--print-ref is not --print-refs)"
+		fi
+	fi
+fi
 
 printf '\n%d passed, %d failed\n' "$PASS_COUNT" "$FAIL_COUNT"
 [ "$FAIL_COUNT" -eq 0 ]

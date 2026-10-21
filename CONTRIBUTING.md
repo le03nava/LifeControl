@@ -94,8 +94,11 @@ branch-protection runbook below names required checks by exactly those strings.
 The label guard's self-tests run the offline suites in `.github/scripts/tests/` and `shellcheck
 --severity=warning` over `.github/scripts/*.sh`. The four component workflows run their component's
 lint, build and test gate; the exact commands are in `AGENTS.md` under `## Development Commands` and
-in the `Dispatch` table of `.agents/skills/project-conventions/references/index.md`. Every workflow
-also runs on `push` to `main`, so a merge re-runs the gate even when the pull request ran none of it.
+in the `Dispatch` table of `.agents/skills/project-conventions/references/index.md`. Each component
+workflow filters both `push` and `pull_request` by the same `paths:` block, so a merge to `main`
+runs a component's gate only when the merged paths match it, and `pr-label-guard.yml` carries no
+`push` trigger at all: a merge that touches no listed path runs no component check, and the absence
+of a component check in `gh pr checks` is what predicts it.
 
 ## 7. Branch protection
 

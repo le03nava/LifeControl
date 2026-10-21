@@ -183,9 +183,16 @@ strip_code() {
 scan_body="$(printf '%s' "$body" | strip_code)"
 
 # A reference to another repository cannot be verified with this repository's token, and
-# silently ignoring it would report a pass for a link nobody checked.
-if printf '%s' "$scan_body" | grep -qiE '[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+[[:space:]]*#[0-9]+'; then
-	cross="$(printf '%s' "$scan_body" | grep -oiE '[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+[[:space:]]*#[0-9]+' | head -1)"
+# silently ignoring it would report a pass for a link nobody checked. GitHub writes that reference
+# one way — `owner/repo#N`, with the number attached — so the detector requires the attached form.
+# Anything looser reads a branch or a path beside an issue number (`feat/store-areas #7`,
+# `src/app.ts #7`) as a cross-repository link that does not exist, and blocks a valid pull request
+# (finding R3-004 of the reviewed range). The detached form `owner/repo #N` is not a link GitHub
+# resolves either, so it is not detected here: on its own it fails as an unusable reference, and
+# beside a valid reference it does not block the pull request. Both shapes are pinned in the suite;
+# neither is a cross-repository failure.
+if printf '%s' "$scan_body" | grep -qiE '[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[0-9]+'; then
+	cross="$(printf '%s' "$scan_body" | grep -oiE '[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[0-9]+' | head -1)"
 	printf 'FAIL: cross-repository reference %s cannot be verified by this gate; reference an issue of this repository\n' \
 		"'$cross'" >&2
 	exit 1
@@ -342,11 +349,9 @@ while IFS=$'\t' read -r number kind state labels; do
 	fi
 done <<<"$issue_lines"
 
-if [ -n "$approved_number" ]; then
-	printf 'PASS: #%s is open and carries status:approved\n' "$approved_number"
-	exit 0
-fi
-
+# The rule is about every reference the body makes, so the rejects are answered before the pass:
+# exiting PASS on the first approved number left a closed or unapproved issue in the same body
+# accepted, contradicting S2 of the governance record (finding R3-003).
 if [ "$saw_issue" -eq 0 ]; then
 	printf 'FAIL: no referenced number is an issue; a reference must name an approved issue of this repository\n' >&2
 	exit 1
@@ -362,6 +367,11 @@ if [ -n "$rejected_state_number" ]; then
 	printf 'FAIL: issue #%s is not open (state=%s)\n' \
 		"${rejected_state_number%%:*}" "${rejected_state_number#*:}" >&2
 	exit 1
+fi
+
+if [ -n "$approved_number" ]; then
+	printf 'PASS: #%s is open and carries status:approved\n' "$approved_number"
+	exit 0
 fi
 
 printf 'FAIL: no referenced issue is open and carries status:approved\n' >&2
