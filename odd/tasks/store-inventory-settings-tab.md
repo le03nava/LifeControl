@@ -66,8 +66,15 @@ same thing `product-edit` documents), so page specs must provide the panel's col
 deliberate: it is one mechanism, and it lets the page answer the guard without the operator ever
 visiting the tab.
 
-L5 (slice boundary, T6): the work is two work-unit commits, `c9e1040` (292 authored lines: the
-panel extraction and the removal of the old entry point) and this second one (~454 authored lines:
-the tab shell, its tests and this record). The second exceeds the ~400-line advisory on purpose,
-because the tab and the removal it depends on are one behavior; a chained delivery would therefore
-use one slice per commit.
+L5 (slice boundary, T6): the work is three work-unit commits — `c9e1040` (292 authored lines: the
+panel extraction and the removal of the old entry point), `43a11c8` (~454: the tab shell, its tests
+and this record) and this one (the component guide, which documented the removed route in four
+places). The middle one exceeds the ~400-line advisory on purpose, because the tab and the removal
+it depends on are one behavior; a chained delivery would use one slice per commit.
+
+L6 (docs, T5): `life-control-app-angular/AGENTS.md` described `/companies/store-inventory-settings` as
+a leaf route gated at `STORE_ROLES`, listed it among the `canWrite` files and used it as the
+read+write-form precedent. All three are false after the move; the guide now names the tab, the
+required `chain` input, `?tab=` and `preserveContent`, and records why a page spec must provide the
+panel's collaborators. Prettier reports that file unformatted on `origin/main` too, so it is
+hand-maintained and was left that way.
