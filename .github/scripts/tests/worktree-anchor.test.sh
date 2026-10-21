@@ -240,5 +240,63 @@ else
 	fail "the ShellCheck step no longer reaches .githooks, so the hook is never linted"
 fi
 
+echo "== the session-start procedure and the operations the anchor may run =="
+
+# Git has no `pre-reset` hook -- only commit, checkout, merge and push -- so the rule about what the anchor
+# may run is prose, not a program. That is exactly why it needs a reader: a rule stated in four artifacts
+# and verified by none is the state this whole unit exists to leave behind.
+WORKTREES_MD="$ROOT/.agents/skills/project-conventions/references/worktrees.md"
+SESSION_SECTION="$(awk '/^## Starting a session/{inside=1; next} /^## /{inside=0} inside' "$WORKTREES_MD" 2>/dev/null)"
+if [ -n "$SESSION_SECTION" ]; then
+	pass "worktrees.md still has a 'Starting a session' section"
+else
+	fail "worktrees.md has no 'Starting a session' section, so the session-start procedure has no owner"
+fi
+for step in "git fetch origin" "git status --short" "git log --oneline origin/main"; do
+	case "$SESSION_SECTION" in
+	*"$step"*)
+		pass "the start-of-session procedure names '$step'" ;;
+	*)
+		fail "the start-of-session procedure no longer names '$step'" ;;
+	esac
+done
+
+# The forbidden list, checked inside its own section: a word that stops being named there is a word that
+# goes back to being allowed by silence.
+ANCHOR_SECTION="$(awk '/^## What the anchor may run/{inside=1; next} /^## /{inside=0} inside' "$WORKTREES_MD" 2>/dev/null)"
+if [ -n "$ANCHOR_SECTION" ]; then
+	pass "worktrees.md still has a 'What the anchor may run' section"
+else
+	fail "worktrees.md has no 'What the anchor may run' section"
+fi
+# Scoped to the TABLE, not the section: the section's prose names `git reset` while telling the incident
+# that motivated the rule, and a whole-section grep was measured to keep passing after the table row that
+# forbids it was deleted -- a pass nobody earned. Only the list is the rule.
+ANCHOR_TABLE="$(printf '%s\n' "$ANCHOR_SECTION" | grep '^| ')"
+ANCHOR_ROWS="$(printf '%s\n' "$ANCHOR_TABLE" | grep -c '^|' || true)"
+if [ "${ANCHOR_ROWS:-0}" -ge 5 ]; then
+	pass "the anchor's allowed/forbidden table still has $ANCHOR_ROWS rows"
+else
+	fail "the anchor's allowed/forbidden table has only ${ANCHOR_ROWS:-0} rows, so part of the rule is gone"
+fi
+for operation in "git reset" "git stash" "git clean" "git checkout -b" "git rebase" "git commit"; do
+	case "$ANCHOR_TABLE" in
+	*"$operation"*)
+		pass "the anchor's forbidden list still names '$operation'" ;;
+	*)
+		fail "the anchor's forbidden list no longer names '$operation', so it is forbidden by silence" ;;
+	esac
+done
+
+# And the one command that decides whether the anchor is safe to touch at all is restated where each
+# audience reads: the agent rules, the skill and the contributor guide.
+for artifact in "AGENTS.md" "CONTRIBUTING.md" ".agents/skills/project-conventions/SKILL.md"; do
+	if grep -qF 'git status --short' "$ROOT/$artifact" 2>/dev/null; then
+		pass "$artifact restates the read that decides whether the anchor is safe to touch"
+	else
+		fail "$artifact no longer tells a session to read the anchor's working-tree state first"
+	fi
+done
+
 printf '\n%d passed, %d failed\n' "$PASS_COUNT" "$FAIL_COUNT"
 [ "$FAIL_COUNT" -eq 0 ]

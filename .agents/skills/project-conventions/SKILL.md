@@ -33,7 +33,7 @@ Invoke when a change touches code, architecture, CI/CD, dependencies, security, 
 ## Execution Steps
 
 1. Read the component reference: `references/api.md` for `life-control-api`, `references/angular.md` for `life-control-app-angular`, both when a change spans both.
-2. **Before the first write of any unit** — one agent working alone counts, parallelism is not the trigger — read `references/worktrees.md` and create the worktree with `./.github/scripts/new-unit.sh <branch>`. The anchor on the default branch is never an edit target: it is the read-only reference for `fetch`, `log` and `rebase`, and `.githooks/pre-commit` refuses a commit there.
+2. **Before the first write of any unit** — one agent working alone counts, parallelism is not the trigger — read `references/worktrees.md` and create the worktree with `./.github/scripts/new-unit.sh <branch>`. The anchor on the default branch is never an edit target: it is the read-only reference for `fetch`, `log` and `rebase`, and `.githooks/pre-commit` refuses a commit there. **At the start of every session, in the anchor: `git fetch origin`, `git status --short` — empty; if it is not, stop and ask whose it is, never discard — and `git log --oneline origin/main -1`.** The base of a unit is `origin/main`, not the local `main`, and the anchor runs only reads and `--ff-only`: no `reset`, no `stash`, no `checkout -b`, no `rebase`, no edits.
 3. When a PR branch is the base of another open PR, read `references/pr-chains.md` before merging or deleting any branch in the chain.
 4. Discover conventions (docs + code + CI).
 5. Classify impact (low / medium / high risk).
