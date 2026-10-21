@@ -5,7 +5,9 @@
     [showActions]="false"
   />
 
-  <app-error-banner [message]="generalError()" />
+  @if (generalError(); as errorMsg) {
+    <app-error-banner [message]="errorMsg" />
+  }
 
   <app-store-zone-form
     [storeZone]="storeZone()"
