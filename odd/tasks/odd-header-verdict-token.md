@@ -97,7 +97,7 @@ The earlier estimate of *10* was measured against a laxer trial vocabulary that 
 | T3 | The rule in `audit()`, `verdict_tokens`/`opening_verdict_token`/`is_verdict_token`, and the paragraph parser anchored to the field line | S3, S4, S5, S8 | inline | this commit |
 | T4 | `AGENTS.md`: the token row, the enforcement row and the counts measured from the run (9 suites, 312 assertions) | S1, S6 | inline | this commit |
 | T5 | The nine suites (78 assertions in this one) and the three-way differential check against `main` | S5, S7, S8 | inline | this commit |
-| T6 | `PR Label Guard` green on this pull request — **not yet run**: no pull request exists | S6 | — | — |
+| T6 | `PR Label Guard` green on pull request #502: `ShellCheck: success` and `Self-tests: success` (run `39550489511`) | S6 | — | — |
 
 ## Log
 
@@ -128,3 +128,10 @@ The earlier estimate of *10* was measured against a laxer trial vocabulary that 
   **this** tree → 56 passed, 0 failed, so nothing that was green before is red now. `shellcheck` is not
   installed on this machine, so it is not claimed: it runs in `PR Label Guard`, and this record does not
   assert its result.
+- **L6** — Delivered as issue **#501** (`status:approved`) and pull request **#502** — one pull request,
+  not two, per S1's reasoning; the branch is 432 authored changed lines in two commits, and each commit
+  is green on its own. `PR Label Guard` run `39550489511`: `ShellCheck: success` and
+  `Self-tests: success`, plus `Exactly one type:* label` and `A linked, approved issue` green. That
+  closes L5's gap with a real result instead of an absence: shellcheck ran over the same glob in CI and
+  passed. The record is final in this pull request, which is what the contract this unit enforces asks
+  of every record — no follow-up `docs(odd)` pull request moves it.
