@@ -7,7 +7,7 @@ contradiction the new rule rejects. **No production code, no workflow, no depend
 other record's narrative.**
 **Status**: implemented — the doctrine, the guard and its fixtures are written and measured, and this record
 travels in the pull request that carries them, which is the practice S1 establishes. Nothing is deferred.
-**Created**: 2026-10-20 · **Base**: `main` @ `0b02d60` · **Branch**: `docs/odd-header-without-transport` ·
+**Created**: 2026-10-20 · **Base**: `main` @ `8603f01` · **Branch**: `docs/odd-header-without-transport` ·
 **Worktree**: `~/workspace/LifeControl-worktrees/docs-odd-header-without-transport` (herdr workspace `w58`)
 **Risk**: **item 3 of the task-size list, argued down rather than waved away.** The change moves a contract other
 records are written against, and it *relaxes* one half of a CI gate while tightening the other: a reviewer has to
