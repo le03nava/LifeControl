@@ -15,6 +15,9 @@ import com.lifecontrol.api.hr.model.Employee;
 import com.lifecontrol.api.hr.repository.EmployeeRepository;
 import com.lifecontrol.api.hr.service.EmployeeStoreAssignmentService;
 import com.lifecontrol.api.profile.dto.ProfileUpdateRequest;
+import com.lifecontrol.api.store.dto.CompanyStoreResponse;
+import com.lifecontrol.api.store.exception.CompanyStoreNotFoundException;
+import com.lifecontrol.api.store.service.CompanyStoreService;
 import com.lifecontrol.api.usersadmin.identity.IdentityProvider;
 import com.lifecontrol.api.usersadmin.model.UserPreferences;
 import com.lifecontrol.api.usersadmin.repository.UserPreferencesRepository;
@@ -30,6 +33,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -61,6 +65,9 @@ class ProfileServiceTest {
     private EmployeeStoreAssignmentService employeeStoreAssignmentService;
 
     @Mock
+    private CompanyStoreService companyStoreService;
+
+    @Mock
     private SecurityContext securityContext;
 
     @Mock
@@ -78,7 +85,8 @@ class ProfileServiceTest {
                 identityProvider,
                 userPreferencesRepository,
                 employeeRepository,
-                employeeStoreAssignmentService);
+                employeeStoreAssignmentService,
+                new ProfileLocationResolver(companyStoreService));
 
         when(currentUserContext.getUserId()).thenReturn(USER_ID);
         when(currentUserContext.getUsername()).thenReturn(USERNAME);
@@ -96,6 +104,19 @@ class ProfileServiceTest {
         lenient().when(jwt.getClaimAsString("email")).thenReturn(EMAIL);
         lenient().when(jwt.getClaimAsString("given_name")).thenReturn(FIRST_NAME);
         lenient().when(jwt.getClaimAsString("family_name")).thenReturn(LAST_NAME);
+
+        // Every case below that is not about the derived location may still resolve a store, and the
+        // location must never be what breaks it: the authorized store read answers with a synthetic
+        // chain unless the case stubs something else. Cases that are about location stub it themselves.
+        lenient()
+                .when(companyStoreService.getStoreById(any()))
+                .thenAnswer(invocation -> storeWithChain(
+                        invocation.getArgument(0),
+                        UUID.randomUUID(),
+                        UUID.randomUUID(),
+                        UUID.randomUUID(),
+                        UUID.randomUUID(),
+                        "Some Store"));
     }
 
     // ── getProfile ─────────────────────────────────────────────
@@ -176,7 +197,7 @@ class ProfileServiceTest {
         @Test
         @DisplayName("should update Keycloak and preferences when all fields provided")
         void shouldUpdateKeycloakAndPreferences() {
-            var request = new ProfileUpdateRequest("NewFirst", "NewLast", "new@example.com", null);
+            var request = new ProfileUpdateRequest("NewFirst", "NewLast", "new@example.com", null, false);
 
             var prefs = UserPreferences.builder().keycloakUserId(USER_ID).build();
             when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
@@ -195,7 +216,7 @@ class ProfileServiceTest {
         @DisplayName("should skip Keycloak update when no identity fields provided")
         void shouldSkipKeycloakUpdateWhenNoIdentityFields() {
             var countryId = UUID.randomUUID();
-            var request = new ProfileUpdateRequest(null, null, null, null);
+            var request = new ProfileUpdateRequest(null, null, null, null, false);
 
             var prefs = UserPreferences.builder().keycloakUserId(USER_ID).build();
             when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
@@ -210,7 +231,7 @@ class ProfileServiceTest {
         @Test
         @DisplayName("should create preferences row when none exists on update")
         void shouldCreatePreferencesWhenNoneExists() {
-            var request = new ProfileUpdateRequest("First", null, null, null);
+            var request = new ProfileUpdateRequest("First", null, null, null, false);
 
             when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.empty());
 
@@ -238,7 +259,7 @@ class ProfileServiceTest {
             var regionId = UUID.randomUUID();
             var zoneId = UUID.randomUUID();
             var storeId = UUID.randomUUID();
-            var request = new ProfileUpdateRequest(null, null, null, storeId);
+            var request = new ProfileUpdateRequest(null, null, null, storeId, false);
 
             // The row already holds a chain the subject typed while the profile screen still offered it.
             // The update must leave every one of those columns alone: they are not writable any more
@@ -278,7 +299,7 @@ class ProfileServiceTest {
 
             // T14 supersedes T22: the four are not "free-form but unvalidated", they are not writable at
             // all — a request cannot name one, and an update with no store leaves the row as it was.
-            var request = new ProfileUpdateRequest(null, null, null, null);
+            var request = new ProfileUpdateRequest(null, null, null, null, false);
             var result = profileService.updateProfile(request);
 
             assertThat(result.companyStoreId()).isNull();
@@ -293,6 +314,12 @@ class ProfileServiceTest {
 
     private static Employee employeeRow() {
         return Employee.builder().id(EMPLOYEE_ID).build();
+    }
+
+    private static CompanyStoreResponse storeWithChain(
+            UUID storeId, UUID companyId, UUID countryId, UUID regionId, UUID zoneId, String storeName) {
+        return new CompanyStoreResponse(
+                storeId, companyId, countryId, regionId, zoneId, storeName, null, null, null, true, null, null, 0L);
     }
 
     private static StoreAssignmentResponse assignedStoreResponse(UUID companyStoreId) {
@@ -329,7 +356,7 @@ class ProfileServiceTest {
             when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
             when(userPreferencesRepository.save(any(UserPreferences.class))).thenReturn(prefs);
 
-            var request = new ProfileUpdateRequest(null, null, null, assignedStoreId);
+            var request = new ProfileUpdateRequest(null, null, null, assignedStoreId, false);
             var result = profileService.updateProfile(request);
 
             assertThat(result.companyStoreId()).isEqualTo(assignedStoreId);
@@ -346,7 +373,7 @@ class ProfileServiceTest {
             when(employeeStoreAssignmentService.getCurrentAssignmentsForEmployee(EMPLOYEE_ID))
                     .thenReturn(List.of(assignedStoreResponse(otherAssignedStoreId)));
 
-            var request = new ProfileUpdateRequest("NewFirst", null, null, requestedStoreId);
+            var request = new ProfileUpdateRequest("NewFirst", null, null, requestedStoreId, false);
 
             assertThatThrownBy(() -> profileService.updateProfile(request))
                     .isInstanceOf(ResourceNotFoundException.class)
@@ -365,7 +392,7 @@ class ProfileServiceTest {
             when(employeeStoreAssignmentService.getCurrentAssignmentsForEmployee(EMPLOYEE_ID))
                     .thenReturn(List.of());
 
-            var request = new ProfileUpdateRequest(null, null, null, requestedStoreId);
+            var request = new ProfileUpdateRequest(null, null, null, requestedStoreId, false);
 
             assertThatThrownBy(() -> profileService.updateProfile(request))
                     .isInstanceOf(ResourceNotFoundException.class)
@@ -387,7 +414,7 @@ class ProfileServiceTest {
             // T22 said only companyStoreId is constrained while the four stay free-form. T14 removes the
             // premise: there is no request field to be free-form, so what is left to pin is that a
             // request with no store touches none of the four columns and reports no store.
-            var request = new ProfileUpdateRequest(null, null, null, null);
+            var request = new ProfileUpdateRequest(null, null, null, null, false);
             var result = profileService.updateProfile(request);
 
             assertThat(result.companyStoreId()).isNull();
@@ -417,7 +444,7 @@ class ProfileServiceTest {
             when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
             when(userPreferencesRepository.save(any(UserPreferences.class))).thenReturn(prefs);
 
-            var request = new ProfileUpdateRequest(null, null, null, assignedStoreId);
+            var request = new ProfileUpdateRequest(null, null, null, assignedStoreId, false);
             var result = profileService.updateProfile(request);
 
             assertThat(result.companyStoreId()).isEqualTo(assignedStoreId);
@@ -434,7 +461,7 @@ class ProfileServiceTest {
             when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
             when(userPreferencesRepository.save(any(UserPreferences.class))).thenReturn(prefs);
 
-            var request = new ProfileUpdateRequest(null, null, null, storeId);
+            var request = new ProfileUpdateRequest(null, null, null, storeId, false);
             var result = profileService.updateProfile(request);
 
             assertThat(result.companyStoreId()).isEqualTo(storeId);
@@ -518,7 +545,7 @@ class ProfileServiceTest {
             when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
             when(userPreferencesRepository.save(any(UserPreferences.class))).thenReturn(prefs);
 
-            var request = new ProfileUpdateRequest(null, null, null, null);
+            var request = new ProfileUpdateRequest(null, null, null, null, false);
             var result = profileService.updateProfile(request);
 
             assertThat(result.companyStoreId()).isNull();
@@ -623,6 +650,243 @@ class ProfileServiceTest {
             // the stored column does not leak into the resolved value.
             assertThat(result.assignedStores()).isNotNull().isEmpty();
             assertThat(result.companyStoreId()).isNull();
+        }
+    }
+
+    // ── location: the derived chain of the resolved store (S1/S2/S3) ──
+
+    @Nested
+    @DisplayName("location: the derived chain of the resolved store (S1/S2)")
+    class LocationChainTests {
+
+        @Test
+        @DisplayName("GET carries the six-field chain derived from the resolved store, and no ancestor names (S1)")
+        void getProfile_resolvedStore_carriesItsChain() {
+            var storeId = UUID.randomUUID();
+            var companyId = UUID.randomUUID();
+            var countryId = UUID.randomUUID();
+            var regionId = UUID.randomUUID();
+            var zoneId = UUID.randomUUID();
+            when(employeeRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(employeeRow()));
+            when(employeeStoreAssignmentService.getCurrentAssignmentsForEmployee(EMPLOYEE_ID))
+                    .thenReturn(List.of(assignedStoreResponse(storeId)));
+            var prefs = UserPreferences.builder()
+                    .keycloakUserId(USER_ID)
+                    .companyStoreId(storeId)
+                    .build();
+            when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
+            // The assignment row carries its own chain, deliberately different from this one: the
+            // location comes from the store itself, through the same authorized read GET /api/stores/{id}
+            // uses, and not from a copy of the assignment (S1).
+            when(companyStoreService.getStoreById(storeId))
+                    .thenReturn(storeWithChain(storeId, companyId, countryId, regionId, zoneId, "Main Store"));
+
+            var result = profileService.getProfile();
+
+            assertThat(result.companyStoreId()).isEqualTo(storeId);
+            assertThat(result.location()).isNotNull();
+            assertThat(result.location().companyId()).isEqualTo(companyId);
+            assertThat(result.location().companyCountryId()).isEqualTo(countryId);
+            assertThat(result.location().companyRegionId()).isEqualTo(regionId);
+            assertThat(result.location().companyZoneId()).isEqualTo(zoneId);
+            assertThat(result.location().companyStoreId()).isEqualTo(storeId);
+            assertThat(result.location().companyStoreName()).isEqualTo("Main Store");
+        }
+
+        @Test
+        @DisplayName("location is null when there is no store preference (S2)")
+        void getProfile_noStorePreference_leavesLocationNull() {
+            var assignedStoreId = UUID.randomUUID();
+            when(employeeRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(employeeRow()));
+            when(employeeStoreAssignmentService.getCurrentAssignmentsForEmployee(EMPLOYEE_ID))
+                    .thenReturn(List.of(assignedStoreResponse(assignedStoreId)));
+            var prefs = UserPreferences.builder().keycloakUserId(USER_ID).build();
+            when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
+
+            var result = profileService.getProfile();
+
+            assertThat(result.companyStoreId()).isNull();
+            assertThat(result.location()).isNull();
+            // Nothing to derive from: the store read is not even attempted.
+            verify(companyStoreService, never()).getStoreById(any());
+        }
+
+        @Test
+        @DisplayName("location is null when the stored store is not covered by a current assignment (S2/D10)")
+        void getProfile_storedStoreNotAssigned_leavesLocationNull() {
+            var staleStoreId = UUID.randomUUID();
+            var assignedStoreId = UUID.randomUUID();
+            when(employeeRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(employeeRow()));
+            when(employeeStoreAssignmentService.getCurrentAssignmentsForEmployee(EMPLOYEE_ID))
+                    .thenReturn(List.of(assignedStoreResponse(assignedStoreId)));
+            var prefs = UserPreferences.builder()
+                    .keycloakUserId(USER_ID)
+                    .companyStoreId(staleStoreId)
+                    .build();
+            when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
+
+            var result = profileService.getProfile();
+
+            assertThat(result.companyStoreId()).isNull();
+            assertThat(result.location()).isNull();
+            verify(companyStoreService, never()).getStoreById(any());
+        }
+
+        @Test
+        @DisplayName("location is null when the store can no longer be read, and the read still answers (S2)")
+        void getProfile_storeNoLongerReadable_stillAnswersTheProfile() {
+            var storeId = UUID.randomUUID();
+            when(employeeRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(employeeRow()));
+            when(employeeStoreAssignmentService.getCurrentAssignmentsForEmployee(EMPLOYEE_ID))
+                    .thenReturn(List.of(assignedStoreResponse(storeId)));
+            var prefs = UserPreferences.builder()
+                    .keycloakUserId(USER_ID)
+                    .companyStoreId(storeId)
+                    .build();
+            when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
+            when(companyStoreService.getStoreById(storeId)).thenThrow(new CompanyStoreNotFoundException(storeId));
+
+            var result = profileService.getProfile();
+
+            // This is the regression that matters: a store the caller can no longer read must not
+            // turn into a 404, a 500 or an empty profile. The rest of the payload is untouched and
+            // companyStoreId keeps exactly the resolution it has today.
+            assertThat(result.keycloakUserId()).isEqualTo(USER_ID);
+            assertThat(result.username()).isEqualTo(USERNAME);
+            assertThat(result.email()).isEqualTo(EMAIL);
+            assertThat(result.companyStoreId()).isEqualTo(storeId);
+            assertThat(result.assignedStores()).hasSize(1);
+            assertThat(result.location()).isNull();
+            verify(userPreferencesRepository, never()).save(any(UserPreferences.class));
+        }
+
+        @Test
+        @DisplayName("location is null when the store read raises AccessDeniedException defensively (S2)")
+        void getProfile_storeReadDenied_leavesLocationNull() {
+            var storeId = UUID.randomUUID();
+            when(employeeRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(employeeRow()));
+            when(employeeStoreAssignmentService.getCurrentAssignmentsForEmployee(EMPLOYEE_ID))
+                    .thenReturn(List.of(assignedStoreResponse(storeId)));
+            var prefs = UserPreferences.builder()
+                    .keycloakUserId(USER_ID)
+                    .companyStoreId(storeId)
+                    .build();
+            when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
+            when(companyStoreService.getStoreById(storeId)).thenThrow(new AccessDeniedException("denied"));
+
+            var result = profileService.getProfile();
+
+            assertThat(result.username()).isEqualTo(USERNAME);
+            assertThat(result.companyStoreId()).isEqualTo(storeId);
+            assertThat(result.location()).isNull();
+        }
+
+        @Test
+        @DisplayName("the PUT response carries the same chain as the GET (both call sites)")
+        void updateProfile_resolvedStore_carriesTheSameChain() {
+            var storeId = UUID.randomUUID();
+            var companyId = UUID.randomUUID();
+            var countryId = UUID.randomUUID();
+            var regionId = UUID.randomUUID();
+            var zoneId = UUID.randomUUID();
+            when(employeeRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(employeeRow()));
+            when(employeeStoreAssignmentService.getCurrentAssignmentsForEmployee(EMPLOYEE_ID))
+                    .thenReturn(List.of(assignedStoreResponse(storeId)));
+            var prefs = UserPreferences.builder().keycloakUserId(USER_ID).build();
+            when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
+            when(userPreferencesRepository.save(any(UserPreferences.class))).thenReturn(prefs);
+            when(companyStoreService.getStoreById(storeId))
+                    .thenReturn(storeWithChain(storeId, companyId, countryId, regionId, zoneId, "Main Store"));
+
+            var request = new ProfileUpdateRequest(null, null, null, storeId, false);
+            var result = profileService.updateProfile(request);
+
+            assertThat(result.companyStoreId()).isEqualTo(storeId);
+            assertThat(result.location()).isNotNull();
+            assertThat(result.location().companyId()).isEqualTo(companyId);
+            assertThat(result.location().companyCountryId()).isEqualTo(countryId);
+            assertThat(result.location().companyRegionId()).isEqualTo(regionId);
+            assertThat(result.location().companyZoneId()).isEqualTo(zoneId);
+            assertThat(result.location().companyStoreId()).isEqualTo(storeId);
+            assertThat(result.location().companyStoreName()).isEqualTo("Main Store");
+        }
+    }
+
+    // ── clearStorePreference: the column could not be cleared at all before (S4/S5) ──
+
+    @Nested
+    @DisplayName("clearStorePreference (S4/S5)")
+    class ClearStorePreferenceTests {
+
+        @Test
+        @DisplayName("true clears the stored company_store_id (S4)")
+        void updateProfile_clearStorePreference_clearsTheStoredColumn() {
+            var storedStoreId = UUID.randomUUID();
+            var prefs = UserPreferences.builder()
+                    .keycloakUserId(USER_ID)
+                    .companyStoreId(storedStoreId)
+                    .build();
+            when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
+            when(userPreferencesRepository.save(any(UserPreferences.class))).thenReturn(prefs);
+
+            var request = new ProfileUpdateRequest(null, null, null, null, true);
+            var result = profileService.updateProfile(request);
+
+            assertThat(prefs.getCompanyStoreId()).isNull();
+            assertThat(result.companyStoreId()).isNull();
+            assertThat(result.location()).isNull();
+            verify(userPreferencesRepository).save(prefs);
+        }
+
+        @Test
+        @DisplayName("false with no companyStoreId leaves the stored column untouched (S4, pinned)")
+        void updateProfile_noClearAndNoStore_keepsTheStoredColumn() {
+            var storedStoreId = UUID.randomUUID();
+            var prefs = UserPreferences.builder()
+                    .keycloakUserId(USER_ID)
+                    .companyStoreId(storedStoreId)
+                    .build();
+            when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
+            when(userPreferencesRepository.save(any(UserPreferences.class))).thenReturn(prefs);
+
+            var request = new ProfileUpdateRequest(null, null, null, null, false);
+            var result = profileService.updateProfile(request);
+
+            assertThat(prefs.getCompanyStoreId()).isEqualTo(storedStoreId);
+            assertThat(result.companyStoreId()).isEqualTo(storedStoreId);
+        }
+
+        @Test
+        @DisplayName("an absent flag (null, the way Jackson delivers an omitted key) clears nothing (S4)")
+        void updateProfile_absentFlag_keepsTheStoredColumn() {
+            var storedStoreId = UUID.randomUUID();
+            var prefs = UserPreferences.builder()
+                    .keycloakUserId(USER_ID)
+                    .companyStoreId(storedStoreId)
+                    .build();
+            when(userPreferencesRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(prefs));
+            when(userPreferencesRepository.save(any(UserPreferences.class))).thenReturn(prefs);
+
+            var request = new ProfileUpdateRequest(null, null, null, null, null);
+            var result = profileService.updateProfile(request);
+
+            assertThat(prefs.getCompanyStoreId()).isEqualTo(storedStoreId);
+            assertThat(result.companyStoreId()).isEqualTo(storedStoreId);
+        }
+
+        @Test
+        @DisplayName("true together with a companyStoreId is refused, before Keycloak is touched (S5/T24)")
+        void updateProfile_clearTogetherWithStore_isRefusedBeforeKeycloak() {
+            var request = new ProfileUpdateRequest(FIRST_NAME, LAST_NAME, EMAIL, UUID.randomUUID(), true);
+
+            assertThatThrownBy(() -> profileService.updateProfile(request))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("clearStorePreference cannot be combined with companyStoreId");
+
+            // T24: the value to preserve is the identity that is not yet changed, and the preference
+            // row that is not cleared by a request that was refused.
+            verify(identityProvider, never()).updateUser(any(), any());
+            verify(userPreferencesRepository, never()).save(any(UserPreferences.class));
         }
     }
 }

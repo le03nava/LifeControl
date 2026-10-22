@@ -36,18 +36,21 @@ public class ProfileService {
     private final UserPreferencesRepository userPreferencesRepository;
     private final EmployeeRepository employeeRepository;
     private final EmployeeStoreAssignmentService employeeStoreAssignmentService;
+    private final ProfileLocationResolver locationResolver;
 
     public ProfileService(
             CurrentUserContext currentUserContext,
             IdentityProvider identityProvider,
             UserPreferencesRepository userPreferencesRepository,
             EmployeeRepository employeeRepository,
-            EmployeeStoreAssignmentService employeeStoreAssignmentService) {
+            EmployeeStoreAssignmentService employeeStoreAssignmentService,
+            ProfileLocationResolver locationResolver) {
         this.currentUserContext = currentUserContext;
         this.identityProvider = identityProvider;
         this.userPreferencesRepository = userPreferencesRepository;
         this.employeeRepository = employeeRepository;
         this.employeeStoreAssignmentService = employeeStoreAssignmentService;
+        this.locationResolver = locationResolver;
     }
 
     /**
@@ -60,6 +63,12 @@ public class ProfileService {
      * read, so the stale value stays in the column and becomes a true answer again if that same store
      * is reassigned. A caller with no employee row is unconstrained (D11); {@code assignedStores} is
      * {@code null} to say so.</p>
+     *
+     * <p>{@code location} is derived from that <b>resolved</b> value and never from the stored column,
+     * so the two can never disagree: it is the store's own chain, read through the authorized store
+     * path, and it is {@code null} whenever there is nothing to derive it from or the store can no
+     * longer be read (S1/S2). A missing {@code location} is a degraded preselect, never a failed read —
+     * see {@link ProfileLocationResolver}.</p>
      */
     public ProfileResponse getProfile() {
         var userId = currentUserContext.getUserId();
@@ -75,14 +84,7 @@ public class ProfileService {
 
         var assignedStores = resolveAssignedStores(userId);
 
-        return new ProfileResponse(
-                userId,
-                username,
-                claims.email(),
-                claims.firstName(),
-                claims.lastName(),
-                resolveStorePreference(preferences.getCompanyStoreId(), assignedStores),
-                assignedStores.map(ProfileService::toAssignedStores).orElse(null));
+        return toProfileResponse(userId, username, claims, preferences.getCompanyStoreId(), assignedStores);
     }
 
     /**
@@ -97,6 +99,13 @@ public class ProfileService {
      * with the name and email already changed. The refusal and the effective-value rule both come
      * from the same single read of the current assignments.</p>
      *
+     * <p>The store preference is written by one of three rules (S4): {@code clearStorePreference}
+     * clears the column, a non-null {@code companyStoreId} sets it, and neither leaves it untouched.
+     * The third is what an omitted value already did, and it is pinned so the screen's «— None —»
+     * cannot silently restore the stored store the way it did while the column was unclearable. Asking
+     * to clear and to set at once is a contradiction the request itself carries, so it is refused
+     * <b>first</b>, before the assignment read and before Keycloak (S5).</p>
+     *
      * <p><b>What this path deliberately does not write</b> (T14 of {@code company-scope-local-fallback}):
      * the four tenancy ancestors. They were copied straight from the request with no validation of any
      * kind — which is what made the profile screen the escalation that record exists to remove — and
@@ -108,12 +117,17 @@ public class ProfileService {
         var userId = currentUserContext.getUserId();
         var username = currentUserContext.getUsername();
 
-        // 0. Resolve the caller's own current assignments once: it serves both the refusal and the
+        // 0. Refuse a request that contradicts itself before anything is read or written (S5/T24):
+        //    clearing the preference and setting it are different answers to the same question, and a
+        //    request that carries both has no answer this service may choose on the caller's behalf.
+        verifyStorePreferenceIsCoherent(request);
+
+        // 1. Resolve the caller's own current assignments once: it serves both the refusal and the
         //    response's resolved store preference (D10/T24).
         var assignedStores = resolveAssignedStores(userId);
         verifyStoreIsAssigned(request.companyStoreId(), assignedStores);
 
-        // 1. Update Keycloak if any basic-info field was provided
+        // 2. Update Keycloak if any basic-info field was provided
         if (request.firstName() != null || request.lastName() != null || request.email() != null) {
             var userRep = new UserRepresentation();
             if (request.firstName() != null) {
@@ -128,7 +142,7 @@ public class ProfileService {
             identityProvider.updateUser(userId, userRep);
         }
 
-        // 2. Create or update user_preferences. The store preference is the only location column this
+        // 3. Create or update user_preferences. The store preference is the only location column this
         //    path still writes (T14 of `company-scope-local-fallback`): the four tenancy ancestors are
         //    authorization inputs, and the subject of that decision is the last party who may assert
         //    one, so the screen stopped writing them and this service followed. The columns survive in
@@ -138,24 +152,19 @@ public class ProfileService {
                 .orElseGet(
                         () -> UserPreferences.builder().keycloakUserId(userId).build());
 
-        if (request.companyStoreId() != null) {
+        if (Boolean.TRUE.equals(request.clearStorePreference())) {
+            preferences.setCompanyStoreId(null);
+        } else if (request.companyStoreId() != null) {
             preferences.setCompanyStoreId(request.companyStoreId());
         }
 
         userPreferencesRepository.save(preferences);
 
-        // 3. Build response — basic info still comes from the JWT
+        // 4. Build response — basic info still comes from the JWT
         //    (Keycloak changes won't reflect until the next token refresh)
         var claims = extractJwtClaims();
 
-        return new ProfileResponse(
-                userId,
-                username,
-                claims.email(),
-                claims.firstName(),
-                claims.lastName(),
-                resolveStorePreference(preferences.getCompanyStoreId(), assignedStores),
-                assignedStores.map(ProfileService::toAssignedStores).orElse(null));
+        return toProfileResponse(userId, username, claims, preferences.getCompanyStoreId(), assignedStores);
     }
 
     // ── Private helpers ──────────────────────────────────────
@@ -173,6 +182,19 @@ public class ProfileService {
         return employeeRepository
                 .findByKeycloakUserId(userId)
                 .map(employee -> employeeStoreAssignmentService.getCurrentAssignmentsForEmployee(employee.getId()));
+    }
+
+    /**
+     * S5: {@code clearStorePreference} and a non-null {@code companyStoreId} are two different answers
+     * to the same question, so the request is refused with the module's 400 idiom
+     * ({@link IllegalArgumentException}, which {@code GlobalExceptionHandler} maps to 400) instead of
+     * letting one rule silently win. It runs before the assignment read and before Keycloak (T24), so a
+     * refused request changes neither the identity nor the preference row.
+     */
+    private static void verifyStorePreferenceIsCoherent(ProfileUpdateRequest request) {
+        if (Boolean.TRUE.equals(request.clearStorePreference()) && request.companyStoreId() != null) {
+            throw new IllegalArgumentException("clearStorePreference cannot be combined with companyStoreId");
+        }
     }
 
     /**
@@ -207,6 +229,29 @@ public class ProfileService {
         var covered =
                 assignedStores.get().stream().anyMatch(assignment -> storedStoreId.equals(assignment.companyStoreId()));
         return covered ? storedStoreId : null;
+    }
+
+    /**
+     * The one place a {@link ProfileResponse} is assembled, so the read and the update cannot drift
+     * apart: both resolve the stored column through the same rule (D10) and derive {@code location}
+     * from that resolved value through the same read (S1/S2).
+     */
+    private ProfileResponse toProfileResponse(
+            String userId,
+            String username,
+            JwtClaims claims,
+            UUID storedStoreId,
+            Optional<List<StoreAssignmentResponse>> assignedStores) {
+        var resolvedStoreId = resolveStorePreference(storedStoreId, assignedStores);
+        return new ProfileResponse(
+                userId,
+                username,
+                claims.email(),
+                claims.firstName(),
+                claims.lastName(),
+                resolvedStoreId,
+                assignedStores.map(ProfileService::toAssignedStores).orElse(null),
+                locationResolver.resolve(resolvedStoreId));
     }
 
     /** Projects T14's assignment rows into the response's own record; the chain walk stays in HR (T25). */
