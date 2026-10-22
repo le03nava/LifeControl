@@ -86,13 +86,13 @@ the literal `Store assigned`), and keeps the assigned store's derived chain in t
 
 | ID | Spec | Route | Commit |
 | --- | --- | --- | --- |
-| T1 | S1, S2, S3 | backend: `LocationChain` in `ProfileResponse`, `resolveLocation` best-effort in `ProfileService`; RED specs first | `a41a6e1` |
-| T2 | S4, S5 | backend: `clearStorePreference` in `ProfileUpdateRequest`, refusal ordered before Keycloak | `a41a6e1` |
+| T1 | S1, S2, S3 | backend: `LocationChain` in `ProfileResponse`, `resolveLocation` best-effort in `ProfileService`; RED specs first | `243d6e1`, the parent pull request |
+| T2 | S4, S5 | backend: `clearStorePreference` in `ProfileUpdateRequest`, refusal ordered before Keycloak | `243d6e1`, the parent pull request |
 | T3 | S6 | Angular: shared `LocationPreference`; the two copies delegate to it | this commit |
 | T4 | S7 | Angular: regions preselection through `regions-page` → `regions-form`'s existing inputs | this commit |
 | T5 | S8 | fail-closed pins on the store-scoped screens | this commit |
 | T6 | S9, S10, S11 | `/profile` as the only writer; `«— None —»`; view-mode label | this commit |
-| T7 | S1–S11 | gates: focused suites, full suites, lint, build, differential | `69d3bbd` |
+| T7 | S1–S11 | gates: focused suites, full suites, lint, build, differential | this commit |
 | T8 | S3, S6, S8 | repair after independent verification: `LocationPreference.invalidate()`, the strict-Jackson pins, the three prose corrections | this commit |
 
 ## Log
@@ -296,3 +296,16 @@ the **Angular coverage gate** at **185 test files / 3724 tests passed** with sta
 85.87, functions 79.31, lines 89.32 — all above threshold; `npm run lint` and `npm run build` green. The
 repair added five specs on the Angular side and one on the API side, which is the whole of the movement
 in those totals.
+
+L20 (user, verbatim): «con la c» — choosing **two pull requests**: the backend alone, and all the
+Angular together chained on it. This supersedes `L12`'s three-slice split: its measurements stand, its
+shape does not, and `L12` is left as written because it records the reasoning of the moment. **The merge
+order is frozen here, before the first pull request merges**: the backend lands first and the Angular
+second — invariant 3 of `pr-chains.md`, because a child's diff carries its parent's work until the parent
+reaches `main`, so a reviewer has to know which slice they are reading.
+
+Cutting the chain re-parented the backend slice, so the child's history carries both the original
+backend commit (`a41a6e1`) and the parent's (`243d6e1`) with identical content. The **tree** is
+byte-identical to the fully re-gated `802fe80` — `git diff 802fe80..HEAD` is empty — which is why
+nothing was re-run after the merge, and a reviewer should read this pull request's diff against its
+**base branch** rather than its commit list.
