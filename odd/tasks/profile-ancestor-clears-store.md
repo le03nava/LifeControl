@@ -106,3 +106,11 @@ is built in the form constructor (`:201`), so no call can read an absent control
 table cases calls a distinct handler, which is what makes them four cases and not one repeated four
 times. No blocker was found, and none of the four specs rests on a claim the component cannot satisfy —
 the payload assertion is the observable, not an internal call.
+
+**L6** (review assessment, 2026-10-22). `gentle-ai review mode status` reads RDD **on** (decided by
+default; global and clone-local unset), so the candidate was assessed before this unit was reported
+done: tier **medium**, 218 changed lines over 4 paths, `reviewDue: false` with reason `under_budget`.
+No native review was started, because the switch being on permits one and never requires one. What the
+assessment did not do is stand in for verification — the focused spec, the coverage gate, lint, build
+and the adversarial read of `L5` are this unit's evidence, and the assessment says the same thing in its
+own words (`writerSelfVerification: true`, no separate verifier).
