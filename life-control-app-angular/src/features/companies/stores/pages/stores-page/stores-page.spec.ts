@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { signal, WritableSignal } from '@angular/core';
-import { NEVER, of, throwError } from 'rxjs';
+import { NEVER, Observable, of, throwError } from 'rxjs';
 import { ActivatedRoute, Router } from '@angular/router';
 import Keycloak from 'keycloak-js';
 import { StoresPage } from './stores-page';
@@ -15,6 +15,8 @@ import { CompanyZone } from '../../../zones/models/zone.models';
 import { CompanyRegion } from '../../../regions/models/region.models';
 import { CompanyCountry } from '../../../countries/models/country.models';
 import { Company, Page } from '../../../companies/models/company.models';
+import { LocationChain, ProfileResponse } from '@features/user/profile/data/profile.models';
+import { ProfileService } from '@features/user/profile/data/profile.service';
 
 describe('StoresPage', () => {
   let component: StoresPage;
@@ -234,6 +236,28 @@ describe('StoresPage', () => {
     getCompanySelector = vi.fn().mockReturnValue(of(mockCompaniesPage));
   }
 
+  /** A location chain as `GET /api/profile` derives it. */
+  const locationChain = (overrides: Partial<LocationChain> = {}): LocationChain => ({
+    companyId: 'company-1',
+    companyCountryId: 'cc-1',
+    companyRegionId: 'reg-1',
+    companyZoneId: 'zone-1',
+    companyStoreId: 'store-1',
+    companyStoreName: 'Store One',
+    ...overrides,
+  });
+
+  const profileResponse = (location: LocationChain | null): ProfileResponse => ({
+    keycloakUserId: 'user-1',
+    username: 'operator',
+    email: 'operator@lifecontrol.test',
+    firstName: 'Oper',
+    lastName: 'Ator',
+    companyStoreId: location?.companyStoreId ?? null,
+    assignedStores: null,
+    location,
+  });
+
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [StoresPage, HttpClientTestingModule],
@@ -260,6 +284,12 @@ describe('StoresPage', () => {
               paramMap: { get: vi.fn().mockReturnValue(null) },
             },
           },
+        },
+        {
+          // The page resolves its preselection through the shared location preference, which reads the
+          // profile. These tests expect nothing preselected, so the default reports no chain.
+          provide: ProfileService,
+          useValue: { getProfile: () => of(profileResponse(null)) },
         },
       ],
     }).compileComponents();
@@ -887,6 +917,11 @@ describe('StoresPage', () => {
               },
             },
           },
+          {
+            // This path names its levels in the URL, so the profile is never consulted.
+            provide: ProfileService,
+            useValue: { getProfile: () => of(profileResponse(null)) },
+          },
         ],
       }).compileComponents();
 
@@ -951,6 +986,11 @@ describe('StoresPage', () => {
               },
             },
           },
+          {
+            // These tests pin the role gating, not the location; the default reports no chain.
+            provide: ProfileService,
+            useValue: { getProfile: () => of(profileResponse(null)) },
+          },
         ],
       }).compileComponents();
 
@@ -975,6 +1015,150 @@ describe('StoresPage', () => {
       await setupWithRoles(['lc-company-store-read']);
 
       expect(fixture.nativeElement.textContent).not.toContain('Nueva Tienda');
+    });
+  });
+
+  // ─── Location preselection (S3) and its fail-closed counterpart (S4) ───
+
+  describe('location preselection', () => {
+    /**
+     * Rebuilds the module with the two inputs this rule reads: the route's own ids and the profile's
+     * location chain. Every company, country, region, zone and store service stays a shared mock.
+     */
+    async function setup(
+      options: { query?: Record<string, string>; location?: LocationChain | null } = {},
+    ): Promise<{
+      component: StoresPage;
+      fixture: ComponentFixture<StoresPage>;
+      getProfile: ReturnType<typeof vi.fn>;
+    }> {
+      const query = options.query ?? {};
+      const getProfile = vi.fn((): Observable<ProfileResponse> =>
+        of(profileResponse(options.location ?? null)),
+      );
+
+      fixture.destroy();
+      TestBed.resetTestingModule();
+      await TestBed.configureTestingModule({
+        imports: [StoresPage, HttpClientTestingModule],
+        providers: [
+          { provide: CompanyService, useClass: MockCompanyService },
+          { provide: CompanyCountryService, useClass: MockCompanyCountryService },
+          { provide: CompanyRegionService, useClass: MockCompanyRegionService },
+          { provide: CompanyZoneService, useClass: MockCompanyZoneService },
+          { provide: CompanyStoreService, useClass: MockCompanyStoreService },
+          { provide: Router, useValue: { navigate: vi.fn() } },
+          {
+            provide: Keycloak,
+            useValue: {
+              tokenParsed: { resource_access: { 'life-control-client': { roles: ['lc-admin'] } } },
+            },
+          },
+          {
+            provide: ActivatedRoute,
+            useValue: {
+              snapshot: {
+                queryParamMap: { get: (key: string) => query[key] ?? null },
+                paramMap: { get: vi.fn().mockReturnValue(null) },
+              },
+            },
+          },
+          { provide: ProfileService, useValue: { getProfile } },
+        ],
+      }).compileComponents();
+
+      const pageFixture = TestBed.createComponent(StoresPage);
+      pageFixture.detectChanges();
+      return { component: pageFixture.componentInstance, fixture: pageFixture, getProfile };
+    }
+
+    async function settle(pageFixture: ComponentFixture<StoresPage>): Promise<void> {
+      pageFixture.detectChanges();
+      await pageFixture.whenStable();
+      pageFixture.detectChanges();
+    }
+
+    it('should preselect Empresa, País, Región and Zona from the location chain when the route carries no ids (S3)', async () => {
+      const { component: page, fixture: pageFixture } = await setup({
+        location: locationChain({
+          companyId: 'company-1',
+          companyCountryId: 'cc-1',
+          companyRegionId: 'reg-1',
+          companyZoneId: 'zone-1',
+        }),
+      });
+
+      await settle(pageFixture);
+
+      expect(page.selectedCompanyId()).toBe('company-1');
+      expect(page.selectedCountry()?.id).toBe('cc-1');
+      expect(page.selectedRegion()?.id).toBe('reg-1');
+      expect(page.selectedZone()?.id).toBe('zone-1');
+      // And the preselection reaches the read that hangs off it, not only the controls.
+      const stores = TestBed.inject(CompanyStoreService) as unknown as MockCompanyStoreService;
+      expect(stores.getStores).toHaveBeenCalledWith('company-1', 'cc-1', 'reg-1', 'zone-1', false);
+    });
+
+    it('should keep the route ids and never consult the preference when the route carries them (S5)', async () => {
+      const {
+        component: page,
+        fixture: pageFixture,
+        getProfile,
+      } = await setup({
+        query: {
+          companyId: 'company-1',
+          countryId: 'cc-1',
+          regionId: 'reg-1',
+          zoneId: 'zone-1',
+        },
+        location: locationChain({
+          companyId: 'company-1',
+          companyCountryId: 'cc-1',
+          companyRegionId: 'reg-1',
+          companyZoneId: 'zone-2',
+        }),
+      });
+
+      await settle(pageFixture);
+
+      expect(page.selectedCompanyId()).toBe('company-1');
+      expect(page.selectedCountry()?.id).toBe('cc-1');
+      expect(page.selectedRegion()?.id).toBe('reg-1');
+      expect(page.selectedZone()?.id).toBe('zone-1');
+      expect(getProfile).not.toHaveBeenCalled();
+    });
+
+    it("should keep the route's company and leave the levels below it empty when the route names only the company (S5)", async () => {
+      const { component: page, fixture: pageFixture } = await setup({
+        query: { companyId: 'company-1' },
+        location: locationChain({
+          companyId: 'company-1',
+          companyCountryId: 'cc-1',
+          companyRegionId: 'reg-1',
+          companyZoneId: 'zone-1',
+        }),
+      });
+
+      await settle(pageFixture);
+
+      expect(page.selectedCompanyId()).toBe('company-1');
+      // The route answered the company question, so the preference is not consulted for the rest.
+      expect(page.selectedCountry()).toBeNull();
+      expect(page.selectedRegion()).toBeNull();
+      expect(page.selectedZone()).toBeNull();
+    });
+
+    it('should start with empty selectors and issue no store read when location is null (S4)', async () => {
+      const { component: page, fixture: pageFixture } = await setup({ location: null });
+
+      await settle(pageFixture);
+
+      expect(page.selectedCompanyId()).toBeNull();
+      expect(page.selectedCountry()).toBeNull();
+      expect(page.selectedRegion()).toBeNull();
+      expect(page.selectedZone()).toBeNull();
+      const stores = TestBed.inject(CompanyStoreService) as unknown as MockCompanyStoreService;
+      expect(stores.getStores).not.toHaveBeenCalled();
     });
   });
 });
