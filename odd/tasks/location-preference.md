@@ -224,6 +224,12 @@ both keys and the stored preference survives. That is pre-existing and consisten
 rules are stated for the store control; it is declared rather than silently changed because it is a
 different question — the form can show *no store* while the row still holds one, and the next
 `/profile` load brings that store back. Changing it is its own decision with its own spec.
+*(**Repair, 2026-10-22**: taken as its own unit, `odd/tasks/profile-ancestor-clears-store.md` (issue
+`#523`), and the decision is the one this row asked for: the four handlers now mark the preference as
+cleared when the reset actually takes a store away, so the save posts `clearStorePreference` alone —
+`S10`'s rule, applied to the four ancestor controls instead of to the store control only. The row's own
+test is what keeps it from over-firing: an ancestor change over an empty control still posts neither
+key.)*
 
 L17 (gate evidence, T7, 2026-10-21). Every number below was read from a report, never from a summary
 line:
@@ -325,3 +331,8 @@ issue found: besides the redundant read, the free mode preselected **nothing**, 
 patched `companyStoreId` alone and the four ancestor controls each drive the `[disabled]` state of the
 level below. Nothing else in this record changes: `G15` is still separate work with its own decision,
 and `S1`–`S11` stand as delivered.
+
+L22 (repair pointer, 2026-10-22). `G15` is taken as its own unit too —
+`odd/tasks/profile-ancestor-clears-store.md`, issue `#523` — which is what `L16` declared it should be,
+and the repair clause sits in that row rather than in this narrative. This record's header is left as it
+was: `L16` is a row, not a claim about the delivered specs, and `S1`–`S11` stand unchanged.

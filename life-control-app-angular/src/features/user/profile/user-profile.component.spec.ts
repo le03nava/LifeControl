@@ -584,6 +584,77 @@ describe('UserProfileComponent', () => {
       );
     });
 
+    // G15, free mode: each of the four ancestor handlers resets `companyStoreId` in the form, and the
+    // payload is built from `storeTouched` alone (T16) — so before this unit the reset was invisible on
+    // the wire, the row kept the old preference, and the next load preselected a store that did not
+    // belong to the ancestry the caller had just chosen. A table rather than four copies: the rule is
+    // one rule, and a level that forgets it is exactly what this pins.
+    it.each([
+      ['company', (component: UserProfileComponent) => component.onCompanyChange('comp-2')],
+      ['country', (component: UserProfileComponent) => component.onCountryChange('cc-2')],
+      ['region', (component: UserProfileComponent) => component.onRegionChange('reg-2')],
+      ['zone', (component: UserProfileComponent) => component.onZoneChange('zone-2')],
+    ])('clears the stored preference when the %s changes (G15/S1/S2)', (_level, changeAncestor) => {
+      const { component, profileServiceMock } = setup(
+        { edit: 'true' },
+        mockProfileWithLocation,
+        true,
+      );
+      expect(component.form().getRawValue().companyStoreId).toBe('store-1');
+
+      changeAncestor(component);
+      component.save();
+
+      expect(component.form().getRawValue().companyStoreId).toBeNull();
+      expect(profileServiceMock.updateProfile).toHaveBeenCalledWith({
+        firstName: 'John',
+        lastName: 'Doe',
+        email: 'john@example.com',
+        clearStorePreference: true,
+      });
+      expect(profileServiceMock.updateProfile.mock.calls[0][0]).not.toHaveProperty(
+        'companyStoreId',
+      );
+    });
+
+    // G15/S3: with no stored preference there is nothing for a clear to remove, so an ancestor change
+    // keeps the payload empty. Writing `clearStorePreference` here would be a write nobody asked for.
+    it('posts neither key when the ancestor change had no store to clear (G15/S3)', () => {
+      const { component, profileServiceMock } = setup({ edit: 'true' }, mockProfile, true);
+      expect(component.form().getRawValue().companyStoreId).toBeNull();
+
+      component.onZoneChange('zone-1');
+      component.save();
+
+      const payload = profileServiceMock.updateProfile.mock.calls[0][0];
+      expect(payload).not.toHaveProperty('companyStoreId');
+      expect(payload).not.toHaveProperty('clearStorePreference');
+    });
+
+    // G15/S4: the clear is not sticky. Re-selecting a store after an ancestor change posts that store,
+    // which is what keeps the two keys mutually exclusive rather than merely ordered.
+    it('posts the re-selected store instead of the clear (G15/S4)', () => {
+      const { component, profileServiceMock } = setup(
+        { edit: 'true' },
+        mockProfileWithLocation,
+        true,
+      );
+
+      component.onZoneChange('zone-1');
+      component.onStoreChange('store-1');
+      component.save();
+
+      expect(profileServiceMock.updateProfile).toHaveBeenCalledWith({
+        firstName: 'John',
+        lastName: 'Doe',
+        email: 'john@example.com',
+        companyStoreId: 'store-1',
+      });
+      expect(profileServiceMock.updateProfile.mock.calls[0][0]).not.toHaveProperty(
+        'clearStorePreference',
+      );
+    });
+
     it('should navigate to /profile after successful save', () => {
       const { component } = setup({ edit: 'true' });
       const router = TestBed.inject(Router);
