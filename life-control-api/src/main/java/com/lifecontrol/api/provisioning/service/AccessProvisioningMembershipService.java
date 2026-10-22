@@ -151,13 +151,14 @@ public class AccessProvisioningMembershipService {
     /**
      * The single derivation both {@link #convergeMembership(Employee)} and
      * {@link #deriveMembership(Employee)} share. It never writes: it returns five empty sets for a
-     * {@code Terminated} employee <b>before</b> reading the assignments (the write path's
+     * <b>revoked</b> employee — {@code Terminated} or soft-deleted (gap G41, record
+     * {@code employee-disable-revokes-access}) — <b>before</b> reading the assignments (the write path's
      * {@code converge} then deletes all five keys because every set is empty), and otherwise derives
      * the scope from today's covering assignments and fails closed when the result is not exactly one
      * company id.
      */
     private EmployeeStoreScope derivedScope(Employee employee) {
-        if (EmployeeStatuses.isTerminated(employee)) {
+        if (EmployeeStatuses.isRevoked(employee)) {
             return EMPTY_SCOPE;
         }
 

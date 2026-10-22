@@ -140,7 +140,7 @@ public class AccessProvisioningRoleService {
      * derivation, not a read copy. It touches <b>no</b> identity-provider call and writes nothing —
      * it only reads the contract finder and, when a covering contract exists, the position's enabled
      * template rows, filtered through {@link GrantablePositionRoles#includes} and short-circuited to
-     * empty for a {@code Terminated} employee (records T28/T29). It deliberately does <b>not</b>
+     * empty for a revoked employee — {@code Terminated} or soft-deleted (records T28/T29, gap G41). It deliberately does <b>not</b>
      * require a linked account: the required set is a fact of the employment, and an employee whose
      * account is not linked still needs to see what would be granted once it is.</p>
      *
@@ -166,7 +166,10 @@ public class AccessProvisioningRoleService {
     }
 
     private Set<String> requiredRolesFor(Employee employee, Contract contract) {
-        if (EmployeeStatuses.isTerminated(employee)) {
+        // G41: a soft-deleted employee is revoked exactly like a terminated one, so the template is
+        // never read and the required set is empty. This is the derivation the read path, the gate's
+        // diff and the worker's convergence all share, so the fact cannot differ between them.
+        if (EmployeeStatuses.isRevoked(employee)) {
             return new TreeSet<>();
         }
         var position = requireOwnedPosition(employee, contract);

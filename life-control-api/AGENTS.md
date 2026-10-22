@@ -185,6 +185,10 @@ com.lifecontrol.api/
 - **Nested Resources**: Hierarchical paths for sub-resources (e.g. `/api/companies/{id}/countries/{cid}/regions`)
 - **Soft Delete**: DELETE sets `enabled = false`; GET supports `?includeDisabled=true` to include them
 - **PATCH**: Used for re-enabling soft-deleted resources
+- **Employees are the exception**: `enabled = false` on an employee is a **revocation**, not just a registry
+  flag — the required-role derivation, the membership projection (`company_*` claims) and the account all
+  treat it as "no access", the disable enqueues a `DEACTIVATE` intent and the re-enable reconciles it
+  (`EmployeeStatuses.isRevoked`, gap G41)
 
 ### Endpoint Map
 
