@@ -144,6 +144,28 @@ export class LocationPreference {
   }
 
   /**
+   * Announces that the profile's `location` changed, so no call site keeps a chain resolved before the
+   * write (`S8`, `S9`).
+   *
+   * Only `/profile` writes the preference, and it has to say so: a resolution is cached by key, and the
+   * `'profile'` key every call site that overrides nothing shares would otherwise answer the rest of the
+   * session with the chain that was true before the save — the screen the unit exists to fix going on to
+   * preselect the store the caller just cleared, which is worse than the per-feature copies this service
+   * replaced (`D39`), because those re-read on every mount.
+   *
+   * Clearing the key is **not** enough on its own: with nothing in flight `settled` stays `false` and every
+   * consumer parks in the fail-closed state forever. The re-read is what restores it — `reload()` re-runs
+   * the current request, whose `tap` settles the key again — and a service that was never asked has
+   * nothing to re-read, so its next {@link resolve} reads fresh.
+   */
+  invalidate(): void {
+    this.resolvedKey.set(null);
+    if (this.request() !== undefined) {
+      this.resolution.reload();
+    }
+  }
+
+  /**
    * The key the latest {@link resolve} asked for: the override's own chain, or the shared profile
    * layer when it names no level.
    */

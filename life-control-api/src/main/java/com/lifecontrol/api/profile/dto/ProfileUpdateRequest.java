@@ -26,10 +26,12 @@ import java.util.UUID;
  *
  * <p>The four tenancy ancestors are <b>deliberately absent</b> since 2026-10-14 (W3 of
  * {@code company-scope-local-fallback}, its T14): a tenancy id is an authorization input, and the
- * subject of the decision is the last party who may assert one. A client that still sends them is
- * <b>ignored</b> — Jackson's default does not fail on unknown request properties — which is declared
- * as that record's <b>G13</b> rather than fixed here, because turning that flag on is a global
- * request-parsing change. Nothing is written either way: there is no longer a field to write.</p>
+ * subject of the decision is the last party who may assert one. A client that still sends them is not
+ * quietly tolerated: {@code spring.jackson.deserialization.fail-on-unknown-properties=true}
+ * ({@code application.properties}) turns an undeclared key into a <b>400</b>, so the four ancestors —
+ * and a {@code location}-shaped object with them — cannot be sent at all. That is a stronger guarantee
+ * than the "ignored" one that record's <b>G13</b> described, and it is also why nothing is written:
+ * such a request never reaches the service, instead of reaching it with no field to write.</p>
  */
 public record ProfileUpdateRequest(
         @Size(max = 255) String firstName,

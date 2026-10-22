@@ -72,8 +72,10 @@ public record ProfileResponse(
      * longer read that store. A caller that sees {@code null} starts with empty selectors and must
      * fail closed rather than guess a location.</p>
      *
-     * <p><b>Read-only.</b> No field of {@link ProfileUpdateRequest} feeds it, so a client that posts a
-     * location-shaped object writes nothing (S3/G13 of {@code company-scope-local-fallback}).</p>
+     * <p><b>Read-only, and refused rather than ignored.</b> No field of {@link ProfileUpdateRequest}
+     * feeds it, and a client that posts a location-shaped object is rejected with <b>400</b>:
+     * {@code spring.jackson.deserialization.fail-on-unknown-properties=true} makes the undeclared key a
+     * request-parsing failure, so the object cannot be sent at all and nothing is written (S3).</p>
      */
     public record LocationChain(
             UUID companyId,

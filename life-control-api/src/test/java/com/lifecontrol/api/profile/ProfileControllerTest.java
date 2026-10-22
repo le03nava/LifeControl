@@ -3,6 +3,7 @@ package com.lifecontrol.api.profile;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -28,9 +29,10 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
+import org.springframework.http.converter.json.JacksonJsonHttpMessageConverter;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.json.JsonMapper;
 
 @ExtendWith(MockitoExtension.class)
@@ -38,7 +40,6 @@ import tools.jackson.databind.json.JsonMapper;
 class ProfileControllerTest {
 
     private MockMvc mockMvc;
-    private ObjectMapper objectMapper;
 
     @Mock
     private ProfileService profileService;
@@ -56,8 +57,25 @@ class ProfileControllerTest {
     void setUp() {
         mockMvc = MockMvcBuilders.standaloneSetup(profileController)
                 .setControllerAdvice(new GlobalExceptionHandler())
+                .setMessageConverters(appStrictJsonConverter())
                 .build();
-        objectMapper = JsonMapper.builder().build();
+    }
+
+    /**
+     * The JSON converter with the app's own request-body strictness, so this suite asserts what the
+     * running application does instead of what a bare {@code standaloneSetup} happens to do.
+     *
+     * <p>{@code application.properties} sets
+     * {@code spring.jackson.deserialization.fail-on-unknown-properties=true}, which makes an undeclared
+     * key in a request body a 400. Boot 4 leaves Jackson 3's own default for that flag at {@code false},
+     * so the converter {@code standaloneSetup} installs by default is <b>lenient</b> — a pin written
+     * against it passes for the wrong reason and states the opposite of the deployed contract.</p>
+     */
+    private static JacksonJsonHttpMessageConverter appStrictJsonConverter() {
+        var mapper = JsonMapper.builder()
+                .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+                .build();
+        return new JacksonJsonHttpMessageConverter(mapper);
     }
 
     @Nested
@@ -255,14 +273,13 @@ class ProfileControllerTest {
 
         @Test
         @DisplayName(
-                "should not echo the four tenancy ancestors, and accepts a body that still carries them (W3/T14/G13)")
+                "should not echo the four tenancy ancestors, and rejects a body that still carries them with 400 (W3/T14)")
         void shouldNotEchoTheFourTenancyAncestors() throws Exception {
-            var response = new ProfileResponse(USER_ID, USERNAME, EMAIL, FIRST_NAME, LAST_NAME, null, null, null);
-
-            when(profileService.updateProfile(any(ProfileUpdateRequest.class))).thenReturn(response);
-
-            // The four are unknown request properties after T14: Jackson's default is to ignore them,
-            // which is G13 — declared, not fixed — so the request must still be accepted.
+            // The four are unknown request properties after T14. `G13` of company-scope-local-fallback
+            // declared them as `ignored`, which the deployed configuration does not do: with
+            // `fail-on-unknown-properties=true` the body is refused before the controller runs, so the
+            // pin has to assert the refusal — a 200 here passed only because `standaloneSetup`'s default
+            // converter is lenient, which is the false green the converter above removes.
             var body = """
                     {
                         "firstName": "John",
@@ -276,12 +293,10 @@ class ProfileControllerTest {
             mockMvc.perform(put("/api/profile")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(body))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.firstName").value(FIRST_NAME))
-                    .andExpect(jsonPath("$.companyId").doesNotExist())
-                    .andExpect(jsonPath("$.companyCountryId").doesNotExist())
-                    .andExpect(jsonPath("$.companyRegionId").doesNotExist())
-                    .andExpect(jsonPath("$.companyZoneId").doesNotExist());
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value("Malformed or unreadable request body"));
+
+            verify(profileService, never()).updateProfile(any(ProfileUpdateRequest.class));
         }
 
         @Test
@@ -428,13 +443,12 @@ class ProfileControllerTest {
         }
 
         @Test
-        @DisplayName("should ignore a location-shaped object in the request body (S3/G13)")
-        void shouldIgnoreALocationShapedObject() throws Exception {
-            var response = new ProfileResponse(USER_ID, USERNAME, EMAIL, FIRST_NAME, LAST_NAME, null, null, null);
-            when(profileService.updateProfile(any(ProfileUpdateRequest.class))).thenReturn(response);
-
-            // location is read-only (S3): there is no request field to feed it, so the object is an
-            // unknown property and writes nothing.
+        @DisplayName("should reject a location-shaped object in the request body with 400, writing nothing (S3)")
+        void shouldRejectALocationShapedObject() throws Exception {
+            // location is read-only (S3), and the guarantee is stronger than "ignored": there is no field
+            // of ProfileUpdateRequest to feed it, and the undeclared key is refused with 400 by
+            // `spring.jackson.deserialization.fail-on-unknown-properties=true`, so the object cannot be
+            // sent at all rather than being sent and dropped.
             var body = """
                     {
                         "firstName": "John",
@@ -453,13 +467,32 @@ class ProfileControllerTest {
             mockMvc.perform(put("/api/profile")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(body))
-                    .andExpect(status().isOk());
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value("Malformed or unreadable request body"));
+        }
 
-            var captor = ArgumentCaptor.forClass(ProfileUpdateRequest.class);
-            verify(profileService).updateProfile(captor.capture());
-            assertThat(captor.getValue().firstName()).isEqualTo("John");
-            assertThat(captor.getValue().companyStoreId()).isNull();
-            assertThat(captor.getValue().clearStorePreference()).isNotEqualTo(Boolean.TRUE);
+        @Test
+        @DisplayName("should write nothing when a location-shaped object is refused (S3)")
+        void shouldWriteNothingForALocationShapedObject() throws Exception {
+            var body = """
+                    {
+                        "firstName": "John",
+                        "location": {
+                            "companyStoreId": "%s",
+                            "companyStoreName": "Main Store"
+                        }
+                    }
+                    """.formatted(UUID.randomUUID());
+
+            mockMvc.perform(put("/api/profile")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isBadRequest());
+
+            // The 400 alone does not prove the other half of S3. `ProfileService.updateProfile` is the
+            // only writer of both Keycloak and `user_preferences`, so "never reached" is exactly "no
+            // identity and no preference changed" — the rename of the field did not leave a second path.
+            verify(profileService, never()).updateProfile(any(ProfileUpdateRequest.class));
         }
 
         @Test

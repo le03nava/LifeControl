@@ -12,6 +12,7 @@ import { MatSelect } from '@angular/material/select';
 
 import { UserProfileComponent } from './user-profile.component';
 import { ProfileService } from './data/profile.service';
+import { LocationPreference } from './data/location-preference.service';
 import { ProfileResponse, AssignedStore, LocationChain } from './data/profile.models';
 import { CompanyService } from '@features/companies/companies/data/company.service';
 import { CompanyCountryService } from '@features/companies/countries/data/company-country.service';
@@ -1016,6 +1017,50 @@ describe('UserProfileComponent', () => {
         lastName: 'Doe',
         email: 'john@example.com',
       });
+    });
+  });
+
+  // ─── Announcing the write to the shared resolution (S8/S9) ──
+
+  describe('announcing the saved preference to the shared resolution (S8/S9)', () => {
+    it('should invalidate the shared location preference after a successful save, before it navigates', () => {
+      const { component, profileServiceMock } = setup({ edit: 'true' }, mockProfileWithLocation);
+      const invalidateSpy = vi.spyOn(TestBed.inject(LocationPreference), 'invalidate');
+      const navigateSpy = vi.spyOn(TestBed.inject(Router), 'navigate');
+
+      // «— None —» is the write this whole unit exists for. The shared resolution answered the
+      // `'profile'` key before it, so the one writer has to announce it: otherwise every mounted
+      // screen keeps the chain it resolved and goes on preselecting the store the caller just cleared.
+      component.onStoreChange(null);
+      component.save();
+
+      expect(profileServiceMock.updateProfile).toHaveBeenCalledWith({
+        firstName: 'John',
+        lastName: 'Doe',
+        email: 'john@example.com',
+        clearStorePreference: true,
+      });
+      expect(invalidateSpy).toHaveBeenCalledTimes(1);
+      // Before the navigation, so no screen the navigation renders can read the chain this save
+      // invalidated — the announcement cannot race the screen that acts on it.
+      expect(invalidateSpy.mock.invocationCallOrder[0]).toBeLessThan(
+        navigateSpy.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('should not invalidate the shared resolution when the save failed', () => {
+      const { component, profileServiceMock } = setup({ edit: 'true' });
+      profileServiceMock.updateProfile = vi
+        .fn()
+        .mockReturnValue(throwError(() => new Error('Update failed')));
+      const invalidateSpy = vi.spyOn(TestBed.inject(LocationPreference), 'invalidate');
+
+      component.save();
+
+      expect(component.error()).toBeTruthy();
+      // The stored value did not change, so there is nothing to announce: a failed write must not cost
+      // every mounted screen the settled chain it already holds.
+      expect(invalidateSpy).not.toHaveBeenCalled();
     });
   });
 });

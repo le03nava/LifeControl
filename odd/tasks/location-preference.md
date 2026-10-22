@@ -3,7 +3,9 @@
 **Status**: implemented — `GET /api/profile` carries a `location` chain derived from the resolved store
 preference, `PUT /api/profile` gains `clearStorePreference` (the stored column could not be cleared at
 all before this unit), and one shared Angular `LocationPreference` replaces the two per-feature copies
-of the resolver. Nothing is deferred.
+of the resolver. A repair closed the one defect the independent verification found: the shared
+resolution now invalidates when the preference is saved. Nothing in this unit is open; `G15` and `G17`
+are separate work.
 **Created**: 2026-10-21 · **Risk**: **3** — the profile read is shared by several screens and a
 regression in its shape is invisible to the type checker; the change adds an optional response field,
 an optional request field and one rule to an existing write, so it breaks no contract by itself.
@@ -33,9 +35,12 @@ current assignment (D10 of `employee-store-assignments`), or when the caller can
 store. All three leave the read **successful**: no 500, no 404, and `companyStoreId` keeps exactly the
 resolution it has today.
 
-S3. `location` is read-only. No field of `ProfileUpdateRequest` feeds it, so a client that posts a
-`location`-shaped object writes nothing (it is ignored as an unknown property, `G13` of
-`company-scope-local-fallback`).
+S3. `location` is read-only: no field of `ProfileUpdateRequest` lets a caller assert a chain. It is
+enforced by the **parser**, not by the absence of a field — `spring.jackson.deserialization
+.fail-on-unknown-properties=true` (`application.properties:29`) rejects a body carrying a
+`location`-shaped object **or** the four tenancy ancestors with **400**, and neither Keycloak nor
+`user_preferences` is written. The earlier wording said such a body was *ignored*; that is false on
+this configuration and is corrected here (`L18`).
 
 S4. `PUT /api/profile` accepts `clearStorePreference` as a boxed `Boolean`, so an absent key arrives as
 `null`. `true` sets the stored `company_store_id` to `null`; a non-null `companyStoreId` sets it;
@@ -54,13 +59,19 @@ S6. The Angular app exposes **one** shared `LocationPreference` whose precedence
 override (the route's query parameters) → `profile.location` → `null`. It replaces the two declared
 per-feature copies (`products/data/variant-store-context.service.ts`,
 `scheduling/data/scheduling-store-context.service.ts`, `D39`), which keep their public surface and
-delegate.
+delegate. Because it is root-scoped, its resolution is **invalidated by the writer**: a successful
+`PUT /api/profile` calls `invalidate()` so the next `resolve()` re-reads, and the same-input
+idempotency holds only until that announcement. A cache with no invalidation would hide the very
+write this unit makes possible (`L18`).
 
 S7. `/companies/regions` preselects **Company** and **Country** from `location` when the route carries
 no explicit ids, and keeps the route's ids when it does.
 
-S8. When `location` is `null` the selectors start empty and the store-scoped screens keep failing
-closed: neither guesses a location nor issues a store-scoped request.
+S8. When `location` is `null` the selectors start empty and the store-scoped screens **in this unit's
+scope** keep failing closed: neither guesses a location nor issues a store-scoped request. The
+qualifier is measured, not cosmetic: the purchase-order cascade and the sales-order create screen are
+a declared non-goal and still resolve a store from `companyStoreId`, so they do issue that read for
+the legitimate `S2` pair (stored id, no chain) — `L18`.
 
 S9. Navigating a screen never writes the preference. The only writer is the subject, from `/profile`.
 
@@ -82,6 +93,7 @@ the literal `Store assigned`), and keeps the assigned store's derived chain in t
 | T5 | S8 | fail-closed pins on the store-scoped screens | this commit |
 | T6 | S9, S10, S11 | `/profile` as the only writer; `«— None —»`; view-mode label | this commit |
 | T7 | S1–S11 | gates: focused suites, full suites, lint, build, differential | `69d3bbd` |
+| T8 | S3, S6, S8 | repair after independent verification: `LocationPreference.invalidate()`, the strict-Jackson pins, the three prose corrections | this commit |
 
 ## Log
 
@@ -237,3 +249,42 @@ The mirror-image mistake happened in the same run: a Prettier check over *every*
 `.husky/pre-commit`, a shell script with no parser, and reported exit 2 on a file this unit never
 touched. Both are one lesson — an exit code is evidence only when the command **and its scope** are
 named.
+
+L18 (repair, 2026-10-21, found by the independent verification and by **none** of this unit's own gates).
+Three defects, the first of them a blocker:
+
+1. **BLOCKER — the shared resolution was never invalidated.** `LocationPreference` is root-scoped, and
+   `resolve()` returned early when the key was unchanged; the no-override key is the constant
+   `'profile'`, and `user-profile.component.ts` never injected the service. Reproduced path: open a
+   store-scoped screen with no `?storeId` (chain A settles) → `/profile` → «— None —» → Save → return
+   to the screen → it still holds chain A and issues a store-scoped request for the store the user just
+   cleared; `/companies/regions` preselects the old company and country. Worse than the baseline, where
+   each per-component context re-read the profile on every mount. The fix is `invalidate()` — clear the
+   settled key, and `resolution.reload()` **only** when a request exists — called on save success
+   **before** the navigation, because the navigation is what mounts the screen that must not read the
+   old chain. Clearing the key alone is the trap: it leaves `settled` false and parks every consumer in
+   the fail-closed state forever, and that shape was observed failing 2/19 before the guarded reload was
+   added.
+2. **False green — S3 asserted behaviour the app does not have.** `application.properties:29` sets
+   `spring.jackson.deserialization.fail-on-unknown-properties=true`, so a `location`-shaped body is
+   **400**, not *ignored*. The pin asserted 200 because `standaloneSetup` installs no Jackson
+   configuration, so the app's own config never ran. Fixed with a `JacksonJsonHttpMessageConverter`
+   built from a strict `tools.jackson` mapper — `MappingJackson2HttpMessageConverter` takes the
+   Jackson 2 mapper and does not serve Jackson 3 on Spring 7 — plus a second pin proving
+   `updateProfile` is never called, since a 400 alone does not prove nothing was written.
+3. **A third pin of the same kind, pre-existing on `origin/main`.** `shouldNotEchoTheFourTenancyAncestors`
+   (from `company-scope-local-fallback` W3/`T14`) also asserted 200 for a body carrying the four
+   ancestors. Under the app's real configuration that is 400, which means **that record's `G13` — "an
+   old client that still sends the four is silently ignored" — is factually wrong**, and such a client
+   is rejected rather than accepted-and-dropped. Corrected here because the strict converter made it
+   fail; the correction belongs in that record as well and is named so it is not lost.
+
+What this costs to admit: the unit's own gates — 938 API suites, 185 Angular files, four coverage
+thresholds, lint, build — were **all green while the blocker was live**, because not one of them asked
+whether the write ever reaches a reader. The verification asked, and it is the reason the unit is not
+being shipped as it was.
+
+G17 (declared, found by the same verification). The profile screen's free mode still calls
+`getStoreById(storeId)` (`user-profile.component.ts:278-291`) to preselect its cascade although
+`location` now carries that chain. It is a second read per screen that S1's own rationale argues
+against, it is outside S1–S11, and it is the natural next unit rather than a repair.

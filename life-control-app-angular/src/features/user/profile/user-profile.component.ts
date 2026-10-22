@@ -20,6 +20,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 
 import { ProfileService } from './data/profile.service';
+import { LocationPreference } from './data/location-preference.service';
 import { ProfileResponse, ProfileUpdateRequest, AssignedStore } from './data/profile.models';
 import { derivedChainLabel } from '@features/hr/models/store-assignment.models';
 import { CompanyService } from '@features/companies/companies/data/company.service';
@@ -60,6 +61,7 @@ export class UserProfileComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
   private readonly profileService = inject(ProfileService);
+  private readonly locationPreference = inject(LocationPreference);
   private readonly companyService = inject(CompanyService);
   private readonly companyCountryService = inject(CompanyCountryService);
   private readonly companyRegionService = inject(CompanyRegionService);
@@ -544,6 +546,11 @@ export class UserProfileComponent implements OnInit {
           this.profile.set(updated);
           this.saving.set(false);
           this.saveSuccess.set(true);
+          // S8/S9: this screen is the only writer of the preference, and the one shared resolution read
+          // it before the write. Announcing it *before* navigating is what makes the announcement
+          // unraceable: the navigation is what mounts the screen that must not read the old chain, so a
+          // call placed after it could only ever run once that screen had already resolved.
+          this.locationPreference.invalidate();
           // Navigate back to view mode
           this.router.navigate(['/profile']);
         },

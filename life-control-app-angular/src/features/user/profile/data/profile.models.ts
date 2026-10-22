@@ -42,7 +42,9 @@ export interface ProfileResponse {
    * resolution it always had, so a `null` here with a non-null id there is a real, meaningful pair and
    * the screens must fail closed on it (`S8`).
    *
-   * Read-only: no field of {@link ProfileUpdateRequest} feeds it (`S3`).
+   * Read-only, and refused rather than ignored: no field of {@link ProfileUpdateRequest} feeds it, and
+   * the server runs with `spring.jackson.deserialization.fail-on-unknown-properties=true`, so a body
+   * carrying a `location` object is rejected with `400` instead of accepted and dropped (`S3`).
    */
   location: LocationChain | null;
 }
@@ -81,9 +83,12 @@ export interface AssignedStore extends StoreAssignmentDerivedScope {
  * All fields are optional — only provided fields are updated.
  *
  * `companyStoreId` is the only location field: the four tenancy ancestors are **not writable** since
- * 2026-10-14 (W3 of `company-scope-local-fallback`, its T14). Omitting both location keys leaves the
- * stored preference alone, which is what makes the caller's own untouched control harmless (T16) — a
- * free-mode load can no longer reconstruct the cascade, so it must not clear by accident.
+ * 2026-10-14 (W3 of `company-scope-local-fallback`, its T14), and sending them is not tolerated —
+ * `spring.jackson.deserialization.fail-on-unknown-properties=true` on the server rejects any
+ * undeclared key with `400`, so the ancestors and a `location` object cannot be sent at all. Omitting
+ * both location keys leaves the stored preference alone, which is what makes the caller's own
+ * untouched control harmless (T16) — a free-mode load can no longer reconstruct the cascade, so it
+ * must not clear by accident.
  *
  * **Clearing needs a second field, and that is measured rather than stylistic** (`S4`/`L6`):
  * `companyStoreId` is a `UUID`, so an omitted key and an explicit `null` are the same thing on the

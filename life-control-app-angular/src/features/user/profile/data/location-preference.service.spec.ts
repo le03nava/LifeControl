@@ -209,6 +209,57 @@ describe('LocationPreference', () => {
     });
   });
 
+  describe('announcing a written preference (S8/S9)', () => {
+    it('should re-read the profile after the preference changed, not reuse the cached chain (S8)', async () => {
+      await resolve({});
+      expect(preference.companyStoreId()).toBe('store-from-profile');
+
+      // The one writer saved «— None —»: the server cleared the column, so the chain resolved under the
+      // `'profile'` key is no longer an answer to any call site.
+      getProfile.mockReturnValue(of(profile(null)));
+      preference.invalidate();
+      await settle();
+
+      expect(getProfile).toHaveBeenCalledTimes(2);
+      expect(preference.companyStoreId()).toBeNull();
+      // Settled again, not parked in the fail-closed state the retry lives in: the re-read landed.
+      expect(preference.settled()).toBe(true);
+      expect(preference.pending()).toBe(false);
+      expect(preference.error()).toBeNull();
+    });
+
+    it('should force the re-read even when the stored preference did not change', async () => {
+      await resolve({});
+
+      preference.invalidate();
+      await settle();
+
+      // The announcement is what the writer says, not something the service second-guesses: a save that
+      // kept the same store still costs one read, and the chain comes back settled.
+      expect(getProfile).toHaveBeenCalledTimes(2);
+      expect(preference.companyStoreId()).toBe('store-from-profile');
+      expect(preference.settled()).toBe(true);
+    });
+
+    it('should read nothing when invalidated before any call site asked', async () => {
+      fixture = TestBed.createComponent(HostComponent);
+      fixture.detectChanges();
+
+      preference.invalidate();
+      await settle();
+
+      // Nothing was cached, so there is nothing to throw away and nothing to re-read.
+      expect(getProfile).not.toHaveBeenCalled();
+      expect(preference.settled()).toBe(false);
+
+      // The next call site still resolves once, from the profile.
+      preference.resolve({});
+      await settle();
+      expect(getProfile).toHaveBeenCalledTimes(1);
+      expect(preference.companyStoreId()).toBe('store-from-profile');
+    });
+  });
+
   describe('failure', () => {
     it('should surface a failed profile read instead of reporting no location', async () => {
       getProfile.mockReturnValue(throwError(() => new HttpErrorResponse({ status: 500 })));
